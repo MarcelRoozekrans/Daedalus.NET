@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Daedalus.Benchmarks.StringValidationBenchmarks-20260203-110429</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.15.0, Windows 11 (10.0.26200.7623) (Hyper-V)
+Unknown processor
+.NET SDK 10.0.102
+  [Host]     : .NET 10.0.2 (10.0.225.61305), X64 RyuJIT AVX2
+  DefaultJob : .NET 10.0.2 (10.0.225.61305), X64 RyuJIT AVX2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                                                       </th><th>Mean</th><th>Error</th><th>StdDev</th><th>Median</th><th>Rank</th><th>Gen0</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>&#39;Standard: IsNullOrWhiteSpace + Trim&#39;</td><td>0.8599 ns</td><td>0.0891 ns</td><td>0.2101 ns</td><td>0.8427 ns</td><td>2</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;PerformanceOptimizations: ValidateAndTrimString (already trimmed)&#39;</td><td>0.1890 ns</td><td>0.0792 ns</td><td>0.2088 ns</td><td>0.1054 ns</td><td>1</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Standard: IsNullOrWhiteSpace + Trim (untrimmed)&#39;</td><td>13.5818 ns</td><td>0.3445 ns</td><td>0.6719 ns</td><td>13.3810 ns</td><td>8</td><td>0.0051</td><td>64 B</td>
+</tr><tr><td>&#39;PerformanceOptimizations: ValidateAndTrimString (untrimmed)&#39;</td><td>12.6656 ns</td><td>0.3276 ns</td><td>0.6911 ns</td><td>12.5782 ns</td><td>7</td><td>0.0051</td><td>64 B</td>
+</tr><tr><td>&#39;Standard: IsNullOrWhiteSpace (whitespace only)&#39;</td><td>1.1670 ns</td><td>0.0492 ns</td><td>0.0766 ns</td><td>1.1579 ns</td><td>3</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;PerformanceOptimizations: ValidateAndTrimString (whitespace only)&#39;</td><td>6.3967 ns</td><td>0.1958 ns</td><td>0.3106 ns</td><td>6.3310 ns</td><td>5</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;PerformanceOptimizations: ContainsTarget&#39;</td><td>3.0383 ns</td><td>0.0965 ns</td><td>0.2366 ns</td><td>2.9634 ns</td><td>4</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Standard: String.Contains&#39;</td><td>2.8908 ns</td><td>0.0933 ns</td><td>0.1967 ns</td><td>2.8199 ns</td><td>4</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;PerformanceOptimizations: CountOccurrences&#39;</td><td>8.5047 ns</td><td>0.2092 ns</td><td>0.2055 ns</td><td>8.4466 ns</td><td>6</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Standard: Count with LINQ&#39;</td><td>8.2897 ns</td><td>0.2037 ns</td><td>0.4114 ns</td><td>8.1773 ns</td><td>6</td><td>-</td><td>-</td>
+</tr></tbody></table>
+</body>
+</html>

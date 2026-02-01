@@ -1,0 +1,60 @@
+@inject IProjectApiClient ProjectApiClient
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem">
+    <RadzenFormField Text="Project Name *" Style="width: 100%;">
+        <RadzenTextBox @bind-Value="@_projectName" Placeholder="Enter project name" MaxLength="255"/>
+    </RadzenFormField>
+
+    <RadzenFormField Text="Description" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_description" Rows="3" Placeholder="Enter project description" MaxLength="1000"/>
+    </RadzenFormField>
+
+    <RadzenFormField Text="Version" Style="width: 100%;">
+        <RadzenTextBox @bind-Value="@_version" Placeholder="e.g., 1.0"/>
+    </RadzenFormField>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" class="rz-mt-4">
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))"/>
+        <RadzenButton Text="Create" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@HandleCreate"
+                      IsBusy="@_submitting"/>
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    private string _projectName = "";
+    private string _description = "";
+    private string _version = "1.0";
+    private bool _submitting;
+
+    private async Task HandleCreate()
+    {
+        if (string.IsNullOrWhiteSpace(_projectName))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Validation", "Project name is required");
+            return;
+        }
+
+        _submitting = true;
+        try
+        {
+            var dto = new CreateProjectDto(_projectName.Trim(), _description.Trim(), _version.Trim());
+            var result = await ProjectApiClient.CreateProjectAsync(dto);
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "Success", "Project created");
+                DialogService.Close(true);
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error ?? "Failed to create");
+            }
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+}

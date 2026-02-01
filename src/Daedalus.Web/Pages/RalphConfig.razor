@@ -1,0 +1,235 @@
+@page "/ralph-config"
+@inject ApiClient Api
+@inject NotificationService NotificationService
+@implements IAsyncDisposable
+
+<RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2" class="rz-mb-4">
+    <RadzenIcon Icon="tune"/>
+    Ralph Loop Configuration
+</RadzenText>
+<RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-6" Style="color: var(--rz-text-secondary-color);">
+    Configure the Ralph Loop iteration engine and prompt template options.
+</RadzenText>
+
+@if (_loading)
+{
+    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"/>
+}
+else if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4">
+        @_errorMessage
+    </RadzenAlert>
+}
+else if (_config is not null)
+{
+    <RadzenRow Gap="1.5rem">
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenCard>
+                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">
+                    <RadzenIcon Icon="loop"/>
+                    Loop Engine Settings
+                </RadzenText>
+                <RadzenStack Gap="1rem">
+                    <RadzenFormField Text="Iteration Delay (ms)" Style="width: 100%;">
+                        <RadzenNumeric @bind-Value="@_config.IterationDelayMs" Min="100" Max="60000"/>
+                    </RadzenFormField>
+
+                    <RadzenFormField Text="Max Consecutive Failures" Style="width: 100%;">
+                        <RadzenNumeric @bind-Value="@_config.MaxConsecutiveFailures" Min="1" Max="50"/>
+                    </RadzenFormField>
+
+                    <RadzenFormField Text="Max Iterations" Style="width: 100%;">
+                        <RadzenNumeric @bind-Value="@_config.MaxIterations" Min="1" Max="500"/>
+                    </RadzenFormField>
+
+                    <RadzenFormField Text="Request Timeout (seconds)" Style="width: 100%;">
+                        <RadzenNumeric @bind-Value="@_config.RequestTimeoutSeconds" Min="10" Max="600"/>
+                    </RadzenFormField>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox @bind-Value="@_config.EnableDetailedLogging" Name="detailedLogging"/>
+                        <RadzenLabel Text="Enable Detailed Logging" Component="detailedLogging"/>
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenCard>
+                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">
+                    <RadzenIcon Icon="auto_awesome"/>
+                    Prompt Template Options
+                </RadzenText>
+                <RadzenStack Gap="1rem">
+                    <RadzenFormField Text="Max Parallel Subagents" Style="width: 100%;">
+                        <RadzenNumeric @bind-Value="@_config.PromptOptions.MaxParallelSubagents" Min="1" Max="20"/>
+                    </RadzenFormField>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox @bind-Value="@_config.PromptOptions.IncludeGitWorkflow" Name="gitWorkflow"/>
+                        <RadzenLabel Text="Include Git Workflow Instructions" Component="gitWorkflow"/>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox @bind-Value="@_config.PromptOptions.IncludeTestInstructions"
+                                        Name="testInstructions"/>
+                        <RadzenLabel Text="Include Test Instructions" Component="testInstructions"/>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox @bind-Value="@_config.PromptOptions.IncludeQualityGuards" Name="qualityGuards"/>
+                        <RadzenLabel Text="Include Quality Guards" Component="qualityGuards"/>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox @bind-Value="@_config.PromptOptions.IncludeSelfImprovement"
+                                        Name="selfImprovement"/>
+                        <RadzenLabel Text="Include Self-Improvement" Component="selfImprovement"/>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox @bind-Value="@_config.PromptOptions.IncludeCodingStandards"
+                                        Name="codingStandards"/>
+                        <RadzenLabel Text="Include Coding Standards" Component="codingStandards"/>
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox @bind-Value="@_config.PromptOptions.IncludeLoggingInstructions"
+                                        Name="loggingInstructions"/>
+                        <RadzenLabel Text="Include Logging Instructions" Component="loggingInstructions"/>
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" class="rz-mt-6">
+        <RadzenButton Text="Reset" Icon="refresh" ButtonStyle="ButtonStyle.Light" Click="@LoadConfig"
+                      data-testid="btn-reset"/>
+        <RadzenButton Text="Save Configuration" Icon="save" ButtonStyle="ButtonStyle.Primary" Click="@SaveConfig"
+                      IsBusy="@_saving" data-testid="btn-save"/>
+    </RadzenStack>
+}
+
+@code {
+    private RalphConfigModel? _config;
+    private bool _loading = true;
+    private bool _saving;
+    private string _errorMessage = "";
+    private CancellationTokenSource? _cts;
+
+    // Mutable model for two-way binding (records are immutable)
+    private sealed class RalphConfigModel
+    {
+        public int IterationDelayMs { get; set; }
+        public int MaxConsecutiveFailures { get; set; }
+        public int MaxIterations { get; set; }
+        public int RequestTimeoutSeconds { get; set; }
+        public bool EnableDetailedLogging { get; set; }
+        public RalphPromptConfigModel PromptOptions { get; set; } = new();
+    }
+
+    private sealed class RalphPromptConfigModel
+    {
+        public int MaxParallelSubagents { get; set; }
+        public bool IncludeGitWorkflow { get; set; }
+        public bool IncludeTestInstructions { get; set; }
+        public bool IncludeQualityGuards { get; set; }
+        public bool IncludeSelfImprovement { get; set; }
+        public bool IncludeCodingStandards { get; set; }
+        public bool IncludeLoggingInstructions { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        await LoadConfig();
+    }
+
+    private async Task LoadConfig()
+    {
+        _loading = true;
+        _errorMessage = "";
+        try
+        {
+            var ct = _cts?.Token ?? CancellationToken.None;
+            var result = await Api.GetRalphConfigAsync(ct);
+            result.Match(
+                dto =>
+                {
+                    _config = new RalphConfigModel
+                    {
+                        IterationDelayMs = dto.IterationDelayMs,
+                        MaxConsecutiveFailures = dto.MaxConsecutiveFailures,
+                        MaxIterations = dto.MaxIterations,
+                        RequestTimeoutSeconds = dto.RequestTimeoutSeconds,
+                        EnableDetailedLogging = dto.EnableDetailedLogging,
+                        PromptOptions = new RalphPromptConfigModel
+                        {
+                            MaxParallelSubagents = dto.PromptOptions.MaxParallelSubagents,
+                            IncludeGitWorkflow = dto.PromptOptions.IncludeGitWorkflow,
+                            IncludeTestInstructions = dto.PromptOptions.IncludeTestInstructions,
+                            IncludeQualityGuards = dto.PromptOptions.IncludeQualityGuards,
+                            IncludeSelfImprovement = dto.PromptOptions.IncludeSelfImprovement,
+                            IncludeCodingStandards = dto.PromptOptions.IncludeCodingStandards,
+                            IncludeLoggingInstructions = dto.PromptOptions.IncludeLoggingInstructions
+                        }
+                    };
+                },
+                error => _errorMessage = error);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load configuration: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveConfig()
+    {
+        if (_config is null) return;
+
+        _saving = true;
+        try
+        {
+            var dto = new RalphConfigDto(
+                _config.IterationDelayMs,
+                _config.MaxConsecutiveFailures,
+                _config.MaxIterations,
+                _config.RequestTimeoutSeconds,
+                _config.EnableDetailedLogging,
+                new RalphPromptConfigDto(
+                    _config.PromptOptions.MaxParallelSubagents,
+                    _config.PromptOptions.IncludeGitWorkflow,
+                    _config.PromptOptions.IncludeTestInstructions,
+                    _config.PromptOptions.IncludeQualityGuards,
+                    _config.PromptOptions.IncludeSelfImprovement,
+                    _config.PromptOptions.IncludeCodingStandards,
+                    _config.PromptOptions.IncludeLoggingInstructions));
+
+            var ct = _cts?.Token ?? CancellationToken.None;
+            var result = await Api.UpdateRalphConfigAsync(dto, ct);
+            result.Match(
+                _ => NotificationService.Notify(NotificationSeverity.Success, "Saved", "Configuration updated successfully"),
+                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+    }
+
+}

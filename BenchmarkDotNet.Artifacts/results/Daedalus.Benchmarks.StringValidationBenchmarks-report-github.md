@@ -1,0 +1,22 @@
+```
+
+BenchmarkDotNet v0.15.0, Windows 11 (10.0.26200.7623) (Hyper-V)
+Unknown processor
+.NET SDK 10.0.102
+  [Host]     : .NET 10.0.2 (10.0.225.61305), X64 RyuJIT AVX2
+  DefaultJob : .NET 10.0.2 (10.0.225.61305), X64 RyuJIT AVX2
+
+
+```
+| Method                                                              | Mean       | Error     | StdDev    | Median     | Rank | Gen0   | Allocated |
+|-------------------------------------------------------------------- |-----------:|----------:|----------:|-----------:|-----:|-------:|----------:|
+| &#39;Standard: IsNullOrWhiteSpace + Trim&#39;                               |  0.8599 ns | 0.0891 ns | 0.2101 ns |  0.8427 ns |    2 |      - |         - |
+| &#39;PerformanceOptimizations: ValidateAndTrimString (already trimmed)&#39; |  0.1890 ns | 0.0792 ns | 0.2088 ns |  0.1054 ns |    1 |      - |         - |
+| &#39;Standard: IsNullOrWhiteSpace + Trim (untrimmed)&#39;                   | 13.5818 ns | 0.3445 ns | 0.6719 ns | 13.3810 ns |    8 | 0.0051 |      64 B |
+| &#39;PerformanceOptimizations: ValidateAndTrimString (untrimmed)&#39;       | 12.6656 ns | 0.3276 ns | 0.6911 ns | 12.5782 ns |    7 | 0.0051 |      64 B |
+| &#39;Standard: IsNullOrWhiteSpace (whitespace only)&#39;                    |  1.1670 ns | 0.0492 ns | 0.0766 ns |  1.1579 ns |    3 |      - |         - |
+| &#39;PerformanceOptimizations: ValidateAndTrimString (whitespace only)&#39; |  6.3967 ns | 0.1958 ns | 0.3106 ns |  6.3310 ns |    5 |      - |         - |
+| &#39;PerformanceOptimizations: ContainsTarget&#39;                          |  3.0383 ns | 0.0965 ns | 0.2366 ns |  2.9634 ns |    4 |      - |         - |
+| &#39;Standard: String.Contains&#39;                                         |  2.8908 ns | 0.0933 ns | 0.1967 ns |  2.8199 ns |    4 |      - |         - |
+| &#39;PerformanceOptimizations: CountOccurrences&#39;                        |  8.5047 ns | 0.2092 ns | 0.2055 ns |  8.4466 ns |    6 |      - |         - |
+| &#39;Standard: Count with LINQ&#39;                                         |  8.2897 ns | 0.2037 ns | 0.4114 ns |  8.1773 ns |    6 |      - |         - |

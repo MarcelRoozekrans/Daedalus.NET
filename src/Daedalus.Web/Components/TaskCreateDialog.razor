@@ -1,0 +1,164 @@
+@inject ApiClient Api
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem">
+    <RadzenRow>
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenFormField Text="Title" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="@_title" Placeholder="Task title"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenFormField Text="Project ID" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="@_projectId" Placeholder="GUID (optional)"/>
+            </RadzenFormField>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenFormField Text="Description" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_description" Rows="2" Placeholder="Brief description of the task"/>
+    </RadzenFormField>
+
+    <RadzenFormField Text="Prompt *" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_prompt" Rows="5"
+                        Placeholder="The instruction prompt for the LLM. Be specific about what code changes are needed."/>
+    </RadzenFormField>
+
+    <RadzenFormField Text="Completion Promise *" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_completionPromise" Rows="3"
+                        Placeholder="How will the LLM signal completion? e.g., 'All unit tests pass and the build succeeds'"/>
+    </RadzenFormField>
+
+    <RadzenRow>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Priority" Style="width: 100%;">
+                <RadzenDropDown @bind-Value="@_priority" Data="@_priorities" TextProperty="Text"
+                                ValueProperty="Value"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Estimated Complexity" Style="width: 100%;">
+                <RadzenDropDown @bind-Value="@_estimatedComplexity" Data="@_complexities" TextProperty="Text"
+                                ValueProperty="Value"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Max Iterations" Style="width: 100%;">
+                <RadzenNumeric @bind-Value="@_maxIterations" Min="1" Max="100"/>
+            </RadzenFormField>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenRow>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Phase" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="@_phase" Placeholder="e.g., Phase 1"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Parallel Group" Style="width: 100%;">
+                <RadzenNumeric @bind-Value="@_parallelGroup" Min="0" Max="99"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Dependencies" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="@_dependencies" Placeholder="Comma-separated"/>
+            </RadzenFormField>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenFormField Text="Files to Modify" Style="width: 100%;">
+        <RadzenTextBox @bind-Value="@_filesToModify" Placeholder="Comma-separated file paths"/>
+    </RadzenFormField>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" class="rz-mt-4">
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))"/>
+        <RadzenButton Text="Create Task" Icon="add_task" ButtonStyle="ButtonStyle.Primary" Click="@HandleCreate"
+                      IsBusy="@_submitting"/>
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    private string _title = "";
+    private string _description = "";
+    private string _projectId = "";
+    private string _prompt = "";
+    private string _completionPromise = "";
+    private int _priority = 1;
+    private int _estimatedComplexity = 1;
+    private int _maxIterations = 25;
+    private string _phase = "";
+    private int _parallelGroup;
+    private string _dependencies = "";
+    private string _filesToModify = "";
+    private bool _submitting;
+
+    private readonly record struct DropdownItem(string Text, int Value);
+
+    private static readonly DropdownItem[] _priorities =
+    [
+        new("Low", 0), new("Medium", 1), new("High", 2), new("Critical", 3)
+    ];
+
+    private static readonly DropdownItem[] _complexities =
+    [
+        new("Simple", 0), new("Medium", 1), new("Complex", 2), new("Epic", 3)
+    ];
+
+    private async Task HandleCreate()
+    {
+        if (string.IsNullOrWhiteSpace(_prompt))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Validation", "Prompt is required");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_completionPromise))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Validation", "Completion Promise is required");
+            return;
+        }
+
+        _submitting = true;
+        try
+        {
+            Guid? projectId = Guid.TryParse(_projectId, out var pid) ? pid : null;
+            IReadOnlyList<string>? deps = string.IsNullOrWhiteSpace(_dependencies)
+                ? null
+                : _dependencies.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            IReadOnlyList<string>? files = string.IsNullOrWhiteSpace(_filesToModify)
+                ? null
+                : _filesToModify.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            var dto = new CreateTaskDto(
+                projectId ?? Guid.Empty,
+                null,
+                _title,
+                _description ?? string.Empty,
+                _priority,
+                _phase,
+                _parallelGroup,
+                _estimatedComplexity,
+                _prompt,
+                _completionPromise,
+                _maxIterations,
+                deps,
+                files);
+
+            var result = await Api.CreateTaskAsync(dto);
+            result.Match(
+                _ =>
+                {
+                    NotificationService.Notify(NotificationSeverity.Success, "Success", "Task created");
+                    DialogService.Close(true);
+                },
+                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+}

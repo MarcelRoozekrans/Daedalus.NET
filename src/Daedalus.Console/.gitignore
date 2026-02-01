@@ -1,0 +1,34 @@
+# Build results
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# Entity Framework
+*.db
+*.db-shm
+*.db-wal
+Migrations/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.sln.DotSettings.user
+*.user
+
+# Environment
+.env
+.env.local
+
+# Package manager
+packages/
+.nuget/
+
+# OS
+.DS_Store
+Thumbs.db

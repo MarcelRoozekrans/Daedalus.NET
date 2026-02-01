@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <OutputType>Exe</OutputType>
+        <Nullable>enable</Nullable>
+        <LangVersion>13.0</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>Daedalus.Migrations</RootNamespace>
+        <AssemblyName>Daedalus.Migrations</AssemblyName>
+        <!-- AOT disabled: Migrations tool requires EF Core reflection for schema discovery -->
+        <PublishAot>false</PublishAot>
+        <!-- Disable trimming to preserve EF Core reflection capabilities -->
+        <TrimMode>none</TrimMode>
+        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+        <InvariantGlobalization>false</InvariantGlobalization>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../Daedalus.Domain/Daedalus.Domain.csproj"/>
+        <ProjectReference Include="../Daedalus.Infrastructure/Daedalus.Infrastructure.csproj"/>
+        <ProjectReference Include="../Daedalus.ServiceDefaults/Daedalus.ServiceDefaults.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.19.0.132793">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Update="Meziantou.Analyzer" Version="2.0.296">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.102">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+</Project>

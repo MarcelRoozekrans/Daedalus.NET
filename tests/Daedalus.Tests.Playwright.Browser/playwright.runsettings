@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <Playwright>
+    <!-- Blazor WASM apps need time to download assemblies + render -->
+    <ExpectTimeout>30000</ExpectTimeout>
+  </Playwright>
+</RunSettings>

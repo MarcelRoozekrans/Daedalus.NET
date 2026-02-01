@@ -1,0 +1,326 @@
+using Daedalus.Domain.CodeAnalysis;
+using Daedalus.Infrastructure.Services.CodeAnalysis;
+using Microsoft.Extensions.Logging;
+
+namespace Daedalus.Tests.Unit.Application.CodeAnalysis;
+
+/// <summary>
+///     Unit tests for repository platform detection
+/// </summary>
+public class RepositoryPlatformDetectorTests
+{
+    private readonly RepositoryPlatformDetector _detector;
+    private readonly ILogger<RepositoryPlatformDetector> _logger;
+
+    public RepositoryPlatformDetectorTests()
+    {
+        _logger = Substitute.For<ILogger<RepositoryPlatformDetector>>();
+        _detector = new RepositoryPlatformDetector(_logger);
+    }
+
+    [Fact]
+    public void DetectPlatform_WithGitHubUrl_ReturnsGitHub()
+    {
+        // Arrange
+        var url = "https://github.com/org/repo.git";
+
+        // Act
+        var platform = _detector.DetectPlatform(url);
+
+        // Assert
+        platform.Should().Be(RepositoryPlatform.GitHub);
+    }
+
+    [Fact]
+    public void DetectPlatform_WithGitHubSshUrl_ReturnsGitHub()
+    {
+        // Arrange
+        var url = "git@github.com:org/repo.git";
+
+        // Act
+        var platform = _detector.DetectPlatform(url);
+
+        // Assert
+        platform.Should().Be(RepositoryPlatform.GitHub);
+    }
+
+    [Fact]
+    public void DetectPlatform_WithAzureDevOpsUrl_ReturnsAzureDevOps()
+    {
+        // Arrange
+        var url = "https://dev.azure.com/org/project/_git/repo";
+
+        // Act
+        var platform = _detector.DetectPlatform(url);
+
+        // Assert
+        platform.Should().Be(RepositoryPlatform.AzureDevOps);
+    }
+
+    [Fact]
+    public void DetectPlatform_WithGitLabUrl_ReturnsGitLab()
+    {
+        // Arrange
+        var url = "https://gitlab.com/org/repo.git";
+
+        // Act
+        var platform = _detector.DetectPlatform(url);
+
+        // Assert
+        platform.Should().Be(RepositoryPlatform.GitLab);
+    }
+
+    [Fact]
+    public void DetectPlatform_WithEmptyUrl_ReturnsGitHub()
+    {
+        // Arrange
+        var url = string.Empty;
+
+        // Act
+        var platform = _detector.DetectPlatform(url);
+
+        // Assert
+        platform.Should().Be(RepositoryPlatform.GitHub);
+    }
+
+    [Fact]
+    public async Task ParseRepositoryUrlAsync_WithGitHubUrl_ParsesCorrectly()
+    {
+        // Arrange
+        var url = "https://github.com/myorg/myrepo.git";
+
+        // Act
+        var result = await _detector.ParseRepositoryUrlAsync(url);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Platform.Should().Be(RepositoryPlatform.GitHub);
+        result.Value.Owner.Should().Be("myorg");
+        result.Value.Repository.Should().Be("myrepo");
+        result.Value.WebUrl.Should().Be("https://github.com/myorg/myrepo");
+    }
+
+    [Fact]
+    public async Task ParseRepositoryUrlAsync_WithAzureDevOpsUrl_ParsesCorrectly()
+    {
+        // Arrange
+        var url = "https://dev.azure.com/myorg/myproject/_git/myrepo";
+
+        // Act
+        var result = await _detector.ParseRepositoryUrlAsync(url);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Platform.Should().Be(RepositoryPlatform.AzureDevOps);
+        result.Value.Owner.Should().Be("myorg");
+        result.Value.Repository.Should().Be("myrepo");
+    }
+
+    [Fact]
+    public async Task ParseRepositoryUrlAsync_WithGitLabUrl_ParsesCorrectly()
+    {
+        // Arrange
+        var url = "https://gitlab.com/myorg/myrepo.git";
+
+        // Act
+        var result = await _detector.ParseRepositoryUrlAsync(url);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Platform.Should().Be(RepositoryPlatform.GitLab);
+        result.Value.Owner.Should().Be("myorg");
+        result.Value.Repository.Should().Be("myrepo");
+    }
+
+    [Fact]
+    public async Task ParseRepositoryUrlAsync_WithInvalidUrl_ReturnsFailure()
+    {
+        // Arrange
+        var url = "https://github.com/invalid-url-format";
+
+        // Act
+        var result = await _detector.ParseRepositoryUrlAsync(url);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+}
+
+/// <summary>
+///     Unit tests for repository authentication provider
+/// </summary>
+public class RepositoryAuthenticationProviderTests
+{
+    private readonly ILogger<RepositoryAuthenticationProvider> _logger;
+    private readonly RepositoryAuthenticationProvider _provider;
+
+    public RepositoryAuthenticationProviderTests()
+    {
+        _logger = Substitute.For<ILogger<RepositoryAuthenticationProvider>>();
+        _provider = new RepositoryAuthenticationProvider(_logger);
+    }
+
+    [Fact]
+    public async Task GetAuthTokenAsync_WithGitHubPlatform_ReturnsToken()
+    {
+        // Arrange
+        const string token = "ghp_test_token_123456";
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", token);
+
+        // Act
+        var result = await _provider.GetAuthTokenAsync(RepositoryPlatform.GitHub);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(token);
+    }
+
+    [Fact]
+    public async Task GetAuthTokenAsync_WithAzureDevOpsPlatform_ReturnsToken()
+    {
+        // Arrange
+        const string token = "pattoken123456";
+        Environment.SetEnvironmentVariable("AZURE_DEVOPS_TOKEN", token);
+
+        // Act
+        var result = await _provider.GetAuthTokenAsync(RepositoryPlatform.AzureDevOps);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(token);
+    }
+
+    [Fact]
+    public async Task GetAuthTokenAsync_WithMissingToken_ReturnsFailure()
+    {
+        // Arrange
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", null);
+
+        // Act
+        var result = await _provider.GetAuthTokenAsync(RepositoryPlatform.GitHub);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+}
+
+/// <summary>
+///     Unit tests for CodeAnalysisRequest domain entity
+/// </summary>
+public class CodeAnalysisRequestTests
+{
+    [Fact]
+    public void Constructor_CreatesValidRequest()
+    {
+        // Arrange & Act
+        var createResult = CodeAnalysisRequest.Create(
+            Guid.NewGuid(),
+            "Test Analysis",
+            "Test description",
+            "https://github.com/org/repo",
+            10,
+            AnalysisType.PerformanceOptimization);
+        var request = createResult.Value;
+
+        // Assert
+        request.Should().NotBeNull();
+        request.Title.Should().Be("Test Analysis");
+        request.Status.Should().Be(AnalysisStatus.Pending);
+        request.Iterations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AddIteration_AddsIterationToRequest()
+    {
+        // Arrange
+        var createResult = CodeAnalysisRequest.Create(
+            Guid.NewGuid(),
+            "Test",
+            "Test description",
+            "https://github.com/org/repo",
+            10,
+            AnalysisType.CodeReview,
+            "src/test.cs");
+        var request = createResult.Value;
+
+        var iteration = new AnalysisIteration
+        {
+            Id = Guid.NewGuid(),
+            CodeAnalysisRequestId = request.Id,
+            IterationNumber = 1,
+            PromptSent = "Test prompt",
+            AiResponse = "Test response",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        // Act
+        request.Iterations.Add(iteration);
+
+        // Assert
+        request.Iterations.Should().HaveCount(1);
+        request.Iterations.First().IterationNumber.Should().Be(1);
+    }
+}
+
+/// <summary>
+///     Unit tests for repository value objects
+/// </summary>
+public class RepositoryInfoTests
+{
+    [Fact]
+    public void RepositoryInfo_WithGitHubData_IsValid()
+    {
+        // Arrange & Act
+        var info = new RepositoryInfo
+        {
+            Platform = RepositoryPlatform.GitHub,
+            Owner = "org",
+            Repository = "repo",
+            HttpsUrl = "https://github.com/org/repo.git",
+            WebUrl = "https://github.com/org/repo"
+        };
+
+        // Assert
+        info.Platform.Should().Be(RepositoryPlatform.GitHub);
+        info.Owner.Should().Be("org");
+        info.Repository.Should().Be("repo");
+    }
+
+    [Fact]
+    public void RepositoryInfo_Equality_WorksCorrectly()
+    {
+        // Arrange
+        var info1 = new RepositoryInfo { Platform = RepositoryPlatform.GitHub, Owner = "org", Repository = "repo" };
+
+        var info2 = new RepositoryInfo { Platform = RepositoryPlatform.GitHub, Owner = "org", Repository = "repo" };
+
+        // Act & Assert
+        info1.Should().Be(info2);
+    }
+}
+
+/// <summary>
+///     Unit tests for analysis status enums
+/// </summary>
+public class AnalysisStatusEnumTests
+{
+    [Fact]
+    public void AnalysisType_HasAllRequiredValues()
+    {
+        // Assert
+        AnalysisType.Refactor.Should().Be(AnalysisType.Refactor);
+        AnalysisType.BugFix.Should().Be(AnalysisType.BugFix);
+        AnalysisType.PerformanceOptimization.Should().Be(AnalysisType.PerformanceOptimization);
+        AnalysisType.SecurityAudit.Should().Be(AnalysisType.SecurityAudit);
+    }
+
+    [Fact]
+    public void AnalysisStatus_HasAllRequiredValues()
+    {
+        // Assert
+        AnalysisStatus.Pending.Should().Be(AnalysisStatus.Pending);
+        AnalysisStatus.AnalysisInProgress.Should().Be(AnalysisStatus.AnalysisInProgress);
+        AnalysisStatus.Completed.Should().Be(AnalysisStatus.Completed);
+        AnalysisStatus.Failed.Should().Be(AnalysisStatus.Failed);
+    }
+}

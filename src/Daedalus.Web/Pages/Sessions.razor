@@ -1,0 +1,122 @@
+@page "/sessions"
+@inject ApiClient Api
+@implements IAsyncDisposable
+
+<RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2" class="rz-mb-4">
+    <RadzenIcon Icon="play_circle"/>
+    Execution Sessions
+</RadzenText>
+
+<RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" class="rz-mb-4">
+    <RadzenButton Text="All Sessions" ButtonStyle="@(_showActive ? ButtonStyle.Light : ButtonStyle.Primary)"
+                  Click="@(() =>
+                         {
+                             _showActive = false;
+                             return LoadSessions();
+                         })" data-testid="btn-all-sessions"/>
+    <RadzenButton Text="Active Only" ButtonStyle="@(_showActive ? ButtonStyle.Primary : ButtonStyle.Light)"
+                  Click="@(() =>
+                         {
+                             _showActive = true;
+                             return LoadSessions();
+                         })" data-testid="btn-active-sessions"/>
+</RadzenStack>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4">
+        @_errorMessage
+    </RadzenAlert>
+}
+
+<RadzenDataGrid TItem="ExecutionSessionDto" Data="@_sessions" Count="@_totalCount" AllowPaging="true" PageSize="15"
+                AllowSorting="true" AllowColumnResize="true" PagerHorizontalAlign="HorizontalAlign.Center"
+                ShowPagingSummary="true"
+                IsLoading="@_loading" Style="height: auto;" data-testid="sessions-grid">
+    <Columns>
+        <RadzenDataGridColumn TItem="ExecutionSessionDto" Property="WorkerName" Title="Worker" Width="180px"/>
+        <RadzenDataGridColumn TItem="ExecutionSessionDto" Property="IsActive" Title="Status" Width="110px"
+                              TextAlign="TextAlign.Center">
+            <Template Context="session">
+                <RadzenBadge Text="@(session.IsActive ? "Active" : "Inactive")"
+                             BadgeStyle="@(session.IsActive ? BadgeStyle.Success : BadgeStyle.Light)"/>
+            </Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="ExecutionSessionDto" Property="TasksCompleted" Title="Tasks Done" Width="100px"
+                              TextAlign="TextAlign.Center"/>
+        <RadzenDataGridColumn TItem="ExecutionSessionDto" Property="StartedAt" Title="Started" Width="150px"
+                              FormatString="{0:g}"/>
+        <RadzenDataGridColumn TItem="ExecutionSessionDto" Property="LastHeartbeat" Title="Last Heartbeat" Width="150px"
+                              FormatString="{0:g}"/>
+        <RadzenDataGridColumn TItem="ExecutionSessionDto" Property="Id" Title="Session ID" Width="200px">
+            <Template Context="session">
+                <RadzenText TextStyle="TextStyle.Caption" Style="font-family: monospace;">
+                    @session.Id.ToString()[..12]...
+                </RadzenText>
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    private IEnumerable<ExecutionSessionDto>? _sessions;
+    private int _totalCount;
+    private bool _loading = true;
+    private bool _showActive;
+    private string _errorMessage = "";
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        await LoadSessions();
+    }
+
+    private async Task LoadSessions()
+    {
+        try
+        {
+            _loading = true;
+            _errorMessage = "";
+            var ct = _cts?.Token ?? CancellationToken.None;
+            var result = _showActive
+                ? await Api.GetActiveSessionsAsync(1, 200, ct)
+                : await Api.GetSessionsAsync(1, 200, ct);
+
+            result.Match(
+                sessions =>
+                {
+                    _sessions = sessions.Items;
+                    _totalCount = sessions.Total;
+                },
+                error =>
+                {
+                    _errorMessage = error;
+                    _sessions = null;
+                    _totalCount = 0;
+                });
+        }
+        catch (OperationCanceledException)
+        {
+            /* Expected on cancellation */
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading sessions: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+    }
+
+}

@@ -1,0 +1,11 @@
+global using BenchmarkDotNet.Attributes;
+global using BenchmarkDotNet.Configs;
+global using BenchmarkDotNet.Running;
+global using Daedalus.Application.DTOs;
+global using Daedalus.Application.Mappers;
+global using Daedalus.Application.Services;
+global using Daedalus.Domain.Entities;
+global using Task = Daedalus.Domain.Entities.Task;
+global using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
+global using Priority = Daedalus.Domain.Entities.Priority;
+global using Complexity = Daedalus.Domain.Entities.Complexity;

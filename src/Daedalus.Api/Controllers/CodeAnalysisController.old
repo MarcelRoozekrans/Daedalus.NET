@@ -1,0 +1,280 @@
+namespace Daedalus.Api.Controllers;
+
+#pragma warning disable CA1054 // Uri parameters should not be strings
+#pragma warning disable CA1056 // Uri properties should not be strings
+
+using CSharpFunctionalExtensions;
+using Daedalus.Application.DTOs;
+using Daedalus.Application.Services.CodeAnalysis;
+using Daedalus.Domain.CodeAnalysis;
+using Microsoft.AspNetCore.Mvc;
+
+/// <summary>
+/// API endpoints for code analysis and Ralph Loop orchestration
+/// </summary>
+[ApiController]
+[Route("api/[controller]")]
+[Produces("application/json")]
+public class CodeAnalysisController : ControllerBase
+{
+    private readonly IRalphLoopOrchestrator _orchestrator;
+    private readonly ICodeAnalysisRepository _repository;
+    private readonly ILogger<CodeAnalysisController> _logger;
+
+    public CodeAnalysisController(
+        IRalphLoopOrchestrator orchestrator,
+        ICodeAnalysisRepository repository,
+        ILogger<CodeAnalysisController> logger)
+    {
+        _orchestrator = orchestrator;
+        _repository = repository;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Submit a new code analysis request
+    /// </summary>
+    [HttpPost]
+    [ProducesResponseType(typeof(SubmitAnalysisResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SubmitAnalysis(
+        [FromBody] SubmitAnalysisRequest request,
+        CancellationToken ct)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        _logger.LogInformation(
+            "Submitting analysis request for repository {RepositoryUrl}",
+            request.RepositoryUrl);
+
+        var result = await _orchestrator.SubmitAnalysisAsync(
+            request.RepositoryUrl,
+            request.FilePath,
+            request.Type,
+            request.Title,
+            request.Description,
+            request.Requirements,
+            request.TargetBranch,
+            request.TargetCommit,
+            request.MaxIterations,
+            ct).ConfigureAwait(false);
+
+        return result.Match<IActionResult>(
+            requestId => CreatedAtAction(
+                "GetAnalysisStatus",
+                new { requestId },
+                new SubmitAnalysisResponse(requestId)),
+            error =>
+            {
+                _logger.LogError("Failed to submit analysis: {Error}", error);
+                return BadRequest(new ProblemDetails { Detail = error });
+            });
+    }
+
+    /// <summary>
+    /// Get the status of an analysis request
+    /// </summary>
+    [HttpGet("{requestId:guid}")]
+    [ProducesResponseType(typeof(AnalysisStatusDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAnalysisStatus(
+        Guid requestId,
+        CancellationToken ct)
+    {
+        _logger.LogInformation("Retrieving analysis status for request {RequestId}", requestId);
+
+        var requestResult = await _repository.GetByIdAsync(requestId, ct).ConfigureAwait(false);
+
+        if (requestResult.IsFailure)
+        {
+            _logger.LogWarning("Analysis request not found: {RequestId}", requestId);
+            return NotFound();
+        }
+
+        var request = requestResult.Value;
+        var iterations = request.Iterations
+            .Select(i => new AnalysisIterationDto(
+                i.IterationNumber,
+                i.Prompt,
+                i.AiResponse,
+                i.CompilationSucceeded,
+                i.CreatedAt,
+                i.CompletedAt))
+            .ToList()
+            .AsReadOnly();
+
+        var dto = new AnalysisStatusDto(
+            MapToDto(request),
+            request.CurrentPrompt ?? string.Empty,
+            iterations);
+
+        return Ok(dto);
+    }
+
+    /// <summary>
+    /// Submit AI response for the next iteration
+    /// </summary>
+    [HttpPost("{requestId:guid}/iterate")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> IterateAnalysis(
+        Guid requestId,
+        [FromBody] IterateAnalysisRequest request,
+        CancellationToken ct)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        _logger.LogInformation(
+            "Processing iteration for analysis request {RequestId}",
+            requestId);
+
+        var result = await _orchestrator.ProcessIterationAsync(
+            requestId,
+            request.AiResponse,
+            ct).ConfigureAwait(false);
+
+        return result.Match<IActionResult>(
+            _ => Ok(new { message = "Iteration processed successfully" }),
+            error =>
+            {
+                _logger.LogError("Failed to process iteration: {Error}", error);
+                return BadRequest(new ProblemDetails { Detail = error });
+            });
+    }
+
+    /// <summary>
+    /// Finalize the analysis and optionally create a pull request
+    /// </summary>
+    [HttpPost("{requestId:guid}/finalize")]
+    [ProducesResponseType(typeof(FinalizeAnalysisResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> FinalizeAnalysis(
+        Guid requestId,
+        [FromBody] FinalizeAnalysisRequest request,
+        CancellationToken ct)
+    {
+        _logger.LogInformation(
+            "Finalizing analysis request {RequestId}. CreatePR: {CreatePr}",
+            requestId,
+            request.CreatePullRequest);
+
+        var result = await _orchestrator.FinalizeAsync(
+            requestId,
+            request.CreatePullRequest,
+            ct).ConfigureAwait(false);
+
+        return result.Match<IActionResult>(
+            prUrl => Ok(new FinalizeAnalysisResponse(prUrl)),
+            error =>
+            {
+                _logger.LogError("Failed to finalize analysis: {Error}", error);
+                return BadRequest(new ProblemDetails { Detail = error });
+            });
+    }
+
+    /// <summary>
+    /// Get next pending analysis request for Ralph Loop processing
+    /// </summary>
+    [HttpGet("next-pending")]
+    [ProducesResponseType(typeof(CodeAnalysisRequestDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> GetNextPending(CancellationToken ct)
+    {
+        _logger.LogInformation("Retrieving next pending analysis request");
+
+        var result = await _repository.GetPendingAsync(1, 0, ct).ConfigureAwait(false);
+
+        if (result.IsFailure)
+        {
+            _logger.LogInformation("No pending analysis requests available");
+            return NoContent();
+        }
+
+        var requests = result.Value;
+        if (requests.Count == 0)
+        {
+            _logger.LogInformation("No pending analysis requests available");
+            return NoContent();
+        }
+
+        var request = requests[0];
+        _logger.LogInformation("Retrieved pending analysis request {RequestId}", request.Id);
+        return Ok(MapToDto(request));
+    }
+
+    /// <summary>
+    /// List analysis requests by status
+    /// </summary>
+    [HttpGet("by-status/{status:int}")]
+    [ProducesResponseType(typeof(IReadOnlyList<CodeAnalysisRequestDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetByStatus(
+        int status,
+        CancellationToken ct)
+    {
+        if (!Enum.IsDefined(typeof(AnalysisStatus), status))
+            return BadRequest("Invalid status value");
+
+        var analysisStatus = (AnalysisStatus)status;
+
+        _logger.LogInformation("Retrieving analysis requests with status {Status}", analysisStatus);
+
+        var result = await _repository.GetByStatusAsync(analysisStatus, 100, 0, ct).ConfigureAwait(false);
+
+        return result.Match<IActionResult>(
+            requests => Ok(requests.Select(MapToDto).ToList().AsReadOnly()),
+            error =>
+            {
+                _logger.LogError("Error retrieving requests by status: {Error}", error);
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            });
+    }
+
+    /// <summary>
+    /// List analysis requests for a specific repository
+    /// </summary>
+    [HttpGet("by-repository")]
+    [ProducesResponseType(typeof(IReadOnlyList<CodeAnalysisRequestDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetByRepository(
+        [FromQuery] string repositoryUrl,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(repositoryUrl))
+            return BadRequest("Repository URL is required");
+
+        _logger.LogInformation("Retrieving analysis requests for repository {RepositoryUrl}", repositoryUrl);
+
+        var result = await _repository.GetByRepositoryAsync(repositoryUrl, 100, 0, ct).ConfigureAwait(false);
+
+        return result.Match<IActionResult>(
+            requests => Ok(requests.Select(MapToDto).ToList().AsReadOnly()),
+            error =>
+            {
+                _logger.LogError("Error retrieving requests by repository: {Error}", error);
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            });
+    }
+
+    /// <summary>
+    /// Map CodeAnalysisRequest to DTO
+    /// </summary>
+    private static CodeAnalysisRequestDto MapToDto(CodeAnalysisRequest request)
+    {
+        return new CodeAnalysisRequestDto(
+            request.Id,
+            request.Title,
+            request.Description,
+            request.RepositoryUrl.Value,
+            request.FilePath,
+            request.Type,
+            request.Status,
+            request.CurrentIteration,
+            request.MaxIterations,
+            request.CreatedAt,
+            request.StartedAt,
+            request.CompletedAt);
+    }
+}

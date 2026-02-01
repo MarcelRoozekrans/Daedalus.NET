@@ -1,0 +1,69 @@
+@inject IProjectApiClient ProjectApiClient
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem">
+    <RadzenFormField Text="Project Name *" Style="width: 100%;">
+        <RadzenTextBox @bind-Value="@_projectName" MaxLength="255"/>
+    </RadzenFormField>
+
+    <RadzenFormField Text="Description" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_description" Rows="3" MaxLength="1000"/>
+    </RadzenFormField>
+
+    <RadzenFormField Text="Version" Style="width: 100%;">
+        <RadzenTextBox @bind-Value="@_version"/>
+    </RadzenFormField>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" class="rz-mt-4">
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))"/>
+        <RadzenButton Text="Save" Icon="save" ButtonStyle="ButtonStyle.Primary" Click="@HandleUpdate"
+                      IsBusy="@_submitting"/>
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    [Parameter] public ProjectDto Project { get; set; } = default!;
+
+    private string _projectName = "";
+    private string _description = "";
+    private string _version = "";
+    private bool _submitting;
+
+    protected override void OnParametersSet()
+    {
+        _projectName = Project.ProjectName;
+        _description = Project.Description;
+        _version = Project.Version;
+    }
+
+    private async Task HandleUpdate()
+    {
+        if (string.IsNullOrWhiteSpace(_projectName))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Validation", "Project name is required");
+            return;
+        }
+
+        _submitting = true;
+        try
+        {
+            var dto = new UpdateProjectDto(_projectName.Trim(), _description.Trim(), _version.Trim());
+            var result = await ProjectApiClient.UpdateProjectAsync(Project.Id, dto);
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "Success", "Project updated");
+                DialogService.Close(true);
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error ?? "Failed to update");
+            }
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+}

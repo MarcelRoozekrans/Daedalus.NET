@@ -1,0 +1,167 @@
+@page "/executions"
+@inject ApiClient Api
+@implements IAsyncDisposable
+
+<RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2" class="rz-mb-4">
+    <RadzenIcon Icon="receipt_long"/>
+    Task Executions
+</RadzenText>
+
+<RadzenCard class="rz-mb-4" data-testid="filter-card">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.End" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenFormField Text="Filter By" Style="width: 160px;">
+            <RadzenDropDown @bind-Value="@_filterType" Data="@_filterOptions" TextProperty="Text" ValueProperty="Value"
+                            Change="@(_ =>
+                                    {
+                                        _executions = null;
+                                        _totalCount = 0;
+                                    })"/>
+        </RadzenFormField>
+
+        @if (!string.IsNullOrEmpty(_filterType))
+        {
+            <RadzenFormField Text="ID" Style="width: 320px;">
+                <RadzenTextBox @bind-Value="@_filterId" Placeholder="Enter GUID"/>
+            </RadzenFormField>
+
+            <RadzenButton Text="Search" Icon="search" ButtonStyle="ButtonStyle.Primary" Click="@ApplyFilter"
+                          IsBusy="@_loading"/>
+        }
+    </RadzenStack>
+</RadzenCard>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4">
+        @_errorMessage
+    </RadzenAlert>
+}
+
+@if (_executions is not null)
+{
+    <RadzenDataGrid TItem="TaskExecutionDto" Data="@_executions" Count="@_totalCount" AllowPaging="true" PageSize="15"
+                    AllowSorting="true" AllowColumnResize="true" PagerHorizontalAlign="HorizontalAlign.Center"
+                    ShowPagingSummary="true"
+                    IsLoading="@_loading" Style="height: auto;">
+        <Columns>
+            <RadzenDataGridColumn TItem="TaskExecutionDto" Property="IterationNumber" Title="#" Width="60px"
+                                  TextAlign="TextAlign.Center"/>
+            <RadzenDataGridColumn TItem="TaskExecutionDto" Property="TaskId" Title="Task ID" Width="150px">
+                <Template Context="exec">
+                    <RadzenText TextStyle="TextStyle.Caption" Style="font-family: monospace;">
+                        @exec.TaskId.ToString()[..8]...
+                    </RadzenText>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TaskExecutionDto" Property="CompletionPromiseFound" Title="Promise"
+                                  Width="100px"
+                                  TextAlign="TextAlign.Center">
+                <Template Context="exec">
+                    <RadzenBadge Text="@(exec.CompletionPromiseFound ? "Yes" : "No")"
+                                 BadgeStyle="@(exec.CompletionPromiseFound ? BadgeStyle.Success : BadgeStyle.Danger)"/>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TaskExecutionDto" Property="ExecutedAt" Title="Executed" Width="150px"
+                                  FormatString="{0:g}"/>
+            <RadzenDataGridColumn TItem="TaskExecutionDto" Property="ExecutionDuration" Title="Duration" Width="110px">
+                <Template Context="exec">
+                    @exec.ExecutionDuration.TotalMilliseconds.ToString("F0") ms
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TaskExecutionDto" Property="LlmResponse" Title="Response" Width="300px">
+                <Template Context="exec">
+                    <RadzenText TextStyle="TextStyle.Caption"
+                                Style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 290px; display: block;"
+                                title="@exec.LlmResponse">
+                        @exec.LlmResponse
+                    </RadzenText>
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+}
+else if (string.IsNullOrEmpty(_filterType))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter">Select a filter type and enter an ID to view
+        executions.
+    </RadzenAlert>
+}
+
+@code {
+    private IEnumerable<TaskExecutionDto>? _executions;
+    private int _totalCount;
+    private bool _loading;
+    private string _errorMessage = "";
+    private string _filterType = "";
+    private string _filterId = "";
+    private CancellationTokenSource? _cts;
+
+    private readonly record struct DropdownItem(string Text, string Value);
+
+    private static readonly DropdownItem[] _filterOptions =
+    [
+        new("Task ID", "task"),
+        new("Session ID", "session")
+    ];
+
+    private async Task ApplyFilter()
+    {
+        if (string.IsNullOrWhiteSpace(_filterId))
+        {
+            _errorMessage = "Please enter an ID";
+            return;
+        }
+
+        if (!Guid.TryParse(_filterId, out var id))
+        {
+            _errorMessage = "Invalid GUID format";
+            return;
+        }
+
+        _cts ??= new CancellationTokenSource();
+
+        try
+        {
+            _loading = true;
+            _errorMessage = "";
+            var result = _filterType == "task"
+                ? await Api.GetExecutionsByTaskAsync(id, 1, 200, _cts.Token)
+                : await Api.GetExecutionsBySessionAsync(id, 1, 200, _cts.Token);
+
+            result.Match(
+                executions =>
+                {
+                    _executions = executions.Items;
+                    _totalCount = executions.Total;
+                },
+                error =>
+                {
+                    _errorMessage = error;
+                    _executions = null;
+                    _totalCount = 0;
+                });
+        }
+        catch (OperationCanceledException)
+        {
+            /* Expected on cancellation */
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading executions: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+    }
+
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "dotnet-ef": {
+      "version": "10.0.0",
+      "commands": ["dotnet-ef"]
+    },
+    "Aspire.Cli": {
+      "version": "13.1.0",
+      "commands": ["aspire"]
+    }
+  }
+}

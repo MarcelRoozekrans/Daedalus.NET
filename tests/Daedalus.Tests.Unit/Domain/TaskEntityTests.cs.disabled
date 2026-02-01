@@ -1,0 +1,690 @@
+using Daedalus.Domain.Entities;
+using Daedalus.Tests.Unit.Abstractions;
+using Task = Daedalus.Domain.Entities.Task;
+using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
+
+namespace Daedalus.Tests.Unit.Domain;
+
+/// <summary>
+///     Unit tests for Task aggregate root.
+/// </summary>
+public class TaskEntityTests : UnitTestBase
+{
+    private readonly Guid _sessionId = Guid.NewGuid();
+    private readonly Guid _taskId = Guid.NewGuid();
+
+    #region Task Executions Collection Tests
+
+    [Fact]
+    public void Executions_ShouldReturnReadOnlyList()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+
+        // Act
+        var executions = task.Executions;
+
+        // Assert
+        executions.Should().NotBeNull();
+        executions.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region Task.Create Tests
+
+    [Fact]
+    public void Create_WithValidParameters_ShouldSucceed()
+    {
+        // Arrange
+        const string prompt = "Test prompt";
+        const string completionPromise = "DONE";
+        const int maxIterations = 10;
+
+        // Act
+        var result = Task.Create(_taskId, prompt, completionPromise, maxIterations);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Id.Should().Be(_taskId);
+        result.Value.Prompt.Should().Be(prompt);
+        result.Value.CompletionPromise.Should().Be(completionPromise);
+        result.Value.MaxIterations.Should().Be(maxIterations);
+        result.Value.Status.Should().Be(TaskStatus.Pending);
+        result.Value.CurrentSessionId.Should().BeNull();
+        result.Value.Result.Should().BeNull();
+        result.Value.IterationCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void Create_WithEmptyPrompt_ShouldFail()
+    {
+        // Act
+        var result = Task.Create(_taskId, string.Empty, "DONE", 10);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Prompt cannot be empty");
+    }
+
+    [Fact]
+    public void Create_WithWhitespacePrompt_ShouldFail()
+    {
+        // Act
+        var result = Task.Create(_taskId, "   ", "DONE", 10);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Prompt cannot be empty");
+    }
+
+    [Fact]
+    public void Create_WithEmptyCompletionPromise_ShouldFail()
+    {
+        // Act
+        var result = Task.Create(_taskId, "Test prompt", string.Empty, 10);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Completion promise cannot be empty");
+    }
+
+    [Fact]
+    public void Create_WithWhitespaceCompletionPromise_ShouldFail()
+    {
+        // Act
+        var result = Task.Create(_taskId, "Test prompt", "   ", 10);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Completion promise cannot be empty");
+    }
+
+    [Fact]
+    public void Create_WithZeroIterations_ShouldFail()
+    {
+        // Act
+        var result = Task.Create(_taskId, "Test prompt", "DONE", 0);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Max iterations must be between 1 and 1000");
+    }
+
+    [Fact]
+    public void Create_WithNegativeIterations_ShouldFail()
+    {
+        // Act
+        var result = Task.Create(_taskId, "Test prompt", "DONE", -5);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Max iterations must be between 1 and 1000");
+    }
+
+    [Fact]
+    public void Create_WithExceedingMaxIterations_ShouldFail()
+    {
+        // Act
+        var result = Task.Create(_taskId, "Test prompt", "DONE", 1001);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Max iterations must be between 1 and 1000");
+    }
+
+    [Fact]
+    public void Create_WithMaxValidIterations_ShouldSucceed()
+    {
+        // Act
+        var result = Task.Create(_taskId, "Test prompt", "DONE", 1000);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.MaxIterations.Should().Be(1000);
+    }
+
+    [Fact]
+    public void Create_WithMinValidIterations_ShouldSucceed()
+    {
+        // Act
+        var result = Task.Create(_taskId, "Test prompt", "DONE", 1);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.MaxIterations.Should().Be(1);
+    }
+
+    [Fact]
+    public void Create_TrimsPunctuation_FromPromptAndCompletionPromise()
+    {
+        // Arrange
+        const string prompt = "  Test prompt  ";
+        const string completionPromise = "  DONE  ";
+
+        // Act
+        var result = Task.Create(_taskId, prompt, completionPromise, 10);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Prompt.Should().Be("Test prompt");
+        result.Value.CompletionPromise.Should().Be("DONE");
+    }
+
+    #endregion
+
+    #region Task.Claim Tests
+
+    [Fact]
+    public void Claim_OnPendingTask_ShouldSucceed()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+
+        // Act
+        var result = task.Claim(_sessionId);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        task.Status.Should().Be(TaskStatus.InProgress);
+        task.CurrentSessionId.Should().Be(_sessionId);
+    }
+
+    [Fact]
+    public void Claim_OnInProgressTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+
+        // Act
+        var result = task.Claim(Guid.NewGuid());
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be($"Cannot claim task with status {TaskStatus.InProgress}");
+    }
+
+    [Fact]
+    public void Claim_OnCompletedTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 1).Value;
+        task.Claim(_sessionId);
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "DONE",
+            CompletionPromiseFound = true,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        task.RecordExecution(execution);
+
+        // Act
+        var result = task.Claim(Guid.NewGuid());
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain(TaskStatus.Completed.ToString());
+    }
+
+    [Fact]
+    public void Claim_OnFailedTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 1).Value;
+        task.Claim(_sessionId);
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "NO MATCH",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        task.RecordExecution(execution);
+
+        // Act
+        var result = task.Claim(Guid.NewGuid());
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Claim_OnAbandonedTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+        task.Abandon();
+
+        // Act
+        var result = task.Claim(Guid.NewGuid());
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+
+    #endregion
+
+    #region Task.RecordExecution Tests
+
+    [Fact]
+    public void RecordExecution_WithValidExecution_ShouldSucceed()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "Response 1",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+
+        // Act
+        var result = task.RecordExecution(execution);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        task.IterationCount.Should().Be(1);
+        task.Status.Should().Be(TaskStatus.InProgress);
+    }
+
+    [Fact]
+    public void RecordExecution_WhenCompletionPromiseFound_ShouldMarkCompleted()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "This response contains DONE",
+            CompletionPromiseFound = true,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+
+        // Act
+        var result = task.RecordExecution(execution);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        task.Status.Should().Be(TaskStatus.Completed);
+        task.Result.Should().Be("This response contains DONE");
+        task.CompletedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void RecordExecution_MaxIterationsReached_ShouldMarkFailed()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 1).Value;
+        task.Claim(_sessionId);
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "No match here",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+
+        // Act
+        var result = task.RecordExecution(execution);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        task.Status.Should().Be(TaskStatus.Failed);
+        task.CompletedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void RecordExecution_OnNonInProgressTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "Response",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+
+        // Act
+        var result = task.RecordExecution(execution);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Task is not in progress");
+    }
+
+    [Fact]
+    public void RecordExecution_WithOutOfSequenceIteration_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 5,
+            Prompt = task.Prompt,
+            LlmResponse = "Response",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+
+        // Act
+        var result = task.RecordExecution(execution);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Execution iteration number is out of sequence");
+    }
+
+    [Fact]
+    public void RecordExecution_MultipleExecutions_ShouldIncrementIterations()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 5).Value;
+        task.Claim(_sessionId);
+
+        // Act & Assert - First execution
+        var execution1 = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "Response 1",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        var result1 = task.RecordExecution(execution1);
+        result1.IsSuccess.Should().BeTrue();
+        task.IterationCount.Should().Be(1);
+
+        // Act & Assert - Second execution
+        var execution2 = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 2,
+            Prompt = task.Prompt,
+            LlmResponse = "Response 2",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        var result2 = task.RecordExecution(execution2);
+        result2.IsSuccess.Should().BeTrue();
+        task.IterationCount.Should().Be(2);
+
+        // Act & Assert - Third execution
+        var execution3 = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 3,
+            Prompt = task.Prompt,
+            LlmResponse = "Response 3",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        var result3 = task.RecordExecution(execution3);
+        result3.IsSuccess.Should().BeTrue();
+        task.IterationCount.Should().Be(3);
+    }
+
+    #endregion
+
+    #region Task.Abandon Tests
+
+    [Fact]
+    public void Abandon_OnInProgressTask_ShouldSucceed()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+
+        // Act
+        var result = task.Abandon();
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        task.Status.Should().Be(TaskStatus.Abandoned);
+        task.CurrentSessionId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Abandon_OnPendingTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+
+        // Act
+        var result = task.Abandon();
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Only in-progress tasks can be abandoned");
+    }
+
+    [Fact]
+    public void Abandon_OnCompletedTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 1).Value;
+        task.Claim(_sessionId);
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "DONE",
+            CompletionPromiseFound = true,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        task.RecordExecution(execution);
+
+        // Act
+        var result = task.Abandon();
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+
+    #endregion
+
+    #region Task.Resume Tests
+
+    [Fact]
+    public void Resume_OnAbandonedTask_ShouldSucceed()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+        task.Abandon();
+
+        // Act
+        var result = task.Resume(Guid.NewGuid());
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        task.Status.Should().Be(TaskStatus.Pending);
+        task.CurrentSessionId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Resume_OnPendingTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+
+        // Act
+        var result = task.Resume(Guid.NewGuid());
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Only abandoned tasks can be resumed");
+    }
+
+    [Fact]
+    public void Resume_OnInProgressTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+
+        // Act
+        var result = task.Resume(Guid.NewGuid());
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Resume_OnCompletedTask_ShouldFail()
+    {
+        // Arrange
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 1).Value;
+        task.Claim(_sessionId);
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "DONE",
+            CompletionPromiseFound = true,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        task.RecordExecution(execution);
+
+        // Act
+        var result = task.Resume(Guid.NewGuid());
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+
+    #endregion
+
+    #region Task State Transitions Tests
+
+    [Fact]
+    public void TaskLifecycle_PendingToCompletedFlow()
+    {
+        // Arrange & Act & Assert
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Status.Should().Be(TaskStatus.Pending);
+
+        task.Claim(_sessionId);
+        task.Status.Should().Be(TaskStatus.InProgress);
+        task.CurrentSessionId.Should().Be(_sessionId);
+
+        var execution = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "DONE",
+            CompletionPromiseFound = true,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        task.RecordExecution(execution);
+        task.Status.Should().Be(TaskStatus.Completed);
+        task.Result.Should().Be("DONE");
+    }
+
+    [Fact]
+    public void TaskLifecycle_PendingToFailedFlow()
+    {
+        // Arrange & Act & Assert
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 2).Value;
+        task.Status.Should().Be(TaskStatus.Pending);
+
+        task.Claim(_sessionId);
+        task.Status.Should().Be(TaskStatus.InProgress);
+
+        var execution1 = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 1,
+            Prompt = task.Prompt,
+            LlmResponse = "No match",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        task.RecordExecution(execution1);
+        task.Status.Should().Be(TaskStatus.InProgress);
+
+        var execution2 = new TaskExecution
+        {
+            Id = Guid.NewGuid(),
+            TaskId = task.Id,
+            SessionId = _sessionId,
+            IterationNumber = 2,
+            Prompt = task.Prompt,
+            LlmResponse = "Still no match",
+            CompletionPromiseFound = false,
+            ExecutionDuration = TimeSpan.FromMilliseconds(100)
+        };
+        task.RecordExecution(execution2);
+        task.Status.Should().Be(TaskStatus.Failed);
+    }
+
+    [Fact]
+    public void TaskLifecycle_AbandonedAndResumedFlow()
+    {
+        // Arrange & Act & Assert
+        var task = Task.Create(_taskId, "Test prompt", "DONE", 10).Value;
+        task.Claim(_sessionId);
+        task.Status.Should().Be(TaskStatus.InProgress);
+
+        task.Abandon();
+        task.Status.Should().Be(TaskStatus.Abandoned);
+
+        task.Resume(Guid.NewGuid());
+        task.Status.Should().Be(TaskStatus.Pending);
+    }
+
+    #endregion
+}

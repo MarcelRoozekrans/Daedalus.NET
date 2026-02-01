@@ -1,0 +1,270 @@
+@page "/repositories"
+@using Daedalus.Application.DTOs
+@rendermode @(new InteractiveServerRenderMode())
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1>Git Repository Configuration</h1>
+            <p class="text-muted">Manage your git repositories for Ralph Loop analysis</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <button class="btn btn-primary" @onclick="@(() => ShowAddForm())" id="btn-add-repository">
+                <span class="oi oi-plus"></span> Add Repository
+            </button>
+        </div>
+    </div>
+
+    @if (_showForm)
+    {
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>@(_isEditing ? "Edit Repository" : "Add New Repository")</h5>
+            </div>
+            <div class="card-body">
+                <RepositoryForm Repository="_currentRepository" OnSave="HandleSave" OnCancel="HandleCancel"
+                                IsEditing="_isEditing"/>
+            </div>
+        </div>
+    }
+
+    @if (_isLoading)
+    {
+        <div class="alert alert-info">Loading repositories...</div>
+    }
+    else if (_repositories == null || _repositories.Count == 0)
+    {
+        <div class="alert alert-warning">
+            No repositories configured. <a href="#" @onclick="@(() => ShowAddForm())" class="alert-link">Add one now</a>.
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            @foreach (var repo in _repositories)
+            {
+                <div class="col-md-6 mb-4">
+                    <div class="card h-100" id="repo-card-@repo.Id">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">@repo.Name</h5>
+                            <span class="badge @(repo.IsActive ? "bg-success" : "bg-secondary")">
+                                @(repo.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <small class="text-muted">Repository URL</small>
+                                <p class="font-monospace text-break">@repo.Url</p>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <small class="text-muted">Platform</small>
+                                    <p>@repo.Platform</p>
+                                </div>
+                                <div class="col-md-6">
+                                    <small class="text-muted">Default Branch</small>
+                                    <p>@repo.DefaultBranch</p>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(repo.Description))
+                            {
+                                <div class="mb-3">
+                                    <small class="text-muted">Description</small>
+                                    <p>@repo.Description</p>
+                                </div>
+                            }
+                            <small class="text-muted">Added @repo.CreatedAt.ToLocalTime().ToString("g")</small>
+                        </div>
+                        <div class="card-footer">
+                            <button class="btn btn-sm btn-info me-2" @onclick="@(() => EditRepository(repo))"
+                                    id="btn-edit-@repo.Id">
+                                <span class="oi oi-pencil"></span> Edit
+                            </button>
+                            <button class="btn btn-sm btn-warning me-2" @onclick="@(() => TestConnection(repo.Id))"
+                                    id="btn-test-@repo.Id">
+                                <span class="oi oi-loop"></span> Test
+                            </button>
+                            <button class="btn btn-sm btn-danger" @onclick="@(() => ConfirmDelete(repo.Id))"
+                                    id="btn-delete-@repo.Id">
+                                <span class="oi oi-trash"></span> Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (_showDeleteConfirm)
+    {
+        <div class="modal show d-block" id="delete-confirm-modal">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Confirm Delete</h5>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete this repository configuration?</p>
+                        <p class="text-danger">This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
+                        <button type="button" class="btn btn-danger" @onclick="ConfirmDeleteAction"
+                                id="btn-confirm-delete">Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<RepositoryConfigurationDto>? _repositories;
+    private bool _showForm;
+    private bool _isEditing;
+    private bool _isLoading = true;
+    private bool _showDeleteConfirm;
+    private Guid _deleteConfirmId;
+    private RepositoryConfigurationDto? _currentRepository;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRepositories();
+    }
+
+    private async Task LoadRepositories()
+    {
+        _isLoading = true;
+        try
+        {
+            _repositories = await Http.GetFromJsonAsync<List<RepositoryConfigurationDto>>("api/repositories")
+                            ?? new List<RepositoryConfigurationDto>();
+        }
+        catch (Exception)
+        {
+            // Log error
+            _repositories = new List<RepositoryConfigurationDto>();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void ShowAddForm()
+    {
+        _currentRepository = new RepositoryConfigurationDto();
+        _showForm = true;
+        _isEditing = false;
+    }
+
+    private void EditRepository(RepositoryConfigurationDto repo)
+    {
+        _currentRepository = new RepositoryConfigurationDto
+        {
+            Id = repo.Id,
+            Name = repo.Name,
+            Url = repo.Url,
+            Platform = repo.Platform,
+            DefaultBranch = repo.DefaultBranch,
+            AuthenticationMethod = repo.AuthenticationMethod,
+            CredentialIdentifier = repo.CredentialIdentifier,
+            IsActive = repo.IsActive,
+            Description = repo.Description
+        };
+        _showForm = true;
+        _isEditing = true;
+    }
+
+    private async Task HandleSave()
+    {
+        if (_currentRepository == null) return;
+
+        try
+        {
+            if (_isEditing)
+            {
+                var updateDto = new UpdateRepositoryConfigurationDto
+                {
+                    Name = _currentRepository.Name,
+                    Url = _currentRepository.Url,
+                    DefaultBranch = _currentRepository.DefaultBranch,
+                    AuthenticationMethod = _currentRepository.AuthenticationMethod,
+                    CredentialIdentifier = _currentRepository.CredentialIdentifier,
+                    IsActive = _currentRepository.IsActive,
+                    Description = _currentRepository.Description
+                };
+                await Http.PutAsJsonAsync($"api/repositories/{_currentRepository.Id}", updateDto);
+            }
+            else
+            {
+                var createDto = new CreateRepositoryConfigurationDto
+                {
+                    Name = _currentRepository.Name,
+                    Url = _currentRepository.Url,
+                    Platform = _currentRepository.Platform,
+                    DefaultBranch = _currentRepository.DefaultBranch,
+                    AuthenticationMethod = _currentRepository.AuthenticationMethod,
+                    CredentialIdentifier = _currentRepository.CredentialIdentifier,
+                    Description = _currentRepository.Description
+                };
+                await Http.PostAsJsonAsync("api/repositories", createDto);
+            }
+
+            _showForm = false;
+            await LoadRepositories();
+        }
+        catch (Exception)
+        {
+            // Log error
+        }
+    }
+
+    private void HandleCancel()
+    {
+        _showForm = false;
+        _currentRepository = null;
+    }
+
+    private async Task TestConnection(Guid id)
+    {
+        try
+        {
+            _ = await Http.PostAsync($"api/repositories/{id}/test-connection", null);
+            // Show success/failure message
+        }
+        catch (Exception)
+        {
+            // Log error
+        }
+    }
+
+    private void ConfirmDelete(Guid id)
+    {
+        _deleteConfirmId = id;
+        _showDeleteConfirm = true;
+    }
+
+    private void CancelDelete()
+    {
+        _showDeleteConfirm = false;
+    }
+
+    private async Task ConfirmDeleteAction()
+    {
+        try
+        {
+            await Http.DeleteAsync($"api/repositories/{_deleteConfirmId}");
+            _showDeleteConfirm = false;
+            await LoadRepositories();
+        }
+        catch (Exception)
+        {
+            // Log error
+        }
+    }
+
+}

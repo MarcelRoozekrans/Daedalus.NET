@@ -1,0 +1,46 @@
+@inherits LayoutComponentBase
+
+<RadzenLayout>
+    <RadzenHeader>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0"
+                     JustifyContent="JustifyContent.SpaceBetween" Style="padding: 0 1rem; width: 100%;">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0">
+                <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)"/>
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <RadzenIcon Icon="smart_toy" Style="font-size: 1.5rem;"/>
+                    <RadzenText Text="Daedalus" TextStyle="TextStyle.H5" Style="margin: 0; font-weight: 600;"/>
+                    <RadzenBadge Text="Ralph Loop" BadgeStyle="BadgeStyle.Light" Style="margin-left: 0.5rem;"/>
+                </RadzenStack>
+            </RadzenStack>
+            <LoginDisplay/>
+        </RadzenStack>
+    </RadzenHeader>
+
+    <RadzenSidebar @bind-Expanded="@_sidebarExpanded" Style="width: 260px;">
+        <RadzenPanelMenu>
+            <RadzenPanelMenuItem Text="Dashboard" Icon="dashboard" Path="/"/>
+            <RadzenPanelMenuItem Text="Tasks" Icon="task_alt" Path="tasks"/>
+            <RadzenPanelMenuItem Text="Projects" Icon="folder_special" Path="projects"/>
+            <RadzenPanelMenuItem Text="Sessions" Icon="play_circle" Path="sessions"/>
+            <RadzenPanelMenuItem Text="Executions" Icon="receipt_long" Path="executions"/>
+            <RadzenPanelMenuItem Text="Ralph Config" Icon="tune" Path="ralph-config"/>
+            <RadzenPanelMenuItem Text="PRD Generator" Icon="auto_awesome" Path="prd-generator"/>
+            <RadzenPanelMenuItem Text="Git Repositories" Icon="source" Path="repositories"/>
+        </RadzenPanelMenu>
+    </RadzenSidebar>
+
+    <RadzenBody>
+        <div class="rz-p-4">
+            @Body
+        </div>
+    </RadzenBody>
+</RadzenLayout>
+
+<RadzenDialog/>
+<RadzenNotification/>
+<RadzenTooltip/>
+<RadzenContextMenu/>
+
+@code {
+    bool _sidebarExpanded = true;
+}

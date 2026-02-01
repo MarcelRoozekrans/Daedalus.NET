@@ -1,0 +1,171 @@
+@using Daedalus.Application.DTOs
+<div class="card">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0">
+            <i class="bi bi-clipboard-check"></i>
+            Review Generated PRD
+        </h5>
+    </div>
+    <div class="card-body">
+        @if (Prd == null)
+        {
+            <div class="alert alert-warning">No PRD data available</div>
+        }
+        else
+        {
+            <!-- PRD Overview Section -->
+            <div class="mb-4">
+                <h6 class="text-primary fw-bold">
+                    <i class="bi bi-file-earmark-pdf"></i>
+                    Product Overview
+                </h6>
+                <p>@Prd.ProductOverview</p>
+            </div>
+
+            <!-- Goals Section -->
+            @if (Prd.Goals.Count > 0)
+            {
+                <div class="mb-4">
+                    <h6 class="text-primary fw-bold">
+                        <i class="bi bi-bullseye"></i>
+                        Goals
+                    </h6>
+                    <ul class="list-group">
+                        @foreach (var goal in Prd.Goals)
+                        {
+                            <li class="list-group-item">@goal</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <!-- Assumptions Section -->
+            @if (Prd.Assumptions.Count > 0)
+            {
+                <div class="mb-4">
+                    <h6 class="text-primary fw-bold">
+                        <i class="bi bi-lightbulb"></i>
+                        Assumptions
+                    </h6>
+                    <ul class="list-group">
+                        @foreach (var assumption in Prd.Assumptions)
+                        {
+                            <li class="list-group-item">@assumption</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <!-- Items Section -->
+            <div class="mb-4">
+                <h6 class="text-primary fw-bold">
+                    <i class="bi bi-list-check"></i>
+                    Items to Convert to Tasks (@Prd.AllItems.Count)
+                </h6>
+                <p class="text-muted small">
+                    Select the items you want to convert into executable tasks.
+                </p>
+
+                <div class="row">
+                    @foreach (var item in Prd.AllItems)
+                    {
+                        <div class="col-md-6 mb-3">
+                            <div class="card border-light h-100">
+                                <div class="card-body">
+                                    <div class="form-check mb-2">
+                                        <input type="checkbox" class="form-check-input" id="item_@item.GetHashCode()"
+                                               @onchange="@(e => HandleItemToggled(item, (bool)e.Value!))"
+                                               disabled="@IsConverting"/>
+                                        <label class="form-check-label fw-bold" for="item_@item.GetHashCode()">
+                                            @item.Title
+                                        </label>
+                                    </div>
+
+                                    <p class="text-muted small mb-2">@item.Description</p>
+
+                                    <div class="d-flex gap-1 flex-wrap mb-2">
+                                        <span class="badge bg-secondary">@item.Priority</span>
+                                        <span class="badge bg-info">@item.EstimatedComplexity</span>
+                                        @if (item.DependenciesCount > 0)
+                                        {
+                                            <span class="badge bg-warning">@item.DependenciesCount deps</span>
+                                        }
+                                    </div>
+
+                                    <div class="small text-success">
+                                        <strong>Acceptance Criteria:</strong>
+                                        <p>@item.AcceptanceCriteria</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-flex gap-2 sticky-bottom bg-white pt-3 border-top">
+                <button type="button" class="btn btn-success" disabled="@(_selectedItems.Count == 0 || IsConverting)"
+                        @onclick="HandleConvert">
+                    @if (IsConverting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Converting...</span>
+                    }
+                    else
+                    {
+                        <span><i class="bi bi-arrow-repeat"></i> Convert @_selectedItems.Count Items to Tasks</span>
+                    }
+                </button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="() => OnCancel.InvokeAsync()"
+                        disabled="@IsConverting">
+                    Cancel
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public PrdResponseDto? Prd { get; set; }
+
+    [Parameter] public EventCallback<List<PrdItemForConversionDto>> OnItemsSelected { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    [Parameter] public bool IsConverting { get; set; }
+
+    private readonly HashSet<PrdItemDto> _selectedItems = [];
+
+    private void HandleItemToggled(PrdItemDto item, bool isSelected)
+    {
+        if (isSelected)
+        {
+            _selectedItems.Add(item);
+        }
+        else
+        {
+            _selectedItems.Remove(item);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task HandleConvert()
+    {
+        var itemsForConversion = _selectedItems
+            .Select(item => new PrdItemForConversionDto(
+                item.Title,
+                item.Description,
+                item.AcceptanceCriteria,
+                item.Priority,
+                item.EstimatedComplexity,
+                item.Dependencies ?? [],
+                item.Phase,
+                item.ParallelGroup))
+            .ToList();
+
+        await OnItemsSelected.InvokeAsync(itemsForConversion);
+    }
+
+}

@@ -1,0 +1,254 @@
+@page "/projects"
+@implements IAsyncDisposable
+@inject IProjectApiClient ProjectApiClient
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+             JustifyContent="JustifyContent.SpaceBetween" class="rz-mb-4">
+    <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2">
+        <RadzenIcon Icon="folder_special"/>
+        Projects
+    </RadzenText>
+    <RadzenButton Text="Create Project" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialog"
+                  data-testid="btn-create-project"/>
+</RadzenStack>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4">
+        @_errorMessage
+    </RadzenAlert>
+}
+
+@if (_isLoading)
+{
+    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"/>
+}
+else if (_projects is not null && _projects.Items.Count > 0)
+{
+    <RadzenDataGrid TItem="ProjectDto" Data="@_projects.Items" AllowSorting="true" AllowColumnResize="true"
+                    Style="height: auto;" data-testid="projects-grid">
+        <Columns>
+            <RadzenDataGridColumn TItem="ProjectDto" Property="ProjectName" Title="Name" Width="200px">
+                <Template Context="project">
+                    <RadzenButton Text="@project.ProjectName" Variant="Variant.Text" ButtonStyle="ButtonStyle.Info"
+                                  Size="ButtonSize.Small" Click="@(async () => await SelectProjectAsync(project.Id))"
+                                  Style="text-decoration: underline; cursor: pointer;"/>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ProjectDto" Property="Description" Title="Description" Width="300px">
+                <Template Context="project">
+                    <RadzenText TextStyle="TextStyle.Caption"
+                                Style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 290px; display: block;">
+                        @project.Description
+                    </RadzenText>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ProjectDto" Property="Version" Title="Version" Width="100px"/>
+            <RadzenDataGridColumn TItem="ProjectDto" Title="Tasks" Width="80px" TextAlign="TextAlign.Center"
+                                  Sortable="false">
+                <Template Context="project">
+                    <RadzenBadge Text="@project.Tasks.Count.ToString()" BadgeStyle="BadgeStyle.Info"/>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ProjectDto" Property="CreatedAt" Title="Created" Width="140px"
+                                  FormatString="{0:g}"/>
+            <RadzenDataGridColumn TItem="ProjectDto" Title="Actions" Width="150px" TextAlign="TextAlign.Center"
+                                  Sortable="false">
+                <Template Context="project">
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem"
+                                 JustifyContent="JustifyContent.Center">
+                        <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
+                                      Click="@(() => OpenEditDialog(project))" title="Edit"/>
+                        <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"
+                                      Click="@(() => HandleDeleteAsync(project))" title="Delete"/>
+                    </RadzenStack>
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+}
+else
+{
+    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter">No projects found. Create one to get started.
+    </RadzenAlert>
+}
+
+@if (_selectedProject is not null)
+{
+    <RadzenCard class="rz-mt-6">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-4">
+            @_selectedProject.ProjectName — Tasks
+        </RadzenText>
+        @if (_selectedProject.Tasks.Count > 0)
+        {
+            <RadzenDataGrid TItem="TaskDto" Data="@_selectedProject.Tasks" AllowSorting="true" Style="height: auto;">
+                <Columns>
+                    <RadzenDataGridColumn TItem="TaskDto" Property="Title" Title="Title" Width="200px"/>
+                    <RadzenDataGridColumn TItem="TaskDto" Property="Prompt" Title="Prompt" Width="300px">
+                        <Template Context="task">
+                            <RadzenText TextStyle="TextStyle.Caption" title="@task.Prompt"
+                                        Style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 290px; display: block;">
+                                @task.Prompt
+                            </RadzenText>
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="110px"
+                                          TextAlign="TextAlign.Center">
+                        <Template Context="task">
+                            <RadzenBadge Text="@GetStatusText(task.Status)"
+                                         BadgeStyle="@GetStatusBadgeStyle(task.Status)"/>
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="TaskDto" Title="Iterations" Width="100px" TextAlign="TextAlign.Center">
+                        <Template Context="task">
+                            @task.IterationCount / @task.MaxIterations
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" Width="140px"
+                                          FormatString="{0:g}"/>
+                </Columns>
+            </RadzenDataGrid>
+        }
+        else
+        {
+            <RadzenText TextStyle="TextStyle.Body2" Style="color: var(--rz-text-secondary-color);">No tasks in this
+                project.
+            </RadzenText>
+        }
+    </RadzenCard>
+}
+
+@code {
+    private CancellationTokenSource? _cts;
+    private PagedResultDto<ProjectDto>? _projects;
+    private ProjectDto? _selectedProject;
+    private bool _isLoading = true;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        await LoadProjectsAsync();
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            _isLoading = true;
+            _errorMessage = null;
+            var result = await ProjectApiClient.GetAllProjectsAsync(1, 100, _cts?.Token ?? CancellationToken.None);
+            _projects = result.IsSuccess ? result.Value : null;
+            if (result.IsFailure) _errorMessage = result.Error ?? "Failed to load projects";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading projects: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SelectProjectAsync(Guid projectId)
+    {
+        try
+        {
+            var result = await ProjectApiClient.GetProjectWithTasksAsync(projectId, _cts?.Token ?? CancellationToken.None);
+            _selectedProject = result.IsSuccess ? result.Value : null;
+            if (result.IsFailure)
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error ?? "Failed to load project");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", ex.Message);
+        }
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var result = await DialogService.OpenAsync<ProjectCreateDialog>("Create New Project",
+            options: new DialogOptions { Width = "500px", Resizable = true, Draggable = true });
+
+        if (result is bool confirmed1 && confirmed1)
+        {
+            await LoadProjectsAsync();
+        }
+    }
+
+    private async Task OpenEditDialog(ProjectDto project)
+    {
+        var result = await DialogService.OpenAsync<ProjectEditDialog>("Edit Project",
+            new Dictionary<string, object> { { "Project", project } },
+            new DialogOptions { Width = "500px", Resizable = true, Draggable = true });
+
+        if (result is bool confirmed2 && confirmed2)
+        {
+            await LoadProjectsAsync();
+            if (_selectedProject?.Id == project.Id)
+                await SelectProjectAsync(project.Id);
+        }
+    }
+
+    private async Task HandleDeleteAsync(ProjectDto project)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Delete project '{project.ProjectName}'? All associated tasks will also be deleted.",
+            "Confirm Delete",
+            new ConfirmOptions { OkButtonText = "Delete", CancelButtonText = "Cancel" });
+
+        if (confirmed is true)
+        {
+            var result = await ProjectApiClient.DeleteProjectAsync(project.Id, _cts?.Token ?? CancellationToken.None);
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "Deleted", "Project deleted");
+                if (_selectedProject?.Id == project.Id) _selectedProject = null;
+                await LoadProjectsAsync();
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error ?? "Failed to delete");
+            }
+        }
+    }
+
+    private static string GetStatusText(int status)
+    {
+        return status switch
+        {
+            0 => "Pending",
+            1 => "In Progress",
+            2 => "Completed",
+            3 => "Failed",
+            4 => "Abandoned",
+            _ => "Unknown"
+        };
+    }
+
+    private static BadgeStyle GetStatusBadgeStyle(int status)
+    {
+        return status switch
+        {
+            0 => BadgeStyle.Warning,
+            1 => BadgeStyle.Info,
+            2 => BadgeStyle.Success,
+            3 => BadgeStyle.Danger,
+            4 => BadgeStyle.Light,
+            _ => BadgeStyle.Light
+        };
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+    }
+
+}

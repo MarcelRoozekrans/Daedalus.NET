@@ -1,0 +1,79 @@
+<div class="card">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0">
+            <i class="bi bi-pencil-square"></i>
+            Enter Requirements
+        </h5>
+    </div>
+    <div class="card-body">
+        <form @onsubmit="HandleSubmit">
+            <div class="mb-3">
+                <label for="requirements" class="form-label">
+                    What needs to be implemented?
+                    <span class="badge bg-danger">Required</span>
+                </label>
+                <textarea id="requirements" class="form-control" rows="6"
+                          placeholder="Describe your requirements in detail. Example: Create a user authentication system with email verification, password reset functionality, and 2FA support..."
+                          @bind="Requirements" required disabled="@IsLoading"></textarea>
+                <div class="form-text">
+                    Be as detailed as possible. The more information you provide, the better the PRD will be.
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label for="context" class="form-label">Additional Context (Optional)</label>
+                <textarea id="context" class="form-control" rows="3"
+                          placeholder="Any additional context, constraints, or notes..." @bind="Context"
+                          disabled="@IsLoading"></textarea>
+                <div class="form-text">
+                    Technical constraints, timeline, budget, or any other relevant information.
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary" disabled="@IsLoading">
+                    @if (IsLoading)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Generating PRD...</span>
+                    }
+                    else
+                    {
+                        <span><i class="bi bi-magic"></i> Generate PRD</span>
+                    }
+                </button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="() => OnCancel.InvokeAsync()"
+                        disabled="@IsLoading">
+                    Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid ProjectId { get; set; }
+
+    [Parameter] public EventCallback<RequirementsData> OnRequirementsSubmitted { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    [Parameter] public bool IsLoading { get; set; }
+
+    private string Requirements = string.Empty;
+    private string? Context;
+
+    private async Task HandleSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(Requirements))
+        {
+            return;
+        }
+
+        var data = new RequirementsData(Requirements, Context);
+        await OnRequirementsSubmitted.InvokeAsync(data);
+    }
+
+    public record RequirementsData(string Requirements, string? Context = null);
+
+}

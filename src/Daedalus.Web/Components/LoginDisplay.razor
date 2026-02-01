@@ -1,0 +1,29 @@
+@inject NavigationManager Navigation
+
+<AuthorizeView>
+    <Authorized>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+            <RadzenIcon Icon="account_circle" Style="font-size: 1.25rem; color: var(--rz-text-color);"/>
+            <RadzenText Text="@context.User.Identity?.Name" TextStyle="TextStyle.Body2"
+                        Style="margin: 0; color: var(--rz-text-color);"/>
+            <RadzenButton Text="Log out" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@BeginLogout"/>
+        </RadzenStack>
+    </Authorized>
+    <NotAuthorized>
+        <RadzenButton Text="Log in" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" Click="@BeginLogin"/>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+
+    private void BeginLogin()
+    {
+        Navigation.NavigateToLogin("authentication/login");
+    }
+
+    private void BeginLogout()
+    {
+        Navigation.NavigateToLogout("authentication/logout");
+    }
+
+}
