@@ -1,0 +1,160 @@
+@page "/"
+@inject ApiClient Api
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<RadzenText TextStyle="TextStyle.H4" TagName="TagName.H1" class="rz-mb-4" data-testid="home-title">
+    <RadzenIcon Icon="smart_toy" Style="margin-right: 0.5rem;"/>
+    Daedalus Dashboard
+</RadzenText>
+<RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-6" Style="color: var(--rz-text-secondary-color);">
+    Ralph Loop execution command center
+</RadzenText>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4">
+        @_errorMessage
+    </RadzenAlert>
+}
+
+<RadzenRow Gap="1rem" class="rz-mb-6" data-testid="stats-row">
+    <RadzenColumn Size="12" SizeMD="3">
+        <RadzenCard Style="cursor: pointer;" data-testid="stat-total-tasks" @onclick="@(() => Nav.NavigateTo("tasks"))">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                <RadzenIcon Icon="task_alt" Style="font-size: 2.5rem; color: var(--rz-primary);"/>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H3" Style="margin: 0; color: var(--rz-primary);">@_tasksCount
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">Total Tasks</RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <RadzenCard Style="cursor: pointer;" data-testid="stat-sessions" @onclick="@(() => Nav.NavigateTo("sessions"))">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                <RadzenIcon Icon="play_circle" Style="font-size: 2.5rem; color: var(--rz-info);"/>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H3" Style="margin: 0; color: var(--rz-info);">@_sessionsCount
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">Execution Sessions</RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <RadzenCard Style="cursor: pointer;" data-testid="stat-active-sessions"
+                    @onclick="@(() => Nav.NavigateTo("sessions"))">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                <RadzenIcon Icon="speed" Style="font-size: 2.5rem; color: var(--rz-success);"/>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H3" Style="margin: 0; color: var(--rz-success);">@_activeSessions
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">Active Sessions</RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <RadzenCard data-testid="stat-completed-tasks">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                <RadzenIcon Icon="check_circle" Style="font-size: 2.5rem; color: var(--rz-warning);"/>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H3" Style="margin: 0; color: var(--rz-warning);">@_completedTasks
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">Completed Tasks</RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+</RadzenRow>
+
+<RadzenRow Gap="1rem">
+    <RadzenColumn Size="12" SizeMD="6">
+        <RadzenCard data-testid="quick-actions">
+            <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">
+                <RadzenIcon Icon="rocket_launch"/>
+                Quick Actions
+            </RadzenText>
+            <RadzenStack Gap="0.5rem">
+                <RadzenButton Text="Create New Task" Icon="add_task" ButtonStyle="ButtonStyle.Primary"
+                              Style="width: 100%;" Click="@(() => Nav.NavigateTo("tasks"))"/>
+                <RadzenButton Text="Configure Ralph Loop" Icon="tune" ButtonStyle="ButtonStyle.Secondary"
+                              Style="width: 100%;" Click="@(() => Nav.NavigateTo("ralph-config"))"/>
+                <RadzenButton Text="Generate PRD" Icon="auto_awesome" ButtonStyle="ButtonStyle.Info"
+                              Style="width: 100%;" Click="@(() => Nav.NavigateTo("prd-generator"))"/>
+                <RadzenButton Text="Manage Projects" Icon="folder_special" ButtonStyle="ButtonStyle.Success"
+                              Style="width: 100%;" Click="@(() => Nav.NavigateTo("projects"))"/>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="6">
+        <RadzenCard>
+            <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">
+                <RadzenIcon Icon="info"/>
+                About
+            </RadzenText>
+            <RadzenText TextStyle="TextStyle.Body1">
+                <strong>Daedalus</strong> implements the <em>Ralph Wiggum Technique</em> for AI-driven iterative
+                task execution. The Ralph Loop feeds the same prompt to an LLM repeatedly, checking for completion
+                signals to enable autonomous code generation.
+            </RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" class="rz-mt-2" Style="color: var(--rz-text-secondary-color);">
+                Use this dashboard to create tasks, configure the loop, monitor execution sessions,
+                and craft effective prompts for Ralph-driven development.
+            </RadzenText>
+        </RadzenCard>
+    </RadzenColumn>
+</RadzenRow>
+
+@code {
+    private int _tasksCount;
+    private int _sessionsCount;
+    private int _activeSessions;
+    private int _completedTasks;
+    private string _errorMessage = "";
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        await LoadStatistics(_cts.Token);
+    }
+
+    private async Task LoadStatistics(CancellationToken ct)
+    {
+        try
+        {
+            var tasksResult = await Api.GetTasksAsync(1, 1, ct);
+            _tasksCount = tasksResult.Match(r => r.Total, _ => 0);
+
+            var sessionsResult = await Api.GetSessionsAsync(1, 1, ct);
+            _sessionsCount = sessionsResult.Match(r => r.Total, _ => 0);
+
+            var activeResult = await Api.GetActiveSessionsAsync(1, 1, ct);
+            _activeSessions = activeResult.Match(r => r.Total, _ => 0);
+
+            // Estimate completed from total - active (rough heuristic)
+            _completedTasks = Math.Max(0, _tasksCount - _activeSessions);
+        }
+        catch (OperationCanceledException)
+        {
+            // Silently ignore cancellation
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading statistics: {ex.Message}";
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+    }
+
+}

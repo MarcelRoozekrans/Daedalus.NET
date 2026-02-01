@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Daedalus.Benchmarks.QueryHandlerBenchmarks-20260203-112123</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.15.0, Windows 11 (10.0.26200.7623) (Hyper-V)
+Unknown processor
+.NET SDK 10.0.102
+  [Host]     : .NET 10.0.2 (10.0.225.61305), X64 RyuJIT AVX2
+  DefaultJob : .NET 10.0.2 (10.0.225.61305), X64 RyuJIT AVX2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                                            </th><th>Mean    </th><th>Error</th><th>StdDev</th><th>Median  </th><th>Rank</th><th>Gen0</th><th>Gen1</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>&#39;Pagination - Skip/Take on 1000 tasks (page 5, size 20)&#39;</td><td>27.2257 ns</td><td>0.6271 ns</td><td>1.3764 ns</td><td>26.9287 ns</td><td>4</td><td>0.0185</td><td>-</td><td>232 B</td>
+</tr><tr><td>&#39;Pagination - Alternative: Direct LINQ Select&#39;</td><td>10.8416 ns</td><td>0.2795 ns</td><td>0.5111 ns</td><td>10.7245 ns</td><td>3</td><td>0.0108</td><td>-</td><td>136 B</td>
+</tr><tr><td>&#39;DTO Mapping - Project to tuple list&#39;</td><td>22,439.9098 ns</td><td>423.1760 ns</td><td>593.2336 ns</td><td>22,264.1357 ns</td><td>12</td><td>4.4556</td><td>0.7324</td><td>56136 B</td>
+</tr><tr><td>&#39;Filter + Map - Where + Select&#39;</td><td>8,109.9736 ns</td><td>202.9622 ns</td><td>565.7775 ns</td><td>7,938.1927 ns</td><td>9</td><td>2.2430</td><td>0.0610</td><td>28240 B</td>
+</tr><tr><td>&#39;Count before pagination&#39;</td><td>0.0047 ns</td><td>0.0115 ns</td><td>0.0102 ns</td><td>0.0000 ns</td><td>1</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Manual iteration - counting matches&#39;</td><td>598.1621 ns</td><td>11.3682 ns</td><td>11.6743 ns</td><td>595.9749 ns</td><td>6</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Standard LINQ Count with filter&#39;</td><td>589.7442 ns</td><td>7.8606 ns</td><td>6.9682 ns</td><td>588.9369 ns</td><td>6</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;First or default - finding first match&#39;</td><td>137.2069 ns</td><td>2.7251 ns</td><td>2.6765 ns</td><td>137.4233 ns</td><td>5</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Multiple projections - nested Select&#39;</td><td>20,711.2230 ns</td><td>409.1928 ns</td><td>835.8726 ns</td><td>20,694.0918 ns</td><td>11</td><td>7.6904</td><td>1.2512</td><td>96488 B</td>
+</tr><tr><td>&#39;Distinct operation on 1000 tasks&#39;</td><td>12,618.6834 ns</td><td>249.4676 ns</td><td>498.2137 ns</td><td>12,538.3850 ns</td><td>10</td><td>5.0049</td><td>0.6256</td><td>62928 B</td>
+</tr><tr><td>&#39;Order by operation&#39;</td><td>4,803.2305 ns</td><td>94.9154 ns</td><td>158.5824 ns</td><td>4,768.8202 ns</td><td>7</td><td>0.6714</td><td>-</td><td>8480 B</td>
+</tr><tr><td>&#39;Group by operation&#39;</td><td>7,194.7254 ns</td><td>143.3579 ns</td><td>262.1381 ns</td><td>7,198.7865 ns</td><td>8</td><td>1.4801</td><td>0.0458</td><td>18656 B</td>
+</tr><tr><td>&#39;Contains check - list membership&#39;</td><td>28.7676 ns</td><td>0.5650 ns</td><td>0.7921 ns</td><td>28.7508 ns</td><td>4</td><td>-</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Binary search - array lookup&#39;</td><td>2.0839 ns</td><td>0.0695 ns</td><td>0.0580 ns</td><td>2.0900 ns</td><td>2</td><td>-</td><td>-</td><td>-</td>
+</tr></tbody></table>
+</body>
+</html>

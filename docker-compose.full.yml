@@ -1,0 +1,182 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: daedalus_postgres
+    environment:
+      POSTGRES_USER: daedalus
+      POSTGRES_PASSWORD: daedalus
+      POSTGRES_DB: daedalus
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U daedalus" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - daedalus_network
+    restart: unless-stopped
+
+  # Database Migrations - runs before other services
+  migrations:
+    build:
+      context: .
+      dockerfile: src/Daedalus.Migrations/Dockerfile
+    container_name: daedalus_migrations
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__ApplicationDb: "Server=postgres;Port=5432;Database=daedalus;User Id=daedalus;Password=daedalus"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - daedalus_network
+    restart: "no"
+
+  # Keycloak OIDC Identity Provider
+  keycloak:
+    image: keycloak/keycloak:latest
+    container_name: daedalus_keycloak
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: changeme
+      KC_DB: postgresql
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HOSTNAME_URL: http://localhost:8082
+      KC_HOSTNAME_ADMIN_URL: http://localhost:8082
+      KC_PROXY: edge
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_IMPORT: /opt/keycloak/data/import/realm.json
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./keycloak-realm.json:/opt/keycloak/data/import/realm.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health/ready" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - daedalus_network
+    restart: unless-stopped
+
+  # ASP.NET Core API
+  api:
+    build:
+      context: .
+      dockerfile: src/Daedalus.Api/Dockerfile
+    container_name: daedalus_api
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "Server=postgres;Port=5432;Database=daedalus;User Id=daedalus;Password=daedalus"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    networks:
+      - daedalus_network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Blazor WASM Frontend
+  web:
+    build:
+      context: .
+      dockerfile: src/Daedalus.Web/Dockerfile
+    container_name: daedalus_web
+    ports:
+      - "8081:8080"
+    depends_on:
+      - api
+    networks:
+      - daedalus_network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Ralph Loop Worker Console
+  console:
+    build:
+      context: .
+      dockerfile: src/Daedalus.Console/Dockerfile
+    container_name: daedalus_console
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Server=postgres;Port=5432;Database=daedalus;User Id=daedalus;Password=daedalus"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    networks:
+      - daedalus_network
+    restart: unless-stopped
+
+  # pgAdmin - Database management UI (optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: daedalus_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - daedalus_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  daedalus_network:
+    driver: bridge

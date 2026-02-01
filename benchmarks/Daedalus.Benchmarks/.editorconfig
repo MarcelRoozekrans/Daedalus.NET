@@ -1,0 +1,33 @@
+# Benchmarks project: disable strict analyzers
+[**.cs]
+# Code analysis rules that are not applicable to benchmarks
+dotnet_diagnostic.CA1002.severity = none
+dotnet_diagnostic.MA0016.severity = none
+dotnet_diagnostic.CA1307.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.MA0011.severity = none
+dotnet_diagnostic.MA0029.severity = none
+dotnet_diagnostic.S1118.severity = none
+dotnet_diagnostic.S1643.severity = none
+# Benchmarks intentionally compare lowered vs upper approaches
+dotnet_diagnostic.CA1308.severity = none
+# Benchmarks intentionally compare different StringComparison overloads
+dotnet_diagnostic.CA1310.severity = none
+dotnet_diagnostic.CA1862.severity = none
+dotnet_diagnostic.MA0074.severity = none
+# Benchmarks compare Substring vs Span approaches
+dotnet_diagnostic.CA1845.severity = none
+# Benchmarks may use nested ternary for compact data generation
+dotnet_diagnostic.S3358.severity = none
+# Benchmarks may have redundant casts for readability
+dotnet_diagnostic.S1905.severity = none
+# Benchmarks use reflection-based JSON serialization for comparison
+dotnet_diagnostic.IL2026.severity = none
+# Benchmarks may have unused fields from setup
+dotnet_diagnostic.S4487.severity = none
+# Allow nested types in benchmarks for test data classes
+dotnet_diagnostic.CA1034.severity = none
+# Allow mutable collection properties in benchmark data classes
+dotnet_diagnostic.CA2227.severity = none
+# Allow non-readonly fields in benchmarks
+dotnet_diagnostic.S2933.severity = none

@@ -1,0 +1,97 @@
+{
+  "realm": "daedalus",
+  "displayName": "Daedalus",
+  "displayNameHtml": "<strong>Daedalus</strong> - AI-Powered Code Analysis",
+  "enabled": true,
+  "sslRequired": "external",
+  "accessTokenLifespan": 300,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespan": 5184000,
+  "clients": [
+    {
+      "clientId": "daedalus-api",
+      "name": "Daedalus API",
+      "description": "Backend API for Daedalus code analysis",
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "enabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "daedalus-api-secret-change-in-production",
+      "defaultClientScopes": ["profile", "email"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "daedalus-wasm",
+      "name": "Daedalus Web",
+      "description": "Blazor WASM frontend for Daedalus",
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "enabled": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "clientAuthenticatorType": "client-secret",
+      "redirectUris": [
+        "http://localhost:8081/authentication/login-callback",
+        "http://localhost:8081",
+        "http://daedalus-web:8080/authentication/login-callback",
+        "http://daedalus-web:8080",
+        "http://localhost:*/authentication/login-callback",
+        "http://localhost:*"
+      ],
+      "webOrigins": [
+        "http://localhost:8081",
+        "http://daedalus-web:8080",
+        "http://localhost:8080",
+        "+"
+      ],
+      "defaultClientScopes": ["profile", "email"],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "username": "dev",
+      "email": "dev@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Dev",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["default-roles-daedalus"]
+    },
+    {
+      "username": "admin",
+      "email": "admin@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["default-roles-daedalus"]
+    }
+  ],
+  "roles": {
+    "realm": []
+  },
+  "scopeMappings": []
+}

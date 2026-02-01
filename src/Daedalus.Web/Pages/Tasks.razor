@@ -1,0 +1,281 @@
+@page "/tasks"
+@inject ApiClient Api
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+@implements IAsyncDisposable
+
+<RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+             JustifyContent="JustifyContent.SpaceBetween" class="rz-mb-4">
+    <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2">
+        <RadzenIcon Icon="task_alt"/>
+        Tasks
+    </RadzenText>
+    <RadzenButton Text="Create Task" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialog"
+                  data-testid="btn-create-task"/>
+</RadzenStack>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4"
+                 Close="@(() => _errorMessage = "")">
+        @_errorMessage
+    </RadzenAlert>
+}
+
+<RadzenDataGrid TItem="TaskDto" Data="@_tasks" Count="@_totalCount" AllowPaging="true" PageSize="15" AllowSorting="true"
+                AllowColumnResize="true" PagerHorizontalAlign="HorizontalAlign.Center" ShowPagingSummary="true"
+                IsLoading="@_loading" Style="height: auto;" data-testid="tasks-grid">
+    <Columns>
+        <RadzenDataGridColumn TItem="TaskDto" Property="Title" Title="Title" Width="200px">
+            <Template Context="task">
+                @if (!string.IsNullOrEmpty(task.Title))
+                {
+                    <RadzenText TextStyle="TextStyle.Body2" Style="font-weight: 500;">@task.Title</RadzenText>
+                }
+                else
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" Style="color: var(--rz-text-secondary-color);">
+                        @task.Id.ToString()[..8]...
+                    </RadzenText>
+                }
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="120px"
+                              TextAlign="TextAlign.Center">
+            <Template Context="task">
+                <RadzenBadge Text="@GetStatusName(task.Status)" BadgeStyle="@GetStatusBadgeStyle(task.Status)"/>
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="TaskDto" Property="Priority" Title="Priority" Width="100px"
+                              TextAlign="TextAlign.Center">
+            <Template Context="task">
+                <RadzenBadge Text="@GetPriorityName(task.Priority)" BadgeStyle="@GetPriorityBadgeStyle(task.Priority)"
+                             Variant="Variant.Outlined"/>
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="TaskDto" Property="Phase" Title="Phase" Width="120px">
+            <Template Context="task">
+                @(string.IsNullOrEmpty(task.Phase) ? "—" : task.Phase)
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="TaskDto" Property="IterationCount" Title="Iterations" Width="110px"
+                              TextAlign="TextAlign.Center">
+            <Template Context="task">
+                <RadzenText TextStyle="TextStyle.Body2">@task.IterationCount / @task.MaxIterations</RadzenText>
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="TaskDto" Property="Prompt" Title="Prompt" Width="250px">
+            <Template Context="task">
+                <RadzenText TextStyle="TextStyle.Caption"
+                            Style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; display: block;"
+                            title="@task.Prompt">
+                    @task.Prompt
+                </RadzenText>
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" Width="140px" FormatString="{0:g}"/>
+
+        <RadzenDataGridColumn TItem="TaskDto" Title="Actions" Width="180px" TextAlign="TextAlign.Center"
+                              Sortable="false" Filterable="false">
+            <Template Context="task">
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" JustifyContent="JustifyContent.Center">
+                    <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
+                                  Click="@(() => OpenEditDialog(task))" title="Edit"/>
+                    @if (task.Status == 0)
+                    {
+                        <RadzenButton Icon="play_arrow" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Success"
+                                      Click="@(() => ResumeTask(task))" title="Resume"/>
+                    }
+                    @if (task.Status is 0 or 1)
+                    {
+                        <RadzenButton Icon="stop" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Warning"
+                                      Click="@(() => AbandonTask(task))" title="Abandon"/>
+                    }
+                    <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"
+                                  Click="@(() => DeleteTask(task))" title="Delete"/>
+                </RadzenStack>
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    private IEnumerable<TaskDto>? _tasks;
+    private int _totalCount;
+    private bool _loading = true;
+    private string _errorMessage = "";
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        await LoadTasks();
+    }
+
+    private async Task LoadTasks()
+    {
+        try
+        {
+            _loading = true;
+            _errorMessage = "";
+            var result = await Api.GetTasksAsync(1, 200, _cts?.Token ?? CancellationToken.None);
+            result.Match(
+                tasks =>
+                {
+                    _tasks = tasks.Items;
+                    _totalCount = tasks.Total;
+                },
+                error =>
+                {
+                    _errorMessage = error;
+                    _tasks = null;
+                    _totalCount = 0;
+                });
+        }
+        catch (OperationCanceledException)
+        {
+            /* Expected on cancellation */
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading tasks: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var result = await DialogService.OpenAsync<TaskCreateDialog>("Create New Task",
+            options: new DialogOptions { Width = "700px", Height = "600px", Resizable = true, Draggable = true });
+
+        if (result is bool confirmed1 && confirmed1)
+        {
+            await LoadTasks();
+        }
+    }
+
+    private async Task OpenEditDialog(TaskDto task)
+    {
+        var result = await DialogService.OpenAsync<TaskEditDialog>("Edit Task",
+            new Dictionary<string, object> { { "Task", task } },
+            new DialogOptions { Width = "700px", Height = "600px", Resizable = true, Draggable = true });
+
+        if (result is bool confirmed2 && confirmed2)
+        {
+            await LoadTasks();
+        }
+    }
+
+    private async Task AbandonTask(TaskDto task)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Abandon task '{task.Title ?? task.Id.ToString()[..8]}'?",
+            "Confirm Abandon",
+            new ConfirmOptions { OkButtonText = "Abandon", CancelButtonText = "Cancel" });
+
+        if (confirmed is true)
+        {
+            var result = await Api.AbandonTaskAsync(task.Id, new AbandonTaskDto("Abandoned from dashboard"));
+            result.Match(
+                _ => NotificationService.Notify(NotificationSeverity.Success, "Task Abandoned"),
+                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            await LoadTasks();
+        }
+    }
+
+    private async Task ResumeTask(TaskDto task)
+    {
+        var result = await Api.ResumeTaskAsync(task.Id, new ResumeTaskDto(null));
+        result.Match(
+            _ => NotificationService.Notify(NotificationSeverity.Success, "Task Resumed"),
+            error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+        await LoadTasks();
+    }
+
+    private async Task DeleteTask(TaskDto task)
+    {
+        var confirmed = await DialogService.Confirm(
+            $"Delete task '{task.Title ?? task.Id.ToString()[..8]}'? This cannot be undone.",
+            "Confirm Delete",
+            new ConfirmOptions { OkButtonText = "Delete", CancelButtonText = "Cancel" });
+
+        if (confirmed is true)
+        {
+            var result = await Api.DeleteTaskAsync(task.Id);
+            result.Match(
+                () => NotificationService.Notify(NotificationSeverity.Success, "Task Deleted"),
+                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            await LoadTasks();
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+    }
+
+    private static string GetStatusName(int status)
+    {
+        return status switch
+        {
+            0 => "Pending",
+            1 => "In Progress",
+            2 => "Completed",
+            3 => "Failed",
+            4 => "Abandoned",
+            _ => "Unknown"
+        };
+    }
+
+    private static BadgeStyle GetStatusBadgeStyle(int status)
+    {
+        return status switch
+        {
+            0 => BadgeStyle.Warning,
+            1 => BadgeStyle.Info,
+            2 => BadgeStyle.Success,
+            3 => BadgeStyle.Danger,
+            4 => BadgeStyle.Light,
+            _ => BadgeStyle.Light
+        };
+    }
+
+    private static string GetPriorityName(int priority)
+    {
+        return priority switch
+        {
+            0 => "Low",
+            1 => "Medium",
+            2 => "High",
+            3 => "Critical",
+            _ => "Unknown"
+        };
+    }
+
+    private static BadgeStyle GetPriorityBadgeStyle(int priority)
+    {
+        return priority switch
+        {
+            0 => BadgeStyle.Light,
+            1 => BadgeStyle.Info,
+            2 => BadgeStyle.Warning,
+            3 => BadgeStyle.Danger,
+            _ => BadgeStyle.Light
+        };
+    }
+
+
+}

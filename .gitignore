@@ -1,0 +1,93 @@
+# Build results
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.iml
+
+# Package Directories
+packages/
+.nuget/
+
+# Publish Directories
+PublishProfiles/
+publish/
+
+# Build output
+*.dll
+*.exe
+*.pdb
+*.log
+
+# Test Results
+TestResults/
+*.trx
+.coverage/
+coverage.json
+
+# IDE
+.idea/
+.idea_modules/
+*.iws
+*.swp
+*.swo
+*~
+
+# Dependencies
+node_modules/
+bower_components/
+
+# Environment
+.env
+.env.local
+.env.*.local
+appsettings.local.json
+appsettings.local.*.json
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+*.mdf
+*.ldf
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# OS
+.DS_Store
+Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Local history for Visual Studio Code
+.history/
+.vscode-insiders/
+
+# Temporary files
+.tmp/
+tmp/
+temp/
+
+# NuGet
+.nuget/
+*.nupkg
+*.snupkg
+
+# Docker
+.dockerignore

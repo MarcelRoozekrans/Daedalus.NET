@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Daedalus.Benchmarks.CommandHandlerBenchmarks-20260203-111605</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.15.0, Windows 11 (10.0.26200.7623) (Hyper-V)
+Unknown processor
+.NET SDK 10.0.102
+  [Host]     : .NET 10.0.2 (10.0.225.61305), X64 RyuJIT AVX2
+  DefaultJob : .NET 10.0.2 (10.0.225.61305), X64 RyuJIT AVX2
+</code></pre>
+<pre><code></code></pre>
+
+<table>
+<thead><tr><th>Method                                     </th><th>Mean</th><th>Error</th><th>StdDev</th><th>Median</th><th>Rank</th><th>Gen0</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>&#39;Validate and trim - Valid prompt&#39;</td><td>0.6117 ns</td><td>0.0815 ns</td><td>0.1001 ns</td><td>0.6212 ns</td><td>2</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Validate and trim - Requires trimming&#39;</td><td>12.9975 ns</td><td>0.2998 ns</td><td>0.6889 ns</td><td>12.8598 ns</td><td>6</td><td>0.0044</td><td>56 B</td>
+</tr><tr><td>&#39;Validate and trim - Whitespace only&#39;</td><td>6.2741 ns</td><td>0.1923 ns</td><td>0.2567 ns</td><td>6.1629 ns</td><td>5</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Standard String.IsNullOrWhiteSpace check&#39;</td><td>0.0000 ns</td><td>0.0000 ns</td><td>0.0000 ns</td><td>0.0000 ns</td><td>1</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Multiple validation checks - Command validation&#39;</td><td>1.9254 ns</td><td>0.0759 ns</td><td>0.1159 ns</td><td>1.8901 ns</td><td>3</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;ContainsTarget - Substring search&#39;</td><td>6.4871 ns</td><td>0.1104 ns</td><td>0.1751 ns</td><td>6.4316 ns</td><td>5</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Standard String.Contains&#39;</td><td>4.4131 ns</td><td>0.1211 ns</td><td>0.1189 ns</td><td>4.3885 ns</td><td>4</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;CountOccurrences - Character counting&#39;</td><td>20.0458 ns</td><td>0.4345 ns</td><td>0.7609 ns</td><td>19.6679 ns</td><td>7</td><td>-</td><td>-</td>
+</tr><tr><td>&#39;Standard LINQ Count&#39;</td><td>23.6307 ns</td><td>0.3453 ns</td><td>0.2883 ns</td><td>23.5627 ns</td><td>8</td><td>-</td><td>-</td>
+</tr></tbody></table>
+</body>
+</html>

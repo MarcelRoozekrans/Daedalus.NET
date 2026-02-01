@@ -1,0 +1,68 @@
+@using ProjectDto = Daedalus.Application.DTOs.ProjectDto
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">
+            <i class="bi bi-folder"></i>
+            Select Project
+        </h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted">Choose a project to associate with your PRD generation.</p>
+
+        @if (_projects == null)
+        {
+            <div class="text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        }
+        else if (_projects.Count == 0)
+        {
+            <div class="alert alert-info">
+                No projects found. Please create a project first.
+            </div>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var project in _projects)
+                {
+                    <button type="button" class="list-group-item list-group-item-action"
+                            @onclick="() => OnProjectSelected.InvokeAsync(project.Id)">
+                        <h6 class="mb-1">@project.ProjectName</h6>
+                        <p class="mb-0 text-muted small">@project.Description</p>
+                    </button>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<Guid> OnProjectSelected { get; set; }
+
+    private List<ProjectDto>? _projects;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjects();
+    }
+
+    private async Task LoadProjects()
+    {
+        try
+        {
+            _projects = await Http.GetFromJsonAsync<List<ProjectDto>>("api/projects") ?? [];
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading projects");
+            _projects = [];
+        }
+    }
+
+@inject HttpClient Http
+
+@inject ILogger<ProjectSelectionStep> Logger
+}

@@ -1,0 +1,9 @@
+global using System.Net;
+global using System.Net.Http.Json;
+global using CSharpFunctionalExtensions;
+global using FluentAssertions;
+global using NSubstitute;
+global using NSubstitute.ExceptionExtensions;
+global using Spectre.Console;
+global using Spectre.Console.Testing;
+global using Xunit;

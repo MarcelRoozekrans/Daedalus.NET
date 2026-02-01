@@ -1,0 +1,120 @@
+@using Daedalus.Application.DTOs
+@if (Repository != null)
+{
+    <EditForm Model="@Repository" OnValidSubmit="@OnSave">
+        <DataAnnotationsValidator/>
+
+        <div class="mb-3">
+            <label for="repo-name" class="form-label">Repository Name</label>
+            <InputText id="repo-name" class="form-control" @bind-Value="Repository.Name"
+                       placeholder="e.g., My Application Repository" disabled="@_isLoading"/>
+        </div>
+
+        <div class="mb-3">
+            <label for="repo-url" class="form-label">Repository URL</label>
+            <InputText id="repo-url" class="form-control" @bind-Value="Repository.Url"
+                       placeholder="https://github.com/user/repo" disabled="@_isLoading"/>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label for="repo-platform" class="form-label">Platform</label>
+                <InputSelect id="repo-platform" class="form-select" @bind-Value="Repository.Platform"
+                             disabled="@(_isLoading || IsEditing)">
+                    <option value="GitHub">GitHub</option>
+                    <option value="GitLab">GitLab</option>
+                    <option value="AzureDevOps">Azure DevOps</option>
+                    <option value="Gitea">Gitea</option>
+                </InputSelect>
+            </div>
+            <div class="col-md-6">
+                <label for="repo-branch" class="form-label">Default Branch</label>
+                <InputText id="repo-branch" class="form-control" @bind-Value="Repository.DefaultBranch"
+                           placeholder="main"
+                           disabled="@_isLoading"/>
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label for="repo-auth-method" class="form-label">Authentication Method</label>
+                <InputSelect id="repo-auth-method" class="form-select" @bind-Value="Repository.AuthenticationMethod"
+                             disabled="@_isLoading">
+                    <option value="">None</option>
+                    <option value="PAT">Personal Access Token</option>
+                    <option value="SSH">SSH Key</option>
+                    <option value="OAuth">OAuth</option>
+                </InputSelect>
+            </div>
+            <div class="col-md-6">
+                <label for="repo-credential" class="form-label">Credential Identifier</label>
+                <InputText id="repo-credential" class="form-control" @bind-Value="Repository.CredentialIdentifier"
+                           placeholder="vault-key or env-var-name" disabled="@_isLoading"/>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label for="repo-description" class="form-label">Description</label>
+            <InputTextArea id="repo-description" class="form-control" @bind-Value="Repository.Description"
+                           placeholder="Optional description" rows="3" disabled="@_isLoading"/>
+        </div>
+
+        @if (IsEditing && Repository != null)
+        {
+            <div class="mb-3">
+                <div class="form-check">
+                    <InputCheckbox id="repo-active" class="form-check-input" @bind-Value="Repository!.IsActive"
+                                   disabled="@_isLoading"/>
+                    <label class="form-check-label" for="repo-active">
+                        Active
+                    </label>
+                </div>
+            </div>
+        }
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-success" disabled="@_isLoading" id="btn-save">
+                @if (_isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                    <span>Saving...</span>
+                }
+                else
+                {
+                    <span class="oi oi-check"></span>
+                    <span>@(IsEditing ? "Update" : "Create") Repository</span>
+                }
+            </button>
+            <button type="button" class="btn btn-secondary" @onclick="OnCancel" disabled="@_isLoading" id="btn-cancel">
+                Cancel
+            </button>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public RepositoryConfigurationDto? Repository { get; set; }
+
+    [Parameter] public EventCallback OnSave { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    [Parameter] public bool IsEditing { get; set; }
+
+    private readonly bool _isLoading = false;
+
+    protected override void OnInitialized()
+    {
+        if (Repository == null)
+        {
+            Repository = new RepositoryConfigurationDto
+            {
+                Id = Guid.NewGuid(),
+                Platform = "GitHub",
+                DefaultBranch = "main"
+            };
+        }
+    }
+
+
+}

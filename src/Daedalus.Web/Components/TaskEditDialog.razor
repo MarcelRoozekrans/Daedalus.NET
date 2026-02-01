@@ -1,0 +1,194 @@
+@inject ApiClient Api
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem">
+    <RadzenRow>
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenFormField Text="Title" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="@_title"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="6">
+            <RadzenFormField Text="Status" Style="width: 100%;">
+                <RadzenBadge Text="@GetStatusName(Task.Status)" BadgeStyle="@GetStatusBadgeStyle(Task.Status)"/>
+            </RadzenFormField>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenFormField Text="Description" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_description" Rows="2"/>
+    </RadzenFormField>
+
+    <RadzenFormField Text="Prompt" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_prompt" Rows="5"/>
+    </RadzenFormField>
+
+    <RadzenFormField Text="Completion Promise" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_completionPromise" Rows="3"/>
+    </RadzenFormField>
+
+    <RadzenRow>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Priority" Style="width: 100%;">
+                <RadzenDropDown @bind-Value="@_priority" Data="@_priorities" TextProperty="Text"
+                                ValueProperty="Value"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Estimated Complexity" Style="width: 100%;">
+                <RadzenDropDown @bind-Value="@_estimatedComplexity" Data="@_complexities" TextProperty="Text"
+                                ValueProperty="Value"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Max Iterations" Style="width: 100%;">
+                <RadzenNumeric @bind-Value="@_maxIterations" Min="1" Max="100"/>
+            </RadzenFormField>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenRow>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Phase" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="@_phase"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Parallel Group" Style="width: 100%;">
+                <RadzenNumeric @bind-Value="@_parallelGroup" Min="0" Max="99"/>
+            </RadzenFormField>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenFormField Text="Dependencies" Style="width: 100%;">
+                <RadzenTextBox @bind-Value="@_dependencies"/>
+            </RadzenFormField>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenFormField Text="Files to Modify" Style="width: 100%;">
+        <RadzenTextBox @bind-Value="@_filesToModify"/>
+    </RadzenFormField>
+
+    @if (!string.IsNullOrEmpty(Task.Result))
+    {
+        <RadzenFieldset Text="Result" Style="width: 100%;">
+            <RadzenText TextStyle="TextStyle.Body2">@Task.Result</RadzenText>
+        </RadzenFieldset>
+    }
+
+    @if (!string.IsNullOrEmpty(Task.Learnings))
+    {
+        <RadzenFieldset Text="Learnings" Style="width: 100%;">
+            <RadzenText TextStyle="TextStyle.Body2">@Task.Learnings</RadzenText>
+        </RadzenFieldset>
+    }
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" class="rz-mt-4">
+        <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))"/>
+        <RadzenButton Text="Save Changes" Icon="save" ButtonStyle="ButtonStyle.Primary" Click="@HandleUpdate"
+                      IsBusy="@_submitting" Disabled="@(Task.Status is not (0 or 3))"/>
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    [Parameter] public TaskDto Task { get; set; } = default!;
+
+    private string? _title;
+    private string? _description;
+    private string? _prompt;
+    private string? _completionPromise;
+    private int _priority;
+    private int _estimatedComplexity;
+    private int _maxIterations;
+    private string? _phase;
+    private int _parallelGroup;
+    private string? _dependencies;
+    private string? _filesToModify;
+    private bool _submitting;
+
+    private readonly record struct DropdownItem(string Text, int Value);
+
+    private static readonly DropdownItem[] _priorities =
+    [
+        new("Low", 0), new("Medium", 1), new("High", 2), new("Critical", 3)
+    ];
+
+    private static readonly DropdownItem[] _complexities =
+    [
+        new("Simple", 0), new("Medium", 1), new("Complex", 2), new("Epic", 3)
+    ];
+
+    protected override void OnParametersSet()
+    {
+        _title = Task.Title;
+        _description = Task.Description;
+        _prompt = Task.Prompt;
+        _completionPromise = Task.CompletionPromise;
+        _priority = Task.Priority;
+        _estimatedComplexity = Task.EstimatedComplexity;
+        _maxIterations = Task.MaxIterations;
+        _phase = Task.Phase;
+        _parallelGroup = Task.ParallelGroup;
+        _dependencies = Task.Dependencies is { Count: > 0 } ? string.Join(", ", Task.Dependencies) : null;
+        _filesToModify = Task.FilesToModify is { Count: > 0 } ? string.Join(", ", Task.FilesToModify) : null;
+    }
+
+    private async Task HandleUpdate()
+    {
+        _submitting = true;
+        try
+        {
+            var dto = new UpdateTaskDto(
+                _title,
+                _description,
+                _priority != Task.Priority ? _priority : null,
+                _phase,
+                _parallelGroup != Task.ParallelGroup ? _parallelGroup : null,
+                _estimatedComplexity != Task.EstimatedComplexity ? _estimatedComplexity : null,
+                _prompt,
+                _completionPromise,
+                _maxIterations != Task.MaxIterations ? _maxIterations : null);
+
+            var result = await Api.UpdateTaskAsync(Task.Id, dto);
+            result.Match(
+                _ =>
+                {
+                    NotificationService.Notify(NotificationSeverity.Success, "Success", "Task updated");
+                    DialogService.Close(true);
+                },
+                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private static string GetStatusName(int status)
+    {
+        return status switch
+        {
+            0 => "Pending",
+            1 => "In Progress",
+            2 => "Completed",
+            3 => "Failed",
+            4 => "Abandoned",
+            _ => "Unknown"
+        };
+    }
+
+    private static BadgeStyle GetStatusBadgeStyle(int status)
+    {
+        return status switch
+        {
+            0 => BadgeStyle.Warning,
+            1 => BadgeStyle.Info,
+            2 => BadgeStyle.Success,
+            3 => BadgeStyle.Danger,
+            4 => BadgeStyle.Light,
+            _ => BadgeStyle.Light
+        };
+    }
+
+}

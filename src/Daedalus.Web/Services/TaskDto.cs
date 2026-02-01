@@ -1,0 +1,26 @@
+﻿namespace Daedalus.Web.Services;
+
+public record TaskDto(
+    Guid Id,
+    string TaskId,
+    Guid ProjectId,
+    string Title,
+    string Description,
+    int Priority,
+    string Phase,
+    int ParallelGroup,
+    IReadOnlyList<string> Dependencies,
+    IReadOnlyList<string> FilesToModify,
+    int EstimatedComplexity,
+    string Prompt,
+    string CompletionPromise,
+    int MaxIterations,
+    int Status,
+    Guid? CurrentSessionId,
+    string? Result,
+    int IterationCount,
+    DateTime CreatedAt,
+    DateTime? CompletedAt,
+    string? Learnings,
+    DateTime? LearningsUpdatedAt,
+    IReadOnlyList<TaskExecutionDto> Executions);

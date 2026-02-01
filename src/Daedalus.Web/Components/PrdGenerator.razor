@@ -1,0 +1,192 @@
+@page "/prd-generator"
+@using System.Text.Json
+@using Daedalus.Application.DTOs
+@using TaskDto = Daedalus.Application.DTOs.TaskDto
+@implements IAsyncDisposable
+
+@inject NavigationManager Nav
+@inject HttpClient Http
+@inject ILogger<PrdGenerator> Logger
+
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-lg-12">
+            <h1 class="mb-4">
+                <i class="bi bi-lightbulb"></i>
+                PRD Generator - AI-Powered Requirements to Tasks
+            </h1>
+        </div>
+    </div>
+
+    @if (_currentStep == PrdGeneratorStep.ProjectSelection)
+    {
+        <ProjectSelectionStep OnProjectSelected="id => HandleProjectSelected(id)"/>
+    }
+    else if (_currentStep == PrdGeneratorStep.RequirementsInput)
+    {
+        <RequirementsInputStep ProjectId="_selectedProjectId"
+                               OnRequirementsSubmitted="data => HandleRequirementsSubmitted(new RequirementsData(data.Requirements, data.Context))"
+                               IsLoading="_isGenerating" OnCancel="() => ResetWorkflow()"/>
+    }
+    else if (_currentStep == PrdGeneratorStep.PrdReview)
+    {
+        <PrdReviewStep Prd="_generatedPrd!" OnItemsSelected="items => HandleItemsSelected(items)"
+                       IsConverting="_isConverting" OnCancel="() => ResetWorkflow()"/>
+    }
+    else if (_currentStep == PrdGeneratorStep.TasksCreated)
+    {
+        <TasksCreatedStep CreatedTasks="_createdTasks" OnDone="() => ResetWorkflow()"/>
+    }
+
+    @if (_showError)
+    {
+        <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
+            <strong>Error:</strong> @_errorMessage
+            <button type="button" class="btn-close" @onclick="() => _showError = false"></button>
+        </div>
+    }
+</div>
+
+@code {
+
+    private enum PrdGeneratorStep
+    {
+        ProjectSelection,
+        RequirementsInput,
+        PrdReview,
+        TasksCreated
+    }
+
+    private PrdGeneratorStep _currentStep = PrdGeneratorStep.ProjectSelection;
+    private Guid _selectedProjectId;
+    private PrdResponseDto? _generatedPrd;
+    private List<TaskDto> _createdTasks = [];
+    private bool _isGenerating;
+    private bool _isConverting;
+    private bool _showError;
+    private string _errorMessage = string.Empty;
+
+    private void HandleProjectSelected(Guid projectId)
+    {
+        _selectedProjectId = projectId;
+        _currentStep = PrdGeneratorStep.RequirementsInput;
+    }
+
+    private async Task HandleRequirementsSubmitted(RequirementsData data)
+    {
+        _isGenerating = true;
+        _showError = false;
+
+        try
+        {
+            var request = new PrdRequestDto(
+                _selectedProjectId,
+                data.Requirements,
+                data.Context);
+
+            var response = await Http.PostAsJsonAsync("api/prd/generate", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var jsonContent = await response.Content.ReadAsStringAsync();
+                _generatedPrd = JsonSerializer.Deserialize<PrdResponseDto>(jsonContent);
+                _currentStep = PrdGeneratorStep.PrdReview;
+                Logger.LogInformation("PRD generated successfully");
+            }
+            else
+            {
+                try
+                {
+                    var jsonContent = await response.Content.ReadAsStringAsync();
+                    var error = JsonSerializer.Deserialize<dynamic>(jsonContent);
+                    _errorMessage = error?.ToString() ?? "Failed to generate PRD";
+                }
+                catch
+                {
+                    _errorMessage = $"Failed to generate PRD (Status: {response.StatusCode})";
+                }
+
+                _showError = true;
+                Logger.LogError("PRD generation failed: {Error}", _errorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+            _showError = true;
+            Logger.LogError(ex, "Exception generating PRD");
+        }
+        finally
+        {
+            _isGenerating = false;
+        }
+    }
+
+    private async Task HandleItemsSelected(List<PrdItemForConversionDto> selectedItems)
+    {
+        _isConverting = true;
+        _showError = false;
+
+        try
+        {
+            var request = new PrdConversionRequestDto(
+                _selectedProjectId,
+                selectedItems);
+
+            var response = await Http.PostAsJsonAsync("api/prd/convert-to-tasks", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var jsonContent = await response.Content.ReadAsStringAsync();
+                _createdTasks = JsonSerializer.Deserialize<List<TaskDto>>(jsonContent) ?? [];
+                _currentStep = PrdGeneratorStep.TasksCreated;
+                Logger.LogInformation("Tasks created successfully");
+            }
+            else
+            {
+                try
+                {
+                    var jsonContent = await response.Content.ReadAsStringAsync();
+                    var error = JsonSerializer.Deserialize<dynamic>(jsonContent);
+                    _errorMessage = error?.ToString() ?? "Failed to convert to tasks";
+                }
+                catch
+                {
+                    _errorMessage = $"Failed to convert to tasks (Status: {response.StatusCode})";
+                }
+
+                _showError = true;
+                Logger.LogError("Task conversion failed: {Error}", _errorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+            _showError = true;
+            Logger.LogError(ex, "Exception converting to tasks");
+        }
+        finally
+        {
+            _isConverting = false;
+        }
+    }
+
+    private void ResetWorkflow()
+    {
+        _currentStep = PrdGeneratorStep.ProjectSelection;
+        _selectedProjectId = Guid.Empty;
+        _generatedPrd = null;
+        _createdTasks = [];
+        _showError = false;
+        _errorMessage = string.Empty;
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        // Cleanup if needed
+        await ValueTask.CompletedTask;
+    }
+
+    private sealed record RequirementsData(string Requirements, string? Context = null);
+
+}
