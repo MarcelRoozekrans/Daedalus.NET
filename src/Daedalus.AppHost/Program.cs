@@ -26,7 +26,7 @@ var database = builder.AddPostgres("postgres", dbUserParam, dbPasswordParam)
 
 // Configure Keycloak for identity and access management
 // Auto-imports the daedalus-realm from keycloak-realm.json
-var keycloak = builder.AddKeycloak("daedalus-realm")
+var keycloak = builder.AddKeycloak("daedalus-realm", port: 8082)
     .WithImageTag("26.1")
     .WithRealmImport(keycloakRealmPath)
     // Workaround: Aspire's default health check targets management port 9000 over HTTPS,
@@ -64,19 +64,23 @@ builder.AddProject("console", consolePath)
     .WaitFor(keycloak);
 
 // Add the API service (depends on migrations and Keycloak)
+// Override Authentication:Authority with the host-reachable Keycloak URL
+// (appsettings.json uses Docker hostname "keycloak" which doesn't resolve on the host)
 var api = builder.AddProject("api", apiPath)
     .WithReference(database)
     .WithReference(keycloak)
     .WithReference(migrations)
-    .WithHttpEndpoint(targetPort: 5010, name: "api-http")
+    .WithHttpEndpoint(port: 5010, targetPort: 5010, name: "api-http", isProxied: false)
     .WithExternalHttpEndpoints()
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("Authentication__Authority", "http://localhost:8082/realms/daedalus")
     .WaitFor(migrations)
     .WaitFor(keycloak);
 
 // Add the Blazor WASM frontend with Keycloak reference
 builder.AddProject("web", webPath)
     .WithReference(keycloak)
-    .WithHttpEndpoint(targetPort: 5290, name: "web-http")
+    .WithHttpEndpoint(port: 5290, targetPort: 5290, name: "web-http", isProxied: false)
     .WithExternalHttpEndpoints()
     .WithEnvironment("ApiBaseUrl", api.GetEndpoint("api-http"))
     .WaitFor(api)

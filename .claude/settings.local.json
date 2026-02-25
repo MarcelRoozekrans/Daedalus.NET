@@ -78,7 +78,25 @@
       "mcp__Windows-MCP__App",
       "mcp__Windows-MCP__Snapshot",
       "mcp__Windows-MCP__Click",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "mcp__Windows-MCP__Type",
+      "Bash(^d \")",
+      "Bash(Get-Process -Name \"Daedalus.AppHost\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object Id, ProcessName, StartTime)",
+      "mcp__MCP_DOCKER__browser_navigate",
+      "mcp__MCP_DOCKER__mcp-find",
+      "mcp__MCP_DOCKER__mcp-exec",
+      "Bash(npm install -g mcp-chrome-bridge)",
+      "Bash(nvs ls)",
+      "Bash(nvs add 22)",
+      "Bash(nvs use 22)",
+      "Bash(node --version)",
+      "Bash(export PATH=\"$HOME/AppData/Local/nvs/node/22.22.0/x64:$PATH\")",
+      "Bash(npm root -g)",
+      "mcp__context7__resolve-library-id",
+      "Bash(docker info)",
+      "mcp__MCP_DOCKER__browser_snapshot",
+      "mcp__MCP_DOCKER__browser_click"
     ]
   }
 }
