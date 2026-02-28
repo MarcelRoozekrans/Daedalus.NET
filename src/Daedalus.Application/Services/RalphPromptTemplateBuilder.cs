@@ -76,6 +76,9 @@ public sealed partial class RalphPromptTemplateBuilder(
         // === Core task section (1) ===
         AddTaskSection(sections, options);
 
+        // === Code output format section (1b) — how to emit file contents ===
+        AddCodeOutputFormatSection(sections);
+
         // === Testing section (2) ===
         if (options.IncludeTestInstructions)
         {
@@ -309,6 +312,24 @@ public sealed partial class RalphPromptTemplateBuilder(
         }
 
         AddSection(sections, 10, "1", taskContent.ToString(), PromptSectionCategory.Task);
+    }
+
+    /// <summary>
+    ///     Code output format section: Instructs the LLM to use file-path-annotated code blocks
+    ///     so the CodeChangeApplicationMiddleware can extract and write files to the workspace.
+    ///     Priority: 15 (between task and testing).
+    /// </summary>
+    private static void AddCodeOutputFormatSection(List<PromptSection> sections)
+    {
+        AddSection(sections, 15, "1b",
+            "CRITICAL CODE OUTPUT FORMAT: When outputting file contents, you MUST use the " +
+            "colon-path code fence format so files can be extracted and written to disk. " +
+            "Format: ```language:path/to/file.ext followed by the file content, then ```. " +
+            "Example: ```csharp:src/HelloWorld/Program.cs then the code then ```. " +
+            "ALWAYS include the full relative file path after the colon. " +
+            "NEVER output code blocks without the :path annotation — " +
+            "unlabeled code blocks will be ignored and the files will not be created",
+            PromptSectionCategory.QualityGuard);
     }
 
     /// <summary>

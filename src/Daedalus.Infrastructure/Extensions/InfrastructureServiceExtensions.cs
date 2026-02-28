@@ -9,7 +9,6 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Services.Git;
-using Daedalus.Infrastructure.Services.NoOp;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -67,25 +66,11 @@ public static class InfrastructureServiceExtensions
         // Register workspace context provider for loading specs, plan, and agent instructions
         services.AddScoped<IWorkspaceContextProvider, FileSystemWorkspaceContextProvider>();
 
-        // Register Ralph Wiggum article services (git checkpoints, loop-back, plan management, context persistence)
-        // Use Null Object Pattern when features are disabled to avoid null checks throughout the codebase
-        if (ralphLoopConfig.EnableGitCheckpoints && !string.IsNullOrEmpty(ralphLoopConfig.WorkspacePath))
-        {
-            services.AddScoped<IGitWorkflowService, GitWorkflowService>();
-        }
-        else
-        {
-            services.AddSingleton<IGitWorkflowService, NoOpGitWorkflowService>();
-        }
-
-        if (ralphLoopConfig.EnableLoopbackEvaluation && !string.IsNullOrEmpty(ralphLoopConfig.WorkspacePath))
-        {
-            services.AddScoped<ILoopbackEvaluator, LoopbackEvaluator>();
-        }
-        else
-        {
-            services.AddSingleton<ILoopbackEvaluator, NoOpLoopbackEvaluator>();
-        }
+        // Register real implementations unconditionally — WorkspacePath is set dynamically per-task.
+        // Middleware guards on WorkspacePath at runtime (empty = skip).
+        services.AddScoped<IGitWorkflowService, GitWorkflowService>();
+        services.AddScoped<ILoopbackEvaluator, LoopbackEvaluator>();
+        services.AddScoped<IWorkspaceOrchestrator, WorkspaceOrchestrator>();
 
         services.AddScoped<IPromptContextStore, DatabasePromptContextStore>();
 

@@ -108,6 +108,7 @@ public sealed partial class RalphLoopWorker(
 
     /// <summary>
     ///     Attempts to claim and execute the next available task.
+    ///     Prepares a workspace (clone + feature branch) if the task's project has a repository URL.
     /// </summary>
     private async SystemTask ProcessNextTaskAsync(CancellationToken ct)
     {
@@ -116,6 +117,7 @@ public sealed partial class RalphLoopWorker(
             await using var scope = serviceScopeFactory.CreateAsyncScope();
             var taskAssignment = scope.ServiceProvider.GetRequiredService<ITaskAssignmentService>();
             var ralphLoop = scope.ServiceProvider.GetRequiredService<IRalphLoopService>();
+            var workspaceOrchestrator = scope.ServiceProvider.GetRequiredService<IWorkspaceOrchestrator>();
 
             // Get next available task (atomic claim with dependency gate)
             var nextTaskResult = await taskAssignment.GetNextAvailableTaskAsync(_sessionId, ct);
@@ -134,13 +136,69 @@ public sealed partial class RalphLoopWorker(
 
             LogProcessingTask(logger, task.Id, task.Prompt.Length, task.MaxIterations);
 
-            // Execute the Ralph loop
-            var executeResult = await ralphLoop.ExecuteAsync(task, _sessionId, ct);
+            // Prepare workspace if the project has a repository URL
+            WorkspaceInfo? workspace = null;
+            string? workspacePath = null;
 
-            if (executeResult.IsFailure)
+            if (task.ProjectId != Guid.Empty)
             {
-                LogRalphLoopExecutionFailed(logger, task.Id, executeResult.Error);
-                return;
+                var prepareResult = await workspaceOrchestrator.PrepareWorkspaceAsync(
+                    task.ProjectId, task.Id, task.Title, ct);
+
+                if (prepareResult.IsSuccess)
+                {
+                    workspace = prepareResult.Value;
+                    workspacePath = workspace.WorkspacePath;
+                    LogWorkspacePrepared(logger, task.Id, workspacePath, workspace.FeatureBranch);
+                }
+                else
+                {
+                    // Non-fatal: continue without workspace (text-only mode)
+                    LogWorkspaceSkipped(logger, task.Id, prepareResult.Error);
+                }
+            }
+
+            try
+            {
+                // Execute the Ralph loop with optional workspace path
+                var executeResult = await ralphLoop.ExecuteAsync(task, _sessionId, ct, workspacePath);
+
+                if (executeResult.IsFailure)
+                {
+                    LogRalphLoopExecutionFailed(logger, task.Id, executeResult.Error);
+                }
+
+                // Finalize workspace: push on completion, create PR, always cleanup
+                if (workspace != null)
+                {
+                    var pushOnCompletion = executeResult.IsSuccess && task.Status == TaskStatus.Completed;
+                    var finalizeResult = await workspaceOrchestrator.FinalizeWorkspaceAsync(
+                        workspace, pushOnCompletion, ct);
+
+                    if (finalizeResult.IsFailure)
+                    {
+                        LogWorkspaceFinalizeFailed(logger, task.Id, finalizeResult.Error);
+                    }
+                    else if (!string.IsNullOrEmpty(finalizeResult.Value))
+                    {
+                        LogPullRequestCreated(logger, task.Id, finalizeResult.Value);
+                    }
+                }
+
+                if (executeResult.IsFailure)
+                {
+                    return;
+                }
+            }
+            catch
+            {
+                // Ensure workspace cleanup on unexpected errors
+                if (workspace != null)
+                {
+                    await workspaceOrchestrator.FinalizeWorkspaceAsync(workspace, false, ct);
+                }
+
+                throw;
             }
 
             // Phase chaining: evaluate whether dependent tasks are now unblocked
@@ -390,4 +448,20 @@ public sealed partial class RalphLoopWorker(
     [LoggerMessage(EventId = 25, Level = LogLevel.Error,
         Message = "Unexpected error in phase orchestrator for task {TaskId}")]
     private static partial void LogPhaseOrchestratorException(ILogger logger, Exception exception, Guid taskId);
+
+    [LoggerMessage(EventId = 26, Level = LogLevel.Information,
+        Message = "Workspace prepared for task {TaskId}: path={Path}, branch={Branch}")]
+    private static partial void LogWorkspacePrepared(ILogger logger, Guid taskId, string path, string branch);
+
+    [LoggerMessage(EventId = 27, Level = LogLevel.Information,
+        Message = "Workspace skipped for task {TaskId}: {Reason}")]
+    private static partial void LogWorkspaceSkipped(ILogger logger, Guid taskId, string reason);
+
+    [LoggerMessage(EventId = 28, Level = LogLevel.Error,
+        Message = "Workspace finalization failed for task {TaskId}: {Error}")]
+    private static partial void LogWorkspaceFinalizeFailed(ILogger logger, Guid taskId, string error);
+
+    [LoggerMessage(EventId = 29, Level = LogLevel.Information,
+        Message = "Pull request created for task {TaskId}: {PrUrl}")]
+    private static partial void LogPullRequestCreated(ILogger logger, Guid taskId, string prUrl);
 }

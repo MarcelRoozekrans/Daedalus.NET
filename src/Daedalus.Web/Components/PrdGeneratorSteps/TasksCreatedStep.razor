@@ -1,79 +1,60 @@
 @using TaskDto = Daedalus.Application.DTOs.TaskDto
-<div class="card border-success">
-    <div class="card-header bg-success text-white">
-        <h5 class="mb-0">
-            <i class="bi bi-check-circle"></i>
+@inject NavigationManager Nav
+
+<RadzenCard>
+    <RadzenStack Gap="1rem">
+        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">
+            <RadzenIcon Icon="check_circle" Style="vertical-align: middle; margin-right: 0.25rem; color: var(--rz-success);"/>
             Tasks Created Successfully!
-        </h5>
-    </div>
-    <div class="card-body">
-        <div class="alert alert-success">
-            <strong>Great!</strong> @CreatedTasks.Count tasks have been created and are ready to execute.
-        </div>
+        </RadzenText>
 
-        <h6 class="text-primary fw-bold mb-3">
-            <i class="bi bi-list-ul"></i>
-            Created Tasks
-        </h6>
+        <RadzenAlert AlertStyle="AlertStyle.Success" ShowIcon="true" Variant="Variant.Flat">
+            @CreatedTasks.Count tasks have been created and are ready to execute.
+        </RadzenAlert>
 
-        <div class="table-responsive">
-            <table class="table table-hover">
-                <thead class="table-light">
-                <tr>
-                    <th>Task ID</th>
-                    <th>Prompt</th>
-                    <th>Max Iterations</th>
-                    <th>Current Iteration</th>
-                    <th>Created Date</th>
-                    <th>Status</th>
-                </tr>
-                </thead>
-                <tbody>
-                @foreach (var task in CreatedTasks)
-                {
-                    <tr>
-                        <td>
-                            <span class="badge bg-primary">@task.Id</span>
-                        </td>
-                        <td>@task.Prompt</td>
-                        <td>
-                            <span class="badge bg-secondary">@task.MaxIterations</span>
-                        </td>
-                        <td>
-                            <span class="badge bg-info">@task.IterationCount</span>
-                        </td>
-                        <td>@task.CreatedAt.ToShortDateString()</td>
-                        <td>
-                            <span class="badge bg-warning">@task.Status</span>
-                        </td>
-                    </tr>
-                }
-                </tbody>
-            </table>
-        </div>
+        <RadzenDataGrid Data="@CreatedTasks" TItem="TaskDto" AllowSorting="true"
+                         Style="margin-bottom: 1rem;">
+            <Columns>
+                <RadzenDataGridColumn TItem="TaskDto" Property="Id" Title="Task ID" Width="120px">
+                    <Template Context="task">
+                        <RadzenBadge Text="@task.Id.ToString()[..8]" BadgeStyle="BadgeStyle.Primary"/>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="TaskDto" Property="Prompt" Title="Prompt"/>
+                <RadzenDataGridColumn TItem="TaskDto" Property="MaxIterations" Title="Max Iter." Width="100px" TextAlign="TextAlign.Center"/>
+                <RadzenDataGridColumn TItem="TaskDto" Property="IterationCount" Title="Current" Width="100px" TextAlign="TextAlign.Center"/>
+                <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" Width="120px">
+                    <Template Context="task">
+                        @task.CreatedAt.ToShortDateString()
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="110px">
+                    <Template Context="task">
+                        <RadzenBadge Text="@task.Status.ToString()" BadgeStyle="BadgeStyle.Warning"/>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
 
-        <div class="mt-4 p-3 bg-light rounded">
-            <h6 class="fw-bold mb-2">Next Steps:</h6>
-            <ol class="mb-0">
-                <li>Review the created tasks in the Tasks page</li>
-                <li>Configure execution sessions if needed</li>
-                <li>Execute tasks to implement the requirements</li>
-                <li>Monitor execution progress and results</li>
-            </ol>
-        </div>
+        <RadzenCard Variant="Variant.Text" Style="background: var(--rz-base-100);">
+            <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin: 0 0 0.5rem;">Next Steps</RadzenText>
+            <RadzenStack Gap="0.25rem">
+                <RadzenText TextStyle="TextStyle.Body2">1. Review the created tasks in the Tasks page</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2">2. Configure execution sessions if needed</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2">3. Execute tasks to implement the requirements</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2">4. Monitor execution progress and results</RadzenText>
+            </RadzenStack>
+        </RadzenCard>
 
-        <div class="d-flex gap-2 mt-4">
-            <a href="/tasks" class="btn btn-primary">
-                <i class="bi bi-arrow-right"></i>
-                View Tasks
-            </a>
-            <button type="button" class="btn btn-outline-primary" @onclick="() => OnDone.InvokeAsync()">
-                <i class="bi bi-plus-circle"></i>
-                Create Another PRD
-            </button>
-        </div>
-    </div>
-</div>
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+            <RadzenButton Text="View Tasks" Icon="arrow_forward" ButtonStyle="ButtonStyle.Primary"
+                          Click="@(() => Nav.NavigateTo("/tasks"))"/>
+            <RadzenButton Text="Create Another PRD" Icon="add_circle_outline"
+                          ButtonStyle="ButtonStyle.Primary" Variant="Variant.Outlined"
+                          Click="@(() => OnDone.InvokeAsync())"/>
+        </RadzenStack>
+    </RadzenStack>
+</RadzenCard>
 
 @code {
     [Parameter] public List<TaskDto> CreatedTasks { get; set; } = [];

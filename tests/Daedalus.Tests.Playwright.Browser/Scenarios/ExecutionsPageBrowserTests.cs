@@ -50,4 +50,47 @@ public class ExecutionsPageBrowserTests : BrowserTestBase
         await _executionsPage.NavigateAsync().ConfigureAwait(false);
         await Expect(_executionsPage.ErrorAlert).Not.ToBeVisibleAsync().ConfigureAwait(false);
     }
+
+    // ── Filter interaction ───────────────────────────────────────────────────
+
+    [Test]
+    [Description("Selecting a filter type should reveal the ID input and Search button")]
+    public async Task ExecutionsPage_SelectFilter_ShouldShowInputAndSearch()
+    {
+        await _executionsPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_executionsPage.FilterDropDown).ToBeVisibleAsync().ConfigureAwait(false);
+
+        // Before selecting filter, Search button should not be visible
+        await Expect(_executionsPage.SearchButton).Not.ToBeVisibleAsync().ConfigureAwait(false);
+
+        // Click dropdown and select "Task ID"
+        await _executionsPage.FilterDropDown.ClickAsync().ConfigureAwait(false);
+        await Page.GetByText("Task ID", new PageGetByTextOptions { Exact = true })
+            .ClickAsync().ConfigureAwait(false);
+
+        // Now the ID input and Search button should appear
+        await Expect(_executionsPage.FilterTextInput).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_executionsPage.SearchButton).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    [Test]
+    [Description("Info alert should tell user to select a filter type")]
+    public async Task ExecutionsPage_InfoAlert_ShouldShowInstructions()
+    {
+        await _executionsPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_executionsPage.InfoAlert).ToContainTextAsync("Select a filter").ConfigureAwait(false);
+    }
+
+    [Test]
+    [Description("Selecting Session ID filter should also show input and Search")]
+    public async Task ExecutionsPage_SelectSessionFilter_ShouldShowInputAndSearch()
+    {
+        await _executionsPage.NavigateAsync().ConfigureAwait(false);
+        await _executionsPage.FilterDropDown.ClickAsync().ConfigureAwait(false);
+        await Page.GetByText("Session ID", new PageGetByTextOptions { Exact = true })
+            .ClickAsync().ConfigureAwait(false);
+
+        await Expect(_executionsPage.FilterTextInput).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_executionsPage.SearchButton).ToBeVisibleAsync().ConfigureAwait(false);
+    }
 }

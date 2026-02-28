@@ -41,6 +41,9 @@ try
             // Add external service integrations (MCP agents, git, workspace)
             services.AddExternalServices(context.Configuration);
 
+            // Add code analysis services (git change applier, git repository manager, etc.)
+            services.AddCodeAnalysisServices(context.Configuration);
+
             // Add Agent Framework services (Claude via IRalphAgentFactory, MCP tools)
             services.AddAgentFrameworkServices(context.Configuration);
 

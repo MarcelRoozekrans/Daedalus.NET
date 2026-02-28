@@ -25,6 +25,16 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
             .IsRequired()
             .HasMaxLength(50);
 
+        entity.Property(e => e.RepositoryUrl)
+            .IsRequired()
+            .HasMaxLength(2000)
+            .HasDefaultValue(string.Empty);
+
+        entity.Property(e => e.DefaultBranch)
+            .IsRequired()
+            .HasMaxLength(100)
+            .HasDefaultValue("main");
+
         // Configure concurrency token for optimistic locking
         entity.Property(e => e.RowVersion)
             .IsRowVersion();

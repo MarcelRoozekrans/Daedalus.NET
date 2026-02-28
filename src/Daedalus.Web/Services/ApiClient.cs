@@ -1,5 +1,7 @@
 global using CSharpFunctionalExtensions;
 
+using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+
 namespace Daedalus.Web.Services;
 
 // DTOs (copied from API for client-side use)
@@ -21,6 +23,10 @@ public sealed class ApiClient(HttpClient httpClient)
                 ? Result.Success(result)
                 : Result.Failure<T>("No data returned from server");
         }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure<T>("Please log in to access this data.");
+        }
         catch (HttpRequestException ex)
         {
             return Result.Failure<T>($"API error: {ex.Message}");
@@ -31,7 +37,8 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (Exception ex)
         {
-            return Result.Failure<T>($"Unexpected error: {ex.Message}");
+            var message = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+            return Result.Failure<T>($"Unexpected error: {message}");
         }
     }
 
@@ -118,6 +125,10 @@ public sealed class ApiClient(HttpClient httpClient)
                 ? Result.Success(result)
                 : Result.Failure<T>("No data returned from server");
         }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure<T>("Please log in to perform this action.");
+        }
         catch (HttpRequestException ex)
         {
             return Result.Failure<T>($"API error: {ex.Message}");
@@ -136,6 +147,10 @@ public sealed class ApiClient(HttpClient httpClient)
                 ? Result.Success(result)
                 : Result.Failure<T>("No data returned from server");
         }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure<T>("Please log in to perform this action.");
+        }
         catch (HttpRequestException ex)
         {
             return Result.Failure<T>($"API error: {ex.Message}");
@@ -149,6 +164,10 @@ public sealed class ApiClient(HttpClient httpClient)
             var response = await httpClient.DeleteAsync(new Uri(url, UriKind.Relative), ct);
             response.EnsureSuccessStatusCode();
             return Result.Success();
+        }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure("Please log in to perform this action.");
         }
         catch (HttpRequestException ex)
         {

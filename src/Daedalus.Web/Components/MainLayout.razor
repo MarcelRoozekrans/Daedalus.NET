@@ -7,9 +7,9 @@
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0">
                 <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)"/>
                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                    <RadzenIcon Icon="smart_toy" Style="font-size: 1.5rem;"/>
-                    <RadzenText Text="Daedalus" TextStyle="TextStyle.H5" Style="margin: 0; font-weight: 600;"/>
-                    <RadzenBadge Text="Ralph Loop" BadgeStyle="BadgeStyle.Light" Style="margin-left: 0.5rem;"/>
+                    <RadzenIcon Icon="hub" Style="font-size: 1.5rem; color: var(--rz-primary);"/>
+                    <RadzenText Text="Daedalus" TextStyle="TextStyle.H5"
+                                Style="margin: 0; font-weight: 700; letter-spacing: -0.025em;"/>
                 </RadzenStack>
             </RadzenStack>
             <LoginDisplay/>
@@ -19,13 +19,25 @@
     <RadzenSidebar @bind-Expanded="@_sidebarExpanded" Style="width: 260px;">
         <RadzenPanelMenu>
             <RadzenPanelMenuItem Text="Dashboard" Icon="dashboard" Path="/"/>
+        </RadzenPanelMenu>
+
+        <div class="sidebar-section-divider">Operations</div>
+        <RadzenPanelMenu>
             <RadzenPanelMenuItem Text="Tasks" Icon="task_alt" Path="tasks"/>
             <RadzenPanelMenuItem Text="Projects" Icon="folder_special" Path="projects"/>
             <RadzenPanelMenuItem Text="Sessions" Icon="play_circle" Path="sessions"/>
             <RadzenPanelMenuItem Text="Executions" Icon="receipt_long" Path="executions"/>
+        </RadzenPanelMenu>
+
+        <div class="sidebar-section-divider">Configuration</div>
+        <RadzenPanelMenu>
             <RadzenPanelMenuItem Text="Ralph Config" Icon="tune" Path="ralph-config"/>
-            <RadzenPanelMenuItem Text="PRD Generator" Icon="auto_awesome" Path="prd-generator"/>
             <RadzenPanelMenuItem Text="Git Repositories" Icon="source" Path="repositories"/>
+        </RadzenPanelMenu>
+
+        <div class="sidebar-section-divider">AI Tools</div>
+        <RadzenPanelMenu>
+            <RadzenPanelMenuItem Text="PRD Generator" Icon="description" Path="prd-generator"/>
         </RadzenPanelMenu>
     </RadzenSidebar>
 
@@ -34,6 +46,18 @@
             @Body
         </div>
     </RadzenBody>
+
+    <RadzenFooter>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     JustifyContent="JustifyContent.SpaceBetween" Style="width: 100%;">
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">
+                Daedalus &bull; Autonomous Code Analysis Platform
+            </RadzenText>
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.4;">
+                v1.0.0
+            </RadzenText>
+        </RadzenStack>
+    </RadzenFooter>
 </RadzenLayout>
 
 <RadzenDialog/>

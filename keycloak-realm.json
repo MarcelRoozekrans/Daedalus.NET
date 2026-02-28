@@ -66,6 +66,8 @@
       "serviceAccountsEnabled": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
+        "http://localhost:5290/authentication/login-callback",
+        "http://localhost:5290",
         "http://localhost:8081/authentication/login-callback",
         "http://localhost:8081",
         "http://daedalus-web:8080/authentication/login-callback",
@@ -74,6 +76,7 @@
         "http://localhost:*"
       ],
       "webOrigins": [
+        "http://localhost:5290",
         "http://localhost:8081",
         "http://daedalus-web:8080",
         "http://localhost:8080",

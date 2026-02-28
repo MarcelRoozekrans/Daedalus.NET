@@ -1,0 +1,236 @@
+/* =============================================================================
+   Daedalus Theme — Radzen CSS Variable Overrides
+   Applied on top of material-base.css to brand the app with Daedalus purple.
+   ============================================================================= */
+
+:root {
+    /* ── Primary palette: Daedalus purple ────────────────────────────── */
+    --rz-primary: #667eea;
+    --rz-primary-light: #8b9ef0;
+    --rz-primary-lighter: rgba(102, 126, 234, 0.12);
+    --rz-primary-dark: #4f64d4;
+    --rz-primary-darker: #3d4fba;
+
+    /* ── Secondary palette: Deep purple ──────────────────────────────── */
+    --rz-secondary: #764ba2;
+    --rz-secondary-light: #9570b8;
+    --rz-secondary-lighter: rgba(118, 75, 162, 0.12);
+    --rz-secondary-dark: #5e3a82;
+    --rz-secondary-darker: #482c64;
+
+    /* ── Semantic colors ─────────────────────────────────────────────── */
+    --rz-success: #10b981;
+    --rz-success-light: #34d399;
+    --rz-success-lighter: rgba(16, 185, 129, 0.12);
+    --rz-success-dark: #059669;
+    --rz-success-darker: #047857;
+
+    --rz-danger: #ef4444;
+    --rz-danger-light: #f87171;
+    --rz-danger-lighter: rgba(239, 68, 68, 0.12);
+    --rz-danger-dark: #dc2626;
+    --rz-danger-darker: #b91c1c;
+
+    --rz-warning: #f59e0b;
+    --rz-warning-light: #fbbf24;
+    --rz-warning-lighter: rgba(245, 158, 11, 0.12);
+    --rz-warning-dark: #d97706;
+    --rz-warning-darker: #b45309;
+
+    --rz-info: #3b82f6;
+    --rz-info-light: #60a5fa;
+    --rz-info-lighter: rgba(59, 130, 246, 0.12);
+    --rz-info-dark: #2563eb;
+    --rz-info-darker: #1d4ed8;
+
+    /* ── Surface & backgrounds ───────────────────────────────────────── */
+    --rz-base-background-color: #ffffff;
+    --rz-body-background-color: #f8f9fc;
+    --rz-base-100: #f1f3f9;
+    --rz-base-200: #e5e7f0;
+    --rz-base-300: #d1d5e4;
+
+    /* ── Border radius — softer corners ──────────────────────────────── */
+    --rz-border-radius: 8px;
+    --rz-card-border-radius: 10px;
+
+    /* ── Card styling ────────────────────────────────────────────────── */
+    --rz-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --rz-card-border: 1px solid var(--rz-base-200);
+    --rz-card-padding: 1.25rem;
+
+    /* ── Header ──────────────────────────────────────────────────────── */
+    --rz-header-background-color: #ffffff;
+    --rz-header-color: #1e293b;
+    --rz-header-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    --rz-header-border: none;
+    --rz-header-min-height: 3.5rem;
+
+    /* ── Sidebar / Panel Menu ────────────────────────────────────────── */
+    --rz-panel-menu-item-border: none;
+    --rz-panel-menu-item-border-radius: 8px;
+    --rz-panel-menu-item-margin-inline: 0.5rem;
+    --rz-panel-menu-item-padding-block: 0.625rem;
+    --rz-panel-menu-item-padding-inline: 0.75rem;
+    --rz-panel-menu-item-color: #94a3b8;
+    --rz-panel-menu-item-background-color: transparent;
+    --rz-panel-menu-item-hover-color: #e2e8f0;
+    --rz-panel-menu-item-hover-background-color: rgba(255, 255, 255, 0.06);
+    --rz-panel-menu-item-active-color: #ffffff;
+    --rz-panel-menu-item-active-background-color: rgba(102, 126, 234, 0.15);
+    --rz-panel-menu-item-active-indicator: #667eea;
+
+    /* ── Footer ──────────────────────────────────────────────────────── */
+    --rz-footer-background-color: transparent;
+    --rz-footer-padding: 0.75rem 1rem;
+
+    /* ── Links ────────────────────────────────────────────────────────── */
+    --rz-link-color: var(--rz-primary);
+    --rz-link-hover-color: var(--rz-primary-dark);
+
+    /* ── Text colors ─────────────────────────────────────────────────── */
+    --rz-text-color: #334155;
+    --rz-text-title-color: #1e293b;
+}
+
+/* =============================================================================
+   Global Component Enhancements
+   ============================================================================= */
+
+/* ── Sidebar dark background ─────────────────────────────────────────── */
+.rz-sidebar {
+    background: linear-gradient(180deg, #1a1f36 0%, #1e2440 100%);
+    border-right: none;
+}
+
+.rz-sidebar .rz-panel-menu {
+    padding-top: 0.5rem;
+}
+
+/* ── Sidebar section divider ─────────────────────────────────────────── */
+.sidebar-section-label {
+    padding: 1.25rem 1.25rem 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+/* ── Sidebar section headers (non-clickable dividers) ───────────────── */
+.sidebar-section-divider {
+    padding: 1rem 1.25rem 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(148, 163, 184, 0.5);
+    cursor: default;
+}
+
+/* ── Header bottom accent ────────────────────────────────────────────── */
+.rz-header {
+    border-bottom: 2px solid var(--rz-primary);
+}
+
+/* ── Card hover effect ───────────────────────────────────────────────── */
+.rz-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.rz-card[style*="cursor: pointer"]:hover,
+.rz-card.clickable:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+/* ── DataGrid enhancements ───────────────────────────────────────────── */
+.rz-data-grid .rz-data-row:hover > .rz-cell {
+    background-color: var(--rz-base-100);
+}
+
+.rz-data-grid .rz-grid-table > thead > tr > th {
+    font-weight: 600;
+    color: var(--rz-text-title-color);
+}
+
+/* ── Button press feedback ───────────────────────────────────────────── */
+.rz-button:active {
+    transform: scale(0.97);
+}
+
+.rz-button {
+    transition: transform 0.1s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+/* ── Badge refinements ───────────────────────────────────────────────── */
+.rz-badge {
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+/* ── Page content fade-in ────────────────────────────────────────────── */
+.rz-body > div {
+    animation: daedalusFadeIn 0.25s ease-out;
+}
+
+@keyframes daedalusFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Empty state pattern ─────────────────────────────────────────────── */
+.daedalus-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 3rem 1rem;
+    color: var(--rz-base-500);
+}
+
+.daedalus-empty-state .rzi {
+    font-size: 3.5rem;
+    opacity: 0.5;
+}
+
+/* ── Stat card icon circle ───────────────────────────────────────────── */
+.stat-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 12px;
+    flex-shrink: 0;
+}
+
+.stat-icon .rzi {
+    font-size: 1.375rem;
+    color: #ffffff;
+}
+
+/* ── Scrollbar styling ───────────────────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--rz-base-300);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--rz-base-400);
+}

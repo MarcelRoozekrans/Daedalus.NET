@@ -6,45 +6,115 @@ using Microsoft.Extensions.Logging;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
+#pragma warning disable CA1873 // Logging arguments are cheap property accesses (Length, Count)
+
 /// <summary>
-///     Applies code changes from AI responses to repository files
+///     Applies code changes from AI responses to repository files.
+///     Parses file paths and code blocks from Claude's output in these formats:
+///     1. ```lang:path/to/File.cs  (colon-separated after language tag)
+///     2. **path/to/File.cs** followed by a code fence
+///     3. `path/to/File.cs` followed by a code fence
+///     4. ### Heading (path/to/File.cs) followed by a code fence (parenthesized path in heading)
 /// </summary>
-public sealed class GitChangeApplier(ILogger<GitChangeApplier> logger) : IGitChangeApplier
+public sealed partial class GitChangeApplier(ILogger<GitChangeApplier> logger) : IGitChangeApplier
 {
-    public async Task<Result<IReadOnlyList<CodeModification>>> ExtractChangesAsync(
+    public Task<Result<IReadOnlyList<CodeModification>>> ExtractChangesAsync(
         string aiResponse,
         CancellationToken ct = default)
     {
         try
         {
-            logger.LogInformation("Extracting code modifications from AI response");
-
-            await Task.Delay(50, ct).ConfigureAwait(false);
+            logger.LogInformation("Extracting code modifications from AI response ({Length} chars)", aiResponse.Length);
 
             var modifications = new List<CodeModification>();
 
-            // Parse code blocks from AI response
-            var codeBlockPattern = @"```(?:csharp|cs|C#)?\s*([\s\S]*?)```";
-            var matches = Regex.Matches(aiResponse, codeBlockPattern, RegexOptions.None, TimeSpan.FromSeconds(5));
-
-            foreach (var match in matches.Cast<Match>())
+            // Pattern 1: ```lang:path/to/File.ext (colon after language tag, path before newline)
+            var colonPathMatches = ColonPathCodeBlockRegex().Matches(aiResponse);
+#pragma warning disable S3267 // Manual loop preferred for clarity with multi-group regex matches
+            foreach (var match in colonPathMatches.Cast<Match>())
+#pragma warning restore S3267
             {
-                var code = match.Groups[1].Value.Trim();
-                if (!string.IsNullOrEmpty(code))
+                var filePath = NormalizePath(match.Groups["path"].Value);
+                var code = match.Groups["code"].Value.Trim();
+                if (!string.IsNullOrEmpty(code) && !string.IsNullOrEmpty(filePath))
                 {
                     modifications.Add(new CodeModification
                     {
-                        FilePath = "modified-file.cs", ModifiedCode = code, StartLine = 0, EndLine = 0
+                        FilePath = filePath,
+                        ModifiedCode = code,
+                        ChangeDescription = "Extracted from code block with path annotation"
                     });
                 }
             }
 
-            return Result.Success((IReadOnlyList<CodeModification>)modifications.AsReadOnly());
+            // Pattern 2: **path/to/File.ext** or `path/to/File.ext` on line before ```
+            // Only add if not already captured by pattern 1
+            var headerPathMatches = HeaderPathCodeBlockRegex().Matches(aiResponse);
+#pragma warning disable S3267 // Manual loop preferred for clarity with multi-group regex matches
+            foreach (var match in headerPathMatches.Cast<Match>())
+#pragma warning restore S3267
+            {
+                var filePath = NormalizePath(
+                    match.Groups["boldpath"].Success ? match.Groups["boldpath"].Value : match.Groups["tickpath"].Value);
+                var code = match.Groups["code"].Value.Trim();
+
+                if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(filePath))
+                {
+                    continue;
+                }
+
+                // Skip if we already have this file from pattern 1
+                if (modifications.Exists(m => string.Equals(m.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                modifications.Add(new CodeModification
+                {
+                    FilePath = filePath,
+                    ModifiedCode = code,
+                    ChangeDescription = "Extracted from code block with header path"
+                });
+            }
+
+            // Pattern 3: ### Heading (path/to/File.ext) followed by a code fence
+            // Common Claude format: "### 1. Create the Solution File (HelloWorld.sln)\n\n```sln\n..."
+            var parenPathMatches = ParenPathCodeBlockRegex().Matches(aiResponse);
+#pragma warning disable S3267 // Manual loop preferred for clarity with multi-group regex matches
+            foreach (var match in parenPathMatches.Cast<Match>())
+#pragma warning restore S3267
+            {
+                var filePath = NormalizePath(match.Groups["parenpath"].Value);
+                var code = match.Groups["code"].Value.Trim();
+
+                if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(filePath))
+                {
+                    continue;
+                }
+
+                // Skip if we already have this file from earlier patterns
+                if (modifications.Exists(m => string.Equals(m.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                modifications.Add(new CodeModification
+                {
+                    FilePath = filePath,
+                    ModifiedCode = code,
+                    ChangeDescription = "Extracted from code block with parenthesized path in heading"
+                });
+            }
+
+            logger.LogInformation("Extracted {Count} code modifications", modifications.Count);
+            return Task.FromResult(
+                Result.Success((IReadOnlyList<CodeModification>)modifications.AsReadOnly()));
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error extracting modifications from AI response");
-            return Result.Failure<IReadOnlyList<CodeModification>>($"Error extracting changes: {ex.Message}");
+            return Task.FromResult(
+                Result.Failure<IReadOnlyList<CodeModification>>($"Error extracting changes: {ex.Message}"));
         }
     }
 
@@ -67,8 +137,6 @@ public sealed class GitChangeApplier(ILogger<GitChangeApplier> logger) : IGitCha
             {
                 return Result.Failure($"Working tree path does not exist: {workTreePath}");
             }
-
-            await Task.Delay(100, ct).ConfigureAwait(false);
 
             foreach (var change in changes)
             {
@@ -102,62 +170,66 @@ public sealed class GitChangeApplier(ILogger<GitChangeApplier> logger) : IGitCha
         }
     }
 
-    public async Task<Result<string>> GeneratePatchAsync(
+    public Task<Result<string>> GeneratePatchAsync(
         string workTreePath,
         string baseBranch,
         CancellationToken ct = default)
     {
-        try
-        {
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation(
-                    "Generating patch from {Path} against {BaseBranch}",
-                    workTreePath,
-                    baseBranch);
-            }
-
-            await Task.Delay(100, ct).ConfigureAwait(false);
-
-            var patch = "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-original\n+modified\n";
-
-            return Result.Success(patch);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error generating patch");
-            return Result.Failure<string>($"Error generating patch: {ex.Message}");
-        }
+        // Patch generation delegated to GitRepositoryManager.GetDiffsAsync for real implementations
+        logger.LogInformation("Generating patch from {Path} against {BaseBranch}", workTreePath, baseBranch);
+        return Task.FromResult(Result.Success(string.Empty));
     }
 
-    public async Task<Result> RevertChangesAsync(
+    public Task<Result> RevertChangesAsync(
         string workTreePath,
         string baseBranch,
         CancellationToken ct = default)
     {
-        try
+        // Revert delegated to GitWorkflowService.ResetToLastGoodAsync for real implementations
+        logger.LogInformation("Reverting changes in {Path} to {BaseBranch}", workTreePath, baseBranch);
+
+        if (!Directory.Exists(workTreePath))
         {
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation(
-                    "Reverting changes in {Path} to {BaseBranch}",
-                    workTreePath,
-                    baseBranch);
-            }
-
-            await Task.Delay(50, ct).ConfigureAwait(false);
-
-            if (!Directory.Exists(workTreePath))
-            {
-                return Result.Failure($"Working tree path does not exist: {workTreePath}");
-            }
-
-            return Result.Success();
+            return Task.FromResult(Result.Failure($"Working tree path does not exist: {workTreePath}"));
         }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error reverting changes");
-            return Result.Failure($"Error reverting changes: {ex.Message}");
-        }
+
+        return Task.FromResult(Result.Success());
     }
+
+    /// <summary>
+    ///     Normalizes a file path from LLM output: converts backslashes, trims leading slashes.
+    /// </summary>
+    private static string NormalizePath(string path)
+    {
+        var normalized = path.Trim()
+            .Replace('\\', '/')
+            .TrimStart('/');
+
+        // Remove any trailing colon or punctuation
+        normalized = normalized.TrimEnd(':', ',', ';');
+
+        return normalized;
+    }
+
+    // Pattern: ```lang:path/to/File.ext\n...code...\n```
+    [GeneratedRegex(
+        @"```\w+:(?<path>[^\s\n]+)\s*\n(?<code>[\s\S]*?)```",
+        RegexOptions.Multiline | RegexOptions.ExplicitCapture,
+        matchTimeoutMilliseconds: 5000)]
+    private static partial Regex ColonPathCodeBlockRegex();
+
+    // Pattern: **path/to/File.ext** or `path/to/File.ext` on the line before a code fence
+    [GeneratedRegex(
+        @"(?:\*\*(?<boldpath>[^\s*]+\.\w+)\*\*|`(?<tickpath>[^\s`]+\.\w+)`).*?\n\s*```\w*\s*\n(?<code>[\s\S]*?)```",
+        RegexOptions.Multiline | RegexOptions.ExplicitCapture,
+        matchTimeoutMilliseconds: 5000)]
+    private static partial Regex HeaderPathCodeBlockRegex();
+
+    // Pattern: (path/to/File.ext) in a heading/line, followed within a few lines by a code fence
+    // Matches: "### Create the File (src/HelloWorld/Program.cs)\n\n```csharp\n...```"
+    [GeneratedRegex(
+        @"\((?<parenpath>[^\s()]+\.\w+)\)[^\n]*\n\s*\n?\s*```\w*\s*\n(?<code>[\s\S]*?)```",
+        RegexOptions.Multiline | RegexOptions.ExplicitCapture,
+        matchTimeoutMilliseconds: 5000)]
+    private static partial Regex ParenPathCodeBlockRegex();
 }

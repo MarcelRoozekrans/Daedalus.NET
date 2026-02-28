@@ -7,6 +7,7 @@ var dbName = builder.Configuration["Database:Name"] ?? "daedalus";
 // Set them via: $env:PARAMETERS__DB_USERNAME="postgres"; $env:PARAMETERS__DB_PASSWORD="postgres"
 var dbUserParam = builder.AddParameter("db-username");
 var dbPasswordParam = builder.AddParameter("db-password", true);
+var anthropicApiKey = builder.AddParameter("anthropic-api-key", true);
 
 // Resolve project paths relative to solution root (src/) and repo root
 var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
@@ -60,6 +61,7 @@ builder.AddProject("console", consolePath)
     .WithReference(database)
     .WithReference(keycloak)
     .WithReference(migrations)
+    .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
     .WaitFor(migrations)
     .WaitFor(keycloak);
 
@@ -74,6 +76,7 @@ var api = builder.AddProject("api", apiPath)
     .WithExternalHttpEndpoints()
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("Authentication__Authority", "http://localhost:8082/realms/daedalus")
+    .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
     .WaitFor(migrations)
     .WaitFor(keycloak);
 

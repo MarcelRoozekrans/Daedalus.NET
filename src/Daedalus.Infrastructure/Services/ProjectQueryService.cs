@@ -27,6 +27,8 @@ public sealed class ProjectQueryService(ApplicationDbContext context) : IProject
                 p.ProjectName,
                 p.Description,
                 p.Version,
+                p.RepositoryUrl,
+                p.DefaultBranch,
                 p.CreatedAt,
                 p.ModifiedAt,
                 p.Tasks.Select(TaskDtoMapper.ToDtoWithoutExecutions).ToList().AsReadOnly()
@@ -58,6 +60,8 @@ public sealed class ProjectQueryService(ApplicationDbContext context) : IProject
             project.ProjectName,
             project.Description,
             project.Version,
+            project.RepositoryUrl,
+            project.DefaultBranch,
             project.CreatedAt,
             project.ModifiedAt,
             new List<TaskDto>().AsReadOnly()
@@ -82,6 +86,8 @@ public sealed class ProjectQueryService(ApplicationDbContext context) : IProject
             project.ProjectName,
             project.Description,
             project.Version,
+            project.RepositoryUrl,
+            project.DefaultBranch,
             project.CreatedAt,
             project.ModifiedAt,
             project.Tasks.Select(TaskDtoMapper.ToDtoWithoutExecutions).ToList().AsReadOnly()

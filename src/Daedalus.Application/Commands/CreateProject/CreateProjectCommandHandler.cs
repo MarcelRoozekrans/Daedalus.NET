@@ -22,7 +22,9 @@ public sealed partial class CreateProjectCommandHandler(
                 Guid.NewGuid(),
                 command.ProjectName,
                 command.Description ?? string.Empty,
-                command.Version ?? "1.0");
+                command.Version ?? "1.0",
+                command.RepositoryUrl,
+                command.DefaultBranch);
 
             if (createResult.IsFailure)
             {
@@ -44,6 +46,8 @@ public sealed partial class CreateProjectCommandHandler(
                 project.ProjectName,
                 project.Description,
                 project.Version,
+                project.RepositoryUrl,
+                project.DefaultBranch,
                 project.CreatedAt,
                 project.ModifiedAt,
                 new List<TaskDto>());
