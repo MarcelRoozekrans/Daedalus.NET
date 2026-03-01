@@ -36,6 +36,10 @@ builder.Services.AddApplicationDatabase(builder.Configuration, "daedalus");
 builder.Services.Configure<RalphLoopConfiguration>(options =>
     builder.Configuration.GetSection(RalphLoopConfiguration.SectionName).Bind(options));
 
+// Register model pricing configuration
+builder.Services.Configure<ModelPricingConfiguration>(options =>
+    builder.Configuration.GetSection(ModelPricingConfiguration.SectionName).Bind(options));
+
 // Add application layer services (command/query handlers, prompt builders)
 builder.Services.AddApplicationServices(builder.Configuration);
 

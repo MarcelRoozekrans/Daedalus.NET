@@ -266,7 +266,10 @@ public sealed partial class RalphLoopPipelineService(
                 LlmResponse = context.LlmResponse ?? string.Empty,
                 Error = context.LlmInvocationSucceeded ? null : "LLM invocation failed",
                 ExecutionDuration = context.InvocationDuration,
-                CompletionPromiseFound = context.CompletionPromiseFound
+                CompletionPromiseFound = context.CompletionPromiseFound,
+                InputTokens = context.InputTokens,
+                OutputTokens = context.OutputTokens,
+                ModelId = context.ModelId
             };
 
             // Record execution in domain

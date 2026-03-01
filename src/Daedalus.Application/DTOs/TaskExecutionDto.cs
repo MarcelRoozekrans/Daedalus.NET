@@ -11,4 +11,7 @@ public record TaskExecutionDto(
     bool CompletionPromiseFound,
     DateTime ExecutedAt,
     TimeSpan ExecutionDuration,
-    string? Error);
+    string? Error,
+    int InputTokens,
+    int OutputTokens,
+    string? ModelId);
