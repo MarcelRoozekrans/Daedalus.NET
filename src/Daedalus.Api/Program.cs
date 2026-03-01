@@ -63,6 +63,7 @@ builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
 builder.Services.AddScoped<IExecutionSessionQueryService, ExecutionSessionQueryService>();
 builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
 builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
+builder.Services.AddScoped<ICostAnalyticsService, CostAnalyticsService>();
 
 // Add global exception handler (converts unhandled exceptions to RFC 7807 ProblemDetails)
 builder.Services.AddExceptionHandler<Daedalus.Api.Middleware.GlobalExceptionHandler>();
