@@ -56,16 +56,16 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
     }
 
     /// <inheritdoc />
-    public async Task<Result<string>> InvokeAsync(string prompt, CancellationToken ct = default)
+    public async Task<Result<LlmInvocationResult>> InvokeAsync(string prompt, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            return Result.Failure<string>("Prompt cannot be empty");
+            return Result.Failure<LlmInvocationResult>("Prompt cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
-            return Result.Failure<string>("Anthropic API key is not configured");
+            return Result.Failure<LlmInvocationResult>("Anthropic API key is not configured");
         }
 
         try
@@ -97,21 +97,28 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
             if (string.IsNullOrEmpty(text))
             {
                 LogEmptyResponse(_logger);
-                return Result.Failure<string>("Claude returned empty response");
+                return Result.Failure<LlmInvocationResult>("Claude returned empty response");
             }
 
+            var (inputTokens, outputTokens) = ExtractTokenUsage(response);
             LogInvocationCompleted(_logger, text.Length);
-            return Result.Success(text);
+            return Result.Success(new LlmInvocationResult
+            {
+                Response = text,
+                InputTokens = inputTokens,
+                OutputTokens = outputTokens,
+                ModelId = _defaultModel
+            });
         }
         catch (OperationCanceledException)
         {
             LogInvocationCancelled(_logger);
-            return Result.Failure<string>("Operation cancelled");
+            return Result.Failure<LlmInvocationResult>("Operation cancelled");
         }
         catch (Exception ex)
         {
             LogErrorInvoking(_logger, ex, ex.Message);
-            return Result.Failure<string>($"Error invoking Claude: {ex.Message}");
+            return Result.Failure<LlmInvocationResult>($"Error invoking Claude: {ex.Message}");
         }
     }
 

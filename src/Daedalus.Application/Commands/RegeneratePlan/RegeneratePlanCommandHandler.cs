@@ -84,7 +84,7 @@ public sealed partial class RegeneratePlanCommandHandler(
             return Result.Failure<RegeneratePlanResult>($"LLM plan generation failed: {llmResult.Error}");
         }
 
-        var planContent = llmResult.Value;
+        var planContent = llmResult.Value.Response;
 
         // Write new plan to fix_plan.md
         await File.WriteAllTextAsync(planFilePath, planContent, cancellationToken);

@@ -11,7 +11,7 @@ namespace Daedalus.Application.Abstractions;
 ///     The primary provider is Anthropic Claude. MCP tools (Context7, Awesome Copilot)
 ///     are automatically attached to agents created by this factory.
 ///     The Application layer is shielded from framework-specific types (<c>ChatClientAgent</c>,
-///     <c>IChatClient</c>, etc.) — only <c>Result&lt;string&gt;</c> and <c>SubagentResult</c>
+///     <c>IChatClient</c>, etc.) — only <c>Result&lt;LlmInvocationResult&gt;</c> and <c>SubagentResult</c>
 ///     cross the boundary.
 /// </remarks>
 public interface IRalphAgentFactory
@@ -23,8 +23,8 @@ public interface IRalphAgentFactory
     /// </summary>
     /// <param name="prompt">The user prompt to send to the LLM.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>The LLM response text or failure.</returns>
-    Task<Result<string>> InvokeAsync(
+    /// <returns>The LLM response text, token usage data, and model ID, or failure.</returns>
+    Task<Result<LlmInvocationResult>> InvokeAsync(
         string prompt,
         CancellationToken ct = default);
 

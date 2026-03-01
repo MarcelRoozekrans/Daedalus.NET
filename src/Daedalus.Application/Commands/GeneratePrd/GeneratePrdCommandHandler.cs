@@ -72,7 +72,7 @@ public sealed partial class GeneratePrdCommandHandler(
                 return Result.Failure<PrdResponseDto>($"LLM invocation failed: {llmResult.Error}");
             }
 
-            var prdResult = ParsePrdResponse(llmResult.Value, command.ProjectId, logger);
+            var prdResult = ParsePrdResponse(llmResult.Value.Response, command.ProjectId, logger);
             if (prdResult.IsFailure)
             {
                 return Result.Failure<PrdResponseDto>(prdResult.Error);

@@ -45,7 +45,11 @@ public sealed partial class LlmInvocationMiddleware(
                 return await continuation();
             }
 
-            context.LlmResponse = invokeResult.Value;
+            var result = invokeResult.Value;
+            context.LlmResponse = result.Response;
+            context.InputTokens = result.InputTokens;
+            context.OutputTokens = result.OutputTokens;
+            context.ModelId = result.ModelId;
             context.LlmInvocationSucceeded = true;
             context.ConsecutiveFailures = 0;
             LogLlmInvocationSucceeded(logger, context.Iteration, context.InvocationDuration.TotalMilliseconds);

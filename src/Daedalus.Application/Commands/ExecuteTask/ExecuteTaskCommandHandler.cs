@@ -74,7 +74,7 @@ public sealed class ExecuteTaskCommandHandler(
                 return Result.Failure<ExecuteTaskResult>($"LLM invocation failed: {llmResult.Error}");
             }
 
-            var llmResponse = llmResult.Value;
+            var llmResponse = llmResult.Value.Response;
 
             // Check if completion promise is found in response
             // Using IndexOf instead of Contains avoids unnecessary allocations for case-insensitive comparison
