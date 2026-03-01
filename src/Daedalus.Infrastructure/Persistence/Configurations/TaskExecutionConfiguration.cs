@@ -24,6 +24,15 @@ internal sealed class TaskExecutionConfiguration : IEntityTypeConfiguration<Task
         entity.Property(e => e.Error)
             .HasMaxLength(2000);
 
+        entity.Property(e => e.InputTokens)
+            .HasDefaultValue(0);
+
+        entity.Property(e => e.OutputTokens)
+            .HasDefaultValue(0);
+
+        entity.Property(e => e.ModelId)
+            .HasMaxLength(100);
+
         entity.HasIndex(e => e.TaskId)
             .HasDatabaseName("IX_TaskExecution_TaskId");
 
