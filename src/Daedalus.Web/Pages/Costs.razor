@@ -1,0 +1,275 @@
+@page "/costs"
+@inject ApiClient Api
+@implements IAsyncDisposable
+
+<RadzenStack Gap="0.25rem" class="rz-mb-4">
+    <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Cost Analytics</RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+        Token usage and cost tracking across projects
+    </RadzenText>
+</RadzenStack>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4">
+        @_errorMessage
+    </RadzenAlert>
+}
+
+@* Summary Cards *@
+<RadzenRow Gap="1rem" class="rz-mb-6" data-testid="cost-stats-row">
+    <RadzenColumn Size="12" SizeMD="3">
+        <RadzenCard data-testid="stat-total-tokens">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                <div class="stat-icon" style="background: linear-gradient(135deg, var(--rz-primary), var(--rz-primary-dark));">
+                    <RadzenIcon Icon="token"/>
+                </div>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatNumber((_summary?.TotalInputTokens ?? 0) + (_summary?.TotalOutputTokens ?? 0))</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">Total Tokens</RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <RadzenCard data-testid="stat-total-cost">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                <div class="stat-icon" style="background: linear-gradient(135deg, var(--rz-success), var(--rz-success-dark));">
+                    <RadzenIcon Icon="attach_money"/>
+                </div>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatCurrency(_summary?.TotalCost ?? 0)</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">Total Cost</RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <RadzenCard data-testid="stat-avg-cost">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                <div class="stat-icon" style="background: linear-gradient(135deg, var(--rz-info), var(--rz-info-dark));">
+                    <RadzenIcon Icon="analytics"/>
+                </div>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatCurrency(_summary is { TotalTasks: > 0 } ? _summary.TotalCost / _summary.TotalTasks : 0)</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">Avg Cost / Task</RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeMD="3">
+        <RadzenCard data-testid="stat-total-executions">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                <div class="stat-icon" style="background: linear-gradient(135deg, var(--rz-warning), var(--rz-warning-dark));">
+                    <RadzenIcon Icon="speed"/>
+                </div>
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatNumber(_summary?.TotalExecutions ?? 0)</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">Total Executions</RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+</RadzenRow>
+
+<RadzenRow Gap="1rem" class="rz-mb-6">
+    @* Cost Estimator *@
+    <RadzenColumn Size="12" SizeMD="5">
+        <RadzenCard data-testid="cost-estimator">
+            <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">
+                <RadzenIcon Icon="calculate"/>
+                Cost Estimator
+            </RadzenText>
+            <RadzenStack Gap="0.75rem">
+                <div>
+                    <RadzenLabel Text="Model" Component="ModelSelect"/>
+                    <RadzenDropDown @bind-Value="_selectedModelId" Data="_pricingModels"
+                                   TextProperty="DisplayName" ValueProperty="ModelId"
+                                   Style="width: 100%;" Name="ModelSelect"
+                                   Change="@OnEstimateParamsChanged"/>
+                </div>
+                <div>
+                    <RadzenLabel Text="Max Iterations" Component="MaxIterations"/>
+                    <RadzenNumeric @bind-Value="_estimateMaxIterations" Min="1" Max="100"
+                                  Style="width: 100%;" Name="MaxIterations"
+                                  Change="@((int _) => OnEstimateParamsChanged())"/>
+                </div>
+                <div>
+                    <RadzenLabel Text="Estimated Prompt Tokens" Component="PromptTokens"/>
+                    <RadzenNumeric @bind-Value="_estimatePromptTokens" Min="100" Max="100000"
+                                  Style="width: 100%;" Name="PromptTokens"
+                                  Change="@((int _) => OnEstimateParamsChanged())"/>
+                </div>
+
+                @if (_estimate is not null)
+                {
+                    <RadzenCard Style="background: var(--rz-base-200);">
+                        <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin: 0;">Estimated Cost Range</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H4" Style="margin: 0.25rem 0 0 0; color: var(--rz-success);">
+                            @FormatCurrency(_estimate.EstimatedMinCost) — @FormatCurrency(_estimate.EstimatedMaxCost)
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin: 0.25rem 0 0 0;">
+                            Based on @_estimate.EstimatedResponseTokens avg output tokens/iteration
+                        </RadzenText>
+                    </RadzenCard>
+                }
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+
+    @* Model Pricing Reference *@
+    <RadzenColumn Size="12" SizeMD="7">
+        <RadzenCard data-testid="model-pricing">
+            <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">
+                <RadzenIcon Icon="price_check"/>
+                Model Pricing
+            </RadzenText>
+            <RadzenDataGrid Data="_pricingModels" TItem="ModelPricingDto" Density="Density.Compact">
+                <Columns>
+                    <RadzenDataGridColumn TItem="ModelPricingDto" Property="DisplayName" Title="Model"/>
+                    <RadzenDataGridColumn TItem="ModelPricingDto" Property="InputPricePerMillion" Title="Input $/1M" FormatString="{0:C2}"/>
+                    <RadzenDataGridColumn TItem="ModelPricingDto" Property="OutputPricePerMillion" Title="Output $/1M" FormatString="{0:C2}"/>
+                </Columns>
+            </RadzenDataGrid>
+        </RadzenCard>
+    </RadzenColumn>
+</RadzenRow>
+
+@* Per-Project Cost Table *@
+<RadzenCard data-testid="project-costs">
+    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">
+        <RadzenIcon Icon="folder_special"/>
+        Cost by Project
+    </RadzenText>
+    <RadzenDataGrid Data="_projectCosts" TItem="ProjectCostDto" AllowSorting="true"
+                    RowExpand="@OnRowExpand" ExpandMode="DataGridExpandMode.Single">
+        <Template Context="project">
+            @* Expanded row: per-task breakdown *@
+            <RadzenDataGrid Data="@GetTaskCosts(project.ProjectId)" TItem="TaskCostDto"
+                            Density="Density.Compact" Style="margin: 0.5rem 1rem;">
+                <Columns>
+                    <RadzenDataGridColumn TItem="TaskCostDto" Property="TaskTitle" Title="Task"/>
+                    <RadzenDataGridColumn TItem="TaskCostDto" Property="InputTokens" Title="Input Tokens" FormatString="{0:N0}" Width="120px"/>
+                    <RadzenDataGridColumn TItem="TaskCostDto" Property="OutputTokens" Title="Output Tokens" FormatString="{0:N0}" Width="120px"/>
+                    <RadzenDataGridColumn TItem="TaskCostDto" Property="EstimatedCost" Title="Cost" FormatString="{0:C4}" Width="100px"/>
+                    <RadzenDataGridColumn TItem="TaskCostDto" Property="IterationCount" Title="Iterations" Width="100px"/>
+                </Columns>
+            </RadzenDataGrid>
+        </Template>
+        <Columns>
+            <RadzenDataGridColumn TItem="ProjectCostDto" Property="ProjectName" Title="Project"/>
+            <RadzenDataGridColumn TItem="ProjectCostDto" Property="InputTokens" Title="Input Tokens" FormatString="{0:N0}" Width="130px"/>
+            <RadzenDataGridColumn TItem="ProjectCostDto" Property="OutputTokens" Title="Output Tokens" FormatString="{0:N0}" Width="130px"/>
+            <RadzenDataGridColumn TItem="ProjectCostDto" Property="EstimatedCost" Title="Total Cost" FormatString="{0:C4}" Width="120px"/>
+            <RadzenDataGridColumn TItem="ProjectCostDto" Property="ExecutionCount" Title="Executions" Width="110px"/>
+            <RadzenDataGridColumn TItem="ProjectCostDto" Title="Avg/Execution" Width="120px">
+                <Template Context="p">
+                    @(p.ExecutionCount > 0 ? FormatCurrency(p.EstimatedCost / p.ExecutionCount) : "$0.00")
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenCard>
+
+@code {
+    private CostSummaryDto? _summary;
+    private List<ProjectCostDto> _projectCosts = [];
+    private List<ModelPricingDto> _pricingModels = [];
+    private CostEstimateDto? _estimate;
+    private string _errorMessage = "";
+    private CancellationTokenSource? _cts;
+
+    // Estimator inputs
+    private string _selectedModelId = "claude-sonnet-4-20250514";
+    private int _estimateMaxIterations = 10;
+    private int _estimatePromptTokens = 4000;
+
+    // Expanded row task costs cache
+    private readonly Dictionary<Guid, List<TaskCostDto>> _taskCostsCache = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        await LoadDataAsync(_cts.Token);
+    }
+
+    private async Task LoadDataAsync(CancellationToken ct)
+    {
+        try
+        {
+            var summaryTask = Api.GetCostSummaryAsync(ct);
+            var projectsTask = Api.GetCostsByProjectAsync(ct);
+            var pricingTask = Api.GetModelPricingAsync(ct);
+
+            await Task.WhenAll(summaryTask, projectsTask, pricingTask);
+
+            _summary = summaryTask.Result.Match(s => (CostSummaryDto?)s, _ => null);
+            _projectCosts = projectsTask.Result.Match(p => p, _ => []);
+            _pricingModels = pricingTask.Result.Match(p => p, _ => []);
+
+            if (_pricingModels.Count > 0)
+            {
+                _selectedModelId = _pricingModels[0].ModelId;
+            }
+
+            await LoadEstimateAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Silently ignore cancellation
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading cost data: {ex.Message}";
+        }
+    }
+
+    private async Task LoadEstimateAsync(CancellationToken ct)
+    {
+        var estimateResult = await Api.EstimateCostAsync(
+            _selectedModelId, _estimateMaxIterations, _estimatePromptTokens, ct);
+        _estimate = estimateResult.Match(e => (CostEstimateDto?)e, _ => null);
+    }
+
+    private async void OnEstimateParamsChanged()
+    {
+        if (_cts is null) return;
+        await LoadEstimateAsync(_cts.Token);
+        StateHasChanged();
+    }
+
+    private async void OnRowExpand(ProjectCostDto project)
+    {
+        if (_taskCostsCache.ContainsKey(project.ProjectId)) return;
+        if (_cts is null) return;
+
+        var result = await Api.GetCostsByProjectIdAsync(project.ProjectId, _cts.Token);
+        result.Match(
+            tasks => _taskCostsCache[project.ProjectId] = tasks,
+            _ => { });
+        StateHasChanged();
+    }
+
+    private List<TaskCostDto> GetTaskCosts(Guid projectId)
+    {
+        return _taskCostsCache.TryGetValue(projectId, out var tasks) ? tasks : [];
+    }
+
+    private static string FormatNumber(long number) => number switch
+    {
+        >= 1_000_000 => $"{number / 1_000_000.0:F1}M",
+        >= 1_000 => $"{number / 1_000.0:F1}K",
+        _ => number.ToString("N0")
+    };
+
+    private static string FormatCurrency(decimal amount) => amount.ToString("C2");
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+    }
+}

@@ -198,4 +198,27 @@ public sealed class ApiClient(HttpClient httpClient)
     public async Task<Result<RalphConfigDto>>
         UpdateRalphConfigAsync(RalphConfigDto dto, CancellationToken ct = default) =>
         await PutAsync<RalphConfigDto>("/api/ralph-config", dto, ct);
+
+    // Cost Analytics
+    public async Task<Result<CostSummaryDto>> GetCostSummaryAsync(CancellationToken ct = default) =>
+        await GetAsync<CostSummaryDto>("/api/cost-analytics/summary", ct);
+
+    public async Task<Result<List<ProjectCostDto>>> GetCostsByProjectAsync(CancellationToken ct = default) =>
+        await GetAsync<List<ProjectCostDto>>("/api/cost-analytics/by-project", ct);
+
+    public async Task<Result<List<TaskCostDto>>> GetCostsByProjectIdAsync(Guid projectId, CancellationToken ct = default) =>
+        await GetAsync<List<TaskCostDto>>($"/api/cost-analytics/by-project/{projectId}", ct);
+
+    public async Task<Result<List<TaskCostDto>>> GetCostsBySessionIdAsync(Guid sessionId, CancellationToken ct = default) =>
+        await GetAsync<List<TaskCostDto>>($"/api/cost-analytics/by-session/{sessionId}", ct);
+
+    public async Task<Result<CostEstimateDto>> EstimateCostAsync(
+        string modelId, int maxIterations = 10, int estimatedPromptTokens = 4000,
+        CancellationToken ct = default) =>
+        await GetAsync<CostEstimateDto>(
+            $"/api/cost-analytics/estimate?modelId={Uri.EscapeDataString(modelId)}&maxIterations={maxIterations}&estimatedPromptTokens={estimatedPromptTokens}",
+            ct);
+
+    public async Task<Result<List<ModelPricingDto>>> GetModelPricingAsync(CancellationToken ct = default) =>
+        await GetAsync<List<ModelPricingDto>>("/api/cost-analytics/pricing", ct);
 }
