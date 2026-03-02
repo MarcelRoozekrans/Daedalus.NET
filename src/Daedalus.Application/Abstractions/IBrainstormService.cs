@@ -1,4 +1,5 @@
 using CSharpFunctionalExtensions;
+using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 
 namespace Daedalus.Application.Abstractions;
@@ -61,4 +62,13 @@ public interface IBrainstormService
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Success or failure.</returns>
     Task<Result> AbandonSessionAsync(Guid sessionId, CancellationToken ct);
+
+    /// <summary>
+    ///     Parses the implementation plan from a brainstorm session into structured tasks
+    ///     using the LLM, then converts them via the PRD service.
+    /// </summary>
+    /// <param name="sessionId">The session whose plan to convert.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The created tasks or failure.</returns>
+    Task<Result<List<TaskDto>>> GenerateTasksAsync(Guid sessionId, CancellationToken ct);
 }

@@ -170,16 +170,21 @@ public sealed partial class BrainstormController(
     }
 
     /// <summary>
-    ///     Generate tasks from a completed brainstorm session (stub).
+    ///     Generate tasks from a brainstorm session's implementation plan.
     /// </summary>
     [Authorize(Policy = "TaskManagement")]
     [EnableRateLimiting("write-operations")]
     [HttpPost("sessions/{sessionId:guid}/generate-tasks")]
+    [ProducesResponseType(typeof(List<TaskDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public IActionResult GenerateTasks(Guid sessionId)
+    public async Task<IActionResult> GenerateTasks(Guid sessionId, CancellationToken ct = default)
     {
         LogGeneratingTasks(logger, sessionId);
 
-        return BadRequest(new { error = "Not yet implemented" });
+        var result = await brainstormService.GenerateTasksAsync(sessionId, ct);
+
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : BadRequest(new { error = result.Error });
     }
 }

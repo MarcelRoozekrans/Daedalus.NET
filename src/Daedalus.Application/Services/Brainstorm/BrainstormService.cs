@@ -1,7 +1,12 @@
+#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute
+
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CSharpFunctionalExtensions;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -17,8 +22,14 @@ public sealed partial class BrainstormService(
     IBrainstormRepository repository,
     IRalphAgentFactory agentFactory,
     IProjectRepository projectRepository,
+    IPrdService prdService,
     ILogger<BrainstormService> logger) : IBrainstormService
 {
+    private static readonly JsonSerializerOptions TaskParseOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
     /// <inheritdoc />
     public async Task<Result<BrainstormSession>> CreateSessionAsync(Guid projectId, CancellationToken ct)
     {
@@ -137,6 +148,78 @@ public sealed partial class BrainstormService(
         return Result.Success();
     }
 
+    /// <inheritdoc />
+    public async Task<Result<List<TaskDto>>> GenerateTasksAsync(Guid sessionId, CancellationToken ct)
+    {
+        var sessionResult = await repository.GetByIdAsync(sessionId, ct).ConfigureAwait(false);
+        if (sessionResult.IsFailure)
+            return Result.Failure<List<TaskDto>>(sessionResult.Error);
+
+        var session = sessionResult.Value;
+
+        if (session.Phase != BrainstormPhase.TaskCreation)
+            return Result.Failure<List<TaskDto>>(
+                $"Session must be in TaskCreation phase to generate tasks. Current phase: {session.Phase}");
+
+        if (string.IsNullOrWhiteSpace(session.ImplementationPlan))
+            return Result.Failure<List<TaskDto>>("Session has no implementation plan to convert to tasks.");
+
+        var parsePrompt = string.Format(
+            CultureInfo.InvariantCulture,
+            """
+            Parse the following implementation plan into a JSON array of task items.
+            Each item must have these fields:
+            - title (string): short task title
+            - description (string): detailed description
+            - acceptanceCriteria (string): criteria for completion
+            - priority (string): one of "Low", "Medium", "High", "Critical"
+            - complexity (string): one of "Low", "Medium", "High"
+            - dependencies (string[]): list of dependency task titles
+            - phase (string): implementation phase name
+            - parallelGroup (int): group number for parallel execution
+
+            Return ONLY a valid JSON array, no markdown fencing, no explanation.
+
+            Implementation plan:
+            {0}
+            """,
+            session.ImplementationPlan);
+
+        var llmResult = await agentFactory.InvokeAsync(parsePrompt, ct).ConfigureAwait(false);
+        if (llmResult.IsFailure)
+            return Result.Failure<List<TaskDto>>($"LLM invocation failed: {llmResult.Error}");
+
+        List<PrdItemForConversionDto> items;
+        try
+        {
+            var json = llmResult.Value.Response.Trim();
+            items = JsonSerializer.Deserialize<List<PrdItemForConversionDto>>(json, TaskParseOptions)
+                    ?? [];
+
+            if (items.Count == 0)
+                return Result.Failure<List<TaskDto>>("LLM returned an empty task list.");
+        }
+        catch (JsonException ex)
+        {
+            return Result.Failure<List<TaskDto>>($"Failed to parse LLM response as task items: {ex.Message}");
+        }
+
+        var tasksResult = await prdService.ConvertToTasksAsync(session.ProjectId, items, ct).ConfigureAwait(false);
+        if (tasksResult.IsFailure)
+            return Result.Failure<List<TaskDto>>($"Task conversion failed: {tasksResult.Error}");
+
+        session.AddMessage(MessageRole.System,
+            string.Format(CultureInfo.InvariantCulture,
+                "Generated {0} tasks from implementation plan.", tasksResult.Value.Count));
+        session.AddMessage(MessageRole.Assistant, "[PHASE_COMPLETE]");
+        session.AdvancePhase();
+
+        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+
+        LogTasksGenerated(logger, sessionId, tasksResult.Value.Count);
+        return Result.Success(tasksResult.Value);
+    }
+
     private static string BuildConversationPrompt(BrainstormSession session)
     {
         var sb = new StringBuilder();
@@ -176,4 +259,8 @@ public sealed partial class BrainstormService(
     [LoggerMessage(EventId = 202, Level = LogLevel.Information,
         Message = "Brainstorm session {SessionId} abandoned")]
     private static partial void LogSessionAbandoned(ILogger logger, Guid sessionId);
+
+    [LoggerMessage(EventId = 203, Level = LogLevel.Information,
+        Message = "Brainstorm session {SessionId} generated {TaskCount} tasks from implementation plan")]
+    private static partial void LogTasksGenerated(ILogger logger, Guid sessionId, int taskCount);
 }
