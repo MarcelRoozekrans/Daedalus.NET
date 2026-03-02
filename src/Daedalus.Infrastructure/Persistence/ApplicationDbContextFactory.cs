@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Pgvector.EntityFrameworkCore;
 
 namespace Daedalus.Infrastructure.Persistence;
 
@@ -11,7 +12,9 @@ public sealed class ApplicationDbContextFactory : IDesignTimeDbContextFactory<Ap
     public ApplicationDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
-        optionsBuilder.UseNpgsql(DatabaseSettings.GetDefaultConnectionString());
+        optionsBuilder.UseNpgsql(
+            DatabaseSettings.GetDefaultConnectionString(),
+            npgsqlOptions => npgsqlOptions.UseVector());
 
         return new ApplicationDbContext(optionsBuilder.Options);
     }

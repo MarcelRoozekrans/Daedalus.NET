@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Logs;
+using Pgvector.EntityFrameworkCore;
 
 namespace Daedalus.ServiceDefaults;
 
@@ -64,7 +65,7 @@ public static class AspireExtensions
         var connectionString = configuration.GetConnectionString(connectionStringKey) ?? fallbackConnectionString;
 
         services.AddDbContextPool<ApplicationDbContext>(options =>
-            options.UseNpgsql(connectionString));
+            options.UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector()));
 
         return services;
     }
