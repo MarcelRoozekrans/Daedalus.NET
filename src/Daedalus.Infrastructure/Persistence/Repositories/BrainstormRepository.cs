@@ -93,22 +93,22 @@ public sealed partial class BrainstormRepository(
         }
     }
 
-    [LoggerMessage(EventId = 1, Level = LogLevel.Error,
+    [LoggerMessage(EventId = 310, Level = LogLevel.Error,
         Message = "Error adding brainstorm session {SessionId}")]
     private static partial void LogErrorAddingSession(
         ILogger logger, Exception ex, Guid sessionId);
 
-    [LoggerMessage(EventId = 2, Level = LogLevel.Error,
+    [LoggerMessage(EventId = 311, Level = LogLevel.Error,
         Message = "Error retrieving brainstorm session {SessionId}")]
     private static partial void LogErrorRetrievingSession(
         ILogger logger, Exception ex, Guid sessionId);
 
-    [LoggerMessage(EventId = 3, Level = LogLevel.Error,
+    [LoggerMessage(EventId = 312, Level = LogLevel.Error,
         Message = "Error retrieving brainstorm sessions for project {ProjectId}")]
     private static partial void LogErrorRetrievingSessionsByProject(
         ILogger logger, Exception ex, Guid projectId);
 
-    [LoggerMessage(EventId = 4, Level = LogLevel.Error,
+    [LoggerMessage(EventId = 313, Level = LogLevel.Error,
         Message = "Error updating brainstorm session {SessionId}")]
     private static partial void LogErrorUpdatingSession(
         ILogger logger, Exception ex, Guid sessionId);
