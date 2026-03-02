@@ -171,4 +171,36 @@ public class BrainstormSessionTests
         result.IsSuccess.Should().BeTrue();
         session.ImplementationPlan.Should().Be(plan);
     }
+
+    [Fact]
+    public void AddMessage_WhenSessionCompleted_ShouldFail()
+    {
+        var session = BrainstormSession.Create(_projectId).Value;
+        for (var i = 0; i < 6; i++)
+        {
+            session.AddMessage(MessageRole.Assistant, "Done. [PHASE_COMPLETE]");
+            session.AdvancePhase();
+        }
+
+        var result = session.AddMessage(MessageRole.User, "Hello?");
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("terminal");
+    }
+
+    [Fact]
+    public void SetDesignDocument_WithEmptyString_ShouldFail()
+    {
+        var session = BrainstormSession.Create(_projectId).Value;
+        var result = session.SetDesignDocument("");
+        result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void SetImplementationPlan_WithWhitespace_ShouldFail()
+    {
+        var session = BrainstormSession.Create(_projectId).Value;
+        var result = session.SetImplementationPlan("   ");
+        result.IsFailure.Should().BeTrue();
+    }
 }
