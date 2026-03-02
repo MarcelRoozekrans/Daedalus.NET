@@ -14,14 +14,17 @@ namespace Daedalus.Tests.Unit.Application.Services;
 public class LearningsEnrichmentMiddlewareTests : UnitTestBase
 {
     private readonly ILearningsService _learningsService;
+    private readonly IKnowledgeBaseToolStatus _toolStatus;
     private readonly ILogger<LearningsEnrichmentMiddleware> _logger;
     private readonly LearningsEnrichmentMiddleware _middleware;
 
     public LearningsEnrichmentMiddlewareTests()
     {
         _learningsService = Substitute.For<ILearningsService>();
+        _toolStatus = Substitute.For<IKnowledgeBaseToolStatus>();
+        _toolStatus.AreToolsAvailable.Returns(false); // Default: full text fallback mode
         _logger = Substitute.For<ILogger<LearningsEnrichmentMiddleware>>();
-        _middleware = new LearningsEnrichmentMiddleware(_learningsService, _logger);
+        _middleware = new LearningsEnrichmentMiddleware(_learningsService, _toolStatus, _logger);
     }
 
     #region Order
