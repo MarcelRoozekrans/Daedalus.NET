@@ -1,8 +1,12 @@
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using Daedalus.Application.Services;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
+using ModelContextProtocol.Server;
 
 namespace Daedalus.Infrastructure.Agents;
 
@@ -18,11 +22,14 @@ namespace Daedalus.Infrastructure.Agents;
 /// </remarks>
 [SuppressMessage("Design", "CA1031:Do not catch general exception types",
     Justification = "MCP server connection failures should be logged and skipped, not thrown")]
-public sealed partial class McpToolBuilder(ILogger<McpToolBuilder> logger) : IAsyncDisposable
+public sealed partial class McpToolBuilder(
+    IServiceProvider serviceProvider,
+    ILogger<McpToolBuilder> logger) : IAsyncDisposable
 {
     private readonly Dictionary<string, McpClient> _clients = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyList<AITool>> _toolCache = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private IServiceScope? _localScope;
     private bool _disposed;
 
     /// <summary>
@@ -70,6 +77,15 @@ public sealed partial class McpToolBuilder(ILogger<McpToolBuilder> logger) : IAs
             if (_toolCache.TryGetValue(serverName, out var cached))
             {
                 return cached;
+            }
+
+            // Handle local (in-process) tool type — resolve tools from DI
+            if (serverConfig.Type.Equals("local", StringComparison.OrdinalIgnoreCase))
+            {
+                var localTools = BuildLocalTools(serverName);
+                _toolCache[serverName] = localTools;
+                LogServerConnected(logger, serverName, localTools.Count);
+                return localTools;
             }
 
             // Create transport based on server type
@@ -149,6 +165,63 @@ public sealed partial class McpToolBuilder(ILogger<McpToolBuilder> logger) : IAs
         };
     }
 
+    /// <summary>
+    ///     Builds tools from in-process <see cref="McpServerToolTypeAttribute" /> classes resolved via DI.
+    ///     Discovers classes annotated with [McpServerToolType] in the Infrastructure assembly,
+    ///     then creates <see cref="AIFunction" /> instances for each [McpServerTool]-annotated method.
+    /// </summary>
+#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute
+#pragma warning disable IL2072 // Target parameter of ActivatorUtilities.CreateInstance
+#pragma warning disable IL2075 // Target parameter of Type.GetMethods
+    private List<AITool> BuildLocalTools(string serverName)
+    {
+        var tools = new List<AITool>();
+
+        // Create a scope for resolving scoped services (e.g., repositories needing DbContext).
+        // The scope is stored as a field and disposed with the McpToolBuilder instance.
+        _localScope = serviceProvider.CreateScope();
+        var scopedProvider = _localScope.ServiceProvider;
+
+        // Discover tool classes from the Infrastructure assembly
+        var toolTypes = GetType().Assembly
+            .GetTypes()
+            .Where(t => Attribute.IsDefined(t, typeof(McpServerToolTypeAttribute))
+                         && !t.IsAbstract);
+
+        foreach (var toolType in toolTypes)
+        {
+            try
+            {
+                var instance = ActivatorUtilities.CreateInstance(scopedProvider, toolType);
+
+                // Discover public methods annotated with [McpServerTool]
+                var methods = toolType
+                    .GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public)
+                    .Where(m => Attribute.IsDefined(m, typeof(McpServerToolAttribute)));
+
+                foreach (var method in methods)
+                {
+                    var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>()!;
+                    var name = toolAttr.Name ?? method.Name;
+                    var description = method.GetCustomAttribute<DescriptionAttribute>()?.Description;
+
+                    var aiFunction = AIFunctionFactory.Create(method, instance, name, description);
+                    tools.Add(aiFunction);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogServerConnectionFailed(logger, ex, serverName,
+                    $"Failed to create local tool from {toolType.Name}: {ex.Message}");
+            }
+        }
+
+        return tools;
+    }
+#pragma warning restore IL2075
+#pragma warning restore IL2072
+#pragma warning restore IL2026
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -172,6 +245,7 @@ public sealed partial class McpToolBuilder(ILogger<McpToolBuilder> logger) : IAs
 
         _clients.Clear();
         _toolCache.Clear();
+        _localScope?.Dispose();
         _lock.Dispose();
     }
 
