@@ -19,6 +19,11 @@ namespace Daedalus.Infrastructure.Agents;
 ///     <c>McpClientTool</c> extends <c>AIFunction</c> (which extends <c>AITool</c>),
 ///     so MCP tools can be used directly anywhere <c>AITool</c> is accepted
 ///     (e.g., <c>ChatClientAgent</c> constructor, <c>ChatOptions.Tools</c>).
+///     <para>
+///         Local (in-process) tools are wrapped in <see cref="ScopedLocalTool" /> so that each
+///         invocation creates a fresh DI scope, preventing stale <c>DbContext</c> references
+///         that would otherwise accumulate in a singleton's lifetime.
+///     </para>
 /// </remarks>
 [SuppressMessage("Design", "CA1031:Do not catch general exception types",
     Justification = "MCP server connection failures should be logged and skipped, not thrown")]
@@ -29,7 +34,6 @@ public sealed partial class McpToolBuilder(
     private readonly Dictionary<string, McpClient> _clients = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyList<AITool>> _toolCache = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _lock = new(1, 1);
-    private IServiceScope? _localScope;
     private bool _disposed;
 
     /// <summary>
@@ -79,11 +83,12 @@ public sealed partial class McpToolBuilder(
                 return cached;
             }
 
-            // Handle local (in-process) tool type — resolve tools from DI
+            // Handle local (in-process) tool type — resolve tools from DI.
+            // Local tools are NOT cached because they need fresh DI scopes per invocation
+            // (DbContext, repositories, etc. are scoped services that would go stale in a singleton cache).
             if (serverConfig.Type.Equals("local", StringComparison.OrdinalIgnoreCase))
             {
                 var localTools = BuildLocalTools(serverName);
-                _toolCache[serverName] = localTools;
                 LogServerConnected(logger, serverName, localTools.Count);
                 return localTools;
             }
@@ -168,7 +173,9 @@ public sealed partial class McpToolBuilder(
     /// <summary>
     ///     Builds tools from in-process <see cref="McpServerToolTypeAttribute" /> classes resolved via DI.
     ///     Discovers classes annotated with [McpServerToolType] in the Infrastructure assembly,
-    ///     then creates <see cref="AIFunction" /> instances for each [McpServerTool]-annotated method.
+    ///     then creates <see cref="ScopedLocalTool" /> wrappers for each [McpServerTool]-annotated method.
+    ///     Each tool invocation creates a fresh DI scope so that scoped services (DbContext, repositories)
+    ///     are never stale.
     /// </summary>
 #pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute
 #pragma warning disable IL2072 // Target parameter of ActivatorUtilities.CreateInstance
@@ -177,10 +184,9 @@ public sealed partial class McpToolBuilder(
     {
         var tools = new List<AITool>();
 
-        // Create a scope for resolving scoped services (e.g., repositories needing DbContext).
-        // The scope is stored as a field and disposed with the McpToolBuilder instance.
-        _localScope = serviceProvider.CreateScope();
-        var scopedProvider = _localScope.ServiceProvider;
+        // Temporary scope used only to create probe instances for metadata extraction
+        // (parameter names, descriptions, JSON schema). Disposed immediately after discovery.
+        using var probeScope = serviceProvider.CreateScope();
 
         // Discover tool classes from the Infrastructure assembly
         var toolTypes = GetType().Assembly
@@ -192,7 +198,8 @@ public sealed partial class McpToolBuilder(
         {
             try
             {
-                var instance = ActivatorUtilities.CreateInstance(scopedProvider, toolType);
+                // Create a throw-away probe instance to extract method metadata
+                var probeInstance = ActivatorUtilities.CreateInstance(probeScope.ServiceProvider, toolType);
 
                 // Discover public methods annotated with [McpServerTool]
                 var methods = toolType
@@ -205,8 +212,11 @@ public sealed partial class McpToolBuilder(
                     var name = toolAttr.Name ?? method.Name;
                     var description = method.GetCustomAttribute<DescriptionAttribute>()?.Description;
 
-                    var aiFunction = AIFunctionFactory.Create(method, instance, name, description);
-                    tools.Add(aiFunction);
+                    // Create probe AIFunction to capture full metadata (parameter schema, etc.)
+                    var probeFunction = AIFunctionFactory.Create(method, probeInstance, name, description);
+
+                    // Wrap with ScopedLocalTool: each invocation creates a fresh DI scope
+                    tools.Add(new ScopedLocalTool(serviceProvider, toolType, method, probeFunction));
                 }
             }
             catch (Exception ex)
@@ -221,6 +231,30 @@ public sealed partial class McpToolBuilder(
 #pragma warning restore IL2075
 #pragma warning restore IL2072
 #pragma warning restore IL2026
+
+    /// <summary>
+    ///     An <see cref="AIFunction" /> wrapper that delegates metadata (name, description, schema)
+    ///     to a probe function but creates a fresh DI scope on every invocation.
+    ///     This prevents singleton-scoped McpToolBuilder from holding stale DbContext references.
+    /// </summary>
+    private sealed class ScopedLocalTool(
+        IServiceProvider rootProvider,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type toolType,
+        MethodInfo method,
+        AIFunction probeFunction) : DelegatingAIFunction(probeFunction)
+    {
+        protected override async ValueTask<object?> InvokeCoreAsync(
+            AIFunctionArguments arguments, CancellationToken cancellationToken)
+        {
+            // Each invocation gets a dedicated scope with fresh scoped services
+            await using var scope = rootProvider.CreateAsyncScope();
+            var instance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, toolType);
+
+            // Create a scoped AIFunction bound to the fresh instance, then invoke it
+            var scopedFunction = AIFunctionFactory.Create(method, instance);
+            return await scopedFunction.InvokeAsync(arguments, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -245,7 +279,6 @@ public sealed partial class McpToolBuilder(
 
         _clients.Clear();
         _toolCache.Clear();
-        _localScope?.Dispose();
         _lock.Dispose();
     }
 

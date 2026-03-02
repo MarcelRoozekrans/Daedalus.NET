@@ -49,6 +49,15 @@ builder.Services.AddExternalServices(builder.Configuration);
 // Add Agent Framework services (Claude via IRalphAgentFactory, MCP tools)
 builder.Services.AddAgentFrameworkServices(builder.Configuration);
 
+// Register Ollama embedding generator for semantic search (optional — falls back to NoOp if unavailable).
+// The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama).
+var ollamaConnectionString = builder.Configuration.GetConnectionString("ollama");
+if (!string.IsNullOrEmpty(ollamaConnectionString))
+{
+    builder.Services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(
+        new OllamaSharp.OllamaApiClient(new Uri(ollamaConnectionString), "nomic-embed-text"));
+}
+
 // Add code analysis services (Ralph Loop orchestration, Git operations)
 builder.Services.AddCodeAnalysisServices(builder.Configuration);
 

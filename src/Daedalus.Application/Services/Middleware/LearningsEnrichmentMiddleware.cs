@@ -8,10 +8,23 @@ namespace Daedalus.Application.Services.Middleware;
 ///     Enriches the prompt context with cross-task learnings and failure patterns
 ///     before prompt building occurs.
 ///     Order: 90 (runs before PromptBuildingMiddleware at 100).
-///     Aligned with Ralph philosophy: simple persistence + keyword search,
-///     no vectors, no embeddings — just structured knowledge transfer.
-///     When MCP knowledge base tools are available, injects a slim summary
-///     pointing the LLM to use the tools. Otherwise, falls back to full text injection.
+///     Operates in two modes based on <see cref="IKnowledgeBaseToolStatus.AreToolsAvailable" />:
+///     <list type="bullet">
+///         <item>
+///             <term>Slim mode</term>
+///             <description>
+///                 When MCP knowledge base tools are available, injects a compact summary
+///                 and tool-usage hint so the LLM can query the knowledge base on demand.
+///             </description>
+///         </item>
+///         <item>
+///             <term>Full-text fallback</term>
+///             <description>
+///                 When MCP tools are unavailable, fetches learnings and failure patterns
+///                 from the database and injects them directly into the prompt context.
+///             </description>
+///         </item>
+///     </list>
 /// </summary>
 public sealed partial class LearningsEnrichmentMiddleware(
     ILearningsService learningsService,

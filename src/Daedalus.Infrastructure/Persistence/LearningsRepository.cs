@@ -63,12 +63,14 @@ public sealed partial class LearningsRepository(
     {
         try
         {
+            var escapedKeyword = EscapeLikePattern(keyword);
+
             // Use EF.Functions.ILike for PostgreSQL case-insensitive search
             var results = await dbContext.StructuredLearnings
                 .AsNoTracking()
                 .Where(l =>
-                    EF.Functions.ILike(l.Pattern, $"%{keyword}%") ||
-                    EF.Functions.ILike(l.Resolution, $"%{keyword}%"))
+                    EF.Functions.ILike(l.Pattern, $"%{escapedKeyword}%") ||
+                    EF.Functions.ILike(l.Resolution, $"%{escapedKeyword}%"))
                 .OrderByDescending(l => l.Severity)
                 .ThenByDescending(l => l.HitCount)
                 .Take(maxResults)
@@ -156,7 +158,7 @@ public sealed partial class LearningsRepository(
         {
             var tagList = tags
                 .AsValueEnumerable()
-                .Select(t => t.ToUpperInvariant())
+                .Select(t => EscapeLikePattern(t.ToUpperInvariant()))
                 .ToArray();
 
             // PostgreSQL array overlap operator via raw SQL for tag matching
@@ -223,6 +225,16 @@ public sealed partial class LearningsRepository(
                 $"Semantic search failed: {ex.Message}");
         }
     }
+
+    /// <summary>
+    ///     Escapes LIKE/ILIKE special characters (<c>%</c>, <c>_</c>, <c>\</c>) so that
+    ///     user-supplied search terms are treated as literal text and cannot alter query semantics.
+    /// </summary>
+    private static string EscapeLikePattern(string input)
+        => input
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
 
     [LoggerMessage(EventId = 100, Level = LogLevel.Debug,
         Message = "Structured learning added: {Id} ({Category})")]
