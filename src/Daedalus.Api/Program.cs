@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Extensions;
+using Daedalus.Application.Services.Brainstorm;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Repositories;
@@ -74,6 +75,9 @@ builder.Services.AddScoped<IExecutionSessionQueryService, ExecutionSessionQueryS
 builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
 builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
 builder.Services.AddScoped<ICostAnalyticsService, CostAnalyticsService>();
+
+// Add brainstorm services
+builder.Services.AddScoped<IBrainstormService, BrainstormService>();
 
 // Add global exception handler (converts unhandled exceptions to RFC 7807 ProblemDetails)
 builder.Services.AddExceptionHandler<Daedalus.Api.Middleware.GlobalExceptionHandler>();

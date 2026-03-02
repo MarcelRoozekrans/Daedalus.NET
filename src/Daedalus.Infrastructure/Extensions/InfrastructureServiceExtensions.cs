@@ -6,6 +6,7 @@ using Daedalus.Domain.Abstractions;
 using Daedalus.Infrastructure.Agents;
 using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Services.Git;
@@ -80,6 +81,9 @@ public static class InfrastructureServiceExtensions
         // Register structured learnings persistence and failure pattern database
         services.AddScoped<ILearningsRepository, LearningsRepository>();
         services.AddScoped<IFailurePatternDatabase, FailurePatternDatabase>();
+
+        // Register brainstorm repository for brainstorm session persistence
+        services.AddScoped<IBrainstormRepository, BrainstormRepository>();
 
         // Register knowledge base tool status for LearningsEnrichmentMiddleware mode switching
         services.AddScoped<IKnowledgeBaseToolStatus, KnowledgeBaseToolStatus>();
