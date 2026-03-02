@@ -30,10 +30,11 @@ public sealed partial class BrainstormService(
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter() }
     };
+
     /// <inheritdoc />
     public async Task<Result<BrainstormSession>> CreateSessionAsync(Guid projectId, CancellationToken ct)
     {
-        var projectResult = await projectRepository.GetByIdAsync(projectId, ct);
+        var projectResult = await projectRepository.GetByIdAsync(projectId, ct).ConfigureAwait(false);
         if (projectResult.IsFailure)
             return Result.Failure<BrainstormSession>($"Project not found: {projectResult.Error}");
 
@@ -42,7 +43,7 @@ public sealed partial class BrainstormService(
             return sessionResult;
 
         var session = sessionResult.Value;
-        var addResult = await repository.AddAsync(session, ct);
+        var addResult = await repository.AddAsync(session, ct).ConfigureAwait(false);
         if (addResult.IsFailure)
             return addResult;
 
@@ -52,12 +53,12 @@ public sealed partial class BrainstormService(
             BrainstormPromptTemplates.GetSystemPrompt(BrainstormPhase.ContextGathering),
             $"Project: {project.ProjectName}\nDescription: {project.Description}\nVersion: {project.Version}");
 
-        var llmResult = await agentFactory.InvokeAsync(contextPrompt, ct);
+        var llmResult = await agentFactory.InvokeAsync(contextPrompt, ct).ConfigureAwait(false);
         if (llmResult.IsFailure)
             return Result.Failure<BrainstormSession>($"LLM invocation failed: {llmResult.Error}");
 
         session.AddMessage(MessageRole.Assistant, llmResult.Value.Response);
-        await repository.UpdateAsync(session, ct);
+        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         LogSessionCreated(logger, session.Id, projectId);
         return Result.Success(session);
@@ -66,21 +67,21 @@ public sealed partial class BrainstormService(
     /// <inheritdoc />
     public async Task<Result<BrainstormSession>> GetSessionAsync(Guid sessionId, CancellationToken ct)
     {
-        return await repository.GetByIdAsync(sessionId, ct);
+        return await repository.GetByIdAsync(sessionId, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task<Result<IReadOnlyList<BrainstormSession>>> GetSessionsByProjectAsync(
         Guid projectId, CancellationToken ct)
     {
-        return await repository.GetByProjectIdAsync(projectId, ct);
+        return await repository.GetByProjectIdAsync(projectId, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task<Result<BrainstormMessage>> SendMessageAsync(
         Guid sessionId, string userMessage, CancellationToken ct)
     {
-        var sessionResult = await repository.GetByIdAsync(sessionId, ct);
+        var sessionResult = await repository.GetByIdAsync(sessionId, ct).ConfigureAwait(false);
         if (sessionResult.IsFailure)
             return Result.Failure<BrainstormMessage>(sessionResult.Error);
 
@@ -90,12 +91,12 @@ public sealed partial class BrainstormService(
             return Result.Failure<BrainstormMessage>(addResult.Error);
 
         var prompt = BuildConversationPrompt(session);
-        var llmResult = await agentFactory.InvokeAsync(prompt, ct);
+        var llmResult = await agentFactory.InvokeAsync(prompt, ct).ConfigureAwait(false);
         if (llmResult.IsFailure)
             return Result.Failure<BrainstormMessage>($"LLM invocation failed: {llmResult.Error}");
 
         session.AddMessage(MessageRole.Assistant, llmResult.Value.Response);
-        await repository.UpdateAsync(session, ct);
+        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         var lastMessage = session.Messages[^1];
         return Result.Success(lastMessage);
@@ -104,7 +105,7 @@ public sealed partial class BrainstormService(
     /// <inheritdoc />
     public async Task<Result<BrainstormSession>> AdvancePhaseAsync(Guid sessionId, CancellationToken ct)
     {
-        var sessionResult = await repository.GetByIdAsync(sessionId, ct);
+        var sessionResult = await repository.GetByIdAsync(sessionId, ct).ConfigureAwait(false);
         if (sessionResult.IsFailure)
             return sessionResult;
 
@@ -117,14 +118,14 @@ public sealed partial class BrainstormService(
         if (!string.IsNullOrEmpty(systemPrompt))
         {
             var prompt = BuildConversationPrompt(session);
-            var llmResult = await agentFactory.InvokeAsync(prompt, ct);
+            var llmResult = await agentFactory.InvokeAsync(prompt, ct).ConfigureAwait(false);
             if (llmResult.IsSuccess)
             {
                 session.AddMessage(MessageRole.Assistant, llmResult.Value.Response);
             }
         }
 
-        await repository.UpdateAsync(session, ct);
+        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         LogPhaseAdvanced(logger, sessionId, session.Phase);
         return Result.Success(session);
@@ -133,7 +134,7 @@ public sealed partial class BrainstormService(
     /// <inheritdoc />
     public async Task<Result> AbandonSessionAsync(Guid sessionId, CancellationToken ct)
     {
-        var sessionResult = await repository.GetByIdAsync(sessionId, ct);
+        var sessionResult = await repository.GetByIdAsync(sessionId, ct).ConfigureAwait(false);
         if (sessionResult.IsFailure)
             return Result.Failure(sessionResult.Error);
 
@@ -142,7 +143,7 @@ public sealed partial class BrainstormService(
         if (abandonResult.IsFailure)
             return abandonResult;
 
-        await repository.UpdateAsync(session, ct);
+        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         LogSessionAbandoned(logger, sessionId);
         return Result.Success();
@@ -208,11 +209,19 @@ public sealed partial class BrainstormService(
         if (tasksResult.IsFailure)
             return Result.Failure<List<TaskDto>>($"Task conversion failed: {tasksResult.Error}");
 
-        session.AddMessage(MessageRole.System,
+        var systemMsgResult = session.AddMessage(MessageRole.System,
             string.Format(CultureInfo.InvariantCulture,
                 "Generated {0} tasks from implementation plan.", tasksResult.Value.Count));
-        session.AddMessage(MessageRole.Assistant, "[PHASE_COMPLETE]");
-        session.AdvancePhase();
+        if (systemMsgResult.IsFailure)
+            return Result.Failure<List<TaskDto>>(systemMsgResult.Error);
+
+        var completeMsgResult = session.AddMessage(MessageRole.Assistant, "Task generation complete. [PHASE_COMPLETE]");
+        if (completeMsgResult.IsFailure)
+            return Result.Failure<List<TaskDto>>(completeMsgResult.Error);
+
+        var advanceResult = session.AdvancePhase();
+        if (advanceResult.IsFailure)
+            return Result.Failure<List<TaskDto>>(advanceResult.Error);
 
         await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 

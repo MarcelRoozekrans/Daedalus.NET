@@ -124,6 +124,9 @@ public class BrainstormServiceGenerateTasksTests
             session.ProjectId,
             Arg.Any<IReadOnlyList<PrdItemForConversionDto>>(),
             Arg.Any<CancellationToken>());
+
+        session.Phase.Should().Be(BrainstormPhase.Completed);
+        await _repository.Received(1).UpdateAsync(session, Arg.Any<CancellationToken>());
     }
 
     [Fact]
