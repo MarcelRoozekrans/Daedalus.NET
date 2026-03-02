@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Asp.Versioning;
 using Microsoft.AspNetCore.ResponseCompression;
+using Scalar.AspNetCore;
 
 [assembly:
     UnconditionalSuppressMessage("Trimming", "IL2026",
@@ -89,6 +90,9 @@ builder.Services.AddApiVersioning(options =>
         new HeaderApiVersionReader("x-api-version"),
         new UrlSegmentApiVersionReader());
 });
+
+// Add OpenAPI document generation for Scalar API reference
+builder.Services.AddOpenApi();
 
 // Add controllers with FluentValidation filter for automatic DTO validation
 builder.Services.AddControllers(options =>
@@ -221,6 +225,14 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
+
+    // Expose OpenAPI spec and Scalar interactive API reference at /scalar
+    app.MapOpenApi();
+    app.MapScalarApiReference(options =>
+    {
+        options.WithTitle("Daedalus API")
+               .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+    });
 }
 
 app.UseExceptionHandler(); // Global exception handler for non-development environments
