@@ -1,6 +1,11 @@
 global using CSharpFunctionalExtensions;
 
+using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
+using BrainstormSessionDto = Daedalus.Application.DTOs.BrainstormSessionDto;
+using BrainstormSessionSummaryDto = Daedalus.Application.DTOs.BrainstormSessionSummaryDto;
+using CreateBrainstormSessionDto = Daedalus.Application.DTOs.CreateBrainstormSessionDto;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using SendBrainstormMessageDto = Daedalus.Application.DTOs.SendBrainstormMessageDto;
 
 namespace Daedalus.Web.Services;
 
@@ -135,6 +140,24 @@ public sealed class ApiClient(HttpClient httpClient)
         }
     }
 
+    private async Task<Result> PostAsync(string url, object body, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await httpClient.PostAsJsonAsync(url, body, ct);
+            response.EnsureSuccessStatusCode();
+            return Result.Success();
+        }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure("Please log in to perform this action.");
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result.Failure($"API error: {ex.Message}");
+        }
+    }
+
     private async Task<Result<T>> PutAsync<T>(string url, object body, CancellationToken ct = default)
         where T : class
     {
@@ -221,4 +244,33 @@ public sealed class ApiClient(HttpClient httpClient)
 
     public async Task<Result<List<ModelPricingDto>>> GetModelPricingAsync(CancellationToken ct = default) =>
         await GetAsync<List<ModelPricingDto>>("/api/cost-analytics/pricing", ct);
+
+    // Brainstorm Sessions
+    public async Task<Result<BrainstormSessionDto>> CreateBrainstormSessionAsync(
+        CreateBrainstormSessionDto dto, CancellationToken ct = default) =>
+        await PostAsync<BrainstormSessionDto>("/api/brainstorm/sessions", dto, ct);
+
+    public async Task<Result<BrainstormSessionDto>> GetBrainstormSessionAsync(
+        Guid sessionId, CancellationToken ct = default) =>
+        await GetAsync<BrainstormSessionDto>($"/api/brainstorm/sessions/{sessionId}", ct);
+
+    public async Task<Result<List<BrainstormSessionSummaryDto>>> GetBrainstormSessionsAsync(
+        Guid projectId, CancellationToken ct = default) =>
+        await GetAsync<List<BrainstormSessionSummaryDto>>($"/api/brainstorm/sessions?projectId={projectId}", ct);
+
+    public async Task<Result<BrainstormMessageDto>> SendBrainstormMessageAsync(
+        Guid sessionId, SendBrainstormMessageDto dto, CancellationToken ct = default) =>
+        await PostAsync<BrainstormMessageDto>($"/api/brainstorm/sessions/{sessionId}/messages", dto, ct);
+
+    public async Task<Result<BrainstormSessionDto>> AdvanceBrainstormPhaseAsync(
+        Guid sessionId, CancellationToken ct = default) =>
+        await PostAsync<BrainstormSessionDto>($"/api/brainstorm/sessions/{sessionId}/advance", new { }, ct);
+
+    public async Task<Result> AbandonBrainstormSessionAsync(
+        Guid sessionId, CancellationToken ct = default) =>
+        await PostAsync($"/api/brainstorm/sessions/{sessionId}/abandon", new { }, ct);
+
+    public async Task<Result<List<TaskDto>>> GenerateBrainstormTasksAsync(
+        Guid sessionId, CancellationToken ct = default) =>
+        await PostAsync<List<TaskDto>>($"/api/brainstorm/sessions/{sessionId}/generate-tasks", new { }, ct);
 }
