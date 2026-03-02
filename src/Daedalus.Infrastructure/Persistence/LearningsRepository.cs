@@ -3,14 +3,15 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using Pgvector;
 using ZLinq;
 
 namespace Daedalus.Infrastructure.Persistence;
 
 /// <summary>
 ///     EF Core implementation of the learnings repository.
-///     Uses simple SQL text search (ILIKE for PostgreSQL) — no vectors, no embeddings.
-///     Aligned with Ralph philosophy: simple persistence beats complex retrieval.
+///     Supports both simple SQL text search (ILIKE) and semantic vector search (pgvector cosine distance).
 /// </summary>
 public sealed partial class LearningsRepository(
     ApplicationDbContext dbContext,
@@ -177,6 +178,49 @@ public sealed partial class LearningsRepository(
             LogSearchFailed(logger, ex, "tags", string.Join(',', tags));
             return Result.Failure<IReadOnlyList<StructuredLearningEntry>>(
                 $"Failed to search by tags: {ex.Message}");
+        }
+    }
+
+    public async Task<Result<IReadOnlyList<StructuredLearningEntry>>> SemanticSearchAsync(
+        float[] queryEmbedding, Guid? projectId, int maxResults, CancellationToken ct)
+    {
+        try
+        {
+            var queryVector = new Vector(queryEmbedding);
+
+            // Use raw SQL for cosine distance ordering since EF Core value converters
+            // do not translate pgvector distance operators in LINQ expressions
+            var parameters = new List<NpgsqlParameter>
+            {
+                new("queryVector", queryVector),
+                new("maxResults", maxResults)
+            };
+
+            var projectFilter = string.Empty;
+            if (projectId.HasValue)
+            {
+                projectFilter = @" AND ""ProjectId"" = @projectId";
+                parameters.Add(new NpgsqlParameter("projectId", projectId.Value));
+            }
+
+            var sql = $@"SELECT * FROM ""StructuredLearnings""
+                         WHERE ""Embedding"" IS NOT NULL{projectFilter}
+                         ORDER BY ""Embedding"" <=> @queryVector
+                         LIMIT @maxResults";
+
+            var results = await dbContext.StructuredLearnings
+                .FromSqlRaw(sql, parameters.ToArray())
+                .AsNoTracking()
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+
+            return Result.Success<IReadOnlyList<StructuredLearningEntry>>(results);
+        }
+        catch (Exception ex)
+        {
+            LogSearchFailed(logger, ex, "semantic", "vector");
+            return Result.Failure<IReadOnlyList<StructuredLearningEntry>>(
+                $"Semantic search failed: {ex.Message}");
         }
     }
 
