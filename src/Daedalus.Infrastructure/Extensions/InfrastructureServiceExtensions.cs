@@ -9,8 +9,11 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Services.Git;
+using Daedalus.Infrastructure.Services.NoOp;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 
@@ -78,6 +81,9 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<ILearningsRepository, LearningsRepository>();
         services.AddScoped<IFailurePatternDatabase, FailurePatternDatabase>();
 
+        // Register knowledge base tool status for LearningsEnrichmentMiddleware mode switching
+        services.AddScoped<IKnowledgeBaseToolStatus, KnowledgeBaseToolStatus>();
+
         return services;
     }
 
@@ -92,6 +98,22 @@ public static class InfrastructureServiceExtensions
     {
         // McpToolBuilder converts McpServerConfig entries into AITool instances
         services.AddSingleton<McpToolBuilder>();
+
+        // Register embedding service — try Ollama, fallback to NoOp
+        // The IEmbeddingGenerator<string, Embedding<float>> is optional and registered by the API
+        // project when Ollama is available
+        services.AddScoped<IEmbeddingService>(sp =>
+        {
+            var generator = sp.GetService<IEmbeddingGenerator<string, Embedding<float>>>();
+            if (generator != null)
+            {
+                return new OllamaEmbeddingService(
+                    generator,
+                    sp.GetRequiredService<ILogger<OllamaEmbeddingService>>());
+            }
+
+            return new NoOpEmbeddingService();
+        });
 
         // IRalphAgentFactory is the primary interface for LLM invocations:
         // - Creates ChatClientAgent backed by Anthropic Claude

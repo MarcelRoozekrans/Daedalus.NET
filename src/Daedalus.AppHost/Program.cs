@@ -49,6 +49,11 @@ foreach (var hc in managementHealthCheck)
 
 keycloak.WithHttpHealthCheck("/health/ready");
 
+// Configure Ollama for embedding generation (semantic search)
+var ollama = builder.AddOllama("ollama")
+    .WithDataVolume()
+    .AddModel("nomic-embed-text");
+
 // Add database migrations - runs after Keycloak is ready
 var migrations = builder.AddProject("migrations", migrationsPath)
     .WithReference(database)
@@ -72,6 +77,7 @@ var api = builder.AddProject("api", apiPath)
     .WithReference(database)
     .WithReference(keycloak)
     .WithReference(migrations)
+    .WithReference(ollama)
     .WithHttpEndpoint(port: 5010, targetPort: 5010, name: "api-http", isProxied: false)
     .WithExternalHttpEndpoints()
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
