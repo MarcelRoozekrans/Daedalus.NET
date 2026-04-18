@@ -7,7 +7,7 @@
       "commands": ["dotnet-ef"]
     },
     "Aspire.Cli": {
-      "version": "13.1.0",
+      "version": "13.2.2",
       "commands": ["aspire"]
     }
   }
