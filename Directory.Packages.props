@@ -22,7 +22,7 @@
         <PackageVersion Include="OpenTelemetry.Instrumentation.SqlClient" Version="1.15.0"/>
 
         <!-- Aspire Integration -->
-        <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.1.0"/>
+        <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.2.2"/>
         <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.0"/>
         <PackageVersion Include="Microsoft.Extensions.Http.Diagnostics" Version="10.0.0"/>
     </ItemGroup>
