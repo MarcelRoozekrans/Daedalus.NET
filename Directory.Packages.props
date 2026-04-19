@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
     <ItemGroup>
-        <PackageVersion Include="CSharpFunctionalExtensions" Version="3.3.0"/>
+        <PackageVersion Include="CSharpFunctionalExtensions" Version="3.7.0"/>
         <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0"/>
         <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0"/>
         <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1"/>
