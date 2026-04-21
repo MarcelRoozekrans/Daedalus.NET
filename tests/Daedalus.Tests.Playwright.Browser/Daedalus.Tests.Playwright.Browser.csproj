@@ -29,8 +29,8 @@
         <PackageReference Include="Testcontainers" Version="4.11.0"/>
         <PackageReference Include="Testcontainers.PostgreSql" Version="4.11.0"/>
         <PackageReference Include="Npgsql" Version="10.0.2"/>
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.6"/>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.6"/>
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.7"/>
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.7"/>
         <PackageReference Update="SonarAnalyzer.CSharp" Version="10.23.0.137933">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -39,7 +39,7 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.202">
+        <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.203">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
