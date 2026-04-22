@@ -28,7 +28,7 @@
 
     <ItemGroup>
         <!-- Code analyzers for all projects -->
-        <PackageReference Include="SonarAnalyzer.CSharp" Version="10.23.0.137933">
+        <PackageReference Include="SonarAnalyzer.CSharp" Version="10.24.0.138807">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
