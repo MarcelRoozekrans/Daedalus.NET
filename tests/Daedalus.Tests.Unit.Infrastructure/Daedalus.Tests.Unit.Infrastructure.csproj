@@ -34,7 +34,7 @@
         <PackageReference Include="Bogus" Version="35.6.5"/>
         <PackageReference Include="GitHub.Copilot.SDK" Version="0.3.0"/>
         <PackageReference Include="Anthropic" Version="12.17.0"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.24.0.138807">
+        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.25.0.139117">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
