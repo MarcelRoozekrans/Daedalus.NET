@@ -38,7 +38,7 @@
         <PackageReference Include="Spectre.Console.Testing" Version="0.55.2"/>
         <PackageReference Include="Aspire.Hosting" Version="13.3.3"/>
         <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.3.3"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.25.0.139117">
+        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.26.0.140279">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
