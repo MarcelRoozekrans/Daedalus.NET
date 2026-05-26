@@ -32,7 +32,7 @@
         </PackageReference>
         <PackageReference Include="CSharpFunctionalExtensions" Version="3.7.0"/>
         <PackageReference Include="Bogus" Version="35.6.5"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.26.0.140279">
+        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.27.0.140913">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>

@@ -31,7 +31,7 @@
         <PackageReference Include="Npgsql" Version="10.0.2"/>
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.8"/>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.8"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.26.0.140279">
+        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.27.0.140913">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
