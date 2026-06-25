@@ -32,7 +32,7 @@
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9"/>
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9"/>
         <PackageReference Include="CSharpFunctionalExtensions" Version="3.7.0"/>
-        <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.3"/>
+        <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.4"/>
         <PackageReference Include="Anthropic" Version="12.30.0"/>
         <PackageReference Include="ZLinq" Version="1.5.6"/>
         <PackageReference Include="LibGit2Sharp" Version="0.31.0"/>
