@@ -11,7 +11,7 @@
 
     <ItemGroup>
         <PackageReference Include="CSharpFunctionalExtensions" Version="3.7.0"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.28.0.143324">
+        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.29.0.143774">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
