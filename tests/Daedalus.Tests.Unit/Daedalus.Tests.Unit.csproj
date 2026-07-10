@@ -35,7 +35,7 @@
         <PackageReference Include="Bogus" Version="35.6.5"/>
         <PackageReference Include="Spectre.Console.Testing" Version="0.57.2"/>
         <PackageReference Include="TngTech.ArchUnitNET.xUnit" Version="0.13.3"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.28.0.143324">
+        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.29.0.143774">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
