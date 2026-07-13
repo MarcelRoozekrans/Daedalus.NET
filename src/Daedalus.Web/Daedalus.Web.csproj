@@ -35,7 +35,7 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Radzen.Blazor" Version="11.1.3"/>
+        <PackageReference Include="Radzen.Blazor" Version="11.1.4"/>
     </ItemGroup>
 
     <ItemGroup>
