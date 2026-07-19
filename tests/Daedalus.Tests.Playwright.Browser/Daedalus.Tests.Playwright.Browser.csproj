@@ -20,7 +20,7 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="AwesomeAssertions" Version="9.4.0"/>
+        <PackageReference Include="AwesomeAssertions" Version="9.5.0"/>
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1"/>
         <PackageReference Include="Microsoft.Playwright" Version="1.61.0"/>
         <PackageReference Include="Microsoft.Playwright.NUnit" Version="1.61.0"/>
