@@ -42,7 +42,7 @@
         <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0"/>
         <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0"/>
         <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.31.0.145097">
+        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.32.0.713">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
