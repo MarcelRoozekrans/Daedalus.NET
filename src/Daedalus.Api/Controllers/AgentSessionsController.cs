@@ -165,6 +165,12 @@ public sealed partial class AgentSessionsController(
             return;
         }
 
+        // Headers must reach the client before the first model token: the Web client's resilience handler times out an
+        // attempt after 10 s and would re-POST the turn otherwise. A comment frame is valid SSE and ignored by readers.
+        await Response.StartAsync(ct);
+        await Response.WriteAsync(": connected\n\n", ct);
+        await Response.Body.FlushAsync(ct);
+
         await foreach (var agentEvent in runtime.RunTurnStreamingAsync(new AgentTurnRequest(id, request.Text, caller), ct))
         {
             await WriteEventAsync(AgentDtoMapper.ToDto(agentEvent), ct);

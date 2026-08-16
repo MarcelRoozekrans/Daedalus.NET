@@ -135,7 +135,9 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
         await using var stream = await response.Content.ReadAsStreamAsync();
         using var reader = new StreamReader(stream);
 
-        // Two lines + blank of the first frame must arrive while the runtime is still blocked.
+        // The connection comment goes out with the headers, then the first event — both while the runtime is still blocked.
+        var connectedFrame = await ReadFrameAsync(reader).WaitAsync(TimeSpan.FromSeconds(10));
+        connectedFrame.Should().Be(": connected");
         var firstFrame = await ReadFrameAsync(reader).WaitAsync(TimeSpan.FromSeconds(10));
         firstFrame.Should().Be("event: text-delta\ndata: {\"kind\":\"text-delta\",\"text\":\"hel\"}");
         release.Task.IsCompleted.Should().BeFalse();

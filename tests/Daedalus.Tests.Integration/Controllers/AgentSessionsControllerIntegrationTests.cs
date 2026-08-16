@@ -175,9 +175,9 @@ public sealed class AgentSessionsControllerIntegrationTests(PostgresFixture fixt
 
         var streaming = controller.RunTurnStream(sessionId.ToString(), new SendTurnRequestDto("hi"), CancellationToken.None);
 
-        // The first event must be on the wire while the runtime is still mid-turn (blocked on `release`).
-        var firstChunk = await body.WaitForWriteAsync(TimeSpan.FromSeconds(10));
-        firstChunk.Should().Contain("event: text-delta\n").And.Contain("data: {\"kind\":\"text-delta\",\"text\":\"hel\"}\n\n");
+        // The connection comment and the first event must be on the wire while the runtime is still mid-turn (blocked on `release`).
+        var firstChunk = await body.WaitForTextAsync("event: text-delta\n", TimeSpan.FromSeconds(10));
+        firstChunk.Should().StartWith(": connected\n\n").And.Contain("data: {\"kind\":\"text-delta\",\"text\":\"hel\"}\n\n");
         streaming.IsCompleted.Should().BeFalse("the turn has not finished yet");
 
         release.SetResult();
@@ -190,11 +190,12 @@ public sealed class AgentSessionsControllerIntegrationTests(PostgresFixture fixt
         response.Headers["X-Accel-Buffering"].ToString().Should().Be("no");
 
         var frames = body.Text.Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
-        frames.Should().HaveCount(4);
-        frames[0].Should().StartWith("event: text-delta\ndata: ");
-        frames[1].Should().StartWith("event: tool-result\ndata: ").And.Contain("\"succeeded\":true");
-        frames[2].Should().StartWith("event: usage\ndata: ").And.Contain("\"inputTokens\":3");
-        frames[3].Should().StartWith("event: done\ndata: ").And.Contain($"\"turnId\":\"{turnId}\"");
+        frames.Should().HaveCount(5);
+        frames[0].Should().Be(": connected");
+        frames[1].Should().StartWith("event: text-delta\ndata: ");
+        frames[2].Should().StartWith("event: tool-result\ndata: ").And.Contain("\"succeeded\":true");
+        frames[3].Should().StartWith("event: usage\ndata: ").And.Contain("\"inputTokens\":3");
+        frames[4].Should().StartWith("event: done\ndata: ").And.Contain($"\"turnId\":\"{turnId}\"");
     }
 
     [Fact]
@@ -325,9 +326,16 @@ public sealed class AgentSessionsControllerIntegrationTests(PostgresFixture fixt
 
         public string Text => Encoding.UTF8.GetString(_inner.ToArray());
 
-        public async Task<string> WaitForWriteAsync(TimeSpan timeout)
+        /// <summary>Awaits writes until the body contains <paramref name="marker"/> (or the timeout elapses).</summary>
+        public async Task<string> WaitForTextAsync(string marker, TimeSpan timeout)
         {
-            (await _written.WaitAsync(timeout)).Should().BeTrue("an SSE event should have been written within {0}", timeout);
+            var deadline = DateTime.UtcNow + timeout;
+            while (!Text.Contains(marker, StringComparison.Ordinal))
+            {
+                var remaining = deadline - DateTime.UtcNow;
+                (remaining > TimeSpan.Zero && await _written.WaitAsync(remaining)).Should().BeTrue("'{0}' should have been written within {1}", marker, timeout);
+            }
+
             return Text;
         }
 
