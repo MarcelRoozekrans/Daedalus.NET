@@ -38,6 +38,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Api, Console and Web each ship an appsettings.json; whichever is copied last wins in the output folder.
+             ApiThalosConfigurationTests must test the API's file, so link it under an unambiguous name. -->
+        <None Include="..\..\src\Daedalus.Api\appsettings.json" Link="Daedalus.Api.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>

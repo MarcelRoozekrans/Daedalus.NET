@@ -12,15 +12,18 @@ using Thalos.Mcp;
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
-///     Guards the shipped API configuration: <c>appsettings.json</c> and <c>.mcp.json</c> flow into this test's output
-///     through the Daedalus.Api project reference, so the file that is deployed is the file under test.
+///     Guards the shipped API configuration: <c>.mcp.json</c> flows into this test's output through the Daedalus.Api
+///     project reference, and <c>appsettings.json</c> is linked explicitly as <c>Daedalus.Api.appsettings.json</c> (Console
+///     and Web ship one too and would otherwise race for the plain name), so the file that is deployed is the file under test.
 /// </summary>
 public sealed class ApiThalosConfigurationTests
 {
+    private const string ApiAppSettingsFileName = "Daedalus.Api.appsettings.json";
+
     private static IConfiguration LoadApiConfiguration() =>
         new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: false)
+            .AddJsonFile(ApiAppSettingsFileName, optional: false)
             .Build();
 
     private static ServiceProvider BuildWithApiConfiguration()
