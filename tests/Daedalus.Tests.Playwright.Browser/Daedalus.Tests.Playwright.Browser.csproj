@@ -34,6 +34,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Api and Web both ship an appsettings.json; whichever is copied last wins the plain name in the output folder.
+             E2EServerFixture needs the API one (Thalos agent catalog), so link it under an unambiguous name. -->
+        <None Include="..\..\src\Daedalus.Api\appsettings.json" Link="Daedalus.Api.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Domain\Daedalus.Domain.csproj"/>

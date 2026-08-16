@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Thalos;
 using Task = System.Threading.Tasks.Task;
@@ -130,10 +131,12 @@ public class E2EServerFixture
             RemoveAndReplace<ICommandHandlerFactory, StubCommandHandlerFactory>(builder.Services);
             RemoveAndReplace<IQueryHandlerFactory, StubQueryHandlerFactory>(builder.Services);
 
-            // Thalos agents: the real composition root (agent catalog from the API's appsettings.json, which flows into this
-            // test's output through the Daedalus.Api reference; Postgres session store), with the runtime — the only piece
-            // that would call Anthropic / start MCP servers — swapped for a scripted stub. The API registers the store as a
-            // singleton, so the stub is one too (RemoveAndReplace registers scoped services).
+            // Thalos agents: the real composition root (agent catalog from the API's appsettings.json — linked into this
+            // test's output as Daedalus.Api.appsettings.json because Web ships an appsettings.json too; Postgres session
+            // store), with the runtime — the only piece that would call Anthropic / start MCP servers — swapped for a
+            // scripted stub. The API registers the store as a singleton, so the stub is one too (RemoveAndReplace
+            // registers scoped services).
+            builder.Configuration.AddJsonFile(Path.Combine(testAssemblyDir, "Daedalus.Api.appsettings.json"), optional: false);
             builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
             foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IAgentRuntime)).ToList())
             {
