@@ -31,9 +31,14 @@
     </ItemGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Daedalus.Tests.Unit" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="../Daedalus.Domain/Daedalus.Domain.csproj" />
         <ProjectReference Include="../Daedalus.Application/Daedalus.Application.csproj" />
         <ProjectReference Include="../Daedalus.Infrastructure/Daedalus.Infrastructure.csproj" />
+        <ProjectReference Include="../Daedalus.Agents/Daedalus.Agents.csproj" />
         <ProjectReference Include="../Daedalus.ServiceDefaults/Daedalus.ServiceDefaults.csproj" />
     </ItemGroup>
 
