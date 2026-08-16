@@ -1,4 +1,5 @@
 using AI.Sentinel;
+using AI.Sentinel.Detectors.Security;
 using Daedalus.Agents;
 using Daedalus.Agents.Security;
 using Daedalus.Infrastructure.Persistence;
@@ -169,6 +170,21 @@ public sealed class DaedalusAgentsRegistrationTests
         using var sp = Build(Config(("Thalos:Sentinel:Enabled", "false")));
 
         sp.GetService<SentinelOptions>().Should().BeNull();
+    }
+
+    [Fact]
+    public void Disabled_detector_names_switch_the_detector_off()
+    {
+        using var sp = Build(Config(("Thalos:Sentinel:DisabledDetectors:0", nameof(PromptInjectionDetector))));
+
+        var seen = false;
+        sp.GetRequiredService<SentinelOptions>().Configure<PromptInjectionDetector>(c =>
+        {
+            seen = true;
+            c.Enabled.Should().BeFalse();
+        });
+
+        seen.Should().BeTrue();
     }
 
     [Fact]

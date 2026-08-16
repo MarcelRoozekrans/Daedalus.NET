@@ -35,6 +35,7 @@ public sealed class AgentDtoMapperTests
         call.ToolName.Should().Be("daedalus__search_learnings");
         call.ArgumentsJson.Should().Be("{\"query\":\"npgsql\"}");
         call.ResultPreview.Should().Be("[{\"pattern\":\"timeout\"}]");
+        call.Succeeded.Should().BeNull("the transcript does not record tool outcomes");
 
         dtos[2].Text.Should().Be("Found one learning about timeouts.");
         dtos[2].ToolCalls.Should().BeEmpty();
@@ -86,7 +87,15 @@ public sealed class AgentDtoMapperTests
         dto.Text.Should().Be("done");
         dto.Usage.Should().Be(new Daedalus.Application.DTOs.Agents.TurnUsageDto(10, 5, "claude-sonnet-5"));
         dto.ElapsedMs.Should().Be(1500);
-        dto.ToolCalls.Should().ContainSingle().Which.Should().BeEquivalentTo(new { CallId = callId.ToString(), ToolName = "daedalus__search_learnings", ArgumentsJson = "{}", ResultPreview = "ok" });
+        dto.ToolCalls.Should().ContainSingle().Which.Should().BeEquivalentTo(new { CallId = callId.ToString(), ToolName = "daedalus__search_learnings", ArgumentsJson = "{}", ResultPreview = "ok", Succeeded = (bool?)true });
+    }
+
+    [Fact]
+    public void ToDto_maps_default_usage_of_a_failed_turn_to_an_empty_model_id()
+    {
+        var failed = AgentDtoMapper.ToDto(new TurnFailedEvent(Session, Turn, AgentError.Cancelled()));
+
+        failed.Usage.Should().Be(new Daedalus.Application.DTOs.Agents.TurnUsageDto(0, 0, ""));
     }
 
     [Fact]
@@ -103,11 +112,11 @@ public sealed class AgentDtoMapperTests
 
         var started = AgentDtoMapper.ToDto(new ToolCallStartedEvent(Session, Turn, callId, "daedalus__search_learnings", "{\"query\":\"x\"}"));
         started.Kind.Should().Be(AgentEventKinds.ToolCall);
-        started.ToolCall.Should().BeEquivalentTo(new { CallId = callId.ToString(), ToolName = "daedalus__search_learnings", ArgumentsJson = "{\"query\":\"x\"}", ResultPreview = (string?)null });
+        started.ToolCall.Should().BeEquivalentTo(new { CallId = callId.ToString(), ToolName = "daedalus__search_learnings", ArgumentsJson = "{\"query\":\"x\"}", ResultPreview = (string?)null, Succeeded = (bool?)null });
 
-        var finished = AgentDtoMapper.ToDto(new ToolCallFinishedEvent(Session, Turn, callId, "daedalus__search_learnings", true, "preview", TimeSpan.FromMilliseconds(3)));
+        var finished = AgentDtoMapper.ToDto(new ToolCallFinishedEvent(Session, Turn, callId, "daedalus__search_learnings", false, "preview", TimeSpan.FromMilliseconds(3)));
         finished.Kind.Should().Be(AgentEventKinds.ToolResult);
-        finished.ToolCall.Should().BeEquivalentTo(new { CallId = callId.ToString(), ToolName = "daedalus__search_learnings", ArgumentsJson = (string?)null, ResultPreview = "preview" });
+        finished.ToolCall.Should().BeEquivalentTo(new { CallId = callId.ToString(), ToolName = "daedalus__search_learnings", ArgumentsJson = (string?)null, ResultPreview = "preview", Succeeded = (bool?)false });
 
         var usageDto = AgentDtoMapper.ToDto(new UsageEvent(Session, Turn, usage));
         usageDto.Kind.Should().Be(AgentEventKinds.Usage);

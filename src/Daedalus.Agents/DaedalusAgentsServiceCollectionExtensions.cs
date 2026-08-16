@@ -145,7 +145,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
     // name detectors; resolve the type from AI.Sentinel's assembly and close the generic once at startup.
     private static void DisableDetector(SentinelOptions sentinel, string detectorName)
     {
-        var detectorType = typeof(SentinelOptions).Assembly.GetTypes()
+        var detectorType = typeof(SentinelOptions).Assembly.GetExportedTypes()
             .FirstOrDefault(t => typeof(IDetector).IsAssignableFrom(t)
                                  && t is { IsAbstract: false, IsInterface: false }
                                  && string.Equals(t.Name, detectorName, StringComparison.Ordinal))

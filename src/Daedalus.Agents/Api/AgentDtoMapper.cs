@@ -37,14 +37,14 @@ public static class AgentDtoMapper
             record.TotalOutputTokens);
     }
 
-    /// <summary>Maps turn usage.</summary>
-    public static TurnUsageDto ToDto(TurnUsage usage) => new(usage.InputTokens, usage.OutputTokens, usage.ModelId);
+    /// <summary>Maps turn usage. A <see langword="default"/> <see cref="TurnUsage"/> (failed turn before any model call) has a null model id → empty string.</summary>
+    public static TurnUsageDto ToDto(TurnUsage usage) => new(usage.InputTokens, usage.OutputTokens, usage.ModelId ?? "");
 
     /// <summary>Maps a completed tool call.</summary>
     public static AgentToolCallDto ToDto(ToolCallSummary call)
     {
         ArgumentNullException.ThrowIfNull(call);
-        return new AgentToolCallDto(call.Id.ToString(), call.ToolName, call.ArgumentsJson, call.ResultPreview);
+        return new AgentToolCallDto(call.Id.ToString(), call.ToolName, call.ArgumentsJson, call.ResultPreview, call.Succeeded);
     }
 
     /// <summary>Maps the buffered result of a successful turn.</summary>
@@ -68,7 +68,7 @@ public static class AgentDtoMapper
         {
             TextDeltaEvent t => new AgentEventDto(t.Kind, Text: t.Text),
             ToolCallStartedEvent c => new AgentEventDto(c.Kind, ToolCall: new AgentToolCallDto(c.CallId.ToString(), c.ToolName, c.ArgumentsJson, null)),
-            ToolCallFinishedEvent f => new AgentEventDto(f.Kind, ToolCall: new AgentToolCallDto(f.CallId.ToString(), f.ToolName, null, f.ResultPreview)),
+            ToolCallFinishedEvent f => new AgentEventDto(f.Kind, ToolCall: new AgentToolCallDto(f.CallId.ToString(), f.ToolName, null, f.ResultPreview, f.Succeeded)),
             UsageEvent u => new AgentEventDto(u.Kind, Usage: ToDto(u.Usage)),
             TurnCompletedEvent d => new AgentEventDto(d.Kind, Result: ToDto(d.Result)),
             TurnFailedEvent x => new AgentEventDto(x.Kind, Usage: ToDto(x.Usage), ErrorCode: x.Error.Code.ToString(), ErrorMessage: x.Error.Message, ErrorDetail: x.Error.Detail),

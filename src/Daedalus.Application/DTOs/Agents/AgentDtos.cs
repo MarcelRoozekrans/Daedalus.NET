@@ -20,8 +20,11 @@ public sealed record AgentSessionDto(
 /// <summary>A display message: user/assistant text plus the tool calls the assistant made (tool results folded in).</summary>
 public sealed record AgentMessageDto(string Role, string Text, IReadOnlyList<AgentToolCallDto> ToolCalls, DateTimeOffset? CreatedAt);
 
-/// <summary>One tool invocation; <paramref name="ResultPreview"/> is null while the call is still running.</summary>
-public sealed record AgentToolCallDto(string CallId, string ToolName, string? ArgumentsJson, string? ResultPreview);
+/// <summary>
+///     One tool invocation; <paramref name="ResultPreview"/> is null while the call is still running.
+///     <paramref name="Succeeded"/> is null while the call is running or when the outcome is unknown (transcript history).
+/// </summary>
+public sealed record AgentToolCallDto(string CallId, string ToolName, string? ArgumentsJson, string? ResultPreview, bool? Succeeded = null);
 
 /// <summary>Session header plus its transcript.</summary>
 public sealed record AgentSessionDetailDto(AgentSessionDto Session, IReadOnlyList<AgentMessageDto> Messages);
