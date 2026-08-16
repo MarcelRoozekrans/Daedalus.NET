@@ -30,6 +30,20 @@
 - ArchUnit rules live in `tests/Daedalus.Tests.Unit/Architecture/CleanArchitectureTests.cs`.
 - Existing in-process MCP tools: `Infrastructure/Agents/Tools/DaedalusLearningsTools.SearchLearnings(...)` and `DaedalusFailurePatternsTools.SearchFailurePatterns(...)`, `[McpServerToolType]`, primary-ctor DI. Ralph keeps using them; Thalos gets thin `[ThalosToolType]` wrappers.
 
+### 0.1b Verified Thalos.NET facts (post Plan A final review, HEAD `0f3a337`, feed `0.1.0-local.20260816183958`)
+
+- `IAgentSessionStore` has **eight** members: the seven in the design plus `ValueTask<Result<bool, AgentError>> TryTransitionAsync(SessionId id, SessionState from, SessionState target, CancellationToken ct)` — an atomic compare-and-swap (`UPDATE … SET State=@target, LastActivityAt=@now WHERE Id=@id AND State=@from` → rows affected == 1 ⇒ `true`; unknown id ⇒ `SessionNotFound`). The runtime claims turns with it. `SessionStoreContractTests` (in `Thalos.NET.Testing`) covers it incl. 20 concurrent claims → exactly one `true`.
+- Contract tests API: derive from `Thalos.Testing.SessionStoreContractTests` and implement `protected abstract ValueTask<IAgentSessionStore> CreateStoreAsync(TimeProvider clock)` — the store must read time from `clock` (a `FakeTimeProvider`) and persist ≥ 1 ms precision. **`PostgresAgentSessionStore` must therefore use the injected `TimeProvider` for `CreatedAt/LastActivityAt`.**
+- Crash recovery: durable stores/hosts should reset stale `Running` sessions to `Idle` at startup (add a small startup step in Daedalus: `UPDATE AgentSessions SET State=0 WHERE State=1`).
+- Non-owner access returns `SessionNotFound` (404), not `Unauthorized`; admin role literal `"admin"`. `AgentError.Detail` never carries raw exception text (type names only) — map it straight into ProblemDetails.
+- `TurnFailedNotification`/`TurnFailedEvent` carry the accumulated `TurnUsage` (bill quarantined/failed turns).
+- `RecordingNotificationPublisher` ships in `Thalos.NET.Testing` (use it in Daedalus tests).
+- AI.Sentinel: **without `SentinelOptions.EmbeddingGenerator` only lexical detectors run** — Daedalus must set it to the Ollama `IEmbeddingGenerator<string, Embedding<float>>` (Task 9 wiring; use `PostConfigure`/direct assignment inside the `UseAISentinel` lambda via a captured `IServiceProvider`-free path — see Task 9 note). Sentinel is the innermost decorator; quarantine detail is `"<Severity>: <DetectorId>"`; rate limit → `ProviderError`.
+- MCP: `AddMcpServersFromFile(absolutePath)`; keys must match `^[a-zA-Z0-9_-]+$` and contain no `__`; tools appear as `{name}__{tool}` (`roslyn__find_callers`); `shutdownTimeout` default 2 s; a source failure fails the agent build for that turn (retried next turn) — so a slow roslyn-codelens start shows up as `ProviderError` until connected.
+- `AnthropicOptions.DefaultModel` = `claude-sonnet-5`; set explicitly in Daedalus config.
+- `AgentEvent` kinds: `text-delta`, `tool-call`, `tool-result`, `usage` (one per turn), `done`, `error`.
+- Lifecycle: `AgentFactory`/`AnthropicChatClientProvider` are `IDisposable`, `McpToolSource` `IAsyncDisposable` + `IDisposable`.
+
 ### 0.2 Branching
 
 Work on `feature/thalos-integration` off `main`. Small commits per task. Run `pre-push-review` before the final merge/PR. Commits end with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
@@ -135,12 +149,12 @@ $refs | Group-Object Id | ForEach-Object {
     <PackageVersion Include="Meziantou.Analyzer" Version="2.0.296" />
     <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.102" />
     <!-- Thalos.NET (local feed during phase 1.1; see Task 4) -->
-    <PackageVersion Include="Thalos.NET" Version="0.1.0-local.REPLACE" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.1.0-local.REPLACE" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.1.0-local.REPLACE" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.1.0-local.REPLACE" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.1.0-local.REPLACE" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.1.0-local.REPLACE" />
+    <PackageVersion Include="Thalos.NET" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.1.0-local.20260816183958" />
     <PackageVersion Include="ZeroAlloc.Results" Version="1.2.0" />
     <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.0" />
     <PackageVersion Include="ZeroAlloc.Validation" Version="1.5.6" />
@@ -212,7 +226,7 @@ Expected: pass (Testcontainers 4.14).
 
 **Files:**
 - Create: `nuget.config` (repo root)
-- Modify: `Directory.Packages.props` (replace `0.1.0-local.REPLACE`)
+- Modify: `Directory.Packages.props` (replace `0.1.0-local.20260816183958`)
 
 `nuget.config`
 ```xml
@@ -232,7 +246,7 @@ Expected: pass (Testcontainers 4.14).
 
 > CI cannot see `C:\Projects\Prive\.nuget-local`. Until Thalos.NET 0.1.0 is on nuget.org, CI restores fail. Two options — pick **(a)**: (a) commit the six `.nupkg` files under `packages-local/` and point the source at `$(MSBuildThisFileDirectory)packages-local` (relative path works in `nuget.config`); delete the folder when switching to nuget.org at phase end. (b) skip CI on this branch. Use (a): `New-Item -ItemType Directory packages-local; Copy-Item C:\Projects\Prive\.nuget-local\Thalos.NET*.nupkg packages-local\` and set `value="packages-local"`.
 
-Replace every `0.1.0-local.REPLACE` with the exact version produced by Plan A's `pack-local.ps1`. `dotnet restore` → succeeds. Commit `build: add local Thalos.NET feed and package pins`.
+Replace every `0.1.0-local.20260816183958` with the exact version produced by Plan A's `pack-local.ps1`. `dotnet restore` → succeeds. Commit `build: add local Thalos.NET feed and package pins`.
 
 ---
 
@@ -569,10 +583,10 @@ public sealed class PostgresAgentSessionStoreTests(PostgresFixture fixture) : Se
         foreach (var c in _contexts) await c.DisposeAsync();
     }
 
-    protected override ValueTask<IAgentSessionStore> CreateStoreAsync()
+    protected override ValueTask<IAgentSessionStore> CreateStoreAsync(TimeProvider clock)
     {
         var factory = new TestDbContextFactory(fixture.ConnectionString, _contexts);
-        return new(new PostgresAgentSessionStore(factory, TimeProvider.System));
+        return new(new PostgresAgentSessionStore(factory, clock)); // the contract suite drives a FakeTimeProvider
     }
 
     private sealed class TestDbContextFactory(string connectionString, List<ApplicationDbContext> track) : IDbContextFactory<ApplicationDbContext>
@@ -718,6 +732,33 @@ public sealed class PostgresAgentSessionStore(IDbContextFactory<ApplicationDbCon
         session.SetState((AgentSessionState)(int)state, clock.GetUtcNow().UtcDateTime);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
         return UnitResult<AgentError>.Success();
+    }
+
+    /// <summary>Atomic compare-and-swap used by the runtime to claim a turn (see IAgentSessionStore remarks).</summary>
+    public async ValueTask<Result<bool, AgentError>> TryTransitionAsync(SessionId id, SessionState from, SessionState target, CancellationToken ct)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var fromState = (AgentSessionState)(int)from;
+        var targetState = (AgentSessionState)(int)target;
+
+        // Single UPDATE … WHERE State = @from — atomic without a transaction or row lock.
+        var affected = await db.AgentSessions
+            .Where(s => s.Id == id.Value && s.State == fromState)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(s => s.State, targetState)
+                .SetProperty(s => s.LastActivityAt, now), ct)
+            .ConfigureAwait(false);
+
+        if (affected == 1)
+        {
+            return Result<bool, AgentError>.Success(true);
+        }
+
+        var exists = await db.AgentSessions.AsNoTracking().AnyAsync(s => s.Id == id.Value, ct).ConfigureAwait(false);
+        return exists
+            ? Result<bool, AgentError>.Success(false)
+            : Result<bool, AgentError>.Failure(AgentError.SessionNotFound(id));
     }
 
     private static AgentSessionRecord ToRecord(AgentSession s) => new(
