@@ -3529,18 +3529,30 @@ public sealed partial class ThalosAgentRuntime(
             yield break;
         }
 
-        // 2. the producer owns the scope (created here so it flows into the producer's async context) and writes every event
+        // 2. the producer owns the scope (created here so it flows into the producer's async context) and writes every event.
+        //    A linked CTS lets an abandoned enumeration (consumer stopped reading) cancel the model turn instead of leaking it.
+        using var producerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var scope = TurnScope.Begin(sessionId, turnId, request.Caller);
-        var producer = ProduceTurnAsync(scope, start.Value.Definition, request, ct); // never throws; disposes the scope
+        var producer = ProduceTurnAsync(scope, start.Value.Definition, request, producerCts.Token); // never throws; disposes the scope
 
         // 3. drain until the producer completes the channel; the reader ignores ct so a cancelled turn still ends with its error event
-        await foreach (var evt in scope.Events.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
+        try
         {
-            await hub.PublishAsync(evt, CancellationToken.None).ConfigureAwait(false);
-            yield return evt;
+            await foreach (var evt in scope.Events.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
+            {
+                await hub.PublishAsync(evt, CancellationToken.None).ConfigureAwait(false);
+                yield return evt;
+            }
         }
+        finally
+        {
+            if (!producer.IsCompleted)
+            {
+                await producerCts.CancelAsync().ConfigureAwait(false); // consumer went away mid-turn (net8: use Cancel())
+            }
 
-        await producer.ConfigureAwait(false);
+            await producer.ConfigureAwait(false);
+        }
     }
 
     /// <summary>Runs the model loop for one turn on its own async flow. Owns and disposes <paramref name="scope"/>. Never throws.</summary>
@@ -3608,10 +3620,10 @@ public sealed partial class ThalosAgentRuntime(
             await scope.PublishAsync(new UsageEvent(sessionId, turnId, usage), CancellationToken.None).ConfigureAwait(false);
             await scope.PublishAsync(new TurnCompletedEvent(sessionId, turnId, completed.Value), CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            // last resort: never let the producer fault silently — the drain would hang
-            await scope.PublishAsync(new TurnFailedEvent(sessionId, turnId, AgentError.StoreError("Failed to finish turn.", ex.Message)), CancellationToken.None).ConfigureAwait(false);
+            // last resort: never let the producer fault silently — the drain would hang (OCE here → Cancelled)
+            await scope.PublishAsync(new TurnFailedEvent(sessionId, turnId, ex is OperationCanceledException ? AgentError.Cancelled() : AgentError.StoreError("Failed to finish turn.", ex.Message)), CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {
