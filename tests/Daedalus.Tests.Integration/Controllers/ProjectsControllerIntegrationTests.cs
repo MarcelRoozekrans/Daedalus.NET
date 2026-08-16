@@ -33,9 +33,7 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
     {
         await fixture.DatabaseResetter.ResetAsync();
 
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
 

@@ -21,9 +21,7 @@ public class ExecutionSessionRepositoryTests(PostgresFixture fixture) : IAsyncLi
 
     public async SystemTask InitializeAsync()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
         _repository = new ExecutionSessionRepository(_dbContext, _logger);
@@ -63,9 +61,7 @@ public class ExecutionSessionRepositoryTests(PostgresFixture fixture) : IAsyncLi
         {
             var task = SystemTask.Run(async () =>
             {
-                var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                    .UseNpgsql(fixture.ConnectionString)
-                    .Options;
+                var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
                 using var taskDbContext = new ApplicationDbContext(options);
                 var taskRepository = new ExecutionSessionRepository(taskDbContext, _logger);
 

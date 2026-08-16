@@ -1,6 +1,7 @@
 ﻿using Daedalus.Api.Services;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Task = System.Threading.Tasks.Task;
 
@@ -16,11 +17,7 @@ public class ExecutionSessionQueryServiceIntegrationTests : IAsyncLifetime
 
     public ExecutionSessionQueryServiceIntegrationTests()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-
-        _dbContext = new ApplicationDbContext(options);
+        _dbContext = InMemoryDbContextFactory.Create();
         _sut = new ExecutionSessionQueryService(_dbContext);
     }
 

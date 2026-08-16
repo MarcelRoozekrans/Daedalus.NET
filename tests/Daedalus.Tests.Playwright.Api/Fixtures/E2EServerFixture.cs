@@ -70,6 +70,7 @@ public class E2EServerFixture
             // Start PostgreSQL container
 #pragma warning disable CS0618 // Using PostgreSqlBuilder - obsolete warning for parameterless constructor
             _postgresContainer = new PostgreSqlBuilder()
+                .WithImage("pgvector/pgvector:pg16")
                 .WithDatabase("daedalus_e2e_test")
                 .WithUsername("e2e_user")
                 .WithPassword("e2e_password")
@@ -116,7 +117,7 @@ public class E2EServerFixture
                         // Add DbContext with test container connection string (non-pooled for testing)
                         services.AddDbContext<ApplicationDbContext>(options =>
                         {
-                            options.UseNpgsql(ConnectionString);
+                            options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector());
                         });
 
                         // Register repositories that are missing from the API project
@@ -168,6 +169,8 @@ public class E2EServerFixture
             // Create database schema from model
             using var scope = _factory.Services.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+            await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
             await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
 
             // Seed some initial data for testing

@@ -61,6 +61,7 @@ public class E2EServerFixture
             // 1. Start PostgreSQL container
 #pragma warning disable CS0618
             _postgresContainer = new PostgreSqlBuilder()
+                .WithImage("pgvector/pgvector:pg16")
                 .WithDatabase("daedalus_e2e_test")
                 .WithUsername("e2e_user")
                 .WithPassword("e2e_password")
@@ -89,7 +90,7 @@ public class E2EServerFixture
 
             // Database
             builder.Services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(ConnectionString));
+                options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector()));
 
             // Core infrastructure (ISystemClock, etc.)
             builder.Services.AddCoreInfrastructureServices();
@@ -236,6 +237,8 @@ public class E2EServerFixture
             using (var scope = app.Services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+                await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
                 await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
                 await SeedTestDataAsync(dbContext).ConfigureAwait(false);
             }

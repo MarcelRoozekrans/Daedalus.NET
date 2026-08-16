@@ -56,6 +56,22 @@ public sealed class PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
+    ///     Builds <see cref="DbContextOptions{TContext}"/> for <paramref name="connectionString"/> with the pgvector plugin
+    ///     enabled. Every test context must use this (or the instance overloads) — the model maps
+    ///     <c>StructuredLearningEntry.Embedding</c> to <c>vector(384)</c>, which Npgsql cannot map without <c>UseVector()</c>.
+    /// </summary>
+    public static DbContextOptions<ApplicationDbContext> CreateDbContextOptions(string connectionString) =>
+        new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector())
+            .Options;
+
+    /// <summary>Builds pgvector-aware <see cref="DbContextOptions{TContext}"/> for the fixture database.</summary>
+    public DbContextOptions<ApplicationDbContext> CreateDbContextOptions() => CreateDbContextOptions(ConnectionString);
+
+    /// <summary>Creates a new <see cref="ApplicationDbContext"/> over the fixture database (caller disposes).</summary>
+    public ApplicationDbContext CreateDbContext() => new(CreateDbContextOptions());
+
+    /// <summary>
     ///     Starts the PostgreSQL container with retry logic.
     /// </summary>
     public async Task InitializeAsync()
