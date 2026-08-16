@@ -9,12 +9,12 @@
 | Application URL        | In-process E2E server (`E2EServerFixture`, Kestrel on a random port)  |
 | Pages Tested           | 10 (Agent + 9 control pages)                                          |
 | Viewports Tested       | 1 (Desktop 1280x720, full-page captures)                              |
-| Browser Tests Passed   | 91 / 95 (+ 3 screenshot-capture tests)                                |
-| Browser Tests Failed   | 4 (all `PrdGeneratorBrowserTests`, pre-existing app bug, see below)   |
+| Browser Tests Passed   | 98 / 98 (after fixing the PRD Generator project-load bug and two test locators; see Issue 1) |
+| Browser Tests Failed   | 0                                                                     |
 | Console Errors Found   | 0 on the Agent page (asserted: no `.rz-alert` error, no error event)  |
 | Network Errors Found   | 0 (Agent API preflight `GET /api/agents` = 200)                       |
 | Visual Issues Found    | 1 (pre-existing, cosmetic)                                            |
-| Overall Status         | **PASS** (Agent page); control pages unchanged                        |
+| Overall Status         | **PASS**                                                              |
 
 ## Scope
 
@@ -57,9 +57,9 @@
 | `RepositoriesPageBrowserTests`    | 8      | 0      |                                                                       |
 | `ExecutionsPageBrowserTests`      | 7      | 0      | Heading page-object updated to "Executions"                            |
 | `SessionsPageBrowserTests`        | 4      | 0      | Heading page-object updated to "Sessions"                              |
-| `PrdGeneratorBrowserTests`        | 4      | 4      | Remaining failures = pre-existing app bug (see Issues, #1)             |
+| `PrdGeneratorBrowserTests`        | 8      | 0      | App bug fixed in this branch (`ProjectSelectionStep` paged envelope) + 2 locator fixes |
 | `RegressionScreenshotBrowserTests`| 3      | 0      | Control-page captures for this report                                  |
-| **Total**                         | **94** | **4**  |                                                                       |
+| **Total**                         | **98** | **0**  |                                                                       |
 
 Before this task the suite had 9 failures; 5 were page-object/title drift from the earlier UI overhaul (fixed in the
 tests), 4 are the PRD Generator project-loading bug below (left in the app, reported).
@@ -107,7 +107,7 @@ tests), 4 are the PRD Generator project-loading bug below (left in the app, repo
 
 ## Issues Found
 
-### 1. PRD Generator step 1 never lists projects (Major, pre-existing, not introduced by this work)
+### 1. PRD Generator step 1 never listed projects (Major, pre-existing — FIXED in this branch)
 
 **Severity:** Major (feature-blocking for the PRD wizard)
 **Tests:** `PrdGenerator_Step1_ShouldShowProjectCards`, `PrdGenerator_Step1_ClickProject_ShouldAdvanceToStep2`,
@@ -119,8 +119,8 @@ tests), 4 are the PRD Generator project-loading bug below (left in the app, repo
 lists it through `ApiClient.GetProjectsAsync`, which uses the paged DTO).
 **Root cause:** the API moved to paged results in the "UI overhaul" commit (`da2b951`); this component was not updated.
 **Fix:** deserialize `PagedResultDto<ProjectDto>` and bind `_projects = result.Items` (or reuse `ApiClient.GetProjectsAsync`).
-Left untouched here because it is an application bug outside the phase-1.1 scope; the four tests are correct and will
-pass once it is fixed.
+
+**Fix applied (this branch):** `ProjectSelectionStep.razor` now deserializes `PagedResultDto<ProjectDto>` and binds `Items`; the page-object locator was tightened to the clickable project cards and one `Or()` strict-mode assertion split — `PrdGeneratorBrowserTests` 8/8 pass; full browser suite 98/98.
 
 ### 2. `#app` loading styles persist after boot (Minor, pre-existing, cosmetic)
 

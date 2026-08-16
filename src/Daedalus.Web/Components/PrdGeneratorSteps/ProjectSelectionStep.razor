@@ -58,7 +58,9 @@
     {
         try
         {
-            _projects = await Http.GetFromJsonAsync<List<ProjectDto>>("api/projects") ?? [];
+            // The API returns a paged envelope, not a bare list (regression found by the PRD generator browser tests).
+            var page = await Http.GetFromJsonAsync<PagedResultDto<ProjectDto>>("api/projects?page=1&pageSize=100");
+            _projects = page?.Items.ToList() ?? [];
         }
         catch (Exception ex)
         {

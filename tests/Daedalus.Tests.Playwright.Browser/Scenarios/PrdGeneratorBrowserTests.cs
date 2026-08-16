@@ -89,9 +89,10 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
 
         await _prdPage.GetProjectCardByName("Test Project").ClickAsync().ConfigureAwait(false);
 
-        // Step 2 should now be visible with a Generate PRD button or requirements textarea
-        await Expect(_prdPage.GenerateButton.Or(_prdPage.CancelButton)).ToBeVisibleAsync(
+        // Step 2 should now be visible: both the Generate PRD and Cancel buttons render (Or() would be a strict-mode violation)
+        await Expect(_prdPage.CancelButton).ToBeVisibleAsync(
             new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 }).ConfigureAwait(false);
+        await Expect(_prdPage.GenerateButton).ToBeVisibleAsync().ConfigureAwait(false);
     }
 
     // ── Step 2: Requirements Input ───────────────────────────────────────────

@@ -20,7 +20,7 @@ public sealed class PrdGeneratorPage(IPage page, Uri baseUrl) : BasePage(page, b
     public ILocator NoProjectsAlert => _page.GetByText("No projects found");
 
     public ILocator GetProjectCardByName(string name) =>
-        _page.Locator(".rz-card", new PageLocatorOptions { HasText = name });
+        _page.Locator(".rz-card[style*='cursor: pointer']", new PageLocatorOptions { HasText = name }); // clickable project cards only (the step wrapper is also an .rz-card)
 
     // Step 2: Requirements Input
     public ILocator RequirementsHeading => _page.GetByText("Enter Requirements");
