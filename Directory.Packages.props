@@ -1,29 +1,118 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
-    <ItemGroup>
-        <PackageVersion Include="CSharpFunctionalExtensions" Version="3.3.0"/>
-        <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0"/>
-        <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0"/>
-        <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0"/>
-        <PackageVersion Include="xunit" Version="2.8.1"/>
-        <PackageVersion Include="xunit.runner.visualstudio" Version="2.5.9"/>
-        <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1"/>
-        <PackageVersion Include="FluentAssertions" Version="6.12.1"/>
-        <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.0"/>
-        <PackageVersion Include="Testcontainers" Version="3.9.0"/>
-        <PackageVersion Include="Testcontainers.PostgreSql" Version="3.9.0"/>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
 
-        <!-- OpenTelemetry -->
-        <PackageVersion Include="OpenTelemetry" Version="1.10.0"/>
-        <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.10.0"/>
-        <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.10.0"/>
-        <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.10.0"/>
-        <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.10.0"/>
-        <PackageVersion Include="OpenTelemetry.Instrumentation.SqlClient" Version="1.15.0"/>
+  <ItemGroup>
+    <!-- Aspire (13.1.0 → 13.4.6 fixes MessagePack via StreamJsonRpc). Aspire.Hosting.AppHost is implicit via Aspire.AppHost.Sdk (NU1009) -->
+    <PackageVersion Include="Aspire.Hosting" Version="13.4.6" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
+    <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.4.6-preview.1.26319.6" />
+    <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="13.4.1-beta.706" />
 
-        <!-- Aspire Integration -->
-        <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.1.0"/>
-        <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.0"/>
-        <PackageVersion Include="Microsoft.Extensions.Http.Diagnostics" Version="10.0.0"/>
-    </ItemGroup>
+    <!-- OpenTelemetry 1.15.0 → 1.17.0 -->
+    <PackageVersion Include="OpenTelemetry" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.SqlClient" Version="1.17.0" />
+
+    <!-- OpenAPI (10.0.3 → 10.0.11 fixes Microsoft.OpenApi 2.0.0) -->
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
+
+    <!-- Testcontainers 4.10.0 → 4.14.0 (SSH.NET) -->
+    <PackageVersion Include="Testcontainers" Version="4.14.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <PackageVersion Include="Testcontainers.Keycloak" Version="4.14.0" />
+
+    <!-- AI stack aligned with Thalos.NET -->
+    <PackageVersion Include="Anthropic" Version="12.40.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
+
+    <!-- Analyzers (highest of the former per-project overrides) -->
+    <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.19.0.132793" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="2.0.296" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.102" />
+    <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
+
+    <!-- Thalos.NET (local feed during phase 1.1; see nuget.config / packages-local) -->
+    <PackageVersion Include="Thalos.NET" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.1.0-local.20260816183958" />
+    <PackageVersion Include="ZeroAlloc.Results" Version="1.2.0" />
+    <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.0" />
+    <PackageVersion Include="ZeroAlloc.Validation" Version="1.5.6" />
+    <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="1.5.6" />
+    <PackageVersion Include="ZeroAlloc.Validation.AspNetCore" Version="1.5.6" />
+    <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.1" />
+
+    <!-- ASP.NET Core / Blazor -->
+    <PackageVersion Include="Asp.Versioning.Mvc" Version="8.1.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.2" />
+    <PackageVersion Include="Radzen.Blazor" Version="8.7.5" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.12.50" />
+
+    <!-- EF Core / data -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.2" />
+    <!-- transitive pin: aligns Relational (10.0.0 via Npgsql.EFCore) with EFCore.Design 10.0.2 (MSB3277) -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" />
+    <PackageVersion Include="Npgsql" Version="10.0.1" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
+
+    <!-- Microsoft.Extensions.* (10.0.11: transitive-pinning floor set by Microsoft.Extensions.AI 10.9 / ModelContextProtocol 2.2 / Aspire 13.4.6) -->
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.3.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.11" />
+
+    <!-- Libraries -->
+    <PackageVersion Include="CSharpFunctionalExtensions" Version="3.6.0" />
+    <PackageVersion Include="FluentValidation" Version="11.11.0" />
+    <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="11.11.0" />
+    <PackageVersion Include="LibGit2Sharp" Version="0.31.0" />
+    <PackageVersion Include="OllamaSharp" Version="5.4.12" /> <!-- floor set by CommunityToolkit.Aspire.Hosting.Ollama 13.4.1 -->
+    <PackageVersion Include="ZLinq" Version="1.5.4" />
+
+    <!-- Testing -->
+    <PackageVersion Include="AwesomeAssertions" Version="7.0.0" />
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.0" />
+    <PackageVersion Include="Bogus" Version="35.6.5" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageVersion Include="Microsoft.Playwright" Version="1.58.0" />
+    <PackageVersion Include="Microsoft.Playwright.NUnit" Version="1.58.0" />
+    <PackageVersion Include="NSubstitute" Version="5.3.0" />
+    <PackageVersion Include="NUnit" Version="4.4.0" />
+    <PackageVersion Include="NUnit3TestAdapter" Version="6.1.0" />
+    <PackageVersion Include="Respawn" Version="7.0.0" />
+    <PackageVersion Include="Spectre.Console.Testing" Version="0.54.0" />
+    <PackageVersion Include="TngTech.ArchUnitNET.xUnit" Version="0.13.2" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
 </Project>
