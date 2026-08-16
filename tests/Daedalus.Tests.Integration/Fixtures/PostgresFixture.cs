@@ -61,8 +61,9 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
 #pragma warning disable CS0618 // Using PostgreSqlBuilder with image parameter - obsolete warning for parameterless constructor
+        // pgvector image: the model maps StructuredLearningEntry.Embedding to vector(384), which needs the extension
         _container = new PostgreSqlBuilder()
-            .WithImage("postgres:16-alpine")
+            .WithImage("pgvector/pgvector:pg16")
             .WithDatabase("daedalus_test")
             .WithUsername("test")
             .WithPassword("test")
@@ -133,11 +134,13 @@ public sealed class PostgresFixture : IAsyncLifetime
         try
         {
             var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(ConnectionString)
+                .UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector())
                 .LogTo(System.Console.WriteLine, LogLevel.Information)
                 .Options;
 
             using var dbContext = new ApplicationDbContext(options);
+            // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+            await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;");
             // For tests, create schema directly from model (EnsureCreatedAsync)
             // In production, use MigrateAsync() with actual migration files
             await dbContext.Database.EnsureCreatedAsync();
