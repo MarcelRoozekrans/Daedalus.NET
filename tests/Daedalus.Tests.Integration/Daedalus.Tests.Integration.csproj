@@ -39,9 +39,11 @@
         <PackageReference Include="Spectre.Console.Testing"/>
         <PackageReference Include="Aspire.Hosting"/>
         <PackageReference Include="Aspire.Hosting.PostgreSQL"/>
+        <PackageReference Include="Thalos.NET.Testing"/>
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\..\src\Daedalus.Agents\Daedalus.Agents.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>
