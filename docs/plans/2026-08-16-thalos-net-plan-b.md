@@ -44,6 +44,12 @@
 - `AgentEvent` kinds: `text-delta`, `tool-call`, `tool-result`, `usage` (one per turn), `done`, `error`.
 - Lifecycle: `AgentFactory`/`AnthropicChatClientProvider` are `IDisposable`, `McpToolSource` `IAsyncDisposable` + `IDisposable`.
 
+### 0.1c Follow-ups discovered during Tasks 5–7 (2026-08-16)
+
+- **Integration suite pre-existing red**: ~15 test classes/fixtures build `DbContextOptions` with `UseNpgsql(cs)` and no `UseVector()` (plus InMemory + `Vector` cases; `AspirePostgresFixture`/docker-compose still on `postgres:16-alpine`) → 139 failures unrelated to this work. **Fix before Task 13**: add `PostgresFixture.CreateDbContextOptions()` (with `UseVector()`) and use it everywhere; switch InMemory-based tests to Postgres or ignore the `Embedding` mapping for InMemory; bump `AspirePostgresFixture`/compose images to `pgvector/pgvector:pg16`.
+- **`AgentSession.RowVersion` is inert on Npgsql** (byte[] rowversion is never populated) — the store relies on atomic `ExecuteUpdateAsync` statements instead; follow-up: `UseXminAsConcurrencyToken()` (new migration) or drop the column.
+- Crash recovery: reset stale `Running` sessions to `Idle` at API startup (Task 12).
+
 ### 0.2 Branching
 
 Work on `feature/thalos-integration` off `main`. Small commits per task. Run `pre-push-review` before the final merge/PR. Commits end with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
