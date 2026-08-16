@@ -691,7 +691,8 @@ public class RalphLoopOrchestratorTests
         var request = createResult.Value;
         var context = new GitOperationContext
         {
-            LocalWorkTreePath = workTreePath, RepositoryUrl = "https://github.com/owner/repo"
+            LocalWorkTreePath = workTreePath,
+            RepositoryUrl = "https://github.com/owner/repo"
         };
 
         _repositoryMock

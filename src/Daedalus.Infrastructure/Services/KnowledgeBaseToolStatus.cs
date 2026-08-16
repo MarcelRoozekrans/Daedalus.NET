@@ -24,7 +24,8 @@ public sealed partial class KnowledgeBaseToolStatus(
     {
         get
         {
-            if (_learningsCount.HasValue) return _learningsCount.Value;
+            if (_learningsCount.HasValue)
+                return _learningsCount.Value;
             try
             {
                 _learningsCount = dbContext.StructuredLearnings.Count();
@@ -43,7 +44,8 @@ public sealed partial class KnowledgeBaseToolStatus(
     {
         get
         {
-            if (_failurePatternsCount.HasValue) return _failurePatternsCount.Value;
+            if (_failurePatternsCount.HasValue)
+                return _failurePatternsCount.Value;
             try
             {
                 _failurePatternsCount = dbContext.TaskExecutions.Count(e => e.Error != null);

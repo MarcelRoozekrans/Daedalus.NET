@@ -1,4 +1,4 @@
-﻿using CSharpFunctionalExtensions;
+using CSharpFunctionalExtensions;
 using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Application.Services;

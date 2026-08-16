@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Infrastructure.Configuration;
+namespace Daedalus.Infrastructure.Configuration;
 
 /// <summary>
 ///     Claude-specific configuration for the Anthropic API.

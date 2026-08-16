@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Threading.RateLimiting;
+using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
@@ -13,7 +14,6 @@ using Daedalus.Infrastructure.Services;
 using Daedalus.ServiceDefaults;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
-using Asp.Versioning;
 using Microsoft.AspNetCore.ResponseCompression;
 using Scalar.AspNetCore;
 

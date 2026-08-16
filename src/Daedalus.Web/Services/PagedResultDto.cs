@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Web.Services;
+namespace Daedalus.Web.Services;
 
 public record PagedResultDto<T>(
     IReadOnlyList<T> Items,

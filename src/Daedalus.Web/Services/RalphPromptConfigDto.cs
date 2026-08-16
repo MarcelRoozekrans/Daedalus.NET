@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Web.Services;
+namespace Daedalus.Web.Services;
 
 /// <summary>DTO for Ralph Prompt template configuration.</summary>
 public record RalphPromptConfigDto(

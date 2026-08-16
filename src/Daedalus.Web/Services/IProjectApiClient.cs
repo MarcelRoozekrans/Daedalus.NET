@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Web.Services;
+namespace Daedalus.Web.Services;
 
 /// <summary>Service for accessing projects from the API.</summary>
 public interface IProjectApiClient

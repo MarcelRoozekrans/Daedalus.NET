@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Tests.Unit.Application.Abstractions;
+namespace Daedalus.Tests.Unit.Application.Abstractions;
 
 /// <summary>
 ///     Base builder class with fluent interface support.

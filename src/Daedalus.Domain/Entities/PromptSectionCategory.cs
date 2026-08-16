@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Domain.Entities;
+namespace Daedalus.Domain.Entities;
 
 /// <summary>
 ///     Categories of prompt sections that map to Ralph loop behavioral patterns.

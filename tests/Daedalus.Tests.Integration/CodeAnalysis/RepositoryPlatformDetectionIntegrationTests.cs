@@ -1,4 +1,4 @@
-﻿using Daedalus.Domain.CodeAnalysis;
+using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 

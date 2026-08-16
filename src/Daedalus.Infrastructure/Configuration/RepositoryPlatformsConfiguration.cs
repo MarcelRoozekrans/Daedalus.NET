@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Infrastructure.Configuration;
+namespace Daedalus.Infrastructure.Configuration;
 
 /// <summary>
 ///     Configuration for repository platforms

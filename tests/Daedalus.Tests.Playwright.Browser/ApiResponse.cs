@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Tests.Playwright.Browser;
+namespace Daedalus.Tests.Playwright.Browser;
 
 /// <summary>
 ///     Lightweight wrapper around HttpResponseMessage that provides an API similar to

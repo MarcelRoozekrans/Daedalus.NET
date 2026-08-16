@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Api.Controllers;
+namespace Daedalus.Api.Controllers;
 
 /// <summary>
 ///     Response model for test connection endpoint

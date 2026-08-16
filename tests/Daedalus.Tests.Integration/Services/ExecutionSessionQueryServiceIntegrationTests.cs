@@ -1,4 +1,4 @@
-﻿using Daedalus.Api.Services;
+using Daedalus.Api.Services;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
