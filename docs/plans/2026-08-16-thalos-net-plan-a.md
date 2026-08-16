@@ -3509,32 +3509,52 @@ public sealed partial class ThalosAgentRuntime(
 
     // ---------- streaming turn (the real implementation; buffered delegates here) ----------
 
+    /// <remarks>
+    /// The MAF loop runs in a producer <see cref="Task"/> that owns the <see cref="TurnScope"/>; this iterator only
+    /// drains the scope's event channel and fans events out to the <see cref="AgentEventHub"/>. An AsyncLocal scope
+    /// would NOT survive <c>yield return</c> inside an async iterator (verified), so the scope must never live in the iterator.
+    /// </remarks>
     public async IAsyncEnumerable<AgentEvent> RunTurnStreamingAsync(AgentTurnRequest request, [EnumeratorCancellation] CancellationToken ct = default)
     {
         var turnId = TurnId.New();
         var sessionId = request.SessionId;
 
-        // 1. validate + load + authorize + claim (state machine)
+        // 1. validate + load + authorize + claim (state machine) — no scope needed yet
         var start = await BeginTurnAsync(request, turnId, ct).ConfigureAwait(false);
         if (start.IsFailure)
         {
-            yield return await FailAsync(sessionId, turnId, start.Error, releaseState: false, ct).ConfigureAwait(false);
+            var failed = await FailAsync(sessionId, turnId, start.Error, releaseState: false).ConfigureAwait(false);
+            await hub.PublishAsync(failed, CancellationToken.None).ConfigureAwait(false);
+            yield return failed;
             yield break;
         }
 
-        var (definition, session) = start.Value;
+        // 2. the producer owns the scope (created here so it flows into the producer's async context) and writes every event
+        var scope = TurnScope.Begin(sessionId, turnId, request.Caller);
+        var producer = ProduceTurnAsync(scope, start.Value.Definition, request, ct); // never throws; disposes the scope
+
+        // 3. drain until the producer completes the channel; the reader ignores ct so a cancelled turn still ends with its error event
+        await foreach (var evt in scope.Events.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
+        {
+            await hub.PublishAsync(evt, CancellationToken.None).ConfigureAwait(false);
+            yield return evt;
+        }
+
+        await producer.ConfigureAwait(false);
+    }
+
+    /// <summary>Runs the model loop for one turn on its own async flow. Owns and disposes <paramref name="scope"/>. Never throws.</summary>
+    private async Task ProduceTurnAsync(TurnScope scope, AgentDefinition definition, AgentTurnRequest request, CancellationToken ct)
+    {
+        var sessionId = scope.SessionId;
+        var turnId = scope.TurnId;
         using var activity = ThalosTelemetry.ActivitySource.StartActivity("thalos.turn");
         activity?.SetTag("thalos.agent", definition.Name).SetTag("thalos.session", sessionId.ToString()).SetTag("thalos.turn", turnId.ToString());
         var sw = Stopwatch.StartNew();
-        using var scope = TurnScope.Begin(sessionId, turnId, request.Caller);
-
-        // 2. run the model loop, merging MAF text updates with tool events from the TurnScope channel
         var text = new System.Text.StringBuilder();
         var usage = TurnUsage.Empty(definition.Model ?? string.Empty);
         AgentError? failure = null;
-        var events = new List<AgentEvent>(); // buffered per update so we never yield inside try/catch
 
-        IAsyncEnumerator<AgentResponseUpdate>? updates = null;
         try
         {
             var agent = await agentFactory.GetOrCreateAsync(definition, ct).ConfigureAwait(false);
@@ -3545,7 +3565,22 @@ public sealed partial class ThalosAgentRuntime(
             else
             {
                 var mafSession = await historyProvider.CreateBoundSessionAsync(agent.Value, sessionId, ct).ConfigureAwait(false);
-                updates = agent.Value.RunStreamingAsync(request.Text, mafSession, cancellationToken: ct).GetAsyncEnumerator(ct);
+                await foreach (var update in agent.Value.RunStreamingAsync(request.Text, mafSession, cancellationToken: ct).ConfigureAwait(false))
+                {
+                    foreach (var content in update.Contents)
+                    {
+                        switch (content)
+                        {
+                            case TextContent tc when !string.IsNullOrEmpty(tc.Text):
+                                text.Append(tc.Text);
+                                await scope.PublishAsync(new TextDeltaEvent(sessionId, turnId, tc.Text), CancellationToken.None).ConfigureAwait(false);
+                                break;
+                            case UsageContent uc:
+                                usage += new TurnUsage((int)(uc.Details.InputTokenCount ?? 0), (int)(uc.Details.OutputTokenCount ?? 0), usage.ModelId);
+                                break;
+                        }
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -3553,90 +3588,36 @@ public sealed partial class ThalosAgentRuntime(
             failure = MapException(ex);
         }
 
-        while (failure is null && updates is not null)
-        {
-            bool moved;
-            try
-            {
-                moved = await updates.MoveNextAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                failure = MapException(ex);
-                break;
-            }
-
-            // drain tool events raised while the model/tools were running
-            while (scope.Events.Reader.TryRead(out var toolEvent))
-            {
-                events.Add(toolEvent);
-            }
-
-            if (!moved)
-            {
-                break;
-            }
-
-            var update = updates.Current;
-            foreach (var content in update.Contents)
-            {
-                switch (content)
-                {
-                    case TextContent tc when !string.IsNullOrEmpty(tc.Text):
-                        text.Append(tc.Text);
-                        events.Add(new TextDeltaEvent(sessionId, turnId, tc.Text));
-                        break;
-                    case UsageContent uc:
-                        usage += new TurnUsage((int)(uc.Details.InputTokenCount ?? 0), (int)(uc.Details.OutputTokenCount ?? 0), usage.ModelId);
-                        break;
-                }
-            }
-
-            foreach (var e in events)
-            {
-                await hub.PublishAsync(e, ct).ConfigureAwait(false);
-                yield return e;
-            }
-            events.Clear();
-        }
-
-        if (updates is not null)
-        {
-            await updates.DisposeAsync().ConfigureAwait(false);
-        }
-
-        while (scope.Events.Reader.TryRead(out var trailing))
-        {
-            await hub.PublishAsync(trailing, ct).ConfigureAwait(false);
-            yield return trailing;
-        }
-
         sw.Stop();
-
-        // 3. finish
-        if (failure is { } err)
+        try
         {
-            activity?.SetStatus(ActivityStatusCode.Error, err.Message);
-            yield return await FailAsync(sessionId, turnId, err, releaseState: true, ct).ConfigureAwait(false);
-            yield break;
-        }
+            if (failure is { } err)
+            {
+                activity?.SetStatus(ActivityStatusCode.Error, err.Message);
+                await scope.PublishAsync(await FailAsync(sessionId, turnId, err, releaseState: true).ConfigureAwait(false), CancellationToken.None).ConfigureAwait(false);
+                return;
+            }
 
-        var completed = await CompleteTurnAsync(sessionId, turnId, text.ToString(), usage, scope.ToolCalls.ToList(), sw.Elapsed, ct).ConfigureAwait(false);
-        if (completed.IsFailure)
+            var completed = await CompleteTurnAsync(sessionId, turnId, text.ToString(), usage, scope.ToolCalls.ToList(), sw.Elapsed, CancellationToken.None).ConfigureAwait(false);
+            if (completed.IsFailure)
+            {
+                await scope.PublishAsync(await FailAsync(sessionId, turnId, completed.Error, releaseState: true).ConfigureAwait(false), CancellationToken.None).ConfigureAwait(false);
+                return;
+            }
+
+            await scope.PublishAsync(new UsageEvent(sessionId, turnId, usage), CancellationToken.None).ConfigureAwait(false);
+            await scope.PublishAsync(new TurnCompletedEvent(sessionId, turnId, completed.Value), CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            yield return await FailAsync(sessionId, turnId, completed.Error, releaseState: true, ct).ConfigureAwait(false);
-            yield break;
+            // last resort: never let the producer fault silently — the drain would hang
+            await scope.PublishAsync(new TurnFailedEvent(sessionId, turnId, AgentError.StoreError("Failed to finish turn.", ex.Message)), CancellationToken.None).ConfigureAwait(false);
         }
-
-        var usageEvent = new UsageEvent(sessionId, turnId, usage);
-        await hub.PublishAsync(usageEvent, ct).ConfigureAwait(false);
-        yield return usageEvent;
-
-        var doneEvent = new TurnCompletedEvent(sessionId, turnId, completed.Value);
-        await hub.PublishAsync(doneEvent, ct).ConfigureAwait(false);
-        yield return doneEvent;
+        finally
+        {
+            scope.Dispose(); // completes the channel → the iterator's ReadAllAsync ends
+        }
     }
-
     // ---------- helpers ----------
 
     private async ValueTask<Result<(AgentDefinition Definition, AgentSessionRecord Session), AgentError>> BeginTurnAsync(AgentTurnRequest request, TurnId turnId, CancellationToken ct)
@@ -3702,7 +3683,7 @@ public sealed partial class ThalosAgentRuntime(
         return Result<AgentTurnResult, AgentError>.Success(new AgentTurnResult(turnId, sessionId, text, usage, toolCalls, elapsed));
     }
 
-    private async ValueTask<TurnFailedEvent> FailAsync(SessionId sessionId, TurnId turnId, AgentError error, bool releaseState, CancellationToken ct)
+    private async ValueTask<TurnFailedEvent> FailAsync(SessionId sessionId, TurnId turnId, AgentError error, bool releaseState)
     {
         if (releaseState)
         {
@@ -3714,7 +3695,6 @@ public sealed partial class ThalosAgentRuntime(
         await publisher.PublishAsync(new TurnFailedNotification(sessionId, turnId, error, clock.GetUtcNow()), CancellationToken.None).ConfigureAwait(false);
         LogTurnFailed(_logger, turnId, sessionId, error.ToString());
         var evt = new TurnFailedEvent(sessionId, turnId, error);
-        await hub.PublishAsync(evt, CancellationToken.None).ConfigureAwait(false);
         return evt;
     }
 
@@ -3758,8 +3738,8 @@ public sealed partial class ThalosAgentRuntime(
 
 Design notes for whoever maintains this:
 - The streaming path is the single implementation; `RunTurnAsync` folds it. That keeps behaviour identical between the two.
-- `yield return` cannot sit inside `try/catch`, hence the `events` buffer and manual enumerator loop.
-- The `TurnScope` is disposed at the end of the iterator; MAF's function-invocation loop runs on the same async flow so `TurnScope.Current` is visible to `AuthorizingAIFunction`. If a provider client hops threads without flowing `ExecutionContext` (unusual), the wrapper falls back to Anonymous — covered by a test in Task 13.
+- The producer/drain split exists because an AsyncLocal `TurnScope` does not survive `yield return` in an async iterator (empirically verified during group-3 review). `ProduceTurnAsync` is a plain `async Task`, so `TurnScope.Current` stays visible to `AuthorizingAIFunction` for the whole model loop, including tool calls that come *after* streamed text deltas.
+- The iterator never yields inside `try/catch` because it only drains a channel; every failure path becomes a `TurnFailedEvent` written by the producer. If a provider client hops threads without flowing `ExecutionContext` (unusual), the wrapper falls back to Anonymous — covered by a test in Task 13.
 - Usage: `ScriptedChatClient` emits `UsageContent` per round-trip; Anthropic via M.E.AI does too. If a provider only sets `ChatResponse.Usage` on the non-streaming path, usage stays zero on streaming — acceptable for 0.1.
 
 **Step 4: Run tests** → 12 pass. **Step 5: Commit** `feat(core): ThalosAgentRuntime — sessions, buffered + streaming turns, telemetry`.
@@ -3835,8 +3815,28 @@ public sealed class ThalosAgentRuntimeStreamingTests
 
         seen.Should().Equal("text-delta", "text-delta", "usage", "done");
     }
+
+    /// <summary>
+    /// Regression guard for the producer/drain design: text deltas are yielded to the consumer *before* the tool runs,
+    /// and the tool must still see the real caller (an AsyncLocal scope living in the iterator would be lost here).
+    /// </summary>
+    [Fact]
+    public async Task Tool_called_after_streamed_text_still_sees_the_caller()
+    {
+        var f = new RuntimeFixture().WithTool(AIFunctionFactory.Create((string text) => "echo:" + text, "echo")).Build();
+        // one model response containing text AND a tool call (Anthropic does this), then the final answer
+        f.Client.ThenToolCall("t__echo", new { text = "x" }, precedingText: "Let me check that.").ThenText("done");
+        var s = (await f.Runtime.CreateSessionAsync(f.Agent.Id, RuntimeFixture.User("alice"), default)).Value;
+
+        var events = await f.Runtime.RunTurnStreamingAsync(new AgentTurnRequest(s, "go", RuntimeFixture.User("alice")), default).ToListAsync();
+
+        events.Select(e => e.Kind).Should().ContainInOrder("text-delta", "tool-call", "tool-result", "text-delta", "usage", "done");
+        await f.Authorizer.Received(1).AuthorizeAsync(Arg.Is<ISecurityContext>(c => c.Id == "alice"), "t__echo", Arg.Any<System.Text.Json.JsonElement>(), Arg.Any<CancellationToken>());
+    }
 }
 ```
+
+`precedingText` is a new optional parameter on `ScriptedChatClient.ThenToolCall(name, args, callId = null, input = 1, output = 1, precedingText = null)`: when set, the scripted assistant message contains `[new TextContent(precedingText), new FunctionCallContent(...)]` and the streaming path yields the text (word-split) *before* the tool-call update. Add it in `Thalos.NET.Testing` as part of this task, with a unit test in `ScriptedChatClientTests`.
 
 `ToListAsync` needs `System.Linq.AsyncEnumerable` (in .NET 10 BCL as `System.Linq` — `IAsyncEnumerable` LINQ ships in-box since .NET 10). If it does not resolve, add a 6-line helper in the test project.
 
@@ -5262,4 +5262,3 @@ Publishing to nuget.org (0.1.0 proper) happens at the **end of phase 1.1**, afte
 - `pwsh scripts/pack-local.ps1` produces six packages in the local feed.
 - Sample REPL answers a roslyn-backed question end-to-end with a real Anthropic key (manual, transcript saved under `docs/samples/`).
 - GitHub repo `MarcelRoozekrans/Thalos.NET` exists with CI green on `main`.
-
