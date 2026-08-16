@@ -43,7 +43,8 @@ Everything below was verified against the real packages on 2026-08-16 (a scratch
 - Library TFMs `net8.0;net10.0`; test/sample TFM `net10.0`.
 - Local SDK is 10.0.303 → `global.json` = `{ "sdk": { "version": "10.0.100", "rollForward": "latestFeature" } }`.
 - Commit style: Conventional Commits (`feat:`, `test:`, `chore:`, `docs:`), one commit per task step group as written below. Every commit ends with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
-- Test stack: xUnit + AwesomeAssertions (`using AwesomeAssertions;` gives `.Should()`), NSubstitute for doubles where a hand-written fake isn't provided.
+- Test stack: xUnit + AwesomeAssertions 7.0.0 — **7.0.0 ships the `FluentAssertions` namespace, so write `using FluentAssertions;` for `.Should()`** (the `AwesomeAssertions` namespace only exists from 9.x; 7.0.0 is kept for Daedalus compatibility). NSubstitute for doubles where a hand-written fake isn't provided.
+- **Amendments after Tasks 1–2 executed (2026-08-16):** `Microsoft.Extensions.*` are pinned at **10.0.11** (MAF/MCP/M.E.AI require ≥10.0.9–10.0.11); `CompilerGeneratedFilesOutputPath` is `$(MSBuildProjectDirectory)/obj/generated`; `Thalos.NET.Testing.csproj` has `IsTestProject=false`; `.gitattributes` enforces LF; the `.editorconfig` is trimmed to library-grade rules (no ConfigureAwait/CA1062/CA2000 relaxations — test-only relaxations live in `tests/Directory.Build.props`).
 
 ### 0.3 Naming
 
@@ -489,7 +490,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="coverlet.collector" />
     <Using Include="Xunit" />
-    <Using Include="AwesomeAssertions" />
+    <Using Include="FluentAssertions" /> <!-- AwesomeAssertions 7.0.0 ships the FluentAssertions namespace -->
   </ItemGroup>
 </Project>
 ```
@@ -556,7 +557,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
     <PackageReference Remove="NSubstitute" />
     <PackageReference Remove="AwesomeAssertions" />
     <Using Remove="Xunit" />
-    <Using Remove="AwesomeAssertions" />
+    <Using Remove="FluentAssertions" /> <!-- see tests/Directory.Build.props -->
   </ItemGroup>
 </Project>
 ```
@@ -1615,7 +1616,7 @@ The contract tests live in `Thalos.NET.Testing` so Daedalus's Postgres store (Pl
 
 `src/Thalos.NET.Testing/SessionStoreContractTests.cs`
 ```csharp
-using AwesomeAssertions;
+using FluentAssertions; // AwesomeAssertions 7.0.0 namespace
 using Microsoft.Extensions.AI;
 using Xunit;
 
