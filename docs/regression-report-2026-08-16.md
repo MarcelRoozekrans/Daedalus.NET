@@ -40,7 +40,7 @@
 | Suite                                                                 | Result                          |
 |-----------------------------------------------------------------------|---------------------------------|
 | `dotnet build --no-incremental`                                       | 0 warnings, 0 errors            |
-| Unit (`Tests.Unit` / `.Domain` / `.Application` / `.Infrastructure`)  | 103 / 318 / 258 / 127 passing   |
+| Unit (`Tests.Unit` / `.Domain` / `.Application` / `.Infrastructure`)  | 103 / 258 / 318 / 127 passing   |
 | Integration (non-Keycloak filter)                                     | 240 passing                     |
 | ArchUnit (`Daedalus.Tests.Unit/Architecture`)                         | 17 passing                      |
 
