@@ -22,12 +22,14 @@
 
 ### Phases
 
-| # | Phase | Status | Depends on | Design / Plan |
-|---|---|---|---|---|
-| 1.1 | Thalos.NET core + AI.Sentinel + Daedalus HTTP/Blazor channel | active | — | design: `docs/plans/2026-08-16-thalos-agent-core-design.md` |
-| 1.2 | Memory: `Thalos.NET.Memory` port + Rag.NET adapter (pgvector), replaces hand-rolled learnings slice | pending | 1.1 | — |
-| 1.3 | Skills: reusable procedures the agent loads/refines (Rag-backed) | pending | 1.2 | — |
-| 1.4 | Channels: Telegram (+ CLI) via `IChannelAdapter` + `ZeroAlloc.Outbox` | pending | 1.1 | — |
-| 1.5 | Subagents & scheduling: `ZeroAlloc.Saga` orchestration, `ZeroAlloc.Scheduling` autonomous runs | pending | 1.1 | — |
-| 1.6 | Ralph retirement + Daedalus ZeroAlloc migration (CSFE→Results, FluentValidation→Validation, CQRS→Mediator) | pending | 1.2–1.5 | — |
-| 1.7 | Thalos.NET 1.0 release, docs, architecture-diagrams rewrite | pending | all | — |
+GitHub milestone: [Milestone 1](https://github.com/MarcelRoozekrans/daedalus/milestone/1)
+
+| # | Phase | Status | Depends on | GH issue | Design / Plan |
+|---|---|---|---|---|---|
+| 1.1 | Thalos.NET core + AI.Sentinel + Daedalus HTTP/Blazor channel | active | — | #227 | design: `docs/plans/2026-08-16-thalos-agent-core-design.md` |
+| 1.2 | Memory: `Thalos.NET.Memory` port + Rag.NET adapter (pgvector), replaces hand-rolled learnings slice | pending | 1.1 | #228 | — |
+| 1.3 | Skills: reusable procedures the agent loads/refines (Rag-backed) | pending | 1.2 | #229 | — |
+| 1.4 | Channels: Telegram (+ CLI) via `IChannelAdapter` + `ZeroAlloc.Outbox` | pending | 1.1 | #230 | — |
+| 1.5 | Subagents & scheduling: `ZeroAlloc.Saga` orchestration, `ZeroAlloc.Scheduling` autonomous runs | pending | 1.1 | #231 | — |
+| 1.6 | Ralph retirement + Daedalus ZeroAlloc migration (CSFE→Results, FluentValidation→Validation, CQRS→Mediator) | pending | 1.2–1.5 | #232 | — |
+| 1.7 | Thalos.NET 1.0 release, docs, architecture-diagrams rewrite | pending | all | #233 | — |
