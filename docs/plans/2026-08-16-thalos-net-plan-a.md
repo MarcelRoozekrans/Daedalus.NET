@@ -1204,7 +1204,7 @@ namespace Thalos;
 /// Messages are Microsoft.Extensions.AI <see cref="ChatMessage"/>s; serialize with <c>AIJsonUtilities.DefaultOptions</c>
 /// so tool-call/result content round-trips.
 /// </summary>
-[Instrument("thalos")]
+[Instrument("thalos", PublicProxy = true)] // PublicProxy makes the generated AgentSessionStoreInstrumented public
 public interface IAgentSessionStore
 {
     [Trace("thalos.session.create")]
@@ -1242,7 +1242,7 @@ namespace Thalos;
 public interface IAgentCatalog
 {
     IReadOnlyList<AgentDefinition> Agents { get; }
-    bool TryGet(AgentId id, out AgentDefinition definition);
+    bool TryGet(AgentId id, [MaybeNullWhen(false)] out AgentDefinition definition);
 }
 ```
 
@@ -3209,7 +3209,7 @@ internal sealed class RuntimeFixture
 internal sealed class StaticAgentCatalog(IReadOnlyList<AgentDefinition> agents) : IAgentCatalog
 {
     public IReadOnlyList<AgentDefinition> Agents => agents;
-    public bool TryGet(AgentId id, out AgentDefinition definition)
+    public bool TryGet(AgentId id, [MaybeNullWhen(false)] out AgentDefinition definition)
     {
         definition = agents.FirstOrDefault(a => a.Id == id)!;
         return definition is not null;
@@ -4157,7 +4157,7 @@ public sealed class OptionsAgentCatalog(IOptions<ThalosOptions> options) : IAgen
 
     public IReadOnlyList<AgentDefinition> Agents => options.Value.Agents;
 
-    public bool TryGet(AgentId id, out AgentDefinition definition) => _agents.TryGetValue(id, out definition!);
+    public bool TryGet(AgentId id, [MaybeNullWhen(false)] out AgentDefinition definition) => _agents.TryGetValue(id, out definition);
 }
 ```
 
@@ -4249,7 +4249,7 @@ public sealed class ThalosBuilder(IServiceCollection services)
 }
 ```
 
-> `AgentSessionStoreInstrumented` is the ZeroAlloc.Telemetry-generated proxy for `IAgentSessionStore` (generated in the Abstractions assembly, public). If Task 7's `[Instrument]` had to be removed, replace the wrapper line with `Services.Replace(ServiceDescriptor.Singleton<IAgentSessionStore>(sp => sp.GetRequiredService<TStore>()))` and adjust the DI test's expected type name.
+> `AgentSessionStoreInstrumented` is the ZeroAlloc.Telemetry-generated proxy for `IAgentSessionStore` (generated in the Abstractions assembly; **public because Task 7 sets `PublicProxy = true`**). Amended 2026-08-16 after group 2 review: `IAgentCatalog.TryGet` uses `[MaybeNullWhen(false)]`, `AgentEvent` kinds are constants in `AgentEventKinds`, `TurnUsage +` prefers the non-empty ModelId, `AgentError.ToString()` includes Detail.
 
 `src/Thalos.NET/ThalosServiceCollectionExtensions.cs`
 ```csharp
