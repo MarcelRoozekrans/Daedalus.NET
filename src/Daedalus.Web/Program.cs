@@ -14,9 +14,9 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<Microsoft.AspNetCore.Components.Web.HeadOutlet>("head::after");
 
-// Determine test mode: explicitly set via config, or detected when the OIDC
-// Authority is missing (e.g. the WASM app is hosted by the E2E test fixture
-// which does not serve appsettings.json to the browser runtime).
+// Determine test mode: explicitly set via config (the E2E test fixture overrides
+// /appsettings.json with {"TestMode":"true"} so the browser runtime boots against
+// the test server), or detected when the OIDC Authority is missing.
 var testMode = string.Equals(builder.Configuration["TestMode"], "true", StringComparison.OrdinalIgnoreCase)
                || (OperatingSystem.IsBrowser()
                    && string.IsNullOrEmpty(builder.Configuration["Oidc:Authority"]));

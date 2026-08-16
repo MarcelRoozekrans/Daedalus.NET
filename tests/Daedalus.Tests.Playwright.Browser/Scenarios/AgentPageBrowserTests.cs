@@ -21,7 +21,8 @@ public class AgentPageBrowserTests : BrowserTestBase
     public override async Task SetUpAsync()
     {
         await base.SetUpAsync().ConfigureAwait(false);
-        if (!SetUpCompleted) return;
+        if (!SetUpCompleted)
+            return;
         _agentPage = new AgentPage(Page, BaseUrl);
     }
 
@@ -121,28 +122,5 @@ public class AgentPageBrowserTests : BrowserTestBase
         await Expect(_agentPage.AssistantMessages).ToHaveCountAsync(1).ConfigureAwait(false);
         await Expect(_agentPage.AssistantTexts.First).ToContainTextAsync(StubAgentRuntime.ReplyText).ConfigureAwait(false);
         await Expect(_agentPage.SessionTitle).ToContainTextAsync(new Regex("Idle")).ConfigureAwait(false);
-    }
-
-    /// <summary>Writes the screenshot to <c>docs/regression-screenshots/</c> at the repository root (found by walking up to <c>Daedalus.sln</c>).</summary>
-    private async Task SaveRegressionScreenshotAsync(string fileName)
-    {
-        var dir = new DirectoryInfo(TestContext.CurrentContext.WorkDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Daedalus.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        if (dir is null)
-        {
-            await TestContext.Progress.WriteLineAsync("Daedalus.sln not found above the test directory; regression screenshot skipped.").ConfigureAwait(false);
-            return;
-        }
-
-        var screenshotsDir = Path.Combine(dir.FullName, "docs", "regression-screenshots");
-        Directory.CreateDirectory(screenshotsDir);
-        await Page.ScreenshotAsync(new PageScreenshotOptions
-        {
-            Path = Path.Combine(screenshotsDir, fileName), FullPage = true
-        }).ConfigureAwait(false);
     }
 }

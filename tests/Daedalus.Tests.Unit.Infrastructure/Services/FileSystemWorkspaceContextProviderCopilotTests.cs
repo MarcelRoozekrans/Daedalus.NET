@@ -8,7 +8,7 @@ namespace Daedalus.Tests.Unit.Infrastructure.Services;
 ///     Unit tests for copilot instructions and .editorconfig loading
 ///     in FileSystemWorkspaceContextProvider.
 /// </summary>
-public class FileSystemWorkspaceContextProviderCopilotTests : UnitTestBase, IDisposable
+public sealed class FileSystemWorkspaceContextProviderCopilotTests : UnitTestBase, IDisposable
 {
     private readonly FileSystemWorkspaceContextProvider _provider;
     private readonly string _tempDir;

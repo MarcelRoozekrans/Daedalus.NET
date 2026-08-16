@@ -12,7 +12,9 @@ public sealed class PrdGeneratorPage(IPage page, Uri baseUrl) : BasePage(page, b
     public ILocator StepItems => _page.Locator(".rz-steps-item");
 
     // Step 1: Project Selection
-    public ILocator SelectProjectHeading => _page.GetByText("Select Project");
+    // The steps indicator repeats the label, so target the step card heading (RadzenText H6) rather than any text.
+    public ILocator SelectProjectHeading =>
+        _page.GetByRole(AriaRole.Heading, new PageGetByRoleOptions { Name = "Select Project" });
     public ILocator ProjectCards => _page.Locator(".rz-card[style*='cursor: pointer']");
     public ILocator ProjectLoadingSpinner => _page.Locator(".rz-progressbar-circular");
     public ILocator NoProjectsAlert => _page.GetByText("No projects found");

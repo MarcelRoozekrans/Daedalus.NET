@@ -3,7 +3,8 @@
 export function registerEscape(dotnetRef) {
     const handler = e => {
         if (e.key === 'Escape') {
-            dotnetRef.invokeMethodAsync('OnEscape');
+            // The .NET side may already be disposed (page navigated away); swallow the rejected promise.
+            dotnetRef.invokeMethodAsync('OnEscape').catch(() => {});
         }
     };
     document.addEventListener('keydown', handler);

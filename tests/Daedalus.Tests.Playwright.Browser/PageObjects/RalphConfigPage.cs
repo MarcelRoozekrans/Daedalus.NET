@@ -3,7 +3,7 @@ namespace Daedalus.Tests.Playwright.Browser.PageObjects;
 public sealed class RalphConfigPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
 {
     public ILocator PageTitle =>
-        _page.GetByRole(AriaRole.Heading, new PageGetByRoleOptions { Name = "Ralph Loop Configuration" });
+        _page.GetByRole(AriaRole.Heading, new PageGetByRoleOptions { Name = "Ralph Config", Exact = true });
 
     public ILocator LoadingIndicator => _page.Locator(".rz-progressbar-circular");
 

@@ -3,7 +3,7 @@ namespace Daedalus.Tests.Playwright.Browser.PageObjects;
 public sealed class ExecutionsPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
 {
     public ILocator PageTitle =>
-        _page.GetByRole(AriaRole.Heading, new PageGetByRoleOptions { Name = "Task Executions" });
+        _page.GetByRole(AriaRole.Heading, new PageGetByRoleOptions { Name = "Executions", Exact = true });
 
     public ILocator FilterCard => _page.Locator("[data-testid='filter-card']");
     public ILocator FilterDropDown => _page.Locator("[data-testid='filter-card'] .rz-dropdown");

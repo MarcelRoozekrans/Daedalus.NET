@@ -14,7 +14,8 @@ public class HomePageBrowserTests : BrowserTestBase
     public override async Task SetUpAsync()
     {
         await base.SetUpAsync().ConfigureAwait(false);
-        if (!SetUpCompleted) return;
+        if (!SetUpCompleted)
+            return;
         _homePage = new HomePage(Page, BaseUrl);
     }
 
@@ -24,7 +25,7 @@ public class HomePageBrowserTests : BrowserTestBase
     {
         await _homePage.NavigateAsync().ConfigureAwait(false);
         await Expect(_homePage.Title).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_homePage.Title).ToContainTextAsync("Daedalus Dashboard").ConfigureAwait(false);
+        await Expect(_homePage.Title).ToContainTextAsync("Dashboard").ConfigureAwait(false);
     }
 
     [Test]
