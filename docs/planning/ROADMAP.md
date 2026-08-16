@@ -26,7 +26,7 @@ GitHub milestone: [Milestone 1](https://github.com/MarcelRoozekrans/daedalus/mil
 
 | # | Phase | Status | Depends on | GH issue | Design / Plan |
 |---|---|---|---|---|---|
-| 1.1 | Thalos.NET core + AI.Sentinel + Daedalus HTTP/Blazor channel | active | — | #227 | design: `docs/plans/2026-08-16-thalos-agent-core-design.md` · plan A (Thalos.NET repo): `docs/plans/2026-08-16-thalos-net-plan-a.md` · plan B (Daedalus): `docs/plans/2026-08-16-thalos-net-plan-b.md` |
+| 1.1 | Thalos.NET core + AI.Sentinel + Daedalus HTTP/Blazor channel | complete (2026-08-16) | — | #227 | design: `docs/plans/2026-08-16-thalos-agent-core-design.md` · plan A (Thalos.NET repo): `docs/plans/2026-08-16-thalos-net-plan-a.md` · plan B (Daedalus): `docs/plans/2026-08-16-thalos-net-plan-b.md` · regression: `docs/regression-report-2026-08-16.md` |
 | 1.2 | Memory: `Thalos.NET.Memory` port + Rag.NET adapter (pgvector), replaces hand-rolled learnings slice | pending | 1.1 | #228 | — |
 | 1.3 | Skills: reusable procedures the agent loads/refines (Rag-backed) | pending | 1.2 | #229 | — |
 | 1.4 | Channels: Telegram (+ CLI) via `IChannelAdapter` + `ZeroAlloc.Outbox` | pending | 1.1 | #230 | — |
