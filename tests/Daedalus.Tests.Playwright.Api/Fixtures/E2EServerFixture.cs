@@ -114,11 +114,19 @@ public class E2EServerFixture
                         RemoveServicesByType(services, "IScopedDbContextLease");
                         RemoveServicesByType(services, "PooledDbContextFactory");
 
-                        // Add DbContext with test container connection string (non-pooled for testing)
-                        services.AddDbContext<ApplicationDbContext>(options =>
+                        // Singleton consumers (Thalos PostgresAgentSessionStore, AgentSessionCrashRecovery) need
+                        // IDbContextFactory<T>; register it first so DbContextOptions<T> is the singleton both share.
+                        services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
                         {
                             options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector());
                         });
+
+                        // Add DbContext with test container connection string (non-pooled for testing). Options must be
+                        // singleton too, otherwise the singleton factory above sees a scoped IDbContextOptionsConfiguration.
+                        services.AddDbContext<ApplicationDbContext>(options =>
+                        {
+                            options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector());
+                        }, contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
 
                         // Register repositories that are missing from the API project
                         services.AddScoped<ITaskRepository, TaskRepository>();

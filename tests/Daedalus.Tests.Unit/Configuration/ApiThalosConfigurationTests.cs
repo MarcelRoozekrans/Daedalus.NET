@@ -1,0 +1,91 @@
+using AI.Sentinel;
+using Daedalus.Agents;
+using Daedalus.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Thalos;
+using Thalos.Mcp;
+
+namespace Daedalus.Tests.Unit.Configuration;
+
+/// <summary>
+///     Guards the shipped API configuration: <c>appsettings.json</c> and <c>.mcp.json</c> flow into this test's output
+///     through the Daedalus.Api project reference, so the file that is deployed is the file under test.
+/// </summary>
+public sealed class ApiThalosConfigurationTests
+{
+    private static IConfiguration LoadApiConfiguration() =>
+        new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .Build();
+
+    private static ServiceProvider BuildWithApiConfiguration()
+    {
+        var environment = Substitute.For<IHostEnvironment>();
+        environment.ContentRootPath.Returns(AppContext.BaseDirectory);
+        environment.EnvironmentName.Returns("Development");
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddDaedalusAgents(LoadApiConfiguration(), environment);
+        return services.BuildServiceProvider();
+    }
+
+    [Fact]
+    public void Appsettings_declares_the_daedalus_architect_agent_with_a_stable_ulid()
+    {
+        using var sp = BuildWithApiConfiguration();
+
+        var agent = sp.GetRequiredService<IAgentCatalog>().Agents.Should().ContainSingle().Subject;
+
+        // Sessions reference this id — changing it orphans them. Update the test only together with a data migration.
+        agent.Id.Should().Be(AgentId.Parse("01M05YCM7DPKRG9X04870B2JYH", null));
+        agent.Name.Should().Be("Daedalus Architect");
+        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "context7__*");
+        agent.Instructions.Should().Contain("roslyn__").And.Contain("daedalus__");
+    }
+
+    [Fact]
+    public void Appsettings_binds_anthropic_defaults_tool_policies_and_sentinel_actions()
+    {
+        using var sp = BuildWithApiConfiguration();
+
+        sp.GetRequiredService<IChatClientProvider>().DefaultModel.Should().Be("claude-sonnet-5");
+
+        var policies = sp.GetRequiredService<IOptions<ThalosOptions>>().Value.ToolPolicies;
+        policies.Select(p => (p.ToolPattern, p.PolicyName)).Should().Equal(("roslyn__apply_*", "developer"), ("roslyn__rename_*", "developer"));
+
+        var sentinel = sp.GetRequiredService<SentinelOptions>();
+        sentinel.OnCritical.Should().Be(SentinelAction.Quarantine);
+        sentinel.OnHigh.Should().Be(SentinelAction.Alert);
+        sentinel.OnMedium.Should().Be(SentinelAction.Log);
+        sentinel.OnLow.Should().Be(SentinelAction.Log);
+    }
+
+    [Fact]
+    public void Crash_recovery_hosted_service_is_registered()
+    {
+        using var sp = BuildWithApiConfiguration();
+
+        sp.GetServices<IHostedService>().Should().ContainSingle(s => s.GetType().Name == "AgentSessionCrashRecovery");
+    }
+
+    [Fact]
+    public void Mcp_config_is_copied_next_to_the_api_and_parses()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, ".mcp.json");
+        File.Exists(path).Should().BeTrue(".mcp.json must be CopyToOutputDirectory=PreserveNewest in Daedalus.Api.csproj");
+
+        var servers = McpConfigFile.Load(path);
+
+        servers.Keys.Should().BeEquivalentTo("roslyn", "context7");
+        servers["roslyn"].EffectiveType.Should().Be("stdio");
+        servers["roslyn"].ShutdownTimeout.Should().Be(TimeSpan.FromSeconds(2));
+        servers["context7"].EffectiveType.Should().Be("http");
+    }
+}

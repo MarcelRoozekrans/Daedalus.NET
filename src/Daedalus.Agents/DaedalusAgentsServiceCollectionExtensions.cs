@@ -25,7 +25,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// <summary>
     ///     Registers Thalos (Anthropic provider, <see cref="PostgresAgentSessionStore"/>, <see cref="DaedalusKnowledgeTools"/>,
     ///     MCP servers from <see cref="DaedalusAgentsOptions.McpConfigPath"/>, the <see cref="DeveloperPolicy"/>, configured
-    ///     agents/tool policies and — when enabled — AI.Sentinel) from the <c>Thalos</c> section of <paramref name="configuration"/>.
+    ///     agents/tool policies and — when enabled — AI.Sentinel) from the <c>Thalos</c> section of <paramref name="configuration"/>,
+    ///     plus the <see cref="AgentSessionCrashRecovery"/> hosted service.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">Host configuration; <c>Thalos</c> and <c>Thalos:Anthropic</c> are read.</param>
@@ -59,6 +60,9 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // The Ralph MCP tool classes double as the implementation behind DaedalusKnowledgeTools (fresh scope per invocation).
         services.AddScoped<DaedalusLearningsTools>();
         services.AddScoped<DaedalusFailurePatternsTools>();
+
+        // Sessions left in Running by a crashed host are reset to Idle before the host serves requests.
+        services.AddHostedService<AgentSessionCrashRecovery>();
 
         services.AddThalos(thalos =>
         {

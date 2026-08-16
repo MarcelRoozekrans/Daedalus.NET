@@ -35,6 +35,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- MCP servers for the Thalos agents; resolved relative to the content root (Thalos:McpConfigPath) -->
+        <Content Update=".mcp.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="../Daedalus.Domain/Daedalus.Domain.csproj" />
         <ProjectReference Include="../Daedalus.Application/Daedalus.Application.csproj" />
         <ProjectReference Include="../Daedalus.Infrastructure/Daedalus.Infrastructure.csproj" />
