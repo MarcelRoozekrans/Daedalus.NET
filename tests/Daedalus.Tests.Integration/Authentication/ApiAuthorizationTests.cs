@@ -20,7 +20,9 @@ public class ApiAuthorizationTests
         typeof(CodeAnalysisController),
         typeof(RalphConfigController),
         typeof(RepositoriesController),
-        typeof(PrdController)
+        typeof(PrdController),
+        typeof(AgentsController),
+        typeof(AgentSessionsController)
     ];
 
     #region Endpoint Authorization Inheritance
