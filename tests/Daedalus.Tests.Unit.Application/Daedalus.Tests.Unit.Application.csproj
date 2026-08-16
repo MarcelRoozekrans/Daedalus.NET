@@ -33,12 +33,15 @@
         <PackageReference Include="CSharpFunctionalExtensions"/>
         <PackageReference Include="Bogus"/>
         <PackageReference Include="FluentValidation"/>
+        <PackageReference Include="Thalos.NET"/>
+        <PackageReference Include="Microsoft.Extensions.Configuration"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\Daedalus.Domain\Daedalus.Domain.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj"/>
+        <ProjectReference Include="..\..\src\Daedalus.Agents\Daedalus.Agents.csproj"/>
     </ItemGroup>
 
 </Project>
