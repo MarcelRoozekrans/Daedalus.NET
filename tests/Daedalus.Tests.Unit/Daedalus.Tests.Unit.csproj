@@ -43,6 +43,7 @@
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Domain\Daedalus.Domain.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj"/>
+        <ProjectReference Include="..\..\src\Daedalus.Web\Daedalus.Web.csproj"/>
     </ItemGroup>
 
 </Project>

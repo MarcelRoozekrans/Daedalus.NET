@@ -96,6 +96,7 @@ builder.Services.AddScoped(sp =>
     sp.GetRequiredService<IHttpClientFactory>().CreateClient("Daedalus.Api"));
 
 builder.Services.AddScoped<ApiClient>();
+builder.Services.AddScoped<AgentApiClient>();
 builder.Services.AddScoped<IProjectApiClient, ProjectApiClient>();
 builder.Services.AddRadzenComponents();
 
