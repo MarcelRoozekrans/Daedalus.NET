@@ -5,7 +5,8 @@ public sealed class RepositoriesPage(IPage page, Uri baseUrl) : BasePage(page, b
     public ILocator PageTitle =>
         _page.GetByRole(AriaRole.Heading, new PageGetByRoleOptions { Name = "Git Repositories" });
 
-    public ILocator AddRepositoryButton => _page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Add Repository" });
+    // Header button; the empty state renders a second "Add Repository" button (see EmptyStateAddButton).
+    public ILocator AddRepositoryButton => _page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Add Repository" }).First;
 
     // Loading state
     public ILocator LoadingSpinner => _page.Locator(".rz-progressbar-circular");

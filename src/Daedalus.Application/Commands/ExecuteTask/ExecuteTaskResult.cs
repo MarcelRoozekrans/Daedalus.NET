@@ -1,4 +1,4 @@
-﻿using Daedalus.Application.DTOs;
+using Daedalus.Application.DTOs;
 
 namespace Daedalus.Application.Commands.ExecuteTask;
 

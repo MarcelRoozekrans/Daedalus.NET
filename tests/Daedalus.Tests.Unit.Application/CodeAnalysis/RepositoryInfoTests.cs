@@ -1,4 +1,4 @@
-﻿using Daedalus.Domain.CodeAnalysis;
+using Daedalus.Domain.CodeAnalysis;
 
 namespace Daedalus.Tests.Unit.Application.CodeAnalysis;
 

@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Web.Services;
+namespace Daedalus.Web.Services;
 
 /// <summary>DTO for creating a task via the API.</summary>
 public record CreateTaskDto(

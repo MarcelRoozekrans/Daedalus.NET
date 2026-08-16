@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Web.Services;
+namespace Daedalus.Web.Services;
 
 public record TaskExecutionDto(
     Guid Id,

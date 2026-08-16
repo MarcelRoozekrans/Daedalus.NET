@@ -26,6 +26,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<RepositoryConfiguration> RepositoryConfigurations => Set<RepositoryConfiguration>();
     public DbSet<BrainstormSession> BrainstormSessions => Set<BrainstormSession>();
     public DbSet<BrainstormMessage> BrainstormMessages => Set<BrainstormMessage>();
+    public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
+    public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

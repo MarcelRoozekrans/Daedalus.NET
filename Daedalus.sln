@@ -54,6 +54,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Daedalus.Tests.Playwright.A
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Daedalus.Tests.Playwright.Browser", "tests\Daedalus.Tests.Playwright.Browser\Daedalus.Tests.Playwright.Browser.csproj", "{0AE4BA46-1AEC-401E-98BB-6B55662DB343}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Daedalus.Agents", "src\Daedalus.Agents\Daedalus.Agents.csproj", "{FFA79151-F820-4928-B39B-163AA93563FD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -254,6 +256,18 @@ Global
 		{0AE4BA46-1AEC-401E-98BB-6B55662DB343}.Release|x64.Build.0 = Release|Any CPU
 		{0AE4BA46-1AEC-401E-98BB-6B55662DB343}.Release|x86.ActiveCfg = Release|Any CPU
 		{0AE4BA46-1AEC-401E-98BB-6B55662DB343}.Release|x86.Build.0 = Release|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Debug|x64.Build.0 = Debug|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Debug|x86.Build.0 = Debug|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Release|x64.ActiveCfg = Release|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Release|x64.Build.0 = Release|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Release|x86.ActiveCfg = Release|Any CPU
+		{FFA79151-F820-4928-B39B-163AA93563FD}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -275,6 +289,7 @@ Global
 		{A3CD3F80-5A83-7B93-06E2-26C1766F946F} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{BC1DD830-F263-4BF6-AAFA-C395DA52AF9E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{0AE4BA46-1AEC-401E-98BB-6B55662DB343} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{FFA79151-F820-4928-B39B-163AA93563FD} = {5AB36F7E-BBAF-4C7C-B86C-1865B88588D2}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {5AB36F7E-BBAF-4C7C-B86C-1865B88588D1}

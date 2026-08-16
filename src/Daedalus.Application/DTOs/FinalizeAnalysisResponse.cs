@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Application.DTOs;
+namespace Daedalus.Application.DTOs;
 
 #pragma warning disable CA1054 // Uri parameters should not be strings
 #pragma warning disable CA1056 // Uri properties should not be strings

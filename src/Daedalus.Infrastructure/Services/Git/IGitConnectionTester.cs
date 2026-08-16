@@ -1,4 +1,4 @@
-﻿#pragma warning disable CA1054 // URI-like parameters should not be strings
+#pragma warning disable CA1054 // URI-like parameters should not be strings
 
 using CSharpFunctionalExtensions;
 

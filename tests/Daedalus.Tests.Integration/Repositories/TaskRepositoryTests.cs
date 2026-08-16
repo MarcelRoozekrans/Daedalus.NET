@@ -24,9 +24,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
 
     public async SystemTask InitializeAsync()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
         _repository = new TaskRepository(_dbContext, _logger);

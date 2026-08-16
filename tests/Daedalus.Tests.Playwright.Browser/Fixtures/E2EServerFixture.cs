@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
+using Daedalus.Agents;
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
@@ -19,7 +20,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Thalos;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Playwright.Browser;
@@ -61,6 +64,7 @@ public class E2EServerFixture
             // 1. Start PostgreSQL container
 #pragma warning disable CS0618
             _postgresContainer = new PostgreSqlBuilder()
+                .WithImage("pgvector/pgvector:pg16")
                 .WithDatabase("daedalus_e2e_test")
                 .WithUsername("e2e_user")
                 .WithPassword("e2e_password")
@@ -87,9 +91,14 @@ public class E2EServerFixture
             // so _framework, index.html, CSS, and Radzen assets are served
             builder.WebHost.UseStaticWebAssets();
 
-            // Database
+            // Database. Singleton consumers (Thalos PostgresAgentSessionStore, AgentSessionCrashRecovery) need
+            // IDbContextFactory<T>; register it first so DbContextOptions<T> is the singleton both share, and keep the
+            // scoped DbContext's options singleton too (otherwise the factory sees a scoped IDbContextOptionsConfiguration).
+            builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
+                options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector()));
             builder.Services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(ConnectionString));
+                options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector()),
+                contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
 
             // Core infrastructure (ISystemClock, etc.)
             builder.Services.AddCoreInfrastructureServices();
@@ -121,6 +130,20 @@ public class E2EServerFixture
             RemoveAndReplace<IRalphLoopOrchestrator, StubRalphLoopOrchestrator>(builder.Services);
             RemoveAndReplace<ICommandHandlerFactory, StubCommandHandlerFactory>(builder.Services);
             RemoveAndReplace<IQueryHandlerFactory, StubQueryHandlerFactory>(builder.Services);
+
+            // Thalos agents: the real composition root (agent catalog from the API's appsettings.json — linked into this
+            // test's output as Daedalus.Api.appsettings.json because Web ships an appsettings.json too; Postgres session
+            // store), with the runtime — the only piece that would call Anthropic / start MCP servers — swapped for a
+            // scripted stub. The API registers the store as a singleton, so the stub is one too (RemoveAndReplace
+            // registers scoped services).
+            builder.Configuration.AddJsonFile(Path.Combine(testAssemblyDir, "Daedalus.Api.appsettings.json"), optional: false);
+            builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
+            foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IAgentRuntime)).ToList())
+            {
+                builder.Services.Remove(descriptor);
+            }
+
+            builder.Services.AddSingleton<IAgentRuntime, StubAgentRuntime>();
 
             builder.Services.AddHttpClient();
 
@@ -198,6 +221,7 @@ public class E2EServerFixture
                 options.AddPolicy("CodeAnalysis", policy => policy.RequireRole("analyst", "admin"));
                 options.AddPolicy("CodeAnalysisRead", policy => policy.RequireAuthenticatedUser());
                 options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
+                options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser());
             });
 
             // 4. Build and configure middleware
@@ -221,6 +245,25 @@ public class E2EServerFixture
                 await next().ConfigureAwait(false);
             });
 
+            // The WASM app boots with Daedalus.Web/wwwroot/appsettings.json (served as a static web asset), which points it
+            // at the production API URL and Keycloak. Hand the browser a test-mode configuration instead so it calls this
+            // server (Program.cs: TestMode → plain HttpClient at the host base address, AlwaysAuthenticatedStateProvider).
+            app.Use(async (context, next) =>
+            {
+                var path = context.Request.Path.Value;
+                if (HttpMethods.IsGet(context.Request.Method)
+                    && (string.Equals(path, "/appsettings.json", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(path, "/appsettings.Development.json", StringComparison.OrdinalIgnoreCase)))
+                {
+                    context.Response.ContentType = "application/json";
+                    context.Response.Headers.CacheControl = "no-store";
+                    await context.Response.WriteAsync("{\"TestMode\":\"true\"}").ConfigureAwait(false);
+                    return;
+                }
+
+                await next().ConfigureAwait(false);
+            });
+
             app.UseBlazorFrameworkFiles();
             app.UseStaticFiles();
 
@@ -236,6 +279,8 @@ public class E2EServerFixture
             using (var scope = app.Services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+                await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
                 await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
                 await SeedTestDataAsync(dbContext).ConfigureAwait(false);
             }

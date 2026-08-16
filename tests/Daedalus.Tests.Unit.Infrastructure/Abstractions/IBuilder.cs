@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Tests.Unit.Infrastructure.Abstractions;
+namespace Daedalus.Tests.Unit.Infrastructure.Abstractions;
 
 /// <summary>
 ///     Interface for test data builders.

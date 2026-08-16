@@ -1,5 +1,6 @@
 using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -17,11 +18,7 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
 
     public CodeAnalysisRepositoryIntegrationTests()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-
-        _dbContext = new ApplicationDbContext(options);
+        _dbContext = InMemoryDbContextFactory.Create();
         _logger = Substitute.For<ILogger<CodeAnalysisRepository>>();
         _repository = new CodeAnalysisRepository(_dbContext, _logger);
     }

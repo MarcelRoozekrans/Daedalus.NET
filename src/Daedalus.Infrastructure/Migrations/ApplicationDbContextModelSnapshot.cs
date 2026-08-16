@@ -182,6 +182,97 @@ namespace Daedalus.Infrastructure.Migrations
                     b.ToTable("CodeAnalysisRequests");
                 });
 
+            modelBuilder.Entity("Daedalus.Domain.Entities.AgentMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ModelId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId", "Sequence")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AgentMessage_Session_Sequence");
+
+                    b.ToTable("AgentMessages", (string)null);
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.AgentSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("TotalInputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TotalOutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("TurnCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId")
+                        .HasDatabaseName("IX_AgentSession_AgentId");
+
+                    b.HasIndex("OwnerId", "CreatedAt")
+                        .HasDatabaseName("IX_AgentSession_Owner_CreatedAt");
+
+                    b.ToTable("AgentSessions", (string)null);
+                });
+
             modelBuilder.Entity("Daedalus.Domain.Entities.BrainstormMessage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -771,6 +862,15 @@ namespace Daedalus.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Repository")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.AgentMessage", b =>
+                {
+                    b.HasOne("Daedalus.Domain.Entities.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

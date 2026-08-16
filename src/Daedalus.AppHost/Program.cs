@@ -19,9 +19,11 @@ var webPath = Path.Combine(solutionRoot, "Daedalus.Web/Daedalus.Web.csproj");
 var keycloakRealmPath = Path.Combine(repoRoot, "keycloak-realm.json");
 
 // Configure PostgreSQL database with Aspire orchestration (Docker container)
-// Using standard image (not alpine) for better locale support
+// pgvector/pgvector:pg16 (Debian-based, not alpine): the AddSemanticEmbeddings migration runs CREATE EXTENSION vector,
+// which the stock postgres:16 image cannot satisfy. Same image as docker-compose*.yml and the Testcontainers fixture.
 var database = builder.AddPostgres("postgres", dbUserParam, dbPasswordParam)
-    .WithImageTag("16")
+    .WithImage("pgvector/pgvector")
+    .WithImageTag("pg16")
     .WithDataVolume()
     .AddDatabase(dbName);
 

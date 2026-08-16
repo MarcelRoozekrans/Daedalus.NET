@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Tests.Integration.Fixtures;
+namespace Daedalus.Tests.Integration.Fixtures;
 
 /// <summary>
 ///     Collection definition for Aspire-based database integration tests.

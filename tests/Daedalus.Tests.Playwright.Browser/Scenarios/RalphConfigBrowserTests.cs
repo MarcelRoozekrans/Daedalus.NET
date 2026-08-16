@@ -14,7 +14,8 @@ public class RalphConfigBrowserTests : BrowserTestBase
     public override async Task SetUpAsync()
     {
         await base.SetUpAsync().ConfigureAwait(false);
-        if (!SetUpCompleted) return;
+        if (!SetUpCompleted)
+            return;
         _ralphConfigPage = new RalphConfigPage(Page, BaseUrl);
     }
 

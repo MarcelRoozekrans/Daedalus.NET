@@ -1,10 +1,9 @@
 global using CSharpFunctionalExtensions;
-
+using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
 using BrainstormSessionDto = Daedalus.Application.DTOs.BrainstormSessionDto;
 using BrainstormSessionSummaryDto = Daedalus.Application.DTOs.BrainstormSessionSummaryDto;
 using CreateBrainstormSessionDto = Daedalus.Application.DTOs.CreateBrainstormSessionDto;
-using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using SendBrainstormMessageDto = Daedalus.Application.DTOs.SendBrainstormMessageDto;
 
 namespace Daedalus.Web.Services;

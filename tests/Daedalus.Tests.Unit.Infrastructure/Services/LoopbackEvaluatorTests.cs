@@ -9,7 +9,7 @@ namespace Daedalus.Tests.Unit.Infrastructure.Services;
 ///     Integration tests for <see cref="LoopbackEvaluator" />.
 ///     Tests command execution, output parsing logic, and the full evaluate pipeline.
 /// </summary>
-public class LoopbackEvaluatorTests : UnitTestBase, IDisposable
+public sealed class LoopbackEvaluatorTests : UnitTestBase, IDisposable
 {
     private readonly LoopbackEvaluator _sut;
     private readonly string _tempDir;
@@ -237,7 +237,10 @@ public class LoopbackEvaluatorTests : UnitTestBase, IDisposable
 
         var result = new LoopbackResult
         {
-            BuildSucceeded = true, TestsPassed = false, CompilationErrors = [], TestFailures = failures
+            BuildSucceeded = true,
+            TestsPassed = false,
+            CompilationErrors = [],
+            TestFailures = failures
         };
 
         // Act

@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Threading.RateLimiting;
+using Asp.Versioning;
+using Daedalus.Agents;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Extensions;
@@ -12,7 +14,6 @@ using Daedalus.Infrastructure.Services;
 using Daedalus.ServiceDefaults;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
-using Asp.Versioning;
 using Microsoft.AspNetCore.ResponseCompression;
 using Scalar.AspNetCore;
 
@@ -52,13 +53,19 @@ builder.Services.AddExternalServices(builder.Configuration);
 builder.Services.AddAgentFrameworkServices(builder.Configuration);
 
 // Register Ollama embedding generator for semantic search (optional — falls back to NoOp if unavailable).
-// The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama).
+// The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama). The same instance feeds AI.Sentinel's
+// semantic detectors below (Sentinel's configure delegate runs at registration time, so it cannot be resolved from DI).
 var ollamaConnectionString = builder.Configuration.GetConnectionString("ollama");
+OllamaSharp.OllamaApiClient? ollama = null;
 if (!string.IsNullOrEmpty(ollamaConnectionString))
 {
-    builder.Services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(
-        new OllamaSharp.OllamaApiClient(new Uri(ollamaConnectionString), "nomic-embed-text"));
+    ollama = new OllamaSharp.OllamaApiClient(new Uri(ollamaConnectionString), "nomic-embed-text");
+    builder.Services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(ollama);
 }
+
+// Thalos-based agents (strangler: lives beside Ralph until phase 1.6). Needs the DbContext factory (AddApplicationDatabase)
+// and the knowledge-tool services registered by AddAgentFrameworkServices above.
+builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment, ollama);
 
 // Add code analysis services (Ralph Loop orchestration, Git operations)
 builder.Services.AddCodeAnalysisServices(builder.Configuration);
@@ -176,6 +183,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("CodeAnalysis", policy => policy.RequireRole("analyst", "admin"));
     options.AddPolicy("CodeAnalysisRead", policy => policy.RequireAuthenticatedUser());
     options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
+    options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser()); // Thalos agents: any signed-in user; tool policies gate the rest
 });
 
 // Add rate limiting — protects write and LLM endpoints from abuse

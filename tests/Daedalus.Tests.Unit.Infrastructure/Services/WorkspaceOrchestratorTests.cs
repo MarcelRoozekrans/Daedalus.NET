@@ -294,7 +294,7 @@ public class WorkspaceOrchestratorTests
     public void BuildFeatureBranchName_ShouldCreateCorrectFormat()
     {
         // Arrange
-        var taskId = new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+        var taskId = new Guid(0xa1b2c3d4, 0xe5f6, 0x7890, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90);
 
         // Act
         var result = WorkspaceOrchestrator.BuildFeatureBranchName(taskId, "Implement Authentication");

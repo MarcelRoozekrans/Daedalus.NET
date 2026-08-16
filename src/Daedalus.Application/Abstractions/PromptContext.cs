@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Application.Abstractions;
+namespace Daedalus.Application.Abstractions;
 
 /// <summary>
 ///     Represents the context and history of a Ralph loop prompt execution.

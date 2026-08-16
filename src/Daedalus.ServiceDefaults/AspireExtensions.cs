@@ -67,6 +67,11 @@ public static class AspireExtensions
         services.AddDbContextPool<ApplicationDbContext>(options =>
             options.UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector()));
 
+        // Singleton consumers (e.g. the Thalos IAgentSessionStore) need IDbContextFactory<T>; the pooled factory shares
+        // the IDbContextPool<T> registered above (both use TryAdd), so contexts come from one pool either way.
+        services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
+            options.UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector()));
+
         return services;
     }
 

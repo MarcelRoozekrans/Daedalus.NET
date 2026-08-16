@@ -14,7 +14,8 @@ public class ProjectsPageBrowserTests : BrowserTestBase
     public override async Task SetUpAsync()
     {
         await base.SetUpAsync().ConfigureAwait(false);
-        if (!SetUpCompleted) return;
+        if (!SetUpCompleted)
+            return;
         _projectsPage = new ProjectsPage(Page, BaseUrl);
     }
 

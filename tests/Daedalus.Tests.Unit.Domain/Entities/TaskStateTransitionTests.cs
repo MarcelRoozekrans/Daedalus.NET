@@ -60,7 +60,9 @@ public class TaskStateTransitionTests : UnitTestBase
         // Create execution that doesn't match (will hit max iterations = 1)
         var execution = new TaskExecution
         {
-            IterationNumber = 1, LlmResponse = "Not found yet", CompletionPromiseFound = false
+            IterationNumber = 1,
+            LlmResponse = "Not found yet",
+            CompletionPromiseFound = false
         };
 
         // Act
@@ -245,7 +247,9 @@ public class TaskStateTransitionTests : UnitTestBase
         {
             var execution = new TaskExecution
             {
-                IterationNumber = i, LlmResponse = $"Attempt {i}", CompletionPromiseFound = false
+                IterationNumber = i,
+                LlmResponse = $"Attempt {i}",
+                CompletionPromiseFound = false
             };
             task.RecordExecution(execution);
         }
