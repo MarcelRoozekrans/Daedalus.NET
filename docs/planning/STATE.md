@@ -1,9 +1,9 @@
 # Session State
 
-**Last session:** 2026-08-16 (late evening, autonomous run while user was away)
+**Last session:** 2026-08-17
 **Current milestone:** 1 — Hermes-Style Agent Framework
 **Current phase:** 1.1 — Thalos.NET core + AI.Sentinel + Daedalus HTTP/Blazor channel → **implementation complete**, closing steps pending
-**Branch state:** local `main` = `origin/main` (Daedalus.NET), squash of #236 + `8d05860`; release PR #237 open.
+**Branch state:** local `main` = `origin/main` (Daedalus.NET). Released 0.1.0; Thalos.NET 0.1.1 consumed from nuget.org.
 
 ## Last completed
 
@@ -14,7 +14,7 @@
 ## Open decisions (user)
 
 1. **Resolved (2026-08-17): remote `main` now carries the real tree.** PR #236 was squash-merged (`71533f7`), so the granular local history lives on `archive/pre-squash-main` (pushed) and `feature/thalos-integration`; local `main` was reset to `origin/main` and tracks it. First CI runs on GitHub green (build+test, integration tests, three images pushed to ghcr.io as `main`/sha). `8d05860` (`feat:` summary + `Release-As: 0.1.0`) pushed; release-please opened **release PR https://github.com/MarcelRoozekrans/Daedalus.NET/pull/237** (`chore(main): release 0.1.0`). **Daedalus 0.1.0 released** (#237 merged, tag `v0.1.0`, GitHub release, ghcr.io images `0.1.0`/`0.1`/`latest`; publish run 32009004824 green). Repo renamed to `MarcelRoozekrans/Daedalus.NET`.
-2. **Publish Thalos.NET to nuget.org — version is now 0.1.1** (v0.1.0 tag/release exists but was never published: the tag-dispatch derived a labelled version, fixed by `67fbfb7` → release-please cut 0.1.1, tag `v0.1.1`). Everything is in place (`NUGET_USER=MarcelRoozekrans` set; publish run 32010401892 reached the token exchange and got *"No matching trust policy owned by user 'MarcelRoozekrans'"*). **Remaining, user:** nuget.org → Account → Trusted Publishing → add policy: owner `MarcelRoozekrans`, repository `Thalos.NET`, workflow `ci.yml`. Then: `gh workflow run ci.yml --ref v0.1.1 --repo MarcelRoozekrans/Thalos.NET -f publish_to_nuget=true`; then in Daedalus set the six `Thalos.NET*` pins to `0.1.1`, delete `packages-local/` + the `thalos-local` source in `nuget.config` (+ the Dockerfile COPY lines for them), commit `build: consume Thalos.NET 0.1.1 from nuget.org`, close #227.
+2. **Done: Thalos.NET 0.1.1 on nuget.org** (six packages + symbols, trusted publishing from tag `v0.1.1`; v0.1.0 = GitHub release only). Daedalus consumes it from nuget.org (`b0426a2`): pins 0.1.1, `packages-local/` + `thalos-local` source removed. #227 closed. Also `01253dc`: `Daedalus.Tests.Unit` + `Daedalus.Tests.Integration` now build in the Release solution config (CI was silently running neither), two flaky tests fixed, `Category=AuthenticationFlow` (needs a running API) excluded from CI.
 3. Manual sample smoke (Thalos `samples/Thalos.Sample.Console`) with a real `ANTHROPIC_API_KEY`; save transcript under `Thalos.NET/docs/samples/`.
 
 4. **Daedalus release setup (2026-08-17, on `main` via #236):** Rag.NET/Thalos.NET-style GitVersion + release-please + commitlint + gated `publish-release` (versioned ghcr.io images, stable versions only), plus fixes that make the three container images build for the first time (Api: no AOT, framework-dependent on `aspnet:10.0-alpine`; Web: `PublishTrimmed=false`; complete restore layers; `.dockerignore` un-ignored). Runbook `docs/release.md`. Verified locally: GitVersion → `0.1.0`, `dotnet build -p:Version`, all three `docker build --build-arg APP_VERSION=0.1.0`, unit tests in Release. Running green on GitHub Actions; release steps in decision 1. Note: `tests/Daedalus.Tests.Unit` is excluded from the Release solution configuration (no `Release|Any CPU.Build.0` in the .sln) and has 2 failing tests in Release (`IsStale_WithHeartbeatExactlyAtThreshold`, `TestConsole_ProgressDisplay`) — pre-existing, CI runs Release, decide whether to fix + include.
@@ -29,4 +29,4 @@
 
 ## Recommended next step
 
-Do (2): nuget.org policy → publish Thalos 0.1.1 → switch pins → close #227 → `complete` phase 1.1 formally. Then start phase 1.2 (Memory: `Thalos.NET.Memory` port + Rag.NET adapter) with `superpowers:brainstorming` (design doc §11).
+`complete` phase 1.1 formally (all closing steps done). Then start phase 1.2 (Memory: `Thalos.NET.Memory` port + Rag.NET adapter) with `superpowers:brainstorming` (design doc §11).
