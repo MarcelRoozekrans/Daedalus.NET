@@ -140,18 +140,24 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
 
         var originalHeartbeat = session.LastHeartbeat;
 
-        // Act - Multiple concurrent heartbeat updates
+        // Act - Multiple concurrent heartbeat updates, each on its own DbContext (a DbContext is not
+        // thread-safe; sharing _dbContext here raced SaveChangesAsync and failed intermittently)
         var heartbeatTasks = Enumerable.Range(0, 3).Select(i => Task.Run(async () =>
         {
             await Task.Delay(10 * i);
-            session.Heartbeat();
-            await _dbContext.SaveChangesAsync();
+            var options = PostgresFixture.CreateDbContextOptions(_connectionString);
+            await using var dbContext = new ApplicationDbContext(options);
+            var tracked = await dbContext.ExecutionSessions.SingleAsync(s => s.Id == sessionId);
+            tracked.Heartbeat();
+            await dbContext.SaveChangesAsync();
         }));
 
         await Task.WhenAll(heartbeatTasks);
 
         // Assert
-        session.LastHeartbeat.Should().BeAfter(originalHeartbeat);
+        _dbContext.ChangeTracker.Clear();
+        var refreshed = await _dbContext.ExecutionSessions.SingleAsync(s => s.Id == sessionId);
+        refreshed.LastHeartbeat.Should().BeAfter(originalHeartbeat);
     }
 
     [Fact(Timeout = 10000)]

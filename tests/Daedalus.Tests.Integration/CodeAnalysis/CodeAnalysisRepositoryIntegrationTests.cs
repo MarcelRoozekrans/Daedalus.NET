@@ -46,6 +46,7 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "[]");
         createResult.IsSuccess.Should().BeTrue();
         var request = createResult.Value;
+        var before = DateTime.UtcNow;
 
         // Act
         var result = await _repository.CreateAsync(request);
@@ -53,7 +54,9 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
         // Assert
         result.IsSuccess.Should().BeTrue();
         result.Value.Id.Should().NotBeEmpty();
-        result.Value.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
+        // Bounded by the test's own clock reads, not by a fixed tolerance: under a full parallel run the
+        // insert can take several seconds and a "within 1s of now" assertion failed intermittently.
+        result.Value.CreatedAt.Should().BeOnOrAfter(before.AddSeconds(-1)).And.BeOnOrBefore(DateTime.UtcNow.AddSeconds(1));
         result.Value.Status.Should().Be(AnalysisStatus.Pending);
     }
 
