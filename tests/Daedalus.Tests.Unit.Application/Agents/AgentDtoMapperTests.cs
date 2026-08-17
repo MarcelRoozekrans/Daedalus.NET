@@ -1,6 +1,7 @@
 using Daedalus.Agents.Api;
 using Microsoft.Extensions.AI;
 using Thalos;
+using Thalos.Memory;
 
 namespace Daedalus.Tests.Unit.Application.Agents;
 
@@ -132,5 +133,115 @@ public sealed class AgentDtoMapperTests
         failed.ErrorMessage.Should().Be("Blocked by Sentinel.");
         failed.ErrorDetail.Should().Be("Critical: PromptInjectionDetector");
         failed.Usage.Should().BeEquivalentTo(new { InputTokens = 7, OutputTokens = 3, ModelId = "m" });
+    }
+
+    [Fact]
+    public void ToDto_maps_memory_events()
+    {
+        var id = MemoryId.New();
+
+        var recalled = AgentDtoMapper.ToDto(new MemoryRecalledEvent(Session, Turn, [id, MemoryId.New()], 180));
+        recalled.Kind.Should().Be(AgentEventKinds.MemoryRecalled);
+        recalled.Memory.Should().BeEquivalentTo(new { Count = 2, Chars = 180 });
+        recalled.Memory!.Ids.Should().HaveCount(2).And.Contain(id.ToString());
+
+        var stored = AgentDtoMapper.ToDto(new MemoryStoredEvent(Session, Turn, id, "fact", true));
+        stored.Kind.Should().Be(AgentEventKinds.MemoryStored);
+        stored.Memory.Should().BeEquivalentTo(new { MemoryId = id.ToString(), Kind = "fact", Deduped = true });
+
+        var failed = AgentDtoMapper.ToDto(new MemoryRecallFailedEvent(Session, Turn, AgentErrorCode.MemoryIndexUnavailable));
+        failed.Kind.Should().Be(AgentEventKinds.MemoryRecallFailed);
+        failed.Memory!.Code.Should().Be("MemoryIndexUnavailable");
+
+        var pending = AgentDtoMapper.ToDto(new MemoryIndexPendingEvent(Session, Turn, id));
+        pending.Kind.Should().Be(AgentEventKinds.MemoryIndexPending);
+        pending.Memory!.MemoryId.Should().Be(id.ToString());
+
+        var quarantined = AgentDtoMapper.ToDto(new MemoryQuarantinedEvent(Session, Turn, id, "High: SEC-01"));
+        quarantined.Kind.Should().Be(AgentEventKinds.MemoryQuarantined);
+        quarantined.Memory.Should().BeEquivalentTo(new { MemoryId = id.ToString(), Detail = "High: SEC-01" });
+    }
+
+    [Fact]
+    public void ToDto_maps_memory_record_and_flags_shared_owner()
+    {
+        var id = MemoryId.New();
+        var agentId = AgentId.New();
+        var created = new DateTimeOffset(2026, 8, 17, 9, 0, 0, TimeSpan.Zero);
+        var record = new MemoryRecord
+        {
+            Id = id,
+            OwnerId = "daedalus",
+            AgentId = agentId,
+            Kind = MemoryKind.Learning,
+            Text = "Npgsql times out on long migrations.",
+            Tags = ["database", "timeout"],
+            Source = "ralph:task/1",
+            Importance = 0.7,
+            CreatedAt = created,
+            UpdatedAt = created.AddMinutes(5),
+            LastRecalledAt = created.AddHours(1),
+            RecallCount = 3,
+            IsArchived = false,
+            IndexPending = true,
+        };
+
+        var dto = AgentDtoMapper.ToDto(record, "daedalus");
+
+        dto.Should().BeEquivalentTo(new
+        {
+            Id = id.ToString(),
+            OwnerId = "daedalus",
+            AgentId = agentId.ToString(),
+            Kind = "learning",
+            Text = "Npgsql times out on long migrations.",
+            Source = "ralph:task/1",
+            Importance = 0.7,
+            CreatedAt = created,
+            UpdatedAt = created.AddMinutes(5),
+            LastRecalledAt = (DateTimeOffset?)created.AddHours(1),
+            RecallCount = 3,
+            IsArchived = false,
+            IndexPending = true,
+            IsShared = true,
+        });
+        dto.Tags.Should().Equal("database", "timeout");
+    }
+
+    [Theory]
+    [InlineData("alice", "daedalus", false)]
+    [InlineData("daedalus", "daedalus", true)]
+    [InlineData("Daedalus", "daedalus", false)]
+    [InlineData("daedalus", null, false)]
+    public void ToDto_marks_only_the_shared_owner_as_shared(string ownerId, string? sharedOwnerId, bool expected)
+    {
+        var record = new MemoryRecord
+        {
+            Id = MemoryId.New(),
+            OwnerId = ownerId,
+            Kind = MemoryKind.Note,
+            Text = "t",
+            CreatedAt = DateTimeOffset.UnixEpoch,
+            UpdatedAt = DateTimeOffset.UnixEpoch,
+        };
+
+        var dto = AgentDtoMapper.ToDto(record, sharedOwnerId);
+
+        dto.IsShared.Should().Be(expected);
+        dto.AgentId.Should().BeNull();
+    }
+
+    [Fact]
+    public void ToDto_passes_unknown_event_kinds_through_instead_of_killing_the_stream()
+    {
+        var dto = AgentDtoMapper.ToDto(new UnknownEvent(Session, Turn));
+
+        dto.Kind.Should().Be("unknown-test-event");
+        dto.Memory.Should().BeNull();
+    }
+
+    private sealed record UnknownEvent(SessionId SessionId, TurnId TurnId) : AgentEvent(SessionId, TurnId)
+    {
+        public override string Kind => "unknown-test-event";
     }
 }

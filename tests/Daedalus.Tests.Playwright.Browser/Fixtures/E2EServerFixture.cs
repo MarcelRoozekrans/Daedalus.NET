@@ -23,6 +23,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Thalos;
+using Thalos.Memory;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Playwright.Browser;
@@ -37,7 +38,13 @@ public class E2EServerFixture
     public static string ConnectionString { get; private set; } = string.Empty;
     public static bool IsServerReady { get; private set; }
     public static bool IsBrowserServerReady { get; private set; }
+
+    /// <summary>Set only when the environment is genuinely absent (no Docker daemon) — the one case that may skip.</summary>
     public static string? BrowserSkipReason { get; private set; }
+
+    /// <summary>Set when the server tried to start and failed; such a run must go red, never "skipped".</summary>
+    public static string? StartupFailure { get; private set; }
+
     public static int Port { get; private set; }
 
     public static HttpClient CreateClient()
@@ -59,19 +66,30 @@ public class E2EServerFixture
     [OneTimeSetUp]
     public async Task GlobalSetupAsync()
     {
-        try
-        {
-            // 1. Start PostgreSQL container
+        // Step 1 — start PostgreSQL. A missing Docker daemon is the one condition that legitimately skips this suite, so it
+        // is caught on its own; every later step is allowed to fail the run.
 #pragma warning disable CS0618
-            _postgresContainer = new PostgreSqlBuilder()
-                .WithImage("pgvector/pgvector:pg16")
-                .WithDatabase("daedalus_e2e_test")
-                .WithUsername("e2e_user")
-                .WithPassword("e2e_password")
-                .Build();
+        _postgresContainer = new PostgreSqlBuilder()
+            .WithImage("pgvector/pgvector:pg16")
+            .WithDatabase("daedalus_e2e_test")
+            .WithUsername("e2e_user")
+            .WithPassword("e2e_password")
+            .Build();
 #pragma warning restore CS0618
 
+        try
+        {
             await _postgresContainer.StartAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsDockerUnavailable(ex))
+        {
+            BrowserSkipReason = $"Docker is not available for the E2E test server ({ex.GetType().Name}: {ex.Message})";
+            await TestContext.Progress.WriteLineAsync(BrowserSkipReason).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
             ConnectionString = _postgresContainer.GetConnectionString();
 
             // 2. Pick a random available port
@@ -95,9 +113,9 @@ public class E2EServerFixture
             // IDbContextFactory<T>; register it first so DbContextOptions<T> is the singleton both share, and keep the
             // scoped DbContext's options singleton too (otherwise the factory sees a scoped IDbContextOptionsConfiguration).
             builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
-                options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector()));
+                options.UseNpgsql(ConnectionString));
             builder.Services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector()),
+                options.UseNpgsql(ConnectionString),
                 contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
 
             // Core infrastructure (ISystemClock, etc.)
@@ -137,6 +155,11 @@ public class E2EServerFixture
             // scripted stub. The API registers the store as a singleton, so the stub is one too (RemoveAndReplace
             // registers scoped services).
             builder.Configuration.AddJsonFile(Path.Combine(testAssemblyDir, "Daedalus.Api.appsettings.json"), optional: false);
+
+            // AddDaedalusAgents resolves the memory connection string from configuration (Rag.NET keeps its own pool and
+            // creates rag_chunks on start); without this it would fall back to the developer's local Postgres.
+            builder.Configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>(StringComparer.Ordinal) { ["ConnectionStrings:daedalus"] = ConnectionString });
             builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
             foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IAgentRuntime)).ToList())
             {
@@ -144,6 +167,14 @@ public class E2EServerFixture
             }
 
             builder.Services.AddSingleton<IAgentRuntime, StubAgentRuntime>();
+
+            // No Ollama here, so the Rag.NET index would probe as unavailable; a stub keeps memories out of index_pending.
+            foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IMemoryIndex)).ToList())
+            {
+                builder.Services.Remove(descriptor);
+            }
+
+            builder.Services.AddSingleton<IMemoryIndex, StubMemoryIndex>();
 
             builder.Services.AddHttpClient();
 
@@ -279,10 +310,11 @@ public class E2EServerFixture
             using (var scope = app.Services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+                // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
                 await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
                 await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
                 await SeedTestDataAsync(dbContext).ConfigureAwait(false);
+                await SeedMemoriesAsync(dbContext).ConfigureAwait(false);
             }
 
             // 6. Start the server
@@ -292,10 +324,17 @@ public class E2EServerFixture
             IsServerReady = true;
             IsBrowserServerReady = true;
 
-            // 7. Verify health endpoint
+            // 7. Verify the endpoints the suite depends on. /health covers the host; /api/agent-memories covers the Thalos
+            //    memory wiring (store + index + Rag.NET connection string), which otherwise degrades silently.
             using var verifyClient = CreateClient();
             var healthResp = await verifyClient.GetAsync("/health").ConfigureAwait(false);
             healthResp.EnsureSuccessStatusCode();
+            var memoriesResp = await verifyClient.GetAsync("/api/agent-memories").ConfigureAwait(false);
+            if (!memoriesResp.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException(
+                    $"GET /api/agent-memories answered {(int)memoriesResp.StatusCode}: {await memoriesResp.Content.ReadAsStringAsync().ConfigureAwait(false)}");
+            }
 
             await TestContext.Progress.WriteLineAsync(
                     $"E2E Browser Test Server ready at {ServerUrl}")
@@ -303,13 +342,42 @@ public class E2EServerFixture
         }
         catch (Exception ex)
         {
-            await TestContext.Progress.WriteLineAsync($"Failed to start E2E Test Server: {ex.Message}")
-                .ConfigureAwait(false);
+            // Docker is up but the host itself is broken: record it for the per-fixture guard and fail the run. Swallowing
+            // this is what let a broken memory connection string masquerade as "skipped" for twelve tasks.
             IsServerReady = false;
             IsBrowserServerReady = false;
-            BrowserSkipReason = $"E2E Test Server failed to start: {ex.Message}";
-            // Don't throw — let tests be marked Inconclusive rather than crashing the test host
+            StartupFailure = $"E2E Test Server failed to start: {ex.GetType().Name}: {ex.Message}";
+            await TestContext.Progress.WriteLineAsync(StartupFailure).ConfigureAwait(false);
+            throw;
         }
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="exception"/> means "no Docker daemon here" (a developer with Docker Desktop stopped)
+    ///     rather than "the E2E host is broken". Testcontainers reports a missing endpoint as an
+    ///     <see cref="ArgumentException"/> naming Docker, and daemon-side refusals as Docker.DotNet exceptions.
+    /// </summary>
+    /// <remarks>
+    ///     Deliberately narrow. A bare <see cref="SocketException"/>/<see cref="HttpRequestException"/> is <em>not</em>
+    ///     accepted: a genuine Postgres or host failure carries one too (an unreachable database surfaces as
+    ///     <c>SocketException</c> under <c>NpgsqlException</c>), and swallowing those as "skipped" is precisely the failure
+    ///     mode this guard exists to prevent. An unclassified environment problem therefore fails the run — the safe
+    ///     direction, since a skipped browser suite is invisible in a green build.
+    /// </remarks>
+    private static bool IsDockerUnavailable(Exception exception)
+    {
+        for (var ex = exception; ex is not null; ex = ex.InnerException)
+        {
+            var type = ex.GetType();
+            if (type.Namespace?.StartsWith("Docker.DotNet", StringComparison.Ordinal) == true
+                || type.Name is "DockerApiException" or "DockerUnavailableException"
+                || (ex is ArgumentException && ex.Message.Contains("Docker", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void RemoveAndReplace<TService, TImplementation>(IServiceCollection services)
@@ -375,6 +443,60 @@ public class E2EServerFixture
         {
             // Seed data already exists — safe to ignore
         }
+    }
+
+    /// <summary>Text of the memory the forget scenario archives; nothing else may depend on it.</summary>
+    public const string DisposableMemoryText = "This memory exists so the forget scenario has something of its own to archive.";
+
+    /// <summary>Text of the shared-owner memory (rendered with the "shared" marker).</summary>
+    public const string SharedMemoryText = "Playwright locators on the PRD page use data-testid.";
+
+    /// <summary>Text of the memory pinned to another agent; visible to no caller of the memories endpoints.</summary>
+    public const string PinnedMemoryText = "Only the agent this memory is pinned to may see it.";
+
+    /// <summary>
+    ///     Memories the Agent page can show: one owned by the E2E user, one owned by the shared owner (host-written project
+    ///     knowledge), one disposable row for the forget scenario, and one pinned to an unrelated agent that must stay
+    ///     invisible. Seeded through the aggregate, so the rows are exactly what
+    ///     <see cref="Daedalus.Agents.Memory.PostgresMemoryStore"/> would have written.
+    /// </summary>
+    private static async Task SeedMemoriesAsync(ApplicationDbContext dbContext)
+    {
+        if (await dbContext.AgentMemories.AnyAsync().ConfigureAwait(false))
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var seeds = new[]
+        {
+            AgentMemory.Create(
+                Guid.NewGuid(), TestAuthHandler.UserId, null, "fact", "The E2E user prefers xUnit over NUnit.",
+                ["testing"], "seed", 0.7, now, indexPending: false),
+            AgentMemory.Create(
+                Guid.NewGuid(), StubAgentRuntime.SharedOwnerId, null, "learning", SharedMemoryText,
+                ["codeconvention", "low"], "migration", 0.3, now.AddDays(-3), indexPending: false),
+            AgentMemory.Create(
+                Guid.NewGuid(), TestAuthHandler.UserId, null, "note", DisposableMemoryText,
+                ["testing"], "seed", 0.4, now.AddMinutes(-5), indexPending: false),
+            AgentMemory.Create(
+                Guid.NewGuid(), TestAuthHandler.UserId, Guid.NewGuid(), "note", PinnedMemoryText,
+                ["testing"], "seed", 0.4, now.AddMinutes(-10), indexPending: false),
+        };
+
+        // Throw rather than return: a seed the domain rejects means the memory scenario would assert against rows that
+        // are not there, and a silently unseeded fixture is exactly the failure mode this suite was fixed for.
+        foreach (var seed in seeds)
+        {
+            if (seed.IsFailure)
+            {
+                throw new InvalidOperationException($"Seeding agent memories failed: {seed.Error}");
+            }
+
+            dbContext.AgentMemories.Add(seed.Value);
+        }
+
+        await dbContext.SaveChangesAsync().ConfigureAwait(false);
     }
 
     [OneTimeTearDown]

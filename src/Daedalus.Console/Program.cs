@@ -1,3 +1,4 @@
+using Daedalus.Agents;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Extensions;
@@ -46,6 +47,18 @@ try
 
             // Add Agent Framework services (Claude via IRalphAgentFactory, MCP tools)
             services.AddAgentFrameworkServices(context.Configuration);
+
+            // Ollama embedding generator (memory index). Aspire provides ConnectionStrings:ollama; without it memories are stored
+            // index_pending and the API host's reindex service embeds them once Ollama is up.
+            var ollamaConnectionString = context.Configuration.GetConnectionString("ollama");
+            if (!string.IsNullOrEmpty(ollamaConnectionString))
+            {
+                services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(
+                    new OllamaSharp.OllamaApiClient(new Uri(ollamaConnectionString), "nomic-embed-text"));
+            }
+
+            // Agent memory for the Ralph learnings write/read paths (LearningsService, search_learnings MCP tool).
+            services.AddDaedalusMemory(context.Configuration);
 
             // Register Ralph loop middleware pipeline
             services.AddRalphLoopMiddleware(context.Configuration);

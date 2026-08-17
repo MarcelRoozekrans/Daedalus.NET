@@ -56,16 +56,15 @@ public sealed class PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
-    ///     Builds <see cref="DbContextOptions{TContext}"/> for <paramref name="connectionString"/> with the pgvector plugin
-    ///     enabled. Every test context must use this (or the instance overloads) — the model maps
-    ///     <c>StructuredLearningEntry.Embedding</c> to <c>vector(384)</c>, which Npgsql cannot map without <c>UseVector()</c>.
+    ///     Builds <see cref="DbContextOptions{TContext}"/> for <paramref name="connectionString"/>. Every test context should
+    ///     still come from here so options stay in one place.
     /// </summary>
     public static DbContextOptions<ApplicationDbContext> CreateDbContextOptions(string connectionString) =>
         new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector())
+            .UseNpgsql(connectionString)
             .Options;
 
-    /// <summary>Builds pgvector-aware <see cref="DbContextOptions{TContext}"/> for the fixture database.</summary>
+    /// <summary>Builds <see cref="DbContextOptions{TContext}"/> for the fixture database.</summary>
     public DbContextOptions<ApplicationDbContext> CreateDbContextOptions() => CreateDbContextOptions(ConnectionString);
 
     /// <summary>Creates a new <see cref="ApplicationDbContext"/> over the fixture database (caller disposes).</summary>
@@ -77,7 +76,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
 #pragma warning disable CS0618 // Using PostgreSqlBuilder with image parameter - obsolete warning for parameterless constructor
-        // pgvector image: the model maps StructuredLearningEntry.Embedding to vector(384), which needs the extension
+        // pgvector image: Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension
         _container = new PostgreSqlBuilder()
             .WithImage("pgvector/pgvector:pg16")
             .WithDatabase("daedalus_test")
@@ -150,12 +149,12 @@ public sealed class PostgresFixture : IAsyncLifetime
         try
         {
             var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector())
+                .UseNpgsql(ConnectionString)
                 .LogTo(System.Console.WriteLine, LogLevel.Information)
                 .Options;
 
             using var dbContext = new ApplicationDbContext(options);
-            // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+            // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
             await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;");
             // For tests, create schema directly from model (EnsureCreatedAsync)
             // In production, use MigrateAsync() with actual migration files

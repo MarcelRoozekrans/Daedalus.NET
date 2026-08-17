@@ -41,6 +41,7 @@
         <!-- Api, Console and Web each ship an appsettings.json; whichever is copied last wins in the output folder.
              ApiThalosConfigurationTests must test the API's file, so link it under an unambiguous name. -->
         <None Include="..\..\src\Daedalus.Api\appsettings.json" Link="Daedalus.Api.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
+        <None Include="..\..\src\Daedalus.Console\appsettings.json" Link="Daedalus.Console.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>

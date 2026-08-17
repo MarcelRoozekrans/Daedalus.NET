@@ -4,24 +4,24 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
 using Daedalus.Application.Abstractions;
-using Daedalus.Domain.Entities;
+using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
 namespace Daedalus.Infrastructure.Agents.Tools;
 
-/// <summary>
-///     MCP tools for searching structured learnings from the knowledge base.
-///     Used by the Ralph Loop LLM to query relevant learnings on-demand.
-/// </summary>
+/// <summary>MCP tool for the Ralph Loop: semantic recall of shared learnings from the agent memory (<see cref="ILearningsMemory"/>).</summary>
+/// <param name="memory">The learnings memory port (Thalos memory behind the adapter in <c>Daedalus.Agents</c>).</param>
+/// <param name="logger">Logger.</param>
 [McpServerToolType]
-public sealed partial class DaedalusLearningsTools(
-    ILearningsRepository learningsRepository,
-    IEmbeddingService embeddingService,
-    ILogger<DaedalusLearningsTools> logger)
+public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILogger<DaedalusLearningsTools> logger)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
+    /// <summary>Recalls learnings relevant to <paramref name="query"/> as a JSON array; never throws at the model.</summary>
+    /// <param name="query">Natural-language description of what to look for.</param>
+    /// <param name="maxResults">Maximum number of results (clamped to the Ralph recall range).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     [McpServerTool(
         Name = "search_learnings",
         ReadOnly = true,
@@ -32,78 +32,42 @@ public sealed partial class DaedalusLearningsTools(
         "learn from previous approaches that worked or failed.")]
     public async Task<string> SearchLearnings(
         [Description("Natural language description of what you're looking for")] string query,
-        [Description("Filter to learnings from a specific project (optional)")] string? projectId = null,
         [Description("Maximum number of results (default: 5)")] int maxResults = 5,
         CancellationToken cancellationToken = default)
     {
-        try
+        var recalled = await memory.RecallAsync(
+            query,
+            Math.Clamp(maxResults, RalphRecallConfiguration.MinTopK, RalphRecallConfiguration.MaxToolTopK),
+            cancellationToken).ConfigureAwait(false);
+        if (recalled.IsFailure)
         {
-            Guid? parsedProjectId = null;
-            if (!string.IsNullOrEmpty(projectId) && Guid.TryParse(projectId, out var parsed))
-            {
-                parsedProjectId = parsed;
-            }
+            LogRecallFailed(logger, query, recalled.Error);
+            return $"Learnings memory unavailable ({recalled.Error}). Proceed with available context.";
+        }
 
-            // Try semantic search first
-            if (embeddingService.IsAvailable)
-            {
-                var embeddingResult = await embeddingService.GenerateEmbeddingAsync(query, cancellationToken);
-                if (embeddingResult.IsSuccess)
-                {
-                    var semanticResult = await learningsRepository.SemanticSearchAsync(
-                        embeddingResult.Value, parsedProjectId, maxResults, cancellationToken);
-
-                    if (semanticResult.IsSuccess && semanticResult.Value.Count > 0)
-                    {
-                        LogSemanticSearchUsed(logger, query, semanticResult.Value.Count);
-                        return FormatResults(semanticResult.Value);
-                    }
-                }
-            }
-
-            // Fallback: keyword search
-            LogKeywordFallback(logger, query);
-            var keywordResult = await learningsRepository.SearchByKeywordAsync(
-                query, maxResults, cancellationToken);
-
-            if (keywordResult.IsSuccess && keywordResult.Value.Count > 0)
-            {
-                return FormatResults(keywordResult.Value);
-            }
-
+        if (recalled.Value.Count == 0)
+        {
             return "No matching learnings found.";
         }
-        catch (Exception ex)
-        {
-            LogSearchError(logger, ex, query);
-            return $"Error searching learnings: {ex.Message}. Proceed with available context.";
-        }
-    }
 
-    private static string FormatResults(IReadOnlyList<StructuredLearningEntry> entries)
-    {
-        var results = entries.Select(e => new
+        LogRecalled(logger, query, recalled.Value.Count);
+        var results = recalled.Value.Select(l => new
         {
-            category = e.Category.ToString(),
-            pattern = e.Pattern,
-            resolution = e.Resolution,
-            severity = e.Severity.ToString(),
-            hitCount = e.HitCount,
-            createdAt = e.CreatedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            id = l.Id,
+            text = l.Text,
+            tags = l.Tags,
+            score = Math.Round(l.Score, 3),
+            createdAt = l.CreatedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
         });
 
         return JsonSerializer.Serialize(results, SerializerOptions);
     }
 
     [LoggerMessage(EventId = 400, Level = LogLevel.Debug,
-        Message = "Semantic search used for query '{Query}', found {Count} results")]
-    private static partial void LogSemanticSearchUsed(ILogger logger, string query, int count);
-
-    [LoggerMessage(EventId = 401, Level = LogLevel.Debug,
-        Message = "Falling back to keyword search for query '{Query}'")]
-    private static partial void LogKeywordFallback(ILogger logger, string query);
+        Message = "Recalled {Count} learnings for query '{Query}'")]
+    private static partial void LogRecalled(ILogger logger, string query, int count);
 
     [LoggerMessage(EventId = 402, Level = LogLevel.Warning,
-        Message = "Error searching learnings for query '{Query}'")]
-    private static partial void LogSearchError(ILogger logger, Exception exception, string query);
+        Message = "Recalling learnings for query '{Query}' failed: {Error}")]
+    private static partial void LogRecallFailed(ILogger logger, string query, string error);
 }

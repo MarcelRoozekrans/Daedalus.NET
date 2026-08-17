@@ -19,7 +19,7 @@ public class LearningsServiceParsingTests : UnitTestBase
         var sourceTaskId = Guid.NewGuid();
 
         // Act
-        var entries = LearningsService.ParseRawLearnings(rawLearnings, sourceTaskId, null);
+        var entries = LearningsService.ParseRawLearnings(rawLearnings);
 
         // Assert
         entries.Should().NotBeEmpty();
@@ -34,7 +34,7 @@ public class LearningsServiceParsingTests : UnitTestBase
         var sourceTaskId = Guid.NewGuid();
 
         // Act
-        var entries = LearningsService.ParseRawLearnings(rawLearnings, sourceTaskId, null);
+        var entries = LearningsService.ParseRawLearnings(rawLearnings);
 
         // Assert
         entries.Should().NotBeEmpty();
@@ -49,7 +49,7 @@ public class LearningsServiceParsingTests : UnitTestBase
         var sourceTaskId = Guid.NewGuid();
 
         // Act
-        var entries = LearningsService.ParseRawLearnings(rawLearnings, sourceTaskId, null);
+        var entries = LearningsService.ParseRawLearnings(rawLearnings);
 
         // Assert
         entries.Should().NotBeEmpty();
@@ -61,7 +61,7 @@ public class LearningsServiceParsingTests : UnitTestBase
     public void ParseRawLearnings_WithEmptyInput_ShouldReturnEmptyList()
     {
         // Act
-        var entries = LearningsService.ParseRawLearnings("", Guid.NewGuid(), null);
+        var entries = LearningsService.ParseRawLearnings("");
 
         // Assert
         entries.Should().BeEmpty();
@@ -75,27 +75,27 @@ public class LearningsServiceParsingTests : UnitTestBase
         var sourceTaskId = Guid.NewGuid();
 
         // Act
-        var entries = LearningsService.ParseRawLearnings(rawLearnings, sourceTaskId, null);
+        var entries = LearningsService.ParseRawLearnings(rawLearnings);
 
         // Assert
         entries.Should().BeEmpty(); // All lines < 5 chars after cleaning
     }
 
     [Fact]
-    public void ParseRawLearnings_ShouldSetSourceTaskId()
+    public void ParseRawLearnings_ShouldKeepCategorySeverityAndTags()
     {
-        // Arrange
-        var sourceTaskId = Guid.NewGuid();
-        var projectId = Guid.NewGuid();
-        var rawLearnings = "Error: Missing middleware registration in DI container";
+        // Arrange — the task/project scope is no longer part of the parsed entry (the memory source carries the task id).
+        var rawLearnings = "Build failed: fatal error in the middleware pipeline";
 
         // Act
-        var entries = LearningsService.ParseRawLearnings(rawLearnings, sourceTaskId, projectId);
+        var entries = LearningsService.ParseRawLearnings(rawLearnings);
 
         // Assert
         entries.Should().NotBeEmpty();
-        entries.Should().OnlyContain(e => e.SourceTaskId == sourceTaskId);
-        entries.Should().OnlyContain(e => e.ProjectId == projectId);
+        entries.Should().OnlyContain(e => e.Tags != null);
+        entries[0].Category.Should().Be(LearningCategory.ErrorPattern);
+        entries[0].Severity.Should().Be(LearningSeverity.Critical);
+        entries[0].Tags.Should().Contain("middleware");
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class LearningsServiceParsingTests : UnitTestBase
         var sourceTaskId = Guid.NewGuid();
 
         // Act
-        var entries = LearningsService.ParseRawLearnings(rawLearnings, sourceTaskId, null);
+        var entries = LearningsService.ParseRawLearnings(rawLearnings);
 
         // Assert
         entries.Should().NotBeEmpty();

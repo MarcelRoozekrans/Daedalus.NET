@@ -7,7 +7,6 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-using Pgvector;
 
 #nullable disable
 
@@ -434,7 +433,7 @@ namespace Daedalus.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Vector>("Embedding")
+                    b.Property<float[]>("Embedding")
                         .HasColumnType("vector(384)");
 
                     b.Property<int>("HitCount")

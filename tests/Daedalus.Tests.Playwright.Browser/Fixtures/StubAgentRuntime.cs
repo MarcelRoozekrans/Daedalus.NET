@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
 using Thalos;
+using Thalos.Memory;
 using ZeroAlloc.Authorization;
 using ZeroAlloc.Results;
 
@@ -13,8 +14,11 @@ namespace Daedalus.Tests.Playwright.Browser.Fixtures;
 ///     the same script — text deltas spelling <see cref="ReplyText"/>, one <c>roslyn__find_callers</c> tool call/result
 ///     pair, usage and done — and persists the exchange through the store.
 /// </summary>
-internal sealed class StubAgentRuntime(IAgentSessionStore store, IAgentCatalog catalog) : IAgentRuntime
+internal sealed class StubAgentRuntime(IAgentSessionStore store, IAgentCatalog catalog, IMemoryStore memories) : IAgentRuntime
 {
+    /// <summary>Owner of host-written project knowledge; matches <c>Thalos:Memory:SharedOwnerId</c> in the API settings.</summary>
+    public const string SharedOwnerId = "daedalus";
+
     public const string ReplyText = "Hello from Thalos";
     public const string ToolName = "roslyn__find_callers";
     public const string ToolArgumentsJson = "{\"symbol\":\"AgentSessionsController\"}";
@@ -84,6 +88,22 @@ internal sealed class StubAgentRuntime(IAgentSessionStore store, IAgentCatalog c
         try
         {
             var callId = ToolCallId.New();
+
+            // Stands in for Thalos' MemoryContextProvider: this host has no embeddings, so "recall" is everything the turn's
+            // scope allows, straight off the store — including MemoryScope.Includes, so memories pinned to another agent
+            // stay out of the recall exactly as they would in production.
+            var scope = new MemoryScope(request.Caller.Id, session.Value.AgentId, SharedOwnerId);
+            var recall = await memories.ListAsync(
+                new MemoryQuery { OwnerIds = [request.Caller.Id, SharedOwnerId], PageSize = 10 },
+                ct).ConfigureAwait(false);
+            if (recall.IsSuccess)
+            {
+                var recalled = recall.Value.Items.Where(m => scope.Includes(m.OwnerId, m.AgentId)).ToList();
+                if (recalled.Count > 0)
+                {
+                    yield return new MemoryRecalledEvent(sessionId, turnId, recalled.Select(m => m.Id).ToList(), recalled.Sum(m => m.Text.Length));
+                }
+            }
 
             yield return new TextDeltaEvent(sessionId, turnId, Deltas[0]);
             yield return new ToolCallStartedEvent(sessionId, turnId, callId, ToolName, ToolArgumentsJson);

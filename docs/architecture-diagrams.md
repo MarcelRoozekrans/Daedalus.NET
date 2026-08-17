@@ -1030,24 +1030,44 @@ Phase 1.1 adds a second, general-purpose agent stack next to the Ralph Loop: **T
 Blazor page `/agent` talks to `Daedalus.Api` over REST, and one turn is streamed back as Server-Sent Events. Sessions and
 transcripts live in PostgreSQL via `PostgresAgentSessionStore` (`Daedalus.Agents`).
 
+Phase 1.2 adds **memory** to the turn: before the model is called, Thalos' memory context provider recalls the memories
+visible to the caller and injects them into the prompt; `memory__*` tools let the agent remember/recall/forget
+explicitly. Records live in `AgentMemories` (`PostgresMemoryStore`), embeddings in the Rag.NET index (`rag_chunks`, same
+database) — a rebuildable cache, so an unavailable index degrades to `index_pending` rows instead of a failed turn.
+
 ```mermaid
 sequenceDiagram
     autonumber
     participant Web as Daedalus.Web<br/>(Agent.razor + AgentApiClient)
-    participant Api as Daedalus.Api<br/>AgentSessionsController
+    participant Api as Daedalus.Api<br/>AgentSessionsController<br/>AgentMemoriesController
     participant RT as Thalos IAgentRuntime<br/>(ThalosAgentRuntime)
     participant Store as PostgresAgentSessionStore<br/>(Daedalus.Agents → EF Core)
+    participant Mem as MemoryContextProvider<br/>→ IMemoryService
+    participant MemStore as PostgresMemoryStore<br/>(AgentMemories) + Rag.NET index<br/>(rag_chunks, nomic-embed-text 768)
     participant Agent as MAF ChatClientAgent
     participant Sentinel as AI.Sentinel<br/>(SentinelChatClient decorator)
     participant Claude as Anthropic API<br/>(Thalos.NET.Anthropic)
-    participant Tools as Tools<br/>(MCP roslyn/context7, local daedalus__*)
+    participant Tools as Tools<br/>(MCP roslyn/context7, local daedalus__*, memory__*)
 
     Web->>Api: POST /api/agents/sessions/{id}/turns/stream<br/>Authorization: Bearer (policy AgentUse)
     Api->>Api: 200 text/event-stream, DisableBuffering,<br/>": connected" flushed before the first token
     Api->>RT: RunTurnStreamingAsync(AgentTurnRequest{session, text, caller})
     RT->>Store: Load session (owner/admin check, else SessionNotFound)<br/>Idle → Running
     Store-->>RT: session + transcript
-    RT->>Agent: Build from AgentDefinition<br/>(instructions, model, tool glob, history)
+    RT->>Mem: Recall for this turn<br/>(scope: caller + this agent's pinned + shared owner "daedalus")
+    Mem->>MemStore: embed(prompt) → vector search in rag_chunks<br/>→ hydrate records from AgentMemories
+    alt Recall succeeded (0..TopK hits above MinScore)
+        MemStore-->>Mem: RecalledMemory[] (TopK, MaxChars budget)
+        Mem->>Mem: Untrusted-content scan;<br/>quarantined memories dropped from the block
+        Mem-->>RT: memory block prepended to the prompt
+        RT-->>Api: memory-recalled (ids, chars)<br/>[memory-quarantined per dropped memory]
+        Api-->>Web: event: memory-recalled / memory-quarantined
+    else Index unavailable or failed
+        MemStore-->>Mem: MemoryIndexUnavailable / MemoryIndexFailed
+        RT-->>Api: memory-recall-failed (code)
+        Api-->>Web: event: memory-recall-failed<br/>(turn continues without memories)
+    end
+    RT->>Agent: Build from AgentDefinition<br/>(instructions, model, tool glob, history,<br/>recalled memories)
     loop Model ↔ tools until the final answer
         Agent->>Sentinel: chat request (streaming)
         Sentinel->>Sentinel: input detectors (lexical; semantic when an<br/>embedding generator is configured)
@@ -1074,6 +1094,16 @@ sequenceDiagram
                 end
                 RT-->>Api: tool-call / tool-result
                 Api-->>Web: event: tool-call / tool-result
+                opt memory__remember / memory__forget
+                    Tools->>Mem: IMemoryService.RememberAsync (dedupe check)
+                    Mem->>MemStore: insert AgentMemories row + upsert rag_chunks
+                    alt Indexed
+                        RT-->>Api: memory-stored (id, kind, deduped)
+                    else No embedding generator / index down
+                        RT-->>Api: memory-stored + memory-index-pending (id)<br/>ReindexPendingMemoriesHostedService retries later
+                    end
+                    Api-->>Web: event: memory-stored / memory-index-pending
+                end
             end
         end
     end
@@ -1081,12 +1111,22 @@ sequenceDiagram
     RT-->>Api: usage, done
     Api-->>Web: event: usage, event: done
     Web->>Web: Render bubbles, tool cards, usage;<br/>re-enable composer
+    Web->>Api: GET /api/agent-memories/{id}<br/>(AgentMemoriesController: hydrate the recalled ids<br/>for the Memories panel)
+    Api-->>Web: MemoryDto per visible id
 ```
 
 Notes:
 
 - The controller flushes every SSE frame as soon as the runtime yields it (`text-delta`, `tool-call`, `tool-result`,
-  `usage`, `done`, `error`); the stream always ends with `done` or `error`.
+  `usage`, `done`, `error`, `memory-recalled`, `memory-stored`, `memory-recall-failed`, `memory-index-pending`,
+  `memory-quarantined`); the stream always ends with `done` or `error`.
+- **Memory is best-effort within the turn:** a failed or unavailable index yields `memory-recall-failed` and the turn
+  runs without memories; a write that could not be embedded yields `memory-index-pending` and is repaired in the
+  background by `ReindexPendingMemoriesHostedService` (API host only). `AgentMemories` is the source of truth,
+  `rag_chunks` is a rebuildable cache — but the sweeper runs with `PendingOnly = true`, so a full rebuild means dropping
+  `rag_chunks` **and** setting `IndexPending` on the rows (see the README's operational notes).
+- The `memory-recalled` event carries **ids only**, so the Blazor Memories panel hydrates them through
+  `GET /api/agent-memories/{id}`, which applies the same visibility rule as the tools (`MemoryScope.Includes`).
 - Tool authorization runs at the **function boundary** (`Thalos` `AuthorizingAIFunction` + `[Policy]` types such as
   `DeveloperPolicy`), so an unauthorized tool call is reported back to the model instead of failing the turn; the denial
   is also published as a `ToolCallDeniedNotification` (audit).
@@ -1097,7 +1137,10 @@ Notes:
 
 ### Strangler layout: Ralph and Thalos side by side
 
-Until phase 1.6 both stacks are wired in the API and share Infrastructure (DbContext, learnings, embeddings):
+Until phase 1.6 both stacks are wired in the API and share Infrastructure (DbContext) — and, since phase 1.2, the agent
+memory: Ralph's learnings are written and recalled through the Application port `ILearningsMemory` (shared owner
+`daedalus`), so `StructuredLearnings` and the hand-rolled embedding service are gone. The Ralph worker runs in
+`Daedalus.Console`, which registers `AddDaedalusMemory` (memory only, no agents, creates no Rag.NET schema):
 
 ```mermaid
 graph LR
@@ -1108,27 +1151,35 @@ graph LR
 
     subgraph "Daedalus.Api"
         RalphCtrl["Ralph controllers<br/>(tasks, sessions, ralph-config, …)"]
-        AgentCtrl["AgentsController<br/>AgentSessionsController (SSE)"]
+        AgentCtrl["AgentsController<br/>AgentSessionsController (SSE)<br/>AgentMemoriesController"]
     end
 
     subgraph "Ralph stack (legacy, retired in 1.6)"
         Ralph["RalphLoopOrchestrator<br/>Daedalus.Console worker"]
         RalphLlm["ILlmService<br/>Copilot / Claude"]
+        LearnPort["ILearningsMemory (Application port)<br/>LearningsService · enrichment middleware<br/>search_learnings MCP tool"]
+        ConsoleComposition["AddDaedalusMemory<br/>(memory only, no schema)"]
     end
 
     subgraph "Thalos stack (Daedalus.Agents)"
-        Composition["AddDaedalusAgents<br/>(Thalos:* config, .mcp.json)"]
+        Composition["AddDaedalusAgents<br/>(Thalos:* config, .mcp.json,<br/>owns the Rag.NET schema)"]
         Runtime["Thalos IAgentRuntime"]
         SessionStore["PostgresAgentSessionStore"]
-        Knowledge["DaedalusKnowledgeTools<br/>(daedalus__*)"]
+        Knowledge["DaedalusKnowledgeTools<br/>(daedalus__search_failure_patterns)"]
+        MemTools["memory__remember/recall/<br/>forget/list"]
         Recovery["AgentSessionCrashRecovery"]
         SentinelBox["AI.Sentinel"]
         Mcp["MCP servers<br/>roslyn, context7"]
+        MemSvc["Thalos IMemoryService"]
+        MemStore2["PostgresMemoryStore<br/>(AgentMemories)"]
+        MemIndex["Rag.NET IMemoryIndex<br/>(rag_chunks)"]
+        Adapter["ThalosLearningsMemory<br/>(shared owner 'daedalus')"]
+        Reindex["ReindexPendingMemoriesHostedService"]
     end
 
     subgraph "Shared Infrastructure"
-        DbCtx["ApplicationDbContext<br/>(AgentSessions, AgentMessages, Tasks, StructuredLearnings, …)"]
-        Learnings["ILearningsRepository<br/>IEmbeddingService"]
+        DbCtx["ApplicationDbContext<br/>(AgentSessions, AgentMessages,<br/>AgentMemories, Tasks, …)"]
+        Ollama["Ollama nomic-embed-text<br/>(768 dims)"]
         PG[("PostgreSQL 16<br/>pgvector/pgvector:pg16")]
     end
 
@@ -1136,18 +1187,31 @@ graph LR
     AgentPage -->|REST + SSE| AgentCtrl
     RalphCtrl --> Ralph
     Ralph --> RalphLlm
+    Ralph --> LearnPort
+    LearnPort --> Adapter
+    ConsoleComposition -.registers.-> Adapter
     AgentCtrl --> Runtime
+    AgentCtrl --> MemSvc
     Composition -.registers.-> Runtime
     Composition -.registers.-> Recovery
+    Composition -.registers.-> MemSvc
+    Composition -.registers.-> Reindex
     Runtime --> SessionStore
     Runtime --> SentinelBox
     Runtime --> Knowledge
     Runtime --> Mcp
-    Knowledge --> Learnings
+    Runtime --> MemTools
+    MemTools --> MemSvc
+    Adapter --> MemSvc
+    MemSvc --> MemStore2
+    MemSvc --> MemIndex
+    Reindex --> MemSvc
+    MemIndex --> Ollama
+    MemIndex --> PG
     SessionStore --> DbCtx
+    MemStore2 --> DbCtx
     Recovery --> DbCtx
     Ralph --> DbCtx
-    Learnings --> DbCtx
     DbCtx --> PG
 ```
 

@@ -275,8 +275,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
 
     /// <summary>
     ///     Test-only DbContext that adjusts the model for InMemory provider compatibility:
-    ///     excludes pgvector Embedding (unsupported type) and disables RowVersion
-    ///     concurrency tokens (not supported by InMemory provider).
+    ///     disables RowVersion concurrency tokens (not supported by InMemory provider).
     /// </summary>
     private sealed class TestApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : ApplicationDbContext(options)
@@ -284,10 +283,6 @@ public class BrainstormRepositoryTests : IAsyncLifetime
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-
-            // Ignore the Vector-typed Embedding property that InMemory cannot handle
-            modelBuilder.Entity<StructuredLearningEntry>()
-                .Ignore(e => e.Embedding);
 
             // Disable RowVersion concurrency token (not supported by InMemory)
             modelBuilder.Entity<BrainstormSession>()

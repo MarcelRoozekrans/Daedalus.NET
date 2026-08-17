@@ -11,6 +11,12 @@ namespace Daedalus.Api;
 ///     JSON serialization context for AOT compatibility.
 ///     Enables compile-time serialization metadata generation for types used in API responses.
 /// </summary>
+/// <remarks>
+///     This context is <em>not</em> plugged into MVC's <c>TypeInfoResolverChain</c> today: controller responses go through
+///     the default reflection-based resolver, and only code that names the context explicitly uses it (the SSE writer
+///     serialises with <c>ApiJsonSerializerContext.Default.AgentEventDto</c>). Entries here are therefore preparation for
+///     trimming/AOT and a compile-time check that a response DTO is source-generatable — adding one changes no behaviour.
+/// </remarks>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -37,6 +43,9 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(TurnUsageDto))]
 [JsonSerializable(typeof(AgentTurnResultDto))]
 [JsonSerializable(typeof(AgentEventDto))]
+[JsonSerializable(typeof(MemoryEventDto))]
+[JsonSerializable(typeof(MemoryDto))]
+[JsonSerializable(typeof(PagedResultDto<MemoryDto>))]
 [JsonSerializable(typeof(CreateAgentSessionResponseDto))]
 [JsonSerializable(typeof(SendTurnRequestDto))]
 [JsonSerializable(typeof(Dictionary<string, object>))]

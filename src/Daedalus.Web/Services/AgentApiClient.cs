@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Agents;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.AspNetCore.Components.WebAssembly.Http;
@@ -63,6 +64,61 @@ public sealed class AgentApiClient(HttpClient http)
         try
         {
             using var response = await http.DeleteAsync(Relative($"/api/agents/sessions/{Uri.EscapeDataString(sessionId)}"), ct);
+            return response.IsSuccessStatusCode
+                ? Result.Success()
+                : Result.Failure(await ReadProblemMessageAsync(response, ct));
+        }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure(LoginRequired);
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result.Failure($"API error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    ///     The memories visible to the caller, most recently updated first. <paramref name="agentId"/> is the agent context,
+    ///     not a filter: it adds the memories pinned to that agent to the caller's own and the shared owner's.
+    /// </summary>
+    public Task<Result<PagedResultDto<MemoryDto>>> ListMemoriesAsync(
+        string? kind = null,
+        string? agentId = null,
+        bool includeArchived = false,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        var query = new List<string> { $"page={page}", $"pageSize={pageSize}", $"includeArchived={(includeArchived ? "true" : "false")}" };
+        if (!string.IsNullOrEmpty(kind))
+        {
+            query.Add($"kind={Uri.EscapeDataString(kind)}");
+        }
+
+        if (!string.IsNullOrEmpty(agentId))
+        {
+            query.Add($"agentId={Uri.EscapeDataString(agentId)}");
+        }
+
+        return GetAsync<PagedResultDto<MemoryDto>>($"/api/agent-memories?{string.Join('&', query)}", ct);
+    }
+
+    /// <summary>One memory visible to the caller in the <paramref name="agentId"/> context (see <see cref="ListMemoriesAsync"/>).</summary>
+    public Task<Result<MemoryDto>> GetMemoryAsync(string id, string? agentId = null, CancellationToken ct = default)
+    {
+        var url = $"/api/agent-memories/{Uri.EscapeDataString(id)}";
+        return GetAsync<MemoryDto>(
+            string.IsNullOrEmpty(agentId) ? url : $"{url}?agentId={Uri.EscapeDataString(agentId)}",
+            ct);
+    }
+
+    /// <summary>Forgets a memory: archives it, or deletes it when <paramref name="hard"/> is set.</summary>
+    public async Task<Result> ForgetMemoryAsync(string id, bool hard = false, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await http.DeleteAsync(Relative($"/api/agent-memories/{Uri.EscapeDataString(id)}?hard={(hard ? "true" : "false")}"), ct);
             return response.IsSuccessStatusCode
                 ? Result.Success()
                 : Result.Failure(await ReadProblemMessageAsync(response, ct));

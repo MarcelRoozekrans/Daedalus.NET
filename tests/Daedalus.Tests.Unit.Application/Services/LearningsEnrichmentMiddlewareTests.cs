@@ -16,6 +16,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
     private readonly ILearningsService _learningsService;
     private readonly IKnowledgeBaseToolStatus _toolStatus;
     private readonly ILogger<LearningsEnrichmentMiddleware> _logger;
+    private readonly RalphRecallConfiguration _recall;
     private readonly LearningsEnrichmentMiddleware _middleware;
 
     public LearningsEnrichmentMiddlewareTests()
@@ -24,7 +25,8 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _toolStatus = Substitute.For<IKnowledgeBaseToolStatus>();
         _toolStatus.AreToolsAvailable.Returns(false); // Default: full text fallback mode
         _logger = Substitute.For<ILogger<LearningsEnrichmentMiddleware>>();
-        _middleware = new LearningsEnrichmentMiddleware(_learningsService, _toolStatus, _logger);
+        _recall = new RalphRecallConfiguration();
+        _middleware = new LearningsEnrichmentMiddleware(_learningsService, _toolStatus, _recall, _logger);
     }
 
     #region Order
@@ -34,6 +36,43 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
     {
         // Assert
         _middleware.Order.Should().Be(90);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ShouldSizeTheRecallFromRalphRecallConfiguration()
+    {
+        // Arrange — the same knob sizes the MCP tool and the Thalos adapter, so it must reach the enrichment call.
+        _recall.TopK = 25;
+        var context = CreateContext(1);
+        _learningsService.GetEnrichmentContextAsync(
+                Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
+                Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success(string.Empty));
+
+        // Act
+        await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
+
+        // Assert
+        await _learningsService.Received(1).GetEnrichmentContextAsync(
+            Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(), 25, 5, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ShouldDefaultToTenLearnings()
+    {
+        // Arrange
+        var context = CreateContext(1);
+        _learningsService.GetEnrichmentContextAsync(
+                Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
+                Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success(string.Empty));
+
+        // Act
+        await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
+
+        // Assert
+        await _learningsService.Received(1).GetEnrichmentContextAsync(
+            Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(), 10, 5, Arg.Any<CancellationToken>());
     }
 
     #endregion

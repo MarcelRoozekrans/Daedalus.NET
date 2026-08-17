@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-using Pgvector;
 
 #nullable disable
 
@@ -180,6 +179,80 @@ namespace Daedalus.Infrastructure.Migrations
                         .HasDatabaseName("IX_CodeAnalysis_Status");
 
                     b.ToTable("CodeAnalysisRequests");
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.AgentMemory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AgentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("Importance")
+                        .HasColumnType("double precision");
+
+                    b.Property<bool>("IndexPending")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("LastRecalledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("RecallCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.PrimitiveCollection<List<string>>("_tags")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("Tags");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndexPending")
+                        .HasDatabaseName("IX_AgentMemory_IndexPending");
+
+                    b.HasIndex("IsArchived")
+                        .HasDatabaseName("IX_AgentMemory_IsArchived");
+
+                    b.HasIndex("CreatedAt", "Id")
+                        .HasDatabaseName("IX_AgentMemory_CreatedAt_Id");
+
+                    b.HasIndex("OwnerId", "AgentId")
+                        .HasDatabaseName("IX_AgentMemory_Owner_Agent");
+
+                    b.HasIndex("OwnerId", "Kind")
+                        .HasDatabaseName("IX_AgentMemory_Owner_Kind");
+
+                    b.ToTable("AgentMemories", (string)null);
                 });
 
             modelBuilder.Entity("Daedalus.Domain.Entities.AgentMessage", b =>
@@ -508,74 +581,6 @@ namespace Daedalus.Infrastructure.Migrations
                         .HasDatabaseName("IX_RepositoryConfiguration_Name");
 
                     b.ToTable("RepositoryConfigurations");
-                });
-
-            modelBuilder.Entity("Daedalus.Domain.Entities.StructuredLearningEntry", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Category")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Vector>("Embedding")
-                        .HasColumnType("vector(384)");
-
-                    b.Property<int>("HitCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("LastReferencedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Pattern")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<Guid?>("ProjectId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Resolution")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<int>("Severity")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid?>("SourceTaskId")
-                        .HasColumnType("uuid");
-
-                    b.PrimitiveCollection<List<string>>("_tags")
-                        .IsRequired()
-                        .HasColumnType("text[]")
-                        .HasColumnName("Tags");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Category")
-                        .HasDatabaseName("IX_StructuredLearning_Category");
-
-                    b.HasIndex("CreatedAt")
-                        .HasDatabaseName("IX_StructuredLearning_CreatedAt");
-
-                    b.HasIndex("HitCount")
-                        .HasDatabaseName("IX_StructuredLearning_HitCount");
-
-                    b.HasIndex("ProjectId")
-                        .HasDatabaseName("IX_StructuredLearning_ProjectId");
-
-                    b.HasIndex("Severity")
-                        .HasDatabaseName("IX_StructuredLearning_Severity");
-
-                    b.HasIndex("SourceTaskId")
-                        .HasDatabaseName("IX_StructuredLearning_SourceTaskId");
-
-                    b.ToTable("StructuredLearnings");
                 });
 
             modelBuilder.Entity("Daedalus.Domain.Entities.Task", b =>

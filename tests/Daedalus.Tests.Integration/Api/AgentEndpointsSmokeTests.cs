@@ -1,9 +1,11 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Agents;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Thalos;
+using Thalos.Memory;
 using ZeroAlloc.Authorization;
 using Task = System.Threading.Tasks.Task;
 
@@ -98,6 +100,37 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
     }
 
     [Fact]
+    public async Task Memories_endpoint_lists_the_callers_and_shared_memories()
+    {
+        var store = _factory.Services.GetRequiredService<IMemoryStore>();
+        var mine = await SeedMemoryAsync(store, "alice", "The E2E user prefers xUnit over NUnit.");
+        var shared = await SeedMemoryAsync(store, "daedalus", "Playwright locators use data-testid.");
+        var foreign = await SeedMemoryAsync(store, "bob", "Bob likes NUnit.");
+
+        var anonymous = await _client.GetAsync(new Uri("/api/agent-memories", UriKind.Relative));
+        anonymous.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var response = await Send(HttpMethod.Get, "/api/agent-memories", user: "alice");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var page = await response.Content.ReadFromJsonAsync<PagedResultDto<MemoryDto>>(Json);
+        page!.Total.Should().Be(2);
+        page.Items.Should().HaveCount(2);
+        page.Items.Select(m => m.Id).Should().BeEquivalentTo([mine.ToString(), shared.ToString()]);
+        page.Items.Single(m => string.Equals(m.Id, shared.ToString(), StringComparison.Ordinal)).IsShared.Should().BeTrue();
+        page.Items.Single(m => string.Equals(m.Id, mine.ToString(), StringComparison.Ordinal)).IsShared.Should().BeFalse();
+        page.Items.Should().NotContain(m => string.Equals(m.Id, foreign.ToString(), StringComparison.Ordinal), "another owner's memories are invisible");
+
+        var single = await Send(HttpMethod.Get, $"/api/agent-memories/{mine}", user: "alice");
+        single.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await single.Content.ReadFromJsonAsync<MemoryDto>(Json))!.Text.Should().Be("The E2E user prefers xUnit over NUnit.");
+
+        var probing = await Send(HttpMethod.Get, $"/api/agent-memories/{foreign}", user: "alice");
+        probing.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await probing.Content.ReadFromJsonAsync<JsonElement>(Json)).GetProperty("code").GetString().Should().Be("MemoryNotFound");
+    }
+
+    [Fact]
     public async Task Turn_errors_arrive_as_problem_details_with_code()
     {
         var sessionId = SessionId.New();
@@ -148,6 +181,17 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
         var frames = rest.Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
         frames.Select(f => f[..f.IndexOf('\n', StringComparison.Ordinal)]).Should().Equal("event: usage", "event: done");
         frames[^1].Should().Contain($"\"turnId\":\"{turnId}\"");
+    }
+
+    private static async Task<MemoryId> SeedMemoryAsync(IMemoryStore store, string ownerId, string text)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var created = await store.CreateAsync(
+            new MemoryRecord { Id = MemoryId.New(), OwnerId = ownerId, Kind = MemoryKind.Learning, Text = text, Source = "test", CreatedAt = now, UpdatedAt = now },
+            CancellationToken.None);
+
+        created.IsSuccess.Should().BeTrue();
+        return created.Value.Id;
     }
 
     private static async Task<string> ReadFrameAsync(StreamReader reader)

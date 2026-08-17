@@ -13,6 +13,11 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Daedalus.Tests.Integration" />
+        <InternalsVisibleTo Include="Daedalus.Tests.Unit.Application" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Daedalus.Domain\Daedalus.Domain.csproj" />
         <ProjectReference Include="..\Daedalus.Application\Daedalus.Application.csproj" />
         <ProjectReference Include="..\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj" />
@@ -23,6 +28,8 @@
         <PackageReference Include="Thalos.NET.Mcp" />
         <PackageReference Include="Thalos.NET.Anthropic" />
         <PackageReference Include="Thalos.NET.Sentinel" />
+        <PackageReference Include="Thalos.NET.Memory" />
+        <PackageReference Include="Thalos.NET.Memory.RagNet" />
         <PackageReference Include="ZeroAlloc.Mapping" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />
         <PackageReference Include="Microsoft.Extensions.AI" />

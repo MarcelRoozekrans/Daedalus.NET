@@ -1,5 +1,6 @@
 using CSharpFunctionalExtensions;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Daedalus.Application.Services.Middleware;
@@ -29,17 +30,19 @@ namespace Daedalus.Application.Services.Middleware;
 public sealed partial class LearningsEnrichmentMiddleware(
     ILearningsService learningsService,
     IKnowledgeBaseToolStatus toolStatus,
+    RalphRecallConfiguration recall,
     ILogger<LearningsEnrichmentMiddleware> logger) : IRalphLoopMiddleware
 {
-    /// <summary>
-    ///     Maximum structured learnings entries to inject per iteration.
-    /// </summary>
-    private const int _maxLearnings = 10;
-
     /// <summary>
     ///     Maximum failure pattern records to inject per iteration.
     /// </summary>
     private const int _maxFailurePatterns = 5;
+
+    /// <summary>
+    ///     Maximum learnings to recall per iteration (<c>Thalos:Memory:RalphRecall:TopK</c>, default 10). The same knob
+    ///     sizes the <c>search_learnings</c> MCP tool and the Thalos adapter, so all three stay in step.
+    /// </summary>
+    private int MaxLearnings => Math.Max(RalphRecallConfiguration.MinTopK, recall.TopK);
 
     public int Order => 90;
 
@@ -59,14 +62,14 @@ public sealed partial class LearningsEnrichmentMiddleware(
             if (toolStatus.AreToolsAvailable)
             {
                 // Slim mode: inject summary + tool usage hint
-                var summary = $"=== KNOWLEDGE BASE ===\n" +
-                    $"You have access to a knowledge base with {toolStatus.LearningsCount} learnings " +
-                    $"and {toolStatus.FailurePatternsCount} failure patterns.\n" +
-                    $"Use the search_learnings tool to find relevant past knowledge.\n" +
-                    $"Use the search_failure_patterns tool when you encounter errors.\n";
+                var summary = "=== KNOWLEDGE BASE ===\n" +
+                    "You have access to a semantic memory of learnings from previous tasks " +
+                    $"and {toolStatus.FailurePatternsCount} known failure patterns.\n" +
+                    "Use the search_learnings tool to recall relevant past knowledge.\n" +
+                    "Use the search_failure_patterns tool when you encounter errors.\n";
 
                 context.PromptContext.AccumulatedLearnings = summary;
-                LogSlimEnrichment(logger, context.Iteration, toolStatus.LearningsCount);
+                LogSlimEnrichment(logger, context.Iteration);
             }
             else
             {
@@ -75,7 +78,7 @@ public sealed partial class LearningsEnrichmentMiddleware(
                     context.Task.Prompt,
                     context.Task.ProjectId != Guid.Empty ? context.Task.ProjectId : null,
                     context.Task.Id,
-                    _maxLearnings,
+                    MaxLearnings,
                     _maxFailurePatterns,
                     ct);
 
@@ -126,6 +129,6 @@ public sealed partial class LearningsEnrichmentMiddleware(
     private static partial void LogEnrichmentFailed(ILogger logger, int iteration, string error);
 
     [LoggerMessage(EventId = 103, Level = LogLevel.Debug,
-        Message = "Slim enrichment mode for iteration {Iteration}: {LearningsCount} learnings available via MCP tools")]
-    private static partial void LogSlimEnrichment(ILogger logger, int iteration, int learningsCount);
+        Message = "Slim enrichment mode for iteration {Iteration}: knowledge base tools available")]
+    private static partial void LogSlimEnrichment(ILogger logger, int iteration);
 }

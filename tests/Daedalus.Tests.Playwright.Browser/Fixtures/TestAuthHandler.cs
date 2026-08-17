@@ -14,11 +14,14 @@ internal sealed class TestAuthHandler(
 {
     public const string SchemeName = "TestScheme";
 
+    /// <summary>Subject of every E2E request; also the owner of the seeded memories and sessions.</summary>
+    public const string UserId = "e2e-test-user-id";
+
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var claims = new[]
         {
-            new Claim(ClaimTypes.NameIdentifier, "e2e-test-user-id"),
+            new Claim(ClaimTypes.NameIdentifier, UserId),
             new Claim(ClaimTypes.Name, "E2E Test User"),
             new Claim(ClaimTypes.Email, "e2e@daedalus.test"),
             new Claim(ClaimTypes.Role, "admin"),

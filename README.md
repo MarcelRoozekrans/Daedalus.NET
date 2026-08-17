@@ -84,11 +84,13 @@ See [Ralph Wiggum Technique Documentation](docs/ralph-wiggum-technique.md) for d
 | Framework            | .NET 10                                                                             |
 | Orchestration        | .NET Aspire 13.1.0                                                                  |
 | Database             | PostgreSQL 16 with pgvector (`pgvector/pgvector:pg16`)                              |
-| ORM                  | Entity Framework Core 10 (Npgsql, Pgvector.EntityFrameworkCore)                     |
+| ORM                  | Entity Framework Core 10 (Npgsql 10.0.3)                                            |
 | Pattern Library      | CSharpFunctionalExtensions (Railway-Oriented Programming)                           |
 | ZeroAlloc            | ZeroAlloc.Results 1.2.0, ZeroAlloc.Authorization 2.1.0, ZeroAlloc.Validation 1.5.6, ZeroAlloc.Mapping 1.6.1 (via Thalos.NET) |
 | Zero-Allocation LINQ | ZLinq 1.5.4                                                                         |
-| Agent framework      | Thalos.NET 0.1.1 (nuget.org) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9         |
+| Agent framework      | Thalos.NET 0.2.0 (nuget.org) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9         |
+| Agent memory         | `Thalos.NET.Memory` 0.2.0 + `Thalos.NET.Memory.RagNet` 0.2.0 (→ Rag.NET 0.1.x pgvector store, `rag_chunks`) |
+| Embeddings           | Ollama `nomic-embed-text` (768 dims) via OllamaSharp 5.4.12                          |
 | LLM security         | AI.Sentinel 2.0.1 (via `Thalos.NET.Sentinel`)                                       |
 | LLM Providers        | GitHub Copilot SDK 0.1.21 (Ralph), Anthropic SDK 12.40.0 (Ralph + Thalos)           |
 | MCP                  | ModelContextProtocol 2.2.0 (`Thalos.NET.Mcp` reads `.mcp.json`)                     |
@@ -110,7 +112,7 @@ src/
 ├── Daedalus.Domain/           # Entities, Value Objects, Domain Events
 ├── Daedalus.Application/      # CQRS handlers, DTOs, Interfaces, Abstractions
 ├── Daedalus.Infrastructure/   # EF Core DbContext, Repositories, LLM services, External integrations
-├── Daedalus.Agents/           # Thalos.NET composition root: agents from config, Postgres session store, knowledge tools, DeveloperPolicy
+├── Daedalus.Agents/           # Thalos.NET composition root: agents from config, Postgres session + memory stores, knowledge tools, DeveloperPolicy
 ├── Daedalus.Api/              # REST controllers (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos
 ├── Daedalus.Console/          # Ralph Loop worker (background hosted service)
 ├── Daedalus.Web/              # Blazor WASM frontend (Radzen components)
@@ -232,11 +234,14 @@ The `launchSettings.json` pre-configures all required environment variables. No 
 1. **DCP** starts container orchestration
 2. **PostgreSQL 16 + pgvector** container starts (`pgvector/pgvector:pg16`, persistent data volume)
 3. **Keycloak 26.0** container starts (with realm auto-import from `keycloak-realm.json`)
-4. **Migrations** run automatically (`Daedalus.Migrations`, waits for DB + Keycloak)
-5. **API** starts (REST + JWT auth via Keycloak, port `5000`)
-6. **Console Worker** starts (Ralph Loop, direct DB polling)
-7. **Web Frontend** starts (Blazor WASM, OIDC login via Keycloak)
-8. **Aspire Dashboard** available with real-time monitoring
+4. **Ollama** container starts and pulls `nomic-embed-text` (embeddings for AI.Sentinel and agent memory; ~274 MB on the
+   first run, cached in a data volume)
+5. **Migrations** run automatically (`Daedalus.Migrations`, waits for DB + Keycloak). API and Console wait for the job to
+   *complete* (`WaitForCompletion`), not merely to start, so no host boots against an un-migrated database
+6. **API** starts (REST + JWT auth via Keycloak, port `5000`; creates the Rag.NET `rag_chunks` schema)
+7. **Console Worker** starts (Ralph Loop, direct DB polling)
+8. **Web Frontend** starts (Blazor WASM, OIDC login via Keycloak)
+9. **Aspire Dashboard** available with real-time monitoring
 
 ### Endpoints
 
@@ -435,11 +440,16 @@ AI.Sentinel at the model boundary). It runs **alongside** the Ralph Loop as a st
 phase 1.6 retires it. Design: [docs/plans/2026-08-16-thalos-agent-core-design.md](docs/plans/2026-08-16-thalos-agent-core-design.md);
 sequence diagram: [Architecture Diagrams §14](docs/architecture-diagrams.md#14-agent-turn-thalos).
 
+Phase 1.2 adds **memory** on top: `Thalos.NET.Memory` + `Thalos.NET.Memory.RagNet` (Thalos.NET 0.2.0). Design:
+[docs/plans/2026-08-17-thalos-memory-design.md](docs/plans/2026-08-17-thalos-memory-design.md); see
+[Memory](#memory) below.
+
 **What you get:** a signed-in user opens `/agent` in the Blazor app, picks an agent (default: *Daedalus Architect*),
-starts a session and chats. Each turn is streamed back as Server-Sent Events (text deltas, tool calls/results, usage), tools
-come from MCP servers (`roslyn__*`, `context7__*`) and local knowledge tools (`daedalus__*` — learnings and failure
-patterns), and every prompt/response passes through AI.Sentinel. Sessions and transcripts are persisted in PostgreSQL
-(`AgentSessions`, `AgentMessages`).
+starts a session and chats. Each turn is streamed back as Server-Sent Events (text deltas, tool calls/results, usage,
+memory events), tools come from MCP servers (`roslyn__*`, `context7__*`), local knowledge tools (`daedalus__*` — failure
+patterns) and memory tools (`memory__remember/recall/forget/list`), relevant memories are injected before each turn, and
+every prompt/response passes through AI.Sentinel. Sessions, transcripts and memories are persisted in PostgreSQL
+(`AgentSessions`, `AgentMessages`, `AgentMemories`).
 
 ### Configuration (`Thalos:*` in `src/Daedalus.Api/appsettings.json`)
 
@@ -453,6 +463,16 @@ patterns), and every prompt/response passes through AI.Sentinel. Sessions and tr
             "OnCritical": "Quarantine", "OnHigh": "Alert", "OnMedium": "Log", "OnLow": "Log",
             "DisabledDetectors": []
         },
+        "Memory": {
+            "Enabled": true,
+            "SharedOwnerId": "daedalus",
+            "Recall": { "TopK": 5, "MinScore": 0.6, "MaxChars": 2000 },
+            "Dedupe": { "Enabled": true, "Threshold": 0.95 },
+            "ExposeTools": true,
+            "VectorDimensions": 768,
+            "RalphRecall": { "TopK": 10, "MinScore": 0.5 },
+            "Reindex": { "Enabled": true, "StartupDelay": "00:00:10", "RetryInterval": "00:02:00", "SweepInterval": "00:15:00" }
+        },
         "ToolPolicies": [
             { "Pattern": "roslyn__apply_*", "Policy": "developer" },
             { "Pattern": "roslyn__rename_*", "Policy": "developer" }
@@ -463,7 +483,8 @@ patterns), and every prompt/response passes through AI.Sentinel. Sessions and tr
                 "Name": "Daedalus Architect",
                 "Description": "Answers architecture questions about the Daedalus solution using Roslyn and Daedalus learnings.",
                 "Instructions": "You are a senior .NET architect embedded in the Daedalus project. ...",
-                "Tools": [ "roslyn__*", "daedalus__*", "context7__*" ]
+                "Tools": [ "roslyn__*", "daedalus__*", "memory__*", "context7__*" ],
+                "Memory": { "Enabled": true, "TopK": 5 }
             }
         ]
     }
@@ -478,12 +499,52 @@ patterns), and every prompt/response passes through AI.Sentinel. Sessions and tr
 | `Thalos:Sentinel:Enabled`                      | Registers the AI.Sentinel decorator around the chat client.                                                                                                                                                  |
 | `Thalos:Sentinel:On{Critical,High,Medium,Low}` | Action per severity: `PassThrough`, `Log`, `Alert`, `Quarantine`. A quarantined turn returns `422 Quarantined` (buffered) / `event: error` (stream).                                                          |
 | `Thalos:Sentinel:DisabledDetectors`            | AI.Sentinel detector type names to switch off (e.g. `PromptInjectionDetector`); unknown names fail at startup.                                                                                               |
+| `Thalos:Memory:Enabled`                        | Master switch for memory: auto-recall, `memory__*` tools, the Ralph learnings paths and the reindex sweeper.                                                                                                 |
+| `Thalos:Memory:SharedOwnerId`                  | Owner of host-written project knowledge (Ralph learnings). Recalled for every caller, written only by host code; deleting one needs the `developer` policy. Default `daedalus`.                              |
+| `Thalos:Memory:Recall:{TopK,MinScore,MaxChars}`| Auto-recall budget per turn (and for `memory__recall`): how many memories, the cosine-similarity floor and the character cap on the injected block.                                                          |
+| `Thalos:Memory:Dedupe:{Enabled,Threshold}`     | Thalos refuses a near-duplicate `remember` above the similarity threshold and reports the existing memory (`deduped`).                                                                                       |
+| `Thalos:Memory:ExposeTools`                    | Registers the `memory` tool source. Which agents actually see `memory__*` is still decided by their `Tools` glob.                                                                                            |
+| `Thalos:Memory:VectorDimensions`               | Embedding width of the Rag.NET index (`nomic-embed-text` = **768**). Must match the existing `rag_chunks` table — see [Operational notes](#operational-notes).                                              |
+| `Thalos:Memory:RalphRecall:{TopK,MinScore}`    | Daedalus-only: how the Ralph enrichment middleware and the `search_learnings` MCP tool recall shared learnings. `TopK` is clamped to 1–50 (1–20 for the MCP tool).                                           |
+| `Thalos:Memory:Reindex:*`                      | Daedalus-only: `ReindexPendingMemoriesHostedService` (API host only) — `Enabled`, `StartupDelay`, `RetryInterval` (index unavailable/failed rows), `SweepInterval` (all clear).                              |
 | `Thalos:ToolPolicies[]`                        | Glob over qualified tool names → `[Policy]` name that must pass before the tool runs (authorization at the function boundary).                                                                               |
 | `Thalos:Agents[]`                              | Agent definitions: stable `Id` (ULID or GUID — sessions reference it, never change it), `Name`, `Description`, `Instructions`, optional `Model`/`MaxOutputTokens`, `Tools` glob allow-list (empty → `*`).   |
+| `Thalos:Agents[]:Memory`                       | Per-agent overrides `{ Enabled, TopK }`; `null` members inherit `Thalos:Memory`. Tool visibility is *not* configured here — use the agent's `Tools` globs.                                                   |
 
 **Sentinel embedding generator:** the semantic detectors (prompt injection, jailbreak, exfiltration, …) need an
 `IEmbeddingGenerator`. The API passes the Ollama client (`nomic-embed-text`) when Aspire provides `ConnectionStrings:ollama`;
 without Ollama only the lexical/operational detectors run and Sentinel logs a warning per agent pipeline.
+
+### Memory
+
+Agents keep **curated memories**: short, durable records (facts, preferences, decisions, notes, learnings), not a
+transcript archive.
+
+- **How they are used.** Before each turn Thalos recalls the top-`TopK` memories above `MinScore` and injects them into
+  the prompt (budgeted by `MaxChars`); the agent can also call `memory__remember`, `memory__recall`, `memory__forget`
+  and `memory__list` itself. Recall is scoped to the caller's own memories, the memories pinned to the current agent,
+  and the shared owner's — so one user never sees another's.
+- **The shared owner is Ralph's learnings.** Everything written under `Thalos:Memory:SharedOwnerId` (`daedalus`) with
+  kind `learning` is recalled for every caller. The Ralph Loop writes there through the Application port
+  `ILearningsMemory` (adapter `ThalosLearningsMemory` in `Daedalus.Agents`), so learnings and agent memory are one store.
+- **Where it lives.** The `AgentMemories` table (`PostgresMemoryStore`, `Daedalus.Agents`) is the source of truth; the
+  Rag.NET index (`rag_chunks`, same database, `vector(768)`) is a **rebuildable cache** of embeddings. Vectors are never
+  stored on `AgentMemories`.
+- **Embeddings.** Ollama `nomic-embed-text` (768 dims), the same client AI.Sentinel uses. Without Ollama the index probes
+  as unavailable: memories are still stored, flagged `index_pending`, and are not recalled until they are indexed.
+  `ReindexPendingMemoriesHostedService` (API host, `Thalos:Memory:Reindex:*`) sweeps them in the background once the
+  index comes up. It sweeps **pending rows only**, so rebuilding the whole index means marking the rows pending first —
+  see [Operational notes](#operational-notes).
+- **Hosts.** `AddDaedalusAgents` (API) registers agents **and** memory, owns the Rag.NET schema (`EnsureSchemaOnStartup`)
+  and runs the sweeper. `AddDaedalusMemory` (the `Daedalus.Console` Ralph worker) registers memory only and creates no
+  schema, so the two hosts cannot race for `rag_chunks`. The two are **mutually exclusive**: calling both in one host
+  throws at registration time.
+- **Migration.** `AddAgentMemories` creates `AgentMemories`, copies every `StructuredLearnings` row into it (category and
+  severity become tags, `index_pending = true` so the sweeper embeds them) and drops `StructuredLearnings`. The
+  hand-rolled learnings/embedding slice — `ILearningsRepository`, `IEmbeddingService`, `Pgvector.EntityFrameworkCore`
+  and every `UseVector()` — is gone.
+- **UI.** The Agent page has a **Memories** panel: what was recalled this turn (hydrated from the `memory-recalled`
+  event's ids) plus a paged browse/forget list over `/api/agent-memories`.
 
 ### `.mcp.json` (API content root)
 
@@ -504,9 +565,13 @@ without Ollama only the lexical/operational detectors run and Sentinel logs a wa
 
 ### Authorization
 
-- Every `/api/agents/*` endpoint requires the `AgentUse` policy = any authenticated user.
+- Every `/api/agents/*` and `/api/agent-memories/*` endpoint requires the `AgentUse` policy = any authenticated user.
 - Sessions are owner-scoped: another user's session answers `404` (not `403`, so ids cannot be probed); users with the
   `admin` role can read/close any session.
+- Memories are scoped the same way the `memory__*` tools are: a caller reads their own memories, the ones pinned to the
+  agent passed as `agentId`, and the shared owner's. Foreign, archived and unknown ids answer `404`. Forgetting is
+  own-only; forgetting a **shared-owner** memory additionally needs the `developer` policy (`developer` or `admin`
+  role) and answers `403` otherwise.
 - Mutating Roslyn tools (`roslyn__apply_*`, `roslyn__rename_*`) are bound to the `developer` policy (`Daedalus.Agents`
   `DeveloperPolicy`): the caller needs the realm role **`developer` or `admin`**. Anyone else gets a `Tool call denied`
   tool result (the turn continues) plus a `ToolCallDeniedNotification`. The bundled Keycloak realm ships an `admin` role
@@ -521,28 +586,64 @@ without Ollama only the lexical/operational detectors run and Sentinel logs a wa
 | `GET`    | `/api/agents/sessions?skip=&take=`              | Caller's sessions, newest first              | `200`                                                                            |
 | `GET`    | `/api/agents/sessions/{sessionId}`              | Session header + transcript (owner or admin) | `200`, `404`                                                                     |
 | `POST`   | `/api/agents/sessions/{sessionId}/turns`        | Run one turn, buffered result                | `200`, `400`, `404`, `409` busy/closed, `422` quarantined                        |
-| `POST`   | `/api/agents/sessions/{sessionId}/turns/stream` | Run one turn as **SSE** (`text/event-stream`) | `200`; events `text-delta`, `tool-call`, `tool-result`, `usage`, `done`, `error` |
+| `POST`   | `/api/agents/sessions/{sessionId}/turns/stream` | Run one turn as **SSE** (`text/event-stream`) | `200`; events below                                                              |
 | `DELETE` | `/api/agents/sessions/{sessionId}`              | Close the session (terminal)                 | `204`, `404`, `409`                                                              |
+| `GET`    | `/api/agent-memories?agentId=&kind=&tag=&includeArchived=&page=&pageSize=` | Memories visible to the caller, newest updated first | `200`, `400`                                          |
+| `GET`    | `/api/agent-memories/{id}?agentId=`             | One visible memory (hydrates `memory-recalled` ids) | `200`, `400`, `404` (also when archived)                     |
+| `DELETE` | `/api/agent-memories/{id}?hard=`                | Forget: archive (`hard=false`) or delete     | `204`, `400`, `403` (shared owner, no `developer`), `404`                        |
 
 The SSE endpoint writes `event: <kind>` + `data: <AgentEventDto JSON>` per event, flushes each frame immediately
-(response buffering/compression disabled) and always ends with `done` or `error`. Turn endpoints sit behind the
-`llm-operations` rate limiter.
+(response buffering/compression disabled) and always ends with `done` or `error`. Kinds:
+
+| Kind                                                               | Payload                                              |
+|---------------------------------------------------------------------|--------------------------------------------------------|
+| `text-delta`, `tool-call`, `tool-result`, `usage`, `done`, `error` | The turn itself (`text`, `toolCall`, `usage`, `result`, `errorCode`/`errorMessage`/`errorDetail`). |
+| `memory-recalled`                                                  | `memory.ids`, `memory.count`, `memory.chars` — what was injected into this turn. |
+| `memory-stored`                                                    | `memory.memoryId`, `memory.kind`, `memory.deduped` (a near-duplicate was merged). |
+| `memory-recall-failed`                                             | `memory.code` — recall failed (index down); the turn continues without memories. |
+| `memory-index-pending`                                             | `memory.memoryId` — stored but not embedded yet; the sweeper will index it. |
+| `memory-quarantined`                                               | `memory.memoryId`, `memory.detail` — the untrusted-content scanner dropped a recalled memory from the injected block. |
+
+The five `memory-*` kinds put their payload in the nested `memory` object (`MemoryEventDto`); only the members relevant
+to the kind are set, and unknown kinds arrive with `kind` only, so clients can ignore what they do not know.
+
+`agentId` on the memory endpoints is the caller's **agent context**, not a filter: it widens the visible scope with that
+agent's pinned memories (the Agent page passes the session's agent id). Paging happens before visibility is applied, so a
+page can hold fewer than `pageSize` items and `Total` can over-count. Turn endpoints sit behind the `llm-operations`
+rate limiter.
 
 ### Operational notes
 
 - **Crash recovery:** `AgentSessionCrashRecovery` (hosted service) resets any session left in `Running` by a crashed host
   back to `Idle` before Kestrel accepts requests, so no session is stuck answering `409 SessionBusy`. An unreachable
   database is logged and skipped. Daedalus runs a single API instance; multi-instance deployments would need a lease.
-- **PostgreSQL image:** the `AddSemanticEmbeddings` migration (`vector(384)` learnings column) needs the `vector` extension, so every
-  Postgres instance now uses **`pgvector/pgvector:pg16`** — `docker-compose.yml`, `docker-compose.full.yml`, the Aspire
-  AppHost (`.WithImage("pgvector/pgvector").WithImageTag("pg16")`) and the Testcontainers fixtures. Existing data volumes
-  created with `postgres:16` keep working after the image switch (same major version); if PostgreSQL warns about index
-  versions after switching run `REINDEX DATABASE daedalus;` once, or drop the volume
+- **PostgreSQL image:** Rag.NET's `rag_chunks` table (the memory index) needs the `vector` extension, so every Postgres
+  instance uses **`pgvector/pgvector:pg16`** — `docker-compose.yml`, `docker-compose.full.yml`, the Aspire AppHost
+  (`.WithImage("pgvector/pgvector").WithImageTag("pg16")`) and the Testcontainers fixtures. Note that only the *image*
+  and the `CREATE EXTENSION` are ours: `Pgvector.EntityFrameworkCore` and every `UseVector()` call were removed in
+  phase 1.2 — no EF entity maps a vector column any more, Rag.NET owns `rag_chunks` on its own connection. Existing
+  data volumes created with `postgres:16` keep working after the image switch (same major version); if PostgreSQL warns
+  about index or collation versions run `REINDEX DATABASE daedalus;` once, or drop the volume
   (`docker volume rm daedalus_postgres_data`) for a clean start.
-- **Ralph unchanged:** the Ralph Loop worker, its controllers and its tests are untouched; both stacks share
-  `ApplicationDbContext`, learnings and embeddings. Ralph is retired in phase 1.6.
-- **Thalos.NET feed:** the packages come from nuget.org (`Thalos.NET*` 0.1.1 in `Directory.Packages.props`). For
-  unreleased Thalos changes use `scripts/pack-local.ps1` in the Thalos.NET repo and add its folder as a source temporarily.
+- **`rag_chunks` dimension mismatch:** the table is created once with `Thalos:Memory:VectorDimensions` columns. Switching
+  the embedding model (or that setting) makes startup fail on the mismatch. The index is a rebuildable cache, so the fix
+  is to drop it and mark every memory for re-indexing, then restart:
+  ```sql
+  DROP TABLE rag_chunks;
+  UPDATE "AgentMemories" SET "IndexPending" = true WHERE NOT "IsArchived";
+  ```
+  The `UPDATE` is **not** optional: `ReindexPendingMemoriesHostedService` sweeps with `PendingOnly = true`, so without it
+  only memories that were already pending get embedded and everything else stays invisible to recall.
+- **Ralph's learnings live in the agent memory:** the parser is unchanged, but persistence and recall now go through the
+  Application port `ILearningsMemory` (shared owner `daedalus`, kind `learning`) instead of `StructuredLearnings` and a
+  hand-rolled embedding service. Consequence of the shared owner: enrichment no longer filters by project or excludes the
+  current task — recall ranks purely by similarity to the task prompt, so learnings are cross-project and a task can
+  recall one it produced itself. `HitCount` became Thalos' `RecallCount`/`LastRecalledAt`. Ralph is retired in phase 1.6.
+- **Startup order:** the AppHost uses `WaitForCompletion(migrations)` for `api` and `console` — `WaitFor` releases as soon
+  as a one-shot job *starts*, which let hosts boot against an un-migrated database.
+- **Thalos.NET feed:** the packages come from nuget.org (`Thalos.NET*` 0.2.0 in `Directory.Packages.props`, eight
+  packages incl. `Thalos.NET.Memory` and `Thalos.NET.Memory.RagNet`). For unreleased Thalos changes use
+  `scripts/pack-local.ps1` in the Thalos.NET repo and add its folder as a source temporarily.
 
 ---
 
@@ -750,7 +851,8 @@ builder.Services.AddOidcAuthentication(options =>
 | Bogus                        | 35.6.5  | Test data generation                                   |
 | Respawn                      | 7.0.0   | Database cleanup between integration tests             |
 | Testcontainers.PostgreSql    | 4.14.0  | PostgreSQL Docker containers for integration tests (image `pgvector/pgvector:pg16`) |
-| Thalos.NET.Testing           | 0.1.0   | `ScriptedChatClient`, in-memory store for agent tests  |
+| Thalos.NET.Testing           | 0.2.0   | `ScriptedChatClient`, in-memory stores, `MemoryStoreContractTests` |
+| TngTech.ArchUnitNET.xUnit    | 0.13.2  | Layer/boundary rules (`CleanArchitectureTests`)        |
 
 ### Commands
 
@@ -799,8 +901,12 @@ dotnet test tests/Daedalus.Tests.Playwright.Browser
 
 ### Notes for the Thalos agent tests
 
-- Integration tests that touch `ApplicationDbContext` build their options with `PostgresFixture.CreateDbContextOptions()`
-  (adds the pgvector plugin via `UseVector()`); the fixture container is `pgvector/pgvector:pg16`.
+- Integration tests that touch `ApplicationDbContext` build their options with `PostgresFixture.CreateDbContextOptions()`.
+  The fixture container is `pgvector/pgvector:pg16` and installs the `vector` extension for Rag.NET's `rag_chunks`; no EF
+  registration configures a vector plugin any more (`Pgvector.EntityFrameworkCore` is gone).
+- `PostgresMemoryStore` is verified against Thalos' own `MemoryStoreContractTests` (21 facts) on a real Postgres, plus
+  Daedalus facts for keyset streaming and the AND tag filter. The `AddAgentMemories` migration has its own tests
+  (`StructuredLearnings` → `AgentMemories` copy, and that the whole `Down` chain still runs).
 - The Browser suite hosts the WASM app in-process (`E2EServerFixture`, `TestMode` appsettings override) with the real API
   composition root and a scripted `IAgentRuntime` stub — no model, no MCP servers. `AgentPageBrowserTests` writes its
   screenshot to `TestResults/…/regression-screenshots/` by default; set `DAEDALUS_REGRESSION_SCREENSHOTS=1` to write into
