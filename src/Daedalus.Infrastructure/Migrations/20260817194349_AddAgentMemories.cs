@@ -68,7 +68,17 @@ namespace Daedalus.Infrastructure.Migrations
                 columns: new[] { "OwnerId", "Kind" });
 
             // Copy the Ralph learnings into the memory table (owner "daedalus", kind "learning"); vectors are rebuilt by
-            // ReindexPendingMemoriesHostedService (IndexPending = true). Mirrors LearningMemoryMapping (text, tags, importance, source).
+            // ReindexPendingMemoriesHostedService (IndexPending = true).
+            //
+            // Mirrors LearningMemoryMapping (text, tags, importance, source), which is what the running Ralph write path
+            // produces — change both together. Specifically the free tags are trimmed, lower-cased, truncated to
+            // AgentMemory.MaxTagLength, blanks dropped, de-duplicated keeping the first occurrence and then capped at
+            // MaxFreeTags, which is what AgentMemory.NormaliseTags would do on the next edit of such a memory; a free tag
+            // that equals the category or severity tag survives here exactly as it does in the C# (which de-duplicates the
+            // free tags only among themselves). Two unit mismatches remain and are harmless: Postgres left()/length count
+            // characters (code points) while AgentMemory counts UTF-16 units, so text or a tag containing non-BMP
+            // characters can come out longer than the aggregate's limit — but never split mid-surrogate, because left() is
+            // code-point-based, so nothing unencodable reaches the column.
             migrationBuilder.Sql("""
                 INSERT INTO "AgentMemories"
                     ("Id","OwnerId","AgentId","Kind","Text","Tags","Source","Importance","CreatedAt","UpdatedAt","LastRecalledAt","RecallCount","IsArchived","IndexPending")
@@ -81,7 +91,20 @@ namespace Daedalus.Infrastructure.Migrations
                     ARRAY[
                         CASE s."Category" WHEN 0 THEN 'errorpattern' WHEN 1 THEN 'successpattern' WHEN 2 THEN 'codeconvention' WHEN 3 THEN 'dependencyinfo' WHEN 4 THEN 'architecturedecision' ELSE 'general' END,
                         CASE s."Severity" WHEN 0 THEN 'low' WHEN 1 THEN 'medium' WHEN 2 THEN 'high' WHEN 3 THEN 'critical' ELSE 'medium' END
-                    ] || COALESCE((SELECT array_agg(lower(u.t) ORDER BY u.ord) FROM unnest(s."Tags") WITH ORDINALITY AS u(t, ord) WHERE u.ord <= 8), '{}'::text[]),
+                    ] || COALESCE((
+                        SELECT array_agg(d.tag ORDER BY d.ord)
+                        FROM (
+                            SELECT n.tag, min(n.ord) AS ord
+                            FROM (
+                                SELECT left(lower(btrim(u.t)), 32) AS tag, u.ord
+                                FROM unnest(s."Tags") WITH ORDINALITY AS u(t, ord)
+                            ) n
+                            WHERE n.tag IS NOT NULL AND n.tag <> ''
+                            GROUP BY n.tag
+                            ORDER BY min(n.ord)
+                            LIMIT 8
+                        ) d
+                    ), '{}'::text[]),
                     CASE WHEN s."SourceTaskId" IS NULL THEN 'migration' ELSE 'ralph:task/' || s."SourceTaskId"::text END,
                     CASE s."Severity" WHEN 3 THEN 1.0 WHEN 2 THEN 0.8 WHEN 1 THEN 0.5 ELSE 0.3 END,
                     s."CreatedAt",
@@ -101,10 +124,10 @@ namespace Daedalus.Infrastructure.Migrations
         }
 
         /// <summary>
-        ///     Recreates the empty <c>StructuredLearnings</c> table (without the <c>vector(384)</c> Embedding column, whose
-        ///     mapping left the model with Pgvector.EntityFrameworkCore) and drops <c>AgentMemories</c>. The learnings rows
-        ///     themselves are <b>not</b> restored — the copy above is one-way. The <c>vector</c> extension stays: Rag.NET's
-        ///     <c>rag_chunks</c> needs it.
+        ///     Recreates an empty <c>StructuredLearnings</c> and drops <c>AgentMemories</c>. <b>Destructive both ways:</b> the
+        ///     copy above is one-way, so the learnings rows do not come back, and dropping <c>AgentMemories</c> destroys every
+        ///     memory in the database — the migrated learnings and everything agents, the Ralph worker and users have written
+        ///     since the upgrade. The <c>vector</c> extension stays: Rag.NET's <c>rag_chunks</c> needs it.
         /// </summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
@@ -131,6 +154,12 @@ namespace Daedalus.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_StructuredLearnings", x => x.Id);
                 });
+
+            // The model lost the vector(384) mapping with Pgvector.EntityFrameworkCore, so the table above is scaffolded
+            // without the Embedding column — but the predecessor's Down (AddSemanticEmbeddings) drops that column and would
+            // fail, leaving the rollback half-done after this one has already destroyed every memory. Add it back by hand so
+            // the whole Down chain stays runnable; the vector extension is still installed because Rag.NET needs it.
+            migrationBuilder.Sql("""ALTER TABLE "StructuredLearnings" ADD COLUMN IF NOT EXISTS "Embedding" vector(384);""");
 
             migrationBuilder.CreateIndex(
                 name: "IX_StructuredLearning_Category",

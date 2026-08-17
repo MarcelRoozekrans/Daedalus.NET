@@ -90,12 +90,6 @@ public static class DaedalusAgentsServiceCollectionExtensions
             services.TryAddSingleton(embeddingGenerator);
         }
 
-        // Only this host sweeps: memories written index_pending (Ollama down, console host, migrated learnings) get embedded here.
-        if (options.Memory.Enabled && options.Memory.Reindex.Enabled)
-        {
-            services.AddHostedService<ReindexPendingMemoriesHostedService>();
-        }
-
         services.AddThalos(thalos =>
         {
             // This host owns the Rag.NET schema: the API is the only host that creates rag_chunks (see AddDaedalusMemory).
@@ -122,6 +116,14 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 thalos.UseAISentinel(o => ConfigureSentinel(o, options.Sentinel, embeddingGenerator));
             }
         });
+
+        // Only this host sweeps: memories written index_pending (Ollama down, console host, migrated learnings) get embedded
+        // here. Registered after AddThalos so hosted-service start order matches the dependency order — the Rag.NET schema
+        // initializer runs first, and the sweeper's StartupDelay covers the rest.
+        if (options.Memory.Enabled && options.Memory.Reindex.Enabled)
+        {
+            services.AddHostedService<ReindexPendingMemoriesHostedService>();
+        }
 
         return services;
     }
