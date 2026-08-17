@@ -2,10 +2,12 @@
 @inject ApiClient Api
 @implements IAsyncDisposable
 
-<RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2" class="rz-mb-4">
-    <RadzenIcon Icon="play_circle"/>
-    Execution Sessions
-</RadzenText>
+<RadzenStack Gap="0.25rem" class="rz-mb-4">
+    <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Sessions</RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+        Track active and completed execution sessions
+    </RadzenText>
+</RadzenStack>
 
 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" class="rz-mb-4">
     <RadzenButton Text="All Sessions" ButtonStyle="@(_showActive ? ButtonStyle.Light : ButtonStyle.Primary)"

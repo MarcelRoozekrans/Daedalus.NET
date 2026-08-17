@@ -53,6 +53,24 @@ public sealed class RalphIterationContext
     public TimeSpan InvocationDuration { get; set; }
 
     /// <summary>
+    ///     Number of input tokens consumed by this iteration's LLM invocation.
+    ///     Populated by LlmInvocationMiddleware.
+    /// </summary>
+    public int InputTokens { get; set; }
+
+    /// <summary>
+    ///     Number of output tokens produced by this iteration's LLM invocation.
+    ///     Populated by LlmInvocationMiddleware.
+    /// </summary>
+    public int OutputTokens { get; set; }
+
+    /// <summary>
+    ///     The model ID used for this iteration's LLM invocation.
+    ///     Populated by LlmInvocationMiddleware.
+    /// </summary>
+    public string? ModelId { get; set; }
+
+    /// <summary>
     ///     Whether the LLM invocation succeeded.
     ///     Populated by LlmInvocationMiddleware.
     /// </summary>

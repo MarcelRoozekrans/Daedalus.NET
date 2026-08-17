@@ -1,0 +1,19 @@
+{
+  // MCP tool sources for the Thalos agents (Thalos:McpConfigPath). Same shape as Claude Code's .mcp.json.
+  // Tools appear as "<server>__<tool>" (roslyn__find_callers). A server that fails to start only fails the agent
+  // build for that turn (ProviderError) and is retried on the next one; CI/E2E hosts do not need roslyn.
+  "mcpServers": {
+    "roslyn": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": ["RoslynCodeLens.Mcp", "--yes", "--", "C:/Projects/Prive/daedalus/Daedalus.sln"],
+      "env": { "ROSLYN_CODELENS_OPEN_PROJECT_TIMEOUT_SECONDS": "600" },
+      "shutdownTimeout": "00:00:02"
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "shutdownTimeout": "00:00:02"
+    }
+  }
+}

@@ -183,7 +183,8 @@ public abstract class ApiTestBase
     /// </summary>
     protected static readonly JsonSerializerOptions ApiJsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
     /// <summary>

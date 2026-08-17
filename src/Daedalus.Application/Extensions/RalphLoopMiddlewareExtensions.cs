@@ -26,6 +26,7 @@ public static class RalphLoopMiddlewareExtensions
         services.AddScoped<IRalphLoopMiddleware, LearningsEnrichmentMiddleware>();
         services.AddScoped<IRalphLoopMiddleware, PromptBuildingMiddleware>();
         services.AddScoped<IRalphLoopMiddleware, LlmInvocationMiddleware>();
+        services.AddScoped<IRalphLoopMiddleware, CodeChangeApplicationMiddleware>();
         services.AddScoped<IRalphLoopMiddleware, CompletionDetectionMiddleware>();
         services.AddScoped<IRalphLoopMiddleware, InlineLearningsExtractionMiddleware>();
         services.AddScoped<IRalphLoopMiddleware, LoopbackEvaluationMiddleware>();

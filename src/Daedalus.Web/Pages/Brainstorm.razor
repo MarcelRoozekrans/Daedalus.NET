@@ -1,0 +1,233 @@
+@page "/brainstorm/{SessionId:guid}"
+@using Daedalus.Application.DTOs
+@using BrainstormPhase = Daedalus.Domain.Entities.BrainstormPhase
+@inject ApiClient Api
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+@implements IAsyncDisposable
+
+<RadzenStack Gap="0" Style="height: calc(100vh - 80px); display: flex; flex-direction: column;">
+
+    @* Phase indicator bar *@
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                 Gap="0.25rem" class="rz-p-2 rz-border-bottom" Style="flex-shrink: 0;">
+        @foreach (var phase in _phases)
+        {
+            var isCurrent = _session?.Phase == phase.Value;
+            var isCompleted = _session is not null && (int)_session.Phase > (int)phase.Value;
+            var style = GetPhaseStyle(isCurrent, isCompleted);
+            var badgeStyle = GetPhaseBadgeStyle(isCurrent, isCompleted);
+            <RadzenBadge Text="@phase.Label" IsPill="true"
+                         BadgeStyle="@badgeStyle"
+                         Style="@style"/>
+        }
+    </RadzenStack>
+
+    @* Message history *@
+    <RadzenStack Gap="0.5rem" class="rz-p-4" Style="flex: 1; overflow-y: auto;">
+        @if (_session is not null)
+        {
+            @foreach (var message in _session.Messages)
+            {
+                var isUser = message.Role == "User";
+                <RadzenCard Style="@(isUser
+                    ? "margin-left: 20%; background: var(--rz-primary-lighter);"
+                    : "margin-right: 20%;")">
+                    <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin-bottom: 0.25rem;">
+                        @(isUser ? "You" : "Assistant")
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="white-space: pre-wrap;">
+                        @message.Content
+                    </RadzenText>
+                </RadzenCard>
+            }
+        }
+
+        @if (_loading)
+        {
+            <RadzenCard Style="margin-right: 20%; opacity: 0.6;">
+                <RadzenText TextStyle="TextStyle.Body2">Thinking...</RadzenText>
+            </RadzenCard>
+        }
+    </RadzenStack>
+
+    @* Advance button *@
+    @if (_session?.PhaseCompleteSignaled == true)
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center"
+                     class="rz-p-2 rz-border-top" Style="flex-shrink: 0;">
+            <RadzenButton Text="@($"Advance to {GetNextPhaseName()}")" Icon="arrow_forward"
+                          ButtonStyle="ButtonStyle.Success" Click="@AdvancePhase"
+                          IsBusy="@_advancing" data-testid="btn-advance-phase"/>
+        </RadzenStack>
+    }
+
+    @* Input area *@
+    @if (_session?.Phase is not BrainstormPhase.Completed and not BrainstormPhase.Abandoned
+         and not BrainstormPhase.TaskCreation)
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                     class="rz-p-2 rz-border-top" Style="flex-shrink: 0;">
+            <RadzenTextArea @bind-Value="@_userInput" Rows="2" Placeholder="Type your message..."
+                            Style="flex: 1;" @onkeydown="@HandleKeyDown"
+                            data-testid="brainstorm-input"/>
+            <RadzenButton Text="Send" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                          Click="@SendMessage" IsBusy="@_loading"
+                          Disabled="@string.IsNullOrWhiteSpace(_userInput)"
+                          data-testid="btn-send-message"/>
+        </RadzenStack>
+    }
+
+    @* Task creation phase *@
+    @if (_session?.Phase == BrainstormPhase.TaskCreation)
+    {
+        <RadzenStack class="rz-p-4" Style="flex-shrink: 0;">
+            <RadzenButton Text="Generate Tasks from Plan" Icon="playlist_add"
+                          ButtonStyle="ButtonStyle.Primary" Click="@GenerateTasks"
+                          IsBusy="@_generatingTasks" data-testid="btn-generate-tasks"/>
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    [Parameter] public Guid SessionId { get; set; }
+
+    private BrainstormSessionDto? _session;
+    private string _userInput = "";
+    private bool _loading;
+    private bool _advancing;
+    private bool _generatingTasks;
+    private CancellationTokenSource? _cts;
+
+    private static readonly (string Label, BrainstormPhase Value)[] _phases =
+    [
+        ("Context", BrainstormPhase.ContextGathering),
+        ("Clarify", BrainstormPhase.Clarification),
+        ("Propose", BrainstormPhase.Proposals),
+        ("Design", BrainstormPhase.DesignReview),
+        ("Plan", BrainstormPhase.PlanGeneration),
+        ("Tasks", BrainstormPhase.TaskCreation)
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        await LoadSession();
+    }
+
+    private async Task LoadSession()
+    {
+        var result = await Api.GetBrainstormSessionAsync(SessionId, _cts?.Token ?? CancellationToken.None);
+        result.Match(
+            session => _session = session,
+            error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_userInput)) return;
+
+        var message = _userInput;
+        _userInput = "";
+        _loading = true;
+
+        try
+        {
+            var result = await Api.SendBrainstormMessageAsync(
+                SessionId, new SendBrainstormMessageDto(message), _cts?.Token ?? CancellationToken.None);
+
+            result.Match(
+                _ => { },
+                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+
+            await LoadSession();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task AdvancePhase()
+    {
+        _advancing = true;
+        try
+        {
+            var result = await Api.AdvanceBrainstormPhaseAsync(
+                SessionId, _cts?.Token ?? CancellationToken.None);
+
+            result.Match(
+                session => _session = session,
+                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+        }
+        finally
+        {
+            _advancing = false;
+        }
+    }
+
+    private async Task GenerateTasks()
+    {
+        _generatingTasks = true;
+        try
+        {
+            var result = await Api.GenerateBrainstormTasksAsync(
+                SessionId, _cts?.Token ?? CancellationToken.None);
+
+            result.Match(
+                tasks =>
+                {
+                    NotificationService.Notify(NotificationSeverity.Success,
+                        "Tasks Created", $"{tasks.Count} tasks generated");
+                    Navigation.NavigateTo("/tasks");
+                },
+                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+        }
+        finally
+        {
+            _generatingTasks = false;
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e is { Key: "Enter", ShiftKey: false })
+        {
+            await SendMessage();
+        }
+    }
+
+    private static string GetPhaseStyle(bool isCurrent, bool isCompleted)
+    {
+        if (isCurrent) return "font-weight: bold; color: var(--rz-primary);";
+        if (isCompleted) return "color: var(--rz-success);";
+        return "opacity: 0.4;";
+    }
+
+    private static BadgeStyle GetPhaseBadgeStyle(bool isCurrent, bool isCompleted)
+    {
+        if (isCurrent) return BadgeStyle.Primary;
+        if (isCompleted) return BadgeStyle.Success;
+        return BadgeStyle.Light;
+    }
+
+    private string GetNextPhaseName() => _session?.Phase switch
+    {
+        BrainstormPhase.ContextGathering => "Clarification",
+        BrainstormPhase.Clarification => "Proposals",
+        BrainstormPhase.Proposals => "Design Review",
+        BrainstormPhase.DesignReview => "Plan Generation",
+        BrainstormPhase.PlanGeneration => "Task Creation",
+        BrainstormPhase.TaskCreation => "Complete",
+        _ => "Next Phase"
+    };
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+    }
+}

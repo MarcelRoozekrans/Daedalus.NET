@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Application.DTOs;
+namespace Daedalus.Application.DTOs;
 
 /// <summary>DTO for TaskExecution entity.</summary>
 public record TaskExecutionDto(
@@ -11,4 +11,7 @@ public record TaskExecutionDto(
     bool CompletionPromiseFound,
     DateTime ExecutedAt,
     TimeSpan ExecutionDuration,
-    string? Error);
+    string? Error,
+    int InputTokens,
+    int OutputTokens,
+    string? ModelId);

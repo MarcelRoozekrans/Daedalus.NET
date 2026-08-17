@@ -16,43 +16,34 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="coverlet.collector" Version="10.0.1">
+        <PackageReference Include="coverlet.collector">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="AwesomeAssertions" Version="9.5.0"/>
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11"/>
-        <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.11"/>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0"/>
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3"/>
-        <PackageReference Include="NSubstitute" Version="6.2.0"/>
-        <PackageReference Include="Respawn" Version="7.0.0"/>
-        <PackageReference Include="Testcontainers.PostgreSql" Version="4.14.0"/>
-        <PackageReference Include="xunit" Version="2.9.3"/>
-        <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+        <PackageReference Include="AwesomeAssertions"/>
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory"/>
+        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL"/>
+        <PackageReference Include="NSubstitute"/>
+        <PackageReference Include="Respawn"/>
+        <PackageReference Include="Testcontainers.Keycloak"/>
+        <PackageReference Include="Testcontainers.PostgreSql"/>
+        <PackageReference Include="xunit"/>
+        <PackageReference Include="xunit.runner.visualstudio">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="CSharpFunctionalExtensions" Version="3.7.0"/>
-        <PackageReference Include="Bogus" Version="35.6.5"/>
-        <PackageReference Include="Spectre.Console.Testing" Version="0.57.2"/>
-        <PackageReference Include="Aspire.Hosting" Version="13.4.6"/>
-        <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.4.6"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.32.0.713">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Update="Meziantou.Analyzer" Version="3.0.159">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.400">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
+        <PackageReference Include="CSharpFunctionalExtensions"/>
+        <PackageReference Include="Bogus"/>
+        <PackageReference Include="Spectre.Console.Testing"/>
+        <PackageReference Include="Aspire.Hosting"/>
+        <PackageReference Include="Aspire.Hosting.PostgreSQL"/>
+        <PackageReference Include="Thalos.NET.Testing"/>
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\..\src\Daedalus.Agents\Daedalus.Agents.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>

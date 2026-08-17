@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Application.Abstractions;
+namespace Daedalus.Application.Abstractions;
 
 /// <summary>
 ///     Result of a single command execution for loop-back feedback.

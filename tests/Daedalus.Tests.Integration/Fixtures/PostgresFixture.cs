@@ -56,13 +56,30 @@ public sealed class PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
+    ///     Builds <see cref="DbContextOptions{TContext}"/> for <paramref name="connectionString"/> with the pgvector plugin
+    ///     enabled. Every test context must use this (or the instance overloads) — the model maps
+    ///     <c>StructuredLearningEntry.Embedding</c> to <c>vector(384)</c>, which Npgsql cannot map without <c>UseVector()</c>.
+    /// </summary>
+    public static DbContextOptions<ApplicationDbContext> CreateDbContextOptions(string connectionString) =>
+        new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector())
+            .Options;
+
+    /// <summary>Builds pgvector-aware <see cref="DbContextOptions{TContext}"/> for the fixture database.</summary>
+    public DbContextOptions<ApplicationDbContext> CreateDbContextOptions() => CreateDbContextOptions(ConnectionString);
+
+    /// <summary>Creates a new <see cref="ApplicationDbContext"/> over the fixture database (caller disposes).</summary>
+    public ApplicationDbContext CreateDbContext() => new(CreateDbContextOptions());
+
+    /// <summary>
     ///     Starts the PostgreSQL container with retry logic.
     /// </summary>
     public async Task InitializeAsync()
     {
 #pragma warning disable CS0618 // Using PostgreSqlBuilder with image parameter - obsolete warning for parameterless constructor
+        // pgvector image: the model maps StructuredLearningEntry.Embedding to vector(384), which needs the extension
         _container = new PostgreSqlBuilder()
-            .WithImage("postgres:16-alpine")
+            .WithImage("pgvector/pgvector:pg16")
             .WithDatabase("daedalus_test")
             .WithUsername("test")
             .WithPassword("test")
@@ -133,11 +150,13 @@ public sealed class PostgresFixture : IAsyncLifetime
         try
         {
             var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(ConnectionString)
+                .UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector())
                 .LogTo(System.Console.WriteLine, LogLevel.Information)
                 .Options;
 
             using var dbContext = new ApplicationDbContext(options);
+            // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+            await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;");
             // For tests, create schema directly from model (EnsureCreatedAsync)
             // In production, use MigrateAsync() with actual migration files
             await dbContext.Database.EnsureCreatedAsync();

@@ -6,10 +6,12 @@
 
 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
              JustifyContent="JustifyContent.SpaceBetween" class="rz-mb-4">
-    <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2">
-        <RadzenIcon Icon="task_alt"/>
-        Tasks
-    </RadzenText>
+    <RadzenStack Gap="0.25rem">
+        <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Tasks</RadzenText>
+        <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+            Manage and monitor Ralph Loop task executions
+        </RadzenText>
+    </RadzenStack>
     <RadzenButton Text="Create Task" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialog"
                   data-testid="btn-create-task"/>
 </RadzenStack>

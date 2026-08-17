@@ -3,7 +3,7 @@ namespace Daedalus.Tests.Playwright.Browser.PageObjects;
 public sealed class SessionsPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
 {
     public ILocator PageTitle =>
-        _page.GetByRole(AriaRole.Heading, new PageGetByRoleOptions { Name = "Execution Sessions" });
+        _page.GetByRole(AriaRole.Heading, new PageGetByRoleOptions { Name = "Sessions", Exact = true });
 
     public ILocator AllSessionsButton => _page.Locator("[data-testid='btn-all-sessions']");
     public ILocator ActiveOnlyButton => _page.Locator("[data-testid='btn-active-sessions']");

@@ -4,10 +4,8 @@ using Daedalus.Application.Extensions;
 using Daedalus.Application.Services;
 using Daedalus.Console;
 using Daedalus.Infrastructure.Extensions;
-using Daedalus.Infrastructure.Llm;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.ServiceDefaults;
-using GitHub.Copilot.SDK;
 
 try
 {
@@ -40,48 +38,20 @@ try
             // Add application layer services (command/query handlers, prompt builders)
             services.AddApplicationServices(context.Configuration);
 
-            // Add external service integrations (MCP agents, Context7 documentation)
+            // Add external service integrations (MCP agents, git, workspace)
             services.AddExternalServices(context.Configuration);
 
-            // Add LLM services (Claude, factory)
-            services.AddLlmServices(context.Configuration);
+            // Add code analysis services (git change applier, git repository manager, etc.)
+            services.AddCodeAnalysisServices(context.Configuration);
+
+            // Add Agent Framework services (Claude via IRalphAgentFactory, MCP tools)
+            services.AddAgentFrameworkServices(context.Configuration);
 
             // Register Ralph loop middleware pipeline
             services.AddRalphLoopMiddleware(context.Configuration);
 
             // Services
             services.AddScoped<ITaskAssignmentService, TaskAssignmentService>();
-
-            // LLM Service - GitHub Copilot SDK (primary provider, also registered as ILlmService)
-            services.AddScoped<CopilotLlmService>(sp =>
-                new CopilotLlmService(
-                    sp.GetRequiredService<CopilotClient>(),
-                    context.Configuration["Copilot:Model"] ?? "gpt-4",
-                    sp.GetRequiredService<ILogger<CopilotLlmService>>()));
-            services.AddScoped<ILlmService>(sp => sp.GetRequiredService<CopilotLlmService>());
-
-            // Register CopilotClient as a hosted service to manage lifecycle
-            services.AddSingleton(sp =>
-            {
-                var config = sp.GetRequiredService<IConfiguration>();
-                var logger = sp.GetRequiredService<ILogger<CopilotClient>>();
-
-                var cliPath = config["Copilot:CliPath"];
-                var logLevel = config["Copilot:LogLevel"] ?? "warning";
-
-                var options = new CopilotClientOptions { AutoStart = true, AutoRestart = true, LogLevel = logLevel };
-
-                if (!string.IsNullOrEmpty(cliPath))
-                {
-                    options.CliPath = cliPath;
-                }
-
-                logger.LogInformation("Initializing Copilot client with model from configuration");
-                return new CopilotClient(options);
-            });
-
-            // Register CopilotClient lifecycle manager
-            services.AddHostedService<CopilotClientLifecycleService>();
 
             // Worker
             services.AddHostedService<RalphLoopWorker>();

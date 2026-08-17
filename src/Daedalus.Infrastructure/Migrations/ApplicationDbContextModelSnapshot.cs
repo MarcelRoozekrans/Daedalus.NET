@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -48,8 +49,22 @@ namespace Daedalus.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("InputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<int>("IterationNumber")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ModelId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("OutputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("PromptSent")
                         .IsRequired()
@@ -167,6 +182,172 @@ namespace Daedalus.Infrastructure.Migrations
                     b.ToTable("CodeAnalysisRequests");
                 });
 
+            modelBuilder.Entity("Daedalus.Domain.Entities.AgentMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ModelId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId", "Sequence")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AgentMessage_Session_Sequence");
+
+                    b.ToTable("AgentMessages", (string)null);
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.AgentSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("TotalInputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TotalOutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("TurnCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId")
+                        .HasDatabaseName("IX_AgentSession_AgentId");
+
+                    b.HasIndex("OwnerId", "CreatedAt")
+                        .HasDatabaseName("IX_AgentSession_Owner_CreatedAt");
+
+                    b.ToTable("AgentSessions", (string)null);
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.BrainstormMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BrainstormSessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Phase")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BrainstormSessionId")
+                        .HasDatabaseName("IX_BrainstormMessage_SessionId");
+
+                    b.ToTable("BrainstormMessages", (string)null);
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.BrainstormSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DesignDocument")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ImplementationPlan")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Phase")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("PhaseCompleteSignaled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Phase")
+                        .HasDatabaseName("IX_BrainstormSession_Phase");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("IX_BrainstormSession_ProjectId");
+
+                    b.ToTable("BrainstormSessions", (string)null);
+                });
+
             modelBuilder.Entity("Daedalus.Domain.Entities.ExecutionSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -215,6 +396,13 @@ namespace Daedalus.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DefaultBranch")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasDefaultValue("main");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(2000)
@@ -227,6 +415,13 @@ namespace Daedalus.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<string>("RepositoryUrl")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasDefaultValue("");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
@@ -326,6 +521,9 @@ namespace Daedalus.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector(384)");
 
                     b.Property<int>("HitCount")
                         .HasColumnType("integer");
@@ -509,6 +707,11 @@ namespace Daedalus.Infrastructure.Migrations
                     b.Property<TimeSpan>("ExecutionDuration")
                         .HasColumnType("interval");
 
+                    b.Property<int>("InputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<int>("IterationNumber")
                         .HasColumnType("integer");
 
@@ -516,6 +719,15 @@ namespace Daedalus.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(50000)
                         .HasColumnType("character varying(50000)");
+
+                    b.Property<string>("ModelId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("OutputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("Prompt")
                         .IsRequired()
@@ -653,6 +865,24 @@ namespace Daedalus.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Daedalus.Domain.Entities.AgentMessage", b =>
+                {
+                    b.HasOne("Daedalus.Domain.Entities.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.BrainstormMessage", b =>
+                {
+                    b.HasOne("Daedalus.Domain.Entities.BrainstormSession", null)
+                        .WithMany("Messages")
+                        .HasForeignKey("BrainstormSessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Daedalus.Domain.Entities.Task", b =>
                 {
                     b.HasOne("Daedalus.Domain.Entities.Project", null)
@@ -674,6 +904,11 @@ namespace Daedalus.Infrastructure.Migrations
             modelBuilder.Entity("Daedalus.Domain.CodeAnalysis.CodeAnalysisRequest", b =>
                 {
                     b.Navigation("Iterations");
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.BrainstormSession", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("Daedalus.Domain.Entities.Project", b =>

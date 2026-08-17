@@ -109,7 +109,9 @@ public sealed partial class ProjectsController(
         var command = new CreateProjectCommand(
             request.ProjectName,
             request.Description ?? string.Empty,
-            request.Version ?? "1.0");
+            request.Version ?? "1.0",
+            request.RepositoryUrl,
+            request.DefaultBranch);
 
         var handler = commandFactory.GetHandler<CreateProjectCommand, Result<ProjectDto>>(command);
         var result = await handler.Handle(command, ct);

@@ -1,118 +1,29 @@
-/* CSS Custom Properties for theming */
-:root {
-    /* Colors */
-    --primary-color: #667eea;
-    --primary-color-dark: #764ba2;
-    --secondary-color: #764ba2;
-    --background-color: #f5f5f5;
-    --surface-color: #ffffff;
-    --sidebar-background: #2c3e50;
-    --sidebar-border: 3px solid var(--primary-color);
-    --text-primary: #333333;
-    --text-secondary: #666666;
-    --text-light: #cccccc;
-    --border-color: #dddddd;
-    --error-color: #dc3545;
-    --success-color: #28a745;
-    --warning-color: #ffc107;
-    --info-color: #17a2b8;
+/* =============================================================================
+   Daedalus App Styles
+   Minimal app-specific rules. Theme variables live in css/daedalus-theme.css.
+   ============================================================================= */
 
-    /* Spacing */
-    --spacing-unit: 1rem;
-    --spacing-xs: 0.25rem;
-    --spacing-sm: 0.5rem;
-    --spacing-md: 1rem;
-    --spacing-lg: 1.5rem;
-    --spacing-xl: 2rem;
-
-    /* Border Radius */
-    --border-radius-sm: 4px;
-    --border-radius-md: 8px;
-    --border-radius-lg: 12px;
-
-    /* Shadows */
-    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
-    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
-    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.15);
-
-    /* Transitions */
-    --transition-fast: 0.2s ease-in-out;
-    --transition-normal: 0.3s ease-in-out;
-}
-
-html,
-body {
-    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+html, body {
     margin: 0;
     padding: 0;
-    background-color: var(--background-color);
-    color: var(--text-primary);
 }
 
-* {
+*, *::before, *::after {
     box-sizing: border-box;
 }
 
-a,
-.btn-link {
-    color: var(--primary-color);
-}
-
-a:hover,
-.btn-link:hover {
-    color: var(--primary-color-dark);
-    text-decoration: underline;
-}
-
-.btn:focus,
-.btn-link:focus,
-.form-control:focus {
-    outline: 1px solid var(--primary-color);
-    outline-offset: 2px;
-}
-
-.content {
-    padding-top: 1.1rem;
-}
-
-.valid.modified:not([type="checkbox"]) {
-    outline: 1px solid var(--success-color);
-}
-
-.invalid {
-    outline: 1px solid var(--error-color);
-}
-
-.validation-message {
-    color: var(--error-color);
-}
-
-.alert {
-    padding: var(--spacing-md);
-    margin: var(--spacing-md) 0;
-    border-radius: var(--border-radius-md);
-}
-
-.alert-danger {
-    background-color: #f8d7da;
-    border: 1px solid #f5c6cb;
-    color: #721c24;
-}
-
-code {
-    color: #d63384;
-}
-
+/* ── Blazor error UI ─────────────────────────────────────────────────── */
 #blazor-error-ui {
-    background: var(--warning-color);
+    background: #ffc107;
     bottom: 0;
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
     display: none;
     left: 0;
-    padding: var(--spacing-md);
+    padding: 0.75rem 1rem;
     position: fixed;
     right: 0;
     z-index: 1000;
+    font-size: 0.875rem;
 }
 
 #blazor-error-ui .dismiss {
@@ -123,47 +34,15 @@ code {
 }
 
 .blazor-error-boundary {
-    background-color: rgba(220, 53, 69, 0.1);
-    color: rgba(220, 53, 69, 0.8);
-    text-shadow: 0 0 2px rgba(220, 53, 69, 0.5);
-    padding: var(--spacing-md);
-    margin: var(--spacing-md) 0;
-    border: 2px solid var(--error-color);
-    border-radius: var(--border-radius-md);
+    background-color: rgba(239, 68, 68, 0.08);
+    color: rgba(239, 68, 68, 0.85);
+    padding: 1rem;
+    margin: 1rem 0;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 8px;
 }
 
-body.dark {
-    color-scheme: dark;
-}
-
-.spinner-border {
-    color: #0d6efd;
-}
-
-.page-transition {
-    animation: fadeIn 0.3s ease-in;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-/* Loading states */
-.loading {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: var(--spacing-xl);
-    color: var(--text-secondary);
-    font-style: italic;
-}
-
-/* Utility classes */
+/* ── Accessibility ───────────────────────────────────────────────────── */
 .sr-only {
     position: absolute;
     width: 1px;
@@ -176,9 +55,17 @@ body.dark {
     border-width: 0;
 }
 
-/* Responsive utilities */
-@media (max-width: 768px) {
-    :root {
-        --spacing-unit: 0.875rem;
-    }
+/* ── Form validation (Blazor EditForm) ───────────────────────────────── */
+.valid.modified:not([type="checkbox"]) {
+    outline: 1px solid var(--rz-success, #10b981);
+}
+
+.invalid {
+    outline: 1px solid var(--rz-danger, #ef4444);
+}
+
+.validation-message {
+    color: var(--rz-danger, #ef4444);
+    font-size: 0.8125rem;
+    margin-top: 0.25rem;
 }

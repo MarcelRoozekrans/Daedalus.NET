@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Application.Abstractions;
+namespace Daedalus.Application.Abstractions;
 
 /// <summary>
 ///     Structured learnings extracted from a single LLM iteration response.

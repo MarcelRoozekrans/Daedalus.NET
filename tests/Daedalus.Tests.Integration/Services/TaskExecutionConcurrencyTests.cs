@@ -23,9 +23,7 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         await fixture.DatabaseResetter.ResetAsync();
 
         _connectionString = fixture.ConnectionString;
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(_connectionString)
-            .Options;
+        var options = PostgresFixture.CreateDbContextOptions(_connectionString);
 
         _dbContext = new ApplicationDbContext(options);
 
@@ -112,9 +110,7 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         var createTasks = Enumerable.Range(0, 5).Select(i => Task.Run(async () =>
         {
             // Each thread needs its own DbContext instance
-            var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(_connectionString)
-                .Options;
+            var options = PostgresFixture.CreateDbContextOptions(_connectionString);
 
             using var dbContext = new ApplicationDbContext(options);
 

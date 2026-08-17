@@ -12,7 +12,7 @@ namespace Daedalus.Application.Commands.ExecuteTask;
 /// </summary>
 public sealed class ExecuteTaskCommandHandler(
     ITaskRepository taskRepository,
-    ILlmService llmService) : ICommandHandler<ExecuteTaskCommand, Result<ExecuteTaskResult>>
+    IRalphAgentFactory agentFactory) : ICommandHandler<ExecuteTaskCommand, Result<ExecuteTaskResult>>
 {
     /// <summary>
     ///     Executes a task: fetches it, runs the LLM, checks for completion, and updates state.
@@ -68,13 +68,13 @@ public sealed class ExecuteTaskCommandHandler(
         try
         {
             // Execute via LLM
-            var llmResult = await llmService.InvokeAsync(task.Prompt, cancellationToken);
+            var llmResult = await agentFactory.InvokeAsync(task.Prompt, cancellationToken);
             if (llmResult.IsFailure)
             {
                 return Result.Failure<ExecuteTaskResult>($"LLM invocation failed: {llmResult.Error}");
             }
 
-            var llmResponse = llmResult.Value;
+            var llmResponse = llmResult.Value.Response;
 
             // Check if completion promise is found in response
             // Using IndexOf instead of Contains avoids unnecessary allocations for case-insensitive comparison

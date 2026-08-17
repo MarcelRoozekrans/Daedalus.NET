@@ -19,9 +19,7 @@ public abstract class AspireIntegrationTestBase(AspirePostgresFixture fixture) :
         // Reset database using Respawn
         await _aspireFixture.DatabaseResetter.ResetAsync();
 
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(_aspireFixture.ConnectionString)
-            .Options;
+        var options = PostgresFixture.CreateDbContextOptions(_aspireFixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
 

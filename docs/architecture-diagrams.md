@@ -1023,6 +1023,136 @@ graph TB
 
 ---
 
+## 14. Agent turn (Thalos)
+
+Phase 1.1 adds a second, general-purpose agent stack next to the Ralph Loop: **Thalos.NET** (Microsoft Agent Framework
+1.17 underneath, AI.Sentinel at the model boundary, MCP + local tools with authorization at the function boundary). The
+Blazor page `/agent` talks to `Daedalus.Api` over REST, and one turn is streamed back as Server-Sent Events. Sessions and
+transcripts live in PostgreSQL via `PostgresAgentSessionStore` (`Daedalus.Agents`).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Web as Daedalus.Web<br/>(Agent.razor + AgentApiClient)
+    participant Api as Daedalus.Api<br/>AgentSessionsController
+    participant RT as Thalos IAgentRuntime<br/>(ThalosAgentRuntime)
+    participant Store as PostgresAgentSessionStore<br/>(Daedalus.Agents → EF Core)
+    participant Agent as MAF ChatClientAgent
+    participant Sentinel as AI.Sentinel<br/>(SentinelChatClient decorator)
+    participant Claude as Anthropic API<br/>(Thalos.NET.Anthropic)
+    participant Tools as Tools<br/>(MCP roslyn/context7, local daedalus__*)
+
+    Web->>Api: POST /api/agents/sessions/{id}/turns/stream<br/>Authorization: Bearer (policy AgentUse)
+    Api->>Api: 200 text/event-stream, DisableBuffering,<br/>": connected" flushed before the first token
+    Api->>RT: RunTurnStreamingAsync(AgentTurnRequest{session, text, caller})
+    RT->>Store: Load session (owner/admin check, else SessionNotFound)<br/>Idle → Running
+    Store-->>RT: session + transcript
+    RT->>Agent: Build from AgentDefinition<br/>(instructions, model, tool glob, history)
+    loop Model ↔ tools until the final answer
+        Agent->>Sentinel: chat request (streaming)
+        Sentinel->>Sentinel: input detectors (lexical; semantic when an<br/>embedding generator is configured)
+        alt Critical finding → Quarantine
+            Sentinel-->>RT: SentinelException → AgentError Quarantined
+            RT->>Store: Running → Idle
+            RT-->>Api: error (Quarantined)
+            Api-->>Web: event: error
+        else Clean / Log / Alert
+            Sentinel->>Claude: messages + tool schemas
+            Claude-->>Sentinel: text deltas / tool_use blocks
+            Sentinel->>Sentinel: output detectors
+            Sentinel-->>Agent: updates
+            Agent-->>RT: text-delta
+            RT-->>Api: text-delta
+            Api-->>Web: event: text-delta (flushed immediately)
+            opt Model calls a tool
+                Agent->>Tools: AuthorizingAIFunction: policy check at the function boundary<br/>(roslyn__apply_* → developer/admin role)
+                alt Denied
+                    Tools-->>Agent: "Tool call denied: …" as tool result<br/>(ToolCallDeniedNotification published)
+                else Allowed
+                    Tools->>Tools: MCP call (stdio/http) or local method
+                    Tools-->>Agent: tool result
+                end
+                RT-->>Api: tool-call / tool-result
+                Api-->>Web: event: tool-call / tool-result
+            end
+        end
+    end
+    RT->>Store: Append user + assistant turn, usage,<br/>Running → Idle
+    RT-->>Api: usage, done
+    Api-->>Web: event: usage, event: done
+    Web->>Web: Render bubbles, tool cards, usage;<br/>re-enable composer
+```
+
+Notes:
+
+- The controller flushes every SSE frame as soon as the runtime yields it (`text-delta`, `tool-call`, `tool-result`,
+  `usage`, `done`, `error`); the stream always ends with `done` or `error`.
+- Tool authorization runs at the **function boundary** (`Thalos` `AuthorizingAIFunction` + `[Policy]` types such as
+  `DeveloperPolicy`), so an unauthorized tool call is reported back to the model instead of failing the turn; the denial
+  is also published as a `ToolCallDeniedNotification` (audit).
+- AI.Sentinel is an `IChatClient` decorator: a `Quarantine` verdict surfaces as `AgentErrorCode.Quarantined` (HTTP 422 on
+  the buffered endpoint, `event: error` on the stream). Its semantic detectors need the Ollama embedding generator; without
+  it only lexical/operational detectors run.
+- On host start `AgentSessionCrashRecovery` resets any session left in `Running` by a crashed process back to `Idle`.
+
+### Strangler layout: Ralph and Thalos side by side
+
+Until phase 1.6 both stacks are wired in the API and share Infrastructure (DbContext, learnings, embeddings):
+
+```mermaid
+graph LR
+    subgraph "Daedalus.Web (Blazor WASM)"
+        Pages["Tasks / Sessions / Executions /<br/>Ralph Config / PRD Generator"]
+        AgentPage["/agent<br/>(Agent.razor)"]
+    end
+
+    subgraph "Daedalus.Api"
+        RalphCtrl["Ralph controllers<br/>(tasks, sessions, ralph-config, …)"]
+        AgentCtrl["AgentsController<br/>AgentSessionsController (SSE)"]
+    end
+
+    subgraph "Ralph stack (legacy, retired in 1.6)"
+        Ralph["RalphLoopOrchestrator<br/>Daedalus.Console worker"]
+        RalphLlm["ILlmService<br/>Copilot / Claude"]
+    end
+
+    subgraph "Thalos stack (Daedalus.Agents)"
+        Composition["AddDaedalusAgents<br/>(Thalos:* config, .mcp.json)"]
+        Runtime["Thalos IAgentRuntime"]
+        SessionStore["PostgresAgentSessionStore"]
+        Knowledge["DaedalusKnowledgeTools<br/>(daedalus__*)"]
+        Recovery["AgentSessionCrashRecovery"]
+        SentinelBox["AI.Sentinel"]
+        Mcp["MCP servers<br/>roslyn, context7"]
+    end
+
+    subgraph "Shared Infrastructure"
+        DbCtx["ApplicationDbContext<br/>(AgentSessions, AgentMessages, Tasks, StructuredLearnings, …)"]
+        Learnings["ILearningsRepository<br/>IEmbeddingService"]
+        PG[("PostgreSQL 16<br/>pgvector/pgvector:pg16")]
+    end
+
+    Pages --> RalphCtrl
+    AgentPage -->|REST + SSE| AgentCtrl
+    RalphCtrl --> Ralph
+    Ralph --> RalphLlm
+    AgentCtrl --> Runtime
+    Composition -.registers.-> Runtime
+    Composition -.registers.-> Recovery
+    Runtime --> SessionStore
+    Runtime --> SentinelBox
+    Runtime --> Knowledge
+    Runtime --> Mcp
+    Knowledge --> Learnings
+    SessionStore --> DbCtx
+    Recovery --> DbCtx
+    Ralph --> DbCtx
+    Learnings --> DbCtx
+    DbCtx --> PG
+```
+
+---
+
 ## Key Architectural Principles
 
 ### 🏗️ **Layered Architecture**

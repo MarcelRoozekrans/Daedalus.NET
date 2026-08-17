@@ -1,4 +1,4 @@
-﻿using Daedalus.Application.Abstractions;
+using Daedalus.Application.Abstractions;
 
 namespace Daedalus.Tests.Playwright.Browser;
 

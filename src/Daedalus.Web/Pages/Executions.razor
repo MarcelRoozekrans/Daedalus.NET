@@ -2,10 +2,12 @@
 @inject ApiClient Api
 @implements IAsyncDisposable
 
-<RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2" class="rz-mb-4">
-    <RadzenIcon Icon="receipt_long"/>
-    Task Executions
-</RadzenText>
+<RadzenStack Gap="0.25rem" class="rz-mb-4">
+    <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Executions</RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+        Browse task execution history and results
+    </RadzenText>
+</RadzenStack>
 
 <RadzenCard class="rz-mb-4" data-testid="filter-card">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.End" Gap="1rem" Wrap="FlexWrap.Wrap">

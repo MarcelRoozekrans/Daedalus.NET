@@ -13,7 +13,7 @@ namespace Daedalus.Application.Commands.RegeneratePlan;
 /// </summary>
 public sealed partial class RegeneratePlanCommandHandler(
     ITaskRepository taskRepository,
-    ILlmService llmService,
+    IRalphAgentFactory agentFactory,
     IOptions<RalphLoopConfiguration> configurationOptions,
     ILogger<RegeneratePlanCommandHandler> logger)
     : ICommandHandler<RegeneratePlanCommand, Result<RegeneratePlanResult>>
@@ -77,14 +77,14 @@ public sealed partial class RegeneratePlanCommandHandler(
         var planPrompt = BuildPlanGenerationPrompt(task);
 
         // Invoke LLM to generate new plan
-        var llmResult = await llmService.InvokeAsync(planPrompt, cancellationToken);
+        var llmResult = await agentFactory.InvokeAsync(planPrompt, cancellationToken);
         if (llmResult.IsFailure)
         {
             LogPlanRegenerationFailed(logger, command.TaskId, llmResult.Error);
             return Result.Failure<RegeneratePlanResult>($"LLM plan generation failed: {llmResult.Error}");
         }
 
-        var planContent = llmResult.Value;
+        var planContent = llmResult.Value.Response;
 
         // Write new plan to fix_plan.md
         await File.WriteAllTextAsync(planFilePath, planContent, cancellationToken);

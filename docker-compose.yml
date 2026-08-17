@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   postgres:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:pg16
     container_name: daedalus_postgres
     environment:
       POSTGRES_USER: daedalus

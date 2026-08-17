@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using CSharpFunctionalExtensions;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;

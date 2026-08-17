@@ -11,7 +11,10 @@ public sealed class NoOpLoopbackEvaluator : ILoopbackEvaluator
 {
     private static readonly LoopbackResult Success = new()
     {
-        BuildSucceeded = true, TestsPassed = true, CompilationErrors = [], TestFailures = []
+        BuildSucceeded = true,
+        TestsPassed = true,
+        CompilationErrors = [],
+        TestFailures = []
     };
 
     public Task<Result<LoopbackResult>> EvaluateAsync(
@@ -23,6 +26,8 @@ public sealed class NoOpLoopbackEvaluator : ILoopbackEvaluator
         CancellationToken ct = default)
         => Task.FromResult(Result.Success(new CommandExecutionResult
         {
-            ExitCode = 0, StandardOutput = string.Empty, StandardError = string.Empty
+            ExitCode = 0,
+            StandardOutput = string.Empty,
+            StandardError = string.Empty
         }));
 }

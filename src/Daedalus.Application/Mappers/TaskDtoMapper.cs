@@ -26,7 +26,10 @@ public static class TaskDtoMapper
                 e.CompletionPromiseFound,
                 e.ExecutedAt,
                 e.ExecutionDuration,
-                e.Error))
+                e.Error,
+                e.InputTokens,
+                e.OutputTokens,
+                e.ModelId))
             .ToList();
 
         return new TaskDto(
@@ -101,6 +104,9 @@ public static class TaskDtoMapper
             execution.CompletionPromiseFound,
             execution.ExecutedAt,
             execution.ExecutionDuration,
-            execution.Error);
+            execution.Error,
+            execution.InputTokens,
+            execution.OutputTokens,
+            execution.ModelId);
     }
 }

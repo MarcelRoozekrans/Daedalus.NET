@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Application.Abstractions;
+namespace Daedalus.Application.Abstractions;
 
 /// <summary>
 ///     Represents loaded workspace context files (specs, plan, agent instructions).

@@ -1,0 +1,460 @@
+@page "/agent"
+@page "/agent/{SessionId}"
+@using System.Diagnostics
+@using System.Globalization
+@using Daedalus.Application.DTOs.Agents
+@using Microsoft.JSInterop
+@inject AgentApiClient Api
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+@inject IJSRuntime Js
+@implements IAsyncDisposable
+
+<div data-testid="agent-page">
+<RadzenStack Orientation="Orientation.Horizontal" Gap="0" Style="height: calc(100vh - 80px);">
+
+    @* Left column: agent picker + sessions *@
+    <RadzenStack Gap="0.5rem" class="rz-p-2 rz-border-right" Style="width: 280px; flex-shrink: 0; overflow-y: auto;">
+        <RadzenDropDown TValue="string" Data="@_agents" TextProperty="Name" ValueProperty="Id"
+                        @bind-Value="@_selectedAgentId" Placeholder="Select an agent"
+                        Style="width: 100%;" data-testid="agent-select"/>
+        <RadzenButton Text="New session" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@CreateSessionAsync"
+                      Disabled="@(_selectedAgentId is null || _creating)" IsBusy="@_creating"
+                      Style="width: 100%;" data-testid="agent-new-session"/>
+
+        <RadzenText TextStyle="TextStyle.Overline" class="rz-mt-2" Style="opacity: 0.6;">Sessions</RadzenText>
+        @if (_sessions.Count == 0)
+        {
+            <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6;">No sessions yet.</RadzenText>
+        }
+        @foreach (var session in _sessions)
+        {
+            var isActive = string.Equals(session.Id, SessionId, StringComparison.Ordinal);
+            <RadzenCard class="rz-p-2" data-testid="agent-session-item" data-session-id="@session.Id"
+                        Style="@("cursor: pointer;" + (isActive ? " border: 1px solid var(--rz-primary);" : string.Empty))"
+                        @onclick="@(() => Navigation.NavigateTo($"/agent/{session.Id}"))">
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; font-weight: 600;">@AgentName(session.AgentId)</RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.7;">
+                    @session.LastActivityAt.LocalDateTime.ToString("g", CultureInfo.CurrentCulture) &middot; @session.TurnCount turns &middot; @session.State
+                </RadzenText>
+            </RadzenCard>
+        }
+    </RadzenStack>
+
+    @* Right column: chat *@
+    <RadzenStack Gap="0" Style="flex: 1; min-width: 0; height: 100%;">
+        @if (SessionId is null)
+        {
+            <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="flex: 1;">
+                <RadzenIcon Icon="smart_toy" Style="font-size: 3rem; opacity: 0.3;"/>
+                <RadzenText TextStyle="TextStyle.Body1" Style="opacity: 0.6;">Pick an agent and start a new session, or open one from the list.</RadzenText>
+            </RadzenStack>
+        }
+        else
+        {
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween"
+                         class="rz-p-2 rz-border-bottom" Style="flex-shrink: 0;">
+                <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin: 0;" data-testid="agent-session-title">
+                    @AgentName(_detail?.Session.AgentId)
+                    <span style="opacity: 0.6; font-weight: 400;">&middot; @(_detail?.Session.State ?? "…")</span>
+                </RadzenText>
+                <RadzenButton Text="Close session" Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@CloseSessionAsync" Disabled="@(_streaming || _detail?.Session.State == "Closed")"
+                              data-testid="agent-close-session"/>
+            </RadzenStack>
+
+            @* column-reverse keeps the scroll position pinned to the newest message without JS interop *@
+            <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column-reverse;">
+                <RadzenStack Gap="0.5rem" class="rz-p-4" data-testid="agent-messages">
+                    @foreach (var message in _messages)
+                    {
+                        if (message.IsUser)
+                        {
+                            <RadzenCard Style="margin-left: 20%; background: var(--rz-primary-lighter);" data-testid="agent-message-user">
+                                <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin-bottom: 0.25rem;">You</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body2" Style="white-space: pre-wrap; margin: 0;">@message.Text</RadzenText>
+                            </RadzenCard>
+                        }
+                        else
+                        {
+                            <RadzenCard Style="margin-right: 20%;" data-testid="agent-message-assistant">
+                                <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin-bottom: 0.25rem;">Assistant</RadzenText>
+                                @foreach (var call in message.ToolCalls)
+                                {
+                                    <RadzenCard class="rz-p-2 rz-mb-2" Style="background: var(--rz-base-100);"
+                                                data-testid="agent-tool-card" data-tool-name="@call.ToolName" data-tool-status="@call.Status">
+                                        <details>
+                                            <summary style="cursor: pointer;">
+                                                <RadzenIcon Icon="settings" Style="font-size: 1rem; vertical-align: middle;"/>
+                                                <code>@call.ToolName</code> &hellip; @call.StatusGlyph
+                                            </summary>
+                                            @if (call.ArgumentsJson is not null)
+                                            {
+                                                <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0.25rem 0 0;">Arguments</RadzenText>
+                                                <pre style="white-space: pre-wrap; margin: 0; font-size: 0.75rem;">@call.ArgumentsJson</pre>
+                                            }
+                                            @if (call.ResultPreview is not null)
+                                            {
+                                                <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0.25rem 0 0;">Result</RadzenText>
+                                                <pre style="white-space: pre-wrap; margin: 0; font-size: 0.75rem;">@call.ResultPreview</pre>
+                                            }
+                                        </details>
+                                    </RadzenCard>
+                                }
+                                <RadzenText TextStyle="TextStyle.Body2" Style="white-space: pre-wrap; margin: 0;" data-testid="agent-message-text">@message.Text</RadzenText>
+                                @if (message.Usage is { } usage)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin: 0.5rem 0 0;" data-testid="agent-usage">
+                                        @usage.ModelId &middot; @usage.InputTokens in / @usage.OutputTokens out
+                                    </RadzenText>
+                                }
+                            </RadzenCard>
+                        }
+                    }
+                    @if (_streaming)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6;" data-testid="agent-streaming">Thinking&hellip;</RadzenText>
+                    }
+                </RadzenStack>
+            </div>
+
+            @if (_error is { } error)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat" Shade="Shade.Lighter" AllowClose="true"
+                             Icon="@(error.IsQuarantined ? "shield" : "error")" Title="@error.Title" Close="@(() => _error = null)"
+                             class="rz-m-2" Style="flex-shrink: 0;" data-testid="agent-error" data-error-code="@error.Code">
+                    @error.Message
+                    @if (error.Detail is not null)
+                    {
+                        <br/><small style="opacity: 0.8;">@error.Detail</small>
+                    }
+                </RadzenAlert>
+            }
+
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" class="rz-p-2 rz-border-top" Style="flex-shrink: 0;">
+                <RadzenTextArea @bind-Value="@_input" Immediate="true" Rows="2" Placeholder="Ask the agent… (Enter to send, Shift+Enter for a new line)"
+                                Style="flex: 1;" Disabled="@_streaming" @onkeydown="@HandleComposerKeyDown"
+                                data-testid="agent-composer"/>
+                @if (_streaming)
+                {
+                    <RadzenButton Text="Stop" Icon="stop" ButtonStyle="ButtonStyle.Danger" Click="@Stop" data-testid="agent-stop"/>
+                }
+                else
+                {
+                    <RadzenButton Text="Send" Icon="send" ButtonStyle="ButtonStyle.Primary" Click="@SendAsync"
+                                  Disabled="@(string.IsNullOrWhiteSpace(_input) || _detail?.Session.State == "Closed")"
+                                  data-testid="agent-send"/>
+                }
+            </RadzenStack>
+        }
+    </RadzenStack>
+</RadzenStack>
+</div>
+
+@code {
+    private const int RenderIntervalMs = 50;
+
+    [Parameter] public string? SessionId { get; set; }
+
+    private readonly CancellationTokenSource _pageCts = new();
+    private readonly List<ChatMessage> _messages = [];
+    private IReadOnlyList<AgentSummaryDto> _agents = [];
+    private IReadOnlyList<AgentSessionDto> _sessions = [];
+    private AgentSessionDetailDto? _detail;
+    private string? _selectedAgentId;
+    private string? _loadedSessionId;
+    private string _input = string.Empty;
+    private bool _creating;
+    private bool _streaming;
+    private ErrorView? _error;
+    private CancellationTokenSource? _turnCts;
+    private DotNetObjectReference<Agent>? _selfRef;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _escapeHandle;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            _module = await Js.InvokeAsync<IJSObjectReference>("import", _pageCts.Token, "./js/agent-page.js");
+            _escapeHandle = await _module.InvokeAsync<IJSObjectReference>("registerEscape", _pageCts.Token, _selfRef);
+        }
+        catch (JSException)
+        {
+            // Escape-to-stop is a convenience; the Stop button still works without the interop module.
+        }
+        catch (OperationCanceledException)
+        {
+            // Page disposed before the module loaded.
+        }
+    }
+
+    /// <summary>Called from <c>agent-page.js</c> on a document-level Escape keydown.</summary>
+    [JSInvokable]
+    public void OnEscape()
+    {
+        // Cancelling the turn token unwinds SendAsync, whose completion re-renders the page.
+        if (_streaming)
+        {
+            Stop();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var agents = await Api.GetAgentsAsync(_pageCts.Token);
+        agents.Match(
+            list =>
+            {
+                _agents = list;
+                _selectedAgentId ??= list.FirstOrDefault()?.Id;
+            },
+            NotifyError);
+
+        await RefreshSessionsAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.Equals(SessionId, _loadedSessionId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        Stop();
+        _loadedSessionId = SessionId;
+        _messages.Clear();
+        _detail = null;
+        _error = null;
+        if (SessionId is null)
+        {
+            return;
+        }
+
+        var detail = await Api.GetSessionAsync(SessionId, _pageCts.Token);
+        detail.Match(
+            d =>
+            {
+                _detail = d;
+                _selectedAgentId = d.Session.AgentId;
+                _messages.AddRange(d.Messages.Select(ChatMessage.FromDto));
+            },
+            NotifyError);
+    }
+
+    private async Task RefreshSessionsAsync()
+    {
+        var sessions = await Api.ListSessionsAsync(ct: _pageCts.Token);
+        sessions.Match(list => _sessions = list, NotifyError);
+    }
+
+    private async Task CreateSessionAsync()
+    {
+        if (_selectedAgentId is null || _creating)
+        {
+            return;
+        }
+
+        _creating = true;
+        try
+        {
+            var created = await Api.CreateSessionAsync(_selectedAgentId, _pageCts.Token);
+            if (created.IsFailure)
+            {
+                NotifyError(created.Error);
+                return;
+            }
+
+            await RefreshSessionsAsync();
+            Navigation.NavigateTo($"/agent/{created.Value}");
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    private async Task CloseSessionAsync()
+    {
+        if (SessionId is null)
+        {
+            return;
+        }
+
+        var closed = await Api.CloseSessionAsync(SessionId, _pageCts.Token);
+        if (closed.IsFailure)
+        {
+            NotifyError(closed.Error);
+            return;
+        }
+
+        await RefreshSessionsAsync();
+        _detail = _detail is null ? null : _detail with { Session = _detail.Session with { State = "Closed" } };
+    }
+
+    private async Task SendAsync()
+    {
+        if (_streaming || SessionId is null || string.IsNullOrWhiteSpace(_input))
+        {
+            return;
+        }
+
+        var sessionId = SessionId;
+        var text = _input.Trim();
+        _input = string.Empty;
+        _error = null;
+        _messages.Add(ChatMessage.User(text));
+        var assistant = ChatMessage.Assistant();
+        _messages.Add(assistant);
+
+        _streaming = true;
+        _turnCts = CancellationTokenSource.CreateLinkedTokenSource(_pageCts.Token);
+        var sinceRender = Stopwatch.StartNew();
+        // Navigating to another session mid-turn cancels the stream (OnParametersSetAsync → Stop); its outcome must not leak there.
+        bool SameSession() => string.Equals(sessionId, SessionId, StringComparison.Ordinal);
+        try
+        {
+            await foreach (var evt in Api.StreamTurnAsync(sessionId, text, _turnCts.Token))
+            {
+                Apply(assistant, evt);
+                if (!string.Equals(evt.Kind, "text-delta", StringComparison.Ordinal) || sinceRender.ElapsedMilliseconds >= RenderIntervalMs)
+                {
+                    StateHasChanged();
+                    sinceRender.Restart();
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!_pageCts.IsCancellationRequested && SameSession())
+        {
+            _error = new ErrorView("Cancelled", "The turn was stopped.", null);
+        }
+        catch (OperationCanceledException)
+        {
+            // Page disposed or session switched while streaming: nothing left to show here.
+        }
+        catch (AccessTokenNotAvailableException ex)
+        {
+            ex.Redirect();
+        }
+        catch (HttpRequestException ex)
+        {
+            if (SameSession())
+            {
+                _error = new ErrorView("Transport", $"Connection lost: {ex.Message}", null);
+            }
+        }
+#pragma warning disable CA1031 // A failed turn must never take the page down: surface it, keep the composer usable.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            if (SameSession())
+            {
+                _error = new ErrorView("Error", $"Unexpected error while streaming: {ex.GetType().Name}", null);
+            }
+        }
+        finally
+        {
+            _streaming = false;
+            _turnCts?.Dispose();
+            _turnCts = null;
+            if (assistant.IsEmpty)
+            {
+                _messages.Remove(assistant);
+            }
+
+            if (!_pageCts.IsCancellationRequested)
+            {
+                await RefreshSessionsAsync();
+                if (SameSession() && _detail is not null)
+                {
+                    _detail = _detail with { Session = _sessions.FirstOrDefault(s => string.Equals(s.Id, sessionId, StringComparison.Ordinal)) ?? _detail.Session };
+                }
+            }
+        }
+    }
+
+    private void Apply(ChatMessage assistant, AgentEventDto evt)
+    {
+        switch (evt.Kind)
+        {
+            case "text-delta":
+                assistant.Append(evt.Text);
+                break;
+            case "tool-call" when evt.ToolCall is { } started:
+                assistant.ToolCalls.Add(ToolCallView.Started(started));
+                break;
+            case "tool-result" when evt.ToolCall is { } finished:
+            {
+                var existing = assistant.ToolCalls.Find(c => string.Equals(c.CallId, finished.CallId, StringComparison.Ordinal));
+                if (existing is null)
+                {
+                    existing = ToolCallView.Started(finished);
+                    assistant.ToolCalls.Add(existing);
+                }
+
+                existing.Finish(finished);
+                break;
+            }
+            case "usage" when evt.Usage is { } usage:
+                assistant.Usage = usage;
+                break;
+            case "done":
+                if (evt.Result is { } result)
+                {
+                    assistant.Usage ??= result.Usage;
+                    if (assistant.IsTextEmpty && !string.IsNullOrEmpty(result.Text))
+                    {
+                        assistant.Append(result.Text);
+                    }
+                }
+                break;
+            case "error":
+                assistant.Usage ??= evt.Usage;
+                _error = new ErrorView(evt.ErrorCode ?? "Error", evt.ErrorMessage ?? "The turn failed.", evt.ErrorDetail);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void Stop()
+    {
+        if (_turnCts is { IsCancellationRequested: false } cts)
+        {
+            cts.Cancel();
+        }
+    }
+
+    private async Task HandleComposerKeyDown(KeyboardEventArgs e)
+    {
+        if (e is { Key: "Enter", ShiftKey: false })
+        {
+            await SendAsync();
+        }
+    }
+
+    private string AgentName(string? agentId) =>
+        _agents.FirstOrDefault(a => string.Equals(a.Id, agentId, StringComparison.Ordinal))?.Name ?? agentId ?? "Agent";
+
+    private void NotifyError(string error)
+    {
+        if (!_pageCts.IsCancellationRequested)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Agent", error);
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        await _pageCts.CancelAsync();
+        _pageCts.Dispose();
+        _turnCts?.Dispose();
+        await DisposeInteropAsync();
+    }
+}

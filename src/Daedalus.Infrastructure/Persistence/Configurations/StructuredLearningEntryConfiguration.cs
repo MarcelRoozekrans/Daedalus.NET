@@ -1,6 +1,7 @@
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Pgvector;
 
 namespace Daedalus.Infrastructure.Persistence.Configurations;
 
@@ -51,5 +52,11 @@ internal sealed class StructuredLearningEntryConfiguration : IEntityTypeConfigur
 
         entity.HasIndex(e => e.HitCount)
             .HasDatabaseName("IX_StructuredLearning_HitCount");
+
+        entity.Property(e => e.Embedding)
+            .HasColumnType("vector(384)")
+            .HasConversion(
+                v => v == null ? null : new Vector(v),
+                v => v == null ? null : v.ToArray());
     }
 }

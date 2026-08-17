@@ -311,4 +311,494 @@ public class ProjectEntityTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Tasks.Should().BeEmpty();
     }
+
+    #region Create with RepositoryUrl
+
+    [Fact]
+    public void Create_WithRepositoryUrl_ShouldSetUrl()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), "Project", "Description", "1.0",
+            "https://github.com/org/repo");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RepositoryUrl.Should().Be("https://github.com/org/repo");
+    }
+
+    [Fact]
+    public void Create_WithDefaultBranch_ShouldSetBranch()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), "Project", "Description", "1.0",
+            "https://github.com/org/repo", "develop");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.DefaultBranch.Should().Be("develop");
+    }
+
+    [Fact]
+    public void Create_WithNullRepositoryUrl_ShouldDefaultToEmpty()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), "Project", "Description");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RepositoryUrl.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Create_WithNullDefaultBranch_ShouldDefaultToMain()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), "Project", "Description");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.DefaultBranch.Should().Be("main");
+    }
+
+    [Fact]
+    public void Create_TrimsRepositoryUrl()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), "Project", "Description", "1.0",
+            "  https://github.com/org/repo  ");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RepositoryUrl.Should().Be("https://github.com/org/repo");
+    }
+
+    [Fact]
+    public void Create_TrimsDefaultBranch()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), "Project", "Description", "1.0",
+            "https://github.com/org/repo", "  develop  ");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.DefaultBranch.Should().Be("develop");
+    }
+
+    #endregion
+
+    #region Create with Length Validation
+
+    [Fact]
+    public void Create_WithProjectNameExceeding256Chars_ShouldFail()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), new string('a', 257), "Description");
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("256");
+    }
+
+    [Fact]
+    public void Create_WithDescriptionExceeding2000Chars_ShouldFail()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), "Project", new string('a', 2001));
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("2000");
+    }
+
+    [Fact]
+    public void Create_WithVersionExceeding50Chars_ShouldFail()
+    {
+        // Act
+        var result = Project.Create(Guid.NewGuid(), "Project", "Description", new string('a', 51));
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("50");
+    }
+
+    #endregion
+
+    #region UpdateVersion
+
+    [Fact]
+    public void UpdateVersion_WithValidVersion_ShouldSucceed()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateVersion("2.0");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        project.Version.Should().Be("2.0");
+    }
+
+    [Fact]
+    public void UpdateVersion_WithNullVersion_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateVersion(null!);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("Version");
+    }
+
+    [Fact]
+    public void UpdateVersion_WithEmptyVersion_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateVersion("");
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void UpdateVersion_WithWhitespaceVersion_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateVersion("   ");
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void UpdateVersion_WithVersionExceeding50Chars_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateVersion(new string('x', 51));
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("50");
+    }
+
+    [Fact]
+    public void UpdateVersion_TrimsVersion()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        project.UpdateVersion("  2.0  ");
+
+        // Assert
+        project.Version.Should().Be("2.0");
+    }
+
+    [Fact]
+    public void UpdateVersion_UpdatesModifiedAt()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        project.UpdateVersion("2.0");
+
+        // Assert
+        project.ModifiedAt.Should().NotBeNull();
+        project.ModifiedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
+    }
+
+    #endregion
+
+    #region UpdateMetadata
+
+    [Fact]
+    public void UpdateMetadata_WithValidData_ShouldSucceed()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateMetadata("New Name", "New Description");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        project.ProjectName.Should().Be("New Name");
+        project.Description.Should().Be("New Description");
+    }
+
+    [Fact]
+    public void UpdateMetadata_WithNullProjectName_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateMetadata(null!, "Description");
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("Project name");
+    }
+
+    [Fact]
+    public void UpdateMetadata_WithEmptyProjectName_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateMetadata("", "Description");
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void UpdateMetadata_WithNullDescription_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateMetadata("Name", null!);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("Description");
+    }
+
+    [Fact]
+    public void UpdateMetadata_WithProjectNameExceeding256Chars_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateMetadata(new string('a', 257), "Description");
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("256");
+    }
+
+    [Fact]
+    public void UpdateMetadata_WithDescriptionExceeding2000Chars_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateMetadata("Name", new string('a', 2001));
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("2000");
+    }
+
+    [Fact]
+    public void UpdateMetadata_TrimsInputs()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        project.UpdateMetadata("  Trimmed Name  ", "  Trimmed Description  ");
+
+        // Assert
+        project.ProjectName.Should().Be("Trimmed Name");
+        project.Description.Should().Be("Trimmed Description");
+    }
+
+    [Fact]
+    public void UpdateMetadata_UpdatesModifiedAt()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        project.UpdateMetadata("Name", "Description");
+
+        // Assert
+        project.ModifiedAt.Should().NotBeNull();
+        project.ModifiedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
+    }
+
+    #endregion
+
+    #region UpdateRepositoryUrl
+
+    [Fact]
+    public void UpdateRepositoryUrl_WithValidUrl_ShouldSucceed()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateRepositoryUrl("https://github.com/org/repo");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        project.RepositoryUrl.Should().Be("https://github.com/org/repo");
+    }
+
+    [Fact]
+    public void UpdateRepositoryUrl_WithDefaultBranch_ShouldUpdateBranch()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateRepositoryUrl("https://github.com/org/repo", "develop");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        project.DefaultBranch.Should().Be("develop");
+    }
+
+    [Fact]
+    public void UpdateRepositoryUrl_WithNullDefaultBranch_ShouldKeepExisting()
+    {
+        // Arrange
+        var project = Project.Create(Guid.NewGuid(), "P", "D", "1.0", "https://old.url", "custom").Value;
+
+        // Act
+        var result = project.UpdateRepositoryUrl("https://new.url");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        project.RepositoryUrl.Should().Be("https://new.url");
+        project.DefaultBranch.Should().Be("custom"); // Unchanged
+    }
+
+    [Fact]
+    public void UpdateRepositoryUrl_WithUrlExceeding2000Chars_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateRepositoryUrl(new string('x', 2001));
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("2000");
+    }
+
+    [Fact]
+    public void UpdateRepositoryUrl_WithBranchExceeding100Chars_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.UpdateRepositoryUrl("https://github.com/org/repo", new string('x', 101));
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("100");
+    }
+
+    [Fact]
+    public void UpdateRepositoryUrl_TrimsUrl()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        project.UpdateRepositoryUrl("  https://github.com/org/repo  ");
+
+        // Assert
+        project.RepositoryUrl.Should().Be("https://github.com/org/repo");
+    }
+
+    [Fact]
+    public void UpdateRepositoryUrl_TrimsBranch()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        project.UpdateRepositoryUrl("https://github.com/org/repo", "  develop  ");
+
+        // Assert
+        project.DefaultBranch.Should().Be("develop");
+    }
+
+    [Fact]
+    public void UpdateRepositoryUrl_UpdatesModifiedAt()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        project.UpdateRepositoryUrl("https://github.com/org/repo");
+
+        // Assert
+        project.ModifiedAt.Should().NotBeNull();
+        project.ModifiedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
+    }
+
+    #endregion
+
+    #region RemoveTask
+
+    [Fact]
+    public void RemoveTask_WithValidTaskId_ShouldSucceed()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+        var task = DomainTestFactory.CreateTask(taskId: "TASK-001");
+        project.AddTask(task);
+
+        // Act
+        var result = project.RemoveTask("TASK-001");
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        project.Tasks.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RemoveTask_WithNonExistentTaskId_ShouldFail()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+
+        // Act
+        var result = project.RemoveTask("TASK-999");
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("not found");
+    }
+
+    [Fact]
+    public void RemoveTask_UpdatesModifiedAt()
+    {
+        // Arrange
+        var project = DomainTestFactory.CreateProject();
+        var task = DomainTestFactory.CreateTask(taskId: "TASK-001");
+        project.AddTask(task);
+
+        // Act
+        project.RemoveTask("TASK-001");
+
+        // Assert
+        project.ModifiedAt.Should().NotBeNull();
+    }
+
+    #endregion
 }

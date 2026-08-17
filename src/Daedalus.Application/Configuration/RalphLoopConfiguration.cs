@@ -91,4 +91,29 @@ public sealed class RalphLoopConfiguration
     ///     Prevents concurrent build/test conflicts by limiting to single execution.
     /// </summary>
     public int MaxBuildTestSubagents { get; set; } = 1;
+
+    /// <summary>
+    ///     Returns a shallow copy of this configuration with the workspace path overridden.
+    ///     Used to inject per-task workspace paths into the pipeline.
+    /// </summary>
+    public RalphLoopConfiguration WithWorkspacePath(string path)
+    {
+        return new RalphLoopConfiguration
+        {
+            IterationDelayMs = IterationDelayMs,
+            MaxConsecutiveFailures = MaxConsecutiveFailures,
+            MaxIterations = MaxIterations,
+            RequestTimeoutSeconds = RequestTimeoutSeconds,
+            EnableDetailedLogging = EnableDetailedLogging,
+            EnableGitCheckpoints = EnableGitCheckpoints,
+            EnableLoopbackEvaluation = EnableLoopbackEvaluation,
+            EnableSubagentDelegation = EnableSubagentDelegation,
+            PlanRegenerationThreshold = PlanRegenerationThreshold,
+            WorkspacePath = path,
+            UseArticleStylePrompts = UseArticleStylePrompts,
+            MaxItemsPerIteration = MaxItemsPerIteration,
+            MaxSearchSubagents = MaxSearchSubagents,
+            MaxBuildTestSubagents = MaxBuildTestSubagents
+        };
+    }
 }

@@ -11,14 +11,14 @@ namespace Daedalus.Tests.Unit.Application.Commands;
 public class ExecuteTaskCommandHandlerTests
 {
     private readonly ExecuteTaskCommandHandler _handler;
-    private readonly ILlmService _llmService;
+    private readonly IRalphAgentFactory _agentFactory;
     private readonly ITaskRepository _taskRepository;
 
     public ExecuteTaskCommandHandlerTests()
     {
-        _llmService = Substitute.For<ILlmService>();
+        _agentFactory = Substitute.For<IRalphAgentFactory>();
         _taskRepository = Substitute.For<ITaskRepository>();
-        _handler = new ExecuteTaskCommandHandler(_taskRepository, _llmService);
+        _handler = new ExecuteTaskCommandHandler(_taskRepository, _agentFactory);
     }
 
     [Fact]
@@ -34,9 +34,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success("LLM response without completion promise"));
+            .Returns(Result.Success(new LlmInvocationResult { Response = "LLM response without completion promise" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -201,9 +201,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<string>("LLM service unavailable"));
+            .Returns(Result.Failure<LlmInvocationResult>("LLM service unavailable"));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -226,9 +226,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Work done. TASK_COMPLETE"));
+            .Returns(Result.Success(new LlmInvocationResult { Response = "Work done. TASK_COMPLETE" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -256,9 +256,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Work done. complete")); // lowercase
+            .Returns(Result.Success(new LlmInvocationResult { Response = "Work done. complete" })); // lowercase
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -285,9 +285,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success("response"));
+            .Returns(Result.Success(new LlmInvocationResult { Response = "response" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -315,9 +315,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success("response"));
+            .Returns(Result.Success(new LlmInvocationResult { Response = "response" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -345,9 +345,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, cts.Token)
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync(task.Prompt, cts.Token)
-            .Returns(Result.Success("response"));
+            .Returns(Result.Success(new LlmInvocationResult { Response = "response" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), cts.Token)
@@ -358,7 +358,7 @@ public class ExecuteTaskCommandHandlerTests
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        await _llmService.Received(1).InvokeAsync(task.Prompt, cts.Token);
+        await _agentFactory.Received(1).InvokeAsync(task.Prompt, cts.Token);
     }
 
     [Fact]
@@ -374,9 +374,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync("Generate", Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Output: DONE"));
+            .Returns(Result.Success(new LlmInvocationResult { Response = "Output: DONE" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -421,9 +421,9 @@ public class ExecuteTaskCommandHandlerTests
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
             .Returns(Result.Success(task));
 
-        _llmService
+        _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Second attempt"));
+            .Returns(Result.Success(new LlmInvocationResult { Response = "Second attempt" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())

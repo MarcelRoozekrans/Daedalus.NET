@@ -6,12 +6,13 @@ using Microsoft.Extensions.Logging;
 namespace Daedalus.Application.Services.Middleware;
 
 /// <summary>
-///     Invokes the LLM (with or without MCP) and captures the response.
+///     Invokes the LLM agent and captures the response.
+///     MCP tools are pre-attached by <see cref="IRalphAgentFactory" />,
+///     so no MCP branching is needed at the call site.
 ///     Order: 200.
 /// </summary>
 public sealed partial class LlmInvocationMiddleware(
-    ILlmService llmService,
-    McpIntegrationOptions mcpOptions,
+    IRalphAgentFactory agentFactory,
     ILogger<LlmInvocationMiddleware> logger) : IRalphLoopMiddleware
 {
     public int Order => 200;
@@ -30,9 +31,8 @@ public sealed partial class LlmInvocationMiddleware(
 
             var sw = Stopwatch.StartNew();
 
-            var invokeResult = mcpOptions.Enabled && mcpOptions.Servers.Count > 0
-                ? await llmService.InvokeWithMcpAsync(context.IterationPrompt, mcpOptions, ct)
-                : await llmService.InvokeAsync(context.IterationPrompt, ct);
+            // Single invocation path — MCP tools are pre-attached by the factory
+            var invokeResult = await agentFactory.InvokeAsync(context.IterationPrompt, ct);
 
             sw.Stop();
             context.InvocationDuration = sw.Elapsed;
@@ -45,7 +45,11 @@ public sealed partial class LlmInvocationMiddleware(
                 return await continuation();
             }
 
-            context.LlmResponse = invokeResult.Value;
+            var result = invokeResult.Value;
+            context.LlmResponse = result.Response;
+            context.InputTokens = result.InputTokens;
+            context.OutputTokens = result.OutputTokens;
+            context.ModelId = result.ModelId;
             context.LlmInvocationSucceeded = true;
             context.ConsecutiveFailures = 0;
             LogLlmInvocationSucceeded(logger, context.Iteration, context.InvocationDuration.TotalMilliseconds);

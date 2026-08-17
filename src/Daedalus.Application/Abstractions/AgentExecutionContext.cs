@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Application.Abstractions;
+namespace Daedalus.Application.Abstractions;
 
 /// <summary>
 ///     Represents the execution context and results from an agent run.

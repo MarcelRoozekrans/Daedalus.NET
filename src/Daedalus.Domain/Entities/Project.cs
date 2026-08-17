@@ -1,5 +1,6 @@
 #pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
 #pragma warning disable S1144 // EF Core sets RowVersion via reflection (unused private setter is required)
+#pragma warning disable CA1054, CA1056 // Repository URL stored as string for EF Core mapping and git CLI consumption
 
 using CSharpFunctionalExtensions;
 
@@ -20,6 +21,12 @@ public sealed class Project : AggregateRoot<Guid>
 
     /// <summary>Gets the project description.</summary>
     public string Description { get; private set; } = string.Empty;
+
+    /// <summary>Gets the repository URL for git operations.</summary>
+    public string RepositoryUrl { get; private set; } = string.Empty;
+
+    /// <summary>Gets the default branch name (e.g. "main").</summary>
+    public string DefaultBranch { get; private set; } = "main";
 
     /// <summary>Gets all tasks in this project.</summary>
     public IReadOnlyList<Task> Tasks => _tasks.AsReadOnly();
@@ -44,6 +51,8 @@ public sealed class Project : AggregateRoot<Guid>
         string projectName,
         string description,
         string version = "1.0",
+        string? repositoryUrl = null,
+        string? defaultBranch = null,
         DateTime? createdAt = null)
     {
         if (string.IsNullOrWhiteSpace(projectName))
@@ -82,6 +91,8 @@ public sealed class Project : AggregateRoot<Guid>
             ProjectName = projectName.Trim(),
             Description = description.Trim(),
             Version = version.Trim(),
+            RepositoryUrl = repositoryUrl?.Trim() ?? string.Empty,
+            DefaultBranch = defaultBranch?.Trim() ?? "main",
             CreatedAt = createdAt ?? DateTime.UtcNow
         });
     }
@@ -172,6 +183,33 @@ public sealed class Project : AggregateRoot<Guid>
         ModifiedAt = DateTime.UtcNow;
         return Result.Success();
     }
+
+    /// <summary>
+    ///     Updates the repository URL and optional default branch.
+    /// </summary>
+    public Result UpdateRepositoryUrl(string repositoryUrl, string? defaultBranch = null)
+    {
+        if (repositoryUrl.Length > 2000)
+        {
+            return Result.Failure("Repository URL cannot exceed 2000 characters");
+        }
+
+        RepositoryUrl = repositoryUrl.Trim();
+
+        if (!string.IsNullOrWhiteSpace(defaultBranch))
+        {
+            if (defaultBranch.Length > 100)
+            {
+                return Result.Failure("Default branch cannot exceed 100 characters");
+            }
+
+            DefaultBranch = defaultBranch.Trim();
+        }
+
+        ModifiedAt = DateTime.UtcNow;
+        return Result.Success();
+    }
 }
 #pragma warning restore S1144
 #pragma warning restore CA1819
+#pragma warning restore CA1054, CA1056

@@ -42,4 +42,10 @@ public sealed class TasksPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
 
     public ILocator GetStatusBadge(string rowText) =>
         GetRowByText(rowText).Locator(".rz-badge").First;
+
+    public ILocator GetPriorityBadge(string rowText) =>
+        GetRowByText(rowText).Locator(".rz-badge.rz-variant-outlined").First;
+
+    public ILocator GetIterationText(string rowText) =>
+        GetRowByText(rowText).Locator("td").Nth(4);
 }

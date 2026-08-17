@@ -30,9 +30,7 @@ public class TaskAssignmentServiceIntegrationTests(PostgresFixture fixture) : IA
     {
         await fixture.DatabaseResetter.ResetAsync();
 
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
         _taskRepository = new TaskRepository(_dbContext, _taskLoggerMock);

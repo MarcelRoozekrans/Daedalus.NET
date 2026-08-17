@@ -11,11 +11,13 @@ namespace Daedalus.Application.Services;
 /// <summary>
 ///     Parses raw learnings text into structured, categorized entries and provides
 ///     enrichment context for prompt building. Uses simple text parsing and keyword
-///     extraction — no ML models, no embeddings, aligned with Ralph philosophy.
+///     extraction aligned with Ralph philosophy. Generates vector embeddings on save
+///     for semantic search (non-fatal if embedding service is unavailable).
 /// </summary>
 public sealed partial class LearningsService(
     ILearningsRepository learningsRepository,
     IFailurePatternDatabase failurePatternDatabase,
+    IEmbeddingService embeddingService,
     ILogger<LearningsService> logger) : ILearningsService
 {
     /// <summary>
@@ -67,6 +69,18 @@ public sealed partial class LearningsService(
 
         foreach (var entry in entries)
         {
+            // Generate embedding for semantic search (non-fatal if fails)
+            var embeddingText = $"{entry.Pattern} {entry.Resolution}";
+            var embeddingResult = await embeddingService.GenerateEmbeddingAsync(embeddingText, ct);
+            if (embeddingResult.IsSuccess)
+            {
+                entry.SetEmbedding(embeddingResult.Value);
+            }
+            else
+            {
+                LogEmbeddingGenerationFailed(logger, entry.Pattern, embeddingResult.Error);
+            }
+
             var addResult = await learningsRepository.AddAsync(entry, ct);
             if (addResult.IsSuccess)
             {
@@ -406,4 +420,8 @@ public sealed partial class LearningsService(
     [LoggerMessage(EventId = 101, Level = LogLevel.Warning,
         Message = "Failed to persist learning entry '{Pattern}': {Error}")]
     private static partial void LogFailedPersistLearning(ILogger logger, string pattern, string error);
+
+    [LoggerMessage(EventId = 102, Level = LogLevel.Debug,
+        Message = "Embedding generation failed for learning '{Pattern}': {Error}")]
+    private static partial void LogEmbeddingGenerationFailed(ILogger logger, string pattern, string error);
 }

@@ -59,4 +59,13 @@ public interface ILearningsRepository
         IEnumerable<string> tags,
         int maxResults,
         CancellationToken ct);
+
+    /// <summary>
+    ///     Searches learnings by vector similarity using pgvector cosine distance.
+    /// </summary>
+    Task<Result<IReadOnlyList<StructuredLearningEntry>>> SemanticSearchAsync(
+        float[] queryEmbedding,
+        Guid? projectId,
+        int maxResults,
+        CancellationToken ct);
 }

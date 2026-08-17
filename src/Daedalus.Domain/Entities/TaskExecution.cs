@@ -31,4 +31,13 @@ public sealed class TaskExecution : Entity<Guid>
 
     /// <summary>Gets any error that occurred during execution.</summary>
     public string? Error { get; init; }
+
+    /// <summary>Gets the number of input tokens consumed by this invocation.</summary>
+    public int InputTokens { get; init; }
+
+    /// <summary>Gets the number of output tokens produced by this invocation.</summary>
+    public int OutputTokens { get; init; }
+
+    /// <summary>Gets the model ID used for this invocation (e.g., "claude-sonnet-4-20250514").</summary>
+    public string? ModelId { get; init; }
 }

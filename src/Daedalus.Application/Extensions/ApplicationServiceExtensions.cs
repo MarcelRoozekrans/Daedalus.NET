@@ -4,7 +4,6 @@ using Daedalus.Application.Services;
 using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Daedalus.Application.Extensions;
 
@@ -54,29 +53,22 @@ public static class ApplicationServiceExtensions
     }
 
     /// <summary>
-    ///     Registers prompt builder services including the enhanced MCP-integrated builder.
-    ///     Note: MCP agent selector and Context7 documentation injector are registered
-    ///     in the Infrastructure layer via AddExternalServices() extension.
+    ///     Registers prompt builder services.
+    ///     Library documentation is available on-demand via Context7 MCP tools
+    ///     (resolve-library-id, get-library-docs) which Claude calls during inference.
     /// </summary>
     public static IServiceCollection AddPromptBuilding(this IServiceCollection services)
     {
         // Register the RLP template builder for structured prompt assembly
         services.AddScoped<IRalphPromptTemplateBuilder, RalphPromptTemplateBuilder>();
 
-        // Register the base prompt builder (now with template builder and workspace context)
+        // Register the prompt builder directly — Context7 documentation is now fetched
+        // on-demand by Claude via MCP tools, no decorator needed
         services.AddScoped<DefaultPromptBuilder>();
+        services.AddScoped<IPromptBuilder>(sp => sp.GetRequiredService<DefaultPromptBuilder>());
 
         // Register agent executor for multi-agent execution chains
         services.AddScoped<IAgentExecutor, AgentExecutor>();
-
-        // Register the enhanced prompt builder that combines MCP agents and Context7 docs
-        // (MCP implementations are registered in Infrastructure layer)
-        services.AddScoped<IPromptBuilder>(sp =>
-            new McpEnhancedPromptBuilder(
-                sp.GetRequiredService<DefaultPromptBuilder>(),
-                sp.GetRequiredService<IMcpAgentSelector>(),
-                sp.GetRequiredService<IContext7DocumentationInjector>(),
-                sp.GetRequiredService<ILogger<McpEnhancedPromptBuilder>>()));
 
         return services;
     }

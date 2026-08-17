@@ -13,7 +13,7 @@ public sealed class AspirePostgresFixture : IAsyncLifetime
 {
 #pragma warning disable CS0618 // Using PostgreSqlBuilder with image parameter - obsolete warning for parameterless constructor
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
+        .WithImage("pgvector/pgvector:pg16")
         .WithDatabase("daedalus_test")
         .WithUsername("test")
         .WithPassword("test")
@@ -91,11 +91,11 @@ public sealed class AspirePostgresFixture : IAsyncLifetime
     {
         try
         {
-            var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(ConnectionString)
-                .Options;
+            var options = PostgresFixture.CreateDbContextOptions(ConnectionString);
 
             using var dbContext = new ApplicationDbContext(options);
+            // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+            await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;");
             await dbContext.Database.EnsureCreatedAsync();
             System.Console.WriteLine("✓ Database schema created successfully (Aspire fixture)");
         }

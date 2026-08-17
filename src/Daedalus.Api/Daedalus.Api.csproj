@@ -6,42 +6,47 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>13</LangVersion>
         <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
-        <!-- AOT Configuration -->
-        <PublishAot>true</PublishAot>
+        <!-- Native AOT disabled, like Daedalus.Console: MVC controllers, EF Core (ApplyConfigurationsFromAssembly),
+             Aspire, FluentValidation, the Anthropic SDK and AI.Sentinel all need reflection/dynamic code — a
+             Release publish with PublishAot=true fails on IL2026/IL2104 (this is what kept the API container image
+             from ever building). Reflection-based System.Text.Json stays enabled in every configuration for the
+             same reason: MVC and the agent session store serialize without source-generated contexts. -->
+        <PublishAot>false</PublishAot>
+        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
-        <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Asp.Versioning.Mvc" Version="10.2.1" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-        <PackageReference Include="CSharpFunctionalExtensions" Version="3.7.0" />
-        <PackageReference Include="OpenTelemetry" Version="1.17.0" />
-        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
-        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.32.0.713">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Update="Meziantou.Analyzer" Version="3.0.159">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.400">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
+        <PackageReference Include="Asp.Versioning.Mvc" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+        <PackageReference Include="OllamaSharp" />
+        <PackageReference Include="CSharpFunctionalExtensions" />
+        <PackageReference Include="OpenTelemetry" />
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+        <PackageReference Include="Scalar.AspNetCore" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="Daedalus.Tests.Unit" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- MCP servers for the Thalos agents; resolved relative to the content root (Thalos:McpConfigPath) -->
+        <Content Update=".mcp.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="../Daedalus.Domain/Daedalus.Domain.csproj" />
         <ProjectReference Include="../Daedalus.Application/Daedalus.Application.csproj" />
         <ProjectReference Include="../Daedalus.Infrastructure/Daedalus.Infrastructure.csproj" />
+        <ProjectReference Include="../Daedalus.Agents/Daedalus.Agents.csproj" />
         <ProjectReference Include="../Daedalus.ServiceDefaults/Daedalus.ServiceDefaults.csproj" />
     </ItemGroup>
 

@@ -29,10 +29,15 @@ public sealed partial class RalphLoopPipelineService(
         .OrderBy(m => m.Order)
         .ToArray();
 
-    public async Task<Result> ExecuteAsync(Task task, Guid sessionId, CancellationToken ct)
+    public async Task<Result> ExecuteAsync(Task task, Guid sessionId, CancellationToken ct, string? workspacePath = null)
     {
-        LogStartingRalphLoop(logger, task.Id, task.MaxIterations, options.IterationDelayMs,
-            options.MaxConsecutiveFailures);
+        // If a per-task workspace path is provided, use a copy of config with that path
+        var effectiveOptions = !string.IsNullOrEmpty(workspacePath)
+            ? options.WithWorkspacePath(workspacePath)
+            : options;
+
+        LogStartingRalphLoop(logger, task.Id, task.MaxIterations, effectiveOptions.IterationDelayMs,
+            effectiveOptions.MaxConsecutiveFailures);
 
         // Initialize the prompt context for this session
         var contextResult = await promptBuilder.InitializeContextAsync(
@@ -50,7 +55,7 @@ public sealed partial class RalphLoopPipelineService(
         }
 
         var promptContext = contextResult.Value;
-        var maxIter = task.MaxIterations > 0 ? task.MaxIterations : options.MaxIterations;
+        var maxIter = task.MaxIterations > 0 ? task.MaxIterations : effectiveOptions.MaxIterations;
 
         for (var iteration = 1; maxIter == 0 || iteration <= maxIter; iteration++)
         {
@@ -62,7 +67,7 @@ public sealed partial class RalphLoopPipelineService(
                 SessionId = sessionId,
                 PromptContext = promptContext,
                 Iteration = iteration,
-                Configuration = options
+                Configuration = effectiveOptions
             };
 
             // Execute the middleware pipeline
@@ -96,7 +101,7 @@ public sealed partial class RalphLoopPipelineService(
             }
 
             // Delay between iterations
-            if (options.IterationDelayMs > 0)
+            if (effectiveOptions.IterationDelayMs > 0)
             {
                 await System.Threading.Tasks.Task.Delay(options.IterationDelayMs, ct);
             }
@@ -217,22 +222,21 @@ public sealed partial class RalphLoopPipelineService(
     /// <summary>
     ///     Executes the middleware pipeline for a single iteration.
     ///     Builds the chain inside-out so each middleware can call continuation() naturally.
+    ///     Lowest Order middleware executes first (outermost in the chain).
     /// </summary>
     private async Task<Result> ExecutePipelineAsync(RalphIterationContext context, CancellationToken ct)
     {
-        var index = _pipeline.Length - 1;
-
         Func<Task<Result>> BuildChain(int i)
         {
-            if (i < 0)
+            if (i >= _pipeline.Length)
             {
                 return () => System.Threading.Tasks.Task.FromResult(Result.Success());
             }
 
-            return () => _pipeline[i].InvokeAsync(context, BuildChain(i - 1), ct);
+            return () => _pipeline[i].InvokeAsync(context, BuildChain(i + 1), ct);
         }
 
-        return await BuildChain(index)();
+        return await BuildChain(0)();
     }
 
     /// <summary>
@@ -262,7 +266,10 @@ public sealed partial class RalphLoopPipelineService(
                 LlmResponse = context.LlmResponse ?? string.Empty,
                 Error = context.LlmInvocationSucceeded ? null : "LLM invocation failed",
                 ExecutionDuration = context.InvocationDuration,
-                CompletionPromiseFound = context.CompletionPromiseFound
+                CompletionPromiseFound = context.CompletionPromiseFound,
+                InputTokens = context.InputTokens,
+                OutputTokens = context.OutputTokens,
+                ModelId = context.ModelId
             };
 
             // Record execution in domain

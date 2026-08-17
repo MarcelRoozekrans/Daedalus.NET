@@ -1,4 +1,10 @@
 global using CSharpFunctionalExtensions;
+using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
+using BrainstormSessionDto = Daedalus.Application.DTOs.BrainstormSessionDto;
+using BrainstormSessionSummaryDto = Daedalus.Application.DTOs.BrainstormSessionSummaryDto;
+using CreateBrainstormSessionDto = Daedalus.Application.DTOs.CreateBrainstormSessionDto;
+using SendBrainstormMessageDto = Daedalus.Application.DTOs.SendBrainstormMessageDto;
 
 namespace Daedalus.Web.Services;
 
@@ -21,6 +27,10 @@ public sealed class ApiClient(HttpClient httpClient)
                 ? Result.Success(result)
                 : Result.Failure<T>("No data returned from server");
         }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure<T>("Please log in to access this data.");
+        }
         catch (HttpRequestException ex)
         {
             return Result.Failure<T>($"API error: {ex.Message}");
@@ -31,7 +41,8 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (Exception ex)
         {
-            return Result.Failure<T>($"Unexpected error: {ex.Message}");
+            var message = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+            return Result.Failure<T>($"Unexpected error: {message}");
         }
     }
 
@@ -118,9 +129,31 @@ public sealed class ApiClient(HttpClient httpClient)
                 ? Result.Success(result)
                 : Result.Failure<T>("No data returned from server");
         }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure<T>("Please log in to perform this action.");
+        }
         catch (HttpRequestException ex)
         {
             return Result.Failure<T>($"API error: {ex.Message}");
+        }
+    }
+
+    private async Task<Result> PostAsync(string url, object body, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await httpClient.PostAsJsonAsync(url, body, ct);
+            response.EnsureSuccessStatusCode();
+            return Result.Success();
+        }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure("Please log in to perform this action.");
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result.Failure($"API error: {ex.Message}");
         }
     }
 
@@ -136,6 +169,10 @@ public sealed class ApiClient(HttpClient httpClient)
                 ? Result.Success(result)
                 : Result.Failure<T>("No data returned from server");
         }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure<T>("Please log in to perform this action.");
+        }
         catch (HttpRequestException ex)
         {
             return Result.Failure<T>($"API error: {ex.Message}");
@@ -149,6 +186,10 @@ public sealed class ApiClient(HttpClient httpClient)
             var response = await httpClient.DeleteAsync(new Uri(url, UriKind.Relative), ct);
             response.EnsureSuccessStatusCode();
             return Result.Success();
+        }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result.Failure("Please log in to perform this action.");
         }
         catch (HttpRequestException ex)
         {
@@ -179,4 +220,56 @@ public sealed class ApiClient(HttpClient httpClient)
     public async Task<Result<RalphConfigDto>>
         UpdateRalphConfigAsync(RalphConfigDto dto, CancellationToken ct = default) =>
         await PutAsync<RalphConfigDto>("/api/ralph-config", dto, ct);
+
+    // Cost Analytics
+    public async Task<Result<CostSummaryDto>> GetCostSummaryAsync(CancellationToken ct = default) =>
+        await GetAsync<CostSummaryDto>("/api/cost-analytics/summary", ct);
+
+    public async Task<Result<List<ProjectCostDto>>> GetCostsByProjectAsync(CancellationToken ct = default) =>
+        await GetAsync<List<ProjectCostDto>>("/api/cost-analytics/by-project", ct);
+
+    public async Task<Result<List<TaskCostDto>>> GetCostsByProjectIdAsync(Guid projectId, CancellationToken ct = default) =>
+        await GetAsync<List<TaskCostDto>>($"/api/cost-analytics/by-project/{projectId}", ct);
+
+    public async Task<Result<List<TaskCostDto>>> GetCostsBySessionIdAsync(Guid sessionId, CancellationToken ct = default) =>
+        await GetAsync<List<TaskCostDto>>($"/api/cost-analytics/by-session/{sessionId}", ct);
+
+    public async Task<Result<CostEstimateDto>> EstimateCostAsync(
+        string modelId, int maxIterations = 10, int estimatedPromptTokens = 4000,
+        CancellationToken ct = default) =>
+        await GetAsync<CostEstimateDto>(
+            $"/api/cost-analytics/estimate?modelId={Uri.EscapeDataString(modelId)}&maxIterations={maxIterations}&estimatedPromptTokens={estimatedPromptTokens}",
+            ct);
+
+    public async Task<Result<List<ModelPricingDto>>> GetModelPricingAsync(CancellationToken ct = default) =>
+        await GetAsync<List<ModelPricingDto>>("/api/cost-analytics/pricing", ct);
+
+    // Brainstorm Sessions
+    public async Task<Result<BrainstormSessionDto>> CreateBrainstormSessionAsync(
+        CreateBrainstormSessionDto dto, CancellationToken ct = default) =>
+        await PostAsync<BrainstormSessionDto>("/api/brainstorm/sessions", dto, ct);
+
+    public async Task<Result<BrainstormSessionDto>> GetBrainstormSessionAsync(
+        Guid sessionId, CancellationToken ct = default) =>
+        await GetAsync<BrainstormSessionDto>($"/api/brainstorm/sessions/{sessionId}", ct);
+
+    public async Task<Result<List<BrainstormSessionSummaryDto>>> GetBrainstormSessionsAsync(
+        Guid projectId, CancellationToken ct = default) =>
+        await GetAsync<List<BrainstormSessionSummaryDto>>($"/api/brainstorm/sessions?projectId={projectId}", ct);
+
+    public async Task<Result<BrainstormMessageDto>> SendBrainstormMessageAsync(
+        Guid sessionId, SendBrainstormMessageDto dto, CancellationToken ct = default) =>
+        await PostAsync<BrainstormMessageDto>($"/api/brainstorm/sessions/{sessionId}/messages", dto, ct);
+
+    public async Task<Result<BrainstormSessionDto>> AdvanceBrainstormPhaseAsync(
+        Guid sessionId, CancellationToken ct = default) =>
+        await PostAsync<BrainstormSessionDto>($"/api/brainstorm/sessions/{sessionId}/advance", new { }, ct);
+
+    public async Task<Result> AbandonBrainstormSessionAsync(
+        Guid sessionId, CancellationToken ct = default) =>
+        await PostAsync($"/api/brainstorm/sessions/{sessionId}/abandon", new { }, ct);
+
+    public async Task<Result<List<TaskDto>>> GenerateBrainstormTasksAsync(
+        Guid sessionId, CancellationToken ct = default) =>
+        await PostAsync<List<TaskDto>>($"/api/brainstorm/sessions/{sessionId}/generate-tasks", new { }, ct);
 }
