@@ -90,6 +90,12 @@ public static class DaedalusAgentsServiceCollectionExtensions
             services.TryAddSingleton(embeddingGenerator);
         }
 
+        // Only this host sweeps: memories written index_pending (Ollama down, console host, migrated learnings) get embedded here.
+        if (options.Memory.Enabled && options.Memory.Reindex.Enabled)
+        {
+            services.AddHostedService<ReindexPendingMemoriesHostedService>();
+        }
+
         services.AddThalos(thalos =>
         {
             // This host owns the Rag.NET schema: the API is the only host that creates rag_chunks (see AddDaedalusMemory).

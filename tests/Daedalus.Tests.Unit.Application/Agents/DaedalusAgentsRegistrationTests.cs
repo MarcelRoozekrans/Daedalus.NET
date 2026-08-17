@@ -289,6 +289,24 @@ public sealed class DaedalusAgentsRegistrationTests
         sp.GetServices<IHostedService>().Should().ContainSingle(h => h.GetType().Name == "RagNetMemorySchemaInitializer");
     }
 
+    [Fact]
+    public void Api_host_runs_the_reindex_sweeper()
+    {
+        using var sp = Build(Config());
+
+        sp.GetServices<IHostedService>().Should().ContainSingle(h => h is ReindexPendingMemoriesHostedService);
+    }
+
+    [Theory]
+    [InlineData("Thalos:Memory:Reindex:Enabled", "false")]
+    [InlineData("Thalos:Memory:Enabled", "false")]
+    public void Reindex_sweeper_is_not_registered_when_switched_off(string key, string value)
+    {
+        using var sp = Build(Config((key, value)));
+
+        sp.GetServices<IHostedService>().Should().NotContain(h => h is ReindexPendingMemoriesHostedService);
+    }
+
     [Theory]
     [InlineData("Thalos:Memory:SharedOwnerId", "  ", "SharedOwnerId")]
     [InlineData("Thalos:Memory:VectorDimensions", "0", "VectorDimensions")]
