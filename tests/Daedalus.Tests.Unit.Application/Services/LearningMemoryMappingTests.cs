@@ -71,6 +71,26 @@ public sealed class LearningMemoryMappingTests
         learning.IsSuccess.Should().BeTrue(learning.IsFailure ? learning.Error : null);
     }
 
+    [Fact]
+    public void Truncation_never_splits_a_surrogate_pair()
+    {
+        // The parser's input is raw LLM output and the severity prefixes it strips are emoji, so a cut can land
+        // between the two halves of a pair. A lone surrogate passes the aggregate (which counts chars) but is not
+        // encodable as UTF-8 — Npgsql throws on write.
+        var pattern = new string('p', AgentMemory.MaxTextLength - 1) + "🔴";
+        var text = LearningMemoryMapping.Text(pattern, "resolution");
+
+        text.Length.Should().BeLessThanOrEqualTo(AgentMemory.MaxTextLength);
+        char.IsHighSurrogate(text[^1]).Should().BeFalse("a trailing high surrogate would have lost its pair");
+        System.Text.Encoding.UTF8.GetString(System.Text.Encoding.UTF8.GetBytes(text)).Should().Be(text, "the text must round-trip through UTF-8");
+
+        var tag = new string('t', AgentMemory.MaxTagLength - 1) + "🔴";
+        var tags = LearningMemoryMapping.Tags(LearningCategory.ErrorPattern, LearningSeverity.Low, [tag]);
+
+        tags.Should().OnlyContain(t => t.Length <= AgentMemory.MaxTagLength);
+        tags.Should().AllSatisfy(t => char.IsHighSurrogate(t[^1]).Should().BeFalse("'{0}' would end in half a pair", t));
+    }
+
     [Theory]
     [InlineData(LearningSeverity.Critical, 1.0)]
     [InlineData(LearningSeverity.High, 0.8)]

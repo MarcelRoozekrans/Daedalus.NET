@@ -66,6 +66,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(environment);
+        ThrowIfMemoryAlreadyRegistered(services, nameof(AddDaedalusAgents));
 
         var options = new DaedalusAgentsOptions();
         configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
@@ -128,8 +129,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// <param name="configuration">Host configuration; <c>Thalos:Memory</c> and <c>ConnectionStrings:daedalus</c> are read.</param>
     /// <remarks>
     ///     <para>
-    ///         Mutually exclusive with <see cref="AddDaedalusAgents"/>: a host calls one or the other, never both. (The
-    ///         registrations are <c>TryAdd</c>-based so a double call is harmless, but the second one contributes nothing.)
+    ///         Mutually exclusive with <see cref="AddDaedalusAgents"/>, and checked: calling both throws. The Daedalus
+    ///         registrations are <c>TryAdd</c>-based, but <c>UseRagNetMemory</c> is last-call-wins, so a later
+    ///         <see cref="AddDaedalusMemory"/> would flip <c>EnsureSchemaOnStartup</c> back to <c>false</c> on the API host
+    ///         — nobody would create <c>rag_chunks</c>, every memory would stay <c>index_pending</c>, and nothing would fail
+    ///         loudly.
     ///     </para>
     ///     <para>
     ///         <b>The API host owns the Rag.NET schema.</b> This call sets <c>EnsureSchemaOnStartup = false</c>, because the
@@ -148,6 +152,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
+        ThrowIfMemoryAlreadyRegistered(services, nameof(AddDaedalusMemory));
 
         var options = new DaedalusAgentsOptions();
         configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
@@ -205,6 +210,23 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 throw new InvalidOperationException(
                     $"{MemoryConfig.SectionName}:Reindex:{key} must be greater than zero, but was {value.ToString(null, CultureInfo.InvariantCulture)}.");
             }
+        }
+    }
+
+    /// <summary>
+    ///     Refuses a second memory registration. <c>UseRagNetMemory</c> is last-call-wins, so calling
+    ///     <see cref="AddDaedalusAgents"/> and <see cref="AddDaedalusMemory"/> on one host would silently leave
+    ///     <c>EnsureSchemaOnStartup</c> at whatever the later call passed — on the API host that means nobody creates
+    ///     <c>rag_chunks</c> and every memory stays <c>index_pending</c> with nothing failing. Fail loudly instead.
+    /// </summary>
+    private static void ThrowIfMemoryAlreadyRegistered(IServiceCollection services, string method)
+    {
+        if (services.Any(d => d.ServiceType == typeof(MemoryConfig)))
+        {
+            throw new InvalidOperationException(
+                $"{method} was called on a service collection that already registers Daedalus memory. " +
+                $"{nameof(AddDaedalusAgents)} and {nameof(AddDaedalusMemory)} are mutually exclusive: the API host calls " +
+                $"{nameof(AddDaedalusAgents)} (which owns the Rag.NET schema), every other host calls {nameof(AddDaedalusMemory)}.");
         }
     }
 

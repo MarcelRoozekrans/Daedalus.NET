@@ -126,6 +126,24 @@ public sealed class ApiThalosConfigurationTests
         sp.GetServices<IHostedService>().Should().NotContain(s => s.GetType().Name == "RagNetMemorySchemaInitializer");
     }
 
+    /// <summary>
+    ///     <c>UseRagNetMemory</c> is last-call-wins, so a host that called both registrations would silently take the
+    ///     later <c>EnsureSchemaOnStartup</c> — on the API that means nobody creates <c>rag_chunks</c> and every memory
+    ///     stays <c>index_pending</c> without anything failing. The registration refuses instead.
+    /// </summary>
+    [Fact]
+    public void Registering_memory_twice_throws_instead_of_silently_disabling_schema_creation()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddDaedalusMemory(LoadConsoleConfiguration());
+
+        var second = () => services.AddDaedalusMemory(LoadConsoleConfiguration());
+
+        second.Should().Throw<InvalidOperationException>().WithMessage("*mutually exclusive*");
+    }
+
     [Fact]
     public void Mcp_config_is_copied_next_to_the_api_and_parses()
     {

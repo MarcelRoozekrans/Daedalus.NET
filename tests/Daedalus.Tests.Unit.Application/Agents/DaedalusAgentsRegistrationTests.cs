@@ -305,12 +305,12 @@ public sealed class DaedalusAgentsRegistrationTests
     [Fact]
     public void Unknown_sentinel_action_or_detector_fails_fast()
     {
-        var services = new ServiceCollection();
-
-        var badAction = () => services.AddDaedalusAgents(Config(("Thalos:Sentinel:OnCritical", "Explode")), Environment());
+        // A fresh collection per case: a failed registration leaves the services added before the throw behind, and
+        // memory registration refuses to run twice on one collection.
+        var badAction = () => new ServiceCollection().AddDaedalusAgents(Config(("Thalos:Sentinel:OnCritical", "Explode")), Environment());
         badAction.Should().Throw<InvalidOperationException>().WithMessage("*OnCritical*Explode*");
 
-        var badDetector = () => services.AddDaedalusAgents(Config(("Thalos:Sentinel:DisabledDetectors:0", "NoSuchDetector")), Environment());
+        var badDetector = () => new ServiceCollection().AddDaedalusAgents(Config(("Thalos:Sentinel:DisabledDetectors:0", "NoSuchDetector")), Environment());
         badDetector.Should().Throw<InvalidOperationException>().WithMessage("*NoSuchDetector*");
     }
 }

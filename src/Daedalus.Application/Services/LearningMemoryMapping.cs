@@ -70,6 +70,18 @@ public static class LearningMemoryMapping
     /// <param name="sourceTaskId">The task that produced the learning.</param>
     public static string Source(Guid sourceTaskId) => $"ralph:task/{sourceTaskId}";
 
-    private static string Truncate(string value, int maxLength) =>
-        value.Length <= maxLength ? value : value[..maxLength];
+    // Cuts one char short when the boundary would split a surrogate pair: the aggregate validates on
+    // string.Length, so a lone surrogate passes validation but is not encodable as UTF-8 and Npgsql throws
+    // when writing it. Reachable in practice — the parser's input is raw LLM output and the severity
+    // prefixes it strips are emoji.
+    private static string Truncate(string value, int maxLength)
+    {
+        if (value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        var cut = char.IsHighSurrogate(value[maxLength - 1]) ? maxLength - 1 : maxLength;
+        return value[..cut];
+    }
 }
