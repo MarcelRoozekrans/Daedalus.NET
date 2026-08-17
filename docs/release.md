@@ -27,7 +27,7 @@ images instead of NuGet packages.
 ```bash
 # GitHub Actions must be allowed to open the release PR (Settings → Actions → General →
 # "Allow GitHub Actions to create and approve pull requests"), or via the API:
-gh api -X PUT repos/MarcelRoozekrans/daedalus/actions/permissions/workflow \
+gh api -X PUT repos/MarcelRoozekrans/Daedalus.NET/actions/permissions/workflow \
   -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true
 ```
 

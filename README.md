@@ -1,10 +1,10 @@
 # Daedalus
 
-[![CI](https://github.com/MarcelRoozekrans/daedalus/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MarcelRoozekrans/daedalus/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/MarcelRoozekrans/883ece1e357faef9d6bdfb459e31fe66/raw/daedalus-coverage.json)](https://github.com/MarcelRoozekrans/daedalus/actions/workflows/ci.yml)
+[![CI](https://github.com/MarcelRoozekrans/Daedalus.NET/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MarcelRoozekrans/Daedalus.NET/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/MarcelRoozekrans/883ece1e357faef9d6bdfb459e31fe66/raw/daedalus-coverage.json)](https://github.com/MarcelRoozekrans/Daedalus.NET/actions/workflows/ci.yml)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![C#](https://img.shields.io/badge/C%23-13.0-239120?logo=csharp)](https://learn.microsoft.com/dotnet/csharp/)
-[![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/MarcelRoozekrans/daedalus/pkgs/container/)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/MarcelRoozekrans/Daedalus.NET/pkgs/container/)
 
 High-performance .NET 10 application using Railway-Oriented Programming for AI-driven task execution with LLM iteration
 loops. Features dual presentation layers (Blazor Web + Console Worker) sharing one Application + Infrastructure stack,
