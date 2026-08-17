@@ -10,10 +10,11 @@
         <EnableNETAnalyzers>true</EnableNETAnalyzers>
         <AnalysisLevel>latest-all</AnalysisLevel>
         <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-        <!-- Version information -->
-        <AssemblyVersion>1.0.0.0</AssemblyVersion>
-        <FileVersion>1.0.0.0</FileVersion>
-        <InformationalVersion>1.0.0</InformationalVersion>
+        <!-- Version: derived from git history by GitVersion (GitVersion.yml) and passed in by CI and the
+             Dockerfiles as -p:Version=X.Y.Z; AssemblyVersion/FileVersion/InformationalVersion follow from it.
+             VersionPrefix is only the fallback for a plain local `dotnet build`. Never hand-edit a release
+             number here — release-please cuts releases (docs/release.md). -->
+        <VersionPrefix>0.1.0</VersionPrefix>
         <!-- AOT Compilation Support (can be overridden per project) -->
         <TrimMode>partial</TrimMode>
         <EnableTrimAnalyzer>true</EnableTrimAnalyzer>

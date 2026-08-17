@@ -908,6 +908,23 @@ The project uses `.editorconfig` for consistent style rules enforced by `dotnet 
 See [copilot-instructions.md](.github/copilot-instructions.md) for the full set of coding standards, patterns, and
 forbidden anti-patterns.
 
+### Commits, versioning and releases
+
+Same setup as [Rag.NET](https://github.com/MarcelRoozekrans/Rag.NET) and
+[Thalos.NET](https://github.com/MarcelRoozekrans/Thalos.NET); the runbook is [docs/release.md](docs/release.md).
+
+- **Conventional commits** (`feat:`, `fix:`, `chore:`, … — rules in `.commitlintrc.yml`), enforced on pull requests
+  by the `commitlint` CI job. release-please reads them to propose the next version.
+- **Version** comes from git history via [GitVersion](GitVersion.yml) (`dotnet tool restore && dotnet dotnet-gitversion`);
+  CI stamps it into every assembly (`-p:Version`) and image (`APP_VERSION` build-arg). Stable versions only — no
+  prereleases. Nothing is hand-edited: `VersionPrefix` in `Directory.Build.props` is only the fallback for a plain
+  local build.
+- **Releases** are cut by [release-please](.github/workflows/release-please.yml): dispatch → review/merge the
+  `chore(main): release X.Y.Z` PR → dispatch → `vX.Y.Z` tag + GitHub release. Then a manual CI dispatch with
+  `publish_release=true` pushes the `daedalus-api`, `daedalus-console` and `daedalus-web` images to ghcr.io as
+  `X.Y.Z`, `X.Y` and `latest` — only from the tagged commit. Every push to `main` publishes the moving tip as
+  `<sha>` and `main`.
+
 ---
 
 ## Troubleshooting
