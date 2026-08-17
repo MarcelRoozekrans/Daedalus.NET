@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Web.Services;
+namespace Daedalus.Web.Services;
 
 /// <summary>DTO for updating a task's metadata.</summary>
 public record UpdateTaskDto(

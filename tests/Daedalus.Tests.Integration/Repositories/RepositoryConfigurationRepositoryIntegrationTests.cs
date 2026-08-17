@@ -11,7 +11,7 @@ namespace Daedalus.Tests.Integration.Repositories;
 
 /// <summary>
 ///     Integration tests for RepositoryConfigurationRepository.
-///     Uses InMemoryDatabase for speed and isolation.
+///     Uses the EF InMemory provider (via InMemoryDbContextFactory) for speed and isolation.
 /// </summary>
 [Collection("Database collection")]
 public class RepositoryConfigurationRepositoryIntegrationTests : IAsyncLifetime
@@ -21,11 +21,7 @@ public class RepositoryConfigurationRepositoryIntegrationTests : IAsyncLifetime
 
     public RepositoryConfigurationRepositoryIntegrationTests()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-
-        _dbContext = new ApplicationDbContext(options);
+        _dbContext = InMemoryDbContextFactory.Create();
         var logger = Substitute.For<ILogger<RepositoryConfigurationRepository>>();
         _repository = new RepositoryConfigurationRepository(_dbContext, logger);
     }

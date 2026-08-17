@@ -21,9 +21,7 @@ public class ExecutionSessionRepositoryTests(PostgresFixture fixture) : IAsyncLi
 
     public async SystemTask InitializeAsync()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
         _repository = new ExecutionSessionRepository(_dbContext, _logger);
@@ -63,9 +61,7 @@ public class ExecutionSessionRepositoryTests(PostgresFixture fixture) : IAsyncLi
         {
             var task = SystemTask.Run(async () =>
             {
-                var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                    .UseNpgsql(fixture.ConnectionString)
-                    .Options;
+                var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
                 using var taskDbContext = new ApplicationDbContext(options);
                 var taskRepository = new ExecutionSessionRepository(taskDbContext, _logger);
 
@@ -175,7 +171,8 @@ public class ExecutionSessionRepositoryTests(PostgresFixture fixture) : IAsyncLi
     {
         var sessionId = Guid.NewGuid();
         var session = ExecutionSession.Create(sessionId, "worker-GPU-001").Value;
-        for (var i = 0; i < 5; i++) session.RecordTaskCompleted();
+        for (var i = 0; i < 5; i++)
+            session.RecordTaskCompleted();
 
         await _repository.AddAsync(session, CancellationToken.None);
 
@@ -232,7 +229,8 @@ public class ExecutionSessionRepositoryTests(PostgresFixture fixture) : IAsyncLi
         var session = ExecutionSession.Create(sessionId, "worker-001").Value;
         await _repository.AddAsync(session, CancellationToken.None);
 
-        for (var i = 0; i < 10; i++) session.RecordTaskCompleted();
+        for (var i = 0; i < 10; i++)
+            session.RecordTaskCompleted();
 
         var updateResult = await _repository.UpdateAsync(session, CancellationToken.None);
 
@@ -249,12 +247,14 @@ public class ExecutionSessionRepositoryTests(PostgresFixture fixture) : IAsyncLi
         var session = ExecutionSession.Create(sessionId, "worker-001").Value;
         await _repository.AddAsync(session, CancellationToken.None);
 
-        for (var i = 0; i < 5; i++) session.RecordTaskCompleted();
+        for (var i = 0; i < 5; i++)
+            session.RecordTaskCompleted();
         await _repository.UpdateAsync(session, CancellationToken.None);
         var retrieved1 = await _repository.GetByIdAsync(sessionId, CancellationToken.None);
         retrieved1.Value.TasksCompleted.Should().Be(5);
 
-        for (var i = 0; i < 5; i++) session.RecordTaskCompleted();
+        for (var i = 0; i < 5; i++)
+            session.RecordTaskCompleted();
         await _repository.UpdateAsync(session, CancellationToken.None);
         var retrieved2 = await _repository.GetByIdAsync(sessionId, CancellationToken.None);
         retrieved2.Value.TasksCompleted.Should().Be(10);

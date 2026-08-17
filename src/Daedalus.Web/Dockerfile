@@ -1,15 +1,19 @@
 # Multi-stage build for Daedalus.Web - Blazor WASM frontend
 # Stage 1: Build the Blazor WASM project
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+# The version stamped into the assemblies, passed by CI from GitVersion. 0.0.0 = built outside CI.
+ARG APP_VERSION=0.0.0
 WORKDIR /src
 
-# Copy project files
+# Copy project files (plus central package management and the feed configuration)
 COPY ["src/Daedalus.Web/Daedalus.Web.csproj", "src/Daedalus.Web/"]
 COPY ["src/Daedalus.Application/Daedalus.Application.csproj", "src/Daedalus.Application/"]
 COPY ["src/Daedalus.Domain/Daedalus.Domain.csproj", "src/Daedalus.Domain/"]
 COPY ["src/Daedalus.ServiceDefaults/Daedalus.ServiceDefaults.csproj", "src/Daedalus.ServiceDefaults/"]
 COPY ["Directory.Build.props", "Directory.Build.props"]
 COPY ["Directory.Packages.props", "Directory.Packages.props"]
+COPY ["nuget.config", "nuget.config"]
+COPY ["packages-local/", "packages-local/"]
 
 # Restore dependencies
 RUN dotnet restore "src/Daedalus.Web/Daedalus.Web.csproj"
@@ -19,13 +23,14 @@ COPY . .
 
 # Build the project
 WORKDIR "/src/src/Daedalus.Web"
-RUN dotnet build "Daedalus.Web.csproj" -c Release --no-restore -o /app/build
+RUN dotnet build "Daedalus.Web.csproj" -c Release --no-restore -o /app/build -p:Version=$APP_VERSION
 
 # Stage 2: Publish WASM build
 FROM build AS publish
 RUN dotnet publish "Daedalus.Web.csproj" \
     -c Release \
     --no-restore \
+    -p:Version=$APP_VERSION \
     -o /app/publish
 
 # Stage 3: Final image - serve static WASM files

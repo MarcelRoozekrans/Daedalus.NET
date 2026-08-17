@@ -10,6 +10,23 @@ public static class ApplicationTestFactory
     private static readonly Guid _defaultProjectId = Guid.CreateVersion7();
 
     /// <summary>
+    ///     Creates a Project with minimal parameters, using defaults for others.
+    /// </summary>
+    public static Project CreateProject(
+        Guid? id = null,
+        string projectName = "Test Project",
+        string description = "Test project description",
+        string version = "1.0")
+    {
+        return Project.Create(
+            id ?? Guid.NewGuid(),
+            projectName,
+            description,
+            version
+        ).Value;
+    }
+
+    /// <summary>
     ///     Creates a Task with minimal parameters, using defaults for others.
     /// </summary>
     public static DomainTask CreateTask(

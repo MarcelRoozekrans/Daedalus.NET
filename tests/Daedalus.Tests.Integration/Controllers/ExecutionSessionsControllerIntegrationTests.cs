@@ -1,4 +1,4 @@
-﻿using Daedalus.Api.Controllers;
+using Daedalus.Api.Controllers;
 using Daedalus.Api.Services;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
@@ -29,9 +29,7 @@ public class ExecutionSessionsControllerIntegrationTests(PostgresFixture fixture
     {
         await fixture.DatabaseResetter.ResetAsync();
 
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
         _sessionQueryService = new ExecutionSessionQueryService(_dbContext);

@@ -1,4 +1,4 @@
-﻿using CSharpFunctionalExtensions;
+using CSharpFunctionalExtensions;
 
 namespace Daedalus.Domain.CodeAnalysis;
 
@@ -24,6 +24,11 @@ public sealed class AnalysisIteration : Entities.Entity<Guid>
     public bool? TestsPassed { get; private set; }
     public string? ValidationErrors { get; private set; } // JSON
 
+    // Token usage
+    public int InputTokens { get; private set; }
+    public int OutputTokens { get; private set; }
+    public string? ModelId { get; private set; }
+
     // Timestamps
     public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
 
@@ -37,7 +42,10 @@ public sealed class AnalysisIteration : Entities.Entity<Guid>
         string promptSent,
         string aiResponse,
         string? branchName = null,
-        string? commitSha = null)
+        string? commitSha = null,
+        int inputTokens = 0,
+        int outputTokens = 0,
+        string? modelId = null)
     {
         // Validation
         if (codeAnalysisRequestId == Guid.Empty)
@@ -69,6 +77,9 @@ public sealed class AnalysisIteration : Entities.Entity<Guid>
             AiResponse = aiResponse.Trim(),
             BranchName = branchName?.Trim(),
             CommitSha = commitSha?.Trim(),
+            InputTokens = inputTokens,
+            OutputTokens = outputTokens,
+            ModelId = modelId?.Trim(),
             CreatedAt = DateTime.UtcNow
         });
     }

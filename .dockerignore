@@ -1,0 +1,16 @@
+# Keep host build output and tooling out of the image build context: the Dockerfiles restore and
+# build from source, and a Windows obj/ tree in the context makes `COPY . .` slow and can poison
+# the Linux restore.
+**/bin/
+**/obj/
+**/TestResults/
+**/BenchmarkDotNet.Artifacts/
+**/node_modules/
+.git/
+.github/
+.claude/
+.idea/
+.vs/
+docs/
+*.md
+!README.md

@@ -45,7 +45,10 @@ public sealed class ExecutionSession : AggregateRoot<Guid>
         var now = startedAt ?? DateTime.UtcNow;
         return Result.Success(new ExecutionSession
         {
-            Id = id, WorkerName = workerName.Trim(), StartedAt = now, LastHeartbeat = now
+            Id = id,
+            WorkerName = workerName.Trim(),
+            StartedAt = now,
+            LastHeartbeat = now
         });
     }
 

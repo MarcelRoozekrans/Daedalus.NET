@@ -1,4 +1,4 @@
-﻿using Daedalus.Domain.Entities;
+using Daedalus.Domain.Entities;
 
 namespace Daedalus.Application.DTOs;
 

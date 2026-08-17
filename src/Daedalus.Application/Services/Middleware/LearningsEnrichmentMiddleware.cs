@@ -8,11 +8,27 @@ namespace Daedalus.Application.Services.Middleware;
 ///     Enriches the prompt context with cross-task learnings and failure patterns
 ///     before prompt building occurs.
 ///     Order: 90 (runs before PromptBuildingMiddleware at 100).
-///     Aligned with Ralph philosophy: simple persistence + keyword search,
-///     no vectors, no embeddings — just structured knowledge transfer.
+///     Operates in two modes based on <see cref="IKnowledgeBaseToolStatus.AreToolsAvailable" />:
+///     <list type="bullet">
+///         <item>
+///             <term>Slim mode</term>
+///             <description>
+///                 When MCP knowledge base tools are available, injects a compact summary
+///                 and tool-usage hint so the LLM can query the knowledge base on demand.
+///             </description>
+///         </item>
+///         <item>
+///             <term>Full-text fallback</term>
+///             <description>
+///                 When MCP tools are unavailable, fetches learnings and failure patterns
+///                 from the database and injects them directly into the prompt context.
+///             </description>
+///         </item>
+///     </list>
 /// </summary>
 public sealed partial class LearningsEnrichmentMiddleware(
     ILearningsService learningsService,
+    IKnowledgeBaseToolStatus toolStatus,
     ILogger<LearningsEnrichmentMiddleware> logger) : IRalphLoopMiddleware
 {
     /// <summary>
@@ -40,33 +56,49 @@ public sealed partial class LearningsEnrichmentMiddleware(
                 return await continuation();
             }
 
-            var enrichmentResult = await learningsService.GetEnrichmentContextAsync(
-                context.Task.Prompt,
-                context.Task.ProjectId != Guid.Empty ? context.Task.ProjectId : null,
-                context.Task.Id,
-                _maxLearnings,
-                _maxFailurePatterns,
-                ct);
-
-            if (enrichmentResult.IsSuccess && !string.IsNullOrEmpty(enrichmentResult.Value))
+            if (toolStatus.AreToolsAvailable)
             {
-                // Inject enrichment into the prompt context's accumulated learnings
-                // This gets picked up by DefaultPromptBuilder in the "LEARNINGS" section
-                var existingLearnings = context.PromptContext.AccumulatedLearnings ?? string.Empty;
-                context.PromptContext.AccumulatedLearnings = string.IsNullOrEmpty(existingLearnings)
-                    ? enrichmentResult.Value
-                    : $"{existingLearnings}\n\n{enrichmentResult.Value}";
+                // Slim mode: inject summary + tool usage hint
+                var summary = $"=== KNOWLEDGE BASE ===\n" +
+                    $"You have access to a knowledge base with {toolStatus.LearningsCount} learnings " +
+                    $"and {toolStatus.FailurePatternsCount} failure patterns.\n" +
+                    $"Use the search_learnings tool to find relevant past knowledge.\n" +
+                    $"Use the search_failure_patterns tool when you encounter errors.\n";
 
-                LogEnrichmentInjected(logger, context.Iteration, enrichmentResult.Value.Length);
-            }
-            else if (enrichmentResult.IsFailure)
-            {
-                LogEnrichmentFailed(logger, context.Iteration, enrichmentResult.Error);
-                // Non-fatal — continue without enrichment
+                context.PromptContext.AccumulatedLearnings = summary;
+                LogSlimEnrichment(logger, context.Iteration, toolStatus.LearningsCount);
             }
             else
             {
-                LogNoEnrichment(logger, context.Iteration);
+                // Fallback: full text injection (current behavior)
+                var enrichmentResult = await learningsService.GetEnrichmentContextAsync(
+                    context.Task.Prompt,
+                    context.Task.ProjectId != Guid.Empty ? context.Task.ProjectId : null,
+                    context.Task.Id,
+                    _maxLearnings,
+                    _maxFailurePatterns,
+                    ct);
+
+                if (enrichmentResult.IsSuccess && !string.IsNullOrEmpty(enrichmentResult.Value))
+                {
+                    // Inject enrichment into the prompt context's accumulated learnings
+                    // This gets picked up by DefaultPromptBuilder in the "LEARNINGS" section
+                    var existingLearnings = context.PromptContext.AccumulatedLearnings ?? string.Empty;
+                    context.PromptContext.AccumulatedLearnings = string.IsNullOrEmpty(existingLearnings)
+                        ? enrichmentResult.Value
+                        : $"{existingLearnings}\n\n{enrichmentResult.Value}";
+
+                    LogEnrichmentInjected(logger, context.Iteration, enrichmentResult.Value.Length);
+                }
+                else if (enrichmentResult.IsFailure)
+                {
+                    LogEnrichmentFailed(logger, context.Iteration, enrichmentResult.Error);
+                    // Non-fatal — continue without enrichment
+                }
+                else
+                {
+                    LogNoEnrichment(logger, context.Iteration);
+                }
             }
 
             return await continuation();
@@ -92,4 +124,8 @@ public sealed partial class LearningsEnrichmentMiddleware(
     [LoggerMessage(EventId = 102, Level = LogLevel.Warning,
         Message = "Learnings enrichment failed for iteration {Iteration}: {Error}")]
     private static partial void LogEnrichmentFailed(ILogger logger, int iteration, string error);
+
+    [LoggerMessage(EventId = 103, Level = LogLevel.Debug,
+        Message = "Slim enrichment mode for iteration {Iteration}: {LearningsCount} learnings available via MCP tools")]
+    private static partial void LogSlimEnrichment(ILogger logger, int iteration, int learningsCount);
 }

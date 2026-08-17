@@ -3,19 +3,17 @@ using System.Text.Json;
 using CSharpFunctionalExtensions;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
-using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace Daedalus.Application.Commands.GeneratePrd;
 
 /// <summary>
-///     Handler for PRD generation using LLM with PRD agent mode and MCP server support.
+///     Handler for PRD generation using LLM with PRD agent mode.
 /// </summary>
 public sealed partial class GeneratePrdCommandHandler(
-    ILlmService llmService,
-    ILogger<GeneratePrdCommandHandler> logger,
-    McpIntegrationOptions? mcpOptions = null) : ICommandHandler<GeneratePrdCommand, Result<PrdResponseDto>>
+    IRalphAgentFactory agentFactory,
+    ILogger<GeneratePrdCommandHandler> logger) : ICommandHandler<GeneratePrdCommand, Result<PrdResponseDto>>
 {
     private const string _prdAgentPrompt = """
                                            You are a Product Requirements Document (PRD) Agent. Your task is to analyze user requirements and generate a structured PRD.
@@ -54,8 +52,6 @@ public sealed partial class GeneratePrdCommandHandler(
                                            Return ONLY valid JSON, no markdown, no code blocks, no explanations.
                                            """;
 
-    private readonly McpIntegrationOptions _mcpOptions = mcpOptions ?? new McpIntegrationOptions { Enabled = false };
-
     public async Task<Result<PrdResponseDto>> Handle(GeneratePrdCommand command, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(command.UserRequirements))
@@ -68,25 +64,15 @@ public sealed partial class GeneratePrdCommandHandler(
             var prompt = BuildPrompt(command);
             LogGeneratingPrd(logger, command.ProjectId);
 
-            // Invoke LLM with MCP support if enabled
-            Result<string> llmResult;
-            if (_mcpOptions.Enabled && _mcpOptions.Servers.Count > 0)
-            {
-                LogInvokingLlmWithMcp(logger, command.ProjectId, _mcpOptions.Servers.Count);
-                llmResult = await llmService.InvokeWithMcpAsync(prompt, _mcpOptions, cancellationToken);
-            }
-            else
-            {
-                LogInvokingLlmWithoutMcp(logger, command.ProjectId);
-                llmResult = await llmService.InvokeAsync(prompt, cancellationToken);
-            }
+            // Single invocation path — MCP tools are pre-attached by the agent factory
+            var llmResult = await agentFactory.InvokeAsync(prompt, cancellationToken);
 
             if (llmResult.IsFailure)
             {
                 return Result.Failure<PrdResponseDto>($"LLM invocation failed: {llmResult.Error}");
             }
 
-            var prdResult = ParsePrdResponse(llmResult.Value, command.ProjectId, logger);
+            var prdResult = ParsePrdResponse(llmResult.Value.Response, command.ProjectId, logger);
             if (prdResult.IsFailure)
             {
                 return Result.Failure<PrdResponseDto>(prdResult.Error);
@@ -211,23 +197,6 @@ public sealed partial class GeneratePrdCommandHandler(
         var value = prop.GetString();
         return Enum.TryParse<Complexity>(value, true, out var result) ? result : Complexity.Medium;
     }
-
-    [LoggerMessage(
-        EventId = 1,
-        Level = LogLevel.Information,
-        Message = "PRD generation: Invoking LLM with MCP support ({ServerCount} servers) for project {ProjectId}")]
-    private static partial void LogInvokingLlmWithMcp(
-        ILogger logger,
-        Guid projectId,
-        int serverCount);
-
-    [LoggerMessage(
-        EventId = 2,
-        Level = LogLevel.Information,
-        Message = "PRD generation: Invoking LLM without MCP support for project {ProjectId}")]
-    private static partial void LogInvokingLlmWithoutMcp(
-        ILogger logger,
-        Guid projectId);
 
     [LoggerMessage(
         EventId = 3,

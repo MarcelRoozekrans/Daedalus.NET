@@ -65,6 +65,8 @@ public sealed partial class UpdateProjectCommandHandler(
                 project.ProjectName,
                 project.Description,
                 project.Version,
+                project.RepositoryUrl,
+                project.DefaultBranch,
                 project.CreatedAt,
                 project.ModifiedAt,
                 new List<TaskDto>());

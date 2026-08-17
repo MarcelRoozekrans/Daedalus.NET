@@ -1,18 +1,17 @@
-using System.Globalization;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.Abstractions;
+using Daedalus.Infrastructure.Agents;
 using Daedalus.Infrastructure.Configuration;
-using Daedalus.Infrastructure.ExternalServices.Context7;
-using Daedalus.Infrastructure.ExternalServices.Mcp;
-using Daedalus.Infrastructure.Llm;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Services.Git;
 using Daedalus.Infrastructure.Services.NoOp;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -39,7 +38,8 @@ public static class InfrastructureServiceExtensions
     }
 
     /// <summary>
-    ///     Registers external service integrations including MCP agents and Context7 documentation.
+    ///     Registers external service integrations including MCP agents and workspace context.
+    ///     Context7 documentation is available via MCP server tools configured in appsettings.json.
     /// </summary>
     public static IServiceCollection AddExternalServices(
         this IServiceCollection services,
@@ -67,38 +67,14 @@ public static class InfrastructureServiceExtensions
             return config.Value.Mcp ?? new McpIntegrationOptions { Enabled = false };
         });
 
-        // Register MCP session manager for Ralph loop MCP integration
-        services.AddSingleton<McpSessionManager>();
-
-        // Register MCP agent selector (no-op stub; replace with a real implementation when needed)
-        services.AddScoped<IMcpAgentSelector, NoOpMcpAgentSelector>();
-
-        // Register Context7 documentation injector for library documentation
-        // Uses AddHttpClient to provide HttpClient via IHttpClientFactory
-        services.AddHttpClient<IContext7DocumentationInjector, Context7DocumentationInjector>();
-
         // Register workspace context provider for loading specs, plan, and agent instructions
         services.AddScoped<IWorkspaceContextProvider, FileSystemWorkspaceContextProvider>();
 
-        // Register Ralph Wiggum article services (git checkpoints, loop-back, plan management, context persistence)
-        // Use Null Object Pattern when features are disabled to avoid null checks throughout the codebase
-        if (ralphLoopConfig.EnableGitCheckpoints && !string.IsNullOrEmpty(ralphLoopConfig.WorkspacePath))
-        {
-            services.AddScoped<IGitWorkflowService, GitWorkflowService>();
-        }
-        else
-        {
-            services.AddSingleton<IGitWorkflowService, NoOpGitWorkflowService>();
-        }
-
-        if (ralphLoopConfig.EnableLoopbackEvaluation && !string.IsNullOrEmpty(ralphLoopConfig.WorkspacePath))
-        {
-            services.AddScoped<ILoopbackEvaluator, LoopbackEvaluator>();
-        }
-        else
-        {
-            services.AddSingleton<ILoopbackEvaluator, NoOpLoopbackEvaluator>();
-        }
+        // Register real implementations unconditionally — WorkspacePath is set dynamically per-task.
+        // Middleware guards on WorkspacePath at runtime (empty = skip).
+        services.AddScoped<IGitWorkflowService, GitWorkflowService>();
+        services.AddScoped<ILoopbackEvaluator, LoopbackEvaluator>();
+        services.AddScoped<IWorkspaceOrchestrator, WorkspaceOrchestrator>();
 
         services.AddScoped<IPromptContextStore, DatabasePromptContextStore>();
 
@@ -106,56 +82,48 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<ILearningsRepository, LearningsRepository>();
         services.AddScoped<IFailurePatternDatabase, FailurePatternDatabase>();
 
+        // Register brainstorm repository for brainstorm session persistence
+        services.AddScoped<IBrainstormRepository, BrainstormRepository>();
+
+        // Register knowledge base tool status for LearningsEnrichmentMiddleware mode switching
+        services.AddScoped<IKnowledgeBaseToolStatus, KnowledgeBaseToolStatus>();
+
         return services;
     }
 
     /// <summary>
-    ///     Registers LLM services including the factory and all configured providers.
-    ///     Call this after AddExternalServices to ensure configuration is available.
+    ///     Registers Agent Framework services: <c>IRalphAgentFactory</c> (Claude via Anthropic),
+    ///     <c>McpToolBuilder</c> (MCP → AITool bridge), and supporting infrastructure.
+    ///     Call this after AddExternalServices so MCP configuration is available.
     /// </summary>
-    public static IServiceCollection AddLlmServices(
+    public static IServiceCollection AddAgentFrameworkServices(
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Read LLM configuration
-        var llmSection = configuration.GetSection("ExternalServices:Llm");
-        var defaultProvider = llmSection["Provider"] ?? "copilot";
+        // McpToolBuilder converts McpServerConfig entries into AITool instances
+        services.AddSingleton<McpToolBuilder>();
 
-        // Register Claude if configured and enabled
-        var claudeSection = llmSection.GetSection("Claude");
-        var claudeEnabled = bool.TryParse(claudeSection["Enabled"], out var enabled) && enabled;
-        var claudeApiKey = claudeSection["ApiKey"]
-                           ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
-
-        if (claudeEnabled && !string.IsNullOrWhiteSpace(claudeApiKey))
+        // Register embedding service — try Ollama, fallback to NoOp
+        // The IEmbeddingGenerator<string, Embedding<float>> is optional and registered by the API
+        // project when Ollama is available
+        services.AddScoped<IEmbeddingService>(sp =>
         {
-            var claudeModel = claudeSection["Model"] ?? "claude-sonnet-4-20250514";
-            var claudeMaxTokens = int.TryParse(
-                claudeSection["MaxTokens"], CultureInfo.InvariantCulture, out var maxTok)
-                ? maxTok
-                : 8192;
-            var claudeTimeout = int.TryParse(
-                claudeSection["Timeout"], CultureInfo.InvariantCulture, out var timeout)
-                ? TimeSpan.FromMilliseconds(timeout)
-                : TimeSpan.FromSeconds(60);
+            var generator = sp.GetService<IEmbeddingGenerator<string, Embedding<float>>>();
+            if (generator != null)
+            {
+                return new OllamaEmbeddingService(
+                    generator,
+                    sp.GetRequiredService<ILogger<OllamaEmbeddingService>>());
+            }
 
-            services.AddSingleton<ClaudeLlmService>(sp =>
-                ClaudeLlmService.CreateWithApiKey(
-                    claudeApiKey,
-                    claudeModel,
-                    claudeMaxTokens,
-                    claudeTimeout,
-                    sp.GetRequiredService<ILogger<ClaudeLlmService>>()));
+            return new NoOpEmbeddingService();
+        });
 
-            services.AddSingleton<ILlmService>(sp => sp.GetRequiredService<ClaudeLlmService>());
-        }
-
-        // Register the LlmServiceFactory
-        services.AddSingleton<ILlmServiceFactory>(sp =>
-            new LlmServiceFactory(
-                sp.GetServices<ILlmService>(),
-                defaultProvider,
-                sp.GetRequiredService<ILogger<LlmServiceFactory>>()));
+        // IRalphAgentFactory is the primary interface for LLM invocations:
+        // - Creates ChatClientAgent backed by Anthropic Claude
+        // - Attaches MCP tools automatically
+        // - Supports subagent pattern for Ralph Wiggum technique
+        services.AddScoped<IRalphAgentFactory, RalphAgentFactory>();
 
         return services;
     }

@@ -51,7 +51,8 @@ public sealed partial class GitConnectionTester(ILogger<GitConnectionTester> log
                     cloneOptions.FetchOptions.CredentialsProvider = (_url, _user, _cred) =>
                         new UsernamePasswordCredentials
                         {
-                            Username = credentials.Value.username, Password = credentials.Value.password
+                            Username = credentials.Value.username,
+                            Password = credentials.Value.password
                         };
                 }
 

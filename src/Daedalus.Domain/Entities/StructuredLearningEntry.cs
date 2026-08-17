@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 using CSharpFunctionalExtensions;
 
 namespace Daedalus.Domain.Entities;
@@ -7,7 +9,7 @@ namespace Daedalus.Domain.Entities;
 ///     Unlike raw text learnings on the Task entity, these entries are categorized,
 ///     tagged, and searchable across tasks — enabling cross-task knowledge transfer.
 ///     Aligned with Ralph philosophy: simple persistence of what worked/failed,
-///     no vectors or embeddings — just text search and category filtering.
+///     with optional vector embeddings for semantic search via pgvector.
 /// </summary>
 public sealed class StructuredLearningEntry : Entity<Guid>
 {
@@ -42,6 +44,11 @@ public sealed class StructuredLearningEntry : Entity<Guid>
 
     /// <summary>Gets when this learning was last referenced in a prompt.</summary>
     public DateTime? LastReferencedAt { get; private set; }
+
+    /// <summary>Gets the vector embedding for semantic search. Null if embedding not yet generated.</summary>
+    [SuppressMessage("Performance", "CA1819:Properties should not return arrays",
+        Justification = "Required for EF Core pgvector column mapping")]
+    public float[]? Embedding { get; private set; }
 
     /// <summary>
     ///     Creates a new structured learning entry.
@@ -130,5 +137,14 @@ public sealed class StructuredLearningEntry : Entity<Guid>
 
         _tags.Add(normalizedTag);
         return Result.Success();
+    }
+
+    /// <summary>
+    ///     Sets the embedding vector for semantic search.
+    /// </summary>
+    public void SetEmbedding(float[] embedding)
+    {
+        ArgumentNullException.ThrowIfNull(embedding);
+        Embedding = embedding;
     }
 }

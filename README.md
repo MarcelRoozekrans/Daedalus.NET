@@ -1,5 +1,11 @@
 # Daedalus
 
+[![CI](https://github.com/MarcelRoozekrans/Daedalus.NET/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MarcelRoozekrans/Daedalus.NET/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/MarcelRoozekrans/883ece1e357faef9d6bdfb459e31fe66/raw/daedalus-coverage.json)](https://github.com/MarcelRoozekrans/Daedalus.NET/actions/workflows/ci.yml)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![C#](https://img.shields.io/badge/C%23-13.0-239120?logo=csharp)](https://learn.microsoft.com/dotnet/csharp/)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/MarcelRoozekrans/Daedalus.NET/pkgs/container/)
+
 High-performance .NET 10 application using Railway-Oriented Programming for AI-driven task execution with LLM iteration
 loops. Features dual presentation layers (Blazor Web + Console Worker) sharing one Application + Infrastructure stack,
 orchestrated via .NET Aspire.
@@ -15,6 +21,7 @@ orchestrated via .NET Aspire.
 - [Setup](#setup)
 - [Running the Application](#running-the-application)
 - [Configuration](#configuration)
+- [Thalos agents](#thalos-agents)
 - [Authentication & Keycloak Setup](#authentication--keycloak-setup)
 - [Running Tests](#running-tests)
 - [Running Benchmarks](#running-benchmarks)
@@ -43,13 +50,14 @@ Daedalus has **dual presentation layers** sharing one Application + Infrastructu
 |--------------------------|---------------------------------------------|-----------------------------------------------------------------|
 | **Web** (Blazor WASM)    | `Daedalus.Api` + `Daedalus.Web`             | REST API + browser UI via Radzen components                     |
 | **Console** (Ralph Loop) | `Daedalus.Console`                          | Background worker with direct DB access for low-latency polling |
+| **Agents** (Thalos)      | `Daedalus.Agents` (hosted in `Daedalus.Api`) | Thalos.NET agent stack: sessions, tools, AI.Sentinel, SSE chat  |
 | **Shared**               | `Application` + `Infrastructure` + `Domain` | CQRS handlers, EF Core repositories, PostgreSQL persistence     |
 
 The Console worker bypasses HTTP to minimise latency (5-second polling cycles). Both layers use the same CQRS services
 and repositories.
 
 For detailed diagrams covering component interactions, data flow, Git integration, and multi-worker coordination, see
-[Architecture Diagrams](docs/architecture-diagrams.md) (13+ Mermaid diagrams).
+[Architecture Diagrams](docs/architecture-diagrams.md) (14+ Mermaid diagrams, including the Thalos agent turn).
 
 ---
 
@@ -75,11 +83,15 @@ See [Ralph Wiggum Technique Documentation](docs/ralph-wiggum-technique.md) for d
 | Language             | C# 13.0                                                                             |
 | Framework            | .NET 10                                                                             |
 | Orchestration        | .NET Aspire 13.1.0                                                                  |
-| Database             | PostgreSQL 16                                                                       |
-| ORM                  | Entity Framework Core 10 (Npgsql)                                                   |
+| Database             | PostgreSQL 16 with pgvector (`pgvector/pgvector:pg16`)                              |
+| ORM                  | Entity Framework Core 10 (Npgsql, Pgvector.EntityFrameworkCore)                     |
 | Pattern Library      | CSharpFunctionalExtensions (Railway-Oriented Programming)                           |
+| ZeroAlloc            | ZeroAlloc.Results 1.2.0, ZeroAlloc.Authorization 2.1.0, ZeroAlloc.Validation 1.5.6, ZeroAlloc.Mapping 1.6.1 (via Thalos.NET) |
 | Zero-Allocation LINQ | ZLinq 1.5.4                                                                         |
-| LLM Providers        | GitHub Copilot SDK 0.1.21, Anthropic (Claude) 1.0.0                                 |
+| Agent framework      | Thalos.NET 0.1.0-local (local feed, see `nuget.config`) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9 |
+| LLM security         | AI.Sentinel 2.0.1 (via `Thalos.NET.Sentinel`)                                       |
+| LLM Providers        | GitHub Copilot SDK 0.1.21 (Ralph), Anthropic SDK 12.40.0 (Ralph + Thalos)           |
+| MCP                  | ModelContextProtocol 2.2.0 (`Thalos.NET.Mcp` reads `.mcp.json`)                     |
 | Frontend             | Blazor WebAssembly + Radzen.Blazor 8.7.5                                            |
 | Mocking              | NSubstitute 5.3.0 + NSubstitute.Analyzers.CSharp 1.0.17                             |
 | Testing              | xUnit 2.9.3, NUnit 4.4.0, Playwright 1.58.0, AwesomeAssertions 7.0.0, Respawn 7.0.0 |
@@ -98,17 +110,18 @@ src/
 ├── Daedalus.Domain/           # Entities, Value Objects, Domain Events
 ├── Daedalus.Application/      # CQRS handlers, DTOs, Interfaces, Abstractions
 ├── Daedalus.Infrastructure/   # EF Core DbContext, Repositories, LLM services, External integrations
-├── Daedalus.Api/              # REST controllers, JWT auth, health checks
+├── Daedalus.Agents/           # Thalos.NET composition root: agents from config, Postgres session store, knowledge tools, DeveloperPolicy
+├── Daedalus.Api/              # REST controllers (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos
 ├── Daedalus.Console/          # Ralph Loop worker (background hosted service)
 ├── Daedalus.Web/              # Blazor WASM frontend (Radzen components)
 └── Daedalus.Migrations/       # EF Core database migration runner
 
 tests/
-├── Daedalus.Tests.Unit/              # General unit tests (xUnit)
+├── Daedalus.Tests.Unit/              # General unit tests + ArchUnit rules (xUnit)
 ├── Daedalus.Tests.Unit.Domain/       # Domain layer unit tests (xUnit)
 ├── Daedalus.Tests.Unit.Application/  # Application layer unit tests (xUnit)
 ├── Daedalus.Tests.Unit.Infrastructure/ # Infrastructure unit tests (xUnit)
-├── Daedalus.Tests.Integration/       # Integration tests with Testcontainers (xUnit)
+├── Daedalus.Tests.Integration/       # Integration tests with Testcontainers (xUnit, pgvector/pgvector:pg16)
 ├── Daedalus.Tests.Playwright.Api/    # API E2E tests (NUnit + Playwright)
 └── Daedalus.Tests.Playwright.Browser/ # Browser E2E tests (NUnit + Playwright)
 
@@ -217,7 +230,7 @@ The `launchSettings.json` pre-configures all required environment variables. No 
 ### What Happens on Startup
 
 1. **DCP** starts container orchestration
-2. **PostgreSQL 16** container starts (with persistent data volume)
+2. **PostgreSQL 16 + pgvector** container starts (`pgvector/pgvector:pg16`, persistent data volume)
 3. **Keycloak 26.0** container starts (with realm auto-import from `keycloak-realm.json`)
 4. **Migrations** run automatically (`Daedalus.Migrations`, waits for DB + Keycloak)
 5. **API** starts (REST + JWT auth via Keycloak, port `5000`)
@@ -275,7 +288,8 @@ dotnet ef database update --project src/Daedalus.Infrastructure --startup-projec
 |-------------------------------------------|--------------|--------------------------|-------------------------------------------------------|
 | `PARAMETERS__DB_USERNAME`                 | Yes (Aspire) | `postgres`               | PostgreSQL username                                   |
 | `PARAMETERS__DB_PASSWORD`                 | Yes (Aspire) | `postgres`               | PostgreSQL password                                   |
-| `ANTHROPIC_API_KEY`                       | No           | —                        | Claude API key (fallback if not set in `appsettings`) |
+| `ANTHROPIC_API_KEY`                       | No           | —                        | Claude API key (Ralph fallback; required for Thalos agent turns) |
+| `DAEDALUS_REGRESSION_SCREENSHOTS`         | No           | —                        | `1` → Browser E2E writes regression screenshots into `docs/regression-screenshots/` |
 | `GITHUB_TOKEN`                            | No           | —                        | GitHub API authentication for Git operations          |
 | `GITLAB_TOKEN`                            | No           | —                        | GitLab API authentication                             |
 | `AZURE_DEVOPS_TOKEN`                      | No           | —                        | Azure DevOps API authentication                       |
@@ -410,6 +424,125 @@ Git operations support GitHub, GitLab, and Azure DevOps. Tokens are read from en
 
 JWT Bearer authentication is configured but the Authority must point to a real OIDC provider for production. In
 development, Keycloak is provisioned automatically by Aspire and HTTPS metadata validation is disabled.
+
+---
+
+## Thalos agents
+
+Phase 1.1 of the [roadmap](docs/planning/ROADMAP.md) adds a general-purpose agent stack built on
+[Thalos.NET](https://github.com/MarcelRoozekrans/Thalos.NET) (Microsoft Agent Framework 1.17 underneath, ZeroAlloc-native,
+AI.Sentinel at the model boundary). It runs **alongside** the Ralph Loop as a strangler: nothing in Ralph changes until
+phase 1.6 retires it. Design: [docs/plans/2026-08-16-thalos-agent-core-design.md](docs/plans/2026-08-16-thalos-agent-core-design.md);
+sequence diagram: [Architecture Diagrams §14](docs/architecture-diagrams.md#14-agent-turn-thalos).
+
+**What you get:** a signed-in user opens `/agent` in the Blazor app, picks an agent (default: *Daedalus Architect*),
+starts a session and chats. Each turn is streamed back as Server-Sent Events (text deltas, tool calls/results, usage), tools
+come from MCP servers (`roslyn__*`, `context7__*`) and local knowledge tools (`daedalus__*` — learnings and failure
+patterns), and every prompt/response passes through AI.Sentinel. Sessions and transcripts are persisted in PostgreSQL
+(`AgentSessions`, `AgentMessages`).
+
+### Configuration (`Thalos:*` in `src/Daedalus.Api/appsettings.json`)
+
+```json
+{
+    "Thalos": {
+        "McpConfigPath": ".mcp.json",
+        "Anthropic": { "DefaultModel": "claude-sonnet-5", "DefaultMaxOutputTokens": 8192 },
+        "Sentinel": {
+            "Enabled": true,
+            "OnCritical": "Quarantine", "OnHigh": "Alert", "OnMedium": "Log", "OnLow": "Log",
+            "DisabledDetectors": []
+        },
+        "ToolPolicies": [
+            { "Pattern": "roslyn__apply_*", "Policy": "developer" },
+            { "Pattern": "roslyn__rename_*", "Policy": "developer" }
+        ],
+        "Agents": [
+            {
+                "Id": "01M05YCM7DPKRG9X04870B2JYH",
+                "Name": "Daedalus Architect",
+                "Description": "Answers architecture questions about the Daedalus solution using Roslyn and Daedalus learnings.",
+                "Instructions": "You are a senior .NET architect embedded in the Daedalus project. ...",
+                "Tools": [ "roslyn__*", "daedalus__*", "context7__*" ]
+            }
+        ]
+    }
+}
+```
+
+| Key                                            | Description                                                                                                                                                                                                  |
+|------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Thalos:McpConfigPath`                         | Claude Code-style MCP config file; relative paths resolve against the API content root. Missing file → no MCP tool sources.                                                                                  |
+| `Thalos:Anthropic:DefaultModel`                | Model used when an agent does not set `Model`. The API key comes from `Thalos:Anthropic:ApiKey` or `ANTHROPIC_API_KEY` (read lazily on the first turn).                                                     |
+| `Thalos:Anthropic:DefaultMaxOutputTokens`      | Per-call output cap unless the agent overrides `MaxOutputTokens`.                                                                                                                                            |
+| `Thalos:Sentinel:Enabled`                      | Registers the AI.Sentinel decorator around the chat client.                                                                                                                                                  |
+| `Thalos:Sentinel:On{Critical,High,Medium,Low}` | Action per severity: `PassThrough`, `Log`, `Alert`, `Quarantine`. A quarantined turn returns `422 Quarantined` (buffered) / `event: error` (stream).                                                          |
+| `Thalos:Sentinel:DisabledDetectors`            | AI.Sentinel detector type names to switch off (e.g. `PromptInjectionDetector`); unknown names fail at startup.                                                                                               |
+| `Thalos:ToolPolicies[]`                        | Glob over qualified tool names → `[Policy]` name that must pass before the tool runs (authorization at the function boundary).                                                                               |
+| `Thalos:Agents[]`                              | Agent definitions: stable `Id` (ULID or GUID — sessions reference it, never change it), `Name`, `Description`, `Instructions`, optional `Model`/`MaxOutputTokens`, `Tools` glob allow-list (empty → `*`).   |
+
+**Sentinel embedding generator:** the semantic detectors (prompt injection, jailbreak, exfiltration, …) need an
+`IEmbeddingGenerator`. The API passes the Ollama client (`nomic-embed-text`) when Aspire provides `ConnectionStrings:ollama`;
+without Ollama only the lexical/operational detectors run and Sentinel logs a warning per agent pipeline.
+
+### `.mcp.json` (API content root)
+
+`src/Daedalus.Api/.mcp.json` has the same shape as Claude Code's `.mcp.json`. Tools are exposed to agents as
+`<server>__<tool>` (e.g. `roslyn__find_callers`). A server that fails to start only fails the agent build for that turn
+(`ProviderError`) and is retried on the next one, so CI/E2E hosts do not need `roslyn` installed.
+
+```json
+{
+  "mcpServers": {
+    "roslyn":   { "type": "stdio", "command": "dnx", "args": ["RoslynCodeLens.Mcp", "--yes", "--", "C:/Projects/Prive/daedalus/Daedalus.sln"] },
+    "context7": { "type": "http",  "url": "https://mcp.context7.com/mcp" }
+  }
+}
+```
+
+> Adjust the solution path in the `roslyn` entry for your checkout.
+
+### Authorization
+
+- Every `/api/agents/*` endpoint requires the `AgentUse` policy = any authenticated user.
+- Sessions are owner-scoped: another user's session answers `404` (not `403`, so ids cannot be probed); users with the
+  `admin` role can read/close any session.
+- Mutating Roslyn tools (`roslyn__apply_*`, `roslyn__rename_*`) are bound to the `developer` policy (`Daedalus.Agents`
+  `DeveloperPolicy`): the caller needs the realm role **`developer` or `admin`**. Anyone else gets a `Tool call denied`
+  tool result (the turn continues) plus a `ToolCallDeniedNotification`. The bundled Keycloak realm ships an `admin` role
+  (user `admin`/`admin123`); add a `developer` realm role for non-admin developers.
+
+### Endpoints
+
+| Method   | Route                                           | Purpose                                      | Responses                                                                        |
+|----------|-------------------------------------------------|----------------------------------------------|----------------------------------------------------------------------------------|
+| `GET`    | `/api/agents`                                   | List configured agents                       | `200`                                                                            |
+| `POST`   | `/api/agents/{agentId}/sessions`                | Create a session owned by the caller         | `201`, `400`, `404`                                                              |
+| `GET`    | `/api/agents/sessions?skip=&take=`              | Caller's sessions, newest first              | `200`                                                                            |
+| `GET`    | `/api/agents/sessions/{sessionId}`              | Session header + transcript (owner or admin) | `200`, `404`                                                                     |
+| `POST`   | `/api/agents/sessions/{sessionId}/turns`        | Run one turn, buffered result                | `200`, `400`, `404`, `409` busy/closed, `422` quarantined                        |
+| `POST`   | `/api/agents/sessions/{sessionId}/turns/stream` | Run one turn as **SSE** (`text/event-stream`) | `200`; events `text-delta`, `tool-call`, `tool-result`, `usage`, `done`, `error` |
+| `DELETE` | `/api/agents/sessions/{sessionId}`              | Close the session (terminal)                 | `204`, `404`, `409`                                                              |
+
+The SSE endpoint writes `event: <kind>` + `data: <AgentEventDto JSON>` per event, flushes each frame immediately
+(response buffering/compression disabled) and always ends with `done` or `error`. Turn endpoints sit behind the
+`llm-operations` rate limiter.
+
+### Operational notes
+
+- **Crash recovery:** `AgentSessionCrashRecovery` (hosted service) resets any session left in `Running` by a crashed host
+  back to `Idle` before Kestrel accepts requests, so no session is stuck answering `409 SessionBusy`. An unreachable
+  database is logged and skipped. Daedalus runs a single API instance; multi-instance deployments would need a lease.
+- **PostgreSQL image:** the `AddSemanticEmbeddings` migration (`vector(384)` learnings column) needs the `vector` extension, so every
+  Postgres instance now uses **`pgvector/pgvector:pg16`** — `docker-compose.yml`, `docker-compose.full.yml`, the Aspire
+  AppHost (`.WithImage("pgvector/pgvector").WithImageTag("pg16")`) and the Testcontainers fixtures. Existing data volumes
+  created with `postgres:16` keep working after the image switch (same major version); if PostgreSQL warns about index
+  versions after switching run `REINDEX DATABASE daedalus;` once, or drop the volume
+  (`docker volume rm daedalus_postgres_data`) for a clean start.
+- **Ralph unchanged:** the Ralph Loop worker, its controllers and its tests are untouched; both stacks share
+  `ApplicationDbContext`, learnings and embeddings. Ralph is retired in phase 1.6.
+- **Thalos.NET feed:** until `Thalos.NET 0.1.0` is on nuget.org the packages are restored from the committed local feed
+  `packages-local/` (`nuget.config` source `thalos-local`, version `0.1.0-local.*` in `Directory.Packages.props`).
 
 ---
 
@@ -603,7 +736,7 @@ builder.Services.AddOidcAuthentication(options =>
 | `Daedalus.Tests.Unit.Domain`         | xUnit              | Domain entities, value objects            | No                   |
 | `Daedalus.Tests.Unit.Application`    | xUnit              | CQRS handlers, services                   | No                   |
 | `Daedalus.Tests.Unit.Infrastructure` | xUnit              | LLM services, factory, workspace provider | No                   |
-| `Daedalus.Tests.Integration`         | xUnit              | Database with Testcontainers              | **Yes**              |
+| `Daedalus.Tests.Integration`         | xUnit              | Database with Testcontainers (`pgvector/pgvector:pg16`), agent controllers + SSE | **Yes** |
 | `Daedalus.Tests.Playwright.Api`      | NUnit              | API endpoint E2E                          | **Yes**              |
 | `Daedalus.Tests.Playwright.Browser`  | NUnit + Playwright | Browser E2E                               | **Yes** + Playwright |
 
@@ -616,7 +749,8 @@ builder.Services.AddOidcAuthentication(options =>
 | AwesomeAssertions            | 7.0.0   | Fluent assertions (community fork of FluentAssertions) |
 | Bogus                        | 35.6.5  | Test data generation                                   |
 | Respawn                      | 7.0.0   | Database cleanup between integration tests             |
-| Testcontainers.PostgreSql    | 4.10.0  | PostgreSQL Docker containers for integration tests     |
+| Testcontainers.PostgreSql    | 4.14.0  | PostgreSQL Docker containers for integration tests (image `pgvector/pgvector:pg16`) |
+| Thalos.NET.Testing           | 0.1.0   | `ScriptedChatClient`, in-memory store for agent tests  |
 
 ### Commands
 
@@ -662,6 +796,17 @@ dotnet test tests/Daedalus.Tests.Playwright.Browser
 ```
 
 > If you see errors about missing browser executables, re-run the `playwright.ps1 install` command above.
+
+### Notes for the Thalos agent tests
+
+- Integration tests that touch `ApplicationDbContext` build their options with `PostgresFixture.CreateDbContextOptions()`
+  (adds the pgvector plugin via `UseVector()`); the fixture container is `pgvector/pgvector:pg16`.
+- The Browser suite hosts the WASM app in-process (`E2EServerFixture`, `TestMode` appsettings override) with the real API
+  composition root and a scripted `IAgentRuntime` stub — no model, no MCP servers. `AgentPageBrowserTests` writes its
+  screenshot to `TestResults/…/regression-screenshots/` by default; set `DAEDALUS_REGRESSION_SCREENSHOTS=1` to write into
+  `docs/regression-screenshots/` for a regression report.
+- Keycloak-backed integration tests are filtered out in day-to-day runs:
+  `dotnet test tests/Daedalus.Tests.Integration --filter "FullyQualifiedName!~Keycloak&FullyQualifiedName!~Authentication"`.
 
 ---
 
@@ -711,11 +856,15 @@ Two Docker Compose files are provided for running without Aspire:
 docker compose up -d
 ```
 
-| Service    | Port             | Credentials                          |
-|------------|------------------|--------------------------------------|
-| PostgreSQL | `localhost:5432` | `daedalus` / `daedalus`              |
-| pgAdmin    | `localhost:5050` | `admin@example.com` / `admin`        |
-| Keycloak   | `localhost:8082` | `admin` / `changeme` (admin console) |
+| Service    | Port             | Credentials                                              |
+|------------|------------------|----------------------------------------------------------|
+| PostgreSQL | `localhost:5432` | `daedalus` / `daedalus` (image `pgvector/pgvector:pg16`) |
+| pgAdmin    | `localhost:5050` | `admin@example.com` / `admin`                            |
+| Keycloak   | `localhost:8082` | `admin` / `changeme` (admin console)                     |
+
+> The Postgres image changed from `postgres:16` to `pgvector/pgvector:pg16` (needed by the `vector` column migrations).
+> Existing volumes keep working; run `REINDEX DATABASE daedalus;` once if PostgreSQL warns about index versions, or drop
+> the volume for a fresh start.
 
 ### Full Stack
 
@@ -759,6 +908,23 @@ The project uses `.editorconfig` for consistent style rules enforced by `dotnet 
 See [copilot-instructions.md](.github/copilot-instructions.md) for the full set of coding standards, patterns, and
 forbidden anti-patterns.
 
+### Commits, versioning and releases
+
+Same setup as [Rag.NET](https://github.com/MarcelRoozekrans/Rag.NET) and
+[Thalos.NET](https://github.com/MarcelRoozekrans/Thalos.NET); the runbook is [docs/release.md](docs/release.md).
+
+- **Conventional commits** (`feat:`, `fix:`, `chore:`, … — rules in `.commitlintrc.yml`), enforced on pull requests
+  by the `commitlint` CI job. release-please reads them to propose the next version.
+- **Version** comes from git history via [GitVersion](GitVersion.yml) (`dotnet tool restore && dotnet dotnet-gitversion`);
+  CI stamps it into every assembly (`-p:Version`) and image (`APP_VERSION` build-arg). Stable versions only — no
+  prereleases. Nothing is hand-edited: `VersionPrefix` in `Directory.Build.props` is only the fallback for a plain
+  local build.
+- **Releases** are cut by [release-please](.github/workflows/release-please.yml): dispatch → review/merge the
+  `chore(main): release X.Y.Z` PR → dispatch → `vX.Y.Z` tag + GitHub release. Then a manual CI dispatch with
+  `publish_release=true` pushes the `daedalus-api`, `daedalus-console` and `daedalus-web` images to ghcr.io as
+  `X.Y.Z`, `X.Y` and `latest` — only from the tagged commit. Every push to `main` publishes the moving tip as
+  `<sha>` and `main`.
+
 ---
 
 ## Troubleshooting
@@ -795,7 +961,10 @@ forbidden anti-patterns.
 
 | Document                                                 | Description                                       |
 |----------------------------------------------------------|---------------------------------------------------|
-| [Architecture Diagrams](docs/architecture-diagrams.md)   | 13+ Mermaid diagrams covering the full system     |
+| [Architecture Diagrams](docs/architecture-diagrams.md)   | 14+ Mermaid diagrams covering the full system     |
+| [Thalos agent core design](docs/plans/2026-08-16-thalos-agent-core-design.md) | Design of the Thalos.NET-based agent stack (phase 1.1) |
+| [Roadmap](docs/planning/ROADMAP.md)                      | Milestone 1 phases and status                     |
+| [Regression report 2026-08-16](docs/regression-report-2026-08-16.md) | Browser regression evidence for the Agent page  |
 | [Ralph Wiggum Technique](docs/ralph-wiggum-technique.md) | AI iteration loop methodology                     |
 | [Coding Standards](.github/copilot-instructions.md)      | C# patterns, performance, forbidden anti-patterns |
 | [Context7 Auto Usage](.github/context7-auto-usage.md)    | When to query Context7 for library documentation  |

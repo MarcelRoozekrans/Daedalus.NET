@@ -1,0 +1,83 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":dependencyDashboard"
+  ],
+  "schedule": ["before 6am on Monday"],
+  "timezone": "Europe/Amsterdam",
+  "labels": ["dependencies"],
+  "branchPrefix": "renovate/",
+  "rangeStrategy": "pin",
+  "packageRules": [
+    {
+      "description": "Group all NuGet minor/patch updates",
+      "groupName": "NuGet packages (non-major)",
+      "matchManagers": ["nuget"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "NuGet major updates as individual PRs",
+      "groupName": null,
+      "matchManagers": ["nuget"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Group Docker base image updates",
+      "groupName": "Docker base images",
+      "matchManagers": ["dockerfile"],
+      "automerge": false
+    },
+    {
+      "description": "Group GitHub Actions updates and automerge",
+      "groupName": "GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "automerge": true,
+      "automergeType": "pr",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Group .NET SDK updates (global.json, Dockerfiles)",
+      "groupName": ".NET SDK",
+      "matchPackagePatterns": ["^mcr.microsoft.com/dotnet/"],
+      "automerge": false
+    },
+    {
+      "description": "Group test framework updates",
+      "groupName": "Test frameworks",
+      "matchManagers": ["nuget"],
+      "matchPackagePatterns": [
+        "^xunit",
+        "^NUnit",
+        "^NSubstitute",
+        "^coverlet",
+        "^AwesomeAssertions",
+        "^Bogus",
+        "^Testcontainers",
+        "^Respawn",
+        "^Microsoft\\.NET\\.Test"
+      ],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Group code analyzer updates",
+      "groupName": "Code analyzers",
+      "matchManagers": ["nuget"],
+      "matchPackagePatterns": [
+        "^SonarAnalyzer",
+        "^Meziantou\\.Analyzer",
+        "^Microsoft\\.CodeAnalysis"
+      ],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
+    }
+  ]
+}

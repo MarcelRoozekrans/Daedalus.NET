@@ -1,4 +1,7 @@
+using System.Diagnostics;
+using System.Text;
 using CSharpFunctionalExtensions;
+using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -8,9 +11,9 @@ namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 #pragma warning disable CA1305, CA1307, MA0011, MA0089, MA0009, S1172, S1481, IL2026
 
 /// <summary>
-///     Manages git repository operations (clone, branch, commit, push)
+///     Manages git repository operations (clone, branch, commit, push) via Process-based git CLI execution.
 /// </summary>
-public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) : IGitRepositoryManager
+public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> logger) : IGitRepositoryManager
 {
     private readonly string _workingDirectory = Path.Combine(Path.GetTempPath(), "daedalus-repos");
 
@@ -31,12 +34,22 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
             var repoPath = targetPath ?? Path.Combine(_workingDirectory, Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(repoPath);
 
-            if (logger.IsEnabled(LogLevel.Information))
+            LogCloning(logger, repoUrl, repoPath);
+
+            var args = new StringBuilder("clone --single-branch");
+            if (!string.IsNullOrEmpty(branch))
             {
-                logger.LogInformation("Cloning repository from {Url} to {Path}", repoUrl, repoPath);
+                args.Append($" --branch {branch}");
             }
 
-            await Task.Delay(100, ct).ConfigureAwait(false);
+            args.Append($" \"{repoUrl}\" \"{repoPath}\"");
+
+            var result = await RunGitAsync(_workingDirectory, args.ToString(), 300, ct).ConfigureAwait(false);
+            if (!result.Succeeded)
+            {
+                LogGitOperationFailed(logger, "clone", result.StandardError);
+                return Result.Failure<GitOperationContext>($"Failed to clone repository: {result.StandardError}");
+            }
 
             var context = new GitOperationContext
             {
@@ -46,6 +59,7 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
                 CurrentBranch = branch ?? "main"
             };
 
+            LogCloneCompleted(logger, repoPath);
             return Result.Success(context);
         }
         catch (Exception ex)
@@ -61,14 +75,25 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
+            LogFetching(logger, workTreePath);
+
+            var result = await RunGitAsync(workTreePath, "fetch origin", 60, ct).ConfigureAwait(false);
+            if (!result.Succeeded)
             {
-                logger.LogInformation("Fetching latest from {Path}", workTreePath);
+                LogGitOperationFailed(logger, "fetch", result.StandardError);
+                return Result.Failure<GitOperationContext>($"Failed to fetch: {result.StandardError}");
             }
 
-            await Task.Delay(100, ct).ConfigureAwait(false);
+            // Get current branch name
+            var branchResult = await RunGitAsync(workTreePath, "rev-parse --abbrev-ref HEAD", 10, ct)
+                .ConfigureAwait(false);
+            var currentBranch = branchResult.Succeeded ? branchResult.StandardOutput.Trim() : "main";
 
-            var context = new GitOperationContext { LocalWorkTreePath = workTreePath, CurrentBranch = "main" };
+            var context = new GitOperationContext
+            {
+                LocalWorkTreePath = workTreePath,
+                CurrentBranch = currentBranch
+            };
 
             return Result.Success(context);
         }
@@ -87,16 +112,18 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation(
-                    "Creating feature branch {BranchName} from {FromBranch} in {Path}",
-                    branchName,
-                    fromBranch ?? "main",
-                    workTreePath);
-            }
+            LogCreatingBranch(logger, branchName, fromBranch ?? "HEAD", workTreePath);
 
-            await Task.Delay(50, ct).ConfigureAwait(false);
+            var args = fromBranch != null
+                ? $"checkout -b {branchName} {fromBranch}"
+                : $"checkout -b {branchName}";
+
+            var result = await RunGitAsync(workTreePath, args, 30, ct).ConfigureAwait(false);
+            if (!result.Succeeded)
+            {
+                LogGitOperationFailed(logger, "checkout -b", result.StandardError);
+                return Result.Failure<string>($"Failed to create feature branch: {result.StandardError}");
+            }
 
             return Result.Success(branchName);
         }
@@ -114,12 +141,14 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation("Switching to branch {Branch} in {Path}", branchName, workTreePath);
-            }
+            LogSwitchingBranch(logger, branchName, workTreePath);
 
-            await Task.Delay(50, ct).ConfigureAwait(false);
+            var result = await RunGitAsync(workTreePath, $"checkout {branchName}", 30, ct).ConfigureAwait(false);
+            if (!result.Succeeded)
+            {
+                LogGitOperationFailed(logger, "checkout", result.StandardError);
+                return Result.Failure($"Failed to switch branch: {result.StandardError}");
+            }
 
             return Result.Success();
         }
@@ -138,12 +167,15 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation("Deleting branch {Branch} from {Path}", branchName, workTreePath);
-            }
+            var flag = force ? "-D" : "-d";
+            var result = await RunGitAsync(workTreePath, $"branch {flag} {branchName}", 30, ct)
+                .ConfigureAwait(false);
 
-            await Task.Delay(50, ct).ConfigureAwait(false);
+            if (!result.Succeeded)
+            {
+                LogGitOperationFailed(logger, "branch delete", result.StandardError);
+                return Result.Failure($"Failed to delete branch: {result.StandardError}");
+            }
 
             return Result.Success();
         }
@@ -163,18 +195,17 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
         try
         {
             var worktreePath = Path.Combine(baseRepoPath, "worktrees", worktreeName);
-            Directory.CreateDirectory(worktreePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(worktreePath)!);
 
-            if (logger.IsEnabled(LogLevel.Information))
+            var result = await RunGitAsync(
+                    baseRepoPath, $"worktree add \"{worktreePath}\" -b {branchName}", 30, ct)
+                .ConfigureAwait(false);
+
+            if (!result.Succeeded)
             {
-                logger.LogInformation(
-                    "Creating worktree {Name} for branch {Branch} at {Path}",
-                    worktreeName,
-                    branchName,
-                    worktreePath);
+                LogGitOperationFailed(logger, "worktree add", result.StandardError);
+                return Result.Failure<string>($"Failed to create worktree: {result.StandardError}");
             }
-
-            await Task.Delay(50, ct).ConfigureAwait(false);
 
             return Result.Success(worktreePath);
         }
@@ -191,17 +222,20 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation("Deleting worktree at {Path}", worktreePath);
-            }
-
             if (Directory.Exists(worktreePath))
             {
-                Directory.Delete(worktreePath, true);
-            }
+                var parentDir = Path.GetDirectoryName(Path.GetDirectoryName(worktreePath));
+                if (parentDir != null)
+                {
+                    await RunGitAsync(parentDir, $"worktree remove \"{worktreePath}\" --force", 30, ct)
+                        .ConfigureAwait(false);
+                }
 
-            await Task.CompletedTask.ConfigureAwait(false);
+                if (Directory.Exists(worktreePath))
+                {
+                    Directory.Delete(worktreePath, true);
+                }
+            }
 
             return Result.Success();
         }
@@ -219,14 +253,27 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
+            var result = await RunGitAsync(workTreePath, $"diff {baseBranch} --name-status", 30, ct)
+                .ConfigureAwait(false);
+
+            if (!result.Succeeded)
             {
-                logger.LogInformation("Getting diffs from {Path} against {BaseBranch}", workTreePath, baseBranch);
+                LogGitOperationFailed(logger, "diff", result.StandardError);
+                return Result.Failure<IReadOnlyList<GitDiff>>($"Failed to get diffs: {result.StandardError}");
             }
 
-            await Task.Delay(50, ct).ConfigureAwait(false);
-
             var diffs = new List<GitDiff>();
+            foreach (var line in result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = line.Split('\t', 2);
+                if (parts.Length == 2)
+                {
+                    diffs.Add(new GitDiff
+                    {
+                        FilePath = parts[1].Trim()
+                    });
+                }
+            }
 
             return Result.Success((IReadOnlyList<GitDiff>)diffs);
         }
@@ -244,14 +291,26 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
+            var patchFile = Path.Combine(Path.GetTempPath(), $"daedalus-patch-{Guid.NewGuid():N}.patch");
+            await File.WriteAllTextAsync(patchFile, patchContent, ct).ConfigureAwait(false);
+
+            try
             {
-                logger.LogInformation("Applying patch to {Path}", workTreePath);
+                var result = await RunGitAsync(workTreePath, $"apply \"{patchFile}\"", 30, ct)
+                    .ConfigureAwait(false);
+
+                if (!result.Succeeded)
+                {
+                    LogGitOperationFailed(logger, "apply", result.StandardError);
+                    return Result.Failure($"Failed to apply patch: {result.StandardError}");
+                }
+
+                return Result.Success();
             }
-
-            await Task.Delay(50, ct).ConfigureAwait(false);
-
-            return Result.Success();
+            finally
+            {
+                File.Delete(patchFile);
+            }
         }
         catch (Exception ex)
         {
@@ -268,13 +327,38 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
+            // Stage all changes
+            var stageResult = await RunGitAsync(workTreePath, "add -A", 30, ct).ConfigureAwait(false);
+            if (!stageResult.Succeeded)
             {
-                logger.LogInformation("Committing changes in {Path}: {Message}", workTreePath, message);
+                LogGitOperationFailed(logger, "add", stageResult.StandardError);
+                return Result.Failure($"Failed to stage changes: {stageResult.StandardError}");
             }
 
-            await Task.Delay(50, ct).ConfigureAwait(false);
+            // Check if there are staged changes
+            var statusResult = await RunGitAsync(workTreePath, "diff --cached --quiet", 10, ct)
+                .ConfigureAwait(false);
+            if (statusResult.Succeeded)
+            {
+                return Result.Success(); // No changes to commit
+            }
 
+            var escapedMessage = message.Replace("\"", "\\\"", StringComparison.Ordinal);
+            var args = $"commit -m \"{escapedMessage}\"";
+            if (!string.IsNullOrEmpty(author))
+            {
+                var escapedAuthor = author.Replace("\"", "\\\"", StringComparison.Ordinal);
+                args += $" --author=\"{escapedAuthor}\"";
+            }
+
+            var commitResult = await RunGitAsync(workTreePath, args, 30, ct).ConfigureAwait(false);
+            if (!commitResult.Succeeded)
+            {
+                LogGitOperationFailed(logger, "commit", commitResult.StandardError);
+                return Result.Failure($"Failed to commit: {commitResult.StandardError}");
+            }
+
+            LogCommitCreated(logger, workTreePath, message);
             return Result.Success();
         }
         catch (Exception ex)
@@ -292,13 +376,20 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
+            LogPushing(logger, branchName, workTreePath);
+
+            var forceFlag = force ? " --force" : "";
+            var result = await RunGitAsync(
+                    workTreePath, $"push -u origin {branchName}{forceFlag}", 90, ct)
+                .ConfigureAwait(false);
+
+            if (!result.Succeeded)
             {
-                logger.LogInformation("Pushing branch {Branch} from {Path}", branchName, workTreePath);
+                LogGitOperationFailed(logger, "push", result.StandardError);
+                return Result.Failure($"Failed to push branch: {result.StandardError}");
             }
 
-            await Task.Delay(100, ct).ConfigureAwait(false);
-
+            LogPushCompleted(logger, branchName);
             return Result.Success();
         }
         catch (Exception ex)
@@ -308,32 +399,151 @@ public sealed class GitRepositoryManager(ILogger<GitRepositoryManager> logger) :
         }
     }
 
-    public async Task<Result> CleanupAsync(
+    public Task<Result> CleanupAsync(
         string workTreePath,
         CancellationToken ct = default)
     {
         try
         {
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation("Cleaning up worktree at {Path}", workTreePath);
-            }
-
             if (Directory.Exists(workTreePath))
             {
+                LogCleaningUp(logger, workTreePath);
                 Directory.Delete(workTreePath, true);
             }
 
-            await Task.CompletedTask.ConfigureAwait(false);
-
-            return Result.Success();
+            return Task.FromResult(Result.Success());
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error cleaning up");
-            return Result.Failure($"Error cleaning up: {ex.Message}");
+            return Task.FromResult(Result.Failure($"Error cleaning up: {ex.Message}"));
         }
     }
+
+    /// <summary>
+    ///     Executes a git command as a child process with a configurable timeout.
+    /// </summary>
+    private static async Task<CommandExecutionResult> RunGitAsync(
+        string workingDirectory,
+        string arguments,
+        int timeoutSeconds,
+        CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "git",
+            Arguments = arguments,
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = new Process { StartInfo = psi };
+        var stdoutBuilder = new StringBuilder();
+        var stderrBuilder = new StringBuilder();
+
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data != null)
+            {
+                stdoutBuilder.AppendLine(e.Data);
+            }
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data != null)
+            {
+                stderrBuilder.AppendLine(e.Data);
+            }
+        };
+
+        var sw = Stopwatch.StartNew();
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+        try
+        {
+            await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                process.Kill(true);
+            }
+            catch
+            {
+                // Best-effort kill
+            }
+
+            return new CommandExecutionResult
+            {
+                ExitCode = -1,
+                StandardOutput = stdoutBuilder.ToString(),
+                StandardError = ct.IsCancellationRequested ? "Operation cancelled" : "Command timed out",
+                TimedOut = !ct.IsCancellationRequested,
+                Duration = sw.Elapsed
+            };
+        }
+
+        sw.Stop();
+        return new CommandExecutionResult
+        {
+            ExitCode = process.ExitCode,
+            StandardOutput = stdoutBuilder.ToString(),
+            StandardError = stderrBuilder.ToString(),
+            TimedOut = false,
+            Duration = sw.Elapsed
+        };
+    }
+
+    // ============== Logging Methods ==============
+
+    [LoggerMessage(EventId = 1, Level = LogLevel.Error,
+        Message = "Git {Operation} failed: {Error}")]
+    private static partial void LogGitOperationFailed(ILogger logger, string operation, string error);
+
+    [LoggerMessage(EventId = 2, Level = LogLevel.Information,
+        Message = "Cloning repository from {Url} to {Path}")]
+    private static partial void LogCloning(ILogger logger, string url, string path);
+
+    [LoggerMessage(EventId = 3, Level = LogLevel.Information,
+        Message = "Clone completed at {Path}")]
+    private static partial void LogCloneCompleted(ILogger logger, string path);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Information,
+        Message = "Fetching latest from {Path}")]
+    private static partial void LogFetching(ILogger logger, string path);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Information,
+        Message = "Creating branch {BranchName} from {FromBranch} in {Path}")]
+    private static partial void LogCreatingBranch(ILogger logger, string branchName, string fromBranch, string path);
+
+    [LoggerMessage(EventId = 6, Level = LogLevel.Information,
+        Message = "Switching to branch {BranchName} in {Path}")]
+    private static partial void LogSwitchingBranch(ILogger logger, string branchName, string path);
+
+    [LoggerMessage(EventId = 7, Level = LogLevel.Information,
+        Message = "Commit created in {Path}: {Message}")]
+    private static partial void LogCommitCreated(ILogger logger, string path, string message);
+
+    [LoggerMessage(EventId = 8, Level = LogLevel.Information,
+        Message = "Pushing branch {BranchName} from {Path}")]
+    private static partial void LogPushing(ILogger logger, string branchName, string path);
+
+    [LoggerMessage(EventId = 9, Level = LogLevel.Information,
+        Message = "Push completed for branch {BranchName}")]
+    private static partial void LogPushCompleted(ILogger logger, string branchName);
+
+    [LoggerMessage(EventId = 10, Level = LogLevel.Information,
+        Message = "Cleaning up workspace at {Path}")]
+    private static partial void LogCleaningUp(ILogger logger, string path);
 }
 
 #pragma warning restore CA1305, CA1307, MA0011, MA0089, MA0009, S1172, S1481, IL2026

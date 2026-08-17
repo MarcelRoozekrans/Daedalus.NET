@@ -1,4 +1,4 @@
-﻿using Daedalus.Application.Commands.AbandonTask;
+using Daedalus.Application.Commands.AbandonTask;
 
 namespace Daedalus.Tests.Unit.Application.Commands;
 

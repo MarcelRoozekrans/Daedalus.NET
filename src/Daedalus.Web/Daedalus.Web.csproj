@@ -5,37 +5,27 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>13</LangVersion>
-        <!-- Blazor WASM doesn't support AOT, so disable trimming -->
+        <!-- Blazor WASM doesn't support AOT, so disable trimming. PublishTrimmed=false is the switch: Blazor WASM
+             runs ILLink on publish by default, and TrimMode only accepts full/partial (`none` fails publish with
+             IL1031, which is what broke the Web container image). -->
         <PublishAot>false</PublishAot>
-        <TrimMode>none</TrimMode>
+        <PublishTrimmed>false</PublishTrimmed>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11"/>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="10.0.11"/>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11" PrivateAssets="all"/>
-        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.11"/>
-        <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0"/>
-        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.11"/>
-        <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.11"/>
-        <PackageReference Include="CSharpFunctionalExtensions" Version="3.7.0"/>
-        <PackageReference Include="OpenTelemetry" Version="1.17.0"/>
-        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0"/>
-        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0"/>
-        <PackageReference Update="SonarAnalyzer.CSharp" Version="10.32.0.713">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Update="Meziantou.Analyzer" Version="3.0.159">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.400">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="Radzen.Blazor" Version="11.2.5"/>
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly"/>
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication"/>
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all"/>
+        <PackageReference Include="Microsoft.Extensions.Http"/>
+        <PackageReference Include="Microsoft.Extensions.Http.Resilience"/>
+        <PackageReference Include="Microsoft.Extensions.Logging"/>
+        <PackageReference Include="Microsoft.Extensions.Logging.Console"/>
+        <PackageReference Include="CSharpFunctionalExtensions"/>
+        <PackageReference Include="OpenTelemetry"/>
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol"/>
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting"/>
+        <PackageReference Include="Radzen.Blazor"/>
     </ItemGroup>
 
     <ItemGroup>

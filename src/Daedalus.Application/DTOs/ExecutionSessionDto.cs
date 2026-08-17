@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Application.DTOs;
+namespace Daedalus.Application.DTOs;
 
 /// <summary>DTO for ExecutionSession entity.</summary>
 public record ExecutionSessionDto(

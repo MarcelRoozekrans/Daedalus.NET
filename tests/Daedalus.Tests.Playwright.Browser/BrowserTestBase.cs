@@ -85,7 +85,9 @@ public abstract class BrowserTestBase : PageTest
         // Enable tracing for debugging
         await Context.Tracing.StartAsync(new TracingStartOptions
         {
-            Screenshots = true, Snapshots = true, Sources = true
+            Screenshots = true,
+            Snapshots = true,
+            Sources = true
         }).ConfigureAwait(false);
 
         SetUpCompleted = true;
@@ -169,6 +171,44 @@ public abstract class BrowserTestBase : PageTest
     }
 
     /// <summary>
+    ///     Writes a full-page screenshot to <c>{WorkDirectory}/regression-screenshots/</c> by default so normal test runs
+    ///     do not dirty the working tree. When <c>DAEDALUS_REGRESSION_SCREENSHOTS=1</c> is set it writes into
+    ///     <c>docs/regression-screenshots/</c> at the repository root (found by walking up to <c>Daedalus.sln</c>) so a
+    ///     regression report can link it. <paramref name="relativePath"/> may contain sub-directories (<c>2026-08-16/home.png</c>).
+    /// </summary>
+    protected async Task SaveRegressionScreenshotAsync(string relativePath)
+    {
+        var screenshotsDir = ResolveRegressionScreenshotsDirectory();
+        if (screenshotsDir is null)
+        {
+            await TestContext.Progress.WriteLineAsync("Daedalus.sln not found above the test directory; regression screenshot skipped.").ConfigureAwait(false);
+            return;
+        }
+
+        var path = Path.Combine(screenshotsDir, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await Page.ScreenshotAsync(new PageScreenshotOptions { Path = path, FullPage = true }).ConfigureAwait(false);
+    }
+
+    private static string? ResolveRegressionScreenshotsDirectory()
+    {
+        var publishToDocs = string.Equals(
+            Environment.GetEnvironmentVariable("DAEDALUS_REGRESSION_SCREENSHOTS"), "1", StringComparison.Ordinal);
+        if (!publishToDocs)
+        {
+            return Path.Combine(TestContext.CurrentContext.WorkDirectory, "regression-screenshots");
+        }
+
+        var dir = new DirectoryInfo(TestContext.CurrentContext.WorkDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Daedalus.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        return dir is null ? null : Path.Combine(dir.FullName, "docs", "regression-screenshots");
+    }
+
+    /// <summary>
     ///     Initializes the database container for integration tests.
     ///     Override this method to enable database testing.
     /// </summary>
@@ -240,7 +280,8 @@ public abstract class BrowserTestBase : PageTest
         var locator = Page.Locator(selector);
         await locator.WaitForAsync(new LocatorWaitForOptions
         {
-            State = WaitForSelectorState.Visible, Timeout = timeoutMs
+            State = WaitForSelectorState.Visible,
+            Timeout = timeoutMs
         }).ConfigureAwait(false);
         return locator;
     }
@@ -253,7 +294,8 @@ public abstract class BrowserTestBase : PageTest
         var locator = Page.Locator(selector);
         await locator.WaitForAsync(new LocatorWaitForOptions
         {
-            State = WaitForSelectorState.Hidden, Timeout = timeoutMs
+            State = WaitForSelectorState.Hidden,
+            Timeout = timeoutMs
         }).ConfigureAwait(false);
     }
 
@@ -291,7 +333,8 @@ public abstract class BrowserTestBase : PageTest
 
         await Page.ScreenshotAsync(new PageScreenshotOptions
         {
-            Path = Path.Combine(screenshotsDir, $"{name}-{DateTime.Now:yyyyMMdd-HHmmss}.png"), FullPage = true
+            Path = Path.Combine(screenshotsDir, $"{name}-{DateTime.Now:yyyyMMdd-HHmmss}.png"),
+            FullPage = true
         }).ConfigureAwait(false);
     }
 
@@ -302,7 +345,8 @@ public abstract class BrowserTestBase : PageTest
     /// </summary>
     protected static readonly JsonSerializerOptions ApiJsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
     /// <summary>

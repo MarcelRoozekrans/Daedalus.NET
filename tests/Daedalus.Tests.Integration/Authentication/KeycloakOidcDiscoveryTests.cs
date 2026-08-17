@@ -1,29 +1,26 @@
-using Daedalus.Tests.Integration.Attributes;
+using Daedalus.Tests.Integration.Fixtures;
 
 namespace Daedalus.Tests.Integration.Authentication;
 
 /// <summary>
 ///     Integration tests verifying Keycloak OIDC discovery and configuration.
-///     These tests require Keycloak to be running (via docker-compose up -d).
-///     Tests are automatically skipped when Keycloak is not available.
+///     Uses Testcontainers.Keycloak to automatically start a Keycloak instance
+///     with realm import — no manual docker-compose required.
 /// </summary>
+[Collection(KeycloakCollection.Name)]
 [Trait("Category", "Keycloak")]
-public class KeycloakOidcDiscoveryTests
+public class KeycloakOidcDiscoveryTests(KeycloakFixture fixture)
 {
-    private const string KeycloakHost = "http://localhost:8082";
-    private const string RealmName = "daedalus";
-    private const string WellKnownEndpoint = $"{KeycloakHost}/realms/{RealmName}/.well-known/openid-configuration";
-
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     /// <summary>
-    ///     Tests that Keycloak is accessible and running on the expected port.
+    ///     Tests that Keycloak is accessible and running.
     /// </summary>
-    [RequiresKeycloakFact]
+    [Fact]
     public async Task Keycloak_IsAccessible_OnConfiguredPort()
     {
         // Act
-        var response = await HttpClient.GetAsync(KeycloakHost);
+        var response = await _httpClient.GetAsync(fixture.BaseUrl);
 
         // Assert
         response.StatusCode.Should().NotBe(HttpStatusCode.NotFound);
@@ -33,15 +30,15 @@ public class KeycloakOidcDiscoveryTests
     ///     Tests that Keycloak provides OIDC discovery metadata at the .well-known endpoint.
     ///     This endpoint is critical for the API to validate JWT tokens.
     /// </summary>
-    [RequiresKeycloakFact]
+    [Fact]
     public async Task Keycloak_ProvidesOpenIdConfiguration_AtWellKnownEndpoint()
     {
         // Act
-        var response = await HttpClient.GetAsync(WellKnownEndpoint);
+        var response = await _httpClient.GetAsync(fixture.WellKnownEndpoint);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK,
-            $"Keycloak should serve OIDC discovery at {WellKnownEndpoint}. Is Keycloak running? Try: docker compose up -d");
+            $"Keycloak should serve OIDC discovery at {fixture.WellKnownEndpoint}");
 
         var content = await response.Content.ReadAsStringAsync();
         content.Should().NotBeNullOrEmpty();
@@ -50,11 +47,11 @@ public class KeycloakOidcDiscoveryTests
     /// <summary>
     ///     Tests that OIDC configuration includes required endpoints for JWT validation.
     /// </summary>
-    [RequiresKeycloakFact]
+    [Fact]
     public async Task OpenIdConfiguration_IncludesRequiredEndpoints()
     {
         // Act
-        var response = await HttpClient.GetAsync(WellKnownEndpoint);
+        var response = await _httpClient.GetAsync(fixture.WellKnownEndpoint);
         var content = await response.Content.ReadAsStringAsync();
 
         // Assert
@@ -71,14 +68,11 @@ public class KeycloakOidcDiscoveryTests
     ///     Tests that Keycloak JWKS endpoint is accessible for JWT public key retrieval.
     ///     The API uses this endpoint to validate JWT token signatures.
     /// </summary>
-    [RequiresKeycloakFact]
+    [Fact]
     public async Task Keycloak_ProvidesJwksKeys_ForTokenValidation()
     {
-        // Arrange
-        var jwksUrl = $"{KeycloakHost}/realms/{RealmName}/protocol/openid-connect/certs";
-
         // Act
-        var response = await HttpClient.GetAsync(jwksUrl);
+        var response = await _httpClient.GetAsync(fixture.JwksEndpoint);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK,
@@ -92,54 +86,49 @@ public class KeycloakOidcDiscoveryTests
     ///     Tests that the daedalus-api client is configured in Keycloak realm.
     ///     This client represents the backend API in the OIDC flow.
     /// </summary>
-    [RequiresKeycloakFact]
+    [Fact]
     public async Task KeycloakRealm_HasDaedalusApiClient_Configured()
     {
-        // Note: This test would require admin authentication to verify client details
-        // For now, we just verify the realm exists via OIDC discovery
+        // Verify the realm exists via OIDC discovery
+        // Full client verification would require admin authentication
 
         // Act
-        var response = await HttpClient.GetAsync(WellKnownEndpoint);
+        var response = await _httpClient.GetAsync(fixture.WellKnownEndpoint);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK,
-            $"Realm '{RealmName}' should exist and be configured. Is keycloak-realm.json imported?");
+            $"Realm '{KeycloakFixture.Realm}' should exist and be configured via keycloak-realm.json import");
     }
 
     /// <summary>
     ///     Tests that the daedalus-wasm client is configured in Keycloak realm.
     ///     This client represents the Blazor WASM frontend in the OIDC flow.
     /// </summary>
-    [RequiresKeycloakFact]
+    [Fact]
     public async Task KeycloakRealm_HasDaedalusWasmClient_Configured()
     {
-        // Note: This test would require admin authentication to verify client details
-
         // Act
-        var response = await HttpClient.GetAsync(WellKnownEndpoint);
+        var response = await _httpClient.GetAsync(fixture.WellKnownEndpoint);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK,
-            $"Realm '{RealmName}' should exist with WASM client configured");
+            $"Realm '{KeycloakFixture.Realm}' should exist with WASM client configured");
     }
 
     /// <summary>
-    ///     Tests that OIDC configuration issuer matches the Authority setting in API appsettings.
+    ///     Tests that OIDC configuration issuer matches the expected Authority.
     ///     If these don't match, JWT validation will fail with "invalid issuer" errors.
     /// </summary>
-    [RequiresKeycloakFact]
+    [Fact]
     public async Task OpenIdConfiguration_IssuerMatches_ExpectedAuthority()
     {
-        // Arrange
-        var expectedAuthority = $"{KeycloakHost}/realms/{RealmName}";
-
         // Act
-        var response = await HttpClient.GetAsync(WellKnownEndpoint);
+        var response = await _httpClient.GetAsync(fixture.WellKnownEndpoint);
         var content = await response.Content.ReadAsStringAsync();
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        content.Should().Contain($"\"issuer\":\"{expectedAuthority}\"",
-            $"Keycloak issuer should match Authority setting: {expectedAuthority}");
+        content.Should().Contain($"\"issuer\":\"{fixture.Authority}\"",
+            $"Keycloak issuer should match Authority setting: {fixture.Authority}");
     }
 }

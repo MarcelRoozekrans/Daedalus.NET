@@ -1,4 +1,4 @@
-﻿using Daedalus.Domain.Entities;
+using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -55,7 +55,10 @@ public sealed class TaskExecutionQueryService(ApplicationDbContext dbContext) : 
             execution.CompletionPromiseFound,
             execution.ExecutedAt,
             execution.ExecutionDuration,
-            execution.Error
+            execution.Error,
+            execution.InputTokens,
+            execution.OutputTokens,
+            execution.ModelId
         );
     }
 }

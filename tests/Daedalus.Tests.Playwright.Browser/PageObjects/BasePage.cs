@@ -18,7 +18,8 @@ public abstract class BasePage(IPage page, Uri baseUrl)
     {
         await _page.Locator(selector).WaitForAsync(new LocatorWaitForOptions
         {
-            State = WaitForSelectorState.Visible, Timeout = timeoutMs
+            State = WaitForSelectorState.Visible,
+            Timeout = timeoutMs
         }).ConfigureAwait(false);
     }
 
@@ -26,7 +27,8 @@ public abstract class BasePage(IPage page, Uri baseUrl)
     {
         await _page.Locator(selector).WaitForAsync(new LocatorWaitForOptions
         {
-            State = WaitForSelectorState.Hidden, Timeout = timeoutMs
+            State = WaitForSelectorState.Hidden,
+            Timeout = timeoutMs
         }).ConfigureAwait(false);
     }
 

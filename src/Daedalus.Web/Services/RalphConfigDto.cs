@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Web.Services;
+namespace Daedalus.Web.Services;
 
 /// <summary>DTO for Ralph Loop configuration.</summary>
 public record RalphConfigDto(

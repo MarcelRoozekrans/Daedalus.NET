@@ -8,9 +8,15 @@ using Radzen;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
-// Determine test mode: explicitly set via config, or detected when the OIDC
-// Authority is missing (e.g. the WASM app is hosted by the E2E test fixture
-// which does not serve appsettings.json to the browser runtime).
+// Always register root components — required for standalone WASM (blazor.webassembly.js).
+// Root components must be declared here unconditionally so the Blazor renderer has
+// an entry point regardless of authentication mode.
+builder.RootComponents.Add<App>("#app");
+builder.RootComponents.Add<Microsoft.AspNetCore.Components.Web.HeadOutlet>("head::after");
+
+// Determine test mode: explicitly set via config (the E2E test fixture overrides
+// /appsettings.json with {"TestMode":"true"} so the browser runtime boots against
+// the test server), or detected when the OIDC Authority is missing.
 var testMode = string.Equals(builder.Configuration["TestMode"], "true", StringComparison.OrdinalIgnoreCase)
                || (OperatingSystem.IsBrowser()
                    && string.IsNullOrEmpty(builder.Configuration["Oidc:Authority"]));
@@ -63,10 +69,17 @@ if (testMode)
 }
 else
 {
-    // Production: attach OIDC access token via BaseAddressAuthorizationMessageHandler
+    // Production: attach OIDC access token via AuthorizationMessageHandler configured
+    // with the API base URL. Using AuthorizationMessageHandler (not BaseAddressAuthorizationMessageHandler)
+    // allows cross-origin token attachment when the API is on a different origin than the web app.
     builder.Services.AddHttpClient("Daedalus.Api",
             client => client.BaseAddress = new Uri(apiBaseAddress))
-        .AddHttpMessageHandler<BaseAddressAuthorizationMessageHandler>()
+        .AddHttpMessageHandler(sp =>
+        {
+            var handler = sp.GetRequiredService<AuthorizationMessageHandler>()
+                .ConfigureHandler(authorizedUrls: new[] { apiBaseAddress });
+            return handler;
+        })
         .AddStandardResilienceHandler(options =>
         {
             options.Retry.MaxRetryAttempts = 3;
@@ -83,6 +96,7 @@ builder.Services.AddScoped(sp =>
     sp.GetRequiredService<IHttpClientFactory>().CreateClient("Daedalus.Api"));
 
 builder.Services.AddScoped<ApiClient>();
+builder.Services.AddScoped<AgentApiClient>();
 builder.Services.AddScoped<IProjectApiClient, ProjectApiClient>();
 builder.Services.AddRadzenComponents();
 
@@ -91,13 +105,6 @@ if (testMode)
     // Test mode: bypass OIDC, use AlwaysAuthenticatedStateProvider
     builder.Services.AddAuthorizationCore();
     builder.Services.AddScoped<AuthenticationStateProvider, AlwaysAuthenticatedStateProvider>();
-
-    // In the unified Blazor model (blazor.web.js), root components are managed server-side
-    // via MapRazorComponents. When running under the standalone WASM bootstrap
-    // (blazor.webassembly.js) in E2E tests, register root components explicitly so
-    // the Blazor renderer has an entry point.
-    builder.RootComponents.Add<App>("#app");
-    builder.RootComponents.Add<Microsoft.AspNetCore.Components.Web.HeadOutlet>("head::after");
 }
 else
 {

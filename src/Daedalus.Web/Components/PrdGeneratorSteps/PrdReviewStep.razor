@@ -1,130 +1,125 @@
 @using Daedalus.Application.DTOs
-<div class="card">
-    <div class="card-header bg-success text-white">
-        <h5 class="mb-0">
-            <i class="bi bi-clipboard-check"></i>
+
+<RadzenCard>
+    <RadzenStack Gap="1rem">
+        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">
+            <RadzenIcon Icon="fact_check" Style="vertical-align: middle; margin-right: 0.25rem;"/>
             Review Generated PRD
-        </h5>
-    </div>
-    <div class="card-body">
+        </RadzenText>
+
         @if (Prd == null)
         {
-            <div class="alert alert-warning">No PRD data available</div>
+            <RadzenAlert AlertStyle="AlertStyle.Warning" ShowIcon="true" Variant="Variant.Flat">
+                No PRD data available
+            </RadzenAlert>
         }
         else
         {
-            <!-- PRD Overview Section -->
-            <div class="mb-4">
-                <h6 class="text-primary fw-bold">
-                    <i class="bi bi-file-earmark-pdf"></i>
+            @* ── Product Overview ──────────────────────── *@
+            <RadzenCard Variant="Variant.Text">
+                <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: var(--rz-primary); margin: 0 0 0.5rem;">
+                    <RadzenIcon Icon="description" Style="vertical-align: middle; font-size: 1.1rem; margin-right: 0.25rem;"/>
                     Product Overview
-                </h6>
-                <p>@Prd.ProductOverview</p>
-            </div>
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2">@Prd.ProductOverview</RadzenText>
+            </RadzenCard>
 
-            <!-- Goals Section -->
+            @* ── Goals ─────────────────────────────────── *@
             @if (Prd.Goals.Count > 0)
             {
-                <div class="mb-4">
-                    <h6 class="text-primary fw-bold">
-                        <i class="bi bi-bullseye"></i>
+                <RadzenCard Variant="Variant.Text">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: var(--rz-primary); margin: 0 0 0.5rem;">
+                        <RadzenIcon Icon="flag" Style="vertical-align: middle; font-size: 1.1rem; margin-right: 0.25rem;"/>
                         Goals
-                    </h6>
-                    <ul class="list-group">
+                    </RadzenText>
+                    <RadzenStack Gap="0.25rem">
                         @foreach (var goal in Prd.Goals)
                         {
-                            <li class="list-group-item">@goal</li>
+                            <RadzenText TextStyle="TextStyle.Body2">
+                                &bull; @goal
+                            </RadzenText>
                         }
-                    </ul>
-                </div>
+                    </RadzenStack>
+                </RadzenCard>
             }
 
-            <!-- Assumptions Section -->
+            @* ── Assumptions ──────────────────────────── *@
             @if (Prd.Assumptions.Count > 0)
             {
-                <div class="mb-4">
-                    <h6 class="text-primary fw-bold">
-                        <i class="bi bi-lightbulb"></i>
+                <RadzenCard Variant="Variant.Text">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: var(--rz-primary); margin: 0 0 0.5rem;">
+                        <RadzenIcon Icon="lightbulb" Style="vertical-align: middle; font-size: 1.1rem; margin-right: 0.25rem;"/>
                         Assumptions
-                    </h6>
-                    <ul class="list-group">
+                    </RadzenText>
+                    <RadzenStack Gap="0.25rem">
                         @foreach (var assumption in Prd.Assumptions)
                         {
-                            <li class="list-group-item">@assumption</li>
+                            <RadzenText TextStyle="TextStyle.Body2">
+                                &bull; @assumption
+                            </RadzenText>
                         }
-                    </ul>
-                </div>
+                    </RadzenStack>
+                </RadzenCard>
             }
 
-            <!-- Items Section -->
-            <div class="mb-4">
-                <h6 class="text-primary fw-bold">
-                    <i class="bi bi-list-check"></i>
-                    Items to Convert to Tasks (@Prd.AllItems.Count)
-                </h6>
-                <p class="text-muted small">
-                    Select the items you want to convert into executable tasks.
-                </p>
+            @* ── Items to Convert ─────────────────────── *@
+            <RadzenText TextStyle="TextStyle.Subtitle1" Style="color: var(--rz-primary); margin: 0;">
+                <RadzenIcon Icon="checklist" Style="vertical-align: middle; font-size: 1.1rem; margin-right: 0.25rem;"/>
+                Items to Convert to Tasks (@Prd.AllItems.Count)
+            </RadzenText>
+            <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.5;">
+                Select the items you want to convert into executable tasks.
+            </RadzenText>
 
-                <div class="row">
-                    @foreach (var item in Prd.AllItems)
-                    {
-                        <div class="col-md-6 mb-3">
-                            <div class="card border-light h-100">
-                                <div class="card-body">
-                                    <div class="form-check mb-2">
-                                        <input type="checkbox" class="form-check-input" id="item_@item.GetHashCode()"
-                                               @onchange="@(e => HandleItemToggled(item, (bool)e.Value!))"
-                                               disabled="@IsConverting"/>
-                                        <label class="form-check-label fw-bold" for="item_@item.GetHashCode()">
-                                            @item.Title
-                                        </label>
-                                    </div>
+            <RadzenRow Gap="1rem">
+                @foreach (var item in Prd.AllItems)
+                {
+                    <RadzenColumn Size="12" SizeMD="6">
+                        <RadzenCard>
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                    <RadzenCheckBox TValue="bool" Value="@_selectedItems.Contains(item)"
+                                                    Change="@(val => HandleItemToggled(item, val))"
+                                                    Disabled="@IsConverting" Name="@($"item_{item.GetHashCode()}")"/>
+                                    <RadzenLabel Text="@item.Title" Component="@($"item_{item.GetHashCode()}")"
+                                                 Style="font-weight: 600;"/>
+                                </RadzenStack>
 
-                                    <p class="text-muted small mb-2">@item.Description</p>
+                                <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6;">
+                                    @item.Description
+                                </RadzenText>
 
-                                    <div class="d-flex gap-1 flex-wrap mb-2">
-                                        <span class="badge bg-secondary">@item.Priority</span>
-                                        <span class="badge bg-info">@item.EstimatedComplexity</span>
-                                        @if (item.DependenciesCount > 0)
-                                        {
-                                            <span class="badge bg-warning">@item.DependenciesCount deps</span>
-                                        }
-                                    </div>
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                                    <RadzenBadge Text="@item.Priority.ToString()" BadgeStyle="BadgeStyle.Secondary"/>
+                                    <RadzenBadge Text="@item.EstimatedComplexity.ToString()" BadgeStyle="BadgeStyle.Info"/>
+                                    @if (item.DependenciesCount > 0)
+                                    {
+                                        <RadzenBadge Text="@($"{item.DependenciesCount} deps")" BadgeStyle="BadgeStyle.Warning"/>
+                                    }
+                                </RadzenStack>
 
-                                    <div class="small text-success">
-                                        <strong>Acceptance Criteria:</strong>
-                                        <p>@item.AcceptanceCriteria</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                </div>
-            </div>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="color: var(--rz-success);">
+                                    <strong>Acceptance Criteria:</strong> @item.AcceptanceCriteria
+                                </RadzenText>
+                            </RadzenStack>
+                        </RadzenCard>
+                    </RadzenColumn>
+                }
+            </RadzenRow>
 
-            <!-- Action Buttons -->
-            <div class="d-flex gap-2 sticky-bottom bg-white pt-3 border-top">
-                <button type="button" class="btn btn-success" disabled="@(_selectedItems.Count == 0 || IsConverting)"
-                        @onclick="HandleConvert">
-                    @if (IsConverting)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        <span>Converting...</span>
-                    }
-                    else
-                    {
-                        <span><i class="bi bi-arrow-repeat"></i> Convert @_selectedItems.Count Items to Tasks</span>
-                    }
-                </button>
-                <button type="button" class="btn btn-outline-secondary" @onclick="() => OnCancel.InvokeAsync()"
-                        disabled="@IsConverting">
-                    Cancel
-                </button>
-            </div>
+            @* ── Action Buttons ───────────────────────── *@
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" class="rz-mt-2">
+                <RadzenButton Text="@(IsConverting ? "Converting..." : $"Convert {_selectedItems.Count} Items to Tasks")"
+                              Icon="transform" ButtonStyle="ButtonStyle.Success"
+                              IsBusy="@IsConverting"
+                              Disabled="@(_selectedItems.Count == 0)"
+                              Click="@HandleConvert"/>
+                <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat"
+                              Click="@(() => OnCancel.InvokeAsync())" Disabled="@IsConverting"/>
+            </RadzenStack>
         }
-    </div>
-</div>
+    </RadzenStack>
+</RadzenCard>
 
 @code {
     [Parameter] public PrdResponseDto? Prd { get; set; }

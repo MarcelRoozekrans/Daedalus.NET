@@ -1,43 +1,48 @@
 @using ProjectDto = Daedalus.Application.DTOs.ProjectDto
-<div class="card">
-    <div class="card-header bg-primary text-white">
-        <h5 class="mb-0">
-            <i class="bi bi-folder"></i>
+@inject HttpClient Http
+@inject ILogger<ProjectSelectionStep> Logger
+
+<RadzenCard>
+    <RadzenStack Gap="0.75rem">
+        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">
+            <RadzenIcon Icon="folder_open" Style="vertical-align: middle; margin-right: 0.25rem;"/>
             Select Project
-        </h5>
-    </div>
-    <div class="card-body">
-        <p class="text-muted">Choose a project to associate with your PRD generation.</p>
+        </RadzenText>
+        <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.5; margin: 0;">
+            Choose a project to associate with your PRD generation.
+        </RadzenText>
 
         @if (_projects == null)
         {
-            <div class="text-center">
-                <div class="spinner-border" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"
+                                       Style="display: block; margin: 1rem auto;"/>
         }
         else if (_projects.Count == 0)
         {
-            <div class="alert alert-info">
+            <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat">
                 No projects found. Please create a project first.
-            </div>
+            </RadzenAlert>
         }
         else
         {
-            <div class="list-group">
+            <RadzenRow Gap="1rem">
                 @foreach (var project in _projects)
                 {
-                    <button type="button" class="list-group-item list-group-item-action"
-                            @onclick="() => OnProjectSelected.InvokeAsync(project.Id)">
-                        <h6 class="mb-1">@project.ProjectName</h6>
-                        <p class="mb-0 text-muted small">@project.Description</p>
-                    </button>
+                    <RadzenColumn Size="12" SizeMD="6" SizeLG="4">
+                        <RadzenCard Style="cursor: pointer;" @onclick="() => OnProjectSelected.InvokeAsync(project.Id)">
+                            <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0 0 0.25rem;">
+                                @project.ProjectName
+                            </RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.5; margin: 0;">
+                                @(string.IsNullOrEmpty(project.Description) ? "No description" : project.Description)
+                            </RadzenText>
+                        </RadzenCard>
+                    </RadzenColumn>
                 }
-            </div>
+            </RadzenRow>
         }
-    </div>
-</div>
+    </RadzenStack>
+</RadzenCard>
 
 @code {
     [Parameter] public EventCallback<Guid> OnProjectSelected { get; set; }
@@ -53,7 +58,9 @@
     {
         try
         {
-            _projects = await Http.GetFromJsonAsync<List<ProjectDto>>("api/projects") ?? [];
+            // The API returns a paged envelope, not a bare list (regression found by the PRD generator browser tests).
+            var page = await Http.GetFromJsonAsync<PagedResultDto<ProjectDto>>("api/projects?page=1&pageSize=100");
+            _projects = page?.Items.ToList() ?? [];
         }
         catch (Exception ex)
         {
@@ -61,8 +68,4 @@
             _projects = [];
         }
     }
-
-@inject HttpClient Http
-
-@inject ILogger<ProjectSelectionStep> Logger
 }

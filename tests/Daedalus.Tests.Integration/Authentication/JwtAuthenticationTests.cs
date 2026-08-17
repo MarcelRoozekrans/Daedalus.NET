@@ -154,7 +154,8 @@ public class JwtAuthenticationTests
         // Arrange & Act
         var options = new JwtBearerOptions
         {
-            Authority = "http://keycloak:8082/realms/daedalus", Audience = "daedalus-api"
+            Authority = "http://keycloak:8082/realms/daedalus",
+            Audience = "daedalus-api"
         };
 
         // Assert

@@ -6,10 +6,12 @@
 
 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
              JustifyContent="JustifyContent.SpaceBetween" class="rz-mb-4">
-    <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H2">
-        <RadzenIcon Icon="folder_special"/>
-        Projects
-    </RadzenText>
+    <RadzenStack Gap="0.25rem">
+        <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Projects</RadzenText>
+        <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+            Manage your code analysis projects
+        </RadzenText>
+    </RadzenStack>
     <RadzenButton Text="Create Project" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialog"
                   data-testid="btn-create-project"/>
 </RadzenStack>
@@ -71,8 +73,15 @@ else if (_projects is not null && _projects.Items.Count > 0)
 }
 else
 {
-    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter">No projects found. Create one to get started.
-    </RadzenAlert>
+    <div class="empty-state">
+        <RadzenIcon Icon="folder_open" Style="font-size: 3rem; opacity: 0.3;"/>
+        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0.5rem 0 0.25rem;">No Projects Yet</RadzenText>
+        <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.5; margin-bottom: 1rem;">
+            Create a project to organize your tasks and code analysis.
+        </RadzenText>
+        <RadzenButton Text="Create Project" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                      Variant="Variant.Outlined" Click="@OpenCreateDialog"/>
+    </div>
 }
 
 @if (_selectedProject is not null)

@@ -1,4 +1,4 @@
-﻿using Daedalus.Application.Commands.ExecuteTask;
+using Daedalus.Application.Commands.ExecuteTask;
 
 namespace Daedalus.Tests.Unit.Application.Commands;
 

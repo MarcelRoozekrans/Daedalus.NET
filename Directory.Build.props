@@ -10,10 +10,11 @@
         <EnableNETAnalyzers>true</EnableNETAnalyzers>
         <AnalysisLevel>latest-all</AnalysisLevel>
         <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-        <!-- Version information -->
-        <AssemblyVersion>1.0.0.0</AssemblyVersion>
-        <FileVersion>1.0.0.0</FileVersion>
-        <InformationalVersion>1.0.0</InformationalVersion>
+        <!-- Version: derived from git history by GitVersion (GitVersion.yml) and passed in by CI and the
+             Dockerfiles as -p:Version=X.Y.Z; AssemblyVersion/FileVersion/InformationalVersion follow from it.
+             VersionPrefix is only the fallback for a plain local `dotnet build`. Never hand-edit a release
+             number here — release-please cuts releases (docs/release.md). -->
+        <VersionPrefix>0.1.0</VersionPrefix>
         <!-- AOT Compilation Support (can be overridden per project) -->
         <TrimMode>partial</TrimMode>
         <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
@@ -28,15 +29,15 @@
 
     <ItemGroup>
         <!-- Code analyzers for all projects -->
-        <PackageReference Include="SonarAnalyzer.CSharp" Version="10.32.0.713">
+        <PackageReference Include="SonarAnalyzer.CSharp">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Meziantou.Analyzer" Version="3.0.159">
+        <PackageReference Include="Meziantou.Analyzer">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.400">
+        <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>

@@ -70,7 +70,10 @@ public sealed class TaskQueryService(ApplicationDbContext dbContext) : ITaskQuer
                 e.CompletionPromiseFound,
                 e.ExecutedAt,
                 e.ExecutionDuration,
-                e.Error
+                e.Error,
+                e.InputTokens,
+                e.OutputTokens,
+                e.ModelId
             )).ToList()
         );
     }

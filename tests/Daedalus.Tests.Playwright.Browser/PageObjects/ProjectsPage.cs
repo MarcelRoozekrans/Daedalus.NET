@@ -14,7 +14,12 @@ public sealed class ProjectsPage(IPage page, Uri baseUrl) : BasePage(page, baseU
     public ILocator ConfirmCancelButton =>
         _page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Cancel" });
 
+    public ILocator ConfirmDialog => _page.Locator(".rz-dialog-wrapper");
+    public ILocator DialogTitle => _page.Locator(".rz-dialog-title");
     public ILocator Notification => _page.Locator(".rz-notification");
+    public ILocator SelectedProjectPanel => _page.Locator(".rz-card").Filter(new LocatorFilterOptions { HasText = "— Tasks" });
+    public ILocator EmptyState => _page.Locator(".empty-state");
+    public ILocator EmptyStateTitle => _page.GetByText("No Projects Yet");
     public async Task NavigateAsync() => await NavigateToAsync("/projects").ConfigureAwait(false);
 
     public ILocator GetRowByText(string text) =>

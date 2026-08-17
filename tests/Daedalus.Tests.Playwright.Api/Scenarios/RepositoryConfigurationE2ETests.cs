@@ -141,12 +141,12 @@ public class RepositoryConfigurationE2ETests : ApiTestBase
         // Act — placeholder controller always returns NoContent
         var response = await PutApiAsync($"/api/repositories/{Guid.NewGuid()}",
                 new
-                    {
-                        name = "Ghost Repo",
-                        url = "https://github.com/test/ghost",
-                        defaultBranch = "main",
-                        isActive = true
-                    })
+                {
+                    name = "Ghost Repo",
+                    url = "https://github.com/test/ghost",
+                    defaultBranch = "main",
+                    isActive = true
+                })
             .ConfigureAwait(false);
 
         // Assert

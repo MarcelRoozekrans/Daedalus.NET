@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Domain.CodeAnalysis;
+namespace Daedalus.Domain.CodeAnalysis;
 
 /// <summary>
 ///     Enumeration for code analysis types

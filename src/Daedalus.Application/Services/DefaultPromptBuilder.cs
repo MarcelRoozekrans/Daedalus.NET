@@ -10,24 +10,23 @@ namespace Daedalus.Application.Services;
 /// <summary>
 ///     Default implementation of prompt building for Ralph loop execution.
 ///     Implements the iterative prompt enhancement pattern from the Ralph Wiggum loop.
-///     Integrates the RLP structured template system, workspace context loading,
-///     and Context7 documentation injection for LLM grounding.
+///     Integrates the RLP structured template system and workspace context loading.
+///     Library documentation is available on-demand via Context7 MCP tools
+///     (resolve-library-id, get-library-docs) which Claude calls during inference.
 /// </summary>
 /// <remarks>
 ///     The Ralph loop pattern (from the RLP technique):
 ///     1. First iteration: Build structured prompt from RLP template sections with workspace context
-///     (specs, plan, AGENT.md), Context7 docs, and numbered priority instructions
+///     (specs, plan, AGENT.md) and numbered priority instructions
 ///     2. Subsequent iterations:
 ///     - Include the same structured template (deterministic stack allocation)
 ///     - Add execution history and what was previously tried
 ///     - Ask the LLM to refine its approach
 ///     - Provide hints about what the completion promise is
-///     - Include updated Context7 documentation references
 ///     - Track progress and failures
 /// </remarks>
 public sealed partial class DefaultPromptBuilder(
     IOptions<RalphLoopConfiguration> ralphConfig,
-    IContext7DocumentationInjector documentationInjector,
     IRalphPromptTemplateBuilder templateBuilder,
     IWorkspaceContextProvider workspaceContextProvider,
     IPromptContextStore promptContextStore,
@@ -110,38 +109,25 @@ public sealed partial class DefaultPromptBuilder(
 
         context.Iteration++;
 
-        // Get Context7 documentation for the prompt
-        var docResult = await documentationInjector.GetDocumentationContextAsync(context.OriginalPrompt, ct);
-
         // Build the structured RLP template prompt (same structure every iteration)
         var templatePrompt = await BuildTemplatePromptAsync(context, ct);
 
-        // First iteration: use the structured template prompt with Context7 docs
+        // First iteration: use the structured template prompt
         if (context.Iteration == 1)
         {
             LogBuildingFirstIteration(logger, context.TaskId);
 
             var prompt = templatePrompt ?? context.OriginalPrompt;
 
-            // Prepend Context7 documentation if available
-            if (docResult.IsSuccess && !string.IsNullOrEmpty(docResult.Value))
-            {
-                prompt = $"{docResult.Value}\n\n{prompt}";
-            }
-
             return Result.Success(prompt);
         }
 
         // Subsequent iterations: enhance the structured template with history context
-        var enhancedPrompt = BuildEnhancedPrompt(
-            context,
-            docResult.IsSuccess ? docResult.Value : null,
-            templatePrompt);
+        var enhancedPrompt = BuildEnhancedPrompt(context, templatePrompt);
 
-        var hasDocs = docResult.IsSuccess && !string.IsNullOrEmpty(docResult.Value);
         var hasTemplate = templatePrompt != null;
         LogBuiltEnhancedPrompt(logger, context.Iteration, context.TaskId, context.History.Count, enhancedPrompt.Length,
-            hasDocs, hasTemplate);
+            hasTemplate);
 
         return Result.Success(enhancedPrompt);
     }
@@ -289,25 +275,18 @@ public sealed partial class DefaultPromptBuilder(
 
     /// <summary>
     ///     Builds an enhanced prompt that includes the structured RLP template,
-    ///     Context7 documentation, history context and execution hints.
-    ///     This is the core Ralph loop pattern implementation with documentation grounding.
+    ///     history context and execution hints.
+    ///     This is the core Ralph loop pattern implementation.
     ///     The key RLP insight: deterministically allocate the stack (specs, plan) the same way
     ///     every loop, then append iteration-specific context.
+    ///     Library documentation is fetched on-demand by Claude via Context7 MCP tools.
     /// </summary>
 #pragma warning disable CA1305, CA1845, MA0011 // Locale-aware string formatting not needed for LLM prompts
     private static string BuildEnhancedPrompt(
         PromptContext context,
-        string? context7Documentation = null,
         string? templatePrompt = null)
     {
         var sb = new StringBuilder();
-
-        // Add Context7 documentation first for LLM grounding
-        if (!string.IsNullOrEmpty(context7Documentation))
-        {
-            sb.AppendLine(context7Documentation);
-            sb.AppendLine();
-        }
 
         // Use the structured RLP template if available, otherwise fall back to original prompt
         // This is the "deterministic stack allocation" — same structure every iteration
@@ -415,14 +394,14 @@ public sealed partial class DefaultPromptBuilder(
         bool hasLearnings);
 
     [LoggerMessage(EventId = 2, Level = LogLevel.Debug,
-        Message = "Building first iteration prompt for task {TaskId}, using RLP template with Context7 documentation")]
+        Message = "Building first iteration prompt for task {TaskId}, using RLP template")]
     private static partial void LogBuildingFirstIteration(ILogger logger, Guid taskId);
 
     [LoggerMessage(EventId = 3, Level = LogLevel.Debug,
         Message =
-            "Built enhanced iteration {Iteration} prompt for task {TaskId}, history_entries={HistoryCount}, prompt_length={PromptLength}, has_context7_docs={HasDocs}, has_template={HasTemplate}")]
+            "Built enhanced iteration {Iteration} prompt for task {TaskId}, history_entries={HistoryCount}, prompt_length={PromptLength}, has_template={HasTemplate}")]
     private static partial void LogBuiltEnhancedPrompt(ILogger logger, int iteration, Guid taskId, int historyCount,
-        int promptLength, bool hasDocs, bool hasTemplate);
+        int promptLength, bool hasTemplate);
 
     [LoggerMessage(EventId = 4, Level = LogLevel.Debug,
         Message =

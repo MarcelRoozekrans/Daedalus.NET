@@ -1,4 +1,4 @@
-﻿namespace Daedalus.Api.Services;
+namespace Daedalus.Api.Services;
 
 /// <summary>Service for accessing execution session data from the database.</summary>
 public interface IExecutionSessionQueryService

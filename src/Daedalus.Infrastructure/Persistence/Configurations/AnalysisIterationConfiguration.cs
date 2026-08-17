@@ -28,6 +28,15 @@ internal sealed class AnalysisIterationConfiguration : IEntityTypeConfiguration<
         entity.Property(e => e.ValidationErrors)
             .HasColumnType("jsonb");
 
+        entity.Property(e => e.InputTokens)
+            .HasDefaultValue(0);
+
+        entity.Property(e => e.OutputTokens)
+            .HasDefaultValue(0);
+
+        entity.Property(e => e.ModelId)
+            .HasMaxLength(100);
+
         entity.HasIndex(e => e.CodeAnalysisRequestId)
             .HasDatabaseName("IX_AnalysisIteration_RequestId");
 

@@ -1,9 +1,12 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Threading.RateLimiting;
+using Asp.Versioning;
+using Daedalus.Agents;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Extensions;
+using Daedalus.Application.Services.Brainstorm;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Repositories;
@@ -11,8 +14,8 @@ using Daedalus.Infrastructure.Services;
 using Daedalus.ServiceDefaults;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
-using Asp.Versioning;
 using Microsoft.AspNetCore.ResponseCompression;
+using Scalar.AspNetCore;
 
 [assembly:
     UnconditionalSuppressMessage("Trimming", "IL2026",
@@ -36,14 +39,33 @@ builder.Services.AddApplicationDatabase(builder.Configuration, "daedalus");
 builder.Services.Configure<RalphLoopConfiguration>(options =>
     builder.Configuration.GetSection(RalphLoopConfiguration.SectionName).Bind(options));
 
+// Register model pricing configuration
+builder.Services.Configure<ModelPricingConfiguration>(options =>
+    builder.Configuration.GetSection(ModelPricingConfiguration.SectionName).Bind(options));
+
 // Add application layer services (command/query handlers, prompt builders)
 builder.Services.AddApplicationServices(builder.Configuration);
 
-// Add external service integrations (MCP agents, Context7 documentation)
+// Add external service integrations (MCP agents, workspace context)
 builder.Services.AddExternalServices(builder.Configuration);
 
-// Add LLM services (Claude with subagents, factory)
-builder.Services.AddLlmServices(builder.Configuration);
+// Add Agent Framework services (Claude via IRalphAgentFactory, MCP tools)
+builder.Services.AddAgentFrameworkServices(builder.Configuration);
+
+// Register Ollama embedding generator for semantic search (optional — falls back to NoOp if unavailable).
+// The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama). The same instance feeds AI.Sentinel's
+// semantic detectors below (Sentinel's configure delegate runs at registration time, so it cannot be resolved from DI).
+var ollamaConnectionString = builder.Configuration.GetConnectionString("ollama");
+OllamaSharp.OllamaApiClient? ollama = null;
+if (!string.IsNullOrEmpty(ollamaConnectionString))
+{
+    ollama = new OllamaSharp.OllamaApiClient(new Uri(ollamaConnectionString), "nomic-embed-text");
+    builder.Services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(ollama);
+}
+
+// Thalos-based agents (strangler: lives beside Ralph until phase 1.6). Needs the DbContext factory (AddApplicationDatabase)
+// and the knowledge-tool services registered by AddAgentFrameworkServices above.
+builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment, ollama);
 
 // Add code analysis services (Ralph Loop orchestration, Git operations)
 builder.Services.AddCodeAnalysisServices(builder.Configuration);
@@ -59,6 +81,10 @@ builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
 builder.Services.AddScoped<IExecutionSessionQueryService, ExecutionSessionQueryService>();
 builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
 builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
+builder.Services.AddScoped<ICostAnalyticsService, CostAnalyticsService>();
+
+// Add brainstorm services
+builder.Services.AddScoped<IBrainstormService, BrainstormService>();
 
 // Add global exception handler (converts unhandled exceptions to RFC 7807 ProblemDetails)
 builder.Services.AddExceptionHandler<Daedalus.Api.Middleware.GlobalExceptionHandler>();
@@ -75,6 +101,9 @@ builder.Services.AddApiVersioning(options =>
         new HeaderApiVersionReader("x-api-version"),
         new UrlSegmentApiVersionReader());
 });
+
+// Add OpenAPI document generation for Scalar API reference
+builder.Services.AddOpenApi();
 
 // Add controllers with FluentValidation filter for automatic DTO validation
 builder.Services.AddControllers(options =>
@@ -154,6 +183,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("CodeAnalysis", policy => policy.RequireRole("analyst", "admin"));
     options.AddPolicy("CodeAnalysisRead", policy => policy.RequireAuthenticatedUser());
     options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
+    options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser()); // Thalos agents: any signed-in user; tool policies gate the rest
 });
 
 // Add rate limiting — protects write and LLM endpoints from abuse
@@ -207,6 +237,14 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
+
+    // Expose OpenAPI spec and Scalar interactive API reference at /scalar
+    app.MapOpenApi();
+    app.MapScalarApiReference(options =>
+    {
+        options.WithTitle("Daedalus API")
+               .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+    });
 }
 
 app.UseExceptionHandler(); // Global exception handler for non-development environments

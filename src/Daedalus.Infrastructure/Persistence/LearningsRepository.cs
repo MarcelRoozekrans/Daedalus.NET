@@ -3,14 +3,15 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using Pgvector;
 using ZLinq;
 
 namespace Daedalus.Infrastructure.Persistence;
 
 /// <summary>
 ///     EF Core implementation of the learnings repository.
-///     Uses simple SQL text search (ILIKE for PostgreSQL) — no vectors, no embeddings.
-///     Aligned with Ralph philosophy: simple persistence beats complex retrieval.
+///     Supports both simple SQL text search (ILIKE) and semantic vector search (pgvector cosine distance).
 /// </summary>
 public sealed partial class LearningsRepository(
     ApplicationDbContext dbContext,
@@ -62,12 +63,14 @@ public sealed partial class LearningsRepository(
     {
         try
         {
+            var escapedKeyword = EscapeLikePattern(keyword);
+
             // Use EF.Functions.ILike for PostgreSQL case-insensitive search
             var results = await dbContext.StructuredLearnings
                 .AsNoTracking()
                 .Where(l =>
-                    EF.Functions.ILike(l.Pattern, $"%{keyword}%") ||
-                    EF.Functions.ILike(l.Resolution, $"%{keyword}%"))
+                    EF.Functions.ILike(l.Pattern, $"%{escapedKeyword}%") ||
+                    EF.Functions.ILike(l.Resolution, $"%{escapedKeyword}%"))
                 .OrderByDescending(l => l.Severity)
                 .ThenByDescending(l => l.HitCount)
                 .Take(maxResults)
@@ -155,7 +158,7 @@ public sealed partial class LearningsRepository(
         {
             var tagList = tags
                 .AsValueEnumerable()
-                .Select(t => t.ToUpperInvariant())
+                .Select(t => EscapeLikePattern(t.ToUpperInvariant()))
                 .ToArray();
 
             // PostgreSQL array overlap operator via raw SQL for tag matching
@@ -179,6 +182,59 @@ public sealed partial class LearningsRepository(
                 $"Failed to search by tags: {ex.Message}");
         }
     }
+
+    public async Task<Result<IReadOnlyList<StructuredLearningEntry>>> SemanticSearchAsync(
+        float[] queryEmbedding, Guid? projectId, int maxResults, CancellationToken ct)
+    {
+        try
+        {
+            var queryVector = new Vector(queryEmbedding);
+
+            // Use raw SQL for cosine distance ordering since EF Core value converters
+            // do not translate pgvector distance operators in LINQ expressions
+            var parameters = new List<NpgsqlParameter>
+            {
+                new("queryVector", queryVector),
+                new("maxResults", maxResults)
+            };
+
+            var projectFilter = string.Empty;
+            if (projectId.HasValue)
+            {
+                projectFilter = @" AND ""ProjectId"" = @projectId";
+                parameters.Add(new NpgsqlParameter("projectId", projectId.Value));
+            }
+
+            var sql = $@"SELECT * FROM ""StructuredLearnings""
+                         WHERE ""Embedding"" IS NOT NULL{projectFilter}
+                         ORDER BY ""Embedding"" <=> @queryVector
+                         LIMIT @maxResults";
+
+            var results = await dbContext.StructuredLearnings
+                .FromSqlRaw(sql, parameters.ToArray())
+                .AsNoTracking()
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+
+            return Result.Success<IReadOnlyList<StructuredLearningEntry>>(results);
+        }
+        catch (Exception ex)
+        {
+            LogSearchFailed(logger, ex, "semantic", "vector");
+            return Result.Failure<IReadOnlyList<StructuredLearningEntry>>(
+                $"Semantic search failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    ///     Escapes LIKE/ILIKE special characters (<c>%</c>, <c>_</c>, <c>\</c>) so that
+    ///     user-supplied search terms are treated as literal text and cannot alter query semantics.
+    /// </summary>
+    private static string EscapeLikePattern(string input)
+        => input
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
 
     [LoggerMessage(EventId = 100, Level = LogLevel.Debug,
         Message = "Structured learning added: {Id} ({Category})")]

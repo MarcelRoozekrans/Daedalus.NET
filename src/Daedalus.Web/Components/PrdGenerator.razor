@@ -8,15 +8,22 @@
 @inject HttpClient Http
 @inject ILogger<PrdGenerator> Logger
 
-<div class="container-fluid py-4">
-    <div class="row">
-        <div class="col-lg-12">
-            <h1 class="mb-4">
-                <i class="bi bi-lightbulb"></i>
-                PRD Generator - AI-Powered Requirements to Tasks
-            </h1>
-        </div>
-    </div>
+<RadzenStack Gap="1rem">
+    <RadzenStack Gap="0.25rem">
+        <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">PRD Generator</RadzenText>
+        <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+            AI-powered requirements to executable tasks
+        </RadzenText>
+    </RadzenStack>
+
+    <RadzenSteps @bind-SelectedIndex="_stepIndex" Style="pointer-events: none;">
+        <Steps>
+            <RadzenStepsItem Text="Select Project"/>
+            <RadzenStepsItem Text="Requirements"/>
+            <RadzenStepsItem Text="Review PRD"/>
+            <RadzenStepsItem Text="Tasks Created"/>
+        </Steps>
+    </RadzenSteps>
 
     @if (_currentStep == PrdGeneratorStep.ProjectSelection)
     {
@@ -40,12 +47,12 @@
 
     @if (_showError)
     {
-        <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
-            <strong>Error:</strong> @_errorMessage
-            <button type="button" class="btn-close" @onclick="() => _showError = false"></button>
-        </div>
+        <RadzenAlert AlertStyle="AlertStyle.Danger" ShowIcon="true" Variant="Variant.Flat"
+                     AllowClose="true" Close="@(() => _showError = false)">
+            @_errorMessage
+        </RadzenAlert>
     }
-</div>
+</RadzenStack>
 
 @code {
 
@@ -58,6 +65,7 @@
     }
 
     private PrdGeneratorStep _currentStep = PrdGeneratorStep.ProjectSelection;
+    private int _stepIndex;
     private Guid _selectedProjectId;
     private PrdResponseDto? _generatedPrd;
     private List<TaskDto> _createdTasks = [];
@@ -70,6 +78,7 @@
     {
         _selectedProjectId = projectId;
         _currentStep = PrdGeneratorStep.RequirementsInput;
+        _stepIndex = 1;
     }
 
     private async Task HandleRequirementsSubmitted(RequirementsData data)
@@ -91,6 +100,7 @@
                 var jsonContent = await response.Content.ReadAsStringAsync();
                 _generatedPrd = JsonSerializer.Deserialize<PrdResponseDto>(jsonContent);
                 _currentStep = PrdGeneratorStep.PrdReview;
+                _stepIndex = 2;
                 Logger.LogInformation("PRD generated successfully");
             }
             else
@@ -140,6 +150,7 @@
                 var jsonContent = await response.Content.ReadAsStringAsync();
                 _createdTasks = JsonSerializer.Deserialize<List<TaskDto>>(jsonContent) ?? [];
                 _currentStep = PrdGeneratorStep.TasksCreated;
+                _stepIndex = 3;
                 Logger.LogInformation("Tasks created successfully");
             }
             else
@@ -174,6 +185,7 @@
     private void ResetWorkflow()
     {
         _currentStep = PrdGeneratorStep.ProjectSelection;
+        _stepIndex = 0;
         _selectedProjectId = Guid.Empty;
         _generatedPrd = null;
         _createdTasks = [];
@@ -183,7 +195,6 @@
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        // Cleanup if needed
         await ValueTask.CompletedTask;
     }
 

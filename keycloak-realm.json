@@ -24,7 +24,34 @@
       "clientAuthenticatorType": "client-secret",
       "secret": "daedalus-api-secret-change-in-production",
       "defaultClientScopes": ["profile", "email"],
-      "optionalClientScopes": []
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "realm-roles-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "audience-mapper-daedalus-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "daedalus-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
     },
     {
       "clientId": "daedalus-wasm",
@@ -39,6 +66,8 @@
       "serviceAccountsEnabled": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
+        "http://localhost:5290/authentication/login-callback",
+        "http://localhost:5290",
         "http://localhost:8081/authentication/login-callback",
         "http://localhost:8081",
         "http://daedalus-web:8080/authentication/login-callback",
@@ -47,13 +76,41 @@
         "http://localhost:*"
       ],
       "webOrigins": [
+        "http://localhost:5290",
         "http://localhost:8081",
         "http://daedalus-web:8080",
         "http://localhost:8080",
         "+"
       ],
       "defaultClientScopes": ["profile", "email"],
-      "optionalClientScopes": []
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "realm-roles-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "audience-mapper-daedalus-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "daedalus-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -71,7 +128,7 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["default-roles-daedalus"]
+      "realmRoles": ["default-roles-daedalus", "project-manager", "task-manager", "analyst"]
     },
     {
       "username": "admin",
@@ -87,11 +144,16 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["default-roles-daedalus"]
+      "realmRoles": ["default-roles-daedalus", "project-manager", "task-manager", "analyst", "admin"]
     }
   ],
   "roles": {
-    "realm": []
+    "realm": [
+      { "name": "project-manager", "description": "Can manage projects", "composite": false, "clientRole": false, "attributes": {} },
+      { "name": "task-manager", "description": "Can manage tasks", "composite": false, "clientRole": false, "attributes": {} },
+      { "name": "analyst", "description": "Can run code analysis", "composite": false, "clientRole": false, "attributes": {} },
+      { "name": "admin", "description": "Full administrative access", "composite": false, "clientRole": false, "attributes": {} }
+    ]
   },
   "scopeMappings": []
 }

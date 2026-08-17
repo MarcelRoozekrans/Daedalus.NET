@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Daedalus.Application.DTOs.Agents;
 using Microsoft.AspNetCore.Mvc;
 using ExecutionSessionDto = Daedalus.Application.DTOs.ExecutionSessionDto;
 using TaskDto = Daedalus.Application.DTOs.TaskDto;
@@ -25,6 +26,19 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(PrdResponseDto))]
 [JsonSerializable(typeof(List<TaskDto>))]
 [JsonSerializable(typeof(ProblemDetails))]
+// Thalos agents (AgentsController / AgentSessionsController)
+[JsonSerializable(typeof(AgentSummaryDto))]
+[JsonSerializable(typeof(List<AgentSummaryDto>))]
+[JsonSerializable(typeof(AgentSessionDto))]
+[JsonSerializable(typeof(List<AgentSessionDto>))]
+[JsonSerializable(typeof(AgentSessionDetailDto))]
+[JsonSerializable(typeof(AgentMessageDto))]
+[JsonSerializable(typeof(AgentToolCallDto))]
+[JsonSerializable(typeof(TurnUsageDto))]
+[JsonSerializable(typeof(AgentTurnResultDto))]
+[JsonSerializable(typeof(AgentEventDto))]
+[JsonSerializable(typeof(CreateAgentSessionResponseDto))]
+[JsonSerializable(typeof(SendTurnRequestDto))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(int))]
