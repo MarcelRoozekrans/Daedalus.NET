@@ -58,9 +58,14 @@
                     @AgentName(_detail?.Session.AgentId)
                     <span style="opacity: 0.6; font-weight: 400;">&middot; @(_detail?.Session.State ?? "…")</span>
                 </RadzenText>
-                <RadzenButton Text="Close session" Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
-                              Click="@CloseSessionAsync" Disabled="@(_streaming || _detail?.Session.State == "Closed")"
-                              data-testid="agent-close-session"/>
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                    <RadzenButton Text="Memories" Icon="psychology" Size="ButtonSize.Small"
+                                  ButtonStyle="@(_memoriesOpen ? ButtonStyle.Primary : ButtonStyle.Light)"
+                                  Click="@ToggleMemoriesAsync" data-testid="agent-memories-toggle"/>
+                    <RadzenButton Text="Close session" Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Click="@CloseSessionAsync" Disabled="@(_streaming || _detail?.Session.State == "Closed")"
+                                  data-testid="agent-close-session"/>
+                </RadzenStack>
             </RadzenStack>
 
             @* column-reverse keeps the scroll position pinned to the newest message without JS interop *@
@@ -148,16 +153,90 @@
             </RadzenStack>
         }
     </RadzenStack>
+
+    @* Far right column: memories (recalled this turn + browse/forget) *@
+    @if (_memoriesOpen && SessionId is not null)
+    {
+        <RadzenStack Gap="0.5rem" class="rz-p-2 rz-border-left" Style="width: 340px; flex-shrink: 0; overflow-y: auto;" data-testid="agent-memories-panel">
+            <RadzenText TextStyle="TextStyle.Overline" Style="opacity: 0.6;">Recalled this turn</RadzenText>
+            @if (_recallStatus is { } status)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.7;" data-testid="agent-recall-status">@status</RadzenText>
+            }
+            @if (_recalled.Count == 0)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6;">Nothing recalled yet.</RadzenText>
+            }
+            @foreach (var memory in _recalled)
+            {
+                <RadzenCard class="rz-p-2" data-testid="agent-recalled-item" data-memory-id="@memory.Id">
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.7;">@memory.Kind &middot; @Age(memory.CreatedAt)@(memory.IsShared ? " · shared" : "")</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; white-space: pre-wrap;">@memory.Text</RadzenText>
+                </RadzenCard>
+            }
+
+            <RadzenText TextStyle="TextStyle.Overline" class="rz-mt-2" Style="opacity: 0.6;">Browse</RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                <RadzenDropDown TValue="string" Data="@MemoryKinds" @bind-Value="@_kindFilter" Change="@(_ => LoadMemoriesAsync(1))"
+                                AllowClear="true" Placeholder="All kinds" Style="flex: 1;" data-testid="agent-memory-kind-filter"/>
+                <RadzenButton Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@(() => LoadMemoriesAsync(_memoriesPage))" data-testid="agent-memories-refresh"/>
+            </RadzenStack>
+            @if (_memories.Count == 0)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6;" data-testid="agent-memories-empty">No memories.</RadzenText>
+            }
+            @foreach (var memory in _memories)
+            {
+                <RadzenCard class="rz-p-2" data-testid="agent-memory-item" data-memory-id="@memory.Id" data-memory-kind="@memory.Kind">
+                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Start" Gap="0.25rem">
+                        <div style="min-width: 0;">
+                            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.7;">@memory.Kind &middot; @Age(memory.CreatedAt)@(memory.IsShared ? " · shared" : "")@(memory.IndexPending ? " · not indexed yet" : "")</RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; white-space: pre-wrap;">@memory.Text</RadzenText>
+                            @if (memory.Tags.Count > 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">@string.Join(", ", memory.Tags)</RadzenText>
+                            }
+                        </div>
+                        <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall" title="Forget"
+                                      Click="@(() => ForgetAsync(memory.Id))" data-testid="agent-memory-forget"/>
+                    </RadzenStack>
+                </RadzenCard>
+            }
+            @if (_memoriesTotal > _memories.Count || _memoriesPage > 1)
+            {
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                    <RadzenButton Text="Prev" Size="ButtonSize.ExtraSmall" ButtonStyle="ButtonStyle.Light" Disabled="@(_memoriesPage <= 1)"
+                                  Click="@(() => LoadMemoriesAsync(_memoriesPage - 1))" data-testid="agent-memories-prev"/>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">@_memoriesPage / @Math.Max(1, (int)Math.Ceiling(_memoriesTotal / (double)MemoriesPageSize))</RadzenText>
+                    <RadzenButton Text="Next" Size="ButtonSize.ExtraSmall" ButtonStyle="ButtonStyle.Light" Disabled="@(_memoriesPage * MemoriesPageSize >= _memoriesTotal)"
+                                  Click="@(() => LoadMemoriesAsync(_memoriesPage + 1))" data-testid="agent-memories-next"/>
+                </RadzenStack>
+            }
+        </RadzenStack>
+    }
 </RadzenStack>
 </div>
 
 @code {
     private const int RenderIntervalMs = 50;
+    private const int MemoriesPageSize = 20;
+
+    /// <summary>The kinds the browse filter offers; hosts may store others, those are still listed under "All kinds".</summary>
+    private static readonly string[] MemoryKinds = ["fact", "preference", "decision", "learning", "note"];
 
     [Parameter] public string? SessionId { get; set; }
 
     private readonly CancellationTokenSource _pageCts = new();
     private readonly List<ChatMessage> _messages = [];
+    private readonly List<MemoryDto> _memories = [];
+    private readonly List<MemoryDto> _recalled = [];
+    private readonly List<string> _recalledIds = [];
+    private bool _memoriesOpen;
+    private string? _kindFilter;
+    private int _memoriesTotal;
+    private int _memoriesPage = 1;
+    private string? _recallStatus;
     private IReadOnlyList<AgentSummaryDto> _agents = [];
     private IReadOnlyList<AgentSessionDto> _sessions = [];
     private AgentSessionDetailDto? _detail;
@@ -298,6 +377,78 @@
         _detail = _detail is null ? null : _detail with { Session = _detail.Session with { State = "Closed" } };
     }
 
+    /// <summary>Opens or closes the memories panel; opening loads the first page.</summary>
+    private async Task ToggleMemoriesAsync()
+    {
+        _memoriesOpen = !_memoriesOpen;
+        if (_memoriesOpen)
+        {
+            await LoadMemoriesAsync(1);
+        }
+    }
+
+    private async Task LoadMemoriesAsync(int page)
+    {
+        var result = await Api.ListMemoriesAsync(kind: _kindFilter, page: page, pageSize: MemoriesPageSize, ct: _pageCts.Token);
+        result.Match(
+            p =>
+            {
+                _memories.Clear();
+                _memories.AddRange(p.Items);
+                _memoriesTotal = p.Total;
+                _memoriesPage = p.Page;
+            },
+            NotifyError);
+    }
+
+    /// <summary>Archives a memory (recoverable) and drops it from both lists without a round trip.</summary>
+    private async Task ForgetAsync(string id)
+    {
+        var result = await Api.ForgetMemoryAsync(id, hard: false, _pageCts.Token);
+        if (result.IsFailure)
+        {
+            NotifyError(result.Error);
+            return;
+        }
+
+        _memories.RemoveAll(m => string.Equals(m.Id, id, StringComparison.Ordinal));
+        _recalled.RemoveAll(m => string.Equals(m.Id, id, StringComparison.Ordinal));
+        _memoriesTotal = Math.Max(0, _memoriesTotal - 1);
+    }
+
+    /// <summary>Hydrates the ids the <c>memory-recalled</c> events carried; an id the caller can no longer see is skipped.</summary>
+    private async Task LoadRecalledAsync()
+    {
+        _recalled.Clear();
+        foreach (var id in _recalledIds.Distinct(StringComparer.Ordinal))
+        {
+            var memory = await Api.GetMemoryAsync(id, _pageCts.Token);
+            if (memory.IsSuccess)
+            {
+                _recalled.Add(memory.Value);
+            }
+        }
+    }
+
+    /// <summary>Coarse relative age; memories are curated knowledge, so minutes never matter.</summary>
+    private static string Age(DateTimeOffset at)
+    {
+        var span = DateTimeOffset.UtcNow - at;
+        if (span.TotalHours < 1)
+        {
+            return "just now";
+        }
+
+        if (span.TotalDays < 1)
+        {
+            return $"{(int)span.TotalHours} h ago";
+        }
+
+        return span.TotalDays < 30
+            ? $"{(int)span.TotalDays} d ago"
+            : at.LocalDateTime.ToString("yyyy-MM-dd", CultureInfo.CurrentCulture);
+    }
+
     private async Task SendAsync()
     {
         if (_streaming || SessionId is null || string.IsNullOrWhiteSpace(_input))
@@ -309,6 +460,8 @@
         var text = _input.Trim();
         _input = string.Empty;
         _error = null;
+        _recalledIds.Clear();
+        _recallStatus = null;
         _messages.Add(ChatMessage.User(text));
         var assistant = ChatMessage.Assistant();
         _messages.Add(assistant);
@@ -375,6 +528,15 @@
                 {
                     _detail = _detail with { Session = _sessions.FirstOrDefault(s => string.Equals(s.Id, sessionId, StringComparison.Ordinal)) ?? _detail.Session };
                 }
+
+                if (SameSession())
+                {
+                    await LoadRecalledAsync();
+                    if (_memoriesOpen)
+                    {
+                        await LoadMemoriesAsync(_memoriesPage);
+                    }
+                }
             }
         }
     }
@@ -417,6 +579,26 @@
             case "error":
                 assistant.Usage ??= evt.Usage;
                 _error = new ErrorView(evt.ErrorCode ?? "Error", evt.ErrorMessage ?? "The turn failed.", evt.ErrorDetail);
+                break;
+            case "memory-recalled" when evt.Memory is { } recalled:
+                if (recalled.Ids is not null)
+                {
+                    _recalledIds.AddRange(recalled.Ids);
+                }
+
+                _recallStatus = $"{recalled.Count ?? recalled.Ids?.Count ?? 0} memories recalled";
+                break;
+            case "memory-stored" when evt.Memory is { } stored:
+                _recallStatus = stored.Deduped == true ? "Memory updated (duplicate merged)" : "New memory stored";
+                break;
+            case "memory-recall-failed" when evt.Memory is { } failed:
+                _recallStatus = $"Memory recall unavailable ({failed.Code})";
+                break;
+            case "memory-index-pending":
+                _recallStatus = "Memory stored; indexing pending (embedding service unavailable)";
+                break;
+            case "memory-quarantined":
+                _recallStatus = "A recalled memory was quarantined and not shown";
                 break;
             default:
                 break;
