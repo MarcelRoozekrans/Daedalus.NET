@@ -63,14 +63,17 @@ var migrations = builder.AddProject("migrations", migrationsPath)
     .WaitFor(database)
     .WaitFor(keycloak);
 
-// Add the Daedalus console application (depends on migrations and Keycloak)
+// Add the Daedalus console application (depends on migrations and Keycloak).
+// WaitForCompletion, not WaitFor: `migrations` is a one-shot job, and WaitFor releases as soon as it is
+// *running* — so the worker used to start against a database whose schema had not been applied (and even
+// when the job exited 1). WaitForCompletion(0) blocks until it exits successfully.
 builder.AddProject("console", consolePath)
     .WithReference(database)
     .WithReference(keycloak)
     .WithReference(migrations)
     .WithReference(ollama)
     .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
-    .WaitFor(migrations)
+    .WaitForCompletion(migrations)
     .WaitFor(keycloak);
 
 // Add the API service (depends on migrations and Keycloak)
@@ -86,7 +89,7 @@ var api = builder.AddProject("api", apiPath)
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithEnvironment("Authentication__Authority", "http://localhost:8082/realms/daedalus")
     .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
-    .WaitFor(migrations)
+    .WaitForCompletion(migrations)
     .WaitFor(keycloak);
 
 // Add the Blazor WASM frontend with Keycloak reference
