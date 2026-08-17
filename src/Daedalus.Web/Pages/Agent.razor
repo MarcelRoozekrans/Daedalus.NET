@@ -208,7 +208,9 @@
                 <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
                     <RadzenButton Text="Prev" Size="ButtonSize.ExtraSmall" ButtonStyle="ButtonStyle.Light" Disabled="@(_memoriesPage <= 1)"
                                   Click="@(() => LoadMemoriesAsync(_memoriesPage - 1))" data-testid="agent-memories-prev"/>
-                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">@_memoriesPage / @Math.Max(1, (int)Math.Ceiling(_memoriesTotal / (double)MemoriesPageSize))</RadzenText>
+                    @* No "page N of M": the API pages before applying visibility, so its total is an upper bound and a
+                       computed page count would overstate. The page number and the visible count are both exact. *@
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">page @_memoriesPage &middot; @_memories.Count shown</RadzenText>
                     <RadzenButton Text="Next" Size="ButtonSize.ExtraSmall" ButtonStyle="ButtonStyle.Light" Disabled="@(_memoriesPage * MemoriesPageSize >= _memoriesTotal)"
                                   Click="@(() => LoadMemoriesAsync(_memoriesPage + 1))" data-testid="agent-memories-next"/>
                 </RadzenStack>
@@ -407,6 +409,8 @@
             {
                 _memories.Clear();
                 _memories.AddRange(p.Items);
+                // Total counts store rows before the visibility filter, so it only answers "is there another store page",
+                // never "how many can I see".
                 _memoriesTotal = p.Total;
                 _memoriesPage = p.Page;
             },

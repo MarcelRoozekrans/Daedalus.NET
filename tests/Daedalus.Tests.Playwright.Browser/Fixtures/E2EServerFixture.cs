@@ -462,46 +462,41 @@ public class E2EServerFixture
     /// </summary>
     private static async Task SeedMemoriesAsync(ApplicationDbContext dbContext)
     {
-        try
+        if (await dbContext.AgentMemories.AnyAsync().ConfigureAwait(false))
         {
-            if (await dbContext.AgentMemories.AnyAsync().ConfigureAwait(false))
-            {
-                return;
-            }
-
-            var now = DateTime.UtcNow;
-            var seeds = new[]
-            {
-                AgentMemory.Create(
-                    Guid.NewGuid(), TestAuthHandler.UserId, null, "fact", "The E2E user prefers xUnit over NUnit.",
-                    ["testing"], "seed", 0.7, now, indexPending: false),
-                AgentMemory.Create(
-                    Guid.NewGuid(), StubAgentRuntime.SharedOwnerId, null, "learning", SharedMemoryText,
-                    ["codeconvention", "low"], "migration", 0.3, now.AddDays(-3), indexPending: false),
-                AgentMemory.Create(
-                    Guid.NewGuid(), TestAuthHandler.UserId, null, "note", DisposableMemoryText,
-                    ["testing"], "seed", 0.4, now.AddMinutes(-5), indexPending: false),
-                AgentMemory.Create(
-                    Guid.NewGuid(), TestAuthHandler.UserId, Guid.NewGuid(), "note", PinnedMemoryText,
-                    ["testing"], "seed", 0.4, now.AddMinutes(-10), indexPending: false),
-            };
-
-            if (Array.Exists(seeds, s => s.IsFailure))
-            {
-                return;
-            }
-
-            foreach (var seed in seeds)
-            {
-                dbContext.AgentMemories.Add(seed.Value);
-            }
-
-            await dbContext.SaveChangesAsync().ConfigureAwait(false);
+            return;
         }
-        catch (DbUpdateException)
+
+        var now = DateTime.UtcNow;
+        var seeds = new[]
         {
-            // Seed data already exists — safe to ignore
+            AgentMemory.Create(
+                Guid.NewGuid(), TestAuthHandler.UserId, null, "fact", "The E2E user prefers xUnit over NUnit.",
+                ["testing"], "seed", 0.7, now, indexPending: false),
+            AgentMemory.Create(
+                Guid.NewGuid(), StubAgentRuntime.SharedOwnerId, null, "learning", SharedMemoryText,
+                ["codeconvention", "low"], "migration", 0.3, now.AddDays(-3), indexPending: false),
+            AgentMemory.Create(
+                Guid.NewGuid(), TestAuthHandler.UserId, null, "note", DisposableMemoryText,
+                ["testing"], "seed", 0.4, now.AddMinutes(-5), indexPending: false),
+            AgentMemory.Create(
+                Guid.NewGuid(), TestAuthHandler.UserId, Guid.NewGuid(), "note", PinnedMemoryText,
+                ["testing"], "seed", 0.4, now.AddMinutes(-10), indexPending: false),
+        };
+
+        // Throw rather than return: a seed the domain rejects means the memory scenario would assert against rows that
+        // are not there, and a silently unseeded fixture is exactly the failure mode this suite was fixed for.
+        foreach (var seed in seeds)
+        {
+            if (seed.IsFailure)
+            {
+                throw new InvalidOperationException($"Seeding agent memories failed: {seed.Error}");
+            }
+
+            dbContext.AgentMemories.Add(seed.Value);
         }
+
+        await dbContext.SaveChangesAsync().ConfigureAwait(false);
     }
 
     [OneTimeTearDown]

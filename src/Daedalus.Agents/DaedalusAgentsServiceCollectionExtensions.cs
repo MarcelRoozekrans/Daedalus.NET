@@ -56,7 +56,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     Infrastructure services behind the knowledge tools (<c>IFailurePatternDatabase</c>) to be registered by the host.
     ///     Nothing here needs <c>ANTHROPIC_API_KEY</c> at registration time; the provider reads it lazily on first use.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">An agent id is neither a ULID nor a GUID, a Sentinel action or detector name is unknown.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     An agent id is neither a ULID nor a GUID, a Sentinel action or detector name is unknown, a <c>Thalos:Memory</c>
+    ///     value is out of range, or memory is already registered on this collection (see <see cref="AddDaedalusMemory"/>).
+    /// </exception>
     public static IServiceCollection AddDaedalusAgents(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -155,7 +158,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///         before this call for a working index; without one memories are likewise stored <c>index_pending</c>.
     ///     </para>
     /// </remarks>
-    /// <exception cref="InvalidOperationException">A <c>Thalos:Memory</c> value is out of range.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     A <c>Thalos:Memory</c> value is out of range, or memory is already registered on this collection — this method
+    ///     and <see cref="AddDaedalusAgents"/> are mutually exclusive.
+    /// </exception>
     public static IServiceCollection AddDaedalusMemory(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
