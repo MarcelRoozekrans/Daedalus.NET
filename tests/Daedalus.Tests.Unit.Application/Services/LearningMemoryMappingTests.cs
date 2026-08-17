@@ -34,6 +34,43 @@ public sealed class LearningMemoryMappingTests
         tags.Should().Equal("codeconvention", "low", "api", "dto");
     }
 
+    [Fact]
+    public void Text_is_truncated_to_the_memory_limit()
+    {
+        var text = LearningMemoryMapping.Text(new string('a', 3000), new string('b', 3000));
+
+        text.Should().HaveLength(AgentMemory.MaxTextLength);
+        text.Should().StartWith("aaa");
+    }
+
+    [Fact]
+    public void Tags_are_truncated_to_the_memory_tag_limit()
+    {
+        var tags = LearningMemoryMapping.Tags(LearningCategory.ErrorPattern, LearningSeverity.High, [new string('x', 100)]);
+
+        tags.Should().HaveCount(3);
+        tags[2].Should().HaveLength(AgentMemory.MaxTagLength);
+        tags.Should().OnlyContain(t => t.Length <= AgentMemory.MaxTagLength);
+    }
+
+    [Fact]
+    public void A_long_learning_still_satisfies_the_aggregate_that_mirrors_the_thalos_rules()
+    {
+        var learning = AgentMemory.Create(
+            Guid.NewGuid(),
+            "daedalus",
+            null,
+            "learning",
+            LearningMemoryMapping.Text(new string('p', 5000), new string('r', 5000)),
+            LearningMemoryMapping.Tags(LearningCategory.ErrorPattern, LearningSeverity.Critical, [new string('t', 90), "ef core"]),
+            LearningMemoryMapping.Source(Guid.NewGuid()),
+            LearningMemoryMapping.Importance(LearningSeverity.Critical),
+            DateTime.UtcNow,
+            indexPending: true);
+
+        learning.IsSuccess.Should().BeTrue(learning.IsFailure ? learning.Error : null);
+    }
+
     [Theory]
     [InlineData(LearningSeverity.Critical, 1.0)]
     [InlineData(LearningSeverity.High, 0.8)]

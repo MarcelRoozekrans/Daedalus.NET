@@ -1,3 +1,5 @@
+using Daedalus.Application.Configuration;
+
 namespace Daedalus.Agents;
 
 /// <summary>
@@ -89,21 +91,14 @@ public sealed class MemoryConfig
     /// <summary>Dimensions of the embedding model (nomic-embed-text = 768). Must match <c>rag_chunks</c>.</summary>
     public int VectorDimensions { get; set; } = 768;
 
-    /// <summary>How the Ralph enrichment/MCP paths recall shared learnings.</summary>
-    public RalphRecallConfig RalphRecall { get; } = new();
+    /// <summary>
+    ///     How the Ralph enrichment/MCP paths recall shared learnings. The type lives in the Application layer because the
+    ///     Ralph side of the port (<c>LearningsEnrichmentMiddleware</c>, <c>search_learnings</c>) binds the same key.
+    /// </summary>
+    public RalphRecallConfiguration RalphRecall { get; } = new();
 
     /// <summary><c>ReindexPendingMemoriesHostedService</c> settings.</summary>
     public ReindexConfig Reindex { get; } = new();
-}
-
-/// <summary>How the Ralph enrichment/MCP paths recall shared learnings.</summary>
-public sealed class RalphRecallConfig
-{
-    /// <summary>Default number of learnings recalled per query.</summary>
-    public int TopK { get; set; } = 10;
-
-    /// <summary>Minimum cosine similarity for a learning to be recalled.</summary>
-    public double MinScore { get; set; } = 0.5;
 }
 
 /// <summary><c>ReindexPendingMemoriesHostedService</c> settings.</summary>

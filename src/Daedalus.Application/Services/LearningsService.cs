@@ -69,7 +69,7 @@ public sealed partial class LearningsService(
 
         foreach (var entry in entries)
         {
-            var remembered = await memory.RememberAsync(entry, sourceTaskId, ct);
+            var remembered = await memory.RememberAsync(entry, sourceTaskId, ct).ConfigureAwait(false);
             if (remembered.IsSuccess)
             {
                 persistedCount++;
@@ -96,7 +96,7 @@ public sealed partial class LearningsService(
         var hasContent = false;
 
         // 1. Shared learnings recalled by semantic similarity to the task prompt (the memory index does the ranking).
-        var recalled = await memory.RecallAsync(taskPrompt, maxLearnings, ct);
+        var recalled = await memory.RecallAsync(taskPrompt, maxLearnings, ct).ConfigureAwait(false);
         if (recalled.IsSuccess && recalled.Value.Count > 0)
         {
             sb.AppendLine("=== CROSS-TASK LEARNINGS ===");

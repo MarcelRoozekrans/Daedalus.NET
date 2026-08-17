@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
@@ -19,7 +20,7 @@ public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILog
 
     /// <summary>Recalls learnings relevant to <paramref name="query"/> as a JSON array; never throws at the model.</summary>
     /// <param name="query">Natural-language description of what to look for.</param>
-    /// <param name="maxResults">Maximum number of results (clamped to 1..20).</param>
+    /// <param name="maxResults">Maximum number of results (clamped to the Ralph recall range).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [McpServerTool(
         Name = "search_learnings",
@@ -34,7 +35,10 @@ public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILog
         [Description("Maximum number of results (default: 5)")] int maxResults = 5,
         CancellationToken cancellationToken = default)
     {
-        var recalled = await memory.RecallAsync(query, Math.Clamp(maxResults, 1, 20), cancellationToken).ConfigureAwait(false);
+        var recalled = await memory.RecallAsync(
+            query,
+            Math.Clamp(maxResults, RalphRecallConfiguration.MinTopK, RalphRecallConfiguration.MaxToolTopK),
+            cancellationToken).ConfigureAwait(false);
         if (recalled.IsFailure)
         {
             LogRecallFailed(logger, query, recalled.Error);

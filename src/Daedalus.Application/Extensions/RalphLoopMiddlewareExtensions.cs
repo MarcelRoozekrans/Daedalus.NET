@@ -4,6 +4,7 @@ using Daedalus.Application.Services;
 using Daedalus.Application.Services.Middleware;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace Daedalus.Application.Extensions;
@@ -22,6 +23,14 @@ public static class RalphLoopMiddlewareExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        // How much the enrichment/MCP/adapter paths recall. Bound here because every host that runs Ralph calls this
+        // method; AddDaedalusAgents/AddDaedalusMemory TryAdd the same instance type from the same configuration key.
+        var recallConfig = new RalphRecallConfiguration();
+#pragma warning disable IL2026 // Configuration binding requires reflection; acceptable for configuration scenarios
+        configuration.GetSection(RalphRecallConfiguration.SectionName).Bind(recallConfig);
+#pragma warning restore IL2026
+        services.TryAddSingleton(recallConfig);
+
         // Register middleware components in the pipeline
         services.AddScoped<IRalphLoopMiddleware, LearningsEnrichmentMiddleware>();
         services.AddScoped<IRalphLoopMiddleware, PromptBuildingMiddleware>();

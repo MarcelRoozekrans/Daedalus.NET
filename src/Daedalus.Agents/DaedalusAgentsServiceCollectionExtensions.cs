@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
@@ -6,6 +7,7 @@ using Daedalus.Agents.Security;
 using Daedalus.Agents.Sessions;
 using Daedalus.Agents.Tools;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.Configuration;
 using Daedalus.Infrastructure.Agents.Tools;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.Extensions.AI;
@@ -76,8 +78,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // Sessions left in Running by a crashed host are reset to Idle before the host serves requests.
         services.AddHostedService<AgentSessionCrashRecovery>();
 
-        services.AddSingleton(options.Memory);
-        services.AddSingleton<ILearningsMemory, ThalosLearningsMemory>();
+        ValidateMemoryConfig(options.Memory);
+        services.TryAddSingleton(options.Memory);
+        services.TryAddSingleton(options.Memory.RalphRecall);
+        services.TryAddSingleton<ILearningsMemory, ThalosLearningsMemory>();
 
         // The memory index embeds with the DI generator; a host that only hands the instance to this call (for Sentinel) still gets a working index.
         if (embeddingGenerator is not null)
@@ -87,7 +91,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         services.AddThalos(thalos =>
         {
-            ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString);
+            // This host owns the Rag.NET schema: the API is the only host that creates rag_chunks (see AddDaedalusMemory).
+            ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: true);
 
             thalos.UseAnthropic(configuration)
                 .UseSessionStore<PostgresAgentSessionStore>()
@@ -115,16 +120,30 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
-    ///     Memory-only registration for hosts that run Ralph but no Thalos agents (the console worker): the same
-    ///     <c>IMemoryService</c>, Postgres store and Rag.NET index as <see cref="AddDaedalusAgents"/>, plus the Ralph port
-    ///     <c>ILearningsMemory</c>. No agents, tools, Sentinel or reindex service (the API host runs that one).
+    ///     Memory-only registration for hosts that run Ralph but <b>no</b> Thalos agents — the console worker. Registers the
+    ///     same <c>IMemoryService</c>, Postgres store and Rag.NET index as <see cref="AddDaedalusAgents"/>, plus the Ralph
+    ///     port <c>ILearningsMemory</c>. No agents, tools, Sentinel or reindex service (the API host runs that one).
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">Host configuration; <c>Thalos:Memory</c> and <c>ConnectionStrings:daedalus</c> are read.</param>
     /// <remarks>
-    ///     Requires <c>IDbContextFactory&lt;ApplicationDbContext&gt;</c>. Register an <c>IEmbeddingGenerator&lt;string, Embedding&lt;float&gt;&gt;</c>
-    ///     before this call for a working index; without one memories are stored <c>index_pending</c> until the API host reindexes them.
+    ///     <para>
+    ///         Mutually exclusive with <see cref="AddDaedalusAgents"/>: a host calls one or the other, never both. (The
+    ///         registrations are <c>TryAdd</c>-based so a double call is harmless, but the second one contributes nothing.)
+    ///     </para>
+    ///     <para>
+    ///         <b>The API host owns the Rag.NET schema.</b> This call sets <c>EnsureSchemaOnStartup = false</c>, because the
+    ///         AppHost starts the API and the console concurrently against one database and two racing
+    ///         <c>CREATE EXTENSION</c>/<c>CREATE TABLE</c>/<c>CREATE INDEX</c> sweeps can fail on the pg catalog and take a
+    ///         host down. Until the API has created <c>rag_chunks</c>, this host degrades along the designed path: memories
+    ///         are stored <c>index_pending</c> and the API's reindex sweeper embeds them afterwards.
+    ///     </para>
+    ///     <para>
+    ///         Requires <c>IDbContextFactory&lt;ApplicationDbContext&gt;</c>. Register an <c>IEmbeddingGenerator&lt;string, Embedding&lt;float&gt;&gt;</c>
+    ///         before this call for a working index; without one memories are likewise stored <c>index_pending</c>.
+    ///     </para>
     /// </remarks>
+    /// <exception cref="InvalidOperationException">A <c>Thalos:Memory</c> value is out of range.</exception>
     public static IServiceCollection AddDaedalusMemory(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -134,16 +153,72 @@ public static class DaedalusAgentsServiceCollectionExtensions
         configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
         var connectionString = ResolveConnectionString(configuration);
 
-        services.AddSingleton(options.Memory);
-        services.AddSingleton<ILearningsMemory, ThalosLearningsMemory>();
-        services.AddThalos(thalos => ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString));
+        ValidateMemoryConfig(options.Memory);
+        services.TryAddSingleton(options.Memory);
+        services.TryAddSingleton(options.Memory.RalphRecall);
+        services.TryAddSingleton<ILearningsMemory, ThalosLearningsMemory>();
+        services.AddThalos(thalos => ConfigureMemory(
+            thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: false));
         return services;
     }
 
     private static string ResolveConnectionString(IConfiguration configuration) =>
         configuration.GetConnectionString(DatabaseConnectionName) ?? DatabaseSettings.GetDefaultConnectionString();
 
-    private static void ConfigureMemory(ThalosBuilder thalos, IConfigurationSection section, MemoryConfig config, string connectionString)
+    /// <summary>
+    ///     Fails fast on the Daedalus-only <c>Thalos:Memory</c> keys (Thalos validates its own <c>MemoryOptions</c> on start).
+    ///     A bad value here would otherwise surface much later as a rejected memory or a mis-sized vector column.
+    /// </summary>
+    private static void ValidateMemoryConfig(MemoryConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.SharedOwnerId))
+        {
+            throw new InvalidOperationException($"{MemoryConfig.SectionName}:SharedOwnerId must not be blank.");
+        }
+
+        if (config.VectorDimensions <= 0)
+        {
+            throw new InvalidOperationException(
+                $"{MemoryConfig.SectionName}:VectorDimensions must be greater than 0, but was {config.VectorDimensions}.");
+        }
+
+        if (config.RalphRecall.TopK < RalphRecallConfiguration.MinTopK)
+        {
+            throw new InvalidOperationException(
+                $"{RalphRecallConfiguration.SectionName}:TopK must be at least {RalphRecallConfiguration.MinTopK}, but was {config.RalphRecall.TopK}.");
+        }
+
+        if (config.RalphRecall.MinScore is < 0 or > 1 || double.IsNaN(config.RalphRecall.MinScore))
+        {
+            throw new InvalidOperationException(
+                $"{RalphRecallConfiguration.SectionName}:MinScore must be in [0, 1], but was {config.RalphRecall.MinScore.ToString(CultureInfo.InvariantCulture)}.");
+        }
+
+        ValidateInterval(config.Reindex.StartupDelay, nameof(ReindexConfig.StartupDelay));
+        ValidateInterval(config.Reindex.RetryInterval, nameof(ReindexConfig.RetryInterval));
+        ValidateInterval(config.Reindex.SweepInterval, nameof(ReindexConfig.SweepInterval));
+
+        static void ValidateInterval(TimeSpan value, string key)
+        {
+            if (value <= TimeSpan.Zero)
+            {
+                throw new InvalidOperationException(
+                    $"{MemoryConfig.SectionName}:Reindex:{key} must be greater than zero, but was {value.ToString(null, CultureInfo.InvariantCulture)}.");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Registers the memory triple on the Thalos builder: <c>Thalos:Memory</c> → <c>MemoryOptions</c>, the Postgres store
+    ///     and the Rag.NET index on the application database. <paramref name="ensureSchema"/> decides whether this host
+    ///     creates the Rag.NET schema on start — exactly one host may, see the remarks on <see cref="AddDaedalusMemory"/>.
+    /// </summary>
+    private static void ConfigureMemory(
+        ThalosBuilder thalos,
+        IConfigurationSection section,
+        MemoryConfig config,
+        string connectionString,
+        bool ensureSchema)
     {
         thalos.UseMemory(o =>
             {
@@ -156,7 +231,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
             {
                 o.ConnectionString = connectionString; // same database as the app; Rag.NET keeps its own pool
                 o.VectorDimensions = config.VectorDimensions;
-                o.EnsureSchemaOnStartup = true;
+                o.EnsureSchemaOnStartup = ensureSchema;
             });
     }
 

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Mcp;
+using Thalos.Memory.RagNet;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
@@ -20,10 +21,16 @@ public sealed class ApiThalosConfigurationTests
 {
     private const string ApiAppSettingsFileName = "Daedalus.Api.appsettings.json";
 
-    private static IConfiguration LoadApiConfiguration() =>
+    private const string ConsoleAppSettingsFileName = "Daedalus.Console.appsettings.json";
+
+    private static IConfiguration LoadApiConfiguration() => Load(ApiAppSettingsFileName);
+
+    private static IConfiguration LoadConsoleConfiguration() => Load(ConsoleAppSettingsFileName);
+
+    private static IConfiguration Load(string fileName) =>
         new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile(ApiAppSettingsFileName, optional: false)
+            .AddJsonFile(fileName, optional: false)
             .Build();
 
     private static ServiceProvider BuildWithApiConfiguration()
@@ -76,6 +83,47 @@ public sealed class ApiThalosConfigurationTests
         using var sp = BuildWithApiConfiguration();
 
         sp.GetServices<IHostedService>().Should().ContainSingle(s => s.GetType().Name == "AgentSessionCrashRecovery");
+    }
+
+    [Fact]
+    public void Api_host_owns_the_ragnet_schema_and_creates_it_on_start()
+    {
+        using var sp = BuildWithApiConfiguration();
+
+        sp.GetRequiredService<RagNetMemoryOptions>().EnsureSchemaOnStartup.Should().BeTrue();
+        sp.GetServices<IHostedService>().Should().ContainSingle(s => s.GetType().Name == "RagNetMemorySchemaInitializer");
+    }
+
+    /// <summary>
+    ///     The console worker writes Ralph learnings into the same database as the API. If the two hosts disagreed on the
+    ///     shared owner, Ralph would write memories nobody recalls; if they disagreed on the vector width, the second host
+    ///     to touch <c>rag_chunks</c> would fail. Both files therefore declare the same block, pinned here.
+    /// </summary>
+    [Fact]
+    public void Console_and_api_agree_on_the_shared_memory_settings()
+    {
+        var api = LoadApiConfiguration().GetSection(MemoryConfig.SectionName);
+        var console = LoadConsoleConfiguration().GetSection(MemoryConfig.SectionName);
+
+        console.Exists().Should().BeTrue("the Ralph worker binds Thalos:Memory through AddDaedalusMemory");
+        foreach (var key in new[] { "SharedOwnerId", "VectorDimensions", "RalphRecall:TopK", "RalphRecall:MinScore" })
+        {
+            console[key].Should().Be(api[key], "Thalos:Memory:{0} must match between the API and console hosts", key);
+        }
+    }
+
+    [Fact]
+    public void Console_host_does_not_create_the_ragnet_schema()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddDaedalusMemory(LoadConsoleConfiguration());
+        using var sp = services.BuildServiceProvider();
+
+        sp.GetRequiredService<RagNetMemoryOptions>().EnsureSchemaOnStartup.Should().BeFalse(
+            "the API host creates rag_chunks; concurrent CREATE from both hosts can fail on the pg catalog");
+        sp.GetServices<IHostedService>().Should().NotContain(s => s.GetType().Name == "RagNetMemorySchemaInitializer");
     }
 
     [Fact]

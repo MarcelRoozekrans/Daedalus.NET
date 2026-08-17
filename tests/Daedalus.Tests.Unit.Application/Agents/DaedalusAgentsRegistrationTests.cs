@@ -274,6 +274,32 @@ public sealed class DaedalusAgentsRegistrationTests
         sp.GetRequiredService<MemoryConfig>().SharedOwnerId.Should().Be("daedalus");
         sp.GetServices<IHostedService>().Should().NotContain(h => h.GetType().Name == "ReindexPendingMemoriesHostedService");
         sp.GetRequiredService<IAgentCatalog>().Agents.Should().BeEmpty("the console host declares no agents");
+
+        // The API host creates rag_chunks; two hosts racing CREATE EXTENSION/TABLE/INDEX can fail on the pg catalog.
+        sp.GetRequiredService<RagNetMemoryOptions>().EnsureSchemaOnStartup.Should().BeFalse();
+        sp.GetServices<IHostedService>().Should().NotContain(h => h.GetType().Name == "RagNetMemorySchemaInitializer");
+    }
+
+    [Fact]
+    public void AddDaedalusAgents_is_the_host_that_creates_the_ragnet_schema()
+    {
+        using var sp = Build(Config());
+
+        sp.GetRequiredService<RagNetMemoryOptions>().EnsureSchemaOnStartup.Should().BeTrue();
+        sp.GetServices<IHostedService>().Should().ContainSingle(h => h.GetType().Name == "RagNetMemorySchemaInitializer");
+    }
+
+    [Theory]
+    [InlineData("Thalos:Memory:SharedOwnerId", "  ", "SharedOwnerId")]
+    [InlineData("Thalos:Memory:VectorDimensions", "0", "VectorDimensions")]
+    [InlineData("Thalos:Memory:RalphRecall:TopK", "0", "TopK")]
+    [InlineData("Thalos:Memory:RalphRecall:MinScore", "1.5", "MinScore")]
+    [InlineData("Thalos:Memory:Reindex:SweepInterval", "00:00:00", "SweepInterval")]
+    public void Out_of_range_memory_settings_fail_fast_naming_the_key(string key, string value, string expectedInMessage)
+    {
+        var act = () => Build(Config((key, value)));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*{expectedInMessage}*");
     }
 
     [Fact]

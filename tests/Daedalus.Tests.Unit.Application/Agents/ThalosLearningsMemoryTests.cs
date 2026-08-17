@@ -1,7 +1,9 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Memory;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Memory;
 using LearningCategory = Daedalus.Domain.Entities.LearningCategory;
@@ -13,9 +15,11 @@ namespace Daedalus.Tests.Unit.Application.Agents;
 public sealed class ThalosLearningsMemoryTests
 {
     private readonly IMemoryService _service = Substitute.For<IMemoryService>();
-    private readonly MemoryConfig _config = new() { SharedOwnerId = "daedalus" };
+    private readonly MemoryOptions _memoryOptions = new() { SharedOwnerId = "daedalus" };
+    private readonly RalphRecallConfiguration _recall = new();
 
-    private ThalosLearningsMemory Sut() => new(_service, _config, NullLogger<ThalosLearningsMemory>.Instance);
+    private ThalosLearningsMemory Sut() =>
+        new(_service, Options.Create(_memoryOptions), _recall, NullLogger<ThalosLearningsMemory>.Instance);
 
     private static MemoryRecord Record(string text, params string[] tags) => new()
     {
@@ -85,7 +89,7 @@ public sealed class ThalosLearningsMemoryTests
         scope.OwnerId.Should().Be("daedalus");
         scope.AgentId.Should().BeNull();
         options!.TopK.Should().Be(3);
-        options.MinScore.Should().Be(_config.RalphRecall.MinScore);
+        options.MinScore.Should().Be(_recall.MinScore);
     }
 
     [Fact]
