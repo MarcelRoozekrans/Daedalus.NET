@@ -2,8 +2,8 @@
 
 **Last session:** 2026-08-17
 **Current milestone:** 1 — Hermes-Style Agent Framework
-**Current phase:** 1.2 — Memory (`Thalos.NET.Memory` port + Rag.NET adapter) → **implementation complete**, closing steps (regression, pre-push review, merge, `complete 1.2`) with the coordinator
-**Branch state:** `feature/thalos-memory` off `main` (28 commits, not pushed). Thalos.NET **0.2.0** is on nuget.org and consumed directly — there was never a local pack this phase, so plan B's "switch pins to nuget.org / delete `packages-local`" step (Task 21.1) was already satisfied at Task 1 and nothing remains of it.
+**Current phase:** 1.2 — Memory (`Thalos.NET.Memory` port + Rag.NET adapter) → **complete and merged** (#238); next is 1.3 — Skills
+**Branch state:** merged into `main` via #238 (32 commits, branch deleted); issue #228 closed. CI green on the PR (build+test, all three images, commitlint). Thalos.NET **0.2.0** is on nuget.org and consumed directly — there was never a local pack this phase, so plan B's "switch pins to nuget.org / delete `packages-local`" step (Task 21.1) was already satisfied at Task 1 and nothing remains of it.
 **Release context (from 1.1, unchanged):** repo `MarcelRoozekrans/Daedalus.NET`; Daedalus **0.1.0** released (tag `v0.1.0`, ghcr.io images `0.1.0`/`0.1`/`latest`). GitVersion + release-please + commitlint + gated `publish-release`; runbook `docs/release.md`.
 
 ## Last completed
