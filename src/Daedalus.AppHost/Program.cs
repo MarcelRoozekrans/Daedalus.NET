@@ -68,6 +68,7 @@ builder.AddProject("console", consolePath)
     .WithReference(database)
     .WithReference(keycloak)
     .WithReference(migrations)
+    .WithReference(ollama)
     .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
     .WaitFor(migrations)
     .WaitFor(keycloak);

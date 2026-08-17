@@ -20,6 +20,7 @@
         <ProjectReference Include="..\Daedalus.Domain\Daedalus.Domain.csproj" />
         <ProjectReference Include="..\Daedalus.Application\Daedalus.Application.csproj" />
         <ProjectReference Include="..\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj" />
+        <ProjectReference Include="..\Daedalus.Agents\Daedalus.Agents.csproj" />
         <ProjectReference Include="..\Daedalus.ServiceDefaults\Daedalus.ServiceDefaults.csproj" />
     </ItemGroup>
 
@@ -37,6 +38,7 @@
         </PackageReference>
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
         <PackageReference Include="CSharpFunctionalExtensions" />
+        <PackageReference Include="OllamaSharp" />
         <PackageReference Include="OpenTelemetry" />
         <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
         <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
