@@ -21,6 +21,9 @@ public sealed class DaedalusAgentsOptions
 
     /// <summary>AI.Sentinel settings (<c>Thalos:Sentinel</c>).</summary>
     public SentinelConfig Sentinel { get; } = new();
+
+    /// <summary>Memory settings (<c>Thalos:Memory</c>): Thalos <c>MemoryOptions</c> keys plus Daedalus extras.</summary>
+    public MemoryConfig Memory { get; } = new();
 }
 
 /// <summary>One agent definition as declared in configuration.</summary>
@@ -49,6 +52,74 @@ public sealed class AgentConfig
     ///     to a pre-populated list, so the default lives in the mapping, not here) → everything (<c>*</c>).
     /// </summary>
     public IList<string> Tools { get; } = [];
+
+    /// <summary>Per-agent memory overrides (<c>Thalos:Agents:N:Memory</c>); <see langword="null"/> → inherit <c>Thalos:Memory</c>.</summary>
+    public AgentMemoryConfig? Memory { get; set; }
+}
+
+/// <summary>
+///     Per-agent memory overrides (<c>Thalos:Agents:N:Memory</c>); null members inherit <c>Thalos:Memory</c>. Which agents see
+///     the <c>memory__*</c> tools is governed by <see cref="AgentConfig.Tools"/>, not here.
+/// </summary>
+public sealed class AgentMemoryConfig
+{
+    /// <summary>Auto-recall/remember for this agent; <see langword="null"/> → <c>Thalos:Memory:Enabled</c>.</summary>
+    public bool? Enabled { get; set; }
+
+    /// <summary>Memories injected per turn; <see langword="null"/> → <c>Thalos:Memory:Recall:TopK</c>.</summary>
+    public int? TopK { get; set; }
+}
+
+/// <summary>
+///     <c>Thalos:Memory</c>. The Thalos <c>MemoryOptions</c> members (<see cref="Enabled"/>, <see cref="SharedOwnerId"/>,
+///     <c>Recall</c>, <c>Dedupe</c>, <c>ExposeTools</c>) are bound onto Thalos directly from the same section; this class
+///     carries the Daedalus-only keys and the shared-owner default.
+/// </summary>
+public sealed class MemoryConfig
+{
+    /// <summary>Configuration section name: <c>Thalos:Memory</c>.</summary>
+    public const string SectionName = "Thalos:Memory";
+
+    /// <summary>Whether memory (auto-recall, <c>memory__*</c> tools, Ralph learnings) is on at all.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Owner of host-written project knowledge (Ralph learnings). Recalled for every caller, writable only by host code.</summary>
+    public string SharedOwnerId { get; set; } = "daedalus";
+
+    /// <summary>Dimensions of the embedding model (nomic-embed-text = 768). Must match <c>rag_chunks</c>.</summary>
+    public int VectorDimensions { get; set; } = 768;
+
+    /// <summary>How the Ralph enrichment/MCP paths recall shared learnings.</summary>
+    public RalphRecallConfig RalphRecall { get; } = new();
+
+    /// <summary><c>ReindexPendingMemoriesHostedService</c> settings.</summary>
+    public ReindexConfig Reindex { get; } = new();
+}
+
+/// <summary>How the Ralph enrichment/MCP paths recall shared learnings.</summary>
+public sealed class RalphRecallConfig
+{
+    /// <summary>Default number of learnings recalled per query.</summary>
+    public int TopK { get; set; } = 10;
+
+    /// <summary>Minimum cosine similarity for a learning to be recalled.</summary>
+    public double MinScore { get; set; } = 0.5;
+}
+
+/// <summary><c>ReindexPendingMemoriesHostedService</c> settings.</summary>
+public sealed class ReindexConfig
+{
+    /// <summary>Whether the API host runs the reindex sweeper at all.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Wait after host start before the first attempt.</summary>
+    public TimeSpan StartupDelay { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Wait between attempts while the index is unavailable or rows failed.</summary>
+    public TimeSpan RetryInterval { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>Wait between sweeps once everything is indexed.</summary>
+    public TimeSpan SweepInterval { get; set; } = TimeSpan.FromMinutes(15);
 }
 
 /// <summary>Binds a tool-name glob to a <c>[Policy]</c> name (for example <c>roslyn__apply_*</c> → <c>developer</c>).</summary>

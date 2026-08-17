@@ -52,9 +52,10 @@ builder.Services.AddExternalServices(builder.Configuration);
 // Add Agent Framework services (Claude via IRalphAgentFactory, MCP tools)
 builder.Services.AddAgentFrameworkServices(builder.Configuration);
 
-// Register Ollama embedding generator for semantic search (optional — falls back to NoOp if unavailable).
-// The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama). The same instance feeds AI.Sentinel's
-// semantic detectors below (Sentinel's configure delegate runs at registration time, so it cannot be resolved from DI).
+// Register Ollama embedding generator (optional). The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama).
+// The DI singleton feeds the Thalos memory index (Rag.NET on the app database; without it memories stay index_pending); the same
+// instance is passed to AI.Sentinel's semantic detectors below (Sentinel's configure delegate runs at registration time, so it
+// cannot be resolved from DI).
 var ollamaConnectionString = builder.Configuration.GetConnectionString("ollama");
 OllamaSharp.OllamaApiClient? ollama = null;
 if (!string.IsNullOrEmpty(ollamaConnectionString))
@@ -63,8 +64,8 @@ if (!string.IsNullOrEmpty(ollamaConnectionString))
     builder.Services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(ollama);
 }
 
-// Thalos-based agents (strangler: lives beside Ralph until phase 1.6). Needs the DbContext factory (AddApplicationDatabase)
-// and the knowledge-tool services registered by AddAgentFrameworkServices above.
+// Thalos-based agents (strangler: lives beside Ralph until phase 1.6). Needs the DbContext factory (AddApplicationDatabase),
+// the Ollama embedding generator (memory index + Sentinel) and the knowledge-tool services registered by AddAgentFrameworkServices above.
 builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment, ollama);
 
 // Add code analysis services (Ralph Loop orchestration, Git operations)

@@ -1,6 +1,7 @@
 using AI.Sentinel;
 using AI.Sentinel.Detectors.Security;
 using Daedalus.Agents;
+using Daedalus.Agents.Memory;
 using Daedalus.Agents.Security;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Thalos;
+using Thalos.Memory;
+using Thalos.Memory.RagNet;
 using Thalos.Tools;
 using ZeroAlloc.Authorization;
 
@@ -185,6 +188,90 @@ public sealed class DaedalusAgentsRegistrationTests
         });
 
         seen.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Memory_is_wired_with_the_postgres_store_and_the_ragnet_index()
+    {
+        var embeddings = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        using var sp = Build(Config(("ConnectionStrings:daedalus", "Host=localhost;Database=x;Username=u;Password=p")), embeddings);
+
+        sp.GetRequiredService<IMemoryService>().Should().NotBeNull();
+        sp.GetRequiredService<IMemoryStore>().GetType().Name.Should().BeOneOf("PostgresMemoryStore", "MemoryStoreInstrumented");
+        sp.GetRequiredService<PostgresMemoryStore>().Should().NotBeNull();
+        sp.GetRequiredService<IMemoryIndex>().GetType().FullName.Should().Contain("RagNet");
+        sp.GetRequiredService<RagNetMemoryOptions>().Should().BeEquivalentTo(new { ConnectionString = "Host=localhost;Database=x;Username=u;Password=p", VectorDimensions = 768, EnsureSchemaOnStartup = true });
+        sp.GetServices<IHostedService>().Should().Contain(h => h.GetType().Name == "RagNetMemorySchemaInitializer");
+    }
+
+    [Fact]
+    public void Memory_index_is_unavailable_without_an_embedding_generator_but_the_host_still_resolves()
+    {
+        using var sp = Build(Config());
+
+        sp.GetRequiredService<IMemoryService>().Should().NotBeNull();
+        sp.GetRequiredService<IMemoryIndex>().Should().BeSameAs(UnavailableMemoryIndex.Instance);
+    }
+
+    [Fact]
+    public void Memory_config_binds_from_Thalos_Memory_with_daedalus_defaults()
+    {
+        using var sp = Build(Config(("Thalos:Memory:Recall:TopK", "7"), ("Thalos:Memory:VectorDimensions", "512"), ("Thalos:Memory:Reindex:RetryInterval", "00:00:30")));
+
+        var config = sp.GetRequiredService<MemoryConfig>();
+        config.SharedOwnerId.Should().Be("daedalus");
+        config.VectorDimensions.Should().Be(512);
+        config.Reindex.RetryInterval.Should().Be(TimeSpan.FromSeconds(30));
+        config.Enabled.Should().BeTrue();
+        config.RalphRecall.Should().BeEquivalentTo(new { TopK = 10, MinScore = 0.5 });
+
+        var thalos = sp.GetRequiredService<IOptions<MemoryOptions>>().Value;
+        thalos.Enabled.Should().BeTrue();
+        thalos.SharedOwnerId.Should().Be("daedalus");
+        thalos.Recall.TopK.Should().Be(7);
+        sp.GetRequiredService<RagNetMemoryOptions>().VectorDimensions.Should().Be(512);
+    }
+
+    [Fact]
+    public void Memory_can_be_disabled_from_configuration()
+    {
+        using var sp = Build(Config(("Thalos:Memory:Enabled", "false")));
+
+        sp.GetRequiredService<MemoryConfig>().Enabled.Should().BeFalse();
+        sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Agent_memory_settings_bind_onto_the_definition()
+    {
+        using var sp = Build(Config(("Thalos:Agents:0:Memory:Enabled", "false"), ("Thalos:Agents:0:Memory:TopK", "3")));
+
+        var agent = sp.GetRequiredService<IAgentCatalog>().Agents.Single();
+        agent.Memory.Should().BeEquivalentTo(new { Enabled = (bool?)false, TopK = (int?)3 });
+    }
+
+    [Fact]
+    public void Agent_without_memory_section_inherits_the_global_settings()
+    {
+        using var sp = Build(Config());
+
+        sp.GetRequiredService<IAgentCatalog>().Agents.Single().Memory.Should().BeNull();
+    }
+
+    [Fact]
+    public void AddDaedalusMemory_registers_memory_for_the_ralph_console_host_without_agents()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddDaedalusMemory(Config());
+        using var sp = services.BuildServiceProvider();
+
+        sp.GetRequiredService<IMemoryService>().Should().NotBeNull();
+        sp.GetRequiredService<PostgresMemoryStore>().Should().NotBeNull();
+        sp.GetRequiredService<MemoryConfig>().SharedOwnerId.Should().Be("daedalus");
+        sp.GetServices<IHostedService>().Should().NotContain(h => h.GetType().Name == "ReindexPendingMemoriesHostedService");
+        sp.GetRequiredService<IAgentCatalog>().Agents.Should().BeEmpty("the console host declares no agents");
     }
 
     [Fact]
