@@ -13,32 +13,11 @@ public sealed partial class KnowledgeBaseToolStatus(
     ApplicationDbContext dbContext,
     ILogger<KnowledgeBaseToolStatus> logger) : IKnowledgeBaseToolStatus
 {
-    private int? _learningsCount;
     private int? _failurePatternsCount;
 
     public bool AreToolsAvailable =>
         mcpOptions.Enabled &&
         mcpOptions.Servers.ContainsKey("daedalus-knowledge");
-
-    public int LearningsCount
-    {
-        get
-        {
-            if (_learningsCount.HasValue)
-                return _learningsCount.Value;
-            try
-            {
-                _learningsCount = dbContext.StructuredLearnings.Count();
-            }
-            catch (Exception ex)
-            {
-                LogCountFailed(logger, ex, "learnings");
-                _learningsCount = 0;
-            }
-
-            return _learningsCount.Value;
-        }
-    }
 
     public int FailurePatternsCount
     {

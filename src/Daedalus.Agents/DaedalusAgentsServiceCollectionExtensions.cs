@@ -69,8 +69,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
         configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
         var connectionString = ResolveConnectionString(configuration);
 
-        // The Ralph MCP tool classes double as the implementation behind DaedalusKnowledgeTools (fresh scope per invocation).
-        services.AddScoped<DaedalusLearningsTools>();
+        // The Ralph MCP failure-patterns tool class doubles as the implementation behind DaedalusKnowledgeTools (fresh
+        // scope per invocation). search_learnings is not wrapped: agents recall learnings through the memory__* tools.
         services.AddScoped<DaedalusFailurePatternsTools>();
 
         // Sessions left in Running by a crashed host are reset to Idle before the host serves requests.

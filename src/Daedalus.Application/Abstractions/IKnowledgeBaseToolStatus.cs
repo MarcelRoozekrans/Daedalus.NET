@@ -10,9 +10,6 @@ public interface IKnowledgeBaseToolStatus
     /// <summary>Whether the search_learnings and search_failure_patterns tools are registered.</summary>
     bool AreToolsAvailable { get; }
 
-    /// <summary>The count of available learnings in the knowledge base.</summary>
-    int LearningsCount { get; }
-
-    /// <summary>The count of known failure patterns.</summary>
+    /// <summary>The count of known failure patterns. Learnings are not counted — they are recalled from the agent memory.</summary>
     int FailurePatternsCount { get; }
 }

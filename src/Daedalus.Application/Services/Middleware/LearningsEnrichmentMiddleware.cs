@@ -59,14 +59,14 @@ public sealed partial class LearningsEnrichmentMiddleware(
             if (toolStatus.AreToolsAvailable)
             {
                 // Slim mode: inject summary + tool usage hint
-                var summary = $"=== KNOWLEDGE BASE ===\n" +
-                    $"You have access to a knowledge base with {toolStatus.LearningsCount} learnings " +
-                    $"and {toolStatus.FailurePatternsCount} failure patterns.\n" +
-                    $"Use the search_learnings tool to find relevant past knowledge.\n" +
-                    $"Use the search_failure_patterns tool when you encounter errors.\n";
+                var summary = "=== KNOWLEDGE BASE ===\n" +
+                    "You have access to a semantic memory of learnings from previous tasks " +
+                    $"and {toolStatus.FailurePatternsCount} known failure patterns.\n" +
+                    "Use the search_learnings tool to recall relevant past knowledge.\n" +
+                    "Use the search_failure_patterns tool when you encounter errors.\n";
 
                 context.PromptContext.AccumulatedLearnings = summary;
-                LogSlimEnrichment(logger, context.Iteration, toolStatus.LearningsCount);
+                LogSlimEnrichment(logger, context.Iteration);
             }
             else
             {
@@ -126,6 +126,6 @@ public sealed partial class LearningsEnrichmentMiddleware(
     private static partial void LogEnrichmentFailed(ILogger logger, int iteration, string error);
 
     [LoggerMessage(EventId = 103, Level = LogLevel.Debug,
-        Message = "Slim enrichment mode for iteration {Iteration}: {LearningsCount} learnings available via MCP tools")]
-    private static partial void LogSlimEnrichment(ILogger logger, int iteration, int learningsCount);
+        Message = "Slim enrichment mode for iteration {Iteration}: knowledge base tools available")]
+    private static partial void LogSlimEnrichment(ILogger logger, int iteration);
 }

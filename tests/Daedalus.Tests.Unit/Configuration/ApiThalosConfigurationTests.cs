@@ -49,8 +49,8 @@ public sealed class ApiThalosConfigurationTests
         // Sessions reference this id — changing it orphans them. Update the test only together with a data migration.
         agent.Id.Should().Be(AgentId.Parse("01M05YCM7DPKRG9X04870B2JYH", null));
         agent.Name.Should().Be("Daedalus Architect");
-        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "context7__*");
-        agent.Instructions.Should().Contain("roslyn__").And.Contain("daedalus__");
+        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "memory__*", "context7__*");
+        agent.Instructions.Should().Contain("roslyn__").And.Contain("daedalus__").And.Contain("memory__");
     }
 
     [Fact]
