@@ -22,7 +22,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<CodeAnalysisRequest> CodeAnalysisRequests => Set<CodeAnalysisRequest>();
     public DbSet<AnalysisIteration> AnalysisIterations => Set<AnalysisIteration>();
-    public DbSet<StructuredLearningEntry> StructuredLearnings => Set<StructuredLearningEntry>();
     public DbSet<RepositoryConfiguration> RepositoryConfigurations => Set<RepositoryConfiguration>();
     public DbSet<BrainstormSession> BrainstormSessions => Set<BrainstormSession>();
     public DbSet<BrainstormMessage> BrainstormMessages => Set<BrainstormMessage>();

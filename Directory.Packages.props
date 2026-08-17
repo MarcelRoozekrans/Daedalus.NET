@@ -76,7 +76,6 @@
     <!-- 10.0.1 → 10.0.3: floor set by Rag.NET.VectorStores.PgVector 0.1.0 (via Thalos.NET.Memory.RagNet) -->
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
-    <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
 
     <!-- Microsoft.Extensions.* (10.0.11: transitive-pinning floor set by Microsoft.Extensions.AI 10.9 / ModelContextProtocol 2.2 / Aspire 13.4.6) -->
     <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.11" />

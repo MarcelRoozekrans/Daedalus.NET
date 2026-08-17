@@ -118,14 +118,14 @@ public class E2EServerFixture
                         // IDbContextFactory<T>; register it first so DbContextOptions<T> is the singleton both share.
                         services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
                         {
-                            options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector());
+                            options.UseNpgsql(ConnectionString);
                         });
 
                         // Add DbContext with test container connection string (non-pooled for testing). Options must be
                         // singleton too, otherwise the singleton factory above sees a scoped IDbContextOptionsConfiguration.
                         services.AddDbContext<ApplicationDbContext>(options =>
                         {
-                            options.UseNpgsql(ConnectionString, npgsqlOptions => npgsqlOptions.UseVector());
+                            options.UseNpgsql(ConnectionString);
                         }, contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
 
                         // Register repositories that are missing from the API project
@@ -177,7 +177,7 @@ public class E2EServerFixture
             // Create database schema from model
             using var scope = _factory.Services.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
+            // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
             await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
             await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
 

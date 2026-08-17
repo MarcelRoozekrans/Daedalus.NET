@@ -42,9 +42,6 @@ public sealed class PostgresAgentSessionStoreTests(PostgresFixture fixture) : Se
 
     private sealed class TestDbContextFactory(string connectionString) : IDbContextFactory<ApplicationDbContext>
     {
-        public ApplicationDbContext CreateDbContext() =>
-            new(new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector())
-                .Options);
+        public ApplicationDbContext CreateDbContext() => new(PostgresFixture.CreateDbContextOptions(connectionString));
     }
 }

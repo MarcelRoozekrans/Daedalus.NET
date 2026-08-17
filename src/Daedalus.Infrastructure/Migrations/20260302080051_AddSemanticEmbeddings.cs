@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore.Migrations;
-using Pgvector;
 
 #nullable disable
 
@@ -13,7 +12,7 @@ namespace Daedalus.Infrastructure.Migrations
         {
             migrationBuilder.Sql("CREATE EXTENSION IF NOT EXISTS vector;");
 
-            migrationBuilder.AddColumn<Vector>(
+            migrationBuilder.AddColumn<float[]>(
                 name: "Embedding",
                 table: "StructuredLearnings",
                 type: "vector(384)",
