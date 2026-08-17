@@ -14,10 +14,12 @@ namespace Daedalus.Agents.Memory;
 ///     <see cref="TimeProvider"/>, atomic <c>UPDATE</c>s for counters. Same patterns as <c>PostgresAgentSessionStore</c>.
 /// </summary>
 /// <remarks>
-///     <see cref="StreamAsync"/> uses keyset paging by <c>(CreatedAt, Id)</c> in batches of <see cref="DefaultStreamBatchSize"/> so no
-///     connection is held while the consumer (reindex) embeds and updates the yielded records, and rows that drop out of
-///     the filter mid-stream (e.g. <c>IndexPending</c> cleared) are neither skipped nor repeated — as the
-///     <see cref="IMemoryStore"/> contract requires.
+///     <see cref="StreamAsync"/> uses row-value keyset paging by <c>(CreatedAt, Id)</c> in batches of
+///     <see cref="DefaultStreamBatchSize"/> so no connection is held while the consumer (reindex) embeds and updates the
+///     yielded records, and rows that drop out of the filter mid-stream (e.g. <c>IndexPending</c> cleared) are neither
+///     skipped nor repeated — as the <see cref="IMemoryStore"/> contract requires. Validation failures and duplicate ids
+///     come back as <see cref="AgentError"/>s; Npgsql/connection exceptions propagate (same policy as the session store —
+///     <c>IMemoryService</c> maps a throwing stream to <c>MemoryStoreFailed</c>).
 /// </remarks>
 public sealed class PostgresMemoryStore : IMemoryStore
 {
@@ -109,6 +111,11 @@ public sealed class PostgresMemoryStore : IMemoryStore
         {
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Hard-deleted between the read and the save: to the caller the memory no longer exists.
+            return Result<MemoryRecord, AgentError>.Failure(AgentError.MemoryNotFound(id));
+        }
         catch (DbUpdateException ex)
         {
             return Result<MemoryRecord, AgentError>.Failure(AgentError.MemoryStoreFailed("Could not update the memory.", ex.GetType().Name));
@@ -189,20 +196,18 @@ public sealed class PostgresMemoryStore : IMemoryStore
 
     private async IAsyncEnumerable<MemoryRecord> StreamCoreAsync(MemoryQuery query, [EnumeratorCancellation] CancellationToken ct)
     {
-        // Keyset paging by (CreatedAt, Id): the next page starts after the last CreatedAt seen, excluding the ids already
-        // yielded at that exact timestamp (uuid ordering is not compared in SQL, so ties are handled by exclusion).
-        DateTime? lastCreatedAt = null;
-        var yieldedAtBoundary = new List<Guid>();
+        // Row-value keyset paging: ORDER BY ("CreatedAt", "Id") and WHERE ("CreatedAt", "Id") > (@lastCreatedAt, @lastId) use the
+        // same total order in SQL (uuid byte order), so ties on CreatedAt need no client-side bookkeeping.
+        (DateTime CreatedAt, Guid Id)? last = null;
         while (true)
         {
             List<AgentMemory> batch;
             await using (var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false))
             {
                 var q = Apply(db.AgentMemories.AsNoTracking(), query);
-                if (lastCreatedAt is { } boundary)
+                if (last is { } after)
                 {
-                    var seen = yieldedAtBoundary;
-                    q = q.Where(m => m.CreatedAt > boundary || (m.CreatedAt == boundary && !seen.Contains(m.Id)));
+                    q = q.Where(m => EF.Functions.GreaterThan(ValueTuple.Create(m.CreatedAt, m.Id), ValueTuple.Create(after.CreatedAt, after.Id)));
                 }
 
                 batch = await q
@@ -212,29 +217,17 @@ public sealed class PostgresMemoryStore : IMemoryStore
                     .ConfigureAwait(false);
             }
 
-            if (batch.Count == 0)
-            {
-                yield break;
-            }
-
             foreach (var row in batch)
             {
                 yield return ToRecord(row);
             }
 
-            var newBoundary = batch[^1].CreatedAt;
-            if (newBoundary != lastCreatedAt)
-            {
-                yieldedAtBoundary.Clear();
-            }
-
-            yieldedAtBoundary.AddRange(batch.Where(m => m.CreatedAt == newBoundary).Select(m => m.Id));
-            lastCreatedAt = newBoundary;
-
             if (batch.Count < _streamBatchSize)
             {
                 yield break;
             }
+
+            last = (batch[^1].CreatedAt, batch[^1].Id);
         }
     }
 

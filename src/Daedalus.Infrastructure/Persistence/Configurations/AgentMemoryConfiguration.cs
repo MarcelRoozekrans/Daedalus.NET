@@ -23,11 +23,12 @@ internal sealed class AgentMemoryConfiguration : IEntityTypeConfiguration<AgentM
 
         builder.Property(m => m.Kind)
             .IsRequired()
-            .HasMaxLength(32);
+            .HasMaxLength(AgentMemory.MaxKindLength);
 
+        // Unbounded text column (design §6); the aggregate enforces MaxTextLength so violations are validation errors.
         builder.Property(m => m.Text)
             .IsRequired()
-            .HasMaxLength(AgentMemory.MaxTextLength);
+            .HasColumnType("text");
 
         // Same backing-field mapping as StructuredLearningEntry: text[] column named Tags.
         builder.Property("_tags")
@@ -60,5 +61,9 @@ internal sealed class AgentMemoryConfiguration : IEntityTypeConfiguration<AgentM
         // Reindex scan (StreamAsync with IndexPending = true).
         builder.HasIndex(m => m.IndexPending)
             .HasDatabaseName("IX_AgentMemory_IndexPending");
+
+        // Row-value keyset paging in StreamAsync: ORDER BY / WHERE on ("CreatedAt", "Id").
+        builder.HasIndex(m => new { m.CreatedAt, m.Id })
+            .HasDatabaseName("IX_AgentMemory_CreatedAt_Id");
     }
 }

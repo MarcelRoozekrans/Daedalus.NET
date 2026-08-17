@@ -32,15 +32,37 @@ public sealed class AgentMemoryTests
     }
 
     [Fact]
-    public void Create_keeps_text_verbatim_and_lower_cases_the_kind()
+    public void Create_keeps_text_and_kind_verbatim()
     {
-        // Thalos round-trips texts at the limit untrimmed (multi-line, trailing newline); kinds are lowercase identifiers.
+        // Thalos round-trips texts at the limit untrimmed (multi-line, trailing newline); custom kinds are stored as given.
         var text = string.Concat(Enumerable.Repeat("memo 🚀\n", AgentMemory.MaxTextLength / 8));
-        var m = AgentMemory.Create(Guid.NewGuid(), "alice", Guid.NewGuid(), " Fact ", text, [], "", 0.5, T0, false).Value;
+        var m = AgentMemory.Create(Guid.NewGuid(), "alice", Guid.NewGuid(), "ralph-learning", text, [], "", 0.5, T0, false).Value;
 
         m.Text.Should().Be(text);
-        m.Kind.Should().Be("fact");
+        m.Kind.Should().Be("ralph-learning");
         m.AgentId.Should().NotBeNull();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" fact ")]
+    [InlineData("Fact")]
+    [InlineData("1st")]
+    [InlineData("has space")]
+    [InlineData("a.b")]
+    public void Create_rejects_kinds_that_are_not_lowercase_identifiers(string kind)
+    {
+        // Same rule as Thalos MemoryKind.IsValid: ^[a-z][a-z0-9_-]{0,31}$ (a violation must not become a database error).
+        AgentMemory.Create(Guid.NewGuid(), "alice", null, kind, "t", [], "", 0.5, T0, false).IsFailure.Should().BeTrue();
+        AgentMemory.Create(Guid.NewGuid(), "alice", null, new string('k', 33), "t", [], "", 0.5, T0, false).IsFailure.Should().BeTrue();
+        AgentMemory.Create(Guid.NewGuid(), "alice", null, "a" + new string('k', 31), "t", [], "", 0.5, T0, false).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Create_rejects_owner_ids_longer_than_256()
+    {
+        AgentMemory.Create(Guid.NewGuid(), new string('o', 257), null, "fact", "t", [], "", 0.5, T0, false).IsFailure.Should().BeTrue();
+        AgentMemory.Create(Guid.NewGuid(), new string('o', 256), null, "fact", "t", [], "", 0.5, T0, false).IsSuccess.Should().BeTrue();
     }
 
     [Fact]
@@ -138,14 +160,4 @@ public sealed class AgentMemoryTests
         m.UpdatedAt.Should().Be(T0);
     }
 
-    [Fact]
-    public void RecordRecall_increments_and_stamps()
-    {
-        var m = Valid();
-        m.RecordRecall(T0.AddHours(1));
-        m.RecordRecall(T0.AddHours(2));
-        m.RecallCount.Should().Be(2);
-        m.LastRecalledAt.Should().Be(T0.AddHours(2));
-        m.UpdatedAt.Should().Be(T0, "recall is not a content change");
-    }
 }

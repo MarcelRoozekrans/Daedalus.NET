@@ -9,12 +9,19 @@ namespace Daedalus.Domain.Entities;
 ///     whose vector still has to be (re)built.
 /// </summary>
 /// <remarks>
-///     Limits mirror Thalos <c>MemoryRules</c> (text ≤ 4000, ≤ 10 tags of ≤ 32 chars, source ≤ 256, importance 0..1).
-///     Text is stored verbatim (multi-line texts at the limit must round-trip); tags are normalised (trimmed, lower-cased,
-///     blanks dropped, de-duplicated) like Thalos does; the kind is trimmed and lower-cased (kinds are lowercase identifiers).
+///     Limits mirror Thalos <c>MemoryRules</c> (owner ≤ 256, kind <c>^[a-z][a-z0-9_-]{0,31}$</c>, text ≤ 4000, ≤ 10 tags of
+///     ≤ 32 chars, source ≤ 256, importance 0..1), so a violation is a validation error, never a database constraint failure.
+///     Text and kind are stored verbatim (multi-line texts at the limit must round-trip; the memory service validates the
+///     kind upstream); tags are normalised (trimmed, lower-cased, blanks dropped, de-duplicated) like Thalos does.
 /// </remarks>
 public sealed class AgentMemory : Entity<Guid>
 {
+    /// <summary>Maximum length of <see cref="OwnerId"/>.</summary>
+    public const int MaxOwnerIdLength = 256;
+
+    /// <summary>Maximum length of <see cref="Kind"/> (a lowercase identifier: <c>^[a-z][a-z0-9_-]{0,31}$</c>).</summary>
+    public const int MaxKindLength = 32;
+
     /// <summary>Maximum length of <see cref="Text"/>.</summary>
     public const int MaxTextLength = 4000;
 
@@ -35,7 +42,7 @@ public sealed class AgentMemory : Entity<Guid>
     /// <summary>Gets the agent the memory is pinned to; <see langword="null"/> = visible to every agent of the owner.</summary>
     public Guid? AgentId { get; private set; }
 
-    /// <summary>Gets the memory kind (Thalos <c>MemoryKind</c> wire value, lower-case).</summary>
+    /// <summary>Gets the memory kind (Thalos <c>MemoryKind</c> wire value, a lowercase identifier).</summary>
     public string Kind { get; private set; } = string.Empty;
 
     /// <summary>Gets the memory text (verbatim, at most <see cref="MaxTextLength"/> chars).</summary>
@@ -78,7 +85,7 @@ public sealed class AgentMemory : Entity<Guid>
     /// <param name="id">The memory id (supplied by the adapter; Thalos typed ids are Guid-backed).</param>
     /// <param name="ownerId">The owner subject.</param>
     /// <param name="agentId">The pinned agent, or <see langword="null"/> for owner-wide.</param>
-    /// <param name="kind">The kind identifier (trimmed and lower-cased).</param>
+    /// <param name="kind">The kind identifier (<c>^[a-z][a-z0-9_-]{0,31}$</c>, stored as given).</param>
     /// <param name="text">The memory text (stored verbatim).</param>
     /// <param name="tags">Tags (normalised).</param>
     /// <param name="source">Provenance.</param>
@@ -101,8 +108,11 @@ public sealed class AgentMemory : Entity<Guid>
         if (string.IsNullOrWhiteSpace(ownerId))
             return Result.Failure<AgentMemory>("Owner id is required.");
 
-        if (string.IsNullOrWhiteSpace(kind))
-            return Result.Failure<AgentMemory>("Kind is required.");
+        if (ownerId.Length > MaxOwnerIdLength)
+            return Result.Failure<AgentMemory>($"Owner id must be at most {MaxOwnerIdLength} characters.");
+
+        if (!IsValidKind(kind))
+            return Result.Failure<AgentMemory>("Kind must match ^[a-z][a-z0-9_-]{0,31}$.");
 
         var textCheck = ValidateText(text);
         if (textCheck.IsFailure)
@@ -131,7 +141,7 @@ public sealed class AgentMemory : Entity<Guid>
             Id = id,
             OwnerId = ownerId,
             AgentId = agentId,
-            Kind = NormaliseKind(kind),
+            Kind = kind,
             Text = text,
             Source = normalisedSource,
             Importance = importance,
@@ -208,14 +218,6 @@ public sealed class AgentMemory : Entity<Guid>
         return Result.Success();
     }
 
-    /// <summary>Counts one recall and stamps <see cref="LastRecalledAt"/>; not a content change.</summary>
-    /// <param name="utcNow">The recall timestamp (UTC).</param>
-    public void RecordRecall(DateTime utcNow)
-    {
-        RecallCount++;
-        LastRecalledAt = utcNow;
-    }
-
     private static Result ValidateText(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -226,9 +228,12 @@ public sealed class AgentMemory : Entity<Guid>
             : Result.Success();
     }
 
-#pragma warning disable CA1308 // kinds are lowercase identifiers by definition, not user-facing text
-    private static string NormaliseKind(string kind) => kind.Trim().ToLowerInvariant();
-#pragma warning restore CA1308
+    /// <summary>Same rule as Thalos <c>MemoryKind.IsValid</c>: <c>^[a-z][a-z0-9_-]{0,31}$</c>.</summary>
+    private static bool IsValidKind(string? kind) =>
+        !string.IsNullOrEmpty(kind)
+        && kind.Length <= MaxKindLength
+        && char.IsAsciiLetterLower(kind[0])
+        && kind.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '_' or '-');
 
     private static Result ValidateImportance(double importance) =>
         double.IsNaN(importance) || importance is < 0 or > 1
