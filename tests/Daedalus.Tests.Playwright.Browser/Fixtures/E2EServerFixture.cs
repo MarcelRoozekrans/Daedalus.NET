@@ -23,6 +23,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Thalos;
+using Thalos.Memory;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Playwright.Browser;
@@ -137,6 +138,11 @@ public class E2EServerFixture
             // scripted stub. The API registers the store as a singleton, so the stub is one too (RemoveAndReplace
             // registers scoped services).
             builder.Configuration.AddJsonFile(Path.Combine(testAssemblyDir, "Daedalus.Api.appsettings.json"), optional: false);
+
+            // AddDaedalusAgents resolves the memory connection string from configuration (Rag.NET keeps its own pool and
+            // creates rag_chunks on start); without this it would fall back to the developer's local Postgres.
+            builder.Configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>(StringComparer.Ordinal) { ["ConnectionStrings:daedalus"] = ConnectionString });
             builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
             foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IAgentRuntime)).ToList())
             {
@@ -144,6 +150,14 @@ public class E2EServerFixture
             }
 
             builder.Services.AddSingleton<IAgentRuntime, StubAgentRuntime>();
+
+            // No Ollama here, so the Rag.NET index would probe as unavailable; a stub keeps memories out of index_pending.
+            foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IMemoryIndex)).ToList())
+            {
+                builder.Services.Remove(descriptor);
+            }
+
+            builder.Services.AddSingleton<IMemoryIndex, StubMemoryIndex>();
 
             builder.Services.AddHttpClient();
 
@@ -283,6 +297,7 @@ public class E2EServerFixture
                 await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
                 await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
                 await SeedTestDataAsync(dbContext).ConfigureAwait(false);
+                await SeedMemoriesAsync(dbContext).ConfigureAwait(false);
             }
 
             // 6. Start the server
@@ -369,6 +384,42 @@ public class E2EServerFixture
             }
 
             dbContext.Projects.Add(project);
+            await dbContext.SaveChangesAsync().ConfigureAwait(false);
+        }
+        catch (DbUpdateException)
+        {
+            // Seed data already exists — safe to ignore
+        }
+    }
+
+    /// <summary>
+    ///     Two memories the Agent page can show: one owned by the E2E user, one owned by the shared owner (host-written
+    ///     project knowledge, rendered with the "shared" marker). Seeded through the aggregate, so the rows are exactly what
+    ///     <see cref="Daedalus.Agents.Memory.PostgresMemoryStore"/> would have written.
+    /// </summary>
+    private static async Task SeedMemoriesAsync(ApplicationDbContext dbContext)
+    {
+        try
+        {
+            if (await dbContext.AgentMemories.AnyAsync().ConfigureAwait(false))
+            {
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            var mine = AgentMemory.Create(
+                Guid.NewGuid(), TestAuthHandler.UserId, null, "fact", "The E2E user prefers xUnit over NUnit.",
+                ["testing"], "seed", 0.7, now, indexPending: false);
+            var shared = AgentMemory.Create(
+                Guid.NewGuid(), StubAgentRuntime.SharedOwnerId, null, "learning", "Playwright locators on the PRD page use data-testid.",
+                ["codeconvention", "low"], "migration", 0.3, now.AddDays(-3), indexPending: false);
+            if (mine.IsFailure || shared.IsFailure)
+            {
+                return;
+            }
+
+            dbContext.AgentMemories.Add(mine.Value);
+            dbContext.AgentMemories.Add(shared.Value);
             await dbContext.SaveChangesAsync().ConfigureAwait(false);
         }
         catch (DbUpdateException)
