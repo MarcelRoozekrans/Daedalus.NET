@@ -30,7 +30,7 @@ internal sealed class AgentMemoryConfiguration : IEntityTypeConfiguration<AgentM
             .IsRequired()
             .HasColumnType("text");
 
-        // Same backing-field mapping as StructuredLearningEntry: text[] column named Tags.
+        // Backing-field mapping: the private List<string> becomes a text[] column named Tags.
         builder.Property("_tags")
             .HasColumnName("Tags")
             .HasColumnType("text[]")
