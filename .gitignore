@@ -88,6 +88,4 @@ temp/
 .nuget/
 *.nupkg
 *.snupkg
-# Local Thalos.NET feed (phase 1.1, until Thalos.NET is on nuget.org) - see nuget.config
-!packages-local/*.nupkg
 

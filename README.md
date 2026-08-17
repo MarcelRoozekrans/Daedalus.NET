@@ -88,7 +88,7 @@ See [Ralph Wiggum Technique Documentation](docs/ralph-wiggum-technique.md) for d
 | Pattern Library      | CSharpFunctionalExtensions (Railway-Oriented Programming)                           |
 | ZeroAlloc            | ZeroAlloc.Results 1.2.0, ZeroAlloc.Authorization 2.1.0, ZeroAlloc.Validation 1.5.6, ZeroAlloc.Mapping 1.6.1 (via Thalos.NET) |
 | Zero-Allocation LINQ | ZLinq 1.5.4                                                                         |
-| Agent framework      | Thalos.NET 0.1.0-local (local feed, see `nuget.config`) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9 |
+| Agent framework      | Thalos.NET 0.1.1 (nuget.org) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9         |
 | LLM security         | AI.Sentinel 2.0.1 (via `Thalos.NET.Sentinel`)                                       |
 | LLM Providers        | GitHub Copilot SDK 0.1.21 (Ralph), Anthropic SDK 12.40.0 (Ralph + Thalos)           |
 | MCP                  | ModelContextProtocol 2.2.0 (`Thalos.NET.Mcp` reads `.mcp.json`)                     |
@@ -541,8 +541,8 @@ The SSE endpoint writes `event: <kind>` + `data: <AgentEventDto JSON>` per event
   (`docker volume rm daedalus_postgres_data`) for a clean start.
 - **Ralph unchanged:** the Ralph Loop worker, its controllers and its tests are untouched; both stacks share
   `ApplicationDbContext`, learnings and embeddings. Ralph is retired in phase 1.6.
-- **Thalos.NET feed:** until `Thalos.NET 0.1.0` is on nuget.org the packages are restored from the committed local feed
-  `packages-local/` (`nuget.config` source `thalos-local`, version `0.1.0-local.*` in `Directory.Packages.props`).
+- **Thalos.NET feed:** the packages come from nuget.org (`Thalos.NET*` 0.1.1 in `Directory.Packages.props`). For
+  unreleased Thalos changes use `scripts/pack-local.ps1` in the Thalos.NET repo and add its folder as a source temporarily.
 
 ---
 

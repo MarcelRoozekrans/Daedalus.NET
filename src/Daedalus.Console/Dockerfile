@@ -18,7 +18,6 @@ COPY ["src/Daedalus.ServiceDefaults/Daedalus.ServiceDefaults.csproj", "src/Daeda
 COPY ["Directory.Build.props", "Directory.Build.props"]
 COPY ["Directory.Packages.props", "Directory.Packages.props"]
 COPY ["nuget.config", "nuget.config"]
-COPY ["packages-local/", "packages-local/"]
 RUN dotnet restore "src/Daedalus.Console/Daedalus.Console.csproj"
 
 COPY . .

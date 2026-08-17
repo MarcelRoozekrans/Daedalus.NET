@@ -40,13 +40,13 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.102" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
 
-    <!-- Thalos.NET (local feed during phase 1.1; see nuget.config / packages-local) -->
-    <PackageVersion Include="Thalos.NET" Version="0.1.0-local.20260816183958" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.1.0-local.20260816183958" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.1.0-local.20260816183958" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.1.0-local.20260816183958" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.1.0-local.20260816183958" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.1.0-local.20260816183958" />
+    <!-- Thalos.NET (nuget.org) -->
+    <PackageVersion Include="Thalos.NET" Version="0.1.1" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.1.1" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.1.1" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.1.1" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.1.1" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.1.1" />
     <PackageVersion Include="ZeroAlloc.Results" Version="1.2.0" />
     <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.0" />
     <PackageVersion Include="ZeroAlloc.Validation" Version="1.5.6" />
