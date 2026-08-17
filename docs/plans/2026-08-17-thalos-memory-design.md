@@ -66,7 +66,7 @@ Dependencies: `Thalos.NET.Abstractions`, `Microsoft.Extensions.AI.Abstractions`,
 `ZeroAlloc.Results`, `.ValueObjects`, `.Validation` (+ `.Telemetry` for `[Trace]`, `.Inject`).
 
 ```csharp
-[TypedId] public readonly partial struct MemoryId;               // ULID, like SessionId
+[TypedId] public readonly partial record struct MemoryId;        // Guid-backed, like SessionId (ZeroAlloc.ValueObjects)
 
 public sealed record MemoryKind(string Value)                     // Fact | Preference | Decision | Learning | Note — extensible
 { public static readonly MemoryKind Fact = new("fact"); /* … */ }
@@ -296,6 +296,7 @@ packages, `feat:` commits → release-please **0.2.0**, publish) then **Plan B**
 
 ## 10. Open items carried into planning
 
+- (resolved in Plan A §0.2/§0.6: `AIContextProvider` construction, `EmbeddingGeneratorMetadata.DefaultModelDimensions`, `IMemoryIndex.UpsertAsync(records)` replacing `RebuildAsync`, `IUntrustedContentScanner` port in Abstractions, `MemoryQuarantined` event.)
 - Exact `AIContextProvider` construction in MAF 1.17 (constructor filters; whether
   `AIContext.Instructions` is appended to or replaces agent instructions) — confirm in the package.
 - `EmbeddingGeneratorMetadata.DefaultModelDimensions` availability for OllamaSharp (else
