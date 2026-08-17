@@ -23,6 +23,8 @@
         <PackageReference Include="Thalos.NET.Mcp" />
         <PackageReference Include="Thalos.NET.Anthropic" />
         <PackageReference Include="Thalos.NET.Sentinel" />
+        <PackageReference Include="Thalos.NET.Memory" />
+        <PackageReference Include="Thalos.NET.Memory.RagNet" />
         <PackageReference Include="ZeroAlloc.Mapping" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />
         <PackageReference Include="Microsoft.Extensions.AI" />

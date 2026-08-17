@@ -23,6 +23,11 @@ internal static class AgentErrorResults
         AgentErrorCode.SessionBusy or AgentErrorCode.SessionClosed => StatusCodes.Status409Conflict,
         AgentErrorCode.Quarantined or AgentErrorCode.ToolDenied => StatusCodes.Status422UnprocessableEntity,
         AgentErrorCode.Cancelled => ClientClosedRequest,
+        AgentErrorCode.MemoryValidationFailed => StatusCodes.Status400BadRequest,
+        AgentErrorCode.MemoryForbidden => StatusCodes.Status403Forbidden,
+        AgentErrorCode.MemoryNotFound => StatusCodes.Status404NotFound,
+        AgentErrorCode.MemoryIndexUnavailable => StatusCodes.Status503ServiceUnavailable,
+        AgentErrorCode.MemoryStoreFailed or AgentErrorCode.MemoryIndexFailed => StatusCodes.Status502BadGateway,
         // ProviderError, StoreError and anything Thalos adds later: an upstream dependency failed.
         _ => StatusCodes.Status502BadGateway,
     };

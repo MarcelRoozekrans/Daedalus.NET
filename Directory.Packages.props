@@ -41,12 +41,14 @@
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
 
     <!-- Thalos.NET (nuget.org) -->
-    <PackageVersion Include="Thalos.NET" Version="0.1.1" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.1.1" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.1.1" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.1.1" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.1.1" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.1.1" />
+    <PackageVersion Include="Thalos.NET" Version="0.2.0" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.2.0" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.2.0" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.2.0" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.2.0" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.2.0" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.2.0" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.2.0" />
     <PackageVersion Include="ZeroAlloc.Results" Version="1.2.0" />
     <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.0" />
     <PackageVersion Include="ZeroAlloc.Validation" Version="1.5.6" />
@@ -71,7 +73,8 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.2" />
     <!-- transitive pin: aligns Relational (10.0.0 via Npgsql.EFCore) with EFCore.Design 10.0.2 (MSB3277) -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.2" />
-    <PackageVersion Include="Npgsql" Version="10.0.1" />
+    <!-- 10.0.1 → 10.0.3: floor set by Rag.NET.VectorStores.PgVector 0.1.0 (via Thalos.NET.Memory.RagNet) -->
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
     <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
 
