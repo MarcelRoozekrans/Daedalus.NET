@@ -11,13 +11,13 @@ namespace Daedalus.Application.Services;
 /// <summary>
 ///     Parses raw learnings text into structured, categorized entries and provides
 ///     enrichment context for prompt building. Uses simple text parsing and keyword
-///     extraction aligned with Ralph philosophy. Generates vector embeddings on save
-///     for semantic search (non-fatal if embedding service is unavailable).
+///     extraction aligned with Ralph philosophy. Persists parsed entries as shared agent
+///     memories (<see cref="ILearningsMemory"/>) and builds enrichment from semantic recall
+///     (non-fatal if the memory index is unavailable).
 /// </summary>
 public sealed partial class LearningsService(
-    ILearningsRepository learningsRepository,
+    ILearningsMemory memory,
     IFailurePatternDatabase failurePatternDatabase,
-    IEmbeddingService embeddingService,
     ILogger<LearningsService> logger) : ILearningsService
 {
     /// <summary>
@@ -64,31 +64,19 @@ public sealed partial class LearningsService(
             return Result.Success(0);
         }
 
-        var entries = ParseRawLearnings(rawLearnings, sourceTaskId, projectId);
+        var entries = ParseRawLearnings(rawLearnings);
         var persistedCount = 0;
 
         foreach (var entry in entries)
         {
-            // Generate embedding for semantic search (non-fatal if fails)
-            var embeddingText = $"{entry.Pattern} {entry.Resolution}";
-            var embeddingResult = await embeddingService.GenerateEmbeddingAsync(embeddingText, ct);
-            if (embeddingResult.IsSuccess)
-            {
-                entry.SetEmbedding(embeddingResult.Value);
-            }
-            else
-            {
-                LogEmbeddingGenerationFailed(logger, entry.Pattern, embeddingResult.Error);
-            }
-
-            var addResult = await learningsRepository.AddAsync(entry, ct);
-            if (addResult.IsSuccess)
+            var remembered = await memory.RememberAsync(entry, sourceTaskId, ct);
+            if (remembered.IsSuccess)
             {
                 persistedCount++;
             }
             else
             {
-                LogFailedPersistLearning(logger, entry.Pattern, addResult.Error);
+                LogFailedPersistLearning(logger, entry.Pattern, remembered.Error);
             }
         }
 
@@ -107,71 +95,27 @@ public sealed partial class LearningsService(
         var sb = new StringBuilder();
         var hasContent = false;
 
-        // 1. Get top learnings by project (if available) or global
-        var learningsResult = projectId.HasValue
-            ? await learningsRepository.GetByProjectIdAsync(projectId.Value, maxLearnings, ct)
-            : await learningsRepository.GetTopLearningsAsync(maxLearnings, ct);
-
-        if (learningsResult.IsSuccess && learningsResult.Value.Count > 0)
+        // 1. Shared learnings recalled by semantic similarity to the task prompt (the memory index does the ranking).
+        var recalled = await memory.RecallAsync(taskPrompt, maxLearnings, ct);
+        if (recalled.IsSuccess && recalled.Value.Count > 0)
         {
-            // Filter out self-referencing learnings
-            var relevantLearnings = learningsResult.Value
-                .AsValueEnumerable()
-                .Where(l => l.SourceTaskId != currentTaskId)
-                .ToList();
+            sb.AppendLine("=== CROSS-TASK LEARNINGS ===");
+            sb.AppendLine("Knowledge recalled from previous task executions (most relevant first):");
+            sb.AppendLine();
 
-            if (relevantLearnings.Count > 0)
+            foreach (var learning in recalled.Value)
             {
-                sb.AppendLine("=== CROSS-TASK LEARNINGS ===");
-                sb.AppendLine("Knowledge from previous task executions in this project:");
+                sb.Append(CultureInfo.InvariantCulture,
+                    $"  - [{string.Join(", ", learning.Tags)}] {learning.Text.Replace("\n", " → ", StringComparison.Ordinal)}");
                 sb.AppendLine();
-
-                // Group by category for structured presentation
-                // Materialize to List to avoid ZLinq ValueEnumerable crossing await boundary
-                var grouped = relevantLearnings
-                    .GroupBy(l => l.Category)
-                    .OrderByDescending(g => g.Key switch
-                    {
-                        LearningCategory.ErrorPattern => 4,
-                        LearningCategory.SuccessPattern => 3,
-                        LearningCategory.ArchitectureDecision => 2,
-                        LearningCategory.CodeConvention => 1,
-                        _ => 0
-                    })
-                    .ToList();
-
-                foreach (var group in grouped)
-                {
-                    sb.Append(CultureInfo.InvariantCulture, $"[{FormatCategory(group.Key)}]");
-                    sb.AppendLine();
-
-                    foreach (var learning in group)
-                    {
-                        var severityIcon = learning.Severity switch
-                        {
-                            LearningSeverity.Critical => "🔴",
-                            LearningSeverity.High => "🟠",
-                            LearningSeverity.Medium => "🟡",
-                            _ => "🟢"
-                        };
-
-                        sb.Append(CultureInfo.InvariantCulture,
-                            $"  {severityIcon} Pattern: {learning.Pattern}");
-                        sb.AppendLine();
-                        sb.Append(CultureInfo.InvariantCulture,
-                            $"     Fix: {learning.Resolution}");
-                        sb.AppendLine();
-
-                        // Record that this learning was referenced
-                        learning.RecordReference();
-                        await learningsRepository.UpdateAsync(learning, ct);
-                    }
-
-                    sb.AppendLine();
-                }
-
-                hasContent = true;
             }
+
+            sb.AppendLine();
+            hasContent = true;
+        }
+        else if (recalled.IsFailure)
+        {
+            LogRecallFailed(logger, recalled.Error);
         }
 
         // 2. Get relevant failure patterns from past executions
@@ -217,12 +161,9 @@ public sealed partial class LearningsService(
     ///     Parses raw learnings text into structured entries using simple line-by-line analysis.
     ///     No ML, no NLP — just pattern matching aligned with Ralph simplicity.
     /// </summary>
-    internal static List<StructuredLearningEntry> ParseRawLearnings(
-        string rawLearnings,
-        Guid sourceTaskId,
-        Guid? projectId)
+    internal static List<ParsedLearning> ParseRawLearnings(string rawLearnings)
     {
-        var entries = new List<StructuredLearningEntry>();
+        var entries = new List<ParsedLearning>();
         var lines = rawLearnings.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var index = 0;
 
@@ -263,13 +204,7 @@ public sealed partial class LearningsService(
                 continue; // Skip very short entries
             }
 
-            var entryResult = StructuredLearningEntry.Create(
-                category, pattern, resolution, tags, sourceTaskId, projectId, severity);
-
-            if (entryResult.IsSuccess)
-            {
-                entries.Add(entryResult.Value);
-            }
+            entries.Add(new ParsedLearning(category, pattern, resolution, tags, severity));
         }
 
         return entries;
@@ -403,16 +338,6 @@ public sealed partial class LearningsService(
         return cleaned;
     }
 
-    private static string FormatCategory(LearningCategory category) => category switch
-    {
-        LearningCategory.ErrorPattern => "⚠ Error Patterns",
-        LearningCategory.SuccessPattern => "✓ Success Patterns",
-        LearningCategory.CodeConvention => "📝 Code Conventions",
-        LearningCategory.DependencyInfo => "📦 Dependencies",
-        LearningCategory.ArchitectureDecision => "🏛 Architecture Decisions",
-        _ => "📋 General"
-    };
-
     [LoggerMessage(EventId = 100, Level = LogLevel.Debug,
         Message = "Parsed {Persisted}/{Total} learnings from task {TaskId}")]
     private static partial void LogLearningsParsed(ILogger logger, int persisted, int total, Guid taskId);
@@ -421,7 +346,7 @@ public sealed partial class LearningsService(
         Message = "Failed to persist learning entry '{Pattern}': {Error}")]
     private static partial void LogFailedPersistLearning(ILogger logger, string pattern, string error);
 
-    [LoggerMessage(EventId = 102, Level = LogLevel.Debug,
-        Message = "Embedding generation failed for learning '{Pattern}': {Error}")]
-    private static partial void LogEmbeddingGenerationFailed(ILogger logger, string pattern, string error);
+    [LoggerMessage(EventId = 103, Level = LogLevel.Debug,
+        Message = "Learnings recall failed: {Error}")]
+    private static partial void LogRecallFailed(ILogger logger, string error);
 }

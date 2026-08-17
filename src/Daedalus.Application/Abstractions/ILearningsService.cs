@@ -6,7 +6,8 @@ namespace Daedalus.Application.Abstractions;
 ///     Application service for managing structured learnings across tasks.
 ///     Parses raw learnings text into categorized entries and provides
 ///     enrichment data for prompt building. Aligned with Ralph philosophy:
-///     simple text parsing, no ML models, no embeddings.
+///     simple text parsing, no ML models — persists to the agent memory
+///     (<see cref="ILearningsMemory"/>), which handles indexing and recall.
 /// </summary>
 public interface ILearningsService
 {
