@@ -271,7 +271,8 @@ jobs:
   # stable-looking number: ghcr.io only ever receives X.Y.Z / X.Y / latest tags from the tagged
   # release commit. Procedure: docs/release.md.
   publish-release:
-    name: Publish release (${{ matrix.image }})
+    # No display name: a skipped matrix job renders `name:` unexpanded; the default
+    # `publish-release (daedalus-api)` reads fine either way.
     if: github.event_name == 'workflow_dispatch' && inputs.publish_release && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [version, build-and-test, docker]
     runs-on: ubuntu-latest
