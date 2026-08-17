@@ -42,9 +42,28 @@ public sealed record TurnUsageDto(int InputTokens, int OutputTokens, string Mode
 public sealed record AgentTurnResultDto(string TurnId, string Text, TurnUsageDto Usage, IReadOnlyList<AgentToolCallDto> ToolCalls, double ElapsedMs);
 
 /// <summary>
+///     Memory payload of the <c>memory-*</c> SSE kinds; only the members relevant to the kind are set:
+///     <c>memory-recalled</c> → <paramref name="Count"/>, <paramref name="Ids"/>, <paramref name="Chars"/>;
+///     <c>memory-stored</c> → <paramref name="MemoryId"/>, <paramref name="Kind"/>, <paramref name="Deduped"/>;
+///     <c>memory-recall-failed</c> → <paramref name="Code"/>; <c>memory-index-pending</c> → <paramref name="MemoryId"/>;
+///     <c>memory-quarantined</c> → <paramref name="MemoryId"/>, <paramref name="Detail"/>.
+/// </summary>
+public sealed record MemoryEventDto(
+    int? Count = null,
+    IReadOnlyList<string>? Ids = null,
+    int? Chars = null,
+    string? MemoryId = null,
+    string? Kind = null,
+    bool? Deduped = null,
+    string? Code = null,
+    string? Detail = null);
+
+/// <summary>
 ///     SSE payload. <paramref name="Kind"/> mirrors the SSE event name: <c>text-delta</c> | <c>tool-call</c> | <c>tool-result</c> |
-///     <c>usage</c> | <c>done</c> | <c>error</c>. Only the members relevant to the kind are set (<c>error</c> also carries the
-///     usage accumulated before the failure).
+///     <c>usage</c> | <c>done</c> | <c>error</c> | <c>memory-recalled</c> | <c>memory-stored</c> | <c>memory-recall-failed</c> |
+///     <c>memory-index-pending</c> | <c>memory-quarantined</c>. Only the members relevant to the kind are set (<c>error</c> also
+///     carries the usage accumulated before the failure; the <c>memory-*</c> kinds carry <paramref name="Memory"/>). Unknown
+///     kinds arrive with only <paramref name="Kind"/> set — clients ignore what they do not know.
 /// </summary>
 public sealed record AgentEventDto(
     string Kind,
@@ -54,4 +73,5 @@ public sealed record AgentEventDto(
     AgentTurnResultDto? Result = null,
     string? ErrorCode = null,
     string? ErrorMessage = null,
-    string? ErrorDetail = null);
+    string? ErrorDetail = null,
+    MemoryEventDto? Memory = null);

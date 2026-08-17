@@ -59,8 +59,11 @@ public static class AgentDtoMapper
             result.Elapsed.TotalMilliseconds);
     }
 
-    /// <summary>Maps a streaming event to its SSE payload; <see cref="AgentEventDto.Kind"/> is the SSE event name.</summary>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="agentEvent"/> is not one of the six known event types.</exception>
+    /// <summary>
+    ///     Maps a streaming event to its SSE payload; <see cref="AgentEventDto.Kind"/> is the SSE event name. The five
+    ///     <c>memory-*</c> events (Thalos.NET.Memory) carry <see cref="AgentEventDto.Memory"/>; an event type this adapter does
+    ///     not know yet is passed through by kind only, so a newer Thalos never kills the SSE stream.
+    /// </summary>
     public static AgentEventDto ToDto(AgentEvent agentEvent)
     {
         ArgumentNullException.ThrowIfNull(agentEvent);
@@ -72,7 +75,13 @@ public static class AgentDtoMapper
             UsageEvent u => new AgentEventDto(u.Kind, Usage: ToDto(u.Usage)),
             TurnCompletedEvent d => new AgentEventDto(d.Kind, Result: ToDto(d.Result)),
             TurnFailedEvent x => new AgentEventDto(x.Kind, Usage: ToDto(x.Usage), ErrorCode: x.Error.Code.ToString(), ErrorMessage: x.Error.Message, ErrorDetail: x.Error.Detail),
-            _ => throw new ArgumentOutOfRangeException(nameof(agentEvent), agentEvent.GetType(), "Unknown AgentEvent type"),
+            MemoryRecalledEvent r => new AgentEventDto(r.Kind, Memory: new MemoryEventDto(Count: r.Count, Ids: r.MemoryIds.Select(i => i.ToString()).ToList(), Chars: r.Chars)),
+            MemoryStoredEvent s => new AgentEventDto(s.Kind, Memory: new MemoryEventDto(MemoryId: s.MemoryId.ToString(), Kind: s.MemoryKind, Deduped: s.Deduped)),
+            MemoryRecallFailedEvent f => new AgentEventDto(f.Kind, Memory: new MemoryEventDto(Code: f.Code.ToString())),
+            MemoryIndexPendingEvent p => new AgentEventDto(p.Kind, Memory: new MemoryEventDto(MemoryId: p.MemoryId.ToString())),
+            MemoryQuarantinedEvent q => new AgentEventDto(q.Kind, Memory: new MemoryEventDto(MemoryId: q.MemoryId.ToString(), Detail: q.Detail)),
+            // Forward-compatible: a Thalos event kind this adapter does not know yet still reaches the client by name.
+            _ => new AgentEventDto(agentEvent.Kind),
         };
     }
 
