@@ -1,10 +1,11 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Sessions;
 using Daedalus.Agents.Tools;
+using Daedalus.Application.Abstractions;
 using Daedalus.Infrastructure.Agents.Tools;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.Extensions.AI;
@@ -76,6 +77,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
         services.AddHostedService<AgentSessionCrashRecovery>();
 
         services.AddSingleton(options.Memory);
+        services.AddSingleton<ILearningsMemory, ThalosLearningsMemory>();
 
         // The memory index embeds with the DI generator; a host that only hands the instance to this call (for Sentinel) still gets a working index.
         if (embeddingGenerator is not null)
@@ -133,6 +135,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
         var connectionString = ResolveConnectionString(configuration);
 
         services.AddSingleton(options.Memory);
+        services.AddSingleton<ILearningsMemory, ThalosLearningsMemory>();
         services.AddThalos(thalos => ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString));
         return services;
     }

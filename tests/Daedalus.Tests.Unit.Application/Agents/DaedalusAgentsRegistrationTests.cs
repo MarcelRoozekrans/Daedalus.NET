@@ -1,4 +1,4 @@
-using AI.Sentinel;
+﻿using AI.Sentinel;
 using AI.Sentinel.Detectors.Security;
 using Daedalus.Agents;
 using Daedalus.Agents.Memory;
@@ -200,6 +200,7 @@ public sealed class DaedalusAgentsRegistrationTests
         sp.GetRequiredService<IMemoryStore>().GetType().Name.Should().BeOneOf("PostgresMemoryStore", "MemoryStoreInstrumented");
         sp.GetRequiredService<PostgresMemoryStore>().Should().NotBeNull();
         sp.GetRequiredService<IMemoryIndex>().GetType().FullName.Should().Contain("RagNet");
+        sp.GetRequiredService<Daedalus.Application.Abstractions.ILearningsMemory>().Should().BeOfType<ThalosLearningsMemory>();
         sp.GetRequiredService<RagNetMemoryOptions>().Should().BeEquivalentTo(new { ConnectionString = "Host=localhost;Database=x;Username=u;Password=p", VectorDimensions = 768, EnsureSchemaOnStartup = true });
         sp.GetServices<IHostedService>().Should().Contain(h => h.GetType().Name == "RagNetMemorySchemaInitializer");
     }
@@ -269,6 +270,7 @@ public sealed class DaedalusAgentsRegistrationTests
 
         sp.GetRequiredService<IMemoryService>().Should().NotBeNull();
         sp.GetRequiredService<PostgresMemoryStore>().Should().NotBeNull();
+        sp.GetRequiredService<Daedalus.Application.Abstractions.ILearningsMemory>().Should().BeOfType<ThalosLearningsMemory>();
         sp.GetRequiredService<MemoryConfig>().SharedOwnerId.Should().Be("daedalus");
         sp.GetServices<IHostedService>().Should().NotContain(h => h.GetType().Name == "ReindexPendingMemoriesHostedService");
         sp.GetRequiredService<IAgentCatalog>().Agents.Should().BeEmpty("the console host declares no agents");
