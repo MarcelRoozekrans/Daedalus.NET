@@ -5,9 +5,11 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>13</LangVersion>
-        <!-- Blazor WASM doesn't support AOT, so disable trimming -->
+        <!-- Blazor WASM doesn't support AOT, so disable trimming. PublishTrimmed=false is the switch: Blazor WASM
+             runs ILLink on publish by default, and TrimMode only accepts full/partial (`none` fails publish with
+             IL1031, which is what broke the Web container image). -->
         <PublishAot>false</PublishAot>
-        <TrimMode>none</TrimMode>
+        <PublishTrimmed>false</PublishTrimmed>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
     </PropertyGroup>
 

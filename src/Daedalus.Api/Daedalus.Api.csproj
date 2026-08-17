@@ -6,11 +6,14 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>13</LangVersion>
         <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
-        <!-- AOT Configuration - only for Release/publish builds -->
-        <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
+        <!-- Native AOT disabled, like Daedalus.Console: MVC controllers, EF Core (ApplyConfigurationsFromAssembly),
+             Aspire, FluentValidation, the Anthropic SDK and AI.Sentinel all need reflection/dynamic code — a
+             Release publish with PublishAot=true fails on IL2026/IL2104 (this is what kept the API container image
+             from ever building). Reflection-based System.Text.Json stays enabled in every configuration for the
+             same reason: MVC and the agent session store serialize without source-generated contexts. -->
+        <PublishAot>false</PublishAot>
+        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
-        <JsonSerializerIsReflectionEnabledByDefault Condition="'$(Configuration)' == 'Release'">false</JsonSerializerIsReflectionEnabledByDefault>
-        <JsonSerializerIsReflectionEnabledByDefault Condition="'$(Configuration)' != 'Release'">true</JsonSerializerIsReflectionEnabledByDefault>
     </PropertyGroup>
 
     <ItemGroup>
