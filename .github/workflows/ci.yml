@@ -183,8 +183,10 @@ jobs:
   # Conventional commits, enforced mechanically — release-please derives release versions from
   # commit messages, so a malformed type is a commit the release tooling cannot read. Lints only the
   # commits a pull request adds, never the existing history. Rules: .commitlintrc.yml.
+  # Escape hatch: the `skip-commitlint` label, for a pull request that imports history nobody can
+  # rewrite (the one-time adoption of the local main, #236). Not for ordinary work.
   commitlint:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-commitlint')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -17,7 +17,9 @@ images instead of NuGet packages.
 - **release-please** (`.github/workflows/release-please.yml`, manifest mode:
   `release-please-config.json` + `.release-please-manifest.json`) proposes releases from conventional
   commits and cuts the tag. Manual dispatch only.
-- **Conventional commits** are enforced on pull requests by the `commitlint` job (`.commitlintrc.yml`).
+- **Conventional commits** are enforced on pull requests by the `commitlint` job (`.commitlintrc.yml`; header
+  ≤ 100 characters). The `skip-commitlint` label disables the job for a PR that imports history nobody can
+  rewrite (used once, for #236) — not for ordinary work.
 - **Publishing** is the `publish-release` job in `ci.yml`: manual dispatch with `publish_release=true`,
   `GITHUB_TOKEN` with `packages: write` (no extra secret), gated on `build-and-test` and the three
   `docker` builds being green on the same commit.
