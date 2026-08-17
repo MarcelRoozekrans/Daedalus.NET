@@ -2,6 +2,7 @@ using System.Text.Json;
 using Daedalus.Application.DTOs.Agents;
 using Microsoft.Extensions.AI;
 using Thalos;
+using Thalos.Memory;
 
 namespace Daedalus.Agents.Api;
 
@@ -83,6 +84,31 @@ public static class AgentDtoMapper
             // Forward-compatible: a Thalos event kind this adapter does not know yet still reaches the client by name.
             _ => new AgentEventDto(agentEvent.Kind),
         };
+    }
+
+    /// <summary>
+    ///     Maps a stored memory. <paramref name="sharedOwnerId"/> is the owner of host-written project knowledge (Ralph
+    ///     learnings): a record owned by it is flagged <c>IsShared</c> so the UI can tell "mine" from "the project's" apart.
+    /// </summary>
+    public static MemoryDto ToDto(MemoryRecord record, string? sharedOwnerId)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return new MemoryDto(
+            record.Id.ToString(),
+            record.OwnerId,
+            record.AgentId?.ToString(),
+            record.Kind.Value,
+            record.Text,
+            record.Tags,
+            record.Source,
+            record.Importance,
+            record.CreatedAt,
+            record.UpdatedAt,
+            record.LastRecalledAt,
+            record.RecallCount,
+            record.IsArchived,
+            record.IndexPending,
+            sharedOwnerId is not null && string.Equals(record.OwnerId, sharedOwnerId, StringComparison.Ordinal));
     }
 
     /// <summary>

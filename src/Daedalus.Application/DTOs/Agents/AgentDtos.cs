@@ -42,6 +42,27 @@ public sealed record TurnUsageDto(int InputTokens, int OutputTokens, string Mode
 public sealed record AgentTurnResultDto(string TurnId, string Text, TurnUsageDto Usage, IReadOnlyList<AgentToolCallDto> ToolCalls, double ElapsedMs);
 
 /// <summary>
+///     A stored memory. <paramref name="IsShared"/> = owned by the shared owner (host-written project knowledge, recalled for
+///     every caller); <paramref name="IndexPending"/> = stored but not embedded yet, so it cannot be recalled semantically.
+/// </summary>
+public sealed record MemoryDto(
+    string Id,
+    string OwnerId,
+    string? AgentId,
+    string Kind,
+    string Text,
+    IReadOnlyList<string> Tags,
+    string Source,
+    double Importance,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? LastRecalledAt,
+    int RecallCount,
+    bool IsArchived,
+    bool IndexPending,
+    bool IsShared);
+
+/// <summary>
 ///     Memory payload of the <c>memory-*</c> SSE kinds; only the members relevant to the kind are set:
 ///     <c>memory-recalled</c> → <paramref name="Count"/>, <paramref name="Ids"/>, <paramref name="Chars"/>;
 ///     <c>memory-stored</c> → <paramref name="MemoryId"/>, <paramref name="Kind"/>, <paramref name="Deduped"/>;
