@@ -13,6 +13,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Daedalus.Tests.Integration" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Daedalus.Domain\Daedalus.Domain.csproj" />
         <ProjectReference Include="..\Daedalus.Application\Daedalus.Application.csproj" />
         <ProjectReference Include="..\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj" />

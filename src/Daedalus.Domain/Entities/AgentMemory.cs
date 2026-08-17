@@ -70,7 +70,11 @@ public sealed class AgentMemory : Entity<Guid>
 
     private AgentMemory() { } // EF Core
 
-    /// <summary>Creates a memory; all timestamps are supplied by the caller (UTC).</summary>
+    /// <summary>
+    ///     Creates a memory; all timestamps are supplied by the caller (UTC). The optional trailing parameters let the store
+    ///     insert a Thalos record "as given" (an import may carry its own <c>UpdatedAt</c>, recall bookkeeping or archived flag);
+    ///     a freshly remembered memory leaves them at their defaults.
+    /// </summary>
     /// <param name="id">The memory id (supplied by the adapter; Thalos typed ids are Guid-backed).</param>
     /// <param name="ownerId">The owner subject.</param>
     /// <param name="agentId">The pinned agent, or <see langword="null"/> for owner-wide.</param>
@@ -81,10 +85,15 @@ public sealed class AgentMemory : Entity<Guid>
     /// <param name="importance">Importance in 0..1.</param>
     /// <param name="utcNow">Creation timestamp (UTC).</param>
     /// <param name="indexPending">Whether the vector still has to be built.</param>
+    /// <param name="updatedAt">Last content change (UTC); <see langword="null"/> = <paramref name="utcNow"/>. Must not precede creation.</param>
+    /// <param name="isArchived">Whether the memory starts soft-deleted.</param>
+    /// <param name="recallCount">Recalls so far (zero or more).</param>
+    /// <param name="lastRecalledAt">Last recall (UTC), or <see langword="null"/>.</param>
     /// <returns>A Result containing the new memory or a validation error.</returns>
     public static Result<AgentMemory> Create(
         Guid id, string ownerId, Guid? agentId, string kind, string text, IEnumerable<string>? tags, string? source,
-        double importance, DateTime utcNow, bool indexPending)
+        double importance, DateTime utcNow, bool indexPending,
+        DateTime? updatedAt = null, bool isArchived = false, int recallCount = 0, DateTime? lastRecalledAt = null)
     {
         if (id == Guid.Empty)
             return Result.Failure<AgentMemory>("Memory id is required.");
@@ -111,6 +120,12 @@ public sealed class AgentMemory : Entity<Guid>
         if (importanceCheck.IsFailure)
             return Result.Failure<AgentMemory>(importanceCheck.Error);
 
+        if (updatedAt is { } u && u < utcNow)
+            return Result.Failure<AgentMemory>("UpdatedAt must not precede CreatedAt.");
+
+        if (recallCount < 0)
+            return Result.Failure<AgentMemory>("Recall count must not be negative.");
+
         var memory = new AgentMemory
         {
             Id = id,
@@ -121,7 +136,10 @@ public sealed class AgentMemory : Entity<Guid>
             Source = normalisedSource,
             Importance = importance,
             CreatedAt = utcNow,
-            UpdatedAt = utcNow,
+            UpdatedAt = updatedAt ?? utcNow,
+            LastRecalledAt = lastRecalledAt,
+            RecallCount = recallCount,
+            IsArchived = isArchived,
             IndexPending = indexPending,
         };
         memory._tags.AddRange(normalisedTags.Value);

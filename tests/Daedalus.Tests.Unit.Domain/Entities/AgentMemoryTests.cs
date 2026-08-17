@@ -43,6 +43,22 @@ public sealed class AgentMemoryTests
         m.AgentId.Should().NotBeNull();
     }
 
+    [Fact]
+    public void Create_honours_bookkeeping_supplied_as_given_and_validates_it()
+    {
+        // The store inserts Thalos records "as given": UpdatedAt, archived flag and recall bookkeeping may be pre-set.
+        var m = AgentMemory.Create(Guid.NewGuid(), "alice", null, "fact", "t", [], "", 0.5, T0, false,
+            updatedAt: T0.AddMinutes(1), isArchived: true, recallCount: 3, lastRecalledAt: T0.AddMinutes(2)).Value;
+
+        m.UpdatedAt.Should().Be(T0.AddMinutes(1));
+        m.IsArchived.Should().BeTrue();
+        m.RecallCount.Should().Be(3);
+        m.LastRecalledAt.Should().Be(T0.AddMinutes(2));
+
+        AgentMemory.Create(Guid.NewGuid(), "alice", null, "fact", "t", [], "", 0.5, T0, false, updatedAt: T0.AddSeconds(-1)).IsFailure.Should().BeTrue();
+        AgentMemory.Create(Guid.NewGuid(), "alice", null, "fact", "t", [], "", 0.5, T0, false, recallCount: -1).IsFailure.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData("", "text")]
     [InlineData("alice", "")]
