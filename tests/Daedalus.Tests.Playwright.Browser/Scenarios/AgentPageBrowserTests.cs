@@ -101,12 +101,14 @@ public class AgentPageBrowserTests : BrowserTestBase
     }
 
     [Test]
-    [Description("Turn recalls the seeded memories → Memories panel lists them; forgetting one removes it")]
+    [Description("Turn recalls the visible memories → panel lists them, hides another agent's; forgetting one persists")]
     public async Task AgentPage_Memories_ShouldShowRecalled_AndForget()
     {
         await _agentPage.NavigateAsync().ConfigureAwait(false);
         await Expect(_agentPage.NewSessionButton).ToBeEnabledAsync().ConfigureAwait(false);
         await _agentPage.CreateSessionAsync().ConfigureAwait(false);
+        var sessionId = _agentPage.CurrentSessionId();
+        sessionId.Should().NotBeNullOrWhiteSpace();
 
         await _agentPage.SendAsync("hi").ConfigureAwait(false);
         await Expect(_agentPage.AssistantTexts.Last).ToContainTextAsync(StubAgentRuntime.ReplyText).ConfigureAwait(false);
@@ -116,22 +118,31 @@ public class AgentPageBrowserTests : BrowserTestBase
         await _agentPage.OpenMemoriesAsync().ConfigureAwait(false);
         await Expect(_agentPage.MemoriesPanel).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_agentPage.RecallStatus).ToContainTextAsync("recalled").ConfigureAwait(false);
-        await Expect(_agentPage.RecalledItems).ToHaveCountAsync(2).ConfigureAwait(false);
+        await Expect(_agentPage.RecalledItems).ToHaveCountAsync(3).ConfigureAwait(false);
         await Expect(_agentPage.MemoriesPanel).ToContainTextAsync("prefers xUnit").ConfigureAwait(false);
 
-        // 2. Browse list: the caller's own memory and the shared owner's, the latter marked "shared"
-        await Expect(_agentPage.MemoryItems).ToHaveCountAsync(2).ConfigureAwait(false);
+        // 2. Browse list: own + shared (marked "shared"); the memory pinned to another agent is invisible to both lists
+        await Expect(_agentPage.MemoryItems).ToHaveCountAsync(3).ConfigureAwait(false);
         await Expect(_agentPage.MemoryItem("prefers xUnit")).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_agentPage.MemoryItem("data-testid")).ToContainTextAsync("shared").ConfigureAwait(false);
         await Expect(_agentPage.MemoriesEmpty).Not.ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_agentPage.MemoriesPanel).Not.ToContainTextAsync(E2EServerFixture.PinnedMemoryText).ConfigureAwait(false);
 
         await SaveRegressionScreenshotAsync("agent-memories.png").ConfigureAwait(false);
 
-        // 3. Forget archives the caller's own memory; the card goes away without a reload
-        await _agentPage.MemoryForgetButton("prefers xUnit").ClickAsync().ConfigureAwait(false);
-        await Expect(_agentPage.MemoryItem("prefers xUnit")).ToHaveCountAsync(0).ConfigureAwait(false);
-        await Expect(_agentPage.MemoryItems).ToHaveCountAsync(1).ConfigureAwait(false);
-        await Expect(_agentPage.ErrorAlert).Not.ToBeVisibleAsync().ConfigureAwait(false);
+        // 3. Forget archives this scenario's own disposable memory; the card goes away without a reload
+        await _agentPage.MemoryForgetButton(E2EServerFixture.DisposableMemoryText).ClickAsync().ConfigureAwait(false);
+        await Expect(_agentPage.MemoryItem(E2EServerFixture.DisposableMemoryText)).ToHaveCountAsync(0).ConfigureAwait(false);
+        await Expect(_agentPage.MemoryItems).ToHaveCountAsync(2).ConfigureAwait(false);
+
+        // 4. …and it stays forgotten: a full reload re-reads the list from the API
+        await _agentPage.NavigateToSessionAsync(sessionId!).ConfigureAwait(false);
+        await _agentPage.OpenMemoriesAsync().ConfigureAwait(false);
+        await Expect(_agentPage.MemoryItems).ToHaveCountAsync(2).ConfigureAwait(false);
+        await Expect(_agentPage.MemoriesPanel).Not.ToContainTextAsync(E2EServerFixture.DisposableMemoryText).ConfigureAwait(false);
+        await Expect(_agentPage.MemoryItem("prefers xUnit")).ToBeVisibleAsync().ConfigureAwait(false);
+        // The reload also proves "recalled this turn" does not survive a session load.
+        await Expect(_agentPage.RecalledItems).ToHaveCountAsync(0).ConfigureAwait(false);
     }
 
     [Test]

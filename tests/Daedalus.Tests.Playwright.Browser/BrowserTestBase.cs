@@ -29,12 +29,19 @@ public abstract class BrowserTestBase : PageTest
     protected string? DbConnectionString { get; private set; }
 
     /// <summary>
-    ///     Guards all tests in the fixture: if the browser E2E environment is not
-    ///     available, marks every test as Inconclusive before any per-test SetUp runs.
+    ///     Guards all tests in the fixture. A server that tried to start and failed is a <see cref="Assert.Fail(string)"/> —
+    ///     the exception already propagated out of the set-up fixture, and this makes the verdict unmistakable if a runner
+    ///     ever executes the tests anyway. Only a genuinely absent environment (no Docker daemon, no configured server) is
+    ///     Inconclusive, because "skipped" is invisible in a green build.
     /// </summary>
     [OneTimeSetUp]
     public void CheckBrowserTestPrerequisites()
     {
+        if (E2EServerFixture.StartupFailure is { } failure)
+        {
+            Assert.Fail(failure);
+        }
+
         if (!E2EServerFixture.IsBrowserServerReady)
         {
             Assert.Inconclusive(

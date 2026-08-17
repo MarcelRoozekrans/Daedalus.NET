@@ -311,6 +311,10 @@
         _messages.Clear();
         _detail = null;
         _error = null;
+        // "Recalled this turn" belongs to the turn that produced it; another session must never inherit it.
+        _recalled.Clear();
+        _recalledIds.Clear();
+        _recallStatus = null;
         if (SessionId is null)
         {
             return;
@@ -325,6 +329,12 @@
                 _messages.AddRange(d.Messages.Select(ChatMessage.FromDto));
             },
             NotifyError);
+
+        if (_memoriesOpen)
+        {
+            // The agent context changed with the session, so the visible set can differ.
+            await LoadMemoriesAsync(1);
+        }
     }
 
     private async Task RefreshSessionsAsync()
@@ -389,7 +399,9 @@
 
     private async Task LoadMemoriesAsync(int page)
     {
-        var result = await Api.ListMemoriesAsync(kind: _kindFilter, page: page, pageSize: MemoriesPageSize, ct: _pageCts.Token);
+        // The session's agent is the caller's agent context: it adds that agent's pinned memories to the visible set.
+        var result = await Api.ListMemoriesAsync(
+            kind: _kindFilter, agentId: _detail?.Session.AgentId, page: page, pageSize: MemoriesPageSize, ct: _pageCts.Token);
         result.Match(
             p =>
             {
@@ -414,6 +426,11 @@
         _memories.RemoveAll(m => string.Equals(m.Id, id, StringComparison.Ordinal));
         _recalled.RemoveAll(m => string.Equals(m.Id, id, StringComparison.Ordinal));
         _memoriesTotal = Math.Max(0, _memoriesTotal - 1);
+        if (_memories.Count == 0 && _memoriesPage > 1)
+        {
+            // Forgetting the last item of a page would otherwise leave the panel on an empty page.
+            await LoadMemoriesAsync(_memoriesPage - 1);
+        }
     }
 
     /// <summary>Hydrates the ids the <c>memory-recalled</c> events carried; an id the caller can no longer see is skipped.</summary>
@@ -422,7 +439,7 @@
         _recalled.Clear();
         foreach (var id in _recalledIds.Distinct(StringComparer.Ordinal))
         {
-            var memory = await Api.GetMemoryAsync(id, _pageCts.Token);
+            var memory = await Api.GetMemoryAsync(id, _detail?.Session.AgentId, _pageCts.Token);
             if (memory.IsSuccess)
             {
                 _recalled.Add(memory.Value);

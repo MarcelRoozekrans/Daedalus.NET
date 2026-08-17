@@ -69,6 +69,7 @@ public sealed class AgentMemoriesControllerIntegrationTests(PostgresFixture fixt
         seen.Page.Should().Be(2);
         seen.IncludeArchived.Should().BeFalse();
         seen.Tags.Should().BeNull();
+        seen.AgentId.Should().BeNull("that member pins the query to one agent; visibility is post-filtered like memory__list");
 
         var page = result.Should().BeOfType<OkObjectResult>().Subject.Value.Should().BeOfType<PagedResultDto<MemoryDto>>().Subject;
         page.Should().BeEquivalentTo(new { Total = 7, Page = 2, PageSize = 100 });
@@ -125,16 +126,64 @@ public sealed class AgentMemoriesControllerIntegrationTests(PostgresFixture fixt
         var shared = await SeedAsync(Shared, "the project's");
         var foreign = await SeedAsync("bob", "bob's");
 
-        var own = await Controller("alice").Get(mine.Id.ToString(), CancellationToken.None);
+        var own = await Controller("alice").Get(mine.Id.ToString(), ct: CancellationToken.None);
         own.Should().BeOfType<OkObjectResult>().Subject.Value.Should().BeOfType<MemoryDto>()
             .Subject.Should().BeEquivalentTo(new { Id = mine.Id.ToString(), Text = "mine", IsShared = false });
 
-        var project = await Controller("alice").Get(shared.Id.ToString(), CancellationToken.None);
+        var project = await Controller("alice").Get(shared.Id.ToString(), ct: CancellationToken.None);
         project.Should().BeOfType<OkObjectResult>().Subject.Value.Should().BeOfType<MemoryDto>()
             .Subject.Should().BeEquivalentTo(new { Id = shared.Id.ToString(), Text = "the project's", IsShared = true });
 
-        AssertProblem(await Controller("alice").Get(foreign.Id.ToString(), CancellationToken.None), StatusCodes.Status404NotFound, "MemoryNotFound");
-        AssertProblem(await Controller("alice").Get(MemoryId.New().ToString(), CancellationToken.None), StatusCodes.Status404NotFound, "MemoryNotFound");
+        AssertProblem(await Controller("alice").Get(foreign.Id.ToString(), ct: CancellationToken.None), StatusCodes.Status404NotFound, "MemoryNotFound");
+        AssertProblem(await Controller("alice").Get(MemoryId.New().ToString(), ct: CancellationToken.None), StatusCodes.Status404NotFound, "MemoryNotFound");
+    }
+
+    [Fact]
+    public async Task List_and_Get_hide_memories_pinned_to_another_agent_exactly_like_the_memory_tools()
+    {
+        var agent = AgentId.New();
+        var ownWide = await SeedAsync("alice", "owner-wide");
+        var ownPinned = await SeedAsync("alice", "pinned to the session's agent", agent);
+        var otherPinned = await SeedAsync("alice", "pinned to another agent", AgentId.New());
+        var sharedWide = await SeedAsync(Shared, "shared owner-wide");
+        var sharedPinned = await SeedAsync(Shared, "shared but pinned", agent);
+        MemoryPage page = new([ownWide, ownPinned, otherPinned, sharedWide, sharedPinned], 1, 20, 5);
+        _memory.ListAsync(Arg.Any<MemoryQuery>(), Arg.Any<CancellationToken>())
+            .Returns(ZeroAlloc.Results.Result<MemoryPage, AgentError>.Success(page));
+
+        // Without an agent context only the owner-wide records are visible…
+        var anonymousAgent = await Controller("alice").List(ct: CancellationToken.None);
+        Texts(anonymousAgent).Should().Equal("owner-wide", "shared owner-wide");
+
+        // …with one, that agent's own pinned records join them; the shared owner never grants pinned records.
+        var withAgent = await Controller("alice").List(agentId: agent.ToString(), ct: CancellationToken.None);
+        Texts(withAgent).Should().Equal("owner-wide", "pinned to the session's agent", "shared owner-wide");
+
+        // Get applies the same rule, and answers 404 (never 403) for what it hides.
+        AssertProblem(await Controller("alice").Get(ownPinned.Id.ToString(), ct: CancellationToken.None), StatusCodes.Status404NotFound, "MemoryNotFound");
+        (await Controller("alice").Get(ownPinned.Id.ToString(), agent.ToString(), CancellationToken.None)).Should().BeOfType<OkObjectResult>();
+        AssertProblem(await Controller("alice").Get(sharedPinned.Id.ToString(), agent.ToString(), CancellationToken.None), StatusCodes.Status404NotFound, "MemoryNotFound");
+        AssertProblem(await Controller("alice").Get(otherPinned.Id.ToString(), agent.ToString(), CancellationToken.None), StatusCodes.Status404NotFound, "MemoryNotFound");
+    }
+
+    [Fact]
+    public async Task Get_of_an_archived_memory_is_404()
+    {
+        var record = await SeedAsync("alice", "forgotten");
+        var archived = await _store.UpdateAsync(record.Id, new MemoryUpdate { IsArchived = true }, CancellationToken.None);
+        archived.IsSuccess.Should().BeTrue();
+
+        // The store returns archived records (it is the source of truth); the HTTP surface treats them as gone, and recall
+        // drops archived records too, so nothing that needs hydrating is lost.
+        AssertProblem(await Controller("alice").Get(record.Id.ToString(), ct: CancellationToken.None), StatusCodes.Status404NotFound, "MemoryNotFound");
+    }
+
+    [Fact]
+    public async Task Get_with_an_unparsable_agent_id_is_400()
+    {
+        var record = await SeedAsync("alice", "mine");
+
+        AssertProblem(await Controller("alice").Get(record.Id.ToString(), "not-an-agent", CancellationToken.None), StatusCodes.Status400BadRequest, "Validation");
     }
 
     [Fact]
@@ -200,7 +249,7 @@ public sealed class AgentMemoriesControllerIntegrationTests(PostgresFixture fixt
     [Fact]
     public async Task Invalid_id_is_400_on_get_and_forget()
     {
-        AssertProblem(await Controller("alice").Get("not-an-id", CancellationToken.None), StatusCodes.Status400BadRequest, "Validation");
+        AssertProblem(await Controller("alice").Get("not-an-id", ct: CancellationToken.None), StatusCodes.Status400BadRequest, "Validation");
         AssertProblem(await Controller("alice").Forget("not-an-id", hard: false, CancellationToken.None), StatusCodes.Status400BadRequest, "Validation");
         await _memory.DidNotReceiveWithAnyArgs().ForgetAsync(default, default, default, default);
     }
@@ -209,7 +258,7 @@ public sealed class AgentMemoriesControllerIntegrationTests(PostgresFixture fixt
     public async Task Anonymous_is_401_on_every_endpoint()
     {
         (await Anonymous().List(ct: CancellationToken.None)).Should().BeOfType<UnauthorizedResult>();
-        (await Anonymous().Get(MemoryId.New().ToString(), CancellationToken.None)).Should().BeOfType<UnauthorizedResult>();
+        (await Anonymous().Get(MemoryId.New().ToString(), ct: CancellationToken.None)).Should().BeOfType<UnauthorizedResult>();
         (await Anonymous().Forget(MemoryId.New().ToString(), hard: false, CancellationToken.None)).Should().BeOfType<UnauthorizedResult>();
 
         await _memory.DidNotReceiveWithAnyArgs().ListAsync(null!, default);
@@ -218,12 +267,17 @@ public sealed class AgentMemoriesControllerIntegrationTests(PostgresFixture fixt
 
     // ---------- helpers ----------
 
-    private async Task<MemoryRecord> SeedAsync(string ownerId, string text)
+    private static List<string> Texts(IActionResult result) =>
+        result.Should().BeOfType<OkObjectResult>().Subject.Value.Should().BeOfType<PagedResultDto<MemoryDto>>()
+            .Subject.Items.Select(m => m.Text).ToList();
+
+    private async Task<MemoryRecord> SeedAsync(string ownerId, string text, AgentId? agentId = null)
     {
         var record = new MemoryRecord
         {
             Id = MemoryId.New(),
             OwnerId = ownerId,
+            AgentId = agentId,
             Kind = MemoryKind.Learning,
             Text = text,
             Tags = ["database"],

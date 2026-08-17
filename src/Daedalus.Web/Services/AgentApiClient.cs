@@ -78,7 +78,10 @@ public sealed class AgentApiClient(HttpClient http)
         }
     }
 
-    /// <summary>The caller's own memories plus the shared owner's, most recently updated first.</summary>
+    /// <summary>
+    ///     The memories visible to the caller, most recently updated first. <paramref name="agentId"/> is the agent context,
+    ///     not a filter: it adds the memories pinned to that agent to the caller's own and the shared owner's.
+    /// </summary>
     public Task<Result<PagedResultDto<MemoryDto>>> ListMemoriesAsync(
         string? kind = null,
         string? agentId = null,
@@ -101,9 +104,14 @@ public sealed class AgentApiClient(HttpClient http)
         return GetAsync<PagedResultDto<MemoryDto>>($"/api/agent-memories?{string.Join('&', query)}", ct);
     }
 
-    /// <summary>One memory the caller can see (their own or the shared owner's).</summary>
-    public Task<Result<MemoryDto>> GetMemoryAsync(string id, CancellationToken ct = default) =>
-        GetAsync<MemoryDto>($"/api/agent-memories/{Uri.EscapeDataString(id)}", ct);
+    /// <summary>One memory visible to the caller in the <paramref name="agentId"/> context (see <see cref="ListMemoriesAsync"/>).</summary>
+    public Task<Result<MemoryDto>> GetMemoryAsync(string id, string? agentId = null, CancellationToken ct = default)
+    {
+        var url = $"/api/agent-memories/{Uri.EscapeDataString(id)}";
+        return GetAsync<MemoryDto>(
+            string.IsNullOrEmpty(agentId) ? url : $"{url}?agentId={Uri.EscapeDataString(agentId)}",
+            ct);
+    }
 
     /// <summary>Forgets a memory: archives it, or deletes it when <paramref name="hard"/> is set.</summary>
     public async Task<Result> ForgetMemoryAsync(string id, bool hard = false, CancellationToken ct = default)

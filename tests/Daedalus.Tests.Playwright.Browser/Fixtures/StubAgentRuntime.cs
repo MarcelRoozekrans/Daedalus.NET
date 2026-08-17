@@ -89,15 +89,20 @@ internal sealed class StubAgentRuntime(IAgentSessionStore store, IAgentCatalog c
         {
             var callId = ToolCallId.New();
 
-            // Stands in for Thalos' MemoryContextProvider: this host has no embeddings, so "recall" is the caller's own
-            // memories plus the shared owner's, straight off the store.
+            // Stands in for Thalos' MemoryContextProvider: this host has no embeddings, so "recall" is everything the turn's
+            // scope allows, straight off the store — including MemoryScope.Includes, so memories pinned to another agent
+            // stay out of the recall exactly as they would in production.
+            var scope = new MemoryScope(request.Caller.Id, session.Value.AgentId, SharedOwnerId);
             var recall = await memories.ListAsync(
-                new MemoryQuery { OwnerIds = [request.Caller.Id, SharedOwnerId], PageSize = 5 },
+                new MemoryQuery { OwnerIds = [request.Caller.Id, SharedOwnerId], PageSize = 10 },
                 ct).ConfigureAwait(false);
-            if (recall.IsSuccess && recall.Value.Items.Count > 0)
+            if (recall.IsSuccess)
             {
-                var ids = recall.Value.Items.Select(m => m.Id).ToList();
-                yield return new MemoryRecalledEvent(sessionId, turnId, ids, recall.Value.Items.Sum(m => m.Text.Length));
+                var recalled = recall.Value.Items.Where(m => scope.Includes(m.OwnerId, m.AgentId)).ToList();
+                if (recalled.Count > 0)
+                {
+                    yield return new MemoryRecalledEvent(sessionId, turnId, recalled.Select(m => m.Id).ToList(), recalled.Sum(m => m.Text.Length));
+                }
             }
 
             yield return new TextDeltaEvent(sessionId, turnId, Deltas[0]);
