@@ -316,6 +316,47 @@ specifies. One extra analyzer fix not in the plan: **MA0185** ("simplify `string
 parameters are culture invariant") on `Fail<T>` — both holes are strings, so it became plain
 interpolation and `using System.Globalization;` was dropped. No forward `cref`s in this task.
 
+**Task 10 (done, `8e6d655`).** Baseline **562** (Skills 78; 10 new facts — the plan's block had 6, the
+executor added 4). **Three defects in the plan were found and fixed here, two of them cross-platform
+parity bugs that would have passed on Windows and failed or silently misbehaved in Linux CI.**
+
+1. **Case sensitivity.** The plan's `File.Exists(folder + "/SKILL.md")` and `EnumerateFiles(root,
+   "*.md")` are case-insensitive on Windows and case-sensitive on Linux, so a repo containing
+   `release/skill.md` or `NOTES.MD` would load on a developer's Windows machine and **silently vanish**
+   in Linux CI. The stricter behaviour is now applied on both: a file is kept only if
+   `Path.GetExtension(f) == ".md"` ordinally and, for folder skills, `Path.GetFileName(f) == "SKILL.md"`
+   ordinally. NTFS preserves authored case, so the ordinal check is exact on Windows too. Guarded and
+   probed.
+2. **Enumeration order is not platform-stable under the plan's fix.** The plan sorts full paths with
+   `StringComparer.Ordinal`, but `/` is U+002F and `\` is U+005C — they sit on **opposite sides of the
+   digits** (U+0030–U+0039). Verified: for a root holding `a/SKILL.md` and `a0b.md`, Linux orders
+   `a/SKILL.md, a0b.md` while Windows orders `a0b.md, a\SKILL.md`. Sorting is now by the
+   **root-relative, forward-slashed** key with `string.CompareOrdinal`, which is byte-identical
+   everywhere. Guarded and probed. **Task 11's sync depends on this ordering** (first root wins on a
+   duplicate name).
+3. **A file literally named `.md` crashed the loader.** `ExpectedName` returns `""` and `Parse`'s
+   `ArgumentException.ThrowIfNullOrWhiteSpace(expectedName)` throws straight out of `LoadAsync` — which
+   would take down the Task 11 sync, whose whole contract is that a bad file is skipped, never fatal.
+   A blank-name guard and a fact were added. **Task 11 may rely on `LoadAsync` never throwing.**
+
+`SourcePath` is root-relative and forward-slashed on both OSes (`release/SKILL.md`, `notes.md`), never
+an absolute `C:\...` path, and the error-message facts assert that form.
+
+**Rule 10's case semantics, now pinned by tests:** path-derived names are **case-normalised, not
+case-checked** — folder `Dotnet-Migrations` with `name: dotnet-migrations` is a success, because
+`ExpectedName` lower-cases and `SkillName.TryParse` lower-cases. A genuine disagreement (folder
+`release`, `name: releases`) is a hard load error, never a rename. A `SKILL.md` directly under a root is
+an error.
+
+Over-size files are rejected on `FileInfo.Length` **before any read**; `IOException`,
+`UnauthorizedAccessException` and `NotSupportedException` become failure values rather than throws.
+**Symlinks are covered by the same catch but deliberately untested** — creating one on Windows needs
+elevation or developer mode, so the test would have to be platform-conditional. Known gap, not an
+oversight.
+
+One pragma (`CA1308`, as the plan specifies). No `MA0051`: `Enumerate` stays short via a `Collect(root,
+found)` helper that takes the list as a parameter, which also sidesteps MA0016. No forward `cref`s.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
