@@ -192,6 +192,33 @@ with **no pragma at all**. Consequence for every later task and for Plan B: call
 were kept. No ZLinq ban exists in this repo — `ImplicitUsings` is on for tests and plain `System.Linq`
 is used freely.
 
+**Task 5 (done, `e11f597`).** Baseline **511** (Skills 28). The plan's assumption about the
+ZeroAlloc.Validation 1.5.6 generated API **held exactly**: `[Validate]` emits
+`SkillDocumentValidator : ValidatorFor<SkillDocument>` with `ValidationResult Validate(T)`, exposing
+`bool IsValid` and `ReadOnlySpan<ValidationFailure> Failures`, each failure carrying the plain C#
+`PropertyName`. No test expectations needed adjusting.
+
+Two confirmations worth keeping. **`NotEmpty` is generated as `string.IsNullOrEmpty`**, so it does *not*
+reject whitespace — the hand-written `IsNullOrWhiteSpace` fallbacks in `Validate` are what catch `"  "`
+and `"
+ 
+"`, exactly as the belt-and-braces design intended. And **`[Validate]` emits nothing at all
+for the `SkillName Name` property** (no error, no diagnostic — the generator only understands
+attribute-bearing properties), so the explicit `SkillName.IsValid(skill.Name.Value)` check is the sole
+guard against a `default` name. Do not delete either as "redundant".
+
+Two mechanical fixes, no pragmas:
+
+1. `SkillQuery`'s class summary used `<see cref="ISkillStore.ListAsync"/>`, but `ISkillStore` does not
+   exist until Task 7 — with `GenerateDocumentationFile` plus warnings-as-errors that is a **CS1574**
+   build break. Downgraded to `<c>ISkillStore.ListAsync</c>`. **Task 7 should restore it to a `cref`**
+   once the interface lands.
+2. The test's `.Select(i => "t" + i)` tripped **ZA0209** (int boxed in string concatenation) — the
+   ZeroAlloc analyzer, not Meziantou. Changed to `$"t{i}"`.
+
+`IList<string> Roots { get; set; }` did **not** trip CA2227 in this configuration, so no suppression was
+needed there.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
