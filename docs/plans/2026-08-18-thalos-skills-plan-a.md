@@ -123,7 +123,57 @@ Tool names: `skills__load`, `skills__search`. Tool source name: `skills`. Event 
 
 ### 0.8 Amendments (append here during execution, like phases 1.1 and 1.2)
 
-- (executor: record the Task 1 outcome — whether AwesomeAssertions 9.5.0 needed more than the namespace rename or had to be pinned back to 7.2.1 — the restored baseline test counts, whether ZeroAlloc.Inject accepted a `[Singleton]` type with no interface, whether the Telemetry proxy accepted `ISkillStore`, whether the configuration binder bound `IList<string> Roots`, and any package behaviour that differed.)
+**Task 1 (done, shipped as PR #25, squash-merged to `main` as `119375d`).** AwesomeAssertions 9.5.0
+needed **only** the namespace rename — no pin back to 7.2.1, no behavioural change. Five files: the
+three `Thalos.NET.Testing` contract-test sources (which live under `src/` and so carry explicit usings
+rather than inheriting the implicit ones from `tests/Directory.Build.props`), the `<Using Include>` in
+that props file, and the `<Using Remove>` in the McpServer exe. `LayeringTests` keeps banning both
+spellings deliberately. Baseline restored at **479 passed / 0 failed / 0 skipped**.
+
+The `pack-validate` SIGPIPE bug was real and is fixed: reproduced locally that with a listing above the
+64 KB pipe buffer, `echo "$listing" | grep -q needle` under `set -euo pipefail` returns **141** and
+reports NO-MATCH for a needle that is present, while the here-string form matches. All seven reads were
+converted. The `&& { failed=1; }` inversions were **left alone** — verified that a non-final failure in
+an AND-list does not trip `set -e`, so that half was never a bug. The plan's claim that this bug caused
+a specific past `xunit.runner` CI failure was **not** verified; treat the fix as pre-emptive.
+
+Because #25 was **squash-merged**, `feature/skills` had to be rebased with
+`git rebase --onto origin/main d27d403` to drop the pre-squash commits, not a plain rebase.
+
+**Task 2 (done, `c5f503e`).** No `Directory.Packages.props` additions were needed — all fourteen package
+ids already had versions from sibling projects. **ZeroAlloc.Inject stayed silent** on the type-less
+assembly, so no temporary `AssemblyMarker` was added and Task 15 has nothing to remove. `dotnet sln`
+handled `.slnx` correctly (folders, forward slashes, alphabetical order, CRLF all preserved). Baseline
+**480**. The empty assembly still emits its `.xml` doc file for both TFMs, so pack-validate's
+`lib/$tfm/$id.xml` assertion will hold.
+
+**Task 3 (done, `cb3a9d4`).** Baseline **484**. Two deviations, both mechanical:
+
+1. **`MA0051` (method too long) fired**: the new `KindOf` branch pushed the method to 62 lines against
+   the 60-line cap, and warnings are errors. Kept the flat if-chain and wrapped `KindOf` in a scoped
+   `#pragma warning disable MA0051` with a justification, matching the repo's existing convention
+   (`MemoryKind.cs:48`, `MemoryRules.cs:85`, `AgentSessionMachine.cs:5`). The rule was **not** relaxed
+   globally.
+2. **The plan's own commit header was 102 chars**, over commitlint's `header-max-length` of 100, so CI
+   would have rejected it. Shortened to `feat(abstractions): skill error codes,
+   SkillCatalogueFailedEvent, AgentDefinition.Skills` (88 chars). Verified: `commitlint --from
+   origin/main --to HEAD` → exit 0.
+
+Two things Task 3 checked and found **absent**, so nothing was added: there is no `[JsonDerivedType]`
+list or `JsonSerializable` context in Abstractions enumerating `AgentEvent` subclasses, and there is no
+exhaustive `AgentErrorCode` switch or code-to-HTTP mapper in this repo (the HTTP numbers in the XML docs
+are documentation only; the mapper is Daedalus-side, and Plan B Task 3 covers it).
+
+**Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
+duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
+`AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
+memory event is in it, and the skill event was deliberately not added to it either. Drift is currently
+caught only because each event family has a bespoke `*_stable_kind(s)` test pinning both sides to the
+same constant (`MemoryAbstractionsTests` for memory, `SkillAbstractionsTests` for skills). That is real
+coverage, but it relies on whoever adds the next event remembering to write one. Task 22 should add a
+reflective rule instead: enumerate every concrete `AgentEvent` subclass in the loaded assemblies and
+assert each has a `KindOf` mapping equal to its instance `Kind`. That also settles whether `KindOf`
+should stay a flat if-chain that re-trips MA0051 on every new event, or become a lookup table.
 
 ---
 
