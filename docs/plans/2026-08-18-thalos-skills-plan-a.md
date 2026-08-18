@@ -552,6 +552,43 @@ A cref subtlety worth keeping: `<see cref="Thalos.Agents.AgentDefinition.Skills"
 inside `Thalos.Skills` — the compiler will not resolve the member through the qualified path; a
 `using Thalos.Agents;` plus the short form is required.
 
+**Task 16 (done, `a525513`, plus fix `4072991`).** Baseline **651** (Skills 167). No pragmas, no forward
+`cref`s.
+
+**`Thalos.Tools.Glob`'s real semantics**, confirmed by reading it rather than assuming: `IsMatch` is
+**ordinal and case-sensitive** (`"Release"` does not match `release`); `*` matches any run including
+empty and there is **no separator concept**, so it crosses `-` and `_` freely; `?` matches **exactly
+one** character, never zero; no character classes; null throws. **There is no list overload at all**, so
+the empty-list decision is never delegated to it — `SkillCatalogue.IsAllowed` returns `false` on an empty
+list, which is what the opt-in design requires. Note the two empty-list guards (`IsAllowed`'s loop and
+`Render`'s `globs.Count == 0`) are **redundant**; the load-bearing one is `IsAllowed`, and breaking
+`Render`'s alone is an inconclusive probe.
+
+**A forged cache-key collision was found, confirmed empirically, and fixed (`4072991`).** The key was
+`string.Join('\u001F', globs)` with a code comment asserting that a unit separator "cannot occur in a
+glob" — an assumption **nothing enforces**, since `AgentDefinition.Skills` is an unvalidated
+`IReadOnlyList<string>`. Rendering the single glob `"release\u001Fdotnet-testing"` returned the block built
+for the *set* `["release", "dotnet-testing"]`: **one agent served another agent's catalogue**. An empty
+glob beside a real one (`["", "release"]` vs `["\u001Frelease"]`) forges the same collision with no control
+character at all. The reverse order is worse — if the forged set renders first it caches `null` and the
+legitimate agent **silently loses its entire catalogue**. The key now prefixes the glob count and each
+glob's length, which is injective whatever the globs contain; proven to bite by restoring the joined key.
+
+Glob **order** produces a separate cache entry but never a different block (entries sort by skill name,
+never by glob) — one duplicate render, no correctness issue. Cache invalidation on sync is proven by a
+fact that edits a `SKILL.md` on disk and re-syncs; deleting `_rendered.Clear()` reddens it. The
+security-shaped probe (keying on `globs.Count`) fails with one agent's skills in another's catalogue.
+
+`RenderCore`'s empty-match branch, unreachable in Task 15, is now live and covered — a glob set matching
+nothing renders **nothing at all**, not an empty `<skills></skills>` block.
+
+Deviation: the plan's `new string[0]` in `[InlineData]` is a **ZA0109** build break and cannot be
+`Array.Empty<string>()` inside an attribute, so the no-match cases became their own six-case theory.
+
+**For Task 20:** `SkillSyncService`'s constructor is now
+`(ISkillStore, ISkillIndex, SkillCatalogue, IOptions<SkillOptions>, TimeProvider, ILogger?)`, with
+`SkillCatalogue` resolved by **concrete type**; `RefreshIndexAsync` was renamed `PublishAsync`.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
