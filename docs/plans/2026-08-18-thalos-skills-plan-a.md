@@ -392,6 +392,40 @@ to fail host start); the only difference is that `SkillSyncService` is `public` 
 **SYSLIB1015** fired as the plan warned and was fixed with the plan's own remedy (event 562's message
 now references `{Root}`).
 
+**Task 12 (done, `fc1f72e`).** Baseline **578** (Skills 94; 9 facts, one more than the plan's 8). No
+pragmas, no MA0051 friction, no forward `cref`s.
+
+**One real implementation gap the tests caught.** `ScanAsync` logged **root-relative** paths for the
+duplicate-name event (565). Two copies of the same skill in two roots almost always share a relative
+path, so the message named `release/SKILL.md` twice and told the operator nothing about which file lost.
+`byName` and `LogDuplicateName` now carry the full enumerated path.
+
+**Both headline guarantees are proven through a real `IHost`, not just `SyncAsync`.** A malformed file:
+`host.StartAsync` completes and the store contains exactly the good skill (the plan only checked report
+counters and log ids). A store failure: `host.StartAsync` **throws**, with the stack trace confirming it
+propagates through `Microsoft.Extensions.Hosting.Internal.Host.StartAsync` (the plan only asserted a
+failed `Result`). A new fact, `The_host_syncs_before_any_other_hosted_service_starts`, registers a second
+hosted service *before* the sync and has it read the store in `StartAsync`, proving the **lifecycle
+ordering** rather than merely that a sync happened.
+
+**Eleven probes, each broken, observed red and reverted byte-for-byte** — including a direct regression
+proof of Task 11's fix: restoring the plan's `scan.Readable == 0 && roots.Count == 0` form retired the
+planted skill (`Deactivated = 1`). Two probes are worth remembering: dropping `IHostedLifecycleService`
+does **not** compile on its own (CA1822 fires on the three now-static-able no-ops), so the analyzer
+already guards that; and the malformed-file guarantee needed two separate probes, one for the skip and
+one for the host-start half.
+
+**The duplicate-name fact is deliberately not passable for the wrong reason.** Roots are `zulu`
+(configured first) and `alpha` (second), so the winner is simultaneously the alphabetically-*last* and
+the first-written root — distinguishing "first configured root wins" from both "alphabetically first"
+and "last write wins". Contents differ so the landed copy is identifiable, `Upserts` is asserted to be
+exactly `["release"]` (the loser is never written), and the 565 message must name both full paths.
+
+One extra file was touched by design: `RecordingSkillStore` (Task 11's decorator) gained
+`OnUpsert`/`OnList`/`OnDeactivate` hooks rather than adding the plan's second `HookedSkillStore`. It
+records upsert *attempts* rather than successes, which is stronger than the plan's version;
+consequently `DeactivateCalls.Should().Be(1)` became `ContainSingle()`.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
