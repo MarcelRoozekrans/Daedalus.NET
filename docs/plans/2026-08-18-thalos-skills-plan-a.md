@@ -515,8 +515,8 @@ close tag. Non-tags are untouched (`<skillset>`, `</ski>`, `a < b and c > d`).
 
 **Flags are identical to `MemoryRecallBlock`** — `IgnoreCase | CultureInvariant`, 1000 ms timeout, same
 `"&lt;" + m.ValueSpan[1..]` replacement — so **no case-sensitivity asymmetry to report**. One deliberate
-difference: skills appends `` so `skills?` cannot swallow `<skillset>`. (Memory's `<\s*/?\s*memories`
-has no `` and therefore over-escapes `<memoriesX`; harmless, noted in passing, not changed here.)
+difference: skills appends `\b` so `skills?` cannot swallow `<skillset>`. (Memory's `<\s*/?\s*memories`
+has no `\b` and therefore over-escapes `<memoriesX`; harmless, noted in passing, not changed here.)
 
 **`MaxChars` boundary, now pinned exactly.** At the limit → whole block, no overflow line. One under →
 last entry dropped, `… and 1 more (use skills__search)` appended, result still ≤ budget — and this is
@@ -837,13 +837,13 @@ root A is healthy → `Deactivated == 0`". **This is the fifth "passes for the w
 plan and the first that was actively guarding a defect.**
 
 **B2 — untrusted memory text could forge a `<skills>` block.** Memory's sanitiser was
-`<\s*/?\s*memories` and Skills' was `<\s*/?\s*skills?`; **neither neutralised the other's tag**.
+`<\s*/?\s*memories` and Skills' was `<\s*/?\s*skills?\b`; **neither neutralised the other's tag**.
 Memory text is extracted from user conversation, and Task 21 pins that both blocks land in the same
 `ChatOptions.Instructions` — so a stored memory containing a fake `<skills>` entry was re-injected beside
 the real catalogue on every later turn, inverting the trust story (skills are trusted *because* they come
-from git). Both patterns are now `<\s*/?\s*(?:memories|skills?)`, with cross-package cases in both
+from git). Both patterns are now `<\s*/?\s*(?:memories|skills?)\b`, with cross-package cases in both
 evasion matrices. **This defect only came into existence in 1.3**, when the `<skills>` string acquired
-meaning; it was harmless in 0.2.0. Adding `` broke **no** existing memory test and incidentally fixed
+meaning; it was harmless in 0.2.0. Adding `\b` broke **no** existing memory test and incidentally fixed
 memory's long-standing over-escaping of `<memoriesX`. `MA0023` forced a non-capturing group, not a pragma.
 
 **B3 — `skills__load` echoed the model's raw name unsanitised.** Every other model-facing path was
