@@ -137,7 +137,7 @@ package rather than against a sibling plan — but it should now be a confirmati
 
 | # | §0.5 assumed | Plan A actually specifies | Affects |
 |---|---|---|---|
-| 1 | `new SkillName("x")` | **The constructor is private.** `SkillName` is a hand-written `readonly record struct` (not `[TypedId]`, which mints Guid-backed ULIDs); construct with `SkillName.Parse(s)` or `SkillName.TryParse(s, out var n)`, both of which **trim and lower-case**. `Value` is `""` for `default`. | Task 4 aggregate, Task 6 store |
+| 1 | `new SkillName("x")` | **The constructor is private.** `SkillName` is a hand-written `readonly record struct` (not `[TypedId]`, which mints Guid-backed ULIDs); construct with `SkillName.Parse(s)` or `SkillName.TryParse(s, out var n)`, both of which **trim and lower-case**. Note `Parse` takes **one argument** — the `IFormatProvider` overload is an explicit `IParsable` implementation, so `Parse(s, provider)` will not compile from Daedalus (confirmed in Plan A Task 4). `Value` is `""` for `default`. | Task 4 aggregate, Task 6 store |
 | 2 | `CatalogueOptions Catalogue` | Named **`SkillCatalogueOptions`** (`MaxChars = 2000`) | Task 8 options |
 | 3 | `SkillOptions { Enabled, Roots, Catalogue, Search }` | Also carries `SectionName = "Thalos:Skills"`, **`ExposeTools`** and **`SyncOnStartup`** | Task 8, Task 9 |
 | 4 | `AgentError.SkillNotFound(SkillName)` | Takes a **`string`** — `SkillName` lives in `Thalos.Skills` and Abstractions does not reference it | Task 3, Task 6 |

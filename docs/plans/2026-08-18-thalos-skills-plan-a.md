@@ -164,6 +164,34 @@ list or `JsonSerializable` context in Abstractions enumerating `AgentEvent` subc
 exhaustive `AgentErrorCode` switch or code-to-HTTP mapper in this repo (the HTTP numbers in the XML docs
 are documentation only; the mapper is Daedalus-side, and Plan B Task 3 covers it).
 
+**Task 4 (done, `ad822fd`).** Baseline **502** (Skills project 19 = 1 smoke + 18; the plan predicted 20
+— the real count was not massaged to match). The Step 2 failure was `CS0234` ("namespace 'Skills' does
+not exist in 'Thalos'"), not the predicted `CS0246`, because the package had no types at all yet so the
+`using` failed before the type reference did.
+
+**Approved API deviation: `SkillName.Parse` takes one argument.** The plan's
+`Parse(string s, IFormatProvider? provider = null)` tripped **MA0061** (an interface implementation may
+not add a default value) and, worse, **CA1305 at every call site** — because a public overload taking an
+`IFormatProvider` makes every single-argument call "culture-dependent" in the analyzer's eyes. Pragmas
+would have had to be repeated in every downstream task. Instead:
+
+```csharp
+public static SkillName Parse(string s) => …
+static SkillName IParsable<SkillName>.Parse(string s, IFormatProvider? provider) => Parse(s);
+```
+
+The explicit interface implementation keeps `IParsable<SkillName>` conformance (so generic-math and
+parse-by-constraint still work) while the public surface is `Parse(string)`. Both diagnostics disappear
+with **no pragma at all**. Consequence for every later task and for Plan B: call `SkillName.Parse(s)` or
+`SkillName.TryParse(s, out var n)`; `Parse(s, provider)` is reachable only through an
+`IParsable<SkillName>` constraint, which is fine — a skill name is culture-invariant ASCII.
+`TryParse(string?, IFormatProvider?, out SkillName)` stays public and symmetric with the interface.
+
+`MA0159` also required `.OrderBy(n => n)` → `.Order()` in the test, which is strictly stronger (same
+`IComparable<SkillName>` path via the default comparer). Only the two `CA1308` pragmas from the plan
+were kept. No ZLinq ban exists in this repo — `ImplicitUsings` is on for tests and plain `System.Linq`
+is used freely.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
