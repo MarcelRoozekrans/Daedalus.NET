@@ -468,6 +468,42 @@ if/else branches), RCS1215 (expression always true), MA0160 (use `ContainsKey` n
 was re-probed in a form the analyzers accept. Worth knowing that the analyzer set itself blocks several
 classes of silent regression.
 
+**Task 14 (done, `1127cf0`).** Baseline **596** (Skills 112). No pragmas, no forward `cref`s.
+
+**The index is deliberately NOT hash-skipped, and that is correct.** `RefreshIndexAsync` re-embeds the
+store's whole active set on every sync. The store survives the process; the **in-process index does
+not** — so a restart over an unmodified repo would otherwise leave `skills__search` with an empty index
+while every file "unchanged". (The controller asked for a "zero index upserts on unchanged" proof here;
+that would have pinned a bug. Recording it so nobody re-introduces the idea.) What is proven instead:
+after a first sync, a second sync reports `Unchanged = 1`, **`store.Upserts` stays `["release"]`** — the
+store hash-skip is asserted, not inferred — while `index.UpsertBatches` is exactly **one** batch of
+`["release"]`: one embedding call per sync, not one per skill, and not zero.
+
+**The plan's contract had no wordless-query fact at all**, so nothing in it forced a zero-magnitude
+guard — exactly the hole Task 13 predicted. Added
+`A_wordless_query_scores_zero_rather_than_NaN_and_ties_break_by_name`: `"!!! ???"` at `MinScore = 0`,
+every hit exactly `Score == 0d`, names back in `alpha, mid, zeta` order with skills inserted
+reverse-alphabetically so it also pins the **tie-break by name** that the plan's remarks claimed but no
+fact tested. Probing the missing zero guard reproduced the NaN masquerade precisely: `to be equal to
+{"alpha","mid","zeta"} … but found empty collection`.
+
+An index failure is **non-fatal to host start**, matching "skills never depend on Ollama being up" —
+proven through a real `IHost` with a permanently-failing index, additionally asserting `Upserted = 1`
+so the store is written anyway. Deactivated skills lose their vector. A typo'd root leaves the index
+completely alone — the index analogue of Task 12's "a path typo must never retire the library".
+
+**`SkillSyncService`'s constructor changed** to `(ISkillStore, ISkillIndex, IOptions<SkillOptions>,
+TimeProvider, ILogger?)`; 3 test construction sites updated. **Task 20 must now also resolve
+`ISkillIndex`, defaulting to `UnavailableSkillIndex.Instance` when no
+`IEmbeddingGenerator<string, Embedding<float>>` is registered.**
+
+`ISkillIndex.cs`'s `<c>Thalos.Testing.SkillIndexContractTests</c>` placeholder is **not** restorable —
+Testing references Skills, not the reverse — and matches the house convention used by `IMemoryIndex`,
+`IMemoryStore` and `ISkillStore`. Deviation: `Dimensions` is `protected virtual` with a parameterless
+`CreateIndexAsync()` helper, mirroring `MemoryIndexContractTests`; the plan's `protected static` could
+not be overridden despite its own doc promising overridability. Four `InMemorySkillIndexTests` facts were
+removed as the contract now states them verbatim and more strongly.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
