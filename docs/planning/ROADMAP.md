@@ -28,7 +28,7 @@ GitHub milestone: [Milestone 1](https://github.com/MarcelRoozekrans/daedalus/mil
 |---|---|---|---|---|---|
 | 1.1 | Thalos.NET core + AI.Sentinel + Daedalus HTTP/Blazor channel | complete (2026-08-17; Thalos.NET 0.1.1 on nuget.org, #227) | — | #227 | design: `docs/plans/2026-08-16-thalos-agent-core-design.md` · plan A (Thalos.NET repo): `docs/plans/2026-08-16-thalos-net-plan-a.md` · plan B (Daedalus): `docs/plans/2026-08-16-thalos-net-plan-b.md` · regression: `docs/regression-report-2026-08-16.md` |
 | 1.2 | Memory: `Thalos.NET.Memory` port + Rag.NET adapter (pgvector), replaces hand-rolled learnings slice | complete (2026-08-17; Thalos.NET 0.2.0 on nuget.org, #228) | 1.1 | #228 | design: `docs/plans/2026-08-17-thalos-memory-design.md` · plan A (Thalos.NET repo): `docs/plans/2026-08-17-thalos-memory-plan-a.md` · plan B (Daedalus): `docs/plans/2026-08-17-thalos-memory-plan-b.md` |
-| 1.3 | Skills: reusable procedures the agent loads/refines (Rag-backed) | pending | 1.2 | #229 | — |
+| 1.3 | Skills: agent-scoped procedure documents (files → DB, catalogue + load/search tools) | active (design 2026-08-18) | 1.2 | #229 | design: `docs/plans/2026-08-18-thalos-skills-design.md` |
 | 1.4 | Channels: Telegram (+ CLI) via `IChannelAdapter` + `ZeroAlloc.Outbox` | pending | 1.1 | #230 | — |
 | 1.5 | Subagents & scheduling: `ZeroAlloc.Saga` orchestration, `ZeroAlloc.Scheduling` autonomous runs | pending | 1.1 | #231 | — |
 | 1.6 | Ralph retirement + Daedalus ZeroAlloc migration (CSFE→Results, FluentValidation→Validation, CQRS→Mediator) | pending | 1.2–1.5 | #232 | — |
