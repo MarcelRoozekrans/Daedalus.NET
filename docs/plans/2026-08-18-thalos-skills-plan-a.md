@@ -781,6 +781,41 @@ csproj, so the package graph needs asserting separately), and the exactly-one-cl
 drift apart. A `using Type = System.Type;` alias was needed because `ArchUnitNET.Loader` exports its own
 `Type` (CS0104) — the same technique the file already used for `Assembly`.
 
+**Task 23 (done, `3068989`).** Baseline unchanged at **726** (a docs task). Seven files: `README.md`
+(ninth package row, Skills section, quick start, local pins, "nine packages", status 0.3.0),
+`docs/README.md` (index links to the 1.3 design and plan), `docs/release.md` (0.3.0 paragraph), and four
+sample files.
+
+**Two real defects found, one of which would have made the sample prove nothing.**
+
+1. **The sample never started the host.** `Program.cs` called `builder.Build()` and went straight to the
+   runtime, so `SkillSyncService.StartingAsync` — an `IHostedLifecycleService` — would never have run and
+   the catalogue would have been permanently empty. The sample would have shipped demonstrating the
+   feature while silently not exercising it. `await host.StartAsync()` / `StopAsync()` added on both exit
+   paths.
+2. **The plan's `<None Include="skills\**">` does not build.** The SDK's default `None` glob already owns
+   those files, so a second `Include` is `NETSDK1022`. Changed to `Update`, matching the file's existing
+   `.mcp.json` / `appsettings.json` pattern.
+
+**The documented `<skills>` block and the sample `SKILL.md` were verified by execution, not by eye**: a
+throwaway xunit fact enumerated the sample's real `skills/` folder, parsed it with `SkillFileLoader` and
+rendered it with `SkillCatalogue`, confirming the name, source path, tags and every line of the block
+exactly as written in the docs. The fact was then deleted.
+
+The sample runs and demonstrates the degradation honestly — with no API key it still reaches the prompt
+and logs `No IEmbeddingGenerator... skills__search is unavailable` followed by
+`Skill sync: 1 scanned, 1 upserted, …`. The sample README shows that output verbatim rather than hiding
+it.
+
+Limits documented rather than glossed: no hot-reload (an edit needs a restart, stated twice), no
+agent-authored skills, no versioning beyond the content hash, no analytics, no UI, no per-skill
+authorization. Plus the security paragraph: skill bodies are **not** scanned by
+`IUntrustedContentScanner`, the `</skill` neutralisation defends only the prompt's structure, and whoever
+can merge a `SKILL.md` can steer the agent.
+
+`scripts/pack-local.ps1` was deliberately **not** run — it writes nine `0.3.0-local.*` packages into the
+shared feed that nothing currently pins, and Plan B will want a pack made against the final 0.3.0 tree.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
