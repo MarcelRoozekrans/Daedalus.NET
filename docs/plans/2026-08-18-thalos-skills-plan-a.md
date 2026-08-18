@@ -504,6 +504,54 @@ Testing references Skills, not the reverse — and matches the house convention 
 not be overridden despite its own doc promising overridability. Four `InMemorySkillIndexTests` facts were
 removed as the contract now states them verbatim and more strongly.
 
+**Task 15 (done, `c370f2f`).** Baseline **630** (Skills 146; `SkillCatalogueTests` alone is 34 = 13 facts
++ 21 theory cases, against the plan's predicted 13 total). No pragmas, no MA0051 friction.
+
+**The `</skill` neutralisation was tested adversarially and holds.** Fourteen evasion spellings all
+escape: exact `</skill>`, the bare prefix, `</SKILL>` / `</Skill>` / `</sKiLl>`, `</skill >`, `< /skill>`,
+`</ skill>`, `< / skill >`, a tab inside, a **newline** inside (`\s*` spans it), `</skills>`, a forged
+opening `<skill>`, and repeats in one body. A body that is *only* the close tag yields exactly one live
+close tag. Non-tags are untouched (`<skillset>`, `</ski>`, `a < b and c > d`).
+
+**Flags are identical to `MemoryRecallBlock`** — `IgnoreCase | CultureInvariant`, 1000 ms timeout, same
+`"&lt;" + m.ValueSpan[1..]` replacement — so **no case-sensitivity asymmetry to report**. One deliberate
+difference: skills appends `` so `skills?` cannot swallow `<skillset>`. (Memory's `<\s*/?\s*memories`
+has no `` and therefore over-escapes `<memoriesX`; harmless, noted in passing, not changed here.)
+
+**`MaxChars` boundary, now pinned exactly.** At the limit → whole block, no overflow line. One under →
+last entry dropped, `… and 1 more (use skills__search)` appended, result still ≤ budget — and this is
+exact rather than lucky, because accepting entry *i* reserves `Overflow(count-i-1).Length + 1`, which is
+precisely the count printed if the scan stops there, so the digit-width of the count can never push the
+block over. Never cuts mid-entry (swept every budget 60→400 over 8 skills). **A single entry larger than
+the whole budget emits no entry at all**: the block becomes open tag + overflow line + close tag and
+**deliberately overruns the budget** rather than printing a wrong count — an all-overflow block is the
+documented floor, with an explicit `Length > 40` assertion so the overrun is stated, not accidental.
+The count is the number **omitted**, pinned twice.
+
+**A description containing a newline is possible and is handled.** Nothing rejects `
+` in
+`SkillDocument.Description` (only `[NotEmpty]`/`[MaxLength(300)]` plus a whitespace check). It cannot
+arrive from a file — frontmatter scalars are single-line — but a directly-constructed document can carry
+one, so `SanitizeLine` flattens with `ReplaceLineEndings(" ")`. Pinned for `
+`, `
+` and a lone ``.
+
+**`[Singleton]` needed `As = typeof(SkillCatalogue)`.** The plan's bare attribute is a build break:
+`ZAI007: Class 'SkillCatalogue' implements no interfaces and will only be registered as its concrete
+type`. Concrete registration is what is wanted, so the explicit `As` states it without a suppression.
+**Task 20 must resolve `SkillCatalogue` by its concrete type.**
+
+**Scope note:** Task 15's file as written in the plan already contains Task 16's glob filtering and
+per-glob-set cache (`Matching`, `IsAllowed`, `CacheKey`, the `ConcurrentDictionary`). It was implemented
+as specified; **Task 16 supplies the tests plus the `SkillSyncService` wiring**, not the code. Related:
+`RenderCore`'s empty-match branch is **unreachable from Task 15's tests** (Render short-circuits on an
+empty snapshot first) and only becomes live in Task 16 when a glob set matches nothing — a probe there
+was inconclusive until both guards were broken together.
+
+A cref subtlety worth keeping: `<see cref="Thalos.Agents.AgentDefinition.Skills"/>` is **CS1574** from
+inside `Thalos.Skills` — the compiler will not resolve the member through the qualified path; a
+`using Thalos.Agents;` plus the short form is required.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
