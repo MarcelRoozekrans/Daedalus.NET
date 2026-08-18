@@ -426,6 +426,48 @@ One extra file was touched by design: `RecordingSkillStore` (Task 11's decorator
 records upsert *attempts* rather than successes, which is stronger than the plan's version;
 consequently `DeactivateCalls.Should().Be(1)` became `ContainSingle()`.
 
+**Task 13 (done, `3a099b0`).** Baseline **589** (Skills 105; **11** new facts vs the plan's 5). No
+pragmas, no forward `cref`s — `<see cref="SkillSyncService"/>` in `ISkillIndex` was checked and kept,
+since Task 11 landed that type.
+
+**Two more tests that passed for the wrong reason — and this pair is instructive, because "assert it
+comes back empty" is the trap both times.**
+
+1. **The blank-query guard.** `SearchAsync("   ", new SkillSearchOptions())` passes *even with the guard
+   deleted*: whitespace embeds as a zero vector, cosine is 0, and the default `MinScore` of 0.3 filters
+   it out. Proven by probe. Fixed by adding a second call at `MinScore = 0`, which only holds if the
+   blank query short-circuits **before** the index is scanned.
+2. **The NaN guard.** Asserting that a wordless query returns *empty* is exactly what a `NaN` score also
+   produces, since `NaN >= x` is always false — so the zero-magnitude guard could be deleted and the
+   test would still pass. Rewritten to demand the hit **back** at `MinScore = 0` with `Score` exactly
+   `0d`.
+
+**Direct instruction for Task 14's `SkillIndexContractTests`:** the same trap applies to any contract
+fact phrased as "returns empty". Assert blank-query emptiness at **`MinScore = 0`**, and require a
+wordless query to come back at exactly `Score = 0`. Otherwise the contract will pass against an
+implementation that has **no zero-magnitude guard at all** — and that implementation will emit `NaN`
+scores against a real embedding generator.
+
+Cosine edge cases (zero magnitude, mismatched length, empty vectors, empty index, empty batch) had **no
+tests in the plan** — only the guard in code. Added, and each probed: removing the zero guard yields
+`Cosine([0,0],[1,0]) … found NaN`; removing the length guard yields `IndexOutOfRangeException`.
+
+`UnavailableSkillIndex`'s two halves are each pinned by an independent probe: upsert returning failure
+breaks "a host with no embedding generator still starts"; search returning `Success([])` breaks
+`IsFailure`. The fact also asserts the error *code and message*, so empty-success cannot masquerade as
+"no matching skills".
+
+**No flaky score assertions.** The only exact comparisons are `Be(0d)` (exact by construction) and
+`BeApproximately(1d, 1e-9)`; ranking is asserted only across a wide gap (0.7746 vs 0.2722, pinned as
+`> hits[1].Score * 1.5` and commented as deliberately not a near-tie). Test-generator dimensions were
+raised to **512** per the plan's remedy; **`MinScore` was never lowered to make a test pass**. Hashing is
+fixed FNV-1a with no RNG, so scores are deterministic.
+
+**Three probes the analyzers refused outright**, same shape as Task 12's CA1822 note — MA0140 (identical
+if/else branches), RCS1215 (expression always true), MA0160 (use `ContainsKey` not `TryGetValue`). Each
+was re-probed in a form the analyzers accept. Worth knowing that the analyzer set itself blocks several
+classes of silent regression.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
