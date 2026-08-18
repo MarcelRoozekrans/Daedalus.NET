@@ -279,6 +279,43 @@ treats punctuation as variable-weight and returns a different order. Proven to b
 constraint on Plan B**: `PostgresSkillStore` must order with a binary/`C` collation or sort client-side,
 or it will fail the contract.
 
+**Task 9 (done, `3e56b24`).** Baseline **552** (Skills 68; 25 new = 6 facts + 19 theory cases — the plan
+predicted 7 facts, the file has 6). Step 2 failed with `CS0103`, not the predicted `CS0246`, because the
+test's only reference is `SkillFileLoader.Parse(...)` in an expression body rather than a type position.
+
+**A real conflict inside §0.6, found and resolved.** Rules 5 and 8 both match `tags:
+  - dotnet`: rule 5
+says any leading space or tab is an indentation error, rule 8 says a block sequence must report "tags
+must be a flow sequence". The plan's `ParseEntries` hits the indentation guard first — which contradicts
+rule 8 **and fails the plan's own theory case** expecting `"flow sequence"`. Resolved in favour of rule
+8, the more specific rule and the one whose message tells the author what to write instead:
+`ParseEntries` now tracks the last accepted key and reports the flow-sequence message when an indented
+line's first non-space character is `-` **directly under `tags:`**, and the generic indentation message
+otherwise. Verified in the source at `SkillFileLoader.cs:116-121`.
+
+**MA0051 was avoided by extraction rather than a pragma**, per the preference for parsers: the ~84-line
+`ParseEntries` was split so the loop keeps line-shape concerns and a new
+`Apply(sourcePath, key, value, entries)` holds per-key semantics, with `Entries` threaded functionally
+(`entries with { … }`) instead of three mutable locals. Both methods are well under 60 lines, no error
+message was shortened, and there is no `MA0051` suppression anywhere.
+
+**The CRLF/LF hash fact was nearly vacuous and is now non-vacuous by construction.** The plan's
+`The_hash_ignores_line_endings_but_not_content` compared `Parse(Valid)` with
+`Parse(Valid.ReplaceLineEndings("
+"))` — if the raw string literal `Valid` were itself CRLF, both
+sides would be CRLF and the fact would prove nothing. Today `.gitattributes` (`* text=auto eol=lf`)
+makes it genuinely LF, but that is a property of the checkout, not of the test. The literal is now
+`ValidSource` with `Valid = ValidSource.ReplaceLineEndings("
+")`, so the LF side is LF by
+construction, and an assertion was added proving the **body** is LF-normalised too, not just the hash.
+This matters because a hash that varied by checkout would make the startup sync re-upsert and re-embed
+every skill on every boot.
+
+Pragmas: one, `CA1308` around `Convert.ToHexString(bytes).ToLowerInvariant()` in `Hash`, as the plan
+specifies. One extra analyzer fix not in the plan: **MA0185** ("simplify `string.Create` when all
+parameters are culture invariant") on `Fail<T>` — both holes are strings, so it became plain
+interpolation and `using System.Globalization;` was dropped. No forward `cref`s in this task.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
