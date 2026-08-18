@@ -148,6 +148,14 @@ Delta 6 does not change Task 9's approach: §0.6 deviation 4 resolves roots to a
 `ContentRootPath` before they reach `SkillOptions`, which the `Action<SkillOptions>` overload supports and
 the `IConfiguration` one does not. Keep the delegate overload.
 
+**Additional constraint discovered while executing Plan A Task 8.** `SkillStoreContractTests` gained
+`List_orders_ordinally_not_by_culture_collation`, which lists skills named `a-b`, `a0b`, `a_b` and `aab`
+and requires exactly that order. Ordinal ranks them by code point (`-` U+002D < `0` U+0030 < `_` U+005F
+< `a` U+0061); a typical Postgres collation such as `en_US.UTF-8` treats punctuation as variable-weight
+and returns a different order. **`PostgresSkillStore.ListAsync` must therefore order with a binary
+collation** — `ORDER BY name COLLATE "C"` — **or sort client-side after materialising.** Task 6 will
+fail the contract otherwise, and the failure will look like an unrelated ordering bug.
+
 Delta 1 is the one with teeth. `SkillName.Parse` lower-cases, so a `Skill` aggregate that stores the raw
 string and a `SkillDocument` that round-trips through `SkillName` can disagree on case. Mirror the
 library: normalise through `SkillName.TryParse` in `Skill.Create` and fail with `SkillValidationFailed`

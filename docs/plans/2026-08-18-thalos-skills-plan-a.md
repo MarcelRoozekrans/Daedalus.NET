@@ -244,6 +244,41 @@ were downgraded to `<c>`. `SkillQuery.cs`'s `<see cref="ISkillStore.ListAsync"/>
 that the interface exists. **This is a recurring defect in the plan's XML docs — check every `cref`
 against what exists at that point in the sequence before building.** No pragmas were needed.
 
+**Task 8 (done, `36e18ad` + `65a9b35`).** Baseline **527** (Skills 43). `Microsoft.Extensions.TimeProvider.Testing`
+was already a `Thalos.NET.Testing` dependency and the project reference to Skills was already there, so
+**no project file changed** and the shipped package's dependency set is unaltered.
+
+`InMemorySkillStore` needed no fix — it already satisfied the contract — so the "prove it bites" step
+was mandatory and was carried out: breaking `if (skill.IsActive && !keep.Contains(name))` produced
+`Expected drop.UpdatedAt to be within 1ms from <12:03:00> … but <12:06:00> was off by 3m`. Both probe
+breaks were reverted byte-for-byte.
+
+`Get_unknown_returns_SkillNotFound` collided with the inherited contract fact. The derived copy was
+renamed to `Get_unknown_names_the_skill_in_the_error_message` and reduced to the one assertion the
+contract deliberately does *not* make (error message content is implementation detail).
+
+Analyzer friction, no pragmas: **ZA0209** twice (fixed with explicit
+`i.ToString(CultureInfo.InvariantCulture)` rather than interpolation, to avoid trading it for
+CA1305/MA0011), **MA0006** on two `Single` lambdas (`s.Name.Value == "drop"` → `s.Name ==
+SkillName.Parse("drop")`; the `ContainSingle` expression-tree overloads did not trip it), and **MA0004**
+`ConfigureAwait` on the nested await in the concurrency fact.
+
+The `Boundary_lengths_roundtrip` surrogate arithmetic was verified rather than assumed: `"step 🚀
+"` is
+8 UTF-16 units, 8 × 8192 = 65 536 = `MaxBodyChars`, so the slice is a no-op and no lone surrogate is
+produced.
+
+**Defect found in the contract itself and fixed (`65a9b35`).** The executor noticed that the ordering
+fact is *weaker than it looks*: `alpha`/`mid`/`zeta` sort identically under ordinal comparison **and
+under every culture collation**, so the fact documents ordinal ordering without being able to detect a
+store that delegates ordering to a database collation — and its apparent bite against the in-memory
+store depends on hash-enumeration luck. Added
+`List_orders_ordinally_not_by_culture_collation` using `a-b`, `a0b`, `a_b`, `aab`: ordinal orders these
+by code point (`-` U+002D < `0` U+0030 < `_` U+005F < `a` U+0061), while a typical database collation
+treats punctuation as variable-weight and returns a different order. Proven to bite. **This is a direct
+constraint on Plan B**: `PostgresSkillStore` must order with a binary/`C` collation or sort client-side,
+or it will fail the contract.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
