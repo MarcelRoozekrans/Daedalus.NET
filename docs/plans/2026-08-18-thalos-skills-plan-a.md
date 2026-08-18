@@ -534,7 +534,7 @@ The count is the number **omitted**, pinned twice.
 arrive from a file — frontmatter scalars are single-line — but a directly-constructed document can carry
 one, so `SanitizeLine` flattens with `ReplaceLineEndings(" ")`. Pinned for `
 `, `
-` and a lone ``.
+` and a lone `\r`.
 
 **`[Singleton]` needed `As = typeof(SkillCatalogue)`.** The plan's bare attribute is a build break:
 `ZAI007: Class 'SkillCatalogue' implements no interfaces and will only be registered as its concrete
@@ -725,6 +725,74 @@ coverage, but it relies on whoever adds the next event remembering to write one.
 reflective rule instead: enumerate every concrete `AgentEvent` subclass in the loaded assemblies and
 assert each has a `KindOf` mapping equal to its instance `Kind`. That also settles whether `KindOf`
 should stay a flat if-chain that re-trips MA0051 on every new event, or become a lookup table.
+
+**Task 20 (done, `cae8cbd`).** Baseline **712** (Skills 228; 17 new = 11 facts + 6 theory cases, against
+the plan's predicted 6 facts + 4 cases). One deviation from the plan's Step 3 text, no pragmas, no
+forward `cref`s. Step 2 failed exactly as predicted with `CS1061` on `UseSkills`, `UseSkillStore` and
+`UseSkillIndex` — after a first `CS0246` because `ISecurityContext` lives in `ZeroAlloc.Authorization`,
+not in any `Thalos.*` namespace the plan's using list carried.
+
+**Where the plan's Task 20 text was stale.** Its `Register` was already correct on every registration
+that Tasks 14-19 moved, because the constructors are all resolved by DI rather than spelled out — but
+the *tests* were stale in four places and were rewritten: the plan's `FakeStore` had no way to observe
+that the telemetry proxy wraps it, so `Custom_store_and_index_replace_the_defaults_in_any_order` would
+have passed with the proxy still wrapping `InMemorySkillStore` (it now records upserts and asserts they
+arrive, mirroring `MemoryDependencyInjectionTests.AssertFakeStoreIsWrapped`); the plan had no fact for
+`SkillCatalogue` instance identity at all; it had no host-level fact for either headline guarantee; and
+its `Misconfiguration_...` theory did not cover the negative `TopK` or the negative `MinScore`.
+
+**The plan's `ValidateOnStart` fact would have been vacuous.** `SkillSyncService.StartingAsync` reads
+`options.Value` as its first statement, so *any* misconfigured host throws `OptionsValidationException`
+at start whether or not `ValidateOnStart` was ever called — the exception type is identical. The fact
+now registers an `IHostedLifecycleService` probe **before** skills and asserts its `StartingAsync` never
+ran. Proven: deleting `.ValidateOnStart()` leaves the exception assertion green and reddens only
+`Expected probe.Starting to be False ... but found True`. `ValidateOnStart` therefore does fire, and it
+fires before the first hosted service.
+
+**Which options are validated, and which are not.** `Catalogue.MaxChars >= 0`, `Search.TopK >= 1` and
+`Search.MinScore` in [0, 1] with an explicit `NaN` guard — each pinned by a theory case and each probed
+individually. `Roots` are **normalised, never validated**: a root that does not exist is deliberately
+accepted, because Task 11 established that a path typo must never retire the library. Pinned by
+`A_root_that_does_not_exist_is_not_a_validation_error_and_the_host_still_starts` and probed by adding a
+`Directory.Exists` check to `Describe`, which reddens three facts. `Enabled`, `ExposeTools` and
+`SyncOnStartup` are booleans with nothing to validate.
+
+**Ordering answer for `UseSkillStore<T>`/`UseSkillIndex<T>`: the custom type wins in both orders**, and
+that is intended. Before `UseSkills`, `Replace` writes the descriptor and `UseSkills`'s `TryAdd` no-ops;
+after, `Replace` overwrites what `UseSkills` added. Replacing `Replace` with `TryAdd` reddens the
+after-order half only, which is the precise bite. `UseSkills` called twice is idempotent for every
+service (`TryAddEnumerable` de-dupes by implementation type) and last-configure-wins for the options.
+
+**Exactly one `SkillCatalogue`, proven two ways.** The descriptor count for `typeof(SkillCatalogue)` is
+asserted to be 1 on a collection where `UseSkills` has run, and after a real host start the resolved
+catalogue renders the synced skill. The second half is the load-bearing one: re-registering the sync as
+`AddSingleton<IHostedService>(sp => new SkillSyncService(..., new SkillCatalogue(), ...))` reproduces the
+silent-empty-catalogue bug exactly — `Expected catalogue.Render(["*"]) not to be <null>`. Adding a
+manual `AddSingleton<SkillCatalogue>()` beside the generated `TryAddSingleton` yields **three** live
+instances once `UseSkills` is called twice, so the hazard is real, not theoretical.
+
+**`Enabled = false` is a runtime switch, not a registration one, and that is correct.** The services are
+always registered; `SkillSyncService`, `SkillToolSource` and `SkillContextProviderSource` each read the
+flag. It cannot be a registration decision because the flag may be bound from configuration that is not
+read until the provider is built. All three halves probed: the store stays empty, the catalogue renders
+null, the tool catalog offers nothing, and `CreateProvider` returns null — the host starts either way.
+
+**One analyzer refusal (running total 17): `CA1873`** ("evaluation of this argument may be expensive")
+on the plan's
+`LogNoGenerator(sp.GetService<ILoggerFactory>()?.CreateLogger(...) ?? NullLogger.Instance)`. Hoisting
+the logger into a local fixes it with no pragma; the comment on that line records why. Two probes were
+refused and re-aimed, and one short-circuited: `TryAddEnumerable` with a *factory* descriptor throws
+`Implementation type cannot be 'IHostedService' because it is indistinguishable from other services`
+(re-aimed to `AddSingleton`); dropping the `Enabled` read from `SkillContextProviderSource` is `CS9113`
+(re-aimed to `(!options.Value.Enabled && false)`); and giving the no-embeddings host a generator reddens
+the index-identity assertion before reaching the search sentence (re-aimed by removing the earlier
+assertion for the probe). Twenty-two probes in total, every one reverted byte-for-byte — `git diff` over
+the three temporarily-broken files under `src/Thalos.NET.Skills` is empty.
+
+`AddThalosSkillsServices()` **exists and works**, so neither of the plan's Step 4 escape hatches was
+needed: the generator emits `TryAddSingleton<SkillCatalogue>(sp => new SkillCatalogue())`. The
+configuration binder populates `IList<string> Roots` without complaint, so `SkillOptions` was not changed
+and no `MA0016` NoWarn was added.
 
 ---
 
