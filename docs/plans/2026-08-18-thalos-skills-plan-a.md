@@ -715,6 +715,42 @@ defaulting to `UnavailableSkillIndex.Instance`.
 One extra file was touched by design: `RecordingSkillIndex` gained a `Searches` list and an `OnSearch`
 hook, mirroring Task 12's precedent of extending the existing decorator rather than adding a second one.
 
+**Task 21 (done, `ef63420`).** Baseline **719** (Skills 235; +7). **No production code was written** —
+Tasks 14-20 had already landed every line these facts exercise, so the first run was green and all seven
+facts were proved by breaking implementation lines instead. Nine probes, no pragmas, no csproj change.
+
+**Correction to Task 17's amendment: its stated constraint was wrong.** Task 17 recorded that a genuine
+memory+skills composition test was infeasible because the Skills test project must not reference Memory.
+In fact `Thalos.NET.Testing` already `ProjectReference`s **both** Memory and Skills (it ships both
+contract suites), and every test project references Testing — so `Thalos.Tests.Skills` has reached
+`Thalos.Memory` transitively since Task 2. `using Thalos.Memory;` compiled immediately. `LayeringTests`
+does not constrain test-project references; its rules are about shipping assemblies.
+
+So the real test exists: one host with `UseSkills` **and** `UseMemory`, a real memory written through
+`IMemoryService`, and all three fragments asserted in `ChatOptions.Instructions` in a pinned order —
+agent instructions first, then `<skills>`, then `<memories>`, ordered by context-provider registration.
+Each block probed independently, so neither masks the other.
+
+**The turn is genuinely end-to-end.** The scripted client emits a `skills__load` call and the test reads
+the `FunctionResultContent` out of the **second** request — what the model was actually shown — asserting
+it starts `<skill name="release">`, contains the body and ends with the close tag. `skills__search` gets
+the same treatment, with the body token asserted **absent**.
+
+**Position and repetition are pinned:** the agent's own instructions come first and survive verbatim; a
+tool call produces exactly two requests and the catalogue appears in **both** (correct — MAF reuses the
+`ChatOptions` across the tool loop) and **exactly once** in each, so nothing accumulates. Emitting
+`block + block` reddens it.
+
+**A wrong-instance wiring bug fails loudly**, as hoped: handing the provider a fresh `new
+SkillCatalogue()` reddens three facts, and disabling the sync reddens five of seven — proving the facts
+depend on the real hosted file sync rather than a pre-seeded store.
+
+**Correction to Task 16's amendment: there are three redundant empty-glob guards, not two.** Breaking
+`Render`'s and `IsAllowed`'s together still passes, because `SkillContextProviderSource.CreateProvider`
+returns `null` first. All three must go to observe the failure.
+
+CS9113 was the **18th** analyzer/compiler refusal of a naive probe construct.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
