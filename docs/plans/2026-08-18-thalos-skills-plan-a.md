@@ -589,6 +589,47 @@ Deviation: the plan's `new string[0]` in `[InlineData]` is a **ZA0109** build br
 `(ISkillStore, ISkillIndex, SkillCatalogue, IOptions<SkillOptions>, TimeProvider, ILogger?)`, with
 `SkillCatalogue` resolved by **concrete type**; `RefreshIndexAsync` was renamed `PublishAsync`.
 
+**Task 17 (done, `3048aea`).** Baseline **662** (Skills 178; the plan's 5 facts became **11**). One
+pragma, in the *test* only (`MAAI001` around the `[Experimental]` `InvokingContext` ctor, exactly as the
+memory tests do); none in `src/`. No forward `cref`s.
+
+**No cross-agent contamination is possible here, and the mechanism is worth knowing.** Providers are
+**per-agent**: `AgentFactory` asks every `IAgentContextProviderSource` once per agent build and attaches
+the results to that agent's `ChatClientAgentOptions.AIContextProviders`, cached with the agent.
+`SkillContextProviderSource.CreateProvider(agent)` passes `agent.Skills` into the provider's constructor,
+so each provider closes over its own glob list. The only shared object is the `SkillCatalogue` singleton
+— whose cache key Task 16 had to make injective for exactly this reason. Pinned by a two-agent fact,
+probed by handing every agent `["*"]`.
+
+**There is no failing-`Result` path to test**: `SkillCatalogue.Render` returns a plain `string?`, so a
+**throw** is the only realistic failure, which is what the plan models. Confirmed the provider catches,
+logs (568), publishes `SkillCatalogueFailedEvent(SkillStoreFailed)` and returns an empty `AIContext`.
+
+**Added a cancellation case the plan lacked**, and it matters: an `OperationCanceledException` whose
+token **is cancelled** must propagate, while the same exception with a live token is absorbed as an
+ordinary failure. Without that filter a user cancelling a turn would be silently reported as a catalogue
+failure and the turn would carry on.
+
+The event is proven to reach a subscriber on **both** routes — `TurnScope.PublishAsync` inside a turn,
+`AgentEventHub` outside one — each with its own probe, and a throwing subscriber still cannot fail the
+turn. The "publish into a disposed scope" case is **unreachable** (`TurnScope.Dispose` restores the
+previous scope, so the hub route is taken), noted rather than tested.
+
+Instructions compose rather than clobber: a real `ChatClientAgent` over `ScriptedChatClient` with the
+agent's own instructions plus **two** providers shows all three fragments in the recorded request. A test
+against the *real* memory provider is **not feasible here** — Skills and Memory are independent packages
+and the Skills test project must not reference Memory — so a stand-in plays memory's part through the
+identical MAF aggregation path. **A genuine both-packages test belongs to Task 21.**
+
+All three empty cases contribute `Instructions == null`, and the "no stray blank line" half is pinned by
+asserting a skills-less agent's instructions are exactly its own.
+
+**`SkillCatalogue` was unsealed and `Render` made `virtual`** — this is Step 3 of the task itself, not
+scope creep, and `[Singleton(As = typeof(SkillCatalogue))]` still builds clean on the unsealed class.
+**CA1859** became the eighth analyzer refusal of a naive construct (a test helper returning `AIAgent`
+instead of `ChatClientAgent`), and probe P5b was the third **inconclusive** probe, short-circuited by the
+opt-in guard.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
