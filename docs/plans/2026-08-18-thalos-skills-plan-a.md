@@ -357,6 +357,41 @@ oversight.
 One pragma (`CA1308`, as the plan specifies). No `MA0051`: `Enumerate` stays short via a `Collect(root,
 found)` helper that takes the list as a parameter, which also sidesteps MA0016. No forward `cref`s.
 
+**Task 11 (done, `7aed912`).** Baseline **569** (Skills 85; 7 new facts, one more than the plan's 6).
+Zero pragmas. Both `<c>SkillSyncService</c>` placeholders in `ISkillStore.cs` restored to `cref`s.
+
+**A data-destructive bug in the plan's implementation, found and fixed — record this one.** The guard was
+`if (roots.Count > 0 && scan.Readable == 0)`. With **no roots configured** — which is the *default*,
+since `SkillOptions.Roots` starts empty — `roots.Count == 0` makes the condition false, control falls
+through to `ApplyAsync`, and `DeactivateMissingAsync([])` **retires the entire skill library**. It fails
+the plan's own Task 11 test `No_roots_configured_is_a_no_op_that_never_deactivates_anything`. Now
+`if (scan.Readable == 0)` with the `LogNoReadableRoots` call nested under `if (roots.Count > 0)`: an
+empty roots list is a silent no-op, a typo'd root still logs 566. **Task 12's tests never exercise
+`roots.Count == 0`**, so if this guard is ever "simplified" back to the plan's form, only Task 11's test
+catches it. See `SkillSyncService.cs:90` and its comment.
+
+**A second load-bearing detail:** `seen.Add` happens in `ApplyAsync` **before** the hash check, so
+unchanged skills are still reported as seen. Moving it after the `continue` would deactivate every
+unchanged skill on the next boot. Pinned by `The_sweep_is_told_every_name_that_loaded`, probed by
+truncating the list.
+
+**Two more tests that proved things they did not actually prove.** (a) The plan's hash-skip fact only
+asserted resulting state (`UpdatedAt` unchanged), which an identical re-upsert also satisfies; a
+`RecordingSkillStore` decorator now asserts **zero upsert calls**, probed by making the unchanged branch
+upsert anyway. (b) `Several_roots_are_scanned_in_order` was **vacuous** — its roots held
+`migrations`/`release`, whose scan order coincides with the store's alphabetical list order, so it could
+not distinguish them. Roots swapped so the expected order is non-alphabetical; probed by reversing the
+root loop.
+
+"First root wins" is **not** tested by Task 11 — that fact lives in Task 12. The behaviour is present
+(`byName` dictionary + `LogDuplicateName`, event 565) but unexercised until then.
+
+All **six** `IHostedLifecycleService` members are implemented, byte-for-byte the shape of
+`RagNetMemorySchemaInitializer` (work in `StartingAsync`, the other five `=> Task.CompletedTask`, throw
+to fail host start); the only difference is that `SkillSyncService` is `public` per §0.7 deviation 7.
+**SYSLIB1015** fired as the plan warned and was fixed with the plan's own remedy (event 562's message
+now references `{Root}`).
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
