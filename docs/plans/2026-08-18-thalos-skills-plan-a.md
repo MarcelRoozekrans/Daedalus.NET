@@ -630,6 +630,52 @@ scope creep, and `[Singleton(As = typeof(SkillCatalogue))]` still builds clean o
 instead of `ChatClientAgent`), and probe P5b was the third **inconclusive** probe, short-circuited by the
 opt-in guard.
 
+**Task 18 (done, `0be7230`).** Baseline **682** (Skills 198; +20 = 14 facts + 6 theory cases, against the
+plan's predicted 6 facts). No pragmas, no forward `cref`s.
+
+**Out-of-glob and never-existed are byte-identical**, tested as an equality using **the same name** twice
+— once blocked by globs with the skill present, once allowed with an empty store — plus the same
+equality for the retired case. There is **no error code to compare**: the tool returns a bare `string` to
+the model, which is the strongest form of the property.
+
+**The code paths do differ and were deliberately left alone.** The glob check short-circuits *before* the
+store lookup, so out-of-glob costs no query while missing costs a `ListAsync` — a round-trip vs none
+against Plan B's Postgres store. Judged not a usable oracle: the caller is the model, which has no clock
+and cannot time its own tool call, and the durations that *are* recorded go to the host operator, who
+already knows the library. Removing the short-circuit would mean querying the store for names the agent
+may not see, which is worse.
+
+**An inactive skill is not loadable.** `LoadAsync` queries with `SkillQuery.IncludeInactive` left at its
+`false` default, which is the caller-side decision `ISkillStore.GetAsync`'s doc defers; setting it true
+fails both facts. This is what stops a stale procedure resurfacing after its file was deleted.
+
+**The sanitiser is applied on this path and the evasion cases earn their place.** Seven cases including
+case and whitespace variants, each asserting exactly one live close tag via a `[GeneratedRegex]` counter.
+Two probes: dropping the sanitiser fails all seven, and **a naive `Replace("</skill>", …)` also fails all
+seven** — the six evasions because they are not the literal, and the exact case because it still forges
+the *opening* tag.
+
+Registration verified **through a real `ToolCatalog`**, not just the source: names are exactly
+`["skills__load","skills__search"]`, the model-visible JSON schema is asserted (and correctly excludes
+the `CancellationToken`), and the fact then *invokes* the resolved function so catalog → authorizer →
+`ScopedTool` → DI-constructed tools → turn-scoped globs is exercised end to end.
+
+**A throwing store propagates into the turn after being audited** — `AuthorizingAIFunction` logs,
+publishes a failed `ToolCallCompletedNotification` and rethrows — whereas a failing `Result` becomes
+text. Both pinned.
+
+**Constraint for Task 19 — this is not optional.** The plan's four-parameter `SkillTools` constructor is
+a **hard build error** (`CS9113`, `index` and `options` unread), and the plan's own escape hatch is a lie
+in code, so `SkillTools` currently takes `(ISkillStore, IAgentCatalog)` and `SearchAsync` is `static`
+(CA1822). **Task 19 must add `ISkillIndex` and `IOptions<SkillOptions>` back and make `SearchAsync` an
+instance method** — its Step 1 test will legitimately fail to compile until Step 3 lands. The test
+fixture's `Build`/`BuildOver` helpers will need the two extra arguments; `Host` already registers both
+services, so no DI change is required.
+
+Four new analyzer refusals (running total **14**): CA1822 on the static-able stub, **CA1863** (cache a
+`CompositeFormat`) which forced `string.Concat`, MA0185 again, plus CA1875/MA0110 in the test pushing the
+regex counter to `[GeneratedRegex]`. Probe P9 was the **fourth inconclusive** probe.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
