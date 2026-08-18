@@ -751,6 +751,36 @@ returns `null` first. All three must go to observe the failure.
 
 CS9113 was the **18th** analyzer/compiler refusal of a naive probe construct.
 
+**Task 22 (done, `fa7e338`). The Task 3 follow-up below is now CLOSED — see this entry.** Baseline
+**726** (Architecture **21**, was 14: 13 facts + an 8-case theory). Zero pragmas.
+
+**All 16 rule inversions were run one at a time, each observed red, each reverted byte-for-byte.** That
+includes the seven pre-existing rules, audited per the 1.2 vacuity bug: **none of them is vacuous.** The
+1.2 defect was confined to the missing assembly — once `Thalos.NET.Skills` joined
+`ArchLoader.LoadAssemblies(...)`, every subject provider resolved to a non-empty type set. Inverting the
+Skills rule names seven real types (`SkillCatalogue`, `SkillContextProvider`, `SkillToolSource`, …),
+which is the proof the assembly is genuinely loaded rather than silently absent.
+
+**The `KindOf` drift follow-up is resolved, and it needed two rules rather than one.** The obvious rule —
+every concrete `AgentEvent` subclass has a `KindOf` mapping equal to its instance `Kind` — was probed
+twice with a throwaway event (no branch → *"KindOf has no branch for it"*; wrong branch → *"KindOf
+returns 'drifted-kind' but its Kind is 'probe-kind'"*). But that rule would still pass if the reflective
+sweep itself walked only part of the event set, so a second rule asserts **every declared
+`AgentEventKinds` constant is claimed by exactly one event type**, probed in both directions. Together
+they pin that the sweep discovers exactly **12** event types — all of them.
+
+**No existing drift was found**: all 12 subclasses already had correct mappings. So `KindOf` may stay a
+flat if-chain with its scoped `MA0051` pragma; drift is now caught structurally instead of depending on
+whoever adds the next event remembering to write a bespoke `*_stable_kind` test. No production code was
+changed.
+
+Two facts were added beyond the plan, both closing real gaps: a `GetReferencedAssemblies()` rule for
+Skills (a `NotDependOnAnyTypesThat` rule stays green while an **unused** `ProjectReference` sits in the
+csproj, so the package graph needs asserting separately), and the exactly-one-claimant rule above. The
+`LoadedAssemblies` array is now extracted and shared so the ArchUnit set and the reflective sweeps cannot
+drift apart. A `using Type = System.Type;` alias was needed because `ArchUnitNET.Loader` exports its own
+`Type` (CS0104) — the same technique the file already used for `Assembly`.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
