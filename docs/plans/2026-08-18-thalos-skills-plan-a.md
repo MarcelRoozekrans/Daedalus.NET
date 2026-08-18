@@ -219,6 +219,31 @@ Two mechanical fixes, no pragmas:
 `IList<string> Roots { get; set; }` did **not** trip CA2227 in this configuration, so no suppression was
 needed there.
 
+**Task 6 (done, `c6e3d1f`).** Baseline **512**. Done directly rather than by a subagent — two lines plus
+one test. **The plan's test code would not have compiled**: it used `Factory` and `Definition()`, but the
+real fixture in `AgentFactoryTests.cs` is `Build()` / `h.Factory` / `Def()`. Rewritten against the actual
+arrangement, watched failing on the `NotBeSameAs` assertion, then made to pass.
+
+**Task 7 (done, `88eb476`).** Baseline **515** (Skills 31). **No fallback was needed** — the plan's
+`[Instrument("thalos", PublicProxy = true)]` usage was verified correct against `IMemoryStore` and the
+ZeroAlloc.Telemetry generator produced a working proxy.
+
+**The generated proxy type is `Thalos.Skills.SkillStoreInstrumented`** (leading `I` dropped,
+`Instrumented` appended — same shape as `MemoryStoreInstrumented`), a `public sealed class` taking a
+single `ISkillStore inner`, emitting spans `thalos.skills.upsert` / `.get` / `.list` /
+`.deactivate-missing`. **Task 20 must register it as
+`new SkillStoreInstrumented(sp.GetRequiredService<TStore>())`**, mirroring
+`MemoryThalosBuilderExtensions.cs:57`.
+
+`lock` across TFMs needs no per-site handling: `Directory.Build.props` globally `NoWarn`s **MA0158**
+("use System.Threading.Lock") with the comment that libraries multi-target net8.0, which has no `Lock`
+type. A plain `object` gate is the house pattern, identical to `InMemoryMemoryStore.cs:11`.
+
+Forward-`cref` trap again: `ISkillStore`'s two `<see cref="SkillSyncService"/>` references (Task 11)
+were downgraded to `<c>`. `SkillQuery.cs`'s `<see cref="ISkillStore.ListAsync"/>` was **restored** now
+that the interface exists. **This is a recurring defect in the plan's XML docs — check every `cref`
+against what exists at that point in the sequence before building.** No pragmas were needed.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
