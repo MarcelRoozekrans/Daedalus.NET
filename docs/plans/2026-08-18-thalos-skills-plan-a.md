@@ -816,6 +816,69 @@ can merge a `SKILL.md` can steer the agent.
 `scripts/pack-local.ps1` was deliberately **not** run — it writes nine `0.3.0-local.*` packages into the
 shared feed that nothing currently pins, and Plan B will want a pack made against the final 0.3.0 tree.
 
+**Task 24 (done: review + fixes `210eb27`).** The pre-release review returned **"not releasable as-is"**
+with three blockers, all confirmed in source before acting. Baseline **752** (was 726; Skills 235 to 255,
+Memory 152 to 158). Zero pragmas added.
+
+**B1 — an unreadable root silently retired the skills that lived in it.** The Task 11 guard only covered
+*no* root readable. With two roots and one failure, `Readable == 1`, the sweep ran and deactivated
+everything from the failed root. Worse, `Collect` enumerated each sub-directory with **no per-folder
+catch**, so a single unreadable subfolder failed the whole root — an ACL change, an unmounted share or an
+antivirus lock removing every procedure that root contributed, from every agent, while the host started
+happily. `README.md:218` promised the opposite. **Fixed in both halves**: `CollectFolder` catches per
+sub-directory so one bad folder costs one skill, and the sweep now requires `roots.Count ==
+scan.Readable` (new event 569 when skipped).
+
+**The test that should have caught B1 was pinning the bug.**
+`One_unreadable_root_is_ignored_while_the_others_sync` asserted
+`store.DeactivateCalls.Should().ContainSingle()` — it asserted the destructive behaviour and never
+checked the missing root's skills survived. Now `BeEmpty()`, plus a new fact for "root B vanishes while
+root A is healthy → `Deactivated == 0`". **This is the fifth "passes for the wrong reason" test in this
+plan and the first that was actively guarding a defect.**
+
+**B2 — untrusted memory text could forge a `<skills>` block.** Memory's sanitiser was
+`<\s*/?\s*memories` and Skills' was `<\s*/?\s*skills?`; **neither neutralised the other's tag**.
+Memory text is extracted from user conversation, and Task 21 pins that both blocks land in the same
+`ChatOptions.Instructions` — so a stored memory containing a fake `<skills>` entry was re-injected beside
+the real catalogue on every later turn, inverting the trust story (skills are trusted *because* they come
+from git). Both patterns are now `<\s*/?\s*(?:memories|skills?)`, with cross-package cases in both
+evasion matrices. **This defect only came into existence in 1.3**, when the `<skills>` string acquired
+meaning; it was harmless in 0.2.0. Adding `` broke **no** existing memory test and incidentally fixed
+memory's long-standing over-escaping of `<memoriesX`. `MA0023` forced a non-capturing group, not a pragma.
+
+**B3 — `skills__load` echoed the model's raw name unsanitised.** Every other model-facing path was
+sanitised; this one concatenated whatever the model sent, producing a well-formed forged `<skill>` block
+in the tool result — which Task 21 confirms enters the model's context on the next round trip and reaches
+`ToolCall.ResultPreview`, so any audit UI too. Now routed through `Echo(name)` =
+`SanitizeLine` capped at 80 chars, **backing off one char rather than splitting a surrogate pair**.
+Byte-identicality across out-of-glob / unknown / inactive is asserted for the hostile name too.
+
+**S1 — the catalogue could cache a stale block permanently.** `Render` read `_snapshot` then called
+`GetOrAdd`; a `Set` in between meant the in-flight render wrote the **old** snapshot into the freshly
+cleared cache, surviving until the next `Set`. `SyncAsync` is public and its doc invites re-invocation,
+and Daedalus is the obvious caller — so an agent could be pinned to a stale catalogue for the process
+lifetime. Snapshot and cache are now one atomically-swapped `volatile State`, so a losing render can only
+write into a dictionary nobody reads. Driven deterministically by an `IReadOnlyList<string>` whose
+indexer calls `Set`.
+
+**S2** wrapped three third-party error-message paths in `SanitizeLine`. **S3** made a NUL in a configured
+root produce the usual `Thalos:Skills: …` validation message instead of a raw
+`ArgumentException: Null character in path` escaping `PostConfigure`.
+
+**What the review checked and found genuinely fine**, worth recording so it is not re-litigated: no
+missing `ConfigureAwait`, no `async void`, no sync-over-async; no `AgentError` carries exception text
+(every catch uses `ex.GetType().Name`); the cache-key fix from `4072991` is genuinely injective (decode
+worked through, not taken on trust); `RenderCore`'s budget arithmetic is exact rather than lucky;
+`Glob.IsMatch` is linear with a 64-char bound, so no ReDoS; `SkillTools.Globs()` fails **closed** outside
+a turn; cancellation filtering is correct and consistent at all five catch sites.
+
+**Known limitations accepted for 0.3.0** (recorded, not fixed): `SyncAsync` is an unguarded
+read-modify-write, so **two hosts syncing concurrently can flap a skill active/inactive** during a
+rolling deploy — Plan B should document this. `SkillStoreContractTests` has no fact for
+`GetAsync` returning inactive rows, nor for concurrent upsert of the same name. The residual search side
+channel persists at the ceiling (asking for 20 and getting 15 still reveals five hidden higher-scoring
+skills). `SkillCatalogue`'s render cache is unbounded and keyed by unvalidated globs.
+
 **Follow-up for Task 22 (architecture tests), recorded here so it is not lost.** `AgentEvent.KindOf(Type)`
 duplicates knowledge each subclass already holds in its `Kind` property, and the two can drift.
 `AgentEventTests.AllEvents()` reads as though it were exhaustive but holds only the six core events — no
