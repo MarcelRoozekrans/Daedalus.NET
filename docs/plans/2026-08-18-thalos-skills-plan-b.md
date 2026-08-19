@@ -324,6 +324,18 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
   `AddAgentMemoriesMigrationTests` fail with EF 10's `PendingModelChangesWarning` (§0.1 documents exactly this).
   Integration therefore sits at **354/357** until Task 7 scaffolds `AddSkills`. The 14 skill-store facts are green.
 
+- **Task 7 (2026-08-19) — the scaffolder produced exactly the predicted shape; nothing to reconcile.**
+  `20260819152830_AddSkills`. The plan's "Expected `Up`" block matches the generated file column for column,
+  including `Tags` as `List<string>`/`text[]` and `Name` as the `character varying(64)` primary key. **No
+  `CA1861` pragma was needed** — that rule fires on a `new[]` column array and a single-column index does not
+  emit one, exactly as the plan predicted. The scaffolder *did* write a UTF-8 BOM (`AddAgentMemories` has
+  none), so it was stripped to match the repo convention. No `MigrationsModelDiffer` `NullReferenceException`:
+  1.3 removes no mapped type, so the both-directions diff had nothing historical to re-create.
+
+  Both facts green first run, including the rollback past `AddSkills` to `_AddAgentSessions` and forward again.
+  **The red window from Task 5 is closed**: integration goes 354/357 → **359/359** (343 at the 1.2 baseline,
+  +14 skill store, +2 migration), build 0 warnings.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)
