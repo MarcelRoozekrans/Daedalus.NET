@@ -203,7 +203,52 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
 
 *(Executor: append one bullet per task, in this style: what deviated from the plan, why, and the resulting fact counts. Future tasks read this section, so record anything the plan's later code depends on — renamed API members above all. Do not silently "fix" the plan text; record the deviation.)*
 
-- **Task N (date) — …**
+- **Task 1 (2026-08-19) — the preferred pin path, no fallback.** Thalos.NET 0.3.0 went to nuget.org
+  earlier the same day (Plan A Task 25), so §0.2's preferred path applied verbatim: eight pins bumped
+  `0.2.0 → 0.3.0`, `Thalos.NET.Skills` added as the ninth, `nuget.config` untouched and still
+  nuget.org-only. **No local pack, no `thalos-local` source, no `packages-local/` folder ever existed
+  this phase**, so §0.2's removal gate is moot from the start — exactly as it turned out in 1.2.
+  `dotnet restore --force-evaluate` raised no `NU1109`/`NU1010`, so the `Npgsql 10.0.3` floor was the
+  only transitive pin in play and it was already set. Build: **0 warnings**. The predicted single
+  breakage is the only breakage: `Every_AgentErrorCode_value_has_an_explicit_mapping_test` fails
+  `Expected … 18 item(s), but found 22`. Suite totals unchanged otherwise — Domain 255, Application 368,
+  Infrastructure 130, Unit 114/115.
+
+- **Task 2 (2026-08-19) — confirmation, no substitutions.** Reconciled against the **published** package
+  (`~/.nuget/packages/thalos.net.*/0.3.0/lib/net10.0/*.xml`) and cross-checked against Thalos.NET HEAD
+  `2e23e4c`. **All six §0.5b deltas hold and no seventh was found, so no substitutions were applied to
+  Tasks 4, 6, 8, 9 or 13.** The seven Step 3 confirmations, so later tasks need not re-derive them:
+
+  1. Namespace `Thalos.Skills` for `SkillName`/`SkillDocument`/`ISkillStore`/`SkillQuery`/`SkillOptions`;
+     `AgentErrorCode.Skill*`, the four `AgentError.Skill*` factories and `SkillCatalogueFailedEvent`
+     in `Thalos`. `AgentEventKinds.SkillCatalogueFailed = "skill-catalogue-failed"`.
+  2. `UseSkills(Action<SkillOptions>)`, `UseSkills(IConfiguration)`, `UseSkillStore<T>()` and
+     `UseSkillIndex<T>()` all live on `Thalos.Skills.SkillThalosBuilderExtensions`, extending
+     `Thalos.ThalosBuilder`. Task 9 keeps the delegate overload (§0.5b delta 6 reasoning stands).
+  3. `SkillOptions` carries `SectionName`, `Enabled`, `Roots`, `Catalogue`, `Search`, `ExposeTools`,
+     `SyncOnStartup`. `Catalogue` is `SkillCatalogueOptions { MaxChars }`; `Search` is
+     `SkillSearchOptions { TopK, MinScore }`.
+  4. `SkillSyncService : IHostedLifecycleService`, work in `StartingAsync` — before any other hosted
+     service, so Task 11's `host.StartAsync()` does trigger it.
+  5. `AgentDefinition.Skills` is `IReadOnlyList<string>` defaulting to **`[]`**, not `["*"]` — the
+     opposite of `Tools`, deliberately, because a catalogue costs tokens every turn. Task 8's mapping
+     must not copy `Tools`' `["*"]` fallback.
+  6. `SkillStoreContractTests` exposes `protected abstract ValueTask<ISkillStore> CreateStoreAsync(TimeProvider clock)`
+     and carries **12** `[Fact]`/`[Theory]` attributes.
+  7. Limits (all `public const` on `SkillDocument`, plus `SkillName.MaxLength`): description **300**,
+     body **65536** (64 KiB), tags **10** × **32** chars, source path **512**, name **64**.
+
+  **Two facts the plan did not state, recorded because later tasks depend on them.** First,
+  `SkillDocument.ContentHash` is `[NotEmpty]` with **no `MaxLength`** in the library — the doc comment
+  says lower-case hex SHA-256, i.e. 64 chars — so §0.6-8's Daedalus-side ≤128 cap constrains nothing the
+  library would have allowed through at a realistic length, and stays as written. Second,
+  `SkillName.CompareTo` is `string.CompareOrdinal`, which independently corroborates the §0.5b ordering
+  constraint: **Task 6's `ListAsync` must not order under a culture collation.** Deviation §0.6-7 also
+  needs no relaxation after all — the library's tag limits are exactly `AgentMemory`'s 10 × 32.
+
+  `SkillQuery.Tags` is confirmed **AND** semantics (every requested tag must be present, each normalised
+  through `SkillRules.NormalizeTag` before an ordinal `Contains`), which is what Task 6's Daedalus-side
+  facts assert.
 
 ---
 
