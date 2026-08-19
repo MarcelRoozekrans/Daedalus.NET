@@ -56,8 +56,9 @@ public sealed class ApiThalosConfigurationTests
         // Sessions reference this id — changing it orphans them. Update the test only together with a data migration.
         agent.Id.Should().Be(AgentId.Parse("01M05YCM7DPKRG9X04870B2JYH", null));
         agent.Name.Should().Be("Daedalus Architect");
-        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "memory__*", "context7__*");
-        agent.Instructions.Should().Contain("roslyn__").And.Contain("daedalus__").And.Contain("memory__");
+        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "memory__*", "skills__*", "context7__*");
+        agent.Skills.Should().Equal("*");
+        agent.Instructions.Should().Contain("roslyn__").And.Contain("daedalus__").And.Contain("memory__").And.Contain("skills__");
     }
 
     [Fact]
@@ -156,5 +157,31 @@ public sealed class ApiThalosConfigurationTests
         servers["roslyn"].EffectiveType.Should().Be("stdio");
         servers["roslyn"].ShutdownTimeout.Should().Be(TimeSpan.FromSeconds(2));
         servers["context7"].EffectiveType.Should().Be("http");
+    }
+
+    /// <summary>
+    ///     The starter skills flow into this test's output through the Daedalus.Api project reference (a Content item,
+    ///     like .mcp.json), which is exactly how they reach the API's content root at runtime. A broken copy would
+    ///     otherwise only show up as an agent that quietly has no procedures.
+    /// </summary>
+    [Fact]
+    public void Starter_skills_are_copied_next_to_the_api()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "skills");
+
+        Directory.Exists(root).Should().BeTrue("skills/**/SKILL.md must be a Content item in Daedalus.Api.csproj");
+        foreach (var name in new[] { "daedalus-migrations", "thalos-release" })
+        {
+            var path = Path.Combine(root, name, "SKILL.md");
+            File.Exists(path).Should().BeTrue();
+            var text = File.ReadAllText(path);
+            text.Should().StartWith("---").And.Contain($"name: {name}").And.Contain("description:");
+        }
+    }
+
+    [Fact]
+    public void Appsettings_points_the_skill_roots_at_the_shipped_folder()
+    {
+        LoadApiConfiguration().GetSection("Thalos:Skills:Roots").Get<string[]>().Should().Equal("skills");
     }
 }

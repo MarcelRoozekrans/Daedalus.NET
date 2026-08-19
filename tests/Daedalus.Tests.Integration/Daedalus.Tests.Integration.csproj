@@ -49,4 +49,10 @@
         <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- SkillsStartupTests boots a host on the shipped API configuration; link it under an unambiguous name, the
+             same way Daedalus.Tests.Unit does (Api, Console and Web all ship an appsettings.json). -->
+        <None Include="..\..\src\Daedalus.Api\appsettings.json" Link="Daedalus.Api.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
 </Project>

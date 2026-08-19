@@ -383,6 +383,36 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
   `DbSet` and scaffolding, and `thalos-release` documents the skipped second release-please dispatch and
   the nuget.org indexing lag — the two traps that cost real time this phase.
 
+- **Tasks 11 + 12 (2026-08-19) — done together, in the other order, and §0.6-3 caught a real bug.**
+
+  **Order swapped deliberately.** Task 11's own unit fact
+  `Appsettings_points_the_skill_roots_at_the_shipped_folder` asserts configuration that **Task 12** adds, and
+  its startup test boots on that same file. Task 12's appsettings edit therefore ran first. Committed together
+  because neither half is green alone.
+
+  **The fail-fast root validation found a real mismatch — exactly the failure it was written for.** With
+  `Thalos:Skills:Roots: ["skills"]` shipped, six `AgentEndpointsSmokeTests` broke:
+  `WebApplicationFactory` defaults the content root to the **project** directory (`src/Daedalus.Api`), while
+  the skills are authored at the repo root and only *copied* to the **output** directory. So `"skills"`
+  resolved to `src/Daedalus.Api/skills`, which does not exist, and registration threw. In production the API's
+  content root *is* the publish directory, so this was purely a test-host mismatch — but a silent one:
+  without §0.6-3's check the six tests would have passed with an agent that had no procedures at all.
+
+  **Fixed at the cause, not the symptom:** `ApiWebApplicationFactory` now calls
+  `UseContentRoot(AppContext.BaseDirectory)`, so the test host resolves the same relative paths it resolves in
+  production, and it matches how `SkillsStartupTests` boots. Disabling skills for those tests, or pointing
+  `Roots` at an absolute bin path, would both have left the content root lying about where its content is —
+  and `.mcp.json` is resolved the same way.
+
+  `Daedalus.Tests.Integration` also needed the `Daedalus.Api.appsettings.json` link the plan flagged as
+  possibly missing; it was.
+
+  **One analyzer trap:** `MA0006` on `rows.Single(r => r.Id == "…")` — LINQ-to-objects needs
+  `string.Equals(..., StringComparison.Ordinal)`. The identical comparison one line earlier is fine because it
+  is an EF expression tree.
+
+  Unit 905 → **907**, integration 359 → **361**, build 0 warnings.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)
