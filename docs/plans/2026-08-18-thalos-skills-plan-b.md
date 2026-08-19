@@ -505,16 +505,48 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
   library stores them **relative to the root** (`daedalus-migrations/SKILL.md`). Not a bug — the expectation
   was wrong.
 
-  **Step 3 NOT done.** The agent-facing half (ask "what procedures do you have?", expect both names from the
-  catalogue without a tool call, then a `skills__load` call) was not completed. A real `anthropic-api-key` *is*
-  available — it lives in the AppHost's user secrets, so the earlier note that this step was blocked on a
-  missing key was wrong. What blocked it is an **auth asymmetry unrelated to skills**: with a valid Keycloak
-  token from the issuer the API is configured for (`http://localhost:8082/realms/daedalus`),
-  `GET /api/agents` answers **200** while every `AgentSessionsController` endpoint answers **401** — despite both
-  controllers carrying an identical `[Authorize(Policy = "AgentUse")]` and that policy being nothing but
-  `RequireAuthenticatedUser()`. Worth noting for whoever picks this up: `AgentEndpointsSmokeTests` substitutes
-  `HeaderTestAuthHandler`, so **real JWT auth against those endpoints is not covered by any test**. Recorded as
-  an open item rather than chased, because it is neither caused by nor part of phase 1.3.
+  **Step 3 done — after fixing a phase-1.1 auth defect that blocked it.** The agent-facing half now passes on a
+  real Anthropic key (which was in the AppHost's user secrets all along; an earlier note in this session claiming
+  the step was blocked on a missing key was wrong):
+
+  - *"What procedures do you have available?"* → named **both**, with their descriptions, and
+    `toolCalls == []`. The catalogue reaches the model through the instructions, exactly as designed.
+  - *"How do I add a migration here? Follow the project procedure."* → `toolName: skills__load`,
+    `argumentsJson: {"name":"daedalus-migrations"}`, `succeeded: true`, and a `resultPreview` beginning
+    `<skill name="daedalus-migrations">` — the body wrapped in the block §14 documents. The answer then followed
+    the shipped file.
+
+  No screenshots: this was verified through the REST API rather than the Blazor page, so the transcripts are the
+  evidence and the exact tool call is recorded here instead.
+
+  **The blocker was a real defect, unrelated to skills, and is fixed.** With a valid token,
+  `GET /api/agents` answered **200** while every `AgentSessionsController` endpoint answered **401** — despite
+  both controllers carrying an identical `[Authorize(Policy = "AgentUse")]` that is nothing but
+  `RequireAuthenticatedUser()`.
+
+  The decisive clue was that **the 401 carried no `WWW-Authenticate` header**: a JWT rejection always emits one,
+  so authentication was succeeding and the 401 came from application code — `HttpSecurityContextFactory.TryCreate`
+  returning false. It does so because the token had **no `sub` claim**, so `ClaimsSecurityContext.Id` fell
+  through `sub` → `ClaimTypes.NameIdentifier` → `Identity.Name` to `AnonymousId`. That check is working as
+  designed; its own doc says it exists so Thalos cannot create sessions owned by the anonymous id.
+  `AgentsController` still answered 200 because a validated-but-subject-less token satisfies
+  `RequireAuthenticatedUser()`.
+
+  **Root cause:** `keycloak-realm.json` gave both clients `defaultClientScopes: ["profile", "email"]`, omitting
+  Keycloak's built-in **`basic`** scope — where `sub` moved in Keycloak 24+. Confirmed by the scope being
+  un-requestable: asking for `scope=basic` was rejected outright, because the client had none assigned to opt
+  into. **Fix:** add `basic` to both clients. Verified: the token now carries
+  `sub`, and `/api/agents/sessions` answers **200**.
+
+  Two things this investigation got wrong before landing, recorded so the next reader does not repeat them:
+  roles were never broken (the explicit `realm-roles-mapper` writes them to a claim named `roles`, not
+  `realm_access.roles` — all six were present all along), so the fix needed `basic` only; and the first
+  verification attempt silently tested nothing, because **Aspire reuses an existing Keycloak container** and the
+  realm is only imported on a fresh one — `docker rm -f` the realm container or the change never lands.
+
+  **Left open:** `AgentEndpointsSmokeTests` substitutes `HeaderTestAuthHandler`, so the real Keycloak claim
+  shape is exercised by no test at all — which is why a defect that broke every session endpoint against real
+  auth survived phases 1.1 and 1.2. Worth a test that boots against real claims.
 
 ---
 
