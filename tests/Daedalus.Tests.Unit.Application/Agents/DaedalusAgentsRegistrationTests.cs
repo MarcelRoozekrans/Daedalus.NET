@@ -331,4 +331,52 @@ public sealed class DaedalusAgentsRegistrationTests
         var badDetector = () => new ServiceCollection().AddDaedalusAgents(Config(("Thalos:Sentinel:DisabledDetectors:0", "NoSuchDetector")), Environment());
         badDetector.Should().Throw<InvalidOperationException>().WithMessage("*NoSuchDetector*");
     }
+
+    [Theory]
+    [InlineData("Thalos:Skills:Catalogue:MaxChars", "0", "MaxChars")]
+    [InlineData("Thalos:Skills:Search:TopK", "0", "TopK")]
+    [InlineData("Thalos:Skills:Search:MinScore", "1.5", "MinScore")]
+    [InlineData("Thalos:Skills:Roots:0", "   ", "Roots")]
+    public void Out_of_range_skill_settings_fail_fast_naming_the_key(string key, string value, string expectedInMessage)
+    {
+        var act = () => Build(Config((key, value)));
+
+        // Both halves matter: the section name tells an operator which block of appsettings.json to open, and the
+        // member name tells them which key in it. Asserting only the member would pass on a message naming Memory.
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{SkillsConfig.SectionName}*")
+            .WithMessage($"*{expectedInMessage}*");
+    }
+
+    [Fact]
+    public void A_configured_skills_root_that_does_not_exist_fails_fast()
+    {
+        // An agent that silently lost every procedure looks exactly like a healthy one, so a broken Content copy or a
+        // bad path must take the host down at registration rather than at the first turn.
+        var missing = Path.Combine(Path.GetTempPath(), $"no-skills-{Guid.NewGuid():N}");
+
+        var act = () => Build(Config(("Thalos:Skills:Roots:0", missing)));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*{missing}*");
+    }
+
+    [Fact]
+    public void Skills_are_off_when_no_root_is_configured()
+    {
+        // The binder appends to pre-populated lists, so the default must be empty: the registration tests run with a
+        // content root that has no skills folder, and "nothing configured" is not an error.
+        using var sp = Build(Config());
+
+        sp.GetRequiredService<SkillsConfig>().Roots.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Disabled_skills_skip_root_validation_entirely()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"no-skills-{Guid.NewGuid():N}");
+
+        var act = () => Build(Config(("Thalos:Skills:Enabled", "false"), ("Thalos:Skills:Roots:0", missing)));
+
+        act.Should().NotThrow();
+    }
 }

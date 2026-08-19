@@ -87,6 +87,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
         services.TryAddSingleton(options.Memory.RalphRecall);
         services.TryAddSingleton<ILearningsMemory, ThalosLearningsMemory>();
 
+        var skillRoots = ResolveSkillRoots(options.Skills, environment);
+        ValidateSkillsConfig(options.Skills, skillRoots);
+        services.TryAddSingleton(options.Skills);
+
         // The memory index embeds with the DI generator; a host that only hands the instance to this call (for Sentinel) still gets a working index.
         if (embeddingGenerator is not null)
         {
@@ -270,6 +274,59 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 o.EnsureSchemaOnStartup = ensureSchema;
             });
     }
+
+    /// <summary>
+    ///     Fails fast on the Daedalus-only <c>Thalos:Skills</c> keys (Thalos validates its own <c>SkillOptions</c> on
+    ///     start). A configured root that does not exist is fatal on purpose: an agent that silently lost every
+    ///     procedure is indistinguishable from a healthy one, and this is what catches a broken content copy.
+    /// </summary>
+    private static void ValidateSkillsConfig(SkillsConfig config, IReadOnlyList<string> resolvedRoots)
+    {
+        if (!config.Enabled)
+        {
+            return;
+        }
+
+        for (var i = 0; i < config.Roots.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(config.Roots[i]))
+            {
+                throw new InvalidOperationException($"{SkillsConfig.SectionName}:Roots[{i}] must not be blank.");
+            }
+        }
+
+        var missingRoot = resolvedRoots.FirstOrDefault(root => !Directory.Exists(root));
+        if (missingRoot is not null)
+        {
+            throw new InvalidOperationException(
+                $"{SkillsConfig.SectionName}:Roots contains '{missingRoot}', which is not an existing directory. " +
+                "Relative roots resolve against the host content root; check that the skills folder is copied next to the host.");
+        }
+
+        if (config.Catalogue.MaxChars <= 0)
+        {
+            throw new InvalidOperationException(
+                $"{SkillsConfig.SectionName}:Catalogue:MaxChars must be greater than 0, but was {config.Catalogue.MaxChars}.");
+        }
+
+        if (config.Search.TopK < 1)
+        {
+            throw new InvalidOperationException(
+                $"{SkillsConfig.SectionName}:Search:TopK must be at least 1, but was {config.Search.TopK}.");
+        }
+
+        if (config.Search.MinScore is < 0 or > 1 || double.IsNaN(config.Search.MinScore))
+        {
+            throw new InvalidOperationException(
+                $"{SkillsConfig.SectionName}:Search:MinScore must be in [0, 1], but was {config.Search.MinScore.ToString(CultureInfo.InvariantCulture)}.");
+        }
+    }
+
+    /// <summary>Resolves configured skill roots against the content root, like <c>ResolveMcpConfigPath</c>.</summary>
+    private static IReadOnlyList<string> ResolveSkillRoots(SkillsConfig config, IHostEnvironment environment) =>
+        [.. config.Roots
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => Path.IsPathRooted(r) ? r : Path.Combine(environment.ContentRootPath, r))];
 
     private static string ResolveMcpConfigPath(string configured, IHostEnvironment environment) =>
         Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
