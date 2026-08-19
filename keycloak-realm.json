@@ -23,7 +23,7 @@
       "serviceAccountsEnabled": false,
       "clientAuthenticatorType": "client-secret",
       "secret": "daedalus-api-secret-change-in-production",
-      "defaultClientScopes": ["profile", "email"],
+      "defaultClientScopes": ["basic", "profile", "email"],
       "optionalClientScopes": [],
       "protocolMappers": [
         {
@@ -82,7 +82,7 @@
         "http://localhost:8080",
         "+"
       ],
-      "defaultClientScopes": ["profile", "email"],
+      "defaultClientScopes": ["basic", "profile", "email"],
       "optionalClientScopes": [],
       "protocolMappers": [
         {
