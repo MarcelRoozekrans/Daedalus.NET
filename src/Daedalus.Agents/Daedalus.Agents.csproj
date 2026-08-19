@@ -30,6 +30,7 @@
         <PackageReference Include="Thalos.NET.Sentinel" />
         <PackageReference Include="Thalos.NET.Memory" />
         <PackageReference Include="Thalos.NET.Memory.RagNet" />
+        <PackageReference Include="Thalos.NET.Skills" />
         <PackageReference Include="ZeroAlloc.Mapping" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />
         <PackageReference Include="Microsoft.Extensions.AI" />
