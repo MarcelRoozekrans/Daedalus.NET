@@ -336,6 +336,32 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
   **The red window from Task 5 is closed**: integration goes 354/357 → **359/359** (343 at the 1.2 baseline,
   +14 skill store, +2 migration), build 0 warnings.
 
+- **Task 9 (2026-08-19) — the `TimeProvider` worry from Task 6 was a non-issue, and one plan test asserted the
+  wrong thing.**
+
+  **`TimeProvider` needs no Daedalus registration.** Task 6's amendment flagged that
+  `UseSkillStore<PostgresSkillStore>()` now needs one resolvable from DI. It already is:
+  `SkillThalosBuilderExtensions.cs:93` calls `services.TryAddSingleton(TimeProvider.System)` inside `UseSkills`,
+  and `ThalosServiceCollectionExtensions.cs:19` does the same for the core. Nothing was added — checked rather
+  than assumed, because the failure would only have appeared at first resolve.
+
+  **`SkillOptions.Roots` is `{ get; set; }`**, so per the plan's own note the delegate assigns
+  `o.Roots = [.. resolvedRoots]` instead of clear-and-fill. The assignment happens *after* `section.Bind(o)`
+  precisely because the binder appends to a pre-populated list.
+
+  **The plan's test had a silent assertion bug.**
+  `options.Roots.Should().Equal(root, "roots reach Thalos already resolved to absolute paths")` reads like an
+  assertion with a reason, but `Equal` is a `params` overload — the reason string is consumed as a **second
+  expected element**, so it asserted two roots and failed against the correct single-root result. Corrected to
+  `Equal([root], because)`, with a comment, since the wrong form fails in a way that looks like a product bug.
+
+  **Doc-comment placement trap worth knowing:** inserting the `ConfigureSkills` helper immediately above the
+  line `private static void ConfigureMemory(` puts it *between* `ConfigureMemory`'s XML doc and its signature,
+  so that doc silently re-attaches to `ConfigureSkills` and `CS1734` fires on the now-orphaned
+  `<paramref name="ensureSchema"/>`. Insert above the doc block, not above the signature.
+
+  Application 375 → **381** (+6 facts), unit total **905**, build 0 warnings.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)

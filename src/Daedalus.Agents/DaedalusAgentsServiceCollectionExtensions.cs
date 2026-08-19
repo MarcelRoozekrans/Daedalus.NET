@@ -5,6 +5,7 @@ using AI.Sentinel.Detection;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Sessions;
+using Daedalus.Agents.Skills;
 using Daedalus.Agents.Tools;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
@@ -21,6 +22,7 @@ using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
+using Thalos.Skills;
 
 namespace Daedalus.Agents;
 
@@ -37,12 +39,13 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     Registers Thalos (Anthropic provider, <see cref="PostgresAgentSessionStore"/>, <see cref="DaedalusKnowledgeTools"/>,
     ///     MCP servers from <see cref="DaedalusAgentsOptions.McpConfigPath"/>, the <see cref="DeveloperPolicy"/>, configured
     ///     agents/tool policies, memory (<c>IMemoryService</c> over <see cref="PostgresMemoryStore"/> and the Rag.NET index on
-    ///     the application database) and — when enabled — AI.Sentinel) from the <c>Thalos</c> section of
+    ///     the application database), skills (the catalogue and <c>skills__*</c> tools over <see cref="PostgresSkillStore"/>)
+///     and — when enabled — AI.Sentinel) from the <c>Thalos</c> section of
     ///     <paramref name="configuration"/>, plus the <see cref="AgentSessionCrashRecovery"/> hosted service.
     /// </summary>
     /// <param name="services">The service collection.</param>
-    /// <param name="configuration">Host configuration; <c>Thalos</c>, <c>Thalos:Anthropic</c>, <c>Thalos:Memory</c> and <c>ConnectionStrings:daedalus</c> are read.</param>
-    /// <param name="environment">Used to resolve a relative <see cref="DaedalusAgentsOptions.McpConfigPath"/> against the content root.</param>
+    /// <param name="configuration">Host configuration; <c>Thalos</c>, <c>Thalos:Anthropic</c>, <c>Thalos:Memory</c>, <c>Thalos:Skills</c> and <c>ConnectionStrings:daedalus</c> are read.</param>
+    /// <param name="environment">Used to resolve a relative <see cref="DaedalusAgentsOptions.McpConfigPath"/> and relative <c>Thalos:Skills:Roots</c> against the content root.</param>
     /// <param name="embeddingGenerator">
     ///     Optional embedding generator handed to AI.Sentinel. Without it Sentinel's semantic detectors (prompt injection,
     ///     jailbreak, exfiltration, …) return Clean and only the lexical/operational detectors run — Sentinel logs a warning
@@ -58,7 +61,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     ///     An agent id is neither a ULID nor a GUID, a Sentinel action or detector name is unknown, a <c>Thalos:Memory</c>
-    ///     value is out of range, or memory is already registered on this collection (see <see cref="AddDaedalusMemory"/>).
+    ///     value is out of range, a <c>Thalos:Skills</c> value is out of range or a configured <c>Thalos:Skills:Roots</c>
+    ///     entry does not exist, or memory is already registered on this collection (see <see cref="AddDaedalusMemory"/>).
     /// </exception>
     public static IServiceCollection AddDaedalusAgents(
         this IServiceCollection services,
@@ -101,6 +105,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
         {
             // This host owns the Rag.NET schema: the API is the only host that creates rag_chunks (see AddDaedalusMemory).
             ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: true);
+            // Skills are API-host only: the Ralph console runs no Thalos agents (see AddDaedalusMemory).
+            ConfigureSkills(thalos, configuration.GetSection(SkillsConfig.SectionName), options.Skills, skillRoots);
 
             thalos.UseAnthropic(configuration)
                 .UseSessionStore<PostgresAgentSessionStore>()
@@ -149,6 +155,9 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///         <see cref="AddDaedalusMemory"/> would flip <c>EnsureSchemaOnStartup</c> back to <c>false</c> on the API host
     ///         — nobody would create <c>rag_chunks</c>, every memory would stay <c>index_pending</c>, and nothing would fail
     ///         loudly.
+    ///     </para>
+    ///     <para>
+    ///         No skills either: the Ralph worker runs no Thalos agents, so there is no catalogue to build.
     ///     </para>
     ///     <para>
     ///         <b>The API host owns the Rag.NET schema.</b> This call sets <c>EnsureSchemaOnStartup = false</c>, because the
@@ -249,6 +258,30 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     Registers skills on the Thalos builder: <c>Thalos:Skills</c> → <c>SkillOptions</c> with the roots already
+    ///     resolved to absolute paths, plus the Postgres-backed store. The sync runs once at host start; a malformed
+    ///     document is logged and skipped, but an unreachable store fails start (an agent missing its procedures is
+    ///     worse than a host that does not come up).
+    /// </summary>
+    private static void ConfigureSkills(
+        ThalosBuilder thalos,
+        IConfigurationSection section,
+        SkillsConfig config,
+        IReadOnlyList<string> resolvedRoots)
+    {
+        thalos.UseSkills(o =>
+            {
+                section.Bind(o); // Enabled, Catalogue:MaxChars, Search:TopK/MinScore straight from Thalos:Skills
+                o.Enabled = config.Enabled;
+
+                // Absolute, resolved against the content root: no CWD surprises in tests or containers. Assigned
+                // rather than cleared-and-filled because SkillOptions.Roots is settable and Bind appends to it.
+                o.Roots = [.. resolvedRoots];
+            })
+            .UseSkillStore<PostgresSkillStore>();
+    }
+
+    /// <summary>
     ///     Registers the memory triple on the Thalos builder: <c>Thalos:Memory</c> → <c>MemoryOptions</c>, the Postgres store
     ///     and the Rag.NET index on the application database. <paramref name="ensureSchema"/> decides whether this host
     ///     creates the Rag.NET schema on start — exactly one host may, see the remarks on <see cref="AddDaedalusMemory"/>.
@@ -340,6 +373,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
         Model = agent.Model,
         MaxOutputTokens = agent.MaxOutputTokens,
         Tools = agent.Tools.Count == 0 ? ["*"] : [.. agent.Tools],
+        Skills = [.. agent.Skills],
         Memory = agent.Memory is null ? null : new AgentMemorySettings { Enabled = agent.Memory.Enabled, TopK = agent.Memory.TopK },
     };
 
