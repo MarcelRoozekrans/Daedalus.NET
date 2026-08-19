@@ -487,7 +487,7 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
   does so the message still names the expected location. The `Content` item is what makes the fallback sound —
   it guarantees the folder sits next to the *assembly* in both layouts, whereas the content root only agrees in
   a published app. Note this makes the Task 12 `UseContentRoot` change in `ApiWebApplicationFactory` no longer
-  load-bearing; it is kept because a test host resolving paths the way production does is still correct.
+  load-bearing - and **CI proved it was actively harmful, so it was reverted**. See the Task 20 entry.
 
   **The regression test moved projects, for the reason Task 10 recorded.** It first went into
   `DaedalusAgentsRegistrationTests`, where its own precondition failed —
@@ -547,6 +547,36 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
   **Left open:** `AgentEndpointsSmokeTests` substitutes `HeaderTestAuthHandler`, so the real Keycloak claim
   shape is exercised by no test at all — which is why a defect that broke every session endpoint against real
   auth survived phases 1.1 and 1.2. Worth a test that boots against real claims.
+
+- **Task 20 (2026-08-19) — CI caught a regression introduced by this phase's own Task 12 fix.**
+  `AgentEndpointsSmokeTests.Agents_endpoint_lists_the_configured_agent` failed on PR #240 with
+  *"Expected agents to contain a single item, but the collection is empty"* — while passing locally,
+  361/361, on every run.
+
+  **Cause:** Task 12 pointed `ApiWebApplicationFactory` at `UseContentRoot(AppContext.BaseDirectory)` so
+  the test host would find `skills/`. But the API reads `appsettings.json` from its content root, and
+  **Api, Console and Web each ship one**, so in a shared output directory whichever copies last wins —
+  the exact race `Daedalus.Tests.Unit` avoids by linking them under unambiguous names. Locally the API's
+  file won and the agent list was populated; on the CI runner another won, `Thalos:Agents` was absent,
+  and the endpoint returned nothing. A non-deterministic dependency only a different machine could expose.
+
+  **Fix: revert the `UseContentRoot` call.** It is not needed at all — Task 19's `ResolveSkillRoots`
+  fallback to `AppContext.BaseDirectory` resolves skills from the project-directory content root, the
+  same fallback that makes `dotnet run` work. The factory now carries a comment saying why the content
+  root must *not* be repointed. Verified: the six smoke tests pass, which simultaneously proves skills
+  still resolve. Integration 361, unit 910, build 0 warnings.
+
+  **The lesson worth keeping:** Task 12 fixed a real symptom — the fail-fast root validation firing in
+  the test host — at the wrong layer, and the correct fix only became visible at Task 19 when the same
+  mismatch appeared in a *development* host. Changing the test to match the production path looked
+  right and was wrong; the production path was what needed to change.
+
+- **Task 20 (cont.) — the auth fix was split out.** On review the Keycloak `basic`-scope commit was
+  moved to its own branch `fix/keycloak-basic-scope`, rebased onto `main`, and opened as **PR #239**
+  (one commit, one file, two lines). Phase 1.3 ships as **PR #240** with `keycloak-realm.json`
+  byte-identical to `main`. The skills work never depended on it; what it unblocks is the manual
+  step-3 verification against real auth. Pre-push review: **PASS**, 0 blockers, 0 warnings —
+  `docs/pre-push-review-2026-08-19-1830.md`.
 
 ---
 
