@@ -64,6 +64,9 @@ public static class AgentDtoMapper
     ///     Maps a streaming event to its SSE payload; <see cref="AgentEventDto.Kind"/> is the SSE event name. The five
     ///     <c>memory-*</c> events (Thalos.NET.Memory) carry <see cref="AgentEventDto.Memory"/>; an event type this adapter does
     ///     not know yet is passed through by kind only, so a newer Thalos never kills the SSE stream.
+    ///     <c>skill-catalogue-failed</c> (Thalos.NET.Skills) rides that path on purpose: skills have no UI, the catalogue
+    ///     provider logs the failure and the turn proceeds without a catalogue, so there is nothing for a client to
+    ///     render beyond the kind.
     /// </summary>
     public static AgentEventDto ToDto(AgentEvent agentEvent)
     {

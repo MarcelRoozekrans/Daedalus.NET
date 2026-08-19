@@ -203,7 +203,380 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
 
 *(Executor: append one bullet per task, in this style: what deviated from the plan, why, and the resulting fact counts. Future tasks read this section, so record anything the plan's later code depends on — renamed API members above all. Do not silently "fix" the plan text; record the deviation.)*
 
-- **Task N (date) — …**
+- **Task 1 (2026-08-19) — the preferred pin path, no fallback.** Thalos.NET 0.3.0 went to nuget.org
+  earlier the same day (Plan A Task 25), so §0.2's preferred path applied verbatim: eight pins bumped
+  `0.2.0 → 0.3.0`, `Thalos.NET.Skills` added as the ninth, `nuget.config` untouched and still
+  nuget.org-only. **No local pack, no `thalos-local` source, no `packages-local/` folder ever existed
+  this phase**, so §0.2's removal gate is moot from the start — exactly as it turned out in 1.2.
+  `dotnet restore --force-evaluate` raised no `NU1109`/`NU1010`, so the `Npgsql 10.0.3` floor was the
+  only transitive pin in play and it was already set. Build: **0 warnings**. The predicted single
+  breakage is the only breakage: `Every_AgentErrorCode_value_has_an_explicit_mapping_test` fails
+  `Expected … 18 item(s), but found 22`. Suite totals unchanged otherwise — Domain 255, Application 368,
+  Infrastructure 130, Unit 114/115.
+
+- **Task 2 (2026-08-19) — confirmation, no substitutions.** Reconciled against the **published** package
+  (`~/.nuget/packages/thalos.net.*/0.3.0/lib/net10.0/*.xml`) and cross-checked against Thalos.NET HEAD
+  `2e23e4c`. **All six §0.5b deltas hold and no seventh was found, so no substitutions were applied to
+  Tasks 4, 6, 8, 9 or 13.** The seven Step 3 confirmations, so later tasks need not re-derive them:
+
+  1. Namespace `Thalos.Skills` for `SkillName`/`SkillDocument`/`ISkillStore`/`SkillQuery`/`SkillOptions`;
+     `AgentErrorCode.Skill*`, the four `AgentError.Skill*` factories and `SkillCatalogueFailedEvent`
+     in `Thalos`. `AgentEventKinds.SkillCatalogueFailed = "skill-catalogue-failed"`.
+  2. `UseSkills(Action<SkillOptions>)`, `UseSkills(IConfiguration)`, `UseSkillStore<T>()` and
+     `UseSkillIndex<T>()` all live on `Thalos.Skills.SkillThalosBuilderExtensions`, extending
+     `Thalos.ThalosBuilder`. Task 9 keeps the delegate overload (§0.5b delta 6 reasoning stands).
+  3. `SkillOptions` carries `SectionName`, `Enabled`, `Roots`, `Catalogue`, `Search`, `ExposeTools`,
+     `SyncOnStartup`. `Catalogue` is `SkillCatalogueOptions { MaxChars }`; `Search` is
+     `SkillSearchOptions { TopK, MinScore }`.
+  4. `SkillSyncService : IHostedLifecycleService`, work in `StartingAsync` — before any other hosted
+     service, so Task 11's `host.StartAsync()` does trigger it.
+  5. `AgentDefinition.Skills` is `IReadOnlyList<string>` defaulting to **`[]`**, not `["*"]` — the
+     opposite of `Tools`, deliberately, because a catalogue costs tokens every turn. Task 8's mapping
+     must not copy `Tools`' `["*"]` fallback.
+  6. `SkillStoreContractTests` exposes `protected abstract ValueTask<ISkillStore> CreateStoreAsync(TimeProvider clock)`
+     and carries **12** `[Fact]`/`[Theory]` attributes.
+  7. Limits (all `public const` on `SkillDocument`, plus `SkillName.MaxLength`): description **300**,
+     body **65536** (64 KiB), tags **10** × **32** chars, source path **512**, name **64**.
+
+  **Two facts the plan did not state, recorded because later tasks depend on them.** First,
+  `SkillDocument.ContentHash` is `[NotEmpty]` with **no `MaxLength`** in the library — the doc comment
+  says lower-case hex SHA-256, i.e. 64 chars — so §0.6-8's Daedalus-side ≤128 cap constrains nothing the
+  library would have allowed through at a realistic length, and stays as written. Second,
+  `SkillName.CompareTo` is `string.CompareOrdinal`, which independently corroborates the §0.5b ordering
+  constraint: **Task 6's `ListAsync` must not order under a culture collation.** Deviation §0.6-7 also
+  needs no relaxation after all — the library's tag limits are exactly `AgentMemory`'s 10 × 32.
+
+  `SkillQuery.Tags` is confirmed **AND** semantics (every requested tag must be present, each normalised
+  through `SkillRules.NormalizeTag` before an ordinal `Contains`), which is what Task 6's Daedalus-side
+  facts assert.
+
+- **Task 4 (2026-08-19) — §0.5b delta 1 is not implementable in Domain, and the task body already knew it.**
+  Delta 1 says "normalise through `SkillName.TryParse` in `Skill.Create`". **That cannot compile.**
+  `SkillName` lives in `Thalos.Skills`; `Daedalus.Domain.csproj` references only `CSharpFunctionalExtensions`,
+  and `CleanArchitectureTests.DomainLayer_ShouldNotDependOn_Thalos` fails the build if it ever did. Task 4's
+  own spec is the correct one and was followed verbatim: `IsValidName` **mirrors** the rule
+  (`^[a-z][a-z0-9_-]{0,63}$`) in the aggregate, exactly as `AgentMemory` mirrors `MemoryRules`, and the
+  aggregate **rejects** a non-normalised name rather than normalising it — which is why
+  `Create_rejects_invalid_names` lists `"Daedalus"` as invalid instead of expecting `"daedalus"` back.
+
+  **Consequence Task 6 must honour:** normalisation happens *upstream*, in the library, before Daedalus ever
+  sees the value. `PostgresSkillStore` must therefore pass `document.Name.Value` (already trimmed and
+  lower-cased by `SkillName.TryParse`) straight into `Skill.Create`. Passing a raw model- or file-supplied
+  string instead would hit the aggregate's rejection and surface as `SkillValidationFailed` on a name the
+  library considered perfectly valid. Delta 1's *worry* was real — aggregate and document must not disagree
+  on case — but the fix belongs at the boundary, not in Domain.
+
+- **Task 4 (cont.) — `MaxSourcePathLength` is deliberately looser than the library's.** The aggregate caps
+  source paths at **1024** while `SkillDocument.MaxSourcePathLength` is **512**, so Daedalus can never reject
+  a path the library already accepted. Same shape as §0.6-8's `ContentHash` ≤ 128 against a 64-char hex hash:
+  where the library validates first, the Daedalus-side cap exists only to keep a `varchar` from truncating,
+  so erring wide is correct. The plan's test asserts the `"1024"` message, which pins it.
+
+  Suite: Domain 255 → **275** (+20 facts), build 0 warnings, whole unit filter green at 892.
+
+- **Task 6 (2026-08-19) — three deviations, one of them a plan error the contract caught.**
+  14/14 green (12 contract facts + the 2 Daedalus ones).
+
+  1. **`DeactivateMissingAsync` must stamp the clock; the plan said it must not.** The plan's snippet carried
+     the comment "UpdatedAt is not bumped, because nothing about the document changed", and the test file's
+     `CreateStoreAsync` said "the store needs no clock". Both are wrong:
+     `DeactivateMissing_only_touches_active_unseen_skills_and_stamps_the_clock` asserts the deactivated row's
+     `UpdatedAt` equals the time of the sweep that deactivated it. **The contract wins** (§0.6-7's principle).
+     `PostgresSkillStore` now takes a `TimeProvider` — matching `PostgresMemoryStore`'s shape after all — and
+     the `ExecuteUpdateAsync` sets `UpdatedAt` alongside `IsActive`. The existing `WHERE IsActive` filter is
+     what satisfies the second half of that fact, "an already-inactive skill is not stamped again": a later
+     sweep cannot match a row it already deactivated. **Task 9 must therefore have a `TimeProvider` resolvable
+     from DI** for `UseSkillStore<PostgresSkillStore>()` to construct.
+  2. **Ordering is client-side and deliberately not SQL.** §0.5b's warning was correct and
+     `List_orders_ordinally_not_by_culture_collation` is the fact that would have caught it. Rather than
+     `ORDER BY name COLLATE "C"`, `ListAsync` materialises and sorts with `string.CompareOrdinal`: filtering
+     stays in SQL, the table is repo-sized, and the result cannot depend on the server's collation at all.
+     Verified green against the real `pgvector/pgvector:pg16` container, not reasoned about.
+  3. **Two §0.5b substitutions the plan's own snippets had not absorbed**: `new SkillName(x)` → `SkillName.Parse(x)`
+     (delta 1 — the constructor is private) in `ToDocument`, and `AgentError.SkillNotFound(name)` →
+     `SkillNotFound(key)` (delta 4 — it takes a `string`). The test file also drops its local `NewDocument`
+     helper in favour of the base class's `NewClock()`/`NewSkill(...)`, which the plan's own note prefers and
+     which sidesteps the private constructor entirely.
+
+- **Task 6 (cont.) — the blocker the plan never anticipated: AwesomeAssertions 7 → 9.5.0.**
+  Every one of the 12 inherited contract facts failed with
+  `FileNotFoundException: Could not load file or assembly 'AwesomeAssertions, Version=9.5.0.0'` while the two
+  Daedalus-authored facts passed — the tell that the fault was in the *inherited* assembly, not in the store.
+  **`Thalos.NET.Testing` 0.3.0 depends on AwesomeAssertions 9.5.0** (Plan A Task 1's major bump), and Daedalus
+  pinned **7.0.0**; under CPM the explicit pin wins and downgrades the transitive dependency, so the contract
+  base class could not load at runtime. This is a consequence of consuming 0.3.0 that **Plan B's §0.2 does not
+  mention** — it only anticipated `Npgsql` floors.
+
+  The migration mirrors Plan A Task 1 exactly: bump the pin, then rename the namespace `FluentAssertions` →
+  `AwesomeAssertions` in the seven `tests/*/GlobalUsings.cs` files and one stray `using` in
+  `GitChangeApplierTests`. **Exactly one real API break across ~900 tests**: `BeLessOrEqualTo` is
+  `BeLessThanOrEqualTo` in v9 (`WorkspaceOrchestratorTests.cs:345`). Full unit filter green afterwards at
+  **899**, 0 warnings — so Plan A's "only the namespace rename, no behavioural change" holds for Daedalus too,
+  with that one rename on top.
+
+- **Task 8 (2026-08-19) — two analyzer traps, no pragmas.** `S3267` rejected the missing-root `foreach`
+  (rewritten as `FirstOrDefault`), and `S4144` caught the new theory being byte-identical to
+  `Out_of_range_memory_settings_fail_fast_naming_the_key`. The skills theory now asserts the **section name**
+  as well as the member, which is a genuinely stronger assertion: the weaker form would have passed on a
+  message naming `Thalos:Memory`. Application 368 → **375**.
+
+  **Known-red window, by design:** with `DbSet<Skill>` in the model and no migration yet, the three
+  `AddAgentMemoriesMigrationTests` fail with EF 10's `PendingModelChangesWarning` (§0.1 documents exactly this).
+  Integration therefore sits at **354/357** until Task 7 scaffolds `AddSkills`. The 14 skill-store facts are green.
+
+- **Task 7 (2026-08-19) — the scaffolder produced exactly the predicted shape; nothing to reconcile.**
+  `20260819152830_AddSkills`. The plan's "Expected `Up`" block matches the generated file column for column,
+  including `Tags` as `List<string>`/`text[]` and `Name` as the `character varying(64)` primary key. **No
+  `CA1861` pragma was needed** — that rule fires on a `new[]` column array and a single-column index does not
+  emit one, exactly as the plan predicted. The scaffolder *did* write a UTF-8 BOM (`AddAgentMemories` has
+  none), so it was stripped to match the repo convention. No `MigrationsModelDiffer` `NullReferenceException`:
+  1.3 removes no mapped type, so the both-directions diff had nothing historical to re-create.
+
+  Both facts green first run, including the rollback past `AddSkills` to `_AddAgentSessions` and forward again.
+  **The red window from Task 5 is closed**: integration goes 354/357 → **359/359** (343 at the 1.2 baseline,
+  +14 skill store, +2 migration), build 0 warnings.
+
+- **Task 9 (2026-08-19) — the `TimeProvider` worry from Task 6 was a non-issue, and one plan test asserted the
+  wrong thing.**
+
+  **`TimeProvider` needs no Daedalus registration.** Task 6's amendment flagged that
+  `UseSkillStore<PostgresSkillStore>()` now needs one resolvable from DI. It already is:
+  `SkillThalosBuilderExtensions.cs:93` calls `services.TryAddSingleton(TimeProvider.System)` inside `UseSkills`,
+  and `ThalosServiceCollectionExtensions.cs:19` does the same for the core. Nothing was added — checked rather
+  than assumed, because the failure would only have appeared at first resolve.
+
+  **`SkillOptions.Roots` is `{ get; set; }`**, so per the plan's own note the delegate assigns
+  `o.Roots = [.. resolvedRoots]` instead of clear-and-fill. The assignment happens *after* `section.Bind(o)`
+  precisely because the binder appends to a pre-populated list.
+
+  **The plan's test had a silent assertion bug.**
+  `options.Roots.Should().Equal(root, "roots reach Thalos already resolved to absolute paths")` reads like an
+  assertion with a reason, but `Equal` is a `params` overload — the reason string is consumed as a **second
+  expected element**, so it asserted two roots and failed against the correct single-root result. Corrected to
+  `Equal([root], because)`, with a comment, since the wrong form fails in a way that looks like a product bug.
+
+  **Doc-comment placement trap worth knowing:** inserting the `ConfigureSkills` helper immediately above the
+  line `private static void ConfigureMemory(` puts it *between* `ConfigureMemory`'s XML doc and its signature,
+  so that doc silently re-attaches to `ConfigureSkills` and `CS1734` fires on the now-orphaned
+  `<paramref name="ensureSchema"/>`. Insert above the doc block, not above the signature.
+
+  Application 375 → **381** (+6 facts), unit total **905**, build 0 warnings.
+
+- **Task 10 (2026-08-19) — the copy lands in all four hosts the plan lists; §0.1 is wrong about a fifth.**
+  `Get-ChildItem`-equivalent over the output directories gives **2 SKILL.md each** for `Daedalus.Api`,
+  `Tests.Unit`, `Tests.Integration` and `Tests.Playwright.Browser` — the four Step 5 names — so the
+  transitive `Content` copy works and no `<None>` + per-project `<Content Include>` fallback was needed.
+
+  **`Daedalus.Tests.Unit.Application` gets 0, and that is correct.** §0.1 lists it among the projects that
+  reference `Daedalus.Api` "(transitively)"; it does not — its `ProjectReference`s are Domain, Application,
+  Infrastructure and **Agents**. No action needed: that project's registration tests deliberately run with
+  `ContentRootPath = Path.GetTempPath()` and rely on roots defaulting to empty (§0.6-2), and the one Task 9
+  fact that needs a real root creates its own temp directory. Recorded so nobody "fixes" it later.
+
+  **`.dockerignore` verified, not assumed.** Rather than a full API image build, a throwaway
+  `alpine` + `COPY . /ctx` build against the same context proves both files arrive:
+  `/ctx/skills/daedalus-migrations/SKILL.md` and `/ctx/skills/thalos-release/SKILL.md`. Docker's `*.md`
+  genuinely does not cross `/`, and the explicit `!skills/` re-include is belt-and-braces.
+
+  Both procedures are ones this milestone actually executed by hand, and both gained a section from what
+  went wrong: `daedalus-migrations` documents the `PendingModelChangesWarning` window between adding a
+  `DbSet` and scaffolding, and `thalos-release` documents the skipped second release-please dispatch and
+  the nuget.org indexing lag — the two traps that cost real time this phase.
+
+- **Tasks 11 + 12 (2026-08-19) — done together, in the other order, and §0.6-3 caught a real bug.**
+
+  **Order swapped deliberately.** Task 11's own unit fact
+  `Appsettings_points_the_skill_roots_at_the_shipped_folder` asserts configuration that **Task 12** adds, and
+  its startup test boots on that same file. Task 12's appsettings edit therefore ran first. Committed together
+  because neither half is green alone.
+
+  **The fail-fast root validation found a real mismatch — exactly the failure it was written for.** With
+  `Thalos:Skills:Roots: ["skills"]` shipped, six `AgentEndpointsSmokeTests` broke:
+  `WebApplicationFactory` defaults the content root to the **project** directory (`src/Daedalus.Api`), while
+  the skills are authored at the repo root and only *copied* to the **output** directory. So `"skills"`
+  resolved to `src/Daedalus.Api/skills`, which does not exist, and registration threw. In production the API's
+  content root *is* the publish directory, so this was purely a test-host mismatch — but a silent one:
+  without §0.6-3's check the six tests would have passed with an agent that had no procedures at all.
+
+  **Fixed at the cause, not the symptom:** `ApiWebApplicationFactory` now calls
+  `UseContentRoot(AppContext.BaseDirectory)`, so the test host resolves the same relative paths it resolves in
+  production, and it matches how `SkillsStartupTests` boots. Disabling skills for those tests, or pointing
+  `Roots` at an absolute bin path, would both have left the content root lying about where its content is —
+  and `.mcp.json` is resolved the same way.
+
+  `Daedalus.Tests.Integration` also needed the `Daedalus.Api.appsettings.json` link the plan flagged as
+  possibly missing; it was.
+
+  **One analyzer trap:** `MA0006` on `rows.Single(r => r.Id == "…")` — LINQ-to-objects needs
+  `string.Equals(..., StringComparison.Ordinal)`. The identical comparison one line earlier is fine because it
+  is an EF expression tree.
+
+  Unit 905 → **907**, integration 359 → **361**, build 0 warnings.
+
+- **Task 13 (2026-08-19) — the characterisation test was watched failing.** It passes on arrival, as the plan
+  predicted, so to prove it is load-bearing a temporary arm mapping the event into `AgentEventDto.ErrorCode`
+  was added: the fact then failed with *"Expected dto.ErrorCode to be null … but found \"SkillStoreFailed\""* —
+  precisely the rendering §0.6-6 forbids. Arm reverted; `git diff` confirmed byte-clean.
+
+- **Task 14 (2026-08-19) — both directions proven, and the exact failure message is worth quoting.**
+  The known-positive fact was added **before** touching `ThalosAssemblies` and failed with
+  *"There are no objects matching the criteria"* — the vacuous-pass signature. After adding
+  `typeof(ISkillStore).Assembly`, ArchUnit facts go 19 → **20** and it passes.
+
+  Step 4's negative proof needed more than the plan implies: `Daedalus.Application` has **no Thalos package
+  reference at all**, so a `using Thalos.Skills;` there does not merely violate the rule, it does not compile.
+  The probe therefore had to add a temporary `<PackageReference Include="Thalos.NET.Skills" />` to
+  `Daedalus.Application.csproj` alongside the probe type. With both in place
+  `ApplicationLayer_ShouldNotDependOn_Thalos` failed naming it exactly:
+  *"Daedalus.Application.TemporaryArchProbe does depend on Thalos.Skills.ISkillStore"* — so the boundary rules
+  genuinely bite for skills types now, not just for the pre-existing Thalos assemblies. Probe and package
+  reference both reverted; `git status` on the project confirmed clean.
+
+  Unit 907 → **909** (Application +1 for the SSE fact, Unit +1 for the ArchUnit fact), build 0 warnings.
+
+- **Tasks 15 + 16 (2026-08-19) — README and diagrams, claims verified against the library.** Three README
+  statements were checked in `Thalos.NET.Skills` source rather than taken from the plan: the `"… and N more"`
+  overflow line (`SkillCatalogue.cs`), search degrading to *"Skill search is unavailable"* with the catalogue
+  still authoritative (`SkillTools.cs:26,98`), and out-of-glob / unknown / inactive all routing through a single
+  `UnknownText(name)` so none can probe the others. The **concurrent-sync caveat Plan A Task 24 assigned to
+  Plan B** is in the README's operational notes, as agreed with the user.
+
+- **Task 17 (deferred, deliberately).** The plan has it flip ROADMAP and MILESTONE to
+  `complete (2026-08-18)` *before* the regression run, the AppHost smoke and the PR. That would record
+  something untrue, and `complete-phase` — the project-orchestration sub-skill that owns those two files — is
+  gated on every plan task being checked off. **Task 17 is therefore folded into Task 21**, where the status
+  flip and the STATE handoff both become true at once.
+
+- **Task 18 (2026-08-19) — all four gates green, and `dotnet format` moved nothing semantic.**
+  `git diff -w --ignore-blank-lines` reduced the format diff to **six** lines, every one of them the
+  `global using AwesomeAssertions;` line moving up to its alphabetical position — a consequence of the Task 6
+  rename having replaced `FluentAssertions` in place. No BOM stripping was needed (the migration's was already
+  removed by hand in Task 7) and the migration did not reflow.
+
+  | Suite | 1.2 baseline | Now |
+  |---|---|---|
+  | build | 0 warnings | **0 warnings** |
+  | unit | 868 | **909** (Domain 275, Application 382, Infrastructure 130, Unit 122) |
+  | integration | 343 | **361** |
+  | browser | 99, `Skipped: 0` | **99, `Skipped: 0`** |
+
+  The browser number is unchanged **and that is the point**: the browser host calls `AddDaedalusAgents`, so
+  Task 9's root validation runs there too. A `Content` copy that had not reached
+  `Daedalus.Tests.Playwright.Browser` would have failed host start and taken the whole suite down rather than
+  skipping quietly — the 1.2 failure mode this phase was explicitly watching for. `Skipped: 0` confirms the
+  Agent category really ran.
+
+- **Task 19 (2026-08-19) — the smoke run earned its place: it found a bug every other gate was blind to.**
+
+  **The bug.** With `Thalos:Skills:Roots: ["skills"]` shipped, `Daedalus.Api` **failed to start under
+  `dotnet run` / Aspire**:
+
+  ```
+  Unhandled exception. System.InvalidOperationException: Thalos:Skills:Roots contains
+  'C:\Projects\Prive\daedalus\src\Daedalus.Api\skills', which is not an existing directory.
+  ```
+
+  In development ASP.NET roots the content at the **project** directory, but `skills/` is authored at the repo
+  root and only ever *copied* to the **output** directory. Every other gate was green: the container image works
+  (content root *is* the output directory there), and all 1 270 tests passed because the test hosts had been
+  pointed at their own output in Tasks 11–12. **Only a real host start could see it** — which is exactly the
+  argument the task text makes about 1.2 skipping this twice.
+
+  **The fix** is in `ResolveSkillRoots`: resolve a relative root against the content root, fall back to
+  `AppContext.BaseDirectory` when that does not exist, and keep the content-root path in the error when neither
+  does so the message still names the expected location. The `Content` item is what makes the fallback sound —
+  it guarantees the folder sits next to the *assembly* in both layouts, whereas the content root only agrees in
+  a published app. Note this makes the Task 12 `UseContentRoot` change in `ApiWebApplicationFactory` no longer
+  load-bearing - and **CI proved it was actively harmful, so it was reverted**. See the Task 20 entry.
+
+  **The regression test moved projects, for the reason Task 10 recorded.** It first went into
+  `DaedalusAgentsRegistrationTests`, where its own precondition failed —
+  `Daedalus.Tests.Unit.Application` does **not** get the skills copy, because it references `Daedalus.Agents`
+  rather than `Daedalus.Api`. §0.1's "(transitively)" claim biting for real. It now lives in
+  `ApiThalosConfigurationTests` (`Daedalus.Tests.Unit`), which does get the copy. One analyzer trap on the way:
+  `S3220`, because `Should().Equal([expected])` with a single-element collection expression is ambiguous
+  between the `params` and `IEnumerable` overloads — rewritten as `ContainSingle().Which.Should().Be(...)`.
+
+  **Steps 1–2 pass.** After the fix, `Daedalus.Api.exe` starts under Aspire and the real Postgres holds **two
+  active rows**, synced through the real migrations runner (`20260819152830_AddSkills` applied) rather than
+  Testcontainers. Unit 909 → **910**.
+
+  **Plan expectation corrected:** the task predicts "absolute `SourcePath`s under the API's content root". The
+  library stores them **relative to the root** (`daedalus-migrations/SKILL.md`). Not a bug — the expectation
+  was wrong.
+
+  **Step 3 done — after fixing a phase-1.1 auth defect that blocked it.** The agent-facing half now passes on a
+  real Anthropic key (which was in the AppHost's user secrets all along; an earlier note in this session claiming
+  the step was blocked on a missing key was wrong):
+
+  - *"What procedures do you have available?"* → named **both**, with their descriptions, and
+    `toolCalls == []`. The catalogue reaches the model through the instructions, exactly as designed.
+  - *"How do I add a migration here? Follow the project procedure."* → `toolName: skills__load`,
+    `argumentsJson: {"name":"daedalus-migrations"}`, `succeeded: true`, and a `resultPreview` beginning
+    `<skill name="daedalus-migrations">` — the body wrapped in the block §14 documents. The answer then followed
+    the shipped file.
+
+  No screenshots: this was verified through the REST API rather than the Blazor page, so the transcripts are the
+  evidence and the exact tool call is recorded here instead.
+
+  **The blocker was a real defect, unrelated to skills, and is fixed.** With a valid token,
+  `GET /api/agents` answered **200** while every `AgentSessionsController` endpoint answered **401** — despite
+  both controllers carrying an identical `[Authorize(Policy = "AgentUse")]` that is nothing but
+  `RequireAuthenticatedUser()`.
+
+  The decisive clue was that **the 401 carried no `WWW-Authenticate` header**: a JWT rejection always emits one,
+  so authentication was succeeding and the 401 came from application code — `HttpSecurityContextFactory.TryCreate`
+  returning false. It does so because the token had **no `sub` claim**, so `ClaimsSecurityContext.Id` fell
+  through `sub` → `ClaimTypes.NameIdentifier` → `Identity.Name` to `AnonymousId`. That check is working as
+  designed; its own doc says it exists so Thalos cannot create sessions owned by the anonymous id.
+  `AgentsController` still answered 200 because a validated-but-subject-less token satisfies
+  `RequireAuthenticatedUser()`.
+
+  **Root cause:** `keycloak-realm.json` gave both clients `defaultClientScopes: ["profile", "email"]`, omitting
+  Keycloak's built-in **`basic`** scope — where `sub` moved in Keycloak 24+. Confirmed by the scope being
+  un-requestable: asking for `scope=basic` was rejected outright, because the client had none assigned to opt
+  into. **Fix:** add `basic` to both clients. Verified: the token now carries
+  `sub`, and `/api/agents/sessions` answers **200**.
+
+  Two things this investigation got wrong before landing, recorded so the next reader does not repeat them:
+  roles were never broken (the explicit `realm-roles-mapper` writes them to a claim named `roles`, not
+  `realm_access.roles` — all six were present all along), so the fix needed `basic` only; and the first
+  verification attempt silently tested nothing, because **Aspire reuses an existing Keycloak container** and the
+  realm is only imported on a fresh one — `docker rm -f` the realm container or the change never lands.
+
+  **Left open:** `AgentEndpointsSmokeTests` substitutes `HeaderTestAuthHandler`, so the real Keycloak claim
+  shape is exercised by no test at all — which is why a defect that broke every session endpoint against real
+  auth survived phases 1.1 and 1.2. Worth a test that boots against real claims.
+
+- **Task 20 (2026-08-19) — CI caught a regression introduced by this phase's own Task 12 fix.**
+  `AgentEndpointsSmokeTests.Agents_endpoint_lists_the_configured_agent` failed on PR #240 with
+  *"Expected agents to contain a single item, but the collection is empty"* — while passing locally,
+  361/361, on every run.
+
+  **Cause:** Task 12 pointed `ApiWebApplicationFactory` at `UseContentRoot(AppContext.BaseDirectory)` so
+  the test host would find `skills/`. But the API reads `appsettings.json` from its content root, and
+  **Api, Console and Web each ship one**, so in a shared output directory whichever copies last wins —
+  the exact race `Daedalus.Tests.Unit` avoids by linking them under unambiguous names. Locally the API's
+  file won and the agent list was populated; on the CI runner another won, `Thalos:Agents` was absent,
+  and the endpoint returned nothing. A non-deterministic dependency only a different machine could expose.
+
+  **Fix: revert the `UseContentRoot` call.** It is not needed at all — Task 19's `ResolveSkillRoots`
+  fallback to `AppContext.BaseDirectory` resolves skills from the project-directory content root, the
+  same fallback that makes `dotnet run` work. The factory now carries a comment saying why the content
+  root must *not* be repointed. Verified: the six smoke tests pass, which simultaneously proves skills
+  still resolve. Integration 361, unit 910, build 0 warnings.
+
+  **The lesson worth keeping:** Task 12 fixed a real symptom — the fail-fast root validation firing in
+  the test host — at the wrong layer, and the correct fix only became visible at Task 19 when the same
+  mismatch appeared in a *development* host. Changing the test to match the production path looked
+  right and was wrong; the production path was what needed to change.
+
+- **Task 20 (cont.) — the auth fix was split out.** On review the Keycloak `basic`-scope commit was
+  moved to its own branch `fix/keycloak-basic-scope`, rebased onto `main`, and opened as **PR #239**
+  (one commit, one file, two lines). Phase 1.3 ships as **PR #240** with `keycloak-realm.json`
+  byte-identical to `main`. The skills work never depended on it; what it unblocks is the manual
+  step-3 verification against real auth. Pre-push review: **PASS**, 0 blockers, 0 warnings —
+  `docs/pre-push-review-2026-08-19-1830.md`.
 
 ---
 
@@ -2253,17 +2626,17 @@ PR body: what shipped, the §0.6 deviations (especially the fail-fast root valid
 
 ## Definition of done (= phase 1.3 done)
 
-- [ ] Thalos.NET **0.3.0** consumed from nuget.org; nine `PackageVersion` pins; no local feed anywhere in the tree.
-- [ ] Four `AgentErrorCode.Skill*` codes mapped to HTTP; the exhaustiveness guard pins 22.
-- [ ] `Skill` aggregate (Thalos-free) + EF configuration + `DbSet` + migration `AddSkills` with a migration test that also rolls the chain back and forward.
-- [ ] `PostgresSkillStore` green against `Thalos.Testing.SkillStoreContractTests` on Testcontainers, plus Daedalus facts for AND tag filtering and validation-vs-store errors.
-- [ ] `AddDaedalusAgents` registers skills; `AddDaedalusMemory` provably does not; a configured-but-missing root fails registration naming the path.
-- [ ] `skills/daedalus-migrations` and `skills/thalos-release` exist, are copied into the API and all three test hosts, and **load into Postgres on a real host start** (integration test) — with a unit fact pinning the copy in the no-Docker CI job.
-- [ ] `appsettings.json` carries `Thalos:Skills`, the agent's `Skills: ["*"]` and `skills__*` in `Tools`; the pinned configuration test is updated.
-- [ ] `skill-catalogue-failed` passes through as kind-only, pinned by a test that says why.
-- [ ] ArchUnit loads `Thalos.NET.Skills` with a proof fact that failed before the assembly was added.
+- [x] Thalos.NET **0.3.0** consumed from nuget.org; nine `PackageVersion` pins; no local feed anywhere in the tree.
+- [x] Four `AgentErrorCode.Skill*` codes mapped to HTTP; the exhaustiveness guard pins 22.
+- [x] `Skill` aggregate (Thalos-free) + EF configuration + `DbSet` + migration `AddSkills` with a migration test that also rolls the chain back and forward.
+- [x] `PostgresSkillStore` green against `Thalos.Testing.SkillStoreContractTests` on Testcontainers, plus Daedalus facts for AND tag filtering and validation-vs-store errors.
+- [x] `AddDaedalusAgents` registers skills; `AddDaedalusMemory` provably does not; a configured-but-missing root fails registration naming the path.
+- [x] `skills/daedalus-migrations` and `skills/thalos-release` exist, are copied into the API and all three test hosts, and **load into Postgres on a real host start** (integration test) — with a unit fact pinning the copy in the no-Docker CI job.
+- [x] `appsettings.json` carries `Thalos:Skills`, the agent's `Skills: ["*"]` and `skills__*` in `Tools`; the pinned configuration test is updated.
+- [x] `skill-catalogue-failed` passes through as kind-only, pinned by a test that says why.
+- [x] ArchUnit loads `Thalos.NET.Skills` with a proof fact that failed before the assembly was added.
 - [ ] README, `docs/architecture-diagrams.md` §14 and the planning docs updated.
-- [ ] `dotnet build` 0 warnings; unit, integration and browser suites green with **`Skipped: 0`** in the browser run; AppHost smoke run done and recorded.
+- [x] `dotnet build` 0 warnings; unit, integration and browser suites green with **`Skipped: 0`** in the browser run; AppHost smoke run done and recorded.
 - [ ] Pre-push review PASS, PR merged, CI green (including the three image builds), #229 closed, `complete 1.3` run.
 
 ---

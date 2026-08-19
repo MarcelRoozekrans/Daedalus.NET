@@ -1,6 +1,6 @@
+using AwesomeAssertions;
 using CSharpFunctionalExtensions;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
-using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Task = System.Threading.Tasks.Task;

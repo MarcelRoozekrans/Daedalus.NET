@@ -43,6 +43,13 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Agent skills (Thalos:Skills:Roots) are authored at the repo root so git is the source of truth. Copied next
+             to the API and, through the project reference, into every test host that calls AddDaedalusAgents - the same
+             mechanism as .mcp.json. Content items flow transitively to referencing projects; None items do not. -->
+        <Content Include="..\..\skills\**\SKILL.md" Link="skills\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="../Daedalus.Domain/Daedalus.Domain.csproj" />
         <ProjectReference Include="../Daedalus.Application/Daedalus.Application.csproj" />
         <ProjectReference Include="../Daedalus.Infrastructure/Daedalus.Infrastructure.csproj" />

@@ -21,6 +21,14 @@ internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRu
     {
         builder.UseEnvironment("Development");
 
+        // The content root stays WebApplicationFactory's default — the project directory, src/Daedalus.Api — and must
+        // not be repointed at the test output. Api, Console and Web each ship an appsettings.json, so in the output
+        // directory whichever copies last wins: pointing the content root there makes the host read a non-deterministic
+        // appsettings.json, and the agent list silently comes back empty on whichever machine loses the race. That
+        // passed locally and failed in CI. Skills still resolve from here because ResolveSkillRoots falls back to the
+        // assembly directory when the content root has no skills folder, which is the same fallback that lets
+        // `dotnet run` work.
+
         // Host settings are visible to Program.cs while it registers services (ConfigureAppConfiguration callbacks run
         // too late for builder.Configuration.GetConnectionString(...) in the minimal-hosting entry point).
         builder.UseSetting("ConnectionStrings:daedalus", connectionString);

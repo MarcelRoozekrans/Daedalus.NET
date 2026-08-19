@@ -88,8 +88,9 @@ See [Ralph Wiggum Technique Documentation](docs/ralph-wiggum-technique.md) for d
 | Pattern Library      | CSharpFunctionalExtensions (Railway-Oriented Programming)                           |
 | ZeroAlloc            | ZeroAlloc.Results 1.2.0, ZeroAlloc.Authorization 2.1.0, ZeroAlloc.Validation 1.5.6, ZeroAlloc.Mapping 1.6.1 (via Thalos.NET) |
 | Zero-Allocation LINQ | ZLinq 1.5.4                                                                         |
-| Agent framework      | Thalos.NET 0.2.0 (nuget.org) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9         |
-| Agent memory         | `Thalos.NET.Memory` 0.2.0 + `Thalos.NET.Memory.RagNet` 0.2.0 (→ Rag.NET 0.1.x pgvector store, `rag_chunks`) |
+| Agent framework      | Thalos.NET 0.3.0 (nuget.org) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9         |
+| Agent memory         | `Thalos.NET.Memory` 0.3.0 + `Thalos.NET.Memory.RagNet` 0.3.0 (→ Rag.NET 0.1.x pgvector store, `rag_chunks`) |
+| Agent skills         | `Thalos.NET.Skills` 0.3.0 (markdown procedures from git, in-process cosine search, no Rag.NET dependency) |
 | Embeddings           | Ollama `nomic-embed-text` (768 dims) via OllamaSharp 5.4.12                          |
 | LLM security         | AI.Sentinel 2.0.1 (via `Thalos.NET.Sentinel`)                                       |
 | LLM Providers        | GitHub Copilot SDK 0.1.21 (Ralph), Anthropic SDK 12.40.0 (Ralph + Thalos)           |
@@ -126,6 +127,9 @@ tests/
 ├── Daedalus.Tests.Integration/       # Integration tests with Testcontainers (xUnit, pgvector/pgvector:pg16)
 ├── Daedalus.Tests.Playwright.Api/    # API E2E tests (NUnit + Playwright)
 └── Daedalus.Tests.Playwright.Browser/ # Browser E2E tests (NUnit + Playwright)
+
+skills/
+└── <name>/SKILL.md            # Agent procedure documents, synced into the Skills table at host start
 
 benchmarks/
 └── Daedalus.Benchmarks/       # BenchmarkDotNet performance benchmarks
@@ -444,12 +448,18 @@ Phase 1.2 adds **memory** on top: `Thalos.NET.Memory` + `Thalos.NET.Memory.RagNe
 [docs/plans/2026-08-17-thalos-memory-design.md](docs/plans/2026-08-17-thalos-memory-design.md); see
 [Memory](#memory) below.
 
+Phase 1.3 adds **skills** on top: `Thalos.NET.Skills` (Thalos.NET 0.3.0), a library of markdown procedures authored in
+git that agents can see the titles of every turn and pull into context on demand. Design:
+[docs/plans/2026-08-18-thalos-skills-design.md](docs/plans/2026-08-18-thalos-skills-design.md); see
+[Skills](#skills) below.
+
 **What you get:** a signed-in user opens `/agent` in the Blazor app, picks an agent (default: *Daedalus Architect*),
 starts a session and chats. Each turn is streamed back as Server-Sent Events (text deltas, tool calls/results, usage,
 memory events), tools come from MCP servers (`roslyn__*`, `context7__*`), local knowledge tools (`daedalus__*` — failure
-patterns) and memory tools (`memory__remember/recall/forget/list`), relevant memories are injected before each turn, and
-every prompt/response passes through AI.Sentinel. Sessions, transcripts and memories are persisted in PostgreSQL
-(`AgentSessions`, `AgentMessages`, `AgentMemories`).
+patterns), memory tools (`memory__remember/recall/forget/list`) and skill tools (`skills__load`, `skills__search`),
+relevant memories are injected before each turn, a catalogue of available procedures is appended to the agent's
+instructions, and every prompt/response passes through AI.Sentinel. Sessions, transcripts, memories and skills are
+persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Skills`).
 
 ### Configuration (`Thalos:*` in `src/Daedalus.Api/appsettings.json`)
 
@@ -473,6 +483,12 @@ every prompt/response passes through AI.Sentinel. Sessions, transcripts and memo
             "RalphRecall": { "TopK": 10, "MinScore": 0.5 },
             "Reindex": { "Enabled": true, "StartupDelay": "00:00:10", "RetryInterval": "00:02:00", "SweepInterval": "00:15:00" }
         },
+        "Skills": {
+            "Enabled": true,
+            "Roots": [ "skills" ],
+            "Catalogue": { "MaxChars": 2000 },
+            "Search": { "TopK": 5, "MinScore": 0.6 }
+        },
         "ToolPolicies": [
             { "Pattern": "roslyn__apply_*", "Policy": "developer" },
             { "Pattern": "roslyn__rename_*", "Policy": "developer" }
@@ -483,7 +499,8 @@ every prompt/response passes through AI.Sentinel. Sessions, transcripts and memo
                 "Name": "Daedalus Architect",
                 "Description": "Answers architecture questions about the Daedalus solution using Roslyn and Daedalus learnings.",
                 "Instructions": "You are a senior .NET architect embedded in the Daedalus project. ...",
-                "Tools": [ "roslyn__*", "daedalus__*", "memory__*", "context7__*" ],
+                "Tools": [ "roslyn__*", "daedalus__*", "memory__*", "skills__*", "context7__*" ],
+                "Skills": [ "*" ],
                 "Memory": { "Enabled": true, "TopK": 5 }
             }
         ]
@@ -507,8 +524,13 @@ every prompt/response passes through AI.Sentinel. Sessions, transcripts and memo
 | `Thalos:Memory:VectorDimensions`               | Embedding width of the Rag.NET index (`nomic-embed-text` = **768**). Must match the existing `rag_chunks` table — see [Operational notes](#operational-notes).                                              |
 | `Thalos:Memory:RalphRecall:{TopK,MinScore}`    | Daedalus-only: how the Ralph enrichment middleware and the `search_learnings` MCP tool recall shared learnings. `TopK` is clamped to 1–50 (1–20 for the MCP tool).                                           |
 | `Thalos:Memory:Reindex:*`                      | Daedalus-only: `ReindexPendingMemoriesHostedService` (API host only) — `Enabled`, `StartupDelay`, `RetryInterval` (index unavailable/failed rows), `SweepInterval` (all clear).                              |
+| `Thalos:Skills:Enabled`                        | Master switch for the catalogue and the `skills__*` tools. `false` skips root validation entirely, so a host with no skills folder still starts.                                                              |
+| `Thalos:Skills:Roots[]`                        | Folders holding `<name>/SKILL.md`, resolved against the host content root (like `McpConfigPath`). **A configured root that does not exist fails host start, on purpose** — see [Operational notes](#operational-notes). Empty by default. |
+| `Thalos:Skills:Catalogue:MaxChars`             | Character budget for the catalogue block appended to the agent's instructions. Overflow is reported with an explicit "and N more" line, never silently truncated.                                             |
+| `Thalos:Skills:Search:{TopK,MinScore}`         | `skills__search` defaults. Search is in-process cosine over the same Ollama generator; without it search reports unavailable and the catalogue stays authoritative.                                           |
 | `Thalos:ToolPolicies[]`                        | Glob over qualified tool names → `[Policy]` name that must pass before the tool runs (authorization at the function boundary).                                                                               |
 | `Thalos:Agents[]`                              | Agent definitions: stable `Id` (ULID or GUID — sessions reference it, never change it), `Name`, `Description`, `Instructions`, optional `Model`/`MaxOutputTokens`, `Tools` glob allow-list (empty → `*`).   |
+| `Thalos:Agents[]:Skills`                       | Glob allow-list over skill names (`*` for all, `daedalus-*` for a family). **Empty by default** — unlike `Tools`, procedures are granted explicitly, because a catalogue costs tokens on every turn.          |
 | `Thalos:Agents[]:Memory`                       | Per-agent overrides `{ Enabled, TopK }`; `null` members inherit `Thalos:Memory`. Tool visibility is *not* configured here — use the agent's `Tools` globs.                                                   |
 
 **Sentinel embedding generator:** the semantic detectors (prompt injection, jailbreak, exfiltration, …) need an
@@ -545,6 +567,35 @@ transcript archive.
   and every `UseVector()` — is gone.
 - **UI.** The Agent page has a **Memories** panel: what was recalled this turn (hydrated from the `memory-recalled`
   event's ids) plus a paged browse/forget list over `/api/agent-memories`.
+
+### Skills
+
+Agents get **skills**: procedure documents authored in git that say how this project does something.
+
+- **What they are.** A skill is guidance the agent reads and follows — not an executable workflow, not a prompt
+  template, and not a tool that acts. `skills__load` returns the text; doing the work is still the agent's job.
+- **Two-stage loading.** Names and one-line descriptions of every skill an agent may use are appended to its
+  instructions on **every** turn (budgeted by `Catalogue:MaxChars`; overflow is reported with an explicit "and N more"
+  line, never silently dropped). Bodies are pulled in on demand with `skills__load`, so a large library costs a few
+  hundred tokens a turn rather than all of it.
+- **Files are the source of truth.** `skills/<name>/SKILL.md` at the repo root, with YAML frontmatter — `name`
+  (required, must equal the folder name), `description` (required, ≤ 300 chars) and optional `tags: [a, b]`. The body
+  is stored verbatim. The sync is **one-way, at startup only**: editing a skill while the host runs does nothing until
+  restart, deliberately, so a turn can never see a half-written file.
+- **Assignment.** Per agent, by glob on `Thalos:Agents[]:Skills`, exactly like `Tools`. A skill outside an agent's
+  globs answers "unknown skill" — byte-identical to a name that does not exist, so the tool cannot be used to probe
+  what other agents can see.
+- **Where it lives.** The `Skills` table (`PostgresSkillStore`, `Daedalus.Agents`), with the **name as primary key**.
+  A file that disappears deactivates its row rather than deleting it, so history and references stay resolvable.
+- **Search.** `skills__search` is in-process cosine over the same Ollama `nomic-embed-text` generator memory uses.
+  Without Ollama it reports unavailable and the catalogue stays authoritative — **skills never depend on Ollama being
+  up**, unlike memory recall.
+- **Trust boundary.** Skill bodies come from git, not from model output, so they are **not** passed through
+  `IUntrustedContentScanner` the way recalled memories are. Whoever can merge a `SKILL.md` can steer the agent — the
+  same trust boundary as merging code. Review skill changes like you review code.
+- **Shipped procedures.** `daedalus-migrations` (adding and applying an EF Core migration here) and `thalos-release`
+  (cutting and publishing a Thalos.NET release). Both are procedures this project actually executed by hand.
+- **No API and no UI.** Skills are not per-user data and there is nothing to authorize per row: the repo is the UI.
 
 ### `.mcp.json` (API content root)
 
@@ -625,6 +676,19 @@ rate limiter.
   data volumes created with `postgres:16` keep working after the image switch (same major version); if PostgreSQL warns
   about index or collation versions run `REINDEX DATABASE daedalus;` once, or drop the volume
   (`docker volume rm daedalus_postgres_data`) for a clean start.
+- **A missing skills root fails startup.** If the host's content root has no `skills/` folder, `AddDaedalusAgents`
+  throws an `InvalidOperationException` naming the resolved path. That is deliberate: an agent that silently lost every
+  procedure is indistinguishable from a healthy one. The fix is the `Content` item in `Daedalus.Api.csproj` that copies
+  `skills/**/SKILL.md` next to each host — **not** setting `Thalos:Skills:Enabled` to `false`, which only makes the
+  silence official. Test hosts get the same copy through their `Daedalus.Api` project reference.
+- **A malformed `SKILL.md` is skipped, not fatal.** A file with broken frontmatter (missing `---`, an unknown key, a
+  `name` that does not match its folder, a block sequence for `tags`) is logged at warning and skipped, and the skipped
+  count is logged with the sync report — a bad file costs one procedure, never the host. Check the startup log after
+  adding one. Note the asymmetry: bad *files* are survivable, an unreachable *store* is not.
+- **Concurrent syncs can flap a skill.** `SkillSyncService.SyncAsync` is an unguarded read-modify-write: two hosts
+  syncing the same roots at once can leave a skill briefly deactivated and then reactivated, because each computes the
+  "seen" set independently. Daedalus runs a single API instance, so this only matters during a rolling deploy, and it
+  self-corrects on the next sync. A lease would be the fix if that ever changes.
 - **`rag_chunks` dimension mismatch:** the table is created once with `Thalos:Memory:VectorDimensions` columns. Switching
   the embedding model (or that setting) makes startup fail on the mismatch. The index is a rebuildable cache, so the fix
   is to drop it and mark every memory for re-indexing, then restart:
@@ -641,7 +705,7 @@ rate limiter.
   recall one it produced itself. `HitCount` became Thalos' `RecallCount`/`LastRecalledAt`. Ralph is retired in phase 1.6.
 - **Startup order:** the AppHost uses `WaitForCompletion(migrations)` for `api` and `console` — `WaitFor` releases as soon
   as a one-shot job *starts*, which let hosts boot against an un-migrated database.
-- **Thalos.NET feed:** the packages come from nuget.org (`Thalos.NET*` 0.2.0 in `Directory.Packages.props`, eight
+- **Thalos.NET feed:** the packages come from nuget.org (`Thalos.NET*` 0.3.0 in `Directory.Packages.props`, nine
   packages incl. `Thalos.NET.Memory` and `Thalos.NET.Memory.RagNet`). For unreleased Thalos changes use
   `scripts/pack-local.ps1` in the Thalos.NET repo and add its folder as a source temporarily.
 
@@ -851,7 +915,7 @@ builder.Services.AddOidcAuthentication(options =>
 | Bogus                        | 35.6.5  | Test data generation                                   |
 | Respawn                      | 7.0.0   | Database cleanup between integration tests             |
 | Testcontainers.PostgreSql    | 4.14.0  | PostgreSQL Docker containers for integration tests (image `pgvector/pgvector:pg16`) |
-| Thalos.NET.Testing           | 0.2.0   | `ScriptedChatClient`, in-memory stores, `MemoryStoreContractTests` |
+| Thalos.NET.Testing           | 0.3.0   | `ScriptedChatClient`, in-memory stores, `MemoryStoreContractTests`, `SkillStoreContractTests` |
 | TngTech.ArchUnitNET.xUnit    | 0.13.2  | Layer/boundary rules (`CleanArchitectureTests`)        |
 
 ### Commands

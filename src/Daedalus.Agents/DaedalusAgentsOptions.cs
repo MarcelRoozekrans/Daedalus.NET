@@ -26,6 +26,9 @@ public sealed class DaedalusAgentsOptions
 
     /// <summary>Memory settings (<c>Thalos:Memory</c>): Thalos <c>MemoryOptions</c> keys plus Daedalus extras.</summary>
     public MemoryConfig Memory { get; } = new();
+
+    /// <summary>Skill settings (<c>Thalos:Skills</c>): Thalos <c>SkillOptions</c> keys plus the Daedalus root resolution.</summary>
+    public SkillsConfig Skills { get; } = new();
 }
 
 /// <summary>One agent definition as declared in configuration.</summary>
@@ -54,6 +57,12 @@ public sealed class AgentConfig
     ///     to a pre-populated list, so the default lives in the mapping, not here) → everything (<c>*</c>).
     /// </summary>
     public IList<string> Tools { get; } = [];
+
+    /// <summary>
+    ///     Glob allow-list over skill names (<c>*</c> for every skill, <c>daedalus-*</c> for a family). Empty → the agent
+    ///     gets no skills: procedures are granted explicitly, never by default.
+    /// </summary>
+    public IList<string> Skills { get; } = [];
 
     /// <summary>Per-agent memory overrides (<c>Thalos:Agents:N:Memory</c>); <see langword="null"/> → inherit <c>Thalos:Memory</c>.</summary>
     public AgentMemoryConfig? Memory { get; set; }
@@ -147,4 +156,47 @@ public sealed class SentinelConfig
 
     /// <summary>Simple type names of AI.Sentinel detectors to switch off (for example <c>PromptInjectionDetector</c>). Unknown names fail at startup.</summary>
     public IList<string> DisabledDetectors { get; } = [];
+}
+
+/// <summary>
+///     <c>Thalos:Skills</c>. The Thalos <c>SkillOptions</c> members are bound onto Thalos directly from the same
+///     section; this class carries the values Daedalus validates and the roots it resolves against the content root.
+/// </summary>
+public sealed class SkillsConfig
+{
+    /// <summary>Configuration section name: <c>Thalos:Skills</c>.</summary>
+    public const string SectionName = "Thalos:Skills";
+
+    /// <summary>Whether skills (the catalogue and the <c>skills__*</c> tools) are on at all.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     Folders holding <c>&lt;name&gt;/SKILL.md</c> documents. Relative paths resolve against the host content root
+    ///     (like <c>McpConfigPath</c>). <b>Empty by default</b> — the binder appends to a pre-populated list, so a
+    ///     default here could not be overridden, and "no roots configured" must mean "no skills", not an error.
+    /// </summary>
+    public IList<string> Roots { get; } = [];
+
+    /// <summary>Catalogue settings (<c>Thalos:Skills:Catalogue</c>).</summary>
+    public SkillCatalogueConfig Catalogue { get; } = new();
+
+    /// <summary>Search settings (<c>Thalos:Skills:Search</c>).</summary>
+    public SkillSearchConfig Search { get; } = new();
+}
+
+/// <summary>The always-present catalogue block appended to an agent's instructions.</summary>
+public sealed class SkillCatalogueConfig
+{
+    /// <summary>Character budget for the catalogue; overflow is reported with an explicit "and N more" line, never silently.</summary>
+    public int MaxChars { get; set; } = 2000;
+}
+
+/// <summary><c>skills__search</c> settings; without an embedding generator search reports unavailable and the catalogue stays authoritative.</summary>
+public sealed class SkillSearchConfig
+{
+    /// <summary>Default number of results.</summary>
+    public int TopK { get; set; } = 5;
+
+    /// <summary>Minimum cosine score for a result.</summary>
+    public double MinScore { get; set; } = 0.6;
 }

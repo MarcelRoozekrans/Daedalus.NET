@@ -3,6 +3,7 @@ using AI.Sentinel.Detectors.Security;
 using Daedalus.Agents;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Security;
+using Daedalus.Agents.Skills;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -13,6 +14,7 @@ using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
+using Thalos.Skills;
 using Thalos.Tools;
 using ZeroAlloc.Authorization;
 
@@ -330,5 +332,150 @@ public sealed class DaedalusAgentsRegistrationTests
 
         var badDetector = () => new ServiceCollection().AddDaedalusAgents(Config(("Thalos:Sentinel:DisabledDetectors:0", "NoSuchDetector")), Environment());
         badDetector.Should().Throw<InvalidOperationException>().WithMessage("*NoSuchDetector*");
+    }
+
+    [Theory]
+    [InlineData("Thalos:Skills:Catalogue:MaxChars", "0", "MaxChars")]
+    [InlineData("Thalos:Skills:Search:TopK", "0", "TopK")]
+    [InlineData("Thalos:Skills:Search:MinScore", "1.5", "MinScore")]
+    [InlineData("Thalos:Skills:Roots:0", "   ", "Roots")]
+    public void Out_of_range_skill_settings_fail_fast_naming_the_key(string key, string value, string expectedInMessage)
+    {
+        var act = () => Build(Config((key, value)));
+
+        // Both halves matter: the section name tells an operator which block of appsettings.json to open, and the
+        // member name tells them which key in it. Asserting only the member would pass on a message naming Memory.
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{SkillsConfig.SectionName}*")
+            .WithMessage($"*{expectedInMessage}*");
+    }
+
+    [Fact]
+    public void A_configured_skills_root_that_does_not_exist_fails_fast()
+    {
+        // An agent that silently lost every procedure looks exactly like a healthy one, so a broken Content copy or a
+        // bad path must take the host down at registration rather than at the first turn.
+        var missing = Path.Combine(Path.GetTempPath(), $"no-skills-{Guid.NewGuid():N}");
+
+        var act = () => Build(Config(("Thalos:Skills:Roots:0", missing)));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*{missing}*");
+    }
+
+    [Fact]
+    public void Skills_are_off_when_no_root_is_configured()
+    {
+        // The binder appends to pre-populated lists, so the default must be empty: the registration tests run with a
+        // content root that has no skills folder, and "nothing configured" is not an error.
+        using var sp = Build(Config());
+
+        sp.GetRequiredService<SkillsConfig>().Roots.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Disabled_skills_skip_root_validation_entirely()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"no-skills-{Guid.NewGuid():N}");
+
+        var act = () => Build(Config(("Thalos:Skills:Enabled", "false"), ("Thalos:Skills:Roots:0", missing)));
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Skills_are_wired_with_the_postgres_store_when_a_root_is_configured()
+    {
+        var root = Directory.CreateTempSubdirectory("daedalus-skills-").FullName;
+        try
+        {
+            using var sp = Build(Config(
+                ("Thalos:Skills:Roots:0", root),
+                ("Thalos:Skills:Catalogue:MaxChars", "1234"),
+                ("Thalos:Skills:Search:TopK", "9")));
+
+            sp.GetRequiredService<ISkillStore>().GetType().Name.Should().BeOneOf("PostgresSkillStore", "SkillStoreInstrumented");
+            sp.GetRequiredService<PostgresSkillStore>().Should().NotBeNull();
+
+            var options = sp.GetRequiredService<IOptions<SkillOptions>>().Value;
+            options.Enabled.Should().BeTrue();
+            // Equal([root], because) - NOT Equal(root, because): the params overload would read the reason string as a
+            // second expected element and assert two roots.
+            options.Roots.Should().Equal([root], "roots reach Thalos already resolved to absolute paths");
+            options.Catalogue.MaxChars.Should().Be(1234);
+            options.Search.TopK.Should().Be(9);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Relative_skill_roots_resolve_against_the_content_root()
+    {
+        var contentRoot = Directory.CreateTempSubdirectory("daedalus-content-").FullName;
+        Directory.CreateDirectory(Path.Combine(contentRoot, "skills"));
+        try
+        {
+            var env = Substitute.For<IHostEnvironment>();
+            env.ContentRootPath.Returns(contentRoot);
+            env.EnvironmentName.Returns("Development");
+
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+            services.AddDaedalusAgents(Config(("Thalos:Skills:Roots:0", "skills")), env);
+            using var sp = services.BuildServiceProvider();
+
+            sp.GetRequiredService<IOptions<SkillOptions>>().Value.Roots
+                .Should().Equal(Path.Combine(contentRoot, "skills"));
+        }
+        finally
+        {
+            Directory.Delete(contentRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Skills_can_be_disabled_from_configuration()
+    {
+        using var sp = Build(Config(("Thalos:Skills:Enabled", "false")));
+
+        sp.GetRequiredService<SkillsConfig>().Enabled.Should().BeFalse();
+        sp.GetRequiredService<IOptions<SkillOptions>>().Value.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Agent_skill_globs_bind_onto_the_definition()
+    {
+        using var sp = Build(Config(("Thalos:Agents:0:Skills:0", "daedalus-*"), ("Thalos:Agents:0:Skills:1", "thalos-release")));
+
+        sp.GetRequiredService<IAgentCatalog>().Agents.Single().Skills.Should().Equal("daedalus-*", "thalos-release");
+    }
+
+    [Fact]
+    public void An_agent_without_skill_globs_gets_none()
+    {
+        // Procedures are granted explicitly. Defaulting to "*" would hand every agent every procedure the moment one
+        // is added to the repo, which is the opposite of the per-agent gate the design asks for.
+        using var sp = Build(Config());
+
+        sp.GetRequiredService<IAgentCatalog>().Agents.Single().Skills.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AddDaedalusMemory_does_not_register_skills()
+    {
+        // Skills are API-host only: the Ralph console runs no Thalos agents, so it has nothing to hand a catalogue to.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddDaedalusMemory(Config());
+        using var sp = services.BuildServiceProvider();
+
+        sp.GetService<ISkillStore>().Should().BeNull();
+        sp.GetService<PostgresSkillStore>().Should().BeNull();
+        sp.GetService<SkillsConfig>().Should().BeNull();
+        sp.GetServices<IHostedService>().Should().NotContain(h => h.GetType().Name.Contains("Skill", StringComparison.Ordinal));
     }
 }

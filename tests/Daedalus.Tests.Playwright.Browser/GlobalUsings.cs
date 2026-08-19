@@ -1,5 +1,5 @@
 global using System.Text.Json;
-global using FluentAssertions;
+global using AwesomeAssertions;
 global using Microsoft.EntityFrameworkCore;
 global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Playwright;
