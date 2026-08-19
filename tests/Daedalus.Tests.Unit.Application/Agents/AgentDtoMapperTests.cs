@@ -244,4 +244,23 @@ public sealed class AgentDtoMapperTests
     {
         public override string Kind => "unknown-test-event";
     }
+
+    /// <summary>
+    ///     Skills have no UI (design section 6), and the catalogue provider never fails a turn — it logs, raises this
+    ///     event and proceeds without a catalogue. So the event is deliberately <b>not</b> given a DTO arm: it reaches
+    ///     the client by kind through the forward-compatible default, which is also what protects the stream against
+    ///     event types a newer Thalos adds. This fact is the decision; without it the pass-through is an accident.
+    /// </summary>
+    [Fact]
+    public void Skill_catalogue_failed_reaches_the_client_as_kind_only()
+    {
+        var evt = new SkillCatalogueFailedEvent(SessionId.New(), TurnId.New(), AgentErrorCode.SkillStoreFailed);
+
+        var dto = AgentDtoMapper.ToDto(evt);
+
+        dto.Kind.Should().Be("skill-catalogue-failed");
+        dto.Text.Should().BeNull();
+        dto.Memory.Should().BeNull();
+        dto.ErrorCode.Should().BeNull("a skills diagnostic is not a turn failure and must not render as one");
+    }
 }
