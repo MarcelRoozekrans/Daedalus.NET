@@ -1,66 +1,62 @@
 # Session State
 
 **Last session:** 2026-08-19
-**Current milestone:** 1 — Hermes-Style Agent Framework
-**Current phase:** 1.3 — Skills (`Thalos.NET.Skills` port + Daedalus consumer; #229) — **in progress**
-**Branch state:** `feature/thalos-skills`, 8 commits, **not pushed**. Branched off `main` at `b4a44bb`. `main` itself gained two commits this session (`a80ed04` conventions, `b4a44bb` the Plan A Task 25 record) and is otherwise untouched.
-**Release context:** repo `MarcelRoozekrans/Daedalus.NET`; Daedalus **0.1.0** released. GitVersion + release-please + commitlint + gated `publish-release`; runbook `docs/release.md`.
+**Current milestone:** 1 — Hermes-Style Agent Framework (3 of 7 phases complete)
+**Current phase:** 1.3 — Skills → **complete and merged** (#240); next is **1.4 — Channels** (#230)
+**Branch state:** merged into `main` via **#240** (22 commits, branch deleted) and **#239** (the split-out auth fix). CI green on both, including all three container images. `main` is at the #240 merge.
+**Release context:** Thalos.NET **0.3.0** on nuget.org (nine packages) — tagged `v0.3.0`, GitHub release cut. Daedalus **0.1.0** released; GitVersion + release-please + commitlint + gated `publish-release`; runbook `docs/release.md`.
 
 ## Last completed
 
-### Plan A (Thalos.NET) — **COMPLETE**
+### Plan A (Thalos.NET) — complete
 
-**Thalos.NET 0.3.0 is tagged, released and live on nuget.org (nine packages).** Task 25 was resumed and finished this session. Steps 1–4 had been done on 2026-08-18 (release PR #29 merged, CI green), but **step 5 was never dispatched**, so there was no `v0.3.0` tag and nothing on nuget.org — a merged release PR looks identical to a finished release, which is the trap. Dispatching `release-please.yml` cut tag + GitHub release in 13 s; the user-gated `ci.yml --ref v0.3.0 -f publish_to_nuget=true` (run 32258558786) pushed nine `.nupkg` + nine `.snupkg`, all `Created`.
+`Thalos.NET.Skills` shipped in **0.3.0**: `SkillName`/`SkillDocument`/`ISkillStore`/`SkillQuery`/`SkillOptions` in `Thalos.Skills`, four `AgentErrorCode.Skill*` codes, `SkillCatalogueFailedEvent`, `AgentDefinition.Skills`, `SkillStoreContractTests` + `SkillIndexContractTests` in `Thalos.NET.Testing`. Task 24's pre-release review found three blockers (an unreadable root silently retiring skills, memory text able to forge a `<skills>` block, `skills__load` echoing an unsanitised name) — all fixed before release.
 
-**Verification gotcha, recorded in plan A §0.8:** 30 s after the push the flat container 404'd and `dotnet package search` still showed 0.2.0. Pure indexing lag — the flat container went 200 after **~5 minutes**. Verify a publish by polling `https://api.nuget.org/v3-flatcontainer/<id>/index.json` until 200; never conclude from an immediate 404 that the push failed.
+### Plan B (Daedalus) — 21 of 21 tasks complete
 
-### Plan B (Daedalus) — tasks 1–8 of 21 done (G1, G2, G3 complete)
+- **`Skills` table + `PostgresSkillStore`** — name as primary key, green against the library contract on Testcontainers plus two Daedalus facts (AND tag filtering; over-size body → `SkillValidationFailed`).
+- **Migration `AddSkills`** + a test that rolls the chain back past it and forward again.
+- **`Skill` aggregate** — Thalos-free, mirroring the library rules.
+- **Wiring in `AddDaedalusAgents` only**; a test pins that `AddDaedalusMemory` registers no skills.
+- **Two starter procedures** — `skills/daedalus-migrations`, `skills/thalos-release` — copied next to every host by a `Content` item on `Daedalus.Api.csproj`.
+- **Agent config** — `skills__*` beside `memory__*`, `Skills: ["*"]`, instruction line.
+- **ArchUnit** loads `Thalos.NET.Skills`; both directions proven.
 
-- **T1** pinned nine packages at 0.3.0 from nuget.org. **No local pack, no `packages-local/`** ever existed this phase, so §0.2's fallback removal gate is moot.
-- **T2** reconciled against the published package + Thalos HEAD `2e23e4c`. All six §0.5b deltas hold, no seventh found.
-- **T3** four `Skill*` → HTTP arms; exhaustiveness guard 18 → 22.
-- **T4** `Skill` domain aggregate, Thalos-free, mirroring the library rules.
-- **T5** `SkillConfiguration` + `DbSet<Skill>` (migration deliberately deferred).
-- **T6** `PostgresSkillStore` — **14/14 contract + Daedalus facts green** on Testcontainers.
-- **T7** migration `AddSkills` + 2 migration facts incl. the down-chain rollback.
-- **T8** `Thalos:Skills` options + fail-fast validation (done out of order while Docker was starting).
+**Suites at merge: build 0 warnings; unit 910 (Domain 275, Application 382, Unit 123, Infrastructure 130); integration 361; browser 99 with `Skipped: 0`.** Pre-push review PASS, 0 blockers, 0 warnings — `docs/pre-push-review-2026-08-19-1830.md`.
 
-**Suites: build 0 warnings; unit 899 (Domain 275, Application 375, Infrastructure 130, Unit 119); integration 359/359.**
+## Three bugs this phase found, and what each taught
 
-## Findings this session that later tasks depend on
+1. **Dev hosts could not start.** `Thalos:Skills:Roots: ["skills"]` resolved against the *content root*, which under `dotnet run`/Aspire is the **project** directory — but `skills/` is authored at the repo root and only copied to the **output** directory. Every test passed and the container image worked (there content root *is* the output dir), so **only the AppHost smoke run could see it**. Fixed by falling back to `AppContext.BaseDirectory`. *Lesson: the smoke run is not ceremony — it is the only gate that exercises a development host.*
+2. **A CI-only regression from this phase's own earlier fix.** Task 12 had pointed `ApiWebApplicationFactory` at `AppContext.BaseDirectory`; because Api, Console and Web each ship an `appsettings.json`, the test host then read whichever copied last. Passed locally 361/361, failed on the CI runner with an empty agent list. Fixed by **reverting** it — bug 1's fallback made it unnecessary. *Lesson: Task 12 fixed a real symptom at the wrong layer; the production path was what needed changing.*
+3. **A phase-1.1 auth defect** (below), split to its own PR.
 
-1. **AwesomeAssertions 7 → 9.5.0 was a hidden prerequisite of consuming 0.3.0.** `Thalos.NET.Testing` 0.3.0 depends on 9.5.0 (Plan A Task 1's major bump); Daedalus pinned 7.0.0 and **under CPM the explicit pin downgraded the transitive dependency**, so the contract base class failed to load at runtime — all 12 inherited facts red, both Daedalus-authored facts green (that asymmetry is the diagnostic). Fixed by bumping the pin and renaming `FluentAssertions` → `AwesomeAssertions` in seven `tests/*/GlobalUsings.cs` + one stray `using`. Exactly **one** real API break in ~900 tests: `BeLessOrEqualTo` → `BeLessThanOrEqualTo`. **Plan B §0.2 never anticipated this** — it only covered `Npgsql` floors.
-2. **The plan was wrong about the deactivation clock.** It said `DeactivateMissingAsync` must not bump `UpdatedAt` and the store "needs no clock". The contract asserts the opposite. `PostgresSkillStore` now takes a `TimeProvider`. **→ Task 9 must ensure `TimeProvider` is resolvable from DI**, or `UseSkillStore<PostgresSkillStore>()` cannot construct it. This is the single most likely thing to break next.
-3. **§0.5b delta 1 is not implementable in Domain.** It says to normalise via `SkillName.TryParse` in `Skill.Create`, but `SkillName` is in `Thalos.Skills`, `Daedalus.Domain.csproj` has no Thalos reference, and `DomainLayer_ShouldNotDependOn_Thalos` forbids it. The aggregate mirrors the rule and **rejects** non-normalised names; normalisation happens upstream in the library. The store therefore passes `document.Name.Value`.
-4. **Ordering is client-side on purpose.** `ListAsync` materialises and sorts with `string.CompareOrdinal` rather than `ORDER BY`, because the contract needs code-point order and a culture collation returns a different one. Verified green against real Postgres, not reasoned about.
-5. Two analyzer traps met and fixed **without pragmas**: `S3267` (missing-root `foreach` → `FirstOrDefault`) and `S4144` (new theory byte-identical to the memory one → the skills theory now also asserts the section name, which is strictly stronger).
+## Auth defect fixed alongside (#239) — was pre-existing, not 1.3
+
+Against real Keycloak, `GET /api/agents` answered 200 while **every `AgentSessionsController` endpoint answered 401** — so the agent UI could not work at all. Diagnosed from the 401 carrying **no `WWW-Authenticate` header**, proving authentication succeeded and the rejection came from `HttpSecurityContextFactory.TryCreate`: the token had no `sub`, so `ClaimsSecurityContext.Id` fell through to `AnonymousId`. Cause: both clients declared `defaultClientScopes: ["profile", "email"]`, omitting Keycloak's built-in **`basic`** scope, where `sub` moved in KC 24+. Fixed and verified (`/api/agents/sessions` → 200).
+
+**Open follow-up:** `AgentEndpointsSmokeTests` substitutes `HeaderTestAuthHandler`, so **the real Keycloak claim shape is exercised by no test** — which is why this survived phases 1.1 and 1.2. A test that boots against real claims would close it. Phase-1.1 scope, not started.
 
 ## Open decisions (user)
 
 **None blocking.**
 
 1. Carried over from 1.1: manual sample smoke of Thalos `samples/Thalos.Sample.Console` with a real `ANTHROPIC_API_KEY`; save the transcript under `Thalos.NET/docs/samples/`.
-2. Carried over from 1.1: re-confirm on the next CI run that both unit and integration projects build in Release.
-3. Two untracked pre-pivot files (`docs/regression-report-2026-03-01-1800.md` + its screenshots folder) — user chose to **leave them alone** this session.
-
-## Blockers
-
-**None currently.** Docker Desktop was down at the start of Task 6 and was started during the session; Testcontainers work now. If a later session finds integration tests failing instantly with `DockerUnavailableException`, that is the cause — start Docker Desktop and re-run.
-
-**Environment issue still outstanding (pre-existing, not caused by 1.3):** the local pgvector data volume is stale (collation-version mismatch, created under glibc 2.41 vs 2.36 now). `docker volume rm daedalus_postgres_data` or `REINDEX DATABASE daedalus;` is the fix. This matters for **Task 19's AppHost smoke run**, not for Testcontainers.
+2. Two untracked pre-pivot files (`docs/regression-report-2026-03-01-1800.md` + its screenshots folder) — user chose to leave them alone.
 
 ## Known follow-ups
 
-**Assigned to Task 15 (README), agreed with the user as a plan addition:** document that Thalos' `SkillSyncService.SyncAsync` is an **unguarded read-modify-write**, so two hosts syncing concurrently can flap a skill active/inactive during a rolling deploy. Plan A Task 24 recorded this and explicitly said "Plan B should document this"; Plan B had no task for it.
+**From the 1.3 design §10, recorded and not started:** skill usage counters; a pgvector `ISkillIndex` for when the corpus outgrows the in-process one (the interface is already the seam); the task runner and mid-run clarification, which belong to 1.4–1.6.
 
-**Other Plan A 0.3.0 limitations accepted, recorded not fixed:** `SkillStoreContractTests` has no fact for `GetAsync` returning inactive rows nor for concurrent upsert of the same name; the residual search side channel persists at the ceiling; `SkillCatalogue`'s render cache is unbounded and keyed by unvalidated globs.
+**Accepted limitations in Thalos.NET 0.3.0:** `SyncAsync` is an unguarded read-modify-write, so two hosts syncing concurrently can flap a skill during a rolling deploy (documented in the README's operational notes); `SkillStoreContractTests` has no fact for `GetAsync` returning inactive rows nor for concurrent same-name upsert; the residual search side channel persists at the ceiling; `SkillCatalogue`'s render cache is unbounded and keyed by unvalidated globs.
 
-**Carried over from 1.1/1.2:** `AgentSession.RowVersion` inert on Npgsql; Keycloak realm has no `developer` role (gates the mutating roslyn tools *and* shared-owner memory delete); 9 Keycloak-container integration tests fail with connection refused on this machine (pre-existing infra); `#app` loading styles persist after Blazor boot (cosmetic). Memory-phase deferrals M4, M5, M8 and the full-index-rebuild affordance all stand.
+**Environment (this machine, pre-existing):** the local pgvector data volume is stale — PostgreSQL warns about a collation-version mismatch (created under glibc 2.41, OS provides 2.36). `docker volume rm daedalus_postgres_data` or `REINDEX DATABASE daedalus;` fixes it. It did not block the 1.3 smoke run. **Also note: Aspire reuses an existing Keycloak container, so a `keycloak-realm.json` change only takes effect after `docker rm -f daedalus-realm-*`** — a change can otherwise appear applied while doing nothing.
+
+**Carried over from 1.1/1.2:** `AgentSession.RowVersion` inert on Npgsql; the Keycloak realm has no `developer` role (gates the mutating `roslyn__apply_*`/`rename_*` tools and shared-owner memory delete); 9 Keycloak-container integration tests fail with connection refused on this machine; `#app` loading styles persist after Blazor boot (cosmetic). Memory-phase deferrals M4, M5, M8 and the full-index-rebuild affordance all stand.
 
 ## Recommended next step
 
-**Task 9 (G4): wire skills into `AddDaedalusAgents` only** — `UseSkills(Action<SkillOptions>)` (the delegate overload, *not* the `IConfiguration` one, because §0.6-4 resolves roots to absolute paths first) + `UseSkillStore<PostgresSkillStore>()`, with registration tests proving `AddDaedalusMemory` does **not** register skills. **Check `TimeProvider` is in DI first** — finding 2 above.
+Start **phase 1.4 — Channels: Telegram (+ CLI) via `IChannelAdapter` + `ZeroAlloc.Outbox`** (#230). It depends on 1.1 only, so nothing from 1.2/1.3 blocks it. No design doc exists yet — `start-next-phase` will route to `superpowers:brainstorming` first.
 
-Then T10 (`skills/` folder + two starter skills + `Content` copy + `.dockerignore` verification), T11 (startup test), T12–13 (G6), T14–17 (G7), T18–21 (G8).
+Worth considering before 1.4: the untested-real-auth gap above. 1.4 adds a second channel, and a channel that cannot authenticate is the same class of failure discovered this phase.
 
-Resume with `resume-work`, or say "continue" and `start-next-phase` will route back into `executing-plans` on `docs/plans/2026-08-18-thalos-skills-plan-b.md`.
+Resume with `resume-work`, or say "continue" and `start-next-phase` will route from the roadmap.

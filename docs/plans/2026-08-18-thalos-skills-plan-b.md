@@ -2635,9 +2635,9 @@ PR body: what shipped, the §0.6 deviations (especially the fail-fast root valid
 - [x] `appsettings.json` carries `Thalos:Skills`, the agent's `Skills: ["*"]` and `skills__*` in `Tools`; the pinned configuration test is updated.
 - [x] `skill-catalogue-failed` passes through as kind-only, pinned by a test that says why.
 - [x] ArchUnit loads `Thalos.NET.Skills` with a proof fact that failed before the assembly was added.
-- [ ] README, `docs/architecture-diagrams.md` §14 and the planning docs updated.
+- [x] README, `docs/architecture-diagrams.md` §14 and the planning docs updated.
 - [x] `dotnet build` 0 warnings; unit, integration and browser suites green with **`Skipped: 0`** in the browser run; AppHost smoke run done and recorded.
-- [ ] Pre-push review PASS, PR merged, CI green (including the three image builds), #229 closed, `complete 1.3` run.
+- [x] Pre-push review PASS, PR merged, CI green (including the three image builds), #229 closed, `complete 1.3` run.
 
 ---
 
