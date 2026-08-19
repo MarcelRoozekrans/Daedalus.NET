@@ -40,7 +40,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     MCP servers from <see cref="DaedalusAgentsOptions.McpConfigPath"/>, the <see cref="DeveloperPolicy"/>, configured
     ///     agents/tool policies, memory (<c>IMemoryService</c> over <see cref="PostgresMemoryStore"/> and the Rag.NET index on
     ///     the application database), skills (the catalogue and <c>skills__*</c> tools over <see cref="PostgresSkillStore"/>)
-///     and — when enabled — AI.Sentinel) from the <c>Thalos</c> section of
+    ///     and — when enabled — AI.Sentinel) from the <c>Thalos</c> section of
     ///     <paramref name="configuration"/>, plus the <see cref="AgentSessionCrashRecovery"/> hosted service.
     /// </summary>
     /// <param name="services">The service collection.</param>

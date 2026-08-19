@@ -434,6 +434,38 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
 
   Unit 907 → **909** (Application +1 for the SSE fact, Unit +1 for the ArchUnit fact), build 0 warnings.
 
+- **Tasks 15 + 16 (2026-08-19) — README and diagrams, claims verified against the library.** Three README
+  statements were checked in `Thalos.NET.Skills` source rather than taken from the plan: the `"… and N more"`
+  overflow line (`SkillCatalogue.cs`), search degrading to *"Skill search is unavailable"* with the catalogue
+  still authoritative (`SkillTools.cs:26,98`), and out-of-glob / unknown / inactive all routing through a single
+  `UnknownText(name)` so none can probe the others. The **concurrent-sync caveat Plan A Task 24 assigned to
+  Plan B** is in the README's operational notes, as agreed with the user.
+
+- **Task 17 (deferred, deliberately).** The plan has it flip ROADMAP and MILESTONE to
+  `complete (2026-08-18)` *before* the regression run, the AppHost smoke and the PR. That would record
+  something untrue, and `complete-phase` — the project-orchestration sub-skill that owns those two files — is
+  gated on every plan task being checked off. **Task 17 is therefore folded into Task 21**, where the status
+  flip and the STATE handoff both become true at once.
+
+- **Task 18 (2026-08-19) — all four gates green, and `dotnet format` moved nothing semantic.**
+  `git diff -w --ignore-blank-lines` reduced the format diff to **six** lines, every one of them the
+  `global using AwesomeAssertions;` line moving up to its alphabetical position — a consequence of the Task 6
+  rename having replaced `FluentAssertions` in place. No BOM stripping was needed (the migration's was already
+  removed by hand in Task 7) and the migration did not reflow.
+
+  | Suite | 1.2 baseline | Now |
+  |---|---|---|
+  | build | 0 warnings | **0 warnings** |
+  | unit | 868 | **909** (Domain 275, Application 382, Infrastructure 130, Unit 122) |
+  | integration | 343 | **361** |
+  | browser | 99, `Skipped: 0` | **99, `Skipped: 0`** |
+
+  The browser number is unchanged **and that is the point**: the browser host calls `AddDaedalusAgents`, so
+  Task 9's root validation runs there too. A `Content` copy that had not reached
+  `Daedalus.Tests.Playwright.Browser` would have failed host start and taken the whole suite down rather than
+  skipping quietly — the 1.2 failure mode this phase was explicitly watching for. `Skipped: 0` confirms the
+  Agent category really ran.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)

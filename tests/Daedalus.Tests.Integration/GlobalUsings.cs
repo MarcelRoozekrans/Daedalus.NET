@@ -1,7 +1,7 @@
 global using System.Net;
 global using System.Net.Http.Json;
-global using CSharpFunctionalExtensions;
 global using AwesomeAssertions;
+global using CSharpFunctionalExtensions;
 global using NSubstitute;
 global using NSubstitute.ExceptionExtensions;
 global using Spectre.Console;
