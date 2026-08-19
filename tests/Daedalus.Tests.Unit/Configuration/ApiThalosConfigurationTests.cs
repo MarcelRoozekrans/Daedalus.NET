@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Mcp;
 using Thalos.Memory.RagNet;
+using Thalos.Skills;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
@@ -183,5 +184,38 @@ public sealed class ApiThalosConfigurationTests
     public void Appsettings_points_the_skill_roots_at_the_shipped_folder()
     {
         LoadApiConfiguration().GetSection("Thalos:Skills:Roots").Get<string[]>().Should().Equal("skills");
+    }
+
+    [Fact]
+    public void A_relative_skills_root_falls_back_to_the_assembly_directory()
+    {
+        // Regression, caught by the AppHost smoke run. Under `dotnet run` (and therefore under Aspire) the content root
+        // is the *project* directory, but the skills folder is only ever copied to the *output* directory. Resolving
+        // against the content root alone killed every development host at startup while the tests and the container
+        // image stayed green - in a published app the content root IS the output directory, and the test hosts had been
+        // pointed at their own output. The Content copy puts the folder next to the assembly in both layouts, so that
+        // is the fallback.
+        var contentRootWithoutSkills = Directory.CreateTempSubdirectory("daedalus-no-skills-").FullName;
+        var expected = Path.Combine(AppContext.BaseDirectory, "skills");
+        Directory.Exists(expected).Should().BeTrue("the Content item copies skills next to this test assembly");
+        try
+        {
+            var env = Substitute.For<IHostEnvironment>();
+            env.ContentRootPath.Returns(contentRootWithoutSkills);
+            env.EnvironmentName.Returns("Development");
+
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+            services.AddDaedalusAgents(LoadApiConfiguration(), env);
+            using var sp = services.BuildServiceProvider();
+
+            sp.GetRequiredService<IOptions<SkillOptions>>().Value.Roots
+                .Should().ContainSingle().Which.Should().Be(expected);
+        }
+        finally
+        {
+            Directory.Delete(contentRootWithoutSkills, recursive: true);
+        }
     }
 }

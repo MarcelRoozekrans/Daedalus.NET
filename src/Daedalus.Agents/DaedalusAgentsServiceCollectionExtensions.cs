@@ -355,11 +355,43 @@ public static class DaedalusAgentsServiceCollectionExtensions
         }
     }
 
-    /// <summary>Resolves configured skill roots against the content root, like <c>ResolveMcpConfigPath</c>.</summary>
+    /// <summary>
+    ///     Resolves configured skill roots against the content root, like <c>ResolveMcpConfigPath</c>, falling back to the
+    ///     assembly directory when that does not exist.
+    /// </summary>
+    /// <remarks>
+    ///     The fallback is load-bearing, not defensive. <c>.mcp.json</c> is a file that physically lives in
+    ///     <c>src/Daedalus.Api</c> <b>and</b> is copied to the output, so content-root resolution finds it either way.
+    ///     Skills are different: they are authored at the repo root and only ever <i>copied</i> to the output directory.
+    ///     In a published app the content root <i>is</i> the output directory, so <c>"skills"</c> resolves; but under
+    ///     <c>dotnet run</c> (and therefore under Aspire) the content root is the <i>project</i> directory, where no
+    ///     <c>skills</c> folder exists — so resolving against the content root alone kills every development host at
+    ///     startup while tests and the container image stay green. What is invariably true in both layouts is that the
+    ///     <c>Content</c> item puts the folder next to the assembly, which is what <see cref="AppContext.BaseDirectory"/>
+    ///     names. An absolute root is taken as given, and when neither candidate exists the content-root path is kept so
+    ///     the validation message names the location an operator would expect.
+    /// </remarks>
     private static IReadOnlyList<string> ResolveSkillRoots(SkillsConfig config, IHostEnvironment environment) =>
         [.. config.Roots
             .Where(r => !string.IsNullOrWhiteSpace(r))
-            .Select(r => Path.IsPathRooted(r) ? r : Path.Combine(environment.ContentRootPath, r))];
+            .Select(r => ResolveSkillRoot(r, environment))];
+
+    private static string ResolveSkillRoot(string configured, IHostEnvironment environment)
+    {
+        if (Path.IsPathRooted(configured))
+        {
+            return configured;
+        }
+
+        var fromContentRoot = Path.Combine(environment.ContentRootPath, configured);
+        if (Directory.Exists(fromContentRoot))
+        {
+            return fromContentRoot;
+        }
+
+        var fromAssembly = Path.Combine(AppContext.BaseDirectory, configured);
+        return Directory.Exists(fromAssembly) ? fromAssembly : fromContentRoot;
+    }
 
     private static string ResolveMcpConfigPath(string configured, IHostEnvironment environment) =>
         Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);

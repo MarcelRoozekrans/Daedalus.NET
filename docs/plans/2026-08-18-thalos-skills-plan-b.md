@@ -466,6 +466,56 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
   skipping quietly — the 1.2 failure mode this phase was explicitly watching for. `Skipped: 0` confirms the
   Agent category really ran.
 
+- **Task 19 (2026-08-19) — the smoke run earned its place: it found a bug every other gate was blind to.**
+
+  **The bug.** With `Thalos:Skills:Roots: ["skills"]` shipped, `Daedalus.Api` **failed to start under
+  `dotnet run` / Aspire**:
+
+  ```
+  Unhandled exception. System.InvalidOperationException: Thalos:Skills:Roots contains
+  'C:\Projects\Prive\daedalus\src\Daedalus.Api\skills', which is not an existing directory.
+  ```
+
+  In development ASP.NET roots the content at the **project** directory, but `skills/` is authored at the repo
+  root and only ever *copied* to the **output** directory. Every other gate was green: the container image works
+  (content root *is* the output directory there), and all 1 270 tests passed because the test hosts had been
+  pointed at their own output in Tasks 11–12. **Only a real host start could see it** — which is exactly the
+  argument the task text makes about 1.2 skipping this twice.
+
+  **The fix** is in `ResolveSkillRoots`: resolve a relative root against the content root, fall back to
+  `AppContext.BaseDirectory` when that does not exist, and keep the content-root path in the error when neither
+  does so the message still names the expected location. The `Content` item is what makes the fallback sound —
+  it guarantees the folder sits next to the *assembly* in both layouts, whereas the content root only agrees in
+  a published app. Note this makes the Task 12 `UseContentRoot` change in `ApiWebApplicationFactory` no longer
+  load-bearing; it is kept because a test host resolving paths the way production does is still correct.
+
+  **The regression test moved projects, for the reason Task 10 recorded.** It first went into
+  `DaedalusAgentsRegistrationTests`, where its own precondition failed —
+  `Daedalus.Tests.Unit.Application` does **not** get the skills copy, because it references `Daedalus.Agents`
+  rather than `Daedalus.Api`. §0.1's "(transitively)" claim biting for real. It now lives in
+  `ApiThalosConfigurationTests` (`Daedalus.Tests.Unit`), which does get the copy. One analyzer trap on the way:
+  `S3220`, because `Should().Equal([expected])` with a single-element collection expression is ambiguous
+  between the `params` and `IEnumerable` overloads — rewritten as `ContainSingle().Which.Should().Be(...)`.
+
+  **Steps 1–2 pass.** After the fix, `Daedalus.Api.exe` starts under Aspire and the real Postgres holds **two
+  active rows**, synced through the real migrations runner (`20260819152830_AddSkills` applied) rather than
+  Testcontainers. Unit 909 → **910**.
+
+  **Plan expectation corrected:** the task predicts "absolute `SourcePath`s under the API's content root". The
+  library stores them **relative to the root** (`daedalus-migrations/SKILL.md`). Not a bug — the expectation
+  was wrong.
+
+  **Step 3 NOT done.** The agent-facing half (ask "what procedures do you have?", expect both names from the
+  catalogue without a tool call, then a `skills__load` call) was not completed. A real `anthropic-api-key` *is*
+  available — it lives in the AppHost's user secrets, so the earlier note that this step was blocked on a
+  missing key was wrong. What blocked it is an **auth asymmetry unrelated to skills**: with a valid Keycloak
+  token from the issuer the API is configured for (`http://localhost:8082/realms/daedalus`),
+  `GET /api/agents` answers **200** while every `AgentSessionsController` endpoint answers **401** — despite both
+  controllers carrying an identical `[Authorize(Policy = "AgentUse")]` and that policy being nothing but
+  `RequireAuthenticatedUser()`. Worth noting for whoever picks this up: `AgentEndpointsSmokeTests` substitutes
+  `HeaderTestAuthHandler`, so **real JWT auth against those endpoints is not covered by any test**. Recorded as
+  an open item rather than chased, because it is neither caused by nor part of phase 1.3.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)
