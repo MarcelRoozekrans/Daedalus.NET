@@ -413,6 +413,27 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
 
   Unit 905 → **907**, integration 359 → **361**, build 0 warnings.
 
+- **Task 13 (2026-08-19) — the characterisation test was watched failing.** It passes on arrival, as the plan
+  predicted, so to prove it is load-bearing a temporary arm mapping the event into `AgentEventDto.ErrorCode`
+  was added: the fact then failed with *"Expected dto.ErrorCode to be null … but found \"SkillStoreFailed\""* —
+  precisely the rendering §0.6-6 forbids. Arm reverted; `git diff` confirmed byte-clean.
+
+- **Task 14 (2026-08-19) — both directions proven, and the exact failure message is worth quoting.**
+  The known-positive fact was added **before** touching `ThalosAssemblies` and failed with
+  *"There are no objects matching the criteria"* — the vacuous-pass signature. After adding
+  `typeof(ISkillStore).Assembly`, ArchUnit facts go 19 → **20** and it passes.
+
+  Step 4's negative proof needed more than the plan implies: `Daedalus.Application` has **no Thalos package
+  reference at all**, so a `using Thalos.Skills;` there does not merely violate the rule, it does not compile.
+  The probe therefore had to add a temporary `<PackageReference Include="Thalos.NET.Skills" />` to
+  `Daedalus.Application.csproj` alongside the probe type. With both in place
+  `ApplicationLayer_ShouldNotDependOn_Thalos` failed naming it exactly:
+  *"Daedalus.Application.TemporaryArchProbe does depend on Thalos.Skills.ISkillStore"* — so the boundary rules
+  genuinely bite for skills types now, not just for the pre-existing Thalos assemblies. Probe and package
+  reference both reverted; `git status` on the project confirmed clean.
+
+  Unit 907 → **909** (Application +1 for the SSE fact, Unit +1 for the ArchUnit fact), build 0 warnings.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)

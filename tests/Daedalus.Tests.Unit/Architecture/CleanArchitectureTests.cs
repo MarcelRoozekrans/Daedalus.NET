@@ -12,6 +12,7 @@ using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
+using Thalos.Skills;
 using static ArchUnitNET.Fluent.ArchRuleDefinition;
 using SysAssembly = System.Reflection.Assembly;
 using Task = Daedalus.Domain.Entities.Task;
@@ -36,6 +37,9 @@ public sealed class CleanArchitectureTests
     /// </summary>
     private const string RagNetNamespacePattern = "^Rag(\\.|$)";
 
+    /// <summary>Anchored on the skills package's own namespace, so the fact fails if the assembly is not loaded.</summary>
+    private const string SkillsNamespacePattern = "^Thalos\\.Skills(\\.|$)";
+
     private static readonly SysAssembly DomainAssembly = typeof(Task).Assembly;
     private static readonly SysAssembly ApplicationAssembly = typeof(ITaskRepository).Assembly;
     private static readonly SysAssembly InfrastructureAssembly = typeof(ApplicationDbContext).Assembly;
@@ -54,6 +58,7 @@ public sealed class CleanArchitectureTests
         typeof(SentinelThalosBuilderExtensions).Assembly, // Thalos.NET.Sentinel
         typeof(IMemoryService).Assembly, // Thalos.NET.Memory
         MemoryRagNetAssembly, // Thalos.NET.Memory.RagNet
+        typeof(ISkillStore).Assembly, // Thalos.NET.Skills
     ];
 
     /// <summary>
@@ -321,6 +326,20 @@ public sealed class CleanArchitectureTests
             .And().AreNotAbstract()
             .Should().ResideInAssembly(InfrastructureAssembly)
             .Because("Repository implementations belong in Infrastructure layer");
+
+        rule.Check(Architecture);
+    }
+
+    /// <summary>Known positive: proves Thalos.NET.Skills is loaded so the Thalos boundary rules can see it.</summary>
+    [Fact]
+    public void SkillsAssembly_IsLoaded_SoTheThalosRulesCoverIt()
+    {
+        // ArchUnitNET does not synthesise types for assemblies it has not loaded, so without Thalos.NET.Skills in
+        // ThalosAssemblies every Thalos-namespace rule above would pass vacuously for skills types - the same trap
+        // the Rag.NET rules hit in phase 1.2.
+        var rule = Types().That().ResideInNamespaceMatching(SkillsNamespacePattern)
+            .Should().Exist()
+            .Because("Thalos.NET.Skills must be loaded into the architecture or the Thalos boundary rules never see a skills type");
 
         rule.Check(Architecture);
     }
