@@ -250,6 +250,30 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
   through `SkillRules.NormalizeTag` before an ordinal `Contains`), which is what Task 6's Daedalus-side
   facts assert.
 
+- **Task 4 (2026-08-19) — §0.5b delta 1 is not implementable in Domain, and the task body already knew it.**
+  Delta 1 says "normalise through `SkillName.TryParse` in `Skill.Create`". **That cannot compile.**
+  `SkillName` lives in `Thalos.Skills`; `Daedalus.Domain.csproj` references only `CSharpFunctionalExtensions`,
+  and `CleanArchitectureTests.DomainLayer_ShouldNotDependOn_Thalos` fails the build if it ever did. Task 4's
+  own spec is the correct one and was followed verbatim: `IsValidName` **mirrors** the rule
+  (`^[a-z][a-z0-9_-]{0,63}$`) in the aggregate, exactly as `AgentMemory` mirrors `MemoryRules`, and the
+  aggregate **rejects** a non-normalised name rather than normalising it — which is why
+  `Create_rejects_invalid_names` lists `"Daedalus"` as invalid instead of expecting `"daedalus"` back.
+
+  **Consequence Task 6 must honour:** normalisation happens *upstream*, in the library, before Daedalus ever
+  sees the value. `PostgresSkillStore` must therefore pass `document.Name.Value` (already trimmed and
+  lower-cased by `SkillName.TryParse`) straight into `Skill.Create`. Passing a raw model- or file-supplied
+  string instead would hit the aggregate's rejection and surface as `SkillValidationFailed` on a name the
+  library considered perfectly valid. Delta 1's *worry* was real — aggregate and document must not disagree
+  on case — but the fix belongs at the boundary, not in Domain.
+
+- **Task 4 (cont.) — `MaxSourcePathLength` is deliberately looser than the library's.** The aggregate caps
+  source paths at **1024** while `SkillDocument.MaxSourcePathLength` is **512**, so Daedalus can never reject
+  a path the library already accepted. Same shape as §0.6-8's `ContentHash` ≤ 128 against a 64-char hex hash:
+  where the library validates first, the Daedalus-side cap exists only to keep a `varchar` from truncating,
+  so erring wide is correct. The plan's test asserts the `"1024"` message, which pins it.
+
+  Suite: Domain 255 → **275** (+20 facts), build 0 warnings, whole unit filter green at 892.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)
