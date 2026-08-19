@@ -28,6 +28,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
     public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
+    public DbSet<Skill> Skills => Set<Skill>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
