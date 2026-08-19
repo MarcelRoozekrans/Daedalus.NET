@@ -1,6 +1,6 @@
 global using CSharpFunctionalExtensions;
 global using Daedalus.Tests.Unit.Domain.Abstractions;
-global using FluentAssertions;
+global using AwesomeAssertions;
 global using NSubstitute;
 global using Xunit;
 global using DomainTask = Daedalus.Domain.Entities.Task;

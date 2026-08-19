@@ -342,7 +342,7 @@ public class WorkspaceOrchestratorTests
         var result = WorkspaceOrchestrator.BuildFeatureBranchName(taskId, longTitle);
 
         // Assert
-        result.Length.Should().BeLessOrEqualTo(80);
+        result.Length.Should().BeLessThanOrEqualTo(80);
     }
 
     [Fact]

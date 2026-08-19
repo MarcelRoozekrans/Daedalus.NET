@@ -1,6 +1,6 @@
 global using CSharpFunctionalExtensions;
 global using Daedalus.Tests.Unit.Application.Abstractions;
-global using FluentAssertions;
+global using AwesomeAssertions;
 global using NSubstitute;
 global using NSubstitute.ExceptionExtensions;
 global using Xunit;

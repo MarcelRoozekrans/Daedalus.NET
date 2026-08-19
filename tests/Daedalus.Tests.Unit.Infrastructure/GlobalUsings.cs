@@ -1,4 +1,4 @@
 global using CSharpFunctionalExtensions;
-global using FluentAssertions;
+global using AwesomeAssertions;
 global using NSubstitute;
 global using Xunit;

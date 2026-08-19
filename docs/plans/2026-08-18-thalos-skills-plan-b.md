@@ -274,6 +274,56 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
 
   Suite: Domain 255 → **275** (+20 facts), build 0 warnings, whole unit filter green at 892.
 
+- **Task 6 (2026-08-19) — three deviations, one of them a plan error the contract caught.**
+  14/14 green (12 contract facts + the 2 Daedalus ones).
+
+  1. **`DeactivateMissingAsync` must stamp the clock; the plan said it must not.** The plan's snippet carried
+     the comment "UpdatedAt is not bumped, because nothing about the document changed", and the test file's
+     `CreateStoreAsync` said "the store needs no clock". Both are wrong:
+     `DeactivateMissing_only_touches_active_unseen_skills_and_stamps_the_clock` asserts the deactivated row's
+     `UpdatedAt` equals the time of the sweep that deactivated it. **The contract wins** (§0.6-7's principle).
+     `PostgresSkillStore` now takes a `TimeProvider` — matching `PostgresMemoryStore`'s shape after all — and
+     the `ExecuteUpdateAsync` sets `UpdatedAt` alongside `IsActive`. The existing `WHERE IsActive` filter is
+     what satisfies the second half of that fact, "an already-inactive skill is not stamped again": a later
+     sweep cannot match a row it already deactivated. **Task 9 must therefore have a `TimeProvider` resolvable
+     from DI** for `UseSkillStore<PostgresSkillStore>()` to construct.
+  2. **Ordering is client-side and deliberately not SQL.** §0.5b's warning was correct and
+     `List_orders_ordinally_not_by_culture_collation` is the fact that would have caught it. Rather than
+     `ORDER BY name COLLATE "C"`, `ListAsync` materialises and sorts with `string.CompareOrdinal`: filtering
+     stays in SQL, the table is repo-sized, and the result cannot depend on the server's collation at all.
+     Verified green against the real `pgvector/pgvector:pg16` container, not reasoned about.
+  3. **Two §0.5b substitutions the plan's own snippets had not absorbed**: `new SkillName(x)` → `SkillName.Parse(x)`
+     (delta 1 — the constructor is private) in `ToDocument`, and `AgentError.SkillNotFound(name)` →
+     `SkillNotFound(key)` (delta 4 — it takes a `string`). The test file also drops its local `NewDocument`
+     helper in favour of the base class's `NewClock()`/`NewSkill(...)`, which the plan's own note prefers and
+     which sidesteps the private constructor entirely.
+
+- **Task 6 (cont.) — the blocker the plan never anticipated: AwesomeAssertions 7 → 9.5.0.**
+  Every one of the 12 inherited contract facts failed with
+  `FileNotFoundException: Could not load file or assembly 'AwesomeAssertions, Version=9.5.0.0'` while the two
+  Daedalus-authored facts passed — the tell that the fault was in the *inherited* assembly, not in the store.
+  **`Thalos.NET.Testing` 0.3.0 depends on AwesomeAssertions 9.5.0** (Plan A Task 1's major bump), and Daedalus
+  pinned **7.0.0**; under CPM the explicit pin wins and downgrades the transitive dependency, so the contract
+  base class could not load at runtime. This is a consequence of consuming 0.3.0 that **Plan B's §0.2 does not
+  mention** — it only anticipated `Npgsql` floors.
+
+  The migration mirrors Plan A Task 1 exactly: bump the pin, then rename the namespace `FluentAssertions` →
+  `AwesomeAssertions` in the seven `tests/*/GlobalUsings.cs` files and one stray `using` in
+  `GitChangeApplierTests`. **Exactly one real API break across ~900 tests**: `BeLessOrEqualTo` is
+  `BeLessThanOrEqualTo` in v9 (`WorkspaceOrchestratorTests.cs:345`). Full unit filter green afterwards at
+  **899**, 0 warnings — so Plan A's "only the namespace rename, no behavioural change" holds for Daedalus too,
+  with that one rename on top.
+
+- **Task 8 (2026-08-19) — two analyzer traps, no pragmas.** `S3267` rejected the missing-root `foreach`
+  (rewritten as `FirstOrDefault`), and `S4144` caught the new theory being byte-identical to
+  `Out_of_range_memory_settings_fail_fast_naming_the_key`. The skills theory now asserts the **section name**
+  as well as the member, which is a genuinely stronger assertion: the weaker form would have passed on a
+  message naming `Thalos:Memory`. Application 368 → **375**.
+
+  **Known-red window, by design:** with `DbSet<Skill>` in the model and no migration yet, the three
+  `AddAgentMemoriesMigrationTests` fail with EF 10's `PendingModelChangesWarning` (§0.1 documents exactly this).
+  Integration therefore sits at **354/357** until Task 7 scaffolds `AddSkills`. The 14 skill-store facts are green.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)
