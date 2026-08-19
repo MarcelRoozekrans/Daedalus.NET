@@ -28,6 +28,10 @@ internal static class AgentErrorResults
         AgentErrorCode.MemoryNotFound => StatusCodes.Status404NotFound,
         AgentErrorCode.MemoryIndexUnavailable => StatusCodes.Status503ServiceUnavailable,
         AgentErrorCode.MemoryStoreFailed or AgentErrorCode.MemoryIndexFailed => StatusCodes.Status502BadGateway,
+        AgentErrorCode.SkillValidationFailed => StatusCodes.Status400BadRequest,
+        AgentErrorCode.SkillNotFound => StatusCodes.Status404NotFound,
+        AgentErrorCode.SkillSearchUnavailable => StatusCodes.Status503ServiceUnavailable,
+        AgentErrorCode.SkillStoreFailed => StatusCodes.Status502BadGateway,
         // ProviderError, StoreError and anything Thalos adds later: an upstream dependency failed.
         _ => StatusCodes.Status502BadGateway,
     };
