@@ -1035,6 +1035,12 @@ visible to the caller and injects them into the prompt; `memory__*` tools let th
 explicitly. Records live in `AgentMemories` (`PostgresMemoryStore`), embeddings in the Rag.NET index (`rag_chunks`, same
 database) — a rebuildable cache, so an unavailable index degrades to `index_pending` rows instead of a failed turn.
 
+Phase 1.3 adds **skills** to the turn: a catalogue of the procedure documents the agent may use (names + one-line
+descriptions, filtered by the agent's globs) is appended to its instructions before the model call, and `skills__load`
+pulls a body in on demand. Documents live in `Skills` (`PostgresSkillStore`), synced one-way from the repo's `skills/`
+folder at host start. The skill index is **in-process** — no pgvector and no `rag_chunks` involvement — so a corpus that
+outgrows it swaps `ISkillIndex` for a pgvector implementation with no change above it (design §10).
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -1043,11 +1049,13 @@ sequenceDiagram
     participant RT as Thalos IAgentRuntime<br/>(ThalosAgentRuntime)
     participant Store as PostgresAgentSessionStore<br/>(Daedalus.Agents → EF Core)
     participant Mem as MemoryContextProvider<br/>→ IMemoryService
+    participant Skl as SkillContextProvider<br/>→ SkillCatalogue (per-glob-set cache)
+    participant SklStore as PostgresSkillStore<br/>(Skills) + in-process SkillIndex
     participant MemStore as PostgresMemoryStore<br/>(AgentMemories) + Rag.NET index<br/>(rag_chunks, nomic-embed-text 768)
     participant Agent as MAF ChatClientAgent
     participant Sentinel as AI.Sentinel<br/>(SentinelChatClient decorator)
     participant Claude as Anthropic API<br/>(Thalos.NET.Anthropic)
-    participant Tools as Tools<br/>(MCP roslyn/context7, local daedalus__*, memory__*)
+    participant Tools as Tools<br/>(MCP roslyn/context7, local daedalus__*, memory__*, skills__*)
 
     Web->>Api: POST /api/agents/sessions/{id}/turns/stream<br/>Authorization: Bearer (policy AgentUse)
     Api->>Api: 200 text/event-stream, DisableBuffering,<br/>": connected" flushed before the first token
@@ -1067,7 +1075,15 @@ sequenceDiagram
         RT-->>Api: memory-recall-failed (code)
         Api-->>Web: event: memory-recall-failed<br/>(turn continues without memories)
     end
-    RT->>Agent: Build from AgentDefinition<br/>(instructions, model, tool glob, history,<br/>recalled memories)
+    RT->>Skl: Catalogue for this agent's Skills globs
+    alt Catalogue rendered (cache hit or first render)
+        Skl-->>RT: <skills note="…"> block appended to the instructions<br/>(budgeted by Catalogue:MaxChars,<br/>overflow ends "… and N more")
+    else Store unreachable
+        Skl-->>RT: SkillCatalogueFailedEvent (code)
+        RT-->>Api: skill-catalogue-failed (kind only)
+        Api-->>Web: event: skill-catalogue-failed<br/>(turn continues without a catalogue)
+    end
+    RT->>Agent: Build from AgentDefinition<br/>(instructions, model, tool glob, history,<br/>recalled memories, skill catalogue)
     loop Model ↔ tools until the final answer
         Agent->>Sentinel: chat request (streaming)
         Sentinel->>Sentinel: input detectors (lexical; semantic when an<br/>embedding generator is configured)
@@ -1104,6 +1120,11 @@ sequenceDiagram
                     end
                     Api-->>Web: event: memory-stored / memory-index-pending
                 end
+                opt skills__load / skills__search
+                    Tools->>SklStore: GetAsync(name) within the agent's globs<br/>(search: in-process cosine over the same generator)
+                    SklStore-->>Tools: body wrapped in <skill name="…">…</skill><br/>with </skill and </memories neutralised, name echoed sanitised
+                    note over Tools: Out-of-glob, unknown and inactive all answer<br/>the same "Unknown skill" text - no probing
+                end
             end
         end
     end
@@ -1119,7 +1140,7 @@ Notes:
 
 - The controller flushes every SSE frame as soon as the runtime yields it (`text-delta`, `tool-call`, `tool-result`,
   `usage`, `done`, `error`, `memory-recalled`, `memory-stored`, `memory-recall-failed`, `memory-index-pending`,
-  `memory-quarantined`); the stream always ends with `done` or `error`.
+  `memory-quarantined`, `skill-catalogue-failed`); the stream always ends with `done` or `error`.
 - **Memory is best-effort within the turn:** a failed or unavailable index yields `memory-recall-failed` and the turn
   runs without memories; a write that could not be embedded yields `memory-index-pending` and is repaired in the
   background by `ReindexPendingMemoriesHostedService` (API host only). `AgentMemories` is the source of truth,
@@ -1133,6 +1154,17 @@ Notes:
 - AI.Sentinel is an `IChatClient` decorator: a `Quarantine` verdict surfaces as `AgentErrorCode.Quarantined` (HTTP 422 on
   the buffered endpoint, `event: error` on the stream). Its semantic detectors need the Ollama embedding generator; without
   it only lexical/operational detectors run.
+- **Skills are best-effort within the turn too, but trusted differently.** An unreachable store yields
+  `skill-catalogue-failed` (streamed by kind only — skills have no UI) and the turn proceeds without a catalogue. Unlike
+  recalled memories, skill bodies are **not** scanned as untrusted content: they come from git, so merging a `SKILL.md`
+  is the trust boundary, the same as merging code. The catalogue itself is cached per glob-set, so a turn costs a
+  dictionary lookup rather than a query.
+- **Skill sync happens once, at host start**, beside the Rag.NET schema initializer:
+  `SkillSyncService.StartingAsync` → enumerate the configured roots → parse and validate each `SKILL.md` (a malformed
+  file is logged at warning and **skipped**, never fatal) → compare content hashes and skip unchanged files → upsert the
+  changed ones → `DeactivateMissingAsync` for names whose files are gone. A configured root that does not exist fails
+  registration before this ever runs. Note the asymmetry with memory: a bad *file* is survivable, an unreachable *store*
+  is not.
 - On host start `AgentSessionCrashRecovery` resets any session left in `Running` by a crashed process back to `Idle`.
 
 ### Strangler layout: Ralph and Thalos side by side
@@ -1140,7 +1172,8 @@ Notes:
 Until phase 1.6 both stacks are wired in the API and share Infrastructure (DbContext) — and, since phase 1.2, the agent
 memory: Ralph's learnings are written and recalled through the Application port `ILearningsMemory` (shared owner
 `daedalus`), so `StructuredLearnings` and the hand-rolled embedding service are gone. The Ralph worker runs in
-`Daedalus.Console`, which registers `AddDaedalusMemory` (memory only, no agents, creates no Rag.NET schema):
+`Daedalus.Console`, which registers `AddDaedalusMemory` (memory only, no agents, no skills, creates no Rag.NET
+schema — it runs no Thalos agents, so there is no catalogue to build):
 
 ```mermaid
 graph LR
@@ -1167,18 +1200,27 @@ graph LR
         SessionStore["PostgresAgentSessionStore"]
         Knowledge["DaedalusKnowledgeTools<br/>(daedalus__search_failure_patterns)"]
         MemTools["memory__remember/recall/<br/>forget/list"]
+        SklTools["skills__load / skills__search"]
         Recovery["AgentSessionCrashRecovery"]
         SentinelBox["AI.Sentinel"]
         Mcp["MCP servers<br/>roslyn, context7"]
         MemSvc["Thalos IMemoryService"]
         MemStore2["PostgresMemoryStore<br/>(AgentMemories)"]
         MemIndex["Rag.NET IMemoryIndex<br/>(rag_chunks)"]
+        SkillSync["SkillSyncService<br/>(StartingAsync, one-way)"]
+        SkillCat["SkillCatalogue<br/>(per-glob-set cache)"]
+        SkillStore2["PostgresSkillStore<br/>(Skills)"]
+        SkillIdx["ISkillIndex<br/>(in-process cosine, no pgvector)"]
         Adapter["ThalosLearningsMemory<br/>(shared owner 'daedalus')"]
         Reindex["ReindexPendingMemoriesHostedService"]
     end
 
+    subgraph "Repo (source of truth for skills)"
+        SkillFiles["skills/&lt;name&gt;/SKILL.md<br/>copied next to each host"]
+    end
+
     subgraph "Shared Infrastructure"
-        DbCtx["ApplicationDbContext<br/>(AgentSessions, AgentMessages,<br/>AgentMemories, Tasks, …)"]
+        DbCtx["ApplicationDbContext<br/>(AgentSessions, AgentMessages,<br/>AgentMemories, Skills, Tasks, …)"]
         Ollama["Ollama nomic-embed-text<br/>(768 dims)"]
         PG[("PostgreSQL 16<br/>pgvector/pgvector:pg16")]
     end
@@ -1196,12 +1238,21 @@ graph LR
     Composition -.registers.-> Recovery
     Composition -.registers.-> MemSvc
     Composition -.registers.-> Reindex
+    Composition -.registers.-> SkillSync
     Runtime --> SessionStore
     Runtime --> SentinelBox
     Runtime --> Knowledge
     Runtime --> Mcp
     Runtime --> MemTools
+    Runtime --> SklTools
+    Runtime --> SkillCat
     MemTools --> MemSvc
+    SklTools --> SkillStore2
+    SklTools --> SkillIdx
+    SkillCat --> SkillStore2
+    SkillFiles --> SkillSync
+    SkillSync --> SkillStore2
+    SkillSync --> SkillIdx
     Adapter --> MemSvc
     MemSvc --> MemStore2
     MemSvc --> MemIndex
@@ -1210,6 +1261,7 @@ graph LR
     MemIndex --> PG
     SessionStore --> DbCtx
     MemStore2 --> DbCtx
+    SkillStore2 --> DbCtx
     Recovery --> DbCtx
     Ralph --> DbCtx
     DbCtx --> PG
