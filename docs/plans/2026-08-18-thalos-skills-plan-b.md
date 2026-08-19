@@ -362,6 +362,27 @@ when it returns false, rather than re-implementing the `^[a-z][a-z0-9_-]{0,63}$`
 
   Application 375 → **381** (+6 facts), unit total **905**, build 0 warnings.
 
+- **Task 10 (2026-08-19) — the copy lands in all four hosts the plan lists; §0.1 is wrong about a fifth.**
+  `Get-ChildItem`-equivalent over the output directories gives **2 SKILL.md each** for `Daedalus.Api`,
+  `Tests.Unit`, `Tests.Integration` and `Tests.Playwright.Browser` — the four Step 5 names — so the
+  transitive `Content` copy works and no `<None>` + per-project `<Content Include>` fallback was needed.
+
+  **`Daedalus.Tests.Unit.Application` gets 0, and that is correct.** §0.1 lists it among the projects that
+  reference `Daedalus.Api` "(transitively)"; it does not — its `ProjectReference`s are Domain, Application,
+  Infrastructure and **Agents**. No action needed: that project's registration tests deliberately run with
+  `ContentRootPath = Path.GetTempPath()` and rely on roots defaulting to empty (§0.6-2), and the one Task 9
+  fact that needs a real root creates its own temp directory. Recorded so nobody "fixes" it later.
+
+  **`.dockerignore` verified, not assumed.** Rather than a full API image build, a throwaway
+  `alpine` + `COPY . /ctx` build against the same context proves both files arrive:
+  `/ctx/skills/daedalus-migrations/SKILL.md` and `/ctx/skills/thalos-release/SKILL.md`. Docker's `*.md`
+  genuinely does not cross `/`, and the explicit `!skills/` re-include is belt-and-braces.
+
+  Both procedures are ones this milestone actually executed by hand, and both gained a section from what
+  went wrong: `daedalus-migrations` documents the `PendingModelChangesWarning` window between adding a
+  `DbSet` and scaffolding, and `thalos-release` documents the skipped second release-please dispatch and
+  the nuget.org indexing lag — the two traps that cost real time this phase.
+
 ---
 
 ## Task 1: Branch and pin Thalos.NET 0.3.0 (G1)
