@@ -1,54 +1,66 @@
 # Session State
 
-**Last session:** 2026-08-17
+**Last session:** 2026-08-19
 **Current milestone:** 1 — Hermes-Style Agent Framework
-**Current phase:** 1.2 — Memory (`Thalos.NET.Memory` port + Rag.NET adapter) → **complete and merged** (#238); next is 1.3 — Skills
-**Branch state:** merged into `main` via #238 (32 commits, branch deleted); issue #228 closed. CI green on the PR (build+test, all three images, commitlint). Thalos.NET **0.2.0** is on nuget.org and consumed directly — there was never a local pack this phase, so plan B's "switch pins to nuget.org / delete `packages-local`" step (Task 21.1) was already satisfied at Task 1 and nothing remains of it.
-**Release context (from 1.1, unchanged):** repo `MarcelRoozekrans/Daedalus.NET`; Daedalus **0.1.0** released (tag `v0.1.0`, ghcr.io images `0.1.0`/`0.1`/`latest`). GitVersion + release-please + commitlint + gated `publish-release`; runbook `docs/release.md`.
+**Current phase:** 1.3 — Skills (`Thalos.NET.Skills` port + Daedalus consumer; #229) — **in progress**
+**Branch state:** `feature/thalos-skills`, 8 commits, **not pushed**. Branched off `main` at `b4a44bb`. `main` itself gained two commits this session (`a80ed04` conventions, `b4a44bb` the Plan A Task 25 record) and is otherwise untouched.
+**Release context:** repo `MarcelRoozekrans/Daedalus.NET`; Daedalus **0.1.0** released. GitVersion + release-please + commitlint + gated `publish-release`; runbook `docs/release.md`.
 
 ## Last completed
 
-- **Plan A** (Thalos.NET, `C:\Projects\Prive\Thalos.NET`): memory shipped in **0.2.0** — eight packages on nuget.org, incl. the new `Thalos.NET.Memory` (`IMemoryStore`/`IMemoryIndex`/`IMemoryService`, `memory__*` tools, five `Memory*Event`s, six `AgentErrorCode.Memory*`) and `Thalos.NET.Memory.RagNet` (Rag.NET pgvector adapter). `Thalos.NET.Testing` gained `MemoryStoreContractTests` (21 facts) and `MemoryIndexContractTests`.
-- **Plan B** (Daedalus, `docs/plans/2026-08-17-thalos-memory-plan-b.md`): tasks 1–19 done, every group spec- and quality-reviewed with the findings fixed and recorded in the plan's §0.7. What shipped:
-  - Curated memory on **Thalos.NET.Memory 0.2.0 + `.Memory.RagNet`**: `AgentMemories` table + `PostgresMemoryStore` (row-value keyset streaming) as the source of truth, Rag.NET `rag_chunks` on the *app* database (768-dim `nomic-embed-text` via Ollama) as a rebuildable index.
-  - `AddDaedalusAgents` (API: agents + memory, owns the Rag.NET schema, runs the reindex sweeper) vs `AddDaedalusMemory` (console/Ralph: memory only, creates no schema) — **mutually exclusive and enforced** at registration.
-  - Ralph learnings persist and recall through the Application port `ILearningsMemory` (adapter `ThalosLearningsMemory`, shared owner `daedalus`, kind `learning`). The MCP `search_learnings` tool is a thin recall; Thalos agents get the `memory__*` tools instead.
-  - Migration `AddAgentMemories` copies every `StructuredLearnings` row (`index_pending = true`, embedded later by the sweeper) and drops the table. The whole legacy slice, `Pgvector.EntityFrameworkCore` and every `UseVector()` are gone; the pgvector **image** and `CREATE EXTENSION` stay, for Rag.NET.
-  - API `GET /api/agent-memories`, `GET /{id}` (404s on archived), `DELETE /{id}?hard=` — own-only forget, shared-owner forget behind `DeveloperPolicy`; reads post-filtered by `MemoryScope.Includes` with `agentId` as *caller context*, not a filter.
-  - Blazor **Memories panel** on `/agent` (recalled-this-turn from SSE + paged browse/forget); five new SSE kinds `memory-recalled | memory-stored | memory-recall-failed | memory-index-pending | memory-quarantined`.
-  - Two branch fixes worth knowing: the AppHost now uses `.WaitForCompletion(migrations)` (it previously started hosts before migrations applied), and the Playwright browser fixture fails loudly instead of reporting `Inconclusive` (exit 0) when host start fails — that had been hiding the Agent category since Task 6.
-  - Task 19: ArchUnit gained the memory assemblies and a `^Rag(\.|$)` boundary rule (Domain/Application/Infrastructure/API/Web); README and `docs/architecture-diagrams.md` §14 rewritten for memory.
-- Suites at the end of Task 19: build 0 warnings; unit **868** (Domain 255, Application 368, Unit 115, Infrastructure 130); integration 343; browser 99 (Agent category 5, `Skipped: 0`) as of the Task 18 review.
+### Plan A (Thalos.NET) — **COMPLETE**
+
+**Thalos.NET 0.3.0 is tagged, released and live on nuget.org (nine packages).** Task 25 was resumed and finished this session. Steps 1–4 had been done on 2026-08-18 (release PR #29 merged, CI green), but **step 5 was never dispatched**, so there was no `v0.3.0` tag and nothing on nuget.org — a merged release PR looks identical to a finished release, which is the trap. Dispatching `release-please.yml` cut tag + GitHub release in 13 s; the user-gated `ci.yml --ref v0.3.0 -f publish_to_nuget=true` (run 32258558786) pushed nine `.nupkg` + nine `.snupkg`, all `Created`.
+
+**Verification gotcha, recorded in plan A §0.8:** 30 s after the push the flat container 404'd and `dotnet package search` still showed 0.2.0. Pure indexing lag — the flat container went 200 after **~5 minutes**. Verify a publish by polling `https://api.nuget.org/v3-flatcontainer/<id>/index.json` until 200; never conclude from an immediate 404 that the push failed.
+
+### Plan B (Daedalus) — tasks 1–8 of 21 done (G1, G2, G3 complete)
+
+- **T1** pinned nine packages at 0.3.0 from nuget.org. **No local pack, no `packages-local/`** ever existed this phase, so §0.2's fallback removal gate is moot.
+- **T2** reconciled against the published package + Thalos HEAD `2e23e4c`. All six §0.5b deltas hold, no seventh found.
+- **T3** four `Skill*` → HTTP arms; exhaustiveness guard 18 → 22.
+- **T4** `Skill` domain aggregate, Thalos-free, mirroring the library rules.
+- **T5** `SkillConfiguration` + `DbSet<Skill>` (migration deliberately deferred).
+- **T6** `PostgresSkillStore` — **14/14 contract + Daedalus facts green** on Testcontainers.
+- **T7** migration `AddSkills` + 2 migration facts incl. the down-chain rollback.
+- **T8** `Thalos:Skills` options + fail-fast validation (done out of order while Docker was starting).
+
+**Suites: build 0 warnings; unit 899 (Domain 275, Application 375, Infrastructure 130, Unit 119); integration 359/359.**
+
+## Findings this session that later tasks depend on
+
+1. **AwesomeAssertions 7 → 9.5.0 was a hidden prerequisite of consuming 0.3.0.** `Thalos.NET.Testing` 0.3.0 depends on 9.5.0 (Plan A Task 1's major bump); Daedalus pinned 7.0.0 and **under CPM the explicit pin downgraded the transitive dependency**, so the contract base class failed to load at runtime — all 12 inherited facts red, both Daedalus-authored facts green (that asymmetry is the diagnostic). Fixed by bumping the pin and renaming `FluentAssertions` → `AwesomeAssertions` in seven `tests/*/GlobalUsings.cs` + one stray `using`. Exactly **one** real API break in ~900 tests: `BeLessOrEqualTo` → `BeLessThanOrEqualTo`. **Plan B §0.2 never anticipated this** — it only covered `Npgsql` floors.
+2. **The plan was wrong about the deactivation clock.** It said `DeactivateMissingAsync` must not bump `UpdatedAt` and the store "needs no clock". The contract asserts the opposite. `PostgresSkillStore` now takes a `TimeProvider`. **→ Task 9 must ensure `TimeProvider` is resolvable from DI**, or `UseSkillStore<PostgresSkillStore>()` cannot construct it. This is the single most likely thing to break next.
+3. **§0.5b delta 1 is not implementable in Domain.** It says to normalise via `SkillName.TryParse` in `Skill.Create`, but `SkillName` is in `Thalos.Skills`, `Daedalus.Domain.csproj` has no Thalos reference, and `DomainLayer_ShouldNotDependOn_Thalos` forbids it. The aggregate mirrors the rule and **rejects** non-normalised names; normalisation happens upstream in the library. The store therefore passes `document.Name.Value`.
+4. **Ordering is client-side on purpose.** `ListAsync` materialises and sorts with `string.CompareOrdinal` rather than `ORDER BY`, because the contract needs code-point order and a culture collation returns a different one. Verified green against real Postgres, not reasoned about.
+5. Two analyzer traps met and fixed **without pragmas**: `S3267` (missing-root `foreach` → `FirstOrDefault`) and `S4144` (new theory byte-identical to the memory one → the skills theory now also asserts the section name, which is strictly stronger).
 
 ## Open decisions (user)
 
-**None blocking.** Everything phase 1.2 needed was decided during execution and recorded in the plan's §0.7.
+**None blocking.**
 
 1. Carried over from 1.1: manual sample smoke of Thalos `samples/Thalos.Sample.Console` with a real `ANTHROPIC_API_KEY`; save the transcript under `Thalos.NET/docs/samples/`.
-2. Carried over from 1.1: `tests/Daedalus.Tests.Unit` is excluded from the Release solution configuration — that was fixed in `01253dc`; re-confirm on the next CI run that both unit and integration projects build in Release.
+2. Carried over from 1.1: re-confirm on the next CI run that both unit and integration projects build in Release.
+3. Two untracked pre-pivot files (`docs/regression-report-2026-03-01-1800.md` + its screenshots folder) — user chose to **leave them alone** this session.
 
-## Known follow-ups (recorded in the plans)
+## Blockers
 
-**Phase 1.2, deliberately deferred (plan B §0.7, "Accepted / deferred"):**
+**None currently.** Docker Desktop was down at the start of Task 6 and was started during the session; Testcontainers work now. If a later session finds integration tests failing instantly with `DockerUnavailableException`, that is the cause — start Docker Desktop and re-run.
 
-- **M4 — reindex log ramp.** `ReindexPendingMemoriesHostedService` logs "index unavailable" at `Information` on every retry. It fires at most once per `RetryInterval` (2 min default), so the noise ceiling is low; ramp the level down after N consecutive unavailable probes only if an operator complains.
-- **M5 — command timeout on the migration copy.** The `INSERT … SELECT` that copies `StructuredLearnings` runs under EF's default 30 s. It is one set-based statement over a table holding thousands of rows at most, and a timeout fails the migration loudly and rolls back — a knob would add configuration surface with no failure mode to protect.
-- **Full index rebuild has no operator affordance.** The reindex sweeper runs with `PendingOnly = true`, so recovering from a dropped or dimension-mismatched `rag_chunks` needs a manual `UPDATE "AgentMemories" SET "IndexPending" = true …` beside the `DROP TABLE` (documented in the README's operational notes). `ReindexOptions` also has a `PendingOnly = false` mode; exposing it as an admin endpoint or a one-shot startup flag would remove the SQL step.
-- **M8 — crash-consistency check mid-sweep.** Killing the host during a reindex sweep leaves rows `index_pending` and the next sweep repeats them; that property belongs to Thalos' `ReindexAsync` and is covered by its own suite. A Daedalus-side test would exercise `BackgroundService`, not our code.
+**Environment issue still outstanding (pre-existing, not caused by 1.3):** the local pgvector data volume is stale (collation-version mismatch, created under glibc 2.41 vs 2.36 now). `docker volume rm daedalus_postgres_data` or `REINDEX DATABASE daedalus;` is the fix. This matters for **Task 19's AppHost smoke run**, not for Testcontainers.
 
-**AppHost environment findings on this machine (not caused by phase 1.2, out of its scope):**
+## Known follow-ups
 
-- The local pgvector **data volume is stale**: PostgreSQL logs collation-version mismatch warnings (created under glibc 2.41, the OS now provides 2.36). `docker volume rm daedalus_postgres_data` (or `REINDEX DATABASE daedalus;`) is the fix. This is why the `AddAgentMemories` migration was verified against Testcontainers rather than the local volume.
-- The related symptom — hosts coming up against a database with only `rag_chunks` and no EF tables — is **fixed** on this branch: the AppHost used `WaitFor(migrations)`, which releases as soon as the one-shot job *starts*, and now uses `.WaitForCompletion(migrations)` (`4d96d66`).
+**Assigned to Task 15 (README), agreed with the user as a plan addition:** document that Thalos' `SkillSyncService.SyncAsync` is an **unguarded read-modify-write**, so two hosts syncing concurrently can flap a skill active/inactive during a rolling deploy. Plan A Task 24 recorded this and explicitly said "Plan B should document this"; Plan B had no task for it.
 
-**Carried over from phase 1.1:**
+**Other Plan A 0.3.0 limitations accepted, recorded not fixed:** `SkillStoreContractTests` has no fact for `GetAsync` returning inactive rows nor for concurrent upsert of the same name; the residual search side channel persists at the ceiling; `SkillCatalogue`'s render cache is unbounded and keyed by unvalidated globs.
 
-- `AgentSession.RowVersion` is inert on Npgsql (the store uses atomic UPDATEs) — `UseXminAsConcurrencyToken()` or drop the column.
-- The Keycloak realm has no `developer` role yet. It now gates two things: the mutating `roslyn__apply_*`/`rename_*` tools **and** deleting a shared-owner memory via `DELETE /api/agent-memories/{id}`. Add it to `keycloak-realm.json`.
-- 9 Keycloak-container integration tests fail with connection refused on this machine (pre-existing infra).
-- `#app` loading styles persist after Blazor boot (cosmetic, pre-existing).
-- Thalos follow-ups: per-agent Sentinel identity, per-session Sentinel rate limiting, cache-token usage fields, ref-counted agent invalidation, `ThalosOptions` binding from `IConfiguration` (typed-id converter).
+**Carried over from 1.1/1.2:** `AgentSession.RowVersion` inert on Npgsql; Keycloak realm has no `developer` role (gates the mutating roslyn tools *and* shared-owner memory delete); 9 Keycloak-container integration tests fail with connection refused on this machine (pre-existing infra); `#app` loading styles persist after Blazor boot (cosmetic). Memory-phase deferrals M4, M5, M8 and the full-index-rebuild affordance all stand.
 
 ## Recommended next step
 
-Start **phase 1.3 — Skills** (reusable procedures the agent loads and refines, Rag-backed; #229) with `superpowers:brainstorming` against the agent-core design doc. Phase 1.3 builds directly on 1.2: skills are retrieved the same way memories are, so the Rag.NET index, the `AgentMemories`/`rag_chunks` split and the `MemoryScope` visibility rule are the patterns to extend rather than re-invent.
+**Task 9 (G4): wire skills into `AddDaedalusAgents` only** — `UseSkills(Action<SkillOptions>)` (the delegate overload, *not* the `IConfiguration` one, because §0.6-4 resolves roots to absolute paths first) + `UseSkillStore<PostgresSkillStore>()`, with registration tests proving `AddDaedalusMemory` does **not** register skills. **Check `TimeProvider` is in DI first** — finding 2 above.
+
+Then T10 (`skills/` folder + two starter skills + `Content` copy + `.dockerignore` verification), T11 (startup test), T12–13 (G6), T14–17 (G7), T18–21 (G8).
+
+Resume with `resume-work`, or say "continue" and `start-next-phase` will route back into `executing-plans` on `docs/plans/2026-08-18-thalos-skills-plan-b.md`.
