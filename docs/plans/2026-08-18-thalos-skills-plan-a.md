@@ -958,6 +958,41 @@ needed: the generator emits `TryAddSingleton<SkillCatalogue>(sp => new SkillCata
 configuration binder populates `IList<string> Roots` without complaint, so `SkillOptions` was not changed
 and no `MA0016` NoWarn was added.
 
+**Task 25 (done, 2026-08-19 — no code commit; the release itself is the artefact).** Steps 1–4 had been
+completed in the 2026-08-18 session: `main` pushed green, the `Release-As: 0.3.0` empty commit (`e60209c`),
+and release PR **#29** `chore(main): release 0.3.0` opened and merged (CI green, run 32163646152, both OS
+legs + pack-validate). **Step 5 was never dispatched**, so the release stopped there — `.release-please-manifest.json`
+said `0.3.0` and `CHANGELOG.md` had the 0.3.0 entry, but **no `v0.3.0` tag and no GitHub release existed**,
+and nothing was on nuget.org. A resumed session found this by checking `git tag --list` against
+`gh release list` rather than trusting the merged PR. **The lesson: a merged release PR is not a release.**
+release-please needs the second dispatch, and the merged PR looks identical either way.
+
+The plan's optional CHANGELOG note *was* added to the release PR before merging, as advised — the 0.3.0
+entry documents both `AgentDefinition.Skills` (additive, defaults to empty) and the memory-sanitiser
+behaviour change from B2 (`MemoryRecallBlock` now neutralises `<skills`, and the added `\b` slightly
+changes escaping for text that was never a tag).
+
+**The tag deliberately trails `main`.** Renovate merged #30 (meziantou 3.0.165) *after* the release PR, so
+`v0.3.0` points at `806f612` while `main`'s tip is `2e23e4c`. That is correct — the tag is the release
+commit, and the analyzer bump is not part of 0.3.0. `publish-nuget`'s "Refuse anything that is not the
+tagged release commit" step passed precisely because the dispatch used `--ref v0.3.0`, not `--ref main`.
+
+Step 5 (`gh workflow run release-please.yml --ref main`) created the tag and the GitHub release in 13 s.
+Step 6 (`gh workflow run ci.yml --ref v0.3.0 -f publish_to_nuget=true`, run **32258558786**) was
+user-gated and approved; `publish-nuget` finished in 1 m 01 s having pushed **nine `.nupkg` and nine
+`.snupkg`**, every one returning `Created`.
+
+**Verification gotcha worth recording, because it looks exactly like a failed push.** Thirty seconds after
+the push, `https://api.nuget.org/v3-flatcontainer/thalos.net.skills/index.json` returned **404** and
+`dotnet package search Thalos.NET` still listed every package at **0.2.0**. Both were pure indexing lag:
+the flat container went 200 after **~5 minutes**, and the search index trails it further still. Verify a
+publish by polling the flat container until 200 — never by `dotnet package search`, and never conclude
+from an immediate 404 that the push failed. Final state: all nine ids resolve to `0.3.0`.
+
+**Plan A is complete.** Plan B Task 1 can now pin `0.3.0` from nuget.org; there was never a
+`0.3.0-local.<ts>` pack this phase, so the plan's "switch pins from the local feed" wording is moot again,
+exactly as it was in 1.2.
+
 ---
 
 ## Task map
