@@ -2596,17 +2596,17 @@ PR body: what shipped, the §0.6 deviations (especially the fail-fast root valid
 
 ## Definition of done (= phase 1.3 done)
 
-- [ ] Thalos.NET **0.3.0** consumed from nuget.org; nine `PackageVersion` pins; no local feed anywhere in the tree.
-- [ ] Four `AgentErrorCode.Skill*` codes mapped to HTTP; the exhaustiveness guard pins 22.
-- [ ] `Skill` aggregate (Thalos-free) + EF configuration + `DbSet` + migration `AddSkills` with a migration test that also rolls the chain back and forward.
-- [ ] `PostgresSkillStore` green against `Thalos.Testing.SkillStoreContractTests` on Testcontainers, plus Daedalus facts for AND tag filtering and validation-vs-store errors.
-- [ ] `AddDaedalusAgents` registers skills; `AddDaedalusMemory` provably does not; a configured-but-missing root fails registration naming the path.
-- [ ] `skills/daedalus-migrations` and `skills/thalos-release` exist, are copied into the API and all three test hosts, and **load into Postgres on a real host start** (integration test) — with a unit fact pinning the copy in the no-Docker CI job.
-- [ ] `appsettings.json` carries `Thalos:Skills`, the agent's `Skills: ["*"]` and `skills__*` in `Tools`; the pinned configuration test is updated.
-- [ ] `skill-catalogue-failed` passes through as kind-only, pinned by a test that says why.
-- [ ] ArchUnit loads `Thalos.NET.Skills` with a proof fact that failed before the assembly was added.
+- [x] Thalos.NET **0.3.0** consumed from nuget.org; nine `PackageVersion` pins; no local feed anywhere in the tree.
+- [x] Four `AgentErrorCode.Skill*` codes mapped to HTTP; the exhaustiveness guard pins 22.
+- [x] `Skill` aggregate (Thalos-free) + EF configuration + `DbSet` + migration `AddSkills` with a migration test that also rolls the chain back and forward.
+- [x] `PostgresSkillStore` green against `Thalos.Testing.SkillStoreContractTests` on Testcontainers, plus Daedalus facts for AND tag filtering and validation-vs-store errors.
+- [x] `AddDaedalusAgents` registers skills; `AddDaedalusMemory` provably does not; a configured-but-missing root fails registration naming the path.
+- [x] `skills/daedalus-migrations` and `skills/thalos-release` exist, are copied into the API and all three test hosts, and **load into Postgres on a real host start** (integration test) — with a unit fact pinning the copy in the no-Docker CI job.
+- [x] `appsettings.json` carries `Thalos:Skills`, the agent's `Skills: ["*"]` and `skills__*` in `Tools`; the pinned configuration test is updated.
+- [x] `skill-catalogue-failed` passes through as kind-only, pinned by a test that says why.
+- [x] ArchUnit loads `Thalos.NET.Skills` with a proof fact that failed before the assembly was added.
 - [ ] README, `docs/architecture-diagrams.md` §14 and the planning docs updated.
-- [ ] `dotnet build` 0 warnings; unit, integration and browser suites green with **`Skipped: 0`** in the browser run; AppHost smoke run done and recorded.
+- [x] `dotnet build` 0 warnings; unit, integration and browser suites green with **`Skipped: 0`** in the browser run; AppHost smoke run done and recorded.
 - [ ] Pre-push review PASS, PR merged, CI green (including the three image builds), #229 closed, `complete 1.3` run.
 
 ---
