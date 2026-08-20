@@ -373,14 +373,17 @@ public sealed class ChannelOptions
             return "DefaultAgent must not be blank.";
         }
 
+        // Plain interpolation, NOT string.Create(CultureInfo.InvariantCulture, …): TimeSpan formats
+        // culture-invariantly, so the wrapper is redundant and Meziantou's MA0185 rejects it as an error.
+        // Skills uses string.Create because it interpolates a double, which is culture-sensitive.
         if (o.IdleTimeout <= TimeSpan.Zero)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"IdleTimeout must be greater than zero (was {o.IdleTimeout}).");
+            return $"IdleTimeout must be greater than zero (was {o.IdleTimeout}).";
         }
 
         if (o.FlushInterval < TimeSpan.Zero)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"FlushInterval must not be negative (was {o.FlushInterval}).");
+            return $"FlushInterval must not be negative (was {o.FlushInterval}).";
         }
 
         return null;
@@ -423,8 +426,9 @@ namespace Thalos.Tests.Channels;
 
 public sealed class InMemoryConversationMapTests
 {
-    private static ConversationBinding Binding(string conversation = "42", string agent = "daedalus") =>
-        new("telegram", new ConversationId(conversation), SessionId.New(), new AgentId(agent), DateTimeOffset.UnixEpoch);
+    // AgentId is ULID-backed, so there is no AgentId("daedalus") — generate one and assert against it by value.
+    private static ConversationBinding Binding(string conversation = "42") =>
+        new("telegram", new ConversationId(conversation), SessionId.New(), AgentId.New(), DateTimeOffset.UnixEpoch);
 
     [Fact]
     public async Task Unknown_conversation_returns_null_not_an_error()
@@ -447,7 +451,8 @@ public sealed class InMemoryConversationMapTests
 
         found.Value.Should().NotBeNull();
         found.Value!.SessionId.Should().Be(binding.SessionId);
-        found.Value.AgentId.Value.Should().Be("daedalus");
+        // AgentId is a ULID-backed [TypedId], not a string — assert against the id the helper generated.
+        found.Value.AgentId.Should().Be(binding.AgentId);
     }
 
     [Fact]
@@ -1108,11 +1113,19 @@ public sealed class ChannelPumpTurnTests
         await Task.CompletedTask;
     }
 
-    private static ChannelPump Build(FakeChannel channel, IAgentRuntime runtime) =>
-        new([channel], [channel], runtime, new InMemoryConversationMap(),
+    private static ChannelPump Build(FakeChannel channel, IAgentRuntime runtime)
+    {
+        // AgentId is a ULID; configuration and /new name agents by AgentDefinition.Name, so the pump needs a catalogue
+        // to resolve "daedalus" into an id. Substituting the catalogue is what makes that resolution testable.
+        var definition = new AgentDefinition { Id = AgentId.New(), Name = "daedalus", Instructions = "test" };
+        var catalog = Substitute.For<IAgentCatalog>();
+        catalog.Agents.Returns([definition]);
+
+        return new ChannelPump([channel], [channel], runtime, catalog, new InMemoryConversationMap(),
             Options.Create(new ChannelOptions { DefaultAgent = "daedalus", FlushInterval = TimeSpan.Zero }),
             TimeProvider.System,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelPump>.Instance);
+    }
 
     private static async Task WaitForTerminal(FakeChannel channel)
     {
@@ -1160,6 +1173,7 @@ public sealed partial class ChannelPump(
     IEnumerable<IChannelSource> sources,
     IEnumerable<IChannelAdapter> adapters,
     IAgentRuntime runtime,
+    IAgentCatalog catalog,
     IConversationMap conversations,
     IOptions<ChannelOptions> options,
     TimeProvider clock,
@@ -1170,6 +1184,7 @@ public sealed partial class ChannelPump(
         adapters.ToDictionary(a => a.ChannelId, StringComparer.Ordinal);
 
     private readonly IAgentRuntime _runtime = runtime;
+    private readonly IAgentCatalog _catalog = catalog;
     private readonly IConversationMap _conversations = conversations;
     private readonly ChannelOptions _options = options.Value;
     private readonly TimeProvider _clock = clock;
@@ -1229,7 +1244,13 @@ public sealed partial class ChannelPump(
             return bound;
         }
 
-        var created = await _runtime.CreateSessionAsync(new AgentId(_options.DefaultAgent), message.Caller, ct).ConfigureAwait(false);
+        if (ResolveAgent(_options.DefaultAgent) is not { } definition)
+        {
+            LogUnknownAgent(_logger, _options.DefaultAgent);
+            return null;
+        }
+
+        var created = await _runtime.CreateSessionAsync(definition.Id, message.Caller, ct).ConfigureAwait(false);
         if (created.IsFailure)
         {
             LogSessionFailed(_logger, message.ChannelId, created.Error.Code);
@@ -1238,10 +1259,28 @@ public sealed partial class ChannelPump(
 
         var binding = new ConversationBinding(
             message.ChannelId, message.ConversationId, created.Value,
-            new AgentId(_options.DefaultAgent), _clock.GetUtcNow());
+            definition.Id, _clock.GetUtcNow());
 
         await _conversations.BindAsync(binding, ct).ConfigureAwait(false);
         return binding;
+    }
+
+    /// <summary>
+    /// Resolves a configured or operator-typed agent NAME to its definition. <c>AgentId</c> is a ULID, so configuration
+    /// and chat commands name agents by <see cref="AgentDefinition.Name"/>; the catalogue's own TryGet only indexes by id.
+    /// Case-insensitive because the name is typed by a human, often on a phone.
+    /// </summary>
+    private AgentDefinition? ResolveAgent(string name)
+    {
+        foreach (var definition in _catalog.Agents)
+        {
+            if (string.Equals(definition.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return definition;
+            }
+        }
+
+        return null;
     }
 
     private async Task RunTurnAsync(InboundMessage message, ConversationBinding binding, IChannelAdapter adapter, CancellationToken ct)
@@ -1294,6 +1333,9 @@ public sealed partial class ChannelPump(
 
     [LoggerMessage(EventId = 603, Level = LogLevel.Error, Message = "Channel {ChannelId} could not create a session: {Code}")]
     private static partial void LogSessionFailed(ILogger logger, string channelId, AgentErrorCode code);
+
+    [LoggerMessage(EventId = 604, Level = LogLevel.Error, Message = "No agent is registered under the name {Name}; check Thalos:Channels:DefaultAgent against the agent catalogue")]
+    private static partial void LogUnknownAgent(ILogger logger, string name);
 }
 ```
 
@@ -1345,7 +1387,8 @@ public sealed class ChannelPumpLifecycleTests
 
         var binding = (await h.Map.GetAsync("fake", h.Channel.Conversation, default)).Value;
         binding.Should().NotBeNull();
-        binding!.AgentId.Value.Should().Be("daedalus");
+        // AgentId is a ULID, so assert against the catalogue's definition id — not against the name "daedalus".
+        binding!.AgentId.Should().Be(h.DefaultAgent.Id);
     }
 
     [Fact]
@@ -1422,17 +1465,36 @@ public sealed class PumpHarness : IDisposable
 
     public IAgentRuntime Runtime { get; } = Substitute.For<IAgentRuntime>();
 
+    /// <summary>The agent the pump resolves "daedalus" to. AgentId is a ULID; the NAME is what config and /new carry.</summary>
+    public AgentDefinition DefaultAgent { get; } = new()
+    {
+        Id = AgentId.New(),
+        Name = "daedalus",
+        Instructions = "test",
+    };
+
+    /// <summary>A second agent so /new &lt;name&gt; has something to switch to.</summary>
+    public AgentDefinition OtherAgent { get; } = new()
+    {
+        Id = AgentId.New(),
+        Name = "reviewer",
+        Instructions = "test",
+    };
+
+    public IAgentCatalog Catalog { get; } = Substitute.For<IAgentCatalog>();
+
     public ChannelPump Pump { get; }
 
     public PumpHarness()
     {
+        Catalog.Agents.Returns([DefaultAgent, OtherAgent]);
         Runtime.CreateSessionAsync(Arg.Any<AgentId>(), Arg.Any<ZeroAlloc.Authorization.ISecurityContext>(), Arg.Any<CancellationToken>())
             .Returns(_ => new ValueTask<Result<SessionId, AgentError>>(Result<SessionId, AgentError>.Success(SessionId.New())));
 
         Runtime.RunTurnStreamingAsync(Arg.Any<AgentTurnRequest>(), Arg.Any<CancellationToken>())
             .Returns(call => Emit(call.Arg<AgentTurnRequest>()));
 
-        Pump = new ChannelPump([Channel], [Channel], Runtime, Map,
+        Pump = new ChannelPump([Channel], [Channel], Runtime, Catalog, Map,
             Options.Create(new ChannelOptions { DefaultAgent = "daedalus", FlushInterval = TimeSpan.Zero }),
             Clock, NullLogger<ChannelPump>.Instance);
     }
@@ -1502,6 +1564,9 @@ public static class ChannelNotices
 
     /// <summary>Shown when a turn is already running.</summary>
     public const string Busy = "Still working on the previous message — /cancel to stop it.";
+
+    /// <summary>Shown when <c>Thalos:Channels:DefaultAgent</c> names an agent the catalogue does not have.</summary>
+    public const string UnknownDefaultAgent = "I am misconfigured: the default agent does not exist. /agents lists what is registered.";
 }
 ```
 
@@ -1521,7 +1586,14 @@ In `src/Thalos.NET.Channels/ChannelPump.cs`, replace `ResolveAsync` with:
         }
 
         var notice = bound is null ? null : ChannelNotices.IdleRollover;
-        return await CreateAndBindAsync(message, adapter, new AgentId(_options.DefaultAgent), notice, ct).ConfigureAwait(false);
+        if (ResolveAgent(_options.DefaultAgent) is not { } definition)
+        {
+            LogUnknownAgent(_logger, _options.DefaultAgent);
+            await NotifyAsync(adapter, SessionId.New(), ChannelNotices.UnknownDefaultAgent, ct).ConfigureAwait(false);
+            return null;
+        }
+
+        return await CreateAndBindAsync(message, adapter, definition.Id, notice, ct).ConfigureAwait(false);
     }
 
     private async Task<ConversationBinding?> CreateAndBindAsync(
@@ -1621,12 +1693,35 @@ public sealed class ChannelPumpCommandTests
     }
 
     [Fact]
-    public async Task Slash_new_with_an_argument_binds_that_agent()
+    public async Task Slash_new_with_an_argument_resolves_that_agent_by_name()
     {
         var h = new PumpHarness();
         await h.SendAndSettle("/new reviewer");
 
-        (await h.Map.GetAsync("fake", h.Channel.Conversation, default)).Value!.AgentId.Value.Should().Be("reviewer");
+        (await h.Map.GetAsync("fake", h.Channel.Conversation, default)).Value!.AgentId.Should().Be(h.OtherAgent.Id);
+    }
+
+    [Fact]
+    public async Task Slash_new_with_an_unknown_agent_name_is_refused_and_leaves_the_binding_alone()
+    {
+        var h = new PumpHarness();
+        await h.SendAndSettle("hello");
+        var before = (await h.Map.GetAsync("fake", h.Channel.Conversation, default)).Value!.SessionId;
+
+        await h.SendAndSettle("/new nosuchagent");
+
+        h.Notices().Should().Contain(n => n.Contains("/agents", StringComparison.Ordinal));
+        (await h.Map.GetAsync("fake", h.Channel.Conversation, default)).Value!.SessionId.Should().Be(before);
+    }
+
+    [Fact]
+    public async Task Slash_agents_lists_agent_names_not_ids()
+    {
+        // AgentId renders as a 26-char ULID; showing that to a human would be useless.
+        var h = new PumpHarness();
+        await h.SendAndSettle("/agents");
+
+        h.Notices().Should().Contain(n => n.Contains("daedalus", StringComparison.Ordinal) && n.Contains("reviewer", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1773,9 +1868,22 @@ Replace `HandleAsync` in `ChannelPump.cs`:
     }
 ```
 
-Implement the four helpers. `StartNewAsync` closes any bound session first (`_runtime.CloseSessionAsync`), then calls `CreateAndBindAsync` with the argument agent or the default and no notice. `EndAsync` closes and unbinds. `StatusAsync` reports the binding or `ChannelNotices.NoSession` without creating one. `AgentsAsync` reads `IAgentCatalog` and renders the ids. `CancelRunning` cancels the registered CTS or sends `ChannelNotices.NothingToCancel`.
+Implement the four helpers:
 
-Add `IAgentCatalog catalog` to the constructor parameter list and to `PumpHarness` (substitute returning a single `daedalus` definition).
+- **`StartNewAsync`** — resolve the agent NAME with `ResolveAgent(command.Argument ?? _options.DefaultAgent)`. If it does not resolve, send `ChannelNotices.UnknownAgent` and **return without touching the existing binding** — a typo must not destroy the session the operator is in. Otherwise close any bound session (`_runtime.CloseSessionAsync`), then `CreateAndBindAsync` with the resolved `definition.Id` and no notice.
+- **`EndAsync`** — close and unbind.
+- **`StatusAsync`** — report the binding, resolving its `AgentId` back to a name via `_catalog.TryGet(binding.AgentId, out var def)` so the operator sees `daedalus`, not a ULID. Report `ChannelNotices.NoSession` when unbound, and do NOT create a session.
+- **`AgentsAsync`** — render `_catalog.Agents` by **`Name`** (optionally with `Description`). Never render `AgentId`: it is a 26-character ULID and means nothing to a human.
+- **`CancelRunning`** — cancel the registered CTS, or send `ChannelNotices.NothingToCancel`.
+
+Add to `ChannelNotices`:
+
+```csharp
+    /// <summary>Shown when /new names an agent the catalogue does not have.</summary>
+    public const string UnknownAgent = "I do not have an agent by that name. /agents lists the ones I do.";
+```
+
+`IAgentCatalog` is already a constructor parameter and is already in `PumpHarness` — both were added in Task 7 for default-agent resolution.
 
 - [ ] **Step 5: Run test to verify it passes**
 
