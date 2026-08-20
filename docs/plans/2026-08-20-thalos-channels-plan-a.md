@@ -768,12 +768,14 @@ public sealed record ChannelCommand(ChannelCommandKind Kind, string? Argument)
             return NotACommand;
         }
 
-        var separator = trimmed.IndexOf(' ', StringComparison.Ordinal);
+        // char overload, not the string one: IndexOf(char) takes no StringComparison, and CA1865/MA0089 require
+        // the char overload for a single-character search.
+        var separator = trimmed.IndexOf(' ');
         var word = separator < 0 ? trimmed[1..] : trimmed[1..separator];
         var argument = separator < 0 ? null : trimmed[(separator + 1)..].Trim();
 
         // Telegram appends @botname to commands; strip it before matching.
-        var at = word.IndexOf('@', StringComparison.Ordinal);
+        var at = word.IndexOf('@');
         if (at >= 0)
         {
             word = word[..at];
@@ -1214,12 +1216,26 @@ public sealed partial class ChannelPump(
         {
             await foreach (var message in source.ReadAsync(ct).ConfigureAwait(false))
             {
-                await HandleAsync(message, adapter, ct).ConfigureAwait(false);
+                try
+                {
+                    await HandleAsync(message, adapter, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // One bad message must not end the channel. A dead pump loop is invisible until process
+                    // shutdown, and for a single-operator bot that reads as "the agent stopped answering".
+                    LogHandleFailed(_logger, source.ChannelId, ex);
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // normal shutdown
+        }
+        catch (Exception ex)
+        {
+            // The source itself died, so this loop is over — but siblings keep pumping. Never fail silently.
+            LogSourceFailed(_logger, source.ChannelId, ex);
         }
     }
 
@@ -1336,6 +1352,12 @@ public sealed partial class ChannelPump(
 
     [LoggerMessage(EventId = 604, Level = LogLevel.Error, Message = "No agent is registered under the name {Name}; check Thalos:Channels:DefaultAgent against the agent catalogue")]
     private static partial void LogUnknownAgent(ILogger logger, string name);
+
+    [LoggerMessage(EventId = 605, Level = LogLevel.Error, Message = "Channel {ChannelId} failed handling a message; the channel keeps reading")]
+    private static partial void LogHandleFailed(ILogger logger, string channelId, Exception ex);
+
+    [LoggerMessage(EventId = 606, Level = LogLevel.Critical, Message = "Channel {ChannelId} source loop ended with an error; that channel is no longer reading")]
+    private static partial void LogSourceFailed(ILogger logger, string channelId, Exception ex);
 }
 ```
 
@@ -1641,7 +1663,18 @@ Then, in `RunTurnAsync`, handle the two terminal failures that mean "the binding
                     break;
 ```
 
-Update `HandleAsync` to pass `adapter` into `ResolveAsync`, and `RunTurnAsync` to accept `message` so it can unbind.
+Update `HandleAsync` to pass `adapter` into `ResolveAsync`.
+
+**Guard the trailing re-bind.** Task 7's `RunTurnAsync` ends with an unconditional
+`BindAsync(binding with { LastActivityAt = … })`. On the dead-session path above, the code has just called
+`UnbindAsync` — so that trailing bind would **silently re-create the binding it just cleared**, leaving the
+conversation pointing at a session the runtime does not have and defeating this edge entirely. Track whether
+the turn unbound (a local `bool`, set by the `SessionNotFound`/`SessionClosed` arm) and skip the trailing
+bind when it did. The guard must NOT skip the write-back on the normal path: without `LastActivityAt` moving
+forward, every conversation looks permanently idle and the idle rollover fires on every message.
+
+A test must assert the binding is **gone** after a dead-session turn, not merely that the notice was sent —
+otherwise the guard is unverified.
 
 - [ ] **Step 6: Run test to verify it passes**
 
@@ -1867,6 +1900,26 @@ Replace `HandleAsync` in `ChannelPump.cs`:
         }
     }
 ```
+
+**The read loop must not block on a turn.** Task 7's `PumpAsync` awaits `HandleAsync` inside `await foreach`,
+which makes each source strictly sequential. With a single Telegram chat that means the read loop is parked
+inside the very turn `/cancel` is meant to abort, so the command is not dequeued until that turn has already
+finished — **`/cancel` cannot work at all**, and edge 4's `SessionBusy` notice is unreachable for the same
+reason, leaving `/help` advertising a dead command. So:
+
+- Parse the command **first**, on the read loop. Anything other than `None` is handled **inline and awaited** —
+  commands are fast, and this is what keeps `/cancel` deliverable during a turn.
+- Ordinary text starts its turn **without awaiting**, so the loop returns to reading immediately.
+- Serialize per conversation with the `_running` registry: a second ordinary message for a conversation whose
+  turn is still running gets `ChannelNotices.Busy`. This is where edge 4 genuinely fires — pump-level, with the
+  runtime-level `SessionBusy` kept as a backstop for real cross-source races.
+- The launched turn needs its own `try`/`catch` that logs (`LogHandleFailed`); an unobserved task exception is
+  the same silent-death class as the loop bug Task 7 fixed. Track the tasks and drain them on shutdown rather
+  than abandoning a turn mid-write.
+
+Ordinary messages within one conversation are therefore serialized by the `_running` check rather than by the
+read loop, so a rapid second message gets `Busy` instead of queuing — the designed behaviour, since a visibly
+busy agent is more honest than a quietly growing queue.
 
 Implement the four helpers:
 
