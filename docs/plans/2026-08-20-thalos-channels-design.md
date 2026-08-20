@@ -93,6 +93,12 @@ public sealed record InboundMessage(
 A new `src/Daedalus.Cli` hosts the pump over the console source. The Telegram poller runs **inside the API
 host**, which already owns the runtime, the database and Sentinel.
 
+**Why a new project rather than reusing `Daedalus.Console`.** That host is an Aspire-managed background
+worker running `RalphLoopWorker` on the pre-ZeroAlloc stack (`CSharpFunctionalExtensions`), and 1.6 deletes
+it. An interactive CLI is the opposite shape: it needs a TTY and is launched by hand, so running it as an
+AppHost-managed service would start it headless with no stdin. `Daedalus.Cli` is therefore a separate
+project and is **not** registered in AppHost.
+
 ```text
 Telegram getUpdates ─► TelegramChannelSource ─┐
                                               ├─► ChannelPump ─┬─ command → IConversationMap + Create/CloseSession
@@ -197,7 +203,7 @@ Channels:Telegram:
   BotToken: <secret>
   AllowedUserIds: [ 123456789 ]
   PrincipalId: "telegram:marcel"
-  Roles: [ "user" ]              # deliberately no "developer"
+  Roles: [ ]                    # empty: see "role strings" below
   DefaultAgent: "daedalus"
   IdleTimeout: "12:00:00"
   FlushInterval: "00:00:01"
@@ -210,9 +216,14 @@ Channels:Telegram:
 2. **Allow-list** — `from.id` not in `AllowedUserIds` is **dropped silently, not answered**. Replying
    confirms to a prober that the bot is live and backed by something worth probing.
 3. **Principal** — `ConfiguredSecurityContext` (sibling to `ClaimsSecurityContext`), `Id = PrincipalId`,
-   roles from config. No `developer`, so the mutating `roslyn__apply_*` / `rename_*` tools and shared-owner
-   memory delete are denied by the authorizer that already exists. The channel adds no new enforcement path
-   to get wrong.
+   roles from config. The channel adds no new enforcement path to get wrong.
+
+**Role strings.** `DeveloperPolicy` passes when `ctx.Roles` contains `developer` **or** `admin`; roles are
+otherwise plain strings that mean nothing unless some policy checks them. So the read-only posture is
+achieved by the *absence* of those two values, and the default is an **empty** role set rather than an
+invented `"user"` — a role nothing evaluates would read as if it granted something. Empty roles still give
+full access to the principal's own sessions (ownership is by `caller.Id`, not by role) while failing the
+`developer` gate on the mutating `roslyn__apply_*` / `rename_*` tools and shared-owner memory delete.
 
 **Owner separation (C7).** Sessions are owned by `caller.Id`, so `telegram:marcel` and the Keycloak `sub`
 are different owners: Telegram sessions do not appear in the web UI's session list and vice versa. This is
