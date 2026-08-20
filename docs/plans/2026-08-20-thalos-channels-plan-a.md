@@ -473,6 +473,24 @@ public sealed class InMemoryConversationMapTests
     }
 
     [Fact]
+    public async Task GetBySession_finds_the_conversation_an_adapter_must_answer()
+    {
+        var map = new InMemoryConversationMap();
+        var binding = Binding();
+        await map.BindAsync(binding, default);
+
+        var found = await map.GetBySessionAsync(binding.SessionId, default);
+        found.Value!.ConversationId.Value.Should().Be("42");
+    }
+
+    [Fact]
+    public async Task GetBySession_returns_null_for_a_session_no_conversation_is_serving()
+    {
+        var map = new InMemoryConversationMap();
+        (await map.GetBySessionAsync(SessionId.New(), default)).Value.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Unbind_removes_it_and_is_idempotent()
     {
         var map = new InMemoryConversationMap();
@@ -523,6 +541,12 @@ public interface IConversationMap
     /// <summary>The binding for <paramref name="conversationId"/> on <paramref name="channelId"/>, or null when unbound.</summary>
     ValueTask<Result<ConversationBinding?, AgentError>> GetAsync(string channelId, ConversationId conversationId, CancellationToken ct);
 
+    /// <summary>
+    /// The binding currently serving <paramref name="sessionId"/>, or null when none is. Outbound adapters need this:
+    /// <see cref="IChannelAdapter.DeliverAsync"/> is handed a <see cref="SessionId"/> but must address a conversation.
+    /// </summary>
+    ValueTask<Result<ConversationBinding?, AgentError>> GetBySessionAsync(SessionId sessionId, CancellationToken ct);
+
     /// <summary>Creates or replaces the binding.</summary>
     ValueTask<UnitResult<AgentError>> BindAsync(ConversationBinding binding, CancellationToken ct);
 
@@ -554,6 +578,21 @@ public sealed class InMemoryConversationMap : IConversationMap
     }
 
     /// <inheritdoc />
+    public ValueTask<Result<ConversationBinding?, AgentError>> GetBySessionAsync(SessionId sessionId, CancellationToken ct)
+    {
+        // Linear over the live conversations: there is one per chat, and a host has a handful.
+        foreach (var binding in _bindings.Values)
+        {
+            if (binding.SessionId == sessionId)
+            {
+                return new(Result<ConversationBinding?, AgentError>.Success(binding));
+            }
+        }
+
+        return new(Result<ConversationBinding?, AgentError>.Success(null));
+    }
+
+    /// <inheritdoc />
     public ValueTask<UnitResult<AgentError>> BindAsync(ConversationBinding binding, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(binding);
@@ -573,7 +612,7 @@ public sealed class InMemoryConversationMap : IConversationMap
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `dotnet test tests/Thalos.NET.Tests.Channels -f net10.0 --filter FullyQualifiedName~InMemoryConversationMapTests`
-Expected: PASS, 5 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1333,7 +1372,11 @@ public sealed class ChannelPumpLifecycleTests
         h.NextTurnFails(AgentErrorCode.SessionNotFound);
         await h.SendAndSettle("second");
 
-        h.Notices().Should().Contain(n => n.Contains("new session", StringComparison.OrdinalIgnoreCase));
+        // The binding is cleared and the operator is asked to resend — the message is NOT silently swallowed,
+        // and it is NOT auto-retried either, because a retry against a runtime that just rejected the session
+        // is how a rebind loop starts.
+        h.Notices().Should().Contain(n => n.Contains("Send that message again", StringComparison.Ordinal));
+        (await h.Map.GetAsync("fake", h.Channel.Conversation, default)).Value.Should().BeNull();
     }
 
     [Fact]
@@ -1451,8 +1494,11 @@ public static class ChannelNotices
     /// <summary>Shown when an idle conversation rolls onto a fresh session.</summary>
     public const string IdleRollover = "That conversation was idle, so I started a new session. Earlier context is gone.";
 
-    /// <summary>Shown when the bound session no longer exists and a fresh one was created.</summary>
-    public const string Rebound = "The previous session had ended, so I started a new session.";
+    /// <summary>
+    /// Shown when the bound session no longer exists. The binding is cleared so the next message starts a fresh
+    /// session; this message is not auto-retried, so the copy must ask for it back rather than implying it ran.
+    /// </summary>
+    public const string Rebound = "That session had already ended, so I cleared it. Send that message again and I will start a new session.";
 
     /// <summary>Shown when a turn is already running.</summary>
     public const string Busy = "Still working on the previous message — /cancel to stop it.";
@@ -1745,16 +1791,63 @@ git commit -m "feat(channels): dispatch channel commands in the pump"
 
 ---
 
-### Task 10: The console channel
+### Task 10: The console channel and the configured principal
 
 **Files:**
+- Create: `src/Thalos.NET.Channels/ConfiguredSecurityContext.cs`
 - Create: `src/Thalos.NET.Channels/Console/ConsoleChannelSource.cs`
 - Create: `src/Thalos.NET.Channels/Console/ConsoleChannelAdapter.cs`
 - Test: `tests/Thalos.NET.Tests.Channels/ConsoleChannelTests.cs`
+- Test: `tests/Thalos.NET.Tests.Channels/ConfiguredSecurityContextTests.cs`
 
 **Interfaces:**
 - Consumes: `IChannelSource`, `IChannelAdapter`, `ISecurityContext`.
-- Produces: `ConsoleChannelSource(TextReader, ISecurityContext)` and `ConsoleChannelAdapter(TextWriter)`, both with `ChannelId == "console"`. Both take their streams by injection so tests do not touch `System.Console`.
+- Produces: `ConsoleChannelSource(TextReader, ISecurityContext)` and `ConsoleChannelAdapter(TextWriter)`, both with `ChannelId == "console"`. Both take their streams by injection so tests do not touch `System.Console`. Also produces `ConfiguredSecurityContext(string id, IEnumerable<string> roles)` — **Task 16 and Daedalus (plan B) both consume this; it lives here, not in the Telegram package and not in Daedalus, because every channel that is not HTTP has to manufacture a caller.**
+
+- [ ] **Step 0: Write the principal and its test**
+
+`tests/Thalos.NET.Tests.Channels/ConfiguredSecurityContextTests.cs`:
+
+```csharp
+using Thalos.Channels;
+
+namespace Thalos.Tests.Channels;
+
+public sealed class ConfiguredSecurityContextTests
+{
+    [Fact]
+    public void Id_and_roles_come_from_configuration()
+    {
+        var ctx = new ConfiguredSecurityContext("telegram:marcel", ["admin"]);
+        ctx.Id.Should().Be("telegram:marcel");
+        ctx.Roles.Should().BeEquivalentTo(["admin"]);
+    }
+
+    [Fact]
+    public void An_empty_role_set_is_the_read_only_default_and_is_never_null()
+    {
+        var ctx = new ConfiguredSecurityContext("telegram:marcel", []);
+        ctx.Roles.Should().BeEmpty();
+        ctx.Claims.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Roles_compare_ordinally_so_Developer_does_not_satisfy_developer()
+    {
+        // DeveloperPolicy does a plain Contains; a case-insensitive set here would silently grant the mutating tools.
+        new ConfiguredSecurityContext("x", ["Developer"]).Roles.Contains("developer").Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_blank_id_is_rejected_because_session_ownership_is_keyed_on_it()
+    {
+        var act = () => new ConfiguredSecurityContext("  ", []);
+        act.Should().Throw<ArgumentException>();
+    }
+}
+```
+
+Implement `ConfiguredSecurityContext : ISecurityContext` with `Id`, `Roles` (a `HashSet<string>` built with `StringComparer.Ordinal`) and an empty `Claims` dictionary. Throw `ArgumentException` on a blank id.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2605,7 +2698,7 @@ Expected: FAIL — the source does not exist.
 
 - [ ] **Step 4: Implement the source**
 
-Loop: `GetUpdatesAsync(offset, PollTimeoutSeconds, ct)`; set `offset = max(update_id) + 1` **before** yielding anything (C10); then for each update apply the three gates — `message?.Text` non-blank, `chat.type == "private"`, `from.id` in `AllowedUserIds` — and yield an `InboundMessage` whose `Caller` is a `ConfiguredSecurityContext(PrincipalId, Roles)` defined here in the Telegram package. Catch `TelegramApiException` with `RetryAfter` and delay accordingly; catch other transport failures, log, and back off with a cap, never rethrowing into the pump.
+Loop: `GetUpdatesAsync(offset, PollTimeoutSeconds, ct)`; set `offset = max(update_id) + 1` **before** yielding anything (C10); then for each update apply the three gates — `message?.Text` non-blank, `chat.type == "private"`, `from.id` in `AllowedUserIds` — and yield an `InboundMessage` whose `Caller` is a `ConfiguredSecurityContext(PrincipalId, Roles)` — **the one from `Thalos.NET.Channels` built in Task 10; do not define a second copy here.** Catch `TelegramApiException` with `RetryAfter` and delay accordingly; catch other transport failures, log, and back off with a cap, never rethrowing into the pump.
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -2644,7 +2737,7 @@ Expected: FAIL — the adapter does not exist.
 
 Keep per-session state `(long ChatId, long MessageId)?`. On the first render of a turn, `SendMessageAsync` with `parse_mode: "MarkdownV2"` over `MarkdownV2Escaper.Escape(text)` and remember the returned id; subsequently `EditMessageTextAsync`. On `TelegramApiException` with `ErrorCode == 400`, retry the same call once with `parseMode: null` and the **unescaped** text. On terminal events, do the final edit and clear the state. Split with `MessageSplitter` and send overflow chunks as new messages.
 
-The `ConversationId` is the chat id as a string; parse it back with `long.Parse(..., CultureInfo.InvariantCulture)`. Since `IChannelAdapter.DeliverAsync` receives a `SessionId` rather than a `ConversationId`, the adapter keeps a `SessionId → chatId` map populated from the source; add an internal `Track(SessionId, long chatId)` called by the pump's first delivery, or resolve via `IConversationMap`. **Prefer injecting `IConversationMap`** — it already holds the mapping and avoids a second source of truth.
+`IChannelAdapter.DeliverAsync` receives a `SessionId`, not a `ConversationId`, so the adapter resolves the chat by injecting `IConversationMap` and calling **`GetBySessionAsync(sessionId, ct)`** (added in Task 4 for exactly this). The binding's `ConversationId` is the chat id as a string; parse it with `long.Parse(..., CultureInfo.InvariantCulture)`. Do **not** keep a private `SessionId → chatId` dictionary in the adapter — that is a second source of truth that goes stale the moment a session is rebound. When `GetBySessionAsync` returns null the conversation has been unbound mid-turn: log and drop the delivery rather than throwing into the pump.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2706,7 +2799,7 @@ git commit -m "feat(channels): register the Telegram channel on the Thalos build
 Three rules, each matching how the existing architecture tests are written in that project:
 
 1. `Thalos.NET.Channels` does not reference `Thalos.NET.Channels.Telegram` — the isolation the package split exists to provide.
-2. `Thalos.NET.Channels` references no third-party assembly outside `Microsoft.Extensions.*`, `ZeroAlloc.*` and `Thalos.*`.
+2. `Thalos.NET.Channels` declares no **direct** `PackageReference` outside `Microsoft.Extensions.*` and `ZeroAlloc.*`. State the rule over direct references, not the transitive closure — `Thalos.NET` itself pulls in `Microsoft.Agents.AI`, so a transitive rule would fail on a dependency this package is supposed to have.
 3. Every public type in both new packages carries XML documentation.
 
 - [ ] **Step 2: Run test to verify it fails or passes**
