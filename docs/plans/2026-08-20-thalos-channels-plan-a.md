@@ -417,6 +417,15 @@ git commit -m "feat(channels): add ChannelOptions with validation"
 - Consumes: `ConversationId`, `SessionId`, `AgentId`, `AgentError`, `Result<T, AgentError>` / `UnitResult<AgentError>`.
 - Produces: `IConversationMap.GetAsync/BindAsync/UnbindAsync` and `ConversationBinding(ChannelId, ConversationId, SessionId, AgentId, LastActivityAt)`. Task 8 and Daedalus's `PostgresConversationMap` (plan B) implement against these exact signatures.
 
+> **Superseded — read this before implementing a map.** The `GetBySessionAsync(SessionId, ct)` member that appears in
+> this task's listings below was **removed during Task 17** and is not part of the shipped `IConversationMap`. It
+> existed only so a `SessionId`-keyed `IChannelAdapter.DeliverAsync` could find the conversation to answer in;
+> re-keying `DeliverAsync` on `ConversationId` deleted the need for it, and it was deleted along with the need. The
+> shipped interface is exactly `GetAsync(channelId, conversationId, ct)`, `BindAsync(binding, ct)` and
+> `UnbindAsync(channelId, conversationId, ct)` — **those three and no others**. Daedalus's `PostgresConversationMap`
+> (plan B) must implement that set; a session-keyed reverse lookup (and any index built for one) has nowhere to plug
+> in. The two `GetBySession_*` tests shown in Step 1 are not in the shipped suite either.
+
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
@@ -546,6 +555,7 @@ public interface IConversationMap
     /// <summary>The binding for <paramref name="conversationId"/> on <paramref name="channelId"/>, or null when unbound.</summary>
     ValueTask<Result<ConversationBinding?, AgentError>> GetAsync(string channelId, ConversationId conversationId, CancellationToken ct);
 
+    // REMOVED IN TASK 17 — do not implement. DeliverAsync is keyed on ConversationId, so no reverse lookup is needed.
     /// <summary>
     /// The binding currently serving <paramref name="sessionId"/>, or null when none is. Outbound adapters need this:
     /// <see cref="IChannelAdapter.DeliverAsync"/> is handed a <see cref="SessionId"/> but must address a conversation.
@@ -2896,9 +2906,13 @@ Expected: FAIL — the adapter does not exist.
 
 - [ ] **Step 3: Implement**
 
-Keep per-session state `(long ChatId, long MessageId)?`. On the first render of a turn, `SendMessageAsync` with `parse_mode: "MarkdownV2"` over `MarkdownV2Escaper.Escape(text)` and remember the returned id; subsequently `EditMessageTextAsync`. On `TelegramApiException` with `ErrorCode == 400`, retry the same call once with `parseMode: null` and the **unescaped** text. On terminal events, do the final edit and clear the state. Split with `MessageSplitter` and send overflow chunks as new messages.
+`IChannelAdapter.DeliverAsync` receives a **`ConversationId`**, not a `SessionId`. For Telegram that id **is the chat id** — `TelegramChannelSource` puts it there — so the adapter parses it with `long.Parse(..., CultureInfo.InvariantCulture)` and needs **no lookup at all**: it does not take `IConversationMap`, and a delivery cannot fail to resolve. An unparsable id is a pump wiring bug: log it and drop the delivery, never throw, because this runs inside a turn.
 
-`IChannelAdapter.DeliverAsync` receives a `SessionId`, not a `ConversationId`, so the adapter resolves the chat by injecting `IConversationMap` and calling **`GetBySessionAsync(sessionId, ct)`** (added in Task 4 for exactly this). The binding's `ConversationId` is the chat id as a string; parse it with `long.Parse(..., CultureInfo.InvariantCulture)`. Do **not** keep a private `SessionId → chatId` dictionary in the adapter — that is a second source of truth that goes stale the moment a session is rebound. When `GetBySessionAsync` returns null the conversation has been unbound mid-turn: log and drop the delivery rather than throwing into the pump.
+> **Corrected after the fact.** This task's original text said the seam was keyed on `SessionId` and told the adapter to resolve the chat by injecting `IConversationMap` and calling `GetBySessionAsync(sessionId, ct)`. Building it that way is what exposed the defect: most of what a channel has to say (`/help`, an unknown command, the busy notice, "that session had already ended") belongs to a conversation that has **no** session, or no longer does by the time the notice is sent, so the pump had to invent a `SessionId` that resolved to nothing — and the adapter, finding nothing, dropped every one of those notices silently. `IChannelAdapter.DeliverAsync` was therefore **re-keyed on `ConversationId`** and `IConversationMap.GetBySessionAsync` was **removed** (see Task 4). Nothing should be implemented against either superseded shape.
+
+Keep per-**conversation** state, `(TurnId, List<long> MessageIds, string Text, long? TypingStamp)`, in a `ConcurrentDictionary<ConversationId, …>`; a `TurnId` that differs from the tracked one restarts the state so a new turn gets a fresh message. On the first render of a turn, `SendMessageAsync` with `parse_mode: "MarkdownV2"` over `MarkdownV2Escaper.Escape(text)` and remember the returned id; subsequently `EditMessageTextAsync`. On `TelegramApiException` with `ErrorCode == 400`, retry the whole render once with `parseMode: null` and the **unescaped** text. Split with `MessageSplitter`, editing chunk *i* into the *i*-th message the turn already owns and sending only genuinely new ones. On terminal events do the final render and clear the state — and render `TurnCompletedEvent` from **`completed.Result.Text`**, not from the last delta, because the pump's coalescer suppresses the renders that fall inside the flush interval.
+
+Serialise deliveries **per conversation** with a `SemaphoreSlim` gate. This is load-bearing, not belt-and-braces: the pump sends operator notices from its reader loop while a turn streams on a detached task, so two deliveries genuinely race for one chat, and an interleaved `MessageIds` mutation turns a terminal render into a dropped answer.
 
 - [ ] **Step 4: Run test to verify it passes**
 
