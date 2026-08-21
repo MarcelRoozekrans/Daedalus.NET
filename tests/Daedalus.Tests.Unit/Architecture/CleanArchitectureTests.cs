@@ -8,6 +8,8 @@ using Rag.NET.Abstractions;
 using Rag.NET.PgVector;
 using Thalos;
 using Thalos.Anthropic;
+using Thalos.Channels;
+using Thalos.Channels.Telegram;
 using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
@@ -40,6 +42,16 @@ public sealed class CleanArchitectureTests
     /// <summary>Anchored on the skills package's own namespace, so the fact fails if the assembly is not loaded.</summary>
     private const string SkillsNamespacePattern = "^Thalos\\.Skills(\\.|$)";
 
+    /// <summary>
+    ///     Anchored on the channels package's own namespace. Covers both <c>Thalos.Channels</c> and the nested
+    ///     <c>Thalos.Channels.Telegram</c> (the Telegram adapter's namespace sits under the channels namespace), so
+    ///     the fact fails if either assembly is not loaded.
+    /// </summary>
+    private const string ChannelsNamespacePattern = "^Thalos\\.Channels(\\.|$)";
+
+    /// <summary>Anchored on EF Core's own namespace, so the fact fails if the assembly is not loaded.</summary>
+    private const string EfCoreNamespacePattern = "^Microsoft\\.EntityFrameworkCore(\\.|$)";
+
     private static readonly SysAssembly DomainAssembly = typeof(Task).Assembly;
     private static readonly SysAssembly ApplicationAssembly = typeof(ITaskRepository).Assembly;
     private static readonly SysAssembly InfrastructureAssembly = typeof(ApplicationDbContext).Assembly;
@@ -49,11 +61,16 @@ public sealed class CleanArchitectureTests
 
     private static readonly SysAssembly MemoryRagNetAssembly = typeof(RagNetMemoryOptions).Assembly; // Thalos.NET.Memory.RagNet
 
+    /// <summary>Microsoft.EntityFrameworkCore itself, loaded so <see cref="DomainLayer_ShouldNotDependOn_EfCore"/> is non-vacuous.</summary>
+    private static readonly SysAssembly EfCoreAssembly = typeof(Microsoft.EntityFrameworkCore.DbContext).Assembly; // Microsoft.EntityFrameworkCore
+
     private static readonly SysAssembly[] ThalosAssemblies =
     [
         typeof(IAgentRuntime).Assembly, // Thalos.NET.Abstractions
         typeof(ThalosBuilder).Assembly, // Thalos.NET
         typeof(AnthropicThalosBuilderExtensions).Assembly, // Thalos.NET.Anthropic
+        typeof(IConversationMap).Assembly, // Thalos.NET.Channels
+        typeof(TelegramThalosBuilderExtensions).Assembly, // Thalos.NET.Channels.Telegram
         typeof(McpThalosBuilderExtensions).Assembly, // Thalos.NET.Mcp
         typeof(SentinelThalosBuilderExtensions).Assembly, // Thalos.NET.Sentinel
         typeof(IMemoryService).Assembly, // Thalos.NET.Memory
@@ -76,6 +93,7 @@ public sealed class CleanArchitectureTests
         .LoadAssemblies(DomainAssembly, ApplicationAssembly, InfrastructureAssembly, ApiAssembly, AgentsAssembly, WebAssembly)
         .LoadAssemblies(ThalosAssemblies)
         .LoadAssemblies(RagNetAssemblies)
+        .LoadAssemblies(EfCoreAssembly)
         .Build();
 
     private static readonly IObjectProvider<IType> DomainTypes =
@@ -182,6 +200,18 @@ public sealed class CleanArchitectureTests
         var rule = Types().That().Are(DomainTypes)
             .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(ThalosNamespacePattern)
             .Because("Domain must not know the agent framework");
+
+        rule.Check(Architecture);
+    }
+
+    [Fact]
+    public void DomainLayer_ShouldNotDependOn_EfCore()
+    {
+        // ChannelConversation (like every other Domain entity) must stay framework-free: the EF Core mapping for it
+        // is ChannelConversationConfiguration, which lives in Daedalus.Infrastructure, never in Domain itself.
+        var rule = Types().That().Are(DomainTypes)
+            .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(EfCoreNamespacePattern)
+            .Because("Domain entities must stay persistence-ignorant; EF Core configuration lives in Infrastructure");
 
         rule.Check(Architecture);
     }
@@ -340,6 +370,39 @@ public sealed class CleanArchitectureTests
         var rule = Types().That().ResideInNamespaceMatching(SkillsNamespacePattern)
             .Should().Exist()
             .Because("Thalos.NET.Skills must be loaded into the architecture or the Thalos boundary rules never see a skills type");
+
+        rule.Check(Architecture);
+    }
+
+    /// <summary>
+    ///     Known positive: proves Thalos.NET.Channels and Thalos.NET.Channels.Telegram are loaded so the Thalos
+    ///     boundary rules can see them.
+    /// </summary>
+    [Fact]
+    public void ChannelsAssemblies_AreLoaded_SoTheThalosRulesCoverThem()
+    {
+        // Same trap as Skills (phase 1.3) and Rag.NET (phase 1.2): without Thalos.NET.Channels and
+        // Thalos.NET.Channels.Telegram in ThalosAssemblies, every Thalos-namespace rule above (including
+        // DomainLayer_ShouldNotDependOn_Thalos) would pass vacuously for channels types - it would look like the
+        // layering held when it was never actually checked.
+        var rule = Types().That().ResideInNamespaceMatching(ChannelsNamespacePattern)
+            .Should().Exist()
+            .Because("Thalos.NET.Channels and Thalos.NET.Channels.Telegram must be loaded into the architecture or " +
+                     "the Thalos boundary rules never see a channels type");
+
+        rule.Check(Architecture);
+    }
+
+    /// <summary>Known positive: proves Microsoft.EntityFrameworkCore is loaded so <see cref="DomainLayer_ShouldNotDependOn_EfCore"/> is non-vacuous.</summary>
+    [Fact]
+    public void EfCoreAssembly_IsLoaded_SoTheDomainRuleCoversIt()
+    {
+        // Same trap as above: without Microsoft.EntityFrameworkCore explicitly loaded, DomainLayer_ShouldNotDependOn_EfCore
+        // would pass regardless of whether Domain actually referenced EF Core, because ArchUnitNET does not synthesise
+        // types for assemblies it has not loaded.
+        var rule = Types().That().ResideInNamespaceMatching(EfCoreNamespacePattern)
+            .Should().Exist()
+            .Because("Microsoft.EntityFrameworkCore must be loaded into the architecture or the Domain-EF-Core rule never sees an EF Core type");
 
         rule.Check(Architecture);
     }
