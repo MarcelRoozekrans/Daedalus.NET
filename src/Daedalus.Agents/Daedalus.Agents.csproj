@@ -33,6 +33,8 @@
         <PackageReference Include="Thalos.NET.Memory.RagNet" />
         <PackageReference Include="Thalos.NET.Skills" />
         <PackageReference Include="ZeroAlloc.Mapping" />
+        <PackageReference Include="ZeroAlloc.Outbox" />
+        <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />
         <PackageReference Include="Microsoft.Extensions.AI" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />

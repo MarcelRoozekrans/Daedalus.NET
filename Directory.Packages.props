@@ -58,6 +58,8 @@
     <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="1.5.6" />
     <PackageVersion Include="ZeroAlloc.Validation.AspNetCore" Version="1.5.6" />
     <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.1" />
+    <PackageVersion Include="ZeroAlloc.Outbox" Version="2.5.2" />
+    <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="2.5.2" />
 
     <!-- ASP.NET Core / Blazor -->
     <PackageVersion Include="Asp.Versioning.Mvc" Version="8.1.0" />
