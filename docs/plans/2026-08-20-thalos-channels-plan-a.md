@@ -2417,7 +2417,13 @@ git commit -m "feat(channels): scaffold the Telegram package with source-generat
 - Test helper: `tests/Thalos.NET.Tests.Channels.Telegram/Fakes/StubHandler.cs`
 
 **Interfaces:**
-- Produces: `TelegramBotClient(HttpClient, string token, TimeProvider)` with `GetUpdatesAsync(long offset, int timeoutSeconds, ct)`, `SendMessageAsync(long chatId, string text, string? parseMode, ct)`, `EditMessageTextAsync(long chatId, long messageId, string text, string? parseMode, ct)`, `SendChatActionAsync(long chatId, string action, ct)`. `TelegramApiException` carries `ErrorCode`, `Description`, `RetryAfter`.
+- Produces: `TelegramBotClient(HttpClient, string token)` with `GetUpdatesAsync(long offset, int timeoutSeconds, ct)`, `SendMessageAsync(long chatId, string text, string? parseMode, ct)`, `EditMessageTextAsync(long chatId, long messageId, string text, string? parseMode, ct)`, `SendChatActionAsync(long chatId, string action, ct)`. `TelegramApiException` carries `ErrorCode`, `Description`, `RetryAfter`.
+
+**No `TimeProvider`, and no client-side deadline.** The client is a pure transport: it issues a request and maps the
+response. Socket-level timeouts belong to `HttpClient.Timeout`, configured once at registration (Task 18); poll
+cadence, backoff and `retry_after` honouring belong to the source (Task 16). A per-call deadline inside the client
+would duplicate `HttpClient.Timeout` and — worse — make `GetUpdatesAsync` surface an `OperationCanceledException`
+that the source cannot distinguish from its own cancellation.
 
 - [ ] **Step 1: Write the stub handler**
 
@@ -2729,7 +2735,18 @@ Expected: FAIL — `MessageSplitter` does not exist.
 
 - [ ] **Step 3: Implement**
 
-Greedy: while the remainder exceeds `limit`, look for the last `\n\n` within `limit`; failing that the last `\n`; failing that cut at exactly `limit`. Trim the separator from the boundary, never from inside a chunk.
+Greedy: while the remainder exceeds `limit`, look for the last `\n\n` within `limit`; failing that the last `\n`;
+failing that cut at exactly `limit`. Trim the separator from the boundary, never from inside a chunk.
+
+**The splitter must be fence-aware, and this is the part that will bite if skipped.** By the time text reaches the
+splitter it has already been escaped, and `MarkdownV2Escaper` only balances fences at the end of the *whole* input.
+If a cut lands inside a fenced block, chunk N ends with an unclosed ``` and chunk N+1 begins with an orphaned
+closing one — Telegram rejects **both** with a 400 and the answer is lost. So: track fence state while splitting,
+and when a boundary falls inside a fence, append a closing fence to the chunk being emitted and re-open it (with
+the same language tag) at the start of the next. Both the added closer and re-opener count against `limit`, so
+reserve room for them rather than emitting a chunk that is `limit` plus four characters.
+
+A test must cut a long fenced block across a boundary and assert every chunk is independently balanced.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2768,8 +2785,9 @@ public sealed class TelegramChannelSourceTests
 {
     private static TelegramChannelSource Build(StubHandler handler, params long[] allowed)
     {
+        // Two-arg constructor: the client is a pure transport and owns no timing (see Task 13).
         var client = new TelegramBotClient(
-            new HttpClient(handler) { BaseAddress = new Uri("https://api.telegram.org/") }, "T", TimeProvider.System);
+            new HttpClient(handler) { BaseAddress = new Uri("https://api.telegram.org/") }, "T");
 
         return new TelegramChannelSource(client, new TelegramOptions
         {
