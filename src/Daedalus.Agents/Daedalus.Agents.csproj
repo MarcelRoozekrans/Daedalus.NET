@@ -25,6 +25,7 @@
 
     <ItemGroup>
         <PackageReference Include="Thalos.NET" />
+        <PackageReference Include="Thalos.NET.Channels" />
         <PackageReference Include="Thalos.NET.Mcp" />
         <PackageReference Include="Thalos.NET.Anthropic" />
         <PackageReference Include="Thalos.NET.Sentinel" />
