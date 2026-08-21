@@ -243,13 +243,31 @@ public sealed record ChannelMessageQueued(
     string ChannelId, string ConversationId, string Text);
 ```
 
-Written on `TurnCompletedEvent` / `TurnFailedEvent`; `ChannelMessageQueuedDispatcher` resolves the right
-`IChannelAdapter` by `ChannelId` and calls `DeliverAsync`. `ZeroAlloc.Outbox.EfCore` over
-`ApplicationDbContext`, migration `AddChannelOutbox`, worker polling at 5s with the default 3-attempt
-backoff and dead-letter. Live deltas and typing never touch it.
+`ChannelMessageQueuedDispatcher` resolves the right `IChannelAdapter` by `ChannelId` and calls
+`DeliverAsync`. `ZeroAlloc.Outbox.EfCore` over `ApplicationDbContext`, migration `AddChannelMessageOutbox`,
+with polling, batch size and retry configured explicitly rather than left to library defaults.
 
-This is the first `ZeroAlloc.Outbox` usage in Daedalus, which puts durable delivery in place for 1.5's
-autonomous runs to write into rather than inventing then.
+> **Correction (2026-08-21, during plan B execution).** This section originally said terminal messages were
+> "written on `TurnCompletedEvent` / `TurnFailedEvent`" and routed through the outbox. **That is not
+> implementable, and it contradicts §5.**
+>
+> The shipped `ChannelPump` has no outbox seam — it delivers terminal events straight to
+> `IChannelAdapter.DeliverAsync`. The only interception point is a decorating adapter, and intercepting a
+> terminal event there breaks the streaming design: the Telegram adapter sends one message and edits it in
+> place, using the terminal event to perform the final edit and clear its per-conversation state. Divert that
+> event and the streamed message never finalises — its activity line dangles — while the outbox later posts
+> the same answer as a **second** message. Every reply would appear twice.
+>
+> §5 ("one message, edited in place") is the behaviour that shipped and the one users see, so §9 yields.
+> **In this phase the outbox has no producer.** Terminal messages are delivered directly by the pump, as
+> plan A built it.
+>
+> The infrastructure is kept rather than removed, because it is exactly what §12 already earmarks for **1.5**:
+> proactive and unsolicited pushes from scheduled and subagent runs, which have no live turn to stream into
+> and therefore no conflict with the edit-in-place design. It is built, tested (round-trip plus a
+> retry-then-dead-letter proof) and wired; 1.5 supplies the writer.
+>
+> Kept deliberately as a record of a design error caught in execution rather than silently rewritten.
 
 ### Errors and edge cases
 
