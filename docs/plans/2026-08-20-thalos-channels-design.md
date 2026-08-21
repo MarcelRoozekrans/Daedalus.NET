@@ -240,7 +240,7 @@ and no channel-specific security code exists to drift.
 ```csharp
 [OutboxMessage]
 public sealed record ChannelMessageQueued(
-    string ChannelId, string ConversationId, string Text, string? ReplaceMessageId);
+    string ChannelId, string ConversationId, string Text);
 ```
 
 Written on `TurnCompletedEvent` / `TurnFailedEvent`; `ChannelMessageQueuedDispatcher` resolves the right

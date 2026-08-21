@@ -199,7 +199,7 @@ git commit -m "feat(channels): add PostgresConversationMap"
 - Test: `tests/Daedalus.Tests.Integration/Channels/ChannelOutboxTests.cs`
 
 **Interfaces:**
-- Produces: `ChannelMessageQueued(string ChannelId, string ConversationId, string Text, string? ReplaceMessageId)` marked `[OutboxMessage]`, and the EF Core store wiring.
+- Produces: `ChannelMessageQueued(string ChannelId, string ConversationId, string Text)` marked `[OutboxMessage]`, and the EF Core store wiring.
 
 - [ ] **Step 1: Read the library's own quick start first**
 
