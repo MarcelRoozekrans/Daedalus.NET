@@ -63,7 +63,11 @@ public sealed class ChannelConversation : Entity<Guid>
         if (channelId.Length > MaxChannelIdLength)
             return Result.Failure<ChannelConversation>($"Channel id must be at most {MaxChannelIdLength} characters.");
 
-        if (string.IsNullOrWhiteSpace(conversationId))
+        // Unlike ChannelId, a blank/empty ConversationId is deliberately NOT rejected here: ConversationId.Value
+        // (Thalos.NET) normalises a defaulted struct to "" on read, and PostgresConversationMap's IConversationMap
+        // contract requires that exact empty string to round-trip through Bind/Get. ConversationId is still bounded
+        // by MaxConversationIdLength below - only the "non-blank" rule is gone, and only for this field.
+        if (conversationId is null)
             return Result.Failure<ChannelConversation>("Conversation id is required.");
 
         if (conversationId.Length > MaxConversationIdLength)

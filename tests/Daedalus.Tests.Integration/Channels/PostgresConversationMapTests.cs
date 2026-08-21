@@ -138,11 +138,59 @@ public sealed class PostgresConversationMapTests(PostgresFixture fixture) : IAsy
     }
 
     [Fact]
+    public async Task Unbind_only_removes_the_binding_for_its_own_channel()
+    {
+        // Bindings_are_scoped_by_channel proves BINDING is channel-scoped; this proves UNBINDING is too - deleting
+        // "telegram" must not touch the identically-named "console" conversation. Without the ChannelId half of
+        // UnbindAsync's WHERE clause, this passes for the wrong reason: both rows would vanish and the second
+        // Get would return null either way, so the assertion is on the SURVIVING channel's binding, not just on
+        // the unbound one being gone.
+        var map = CreateMap();
+        var conversationId = new ConversationId("482910337");
+        var consoleSessionId = new SessionId(_consoleSessionId);
+        await map.BindAsync(
+            new ConversationBinding("telegram", conversationId, new SessionId(_sessionId), new AgentId(_agentId), _lastActivityAt),
+            CancellationToken.None);
+        await map.BindAsync(
+            new ConversationBinding("console", conversationId, consoleSessionId, new AgentId(_agentId), _lastActivityAt),
+            CancellationToken.None);
+
+        var unbind = await map.UnbindAsync("telegram", conversationId, CancellationToken.None);
+        unbind.IsSuccess.Should().BeTrue();
+
+        var telegramResult = await map.GetAsync("telegram", conversationId, CancellationToken.None);
+        telegramResult.Value.Should().BeNull();
+
+        var consoleResult = await map.GetAsync("console", conversationId, CancellationToken.None);
+        consoleResult.Value.Should().NotBeNull("unbinding telegram must not delete console's identically-named conversation");
+        consoleResult.Value!.SessionId.Should().Be(consoleSessionId);
+    }
+
+    [Fact]
+    public async Task Bind_of_an_over_length_channel_id_is_a_validation_error_not_a_raw_database_exception()
+    {
+        // BindAsync routes through ChannelConversation.Create before it ever reaches SQL, so a value that would
+        // otherwise blow the "character varying(32)" ChannelId column comes back as AgentErrorCode.Validation
+        // instead of escaping as a raw PostgresException (22001, "value too long for type").
+        var map = CreateMap();
+        var binding = new ConversationBinding(
+            new string('x', 33), new ConversationId("482910337"), new SessionId(_sessionId), new AgentId(_agentId), _lastActivityAt);
+
+        var result = await map.BindAsync(binding, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(AgentErrorCode.Validation);
+    }
+
+    [Fact]
     public async Task A_binding_stored_under_an_empty_conversation_id_is_retrievable_via_default()
     {
-        // The sharp edge: ConversationId.Value normalises a defaulted struct to "" on read, but its
-        // compiler-generated equality compares the private backing field, so default(ConversationId) and
-        // new ConversationId("") are unequal structs that read the same string. The store must key on .Value.
+        // The narrow claim this test can actually prove: a defaulted ConversationId's private backing field is
+        // null, not "" - .Value (and .ToString(), which returns .Value) normalise that to "" on read, but code
+        // that let the raw field reach SQL instead (e.g. handing the struct itself to a parameterised query rather
+        // than reading .Value first) would pass a literal NULL through, and NULL never equals NULL in SQL, so the
+        // lookup would silently miss. This only proves the store normalises before touching SQL - a store keyed on
+        // ConversationId.ToString() would pass this test too, since ToString() also returns the normalised Value.
         var map = CreateMap();
         var binding = new ConversationBinding(
             "telegram", new ConversationId(""), new SessionId(_sessionId), new AgentId(_agentId), _lastActivityAt);

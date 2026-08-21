@@ -22,9 +22,22 @@ public sealed class ChannelConversationTests
     }
 
     [Fact]
-    public void Create_rejects_a_blank_conversation_id()
+    public void Create_accepts_an_empty_conversation_id()
     {
+        // Deliberately NOT a "blank conversation id is rejected" rule (that rule was dropped): Thalos's
+        // ConversationId.Value normalises a defaulted struct to "" on read, and PostgresConversationMap's
+        // IConversationMap contract requires that exact empty string to round-trip through Bind/Get. ChannelId
+        // keeps its non-blank rule (see Create_rejects_a_blank_channel_id) - only ConversationId's changed.
         var result = ChannelConversation.Create("telegram", "", _sessionId, _agentId, _now);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ConversationId.Should().Be(string.Empty);
+    }
+
+    [Fact]
+    public void Create_rejects_a_null_conversation_id()
+    {
+        var result = ChannelConversation.Create("telegram", null!, _sessionId, _agentId, _now);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("Conversation id");
