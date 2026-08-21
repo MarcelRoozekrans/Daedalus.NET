@@ -47,7 +47,12 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
         await worker.StartAsync(CancellationToken.None);
         try
         {
-            await WaitUntilAsync(() => !recording.Messages.IsEmpty);
+            // Poll the DATABASE row, not the in-memory recording queue: OutboxWorkerService persists
+            // Status == Succeeded only AFTER DispatchAsync returns (ProcessEntryAsync: dispatch, then
+            // MarkSucceededAsync), so waiting on the row's terminal state can never race ahead of the
+            // dispatcher's own side effect the way waiting on "was DispatchAsync called at all" can. By
+            // the time this returns, the recording queue is guaranteed to already hold the message.
+            await WaitUntilAsync(async () => (await ReadRowAsync()).Status == OutboxMessageStatus.Succeeded);
         }
         finally
         {
@@ -56,8 +61,7 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
 
         recording.Messages.Should().ContainSingle().Which.Should().Be(message);
 
-        await using var db = fixture.CreateDbContext();
-        var row = await db.OutboxMessages.AsNoTracking().SingleAsync();
+        var row = await ReadRowAsync();
         row.Status.Should().Be(OutboxMessageStatus.Succeeded, "a delivered message must leave the pending state");
         row.ProcessedAt.Should().NotBeNull();
         row.DeadLetterError.Should().BeNull();
@@ -141,22 +145,6 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
 
     private static OutboxWorkerService ResolveWorker(ServiceProvider provider) =>
         provider.GetServices<IHostedService>().OfType<OutboxWorkerService>().Single();
-
-    private static async Task WaitUntilAsync(Func<bool> condition)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        while (stopwatch.Elapsed < _waitTimeout)
-        {
-            if (condition())
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        throw new TimeoutException($"Condition was not met within {_waitTimeout}.");
-    }
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)
     {

@@ -25,6 +25,10 @@ public sealed class AddChannelMessageOutboxMigrationTests(PostgresFixture fixtur
             {
                 TypeName = "Daedalus.Agents.Channels.ChannelMessageQueued",
                 Payload = "{\"ChannelId\":\"telegram\",\"ConversationId\":\"482910337\"}"u8.ToArray(),
+                // Non-zero on purpose: RetryCount's type default is 0, so asserting a freshly-inserted row
+                // reads back as 0 would pass even if the column were mapped to the wrong property entirely.
+                // Seeding a non-default value and asserting THAT proves the column round-trips for real.
+                RetryCount = 4,
             };
 
             db.OutboxMessages.Add(entity);
@@ -34,7 +38,7 @@ public sealed class AddChannelMessageOutboxMigrationTests(PostgresFixture fixtur
             var loaded = await db.OutboxMessages.AsNoTracking().SingleAsync();
             loaded.TypeName.Should().Be("Daedalus.Agents.Channels.ChannelMessageQueued");
             loaded.Status.Should().Be(OutboxMessageStatus.Pending);
-            loaded.RetryCount.Should().Be(0);
+            loaded.RetryCount.Should().Be(4);
             loaded.DeadLetterError.Should().BeNull();
 
             var indexExists = await db.Database.SqlQuery<bool>(
