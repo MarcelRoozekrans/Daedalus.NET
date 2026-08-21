@@ -19,15 +19,21 @@ namespace Daedalus.Agents.Channels;
 ///     none of which fit a queued chat reply.
 ///     </para>
 ///     <para>
-///     <b><see cref="AgentEvent.SessionId"/> and <see cref="AgentEvent.TurnId"/> are <see cref="Guid.Empty"/>.</b>
-///     <see cref="ChannelMessageQueued"/> deliberately carries neither (Task 4): it is written from inside the
-///     transaction that persisted the agent's turn, and by the time the outbox worker calls this dispatcher — possibly
-///     after a host restart — that turn's live session may no longer exist. Fabricating a fresh
-///     <c>Guid.NewGuid()</c> per delivery would manufacture a session/turn identity that never occurred and would
-///     actively mislead anything that correlates events by those ids (a search for "that session" would find
-///     nothing else, looking like a real id while meaning nothing). <see cref="Guid.Empty"/> is instead an explicit,
-///     deterministic sentinel: any consumer that cares can recognise "this event did not come from a live turn"
-///     on sight, and the value does not change between retries of the same message.
+///     <b><see cref="AgentEvent.SessionId"/> is <see cref="Guid.Empty"/>; <see cref="AgentEvent.TurnId"/> is
+///     fresh per delivery (<see cref="TurnId.New"/>).</b> <see cref="ChannelMessageQueued"/> deliberately carries
+///     neither (Task 4): it is written from inside the transaction that persisted the agent's turn, and by the
+///     time the outbox worker calls this dispatcher — possibly after a host restart — that turn's live session
+///     may no longer exist, so <c>SessionId(Guid.Empty)</c> is an explicit, deterministic sentinel for "this
+///     event did not come from a live turn" (matches upstream: <c>ChannelPump</c>'s own one-shot operator
+///     notices use a <c>default</c> <c>SessionId</c> the same way). <c>TurnId</c> is different: an editing channel
+///     adapter (Telegram) tells "this is a re-render of the same in-flight turn — edit the existing message" apart
+///     from "this is a new, unrelated message — send a fresh one" by comparing <c>TurnId</c> to the one it last saw
+///     for the conversation. A constant <c>TurnId</c> here would make every queued message for a conversation look
+///     like a re-render of the very first one, so a second notice would silently overwrite the first instead of
+///     arriving as its own message — exactly the messages that exist because something already went wrong (covered
+///     by a two-message-same-conversation regression test in <c>ChannelMessageQueuedDispatcherTests</c>).
+///     <see cref="TurnId.New"/> per call keeps each queued message its own turn, so the adapter restarts and sends
+///     a new message every time.
 ///     </para>
 ///     <para>
 ///     <b>An unknown <see cref="ChannelMessageQueued.ChannelId"/> is logged and treated as handled, not thrown.</b>
@@ -69,7 +75,7 @@ public sealed partial class ChannelMessageQueuedDispatcher : IOutboxDispatcher<C
         }
 
         var conversationId = new ConversationId(message.ConversationId);
-        var agentEvent = new TextDeltaEvent(new SessionId(Guid.Empty), new TurnId(Guid.Empty), message.Text);
+        var agentEvent = new TextDeltaEvent(new SessionId(Guid.Empty), TurnId.New(), message.Text);
         return adapter.DeliverAsync(conversationId, agentEvent, ct);
     }
 

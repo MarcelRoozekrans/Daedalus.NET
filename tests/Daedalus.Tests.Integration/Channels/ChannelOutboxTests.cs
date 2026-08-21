@@ -40,7 +40,7 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
         var recording = new RecordingDispatcher();
         await using var provider = BuildProvider(recording);
 
-        var message = new ChannelMessageQueued("telegram", "482910337", "Deploy finished: build 4821 is live.", null);
+        var message = new ChannelMessageQueued("telegram", "482910337", "Deploy finished: build 4821 is live.");
         await WriteAsync(provider, message);
 
         var worker = ResolveWorker(provider);
@@ -73,7 +73,7 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
         var failing = new AlwaysFailingDispatcher();
         await using var provider = BuildProvider(failing);
 
-        var message = new ChannelMessageQueued("telegram", "482910337", "Deploy finished: build 4821 is live.", null);
+        var message = new ChannelMessageQueued("telegram", "482910337", "Deploy finished: build 4821 is live.");
         await WriteAsync(provider, message);
 
         var worker = ResolveWorker(provider);
