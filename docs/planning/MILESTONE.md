@@ -30,7 +30,7 @@ Agent Framework 1.17). Daedalus consumes it. Design: `docs/plans/2026-08-16-thal
 | 1.1 | Thalos.NET core + AI.Sentinel + Daedalus HTTP/Blazor channel | complete (2026-08-17; Thalos.NET 0.1.1 on nuget.org, #227) |
 | 1.2 | Memory: `Thalos.NET.Memory` port + Rag.NET adapter | complete (2026-08-17; Thalos.NET 0.2.0 on nuget.org, #228) |
 | 1.3 | Skills: agent-scoped procedure documents | complete (2026-08-19; Thalos.NET 0.3.0 on nuget.org, #229) |
-| 1.4 | Channels: Telegram (+ CLI) | active (started 2026-08-20) |
+| 1.4 | Channels: Telegram (+ CLI) | complete (2026-08-22; Thalos.NET 0.4.0 on nuget.org, #241) |
 | 1.5 | Subagents & scheduling | pending |
 | 1.6 | Ralph retirement + Daedalus ZeroAlloc migration | pending |
 | 1.7 | Thalos.NET 1.0 release + docs | pending |
