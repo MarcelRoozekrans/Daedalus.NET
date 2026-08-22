@@ -50,7 +50,8 @@ Daedalus has **dual presentation layers** sharing one Application + Infrastructu
 |--------------------------|---------------------------------------------|-----------------------------------------------------------------|
 | **Web** (Blazor WASM)    | `Daedalus.Api` + `Daedalus.Web`             | REST API + browser UI via Radzen components                     |
 | **Console** (Ralph Loop) | `Daedalus.Console`                          | Background worker with direct DB access for low-latency polling |
-| **Agents** (Thalos)      | `Daedalus.Agents` (hosted in `Daedalus.Api`) | Thalos.NET agent stack: sessions, tools, AI.Sentinel, SSE chat  |
+| **Agents** (Thalos)      | `Daedalus.Agents` (hosted in `Daedalus.Api`) | Thalos.NET agent stack: sessions, tools, AI.Sentinel, SSE chat, Telegram channel |
+| **CLI** (Thalos channels)| `Daedalus.Cli`                              | Interactive terminal host for Thalos agents (console channel, no browser) |
 | **Shared**               | `Application` + `Infrastructure` + `Domain` | CQRS handlers, EF Core repositories, PostgreSQL persistence     |
 
 The Console worker bypasses HTTP to minimise latency (5-second polling cycles). Both layers use the same CQRS services
@@ -87,10 +88,12 @@ See [Ralph Wiggum Technique Documentation](docs/ralph-wiggum-technique.md) for d
 | ORM                  | Entity Framework Core 10 (Npgsql 10.0.3)                                            |
 | Pattern Library      | CSharpFunctionalExtensions (Railway-Oriented Programming)                           |
 | ZeroAlloc            | ZeroAlloc.Results 1.2.0, ZeroAlloc.Authorization 2.1.0, ZeroAlloc.Validation 1.5.6, ZeroAlloc.Mapping 1.6.1 (via Thalos.NET) |
+| Durable delivery     | ZeroAlloc.Outbox 2.5.2 + ZeroAlloc.Outbox.EfCore 2.5.2 (channel outbound messages)  |
 | Zero-Allocation LINQ | ZLinq 1.5.4                                                                         |
-| Agent framework      | Thalos.NET 0.3.0 (nuget.org) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9         |
-| Agent memory         | `Thalos.NET.Memory` 0.3.0 + `Thalos.NET.Memory.RagNet` 0.3.0 (→ Rag.NET 0.1.x pgvector store, `rag_chunks`) |
-| Agent skills         | `Thalos.NET.Skills` 0.3.0 (markdown procedures from git, in-process cosine search, no Rag.NET dependency) |
+| Agent framework      | Thalos.NET 0.4.0 (nuget.org) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9         |
+| Agent memory         | `Thalos.NET.Memory` 0.4.0 + `Thalos.NET.Memory.RagNet` 0.4.0 (→ Rag.NET 0.1.x pgvector store, `rag_chunks`) |
+| Agent skills         | `Thalos.NET.Skills` 0.4.0 (markdown procedures from git, in-process cosine search, no Rag.NET dependency) |
+| Agent channels       | `Thalos.NET.Channels` 0.4.0 (console channel, pump, commands) + `Thalos.NET.Channels.Telegram` 0.4.0 (Bot API, long-poll) |
 | Embeddings           | Ollama `nomic-embed-text` (768 dims) via OllamaSharp 5.4.12                          |
 | LLM security         | AI.Sentinel 2.0.1 (via `Thalos.NET.Sentinel`)                                       |
 | LLM Providers        | GitHub Copilot SDK 0.1.21 (Ralph), Anthropic SDK 12.40.0 (Ralph + Thalos)           |
@@ -114,8 +117,9 @@ src/
 ├── Daedalus.Application/      # CQRS handlers, DTOs, Interfaces, Abstractions
 ├── Daedalus.Infrastructure/   # EF Core DbContext, Repositories, LLM services, External integrations
 ├── Daedalus.Agents/           # Thalos.NET composition root: agents from config, Postgres session + memory stores, knowledge tools, DeveloperPolicy
-├── Daedalus.Api/              # REST controllers (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos
+├── Daedalus.Api/              # REST controllers (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos, Telegram channel poller
 ├── Daedalus.Console/          # Ralph Loop worker (background hosted service)
+├── Daedalus.Cli/              # Interactive terminal host for Thalos agents (console channel; run by hand, not in AppHost)
 ├── Daedalus.Web/              # Blazor WASM frontend (Radzen components)
 └── Daedalus.Migrations/       # EF Core database migration runner
 
@@ -453,13 +457,21 @@ git that agents can see the titles of every turn and pull into context on demand
 [docs/plans/2026-08-18-thalos-skills-design.md](docs/plans/2026-08-18-thalos-skills-design.md); see
 [Skills](#skills) below.
 
+Phase 1.4 adds **channels**: a second and third way to reach the same agents besides the Blazor app —
+`Thalos.NET.Channels` + `Thalos.NET.Channels.Telegram` (Thalos.NET 0.4.0) give a Telegram bot (polling, one
+operator) and `Daedalus.Cli` gives a terminal host, both built on the same `ChannelPump`/`IChannelAdapter` seam.
+Design: [docs/plans/2026-08-20-thalos-channels-design.md](docs/plans/2026-08-20-thalos-channels-design.md); see
+[Channels](#channels) below.
+
 **What you get:** a signed-in user opens `/agent` in the Blazor app, picks an agent (default: *Daedalus Architect*),
-starts a session and chats. Each turn is streamed back as Server-Sent Events (text deltas, tool calls/results, usage,
+starts a session and chats — or reaches the same agents from Telegram or a terminal (see [Channels](#channels)).
+Each turn is streamed back as Server-Sent Events (text deltas, tool calls/results, usage,
 memory events), tools come from MCP servers (`roslyn__*`, `context7__*`), local knowledge tools (`daedalus__*` — failure
 patterns), memory tools (`memory__remember/recall/forget/list`) and skill tools (`skills__load`, `skills__search`),
 relevant memories are injected before each turn, a catalogue of available procedures is appended to the agent's
 instructions, and every prompt/response passes through AI.Sentinel. Sessions, transcripts, memories and skills are
-persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Skills`).
+persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Skills`), and channel bindings in
+`ChannelConversations`.
 
 ### Configuration (`Thalos:*` in `src/Daedalus.Api/appsettings.json`)
 
@@ -488,6 +500,15 @@ persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Ski
             "Roots": [ "skills" ],
             "Catalogue": { "MaxChars": 2000 },
             "Search": { "TopK": 5, "MinScore": 0.6 }
+        },
+        "Channels": {
+            "DefaultAgent": "Daedalus Architect",
+            "Telegram": {
+                "Enabled": false,
+                "BotToken": "",
+                "PrincipalId": "",
+                "AllowedUserIds": []
+            }
         },
         "ToolPolicies": [
             { "Pattern": "roslyn__apply_*", "Policy": "developer" },
@@ -528,6 +549,12 @@ persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Ski
 | `Thalos:Skills:Roots[]`                        | Folders holding `<name>/SKILL.md`, resolved against the host content root (like `McpConfigPath`). **A configured root that does not exist fails host start, on purpose** — see [Operational notes](#operational-notes). Empty by default. |
 | `Thalos:Skills:Catalogue:MaxChars`             | Character budget for the catalogue block appended to the agent's instructions. Overflow is reported with an explicit "and N more" line, never silently truncated.                                             |
 | `Thalos:Skills:Search:{TopK,MinScore}`         | `skills__search` defaults. Search is in-process cosine over the same Ollama generator; without it search reports unavailable and the catalogue stays authoritative.                                           |
+| `Thalos:Channels:DefaultAgent`                 | **The agent's `Name`, not its `Id`.** `AgentId` is ULID-backed with no string constructor; the pump resolves the default agent by scanning `IAgentCatalog.Agents` for this value against `AgentDefinition.Name` (ordinal, case-insensitive). A wrong value (a ULID, a typo) fails only at **runtime**, the first time a channel needs to bind — there is no startup validation. This shipped wrong once (a ULID here) and was only caught by a hands-on CLI session; see [Channels](#channels). |
+| `Thalos:Channels:Telegram:Enabled`             | Runtime on/off switch, distinct from whether Telegram is *registered* at all (that is decided by `BotToken` being non-blank — see [Channels](#channels)). **Must be `true` on at most one API host replica** — see [Operational notes](#operational-notes). |
+| `Thalos:Channels:Telegram:BotToken`            | **Never set in `appsettings.json` or anywhere else in the repo.** Local: `dotnet user-secrets set Thalos:Channels:Telegram:BotToken <token> --project src/Daedalus.Api`. Container: the `telegram-bot-token` Aspire parameter. Blank → Telegram is not registered at all, host starts normally, no error. |
+| `Thalos:Channels:Telegram:PrincipalId`         | The `ConfiguredSecurityContext.Id` every Telegram turn runs as — a channel-specific identity, distinct from any Keycloak `sub`. Sessions started from Telegram do not appear in the web UI's session list, and vice versa. |
+| `Thalos:Channels:Telegram:AllowedUserIds`      | Telegram user ids allowed to talk to the bot. **Empty fails host start by design** (`TelegramOptions.Describe`) — never "allow everyone". Set alongside `PrincipalId`/`BotToken` via user-secrets, never in the repo. |
+| `Thalos:Channels:Telegram:Roles`               | Roles granted to the Telegram principal. **Recommended: leave empty.** The *absence* of `developer`/`admin` is what stops a phone-reachable bot from running mutating Roslyn tools or deleting shared-owner memories — an empty set still gives full access to the principal's own sessions (ownership is by caller id, not role). |
 | `Thalos:ToolPolicies[]`                        | Glob over qualified tool names → `[Policy]` name that must pass before the tool runs (authorization at the function boundary).                                                                               |
 | `Thalos:Agents[]`                              | Agent definitions: stable `Id` (ULID or GUID — sessions reference it, never change it), `Name`, `Description`, `Instructions`, optional `Model`/`MaxOutputTokens`, `Tools` glob allow-list (empty → `*`).   |
 | `Thalos:Agents[]:Skills`                       | Glob allow-list over skill names (`*` for all, `daedalus-*` for a family). **Empty by default** — unlike `Tools`, procedures are granted explicitly, because a catalogue costs tokens on every turn.          |
@@ -596,6 +623,84 @@ Agents get **skills**: procedure documents authored in git that say how this pro
 - **Shipped procedures.** `daedalus-migrations` (adding and applying an EF Core migration here) and `thalos-release`
   (cutting and publishing a Thalos.NET release). Both are procedures this project actually executed by hand.
 - **No API and no UI.** Skills are not per-user data and there is nothing to authorize per row: the repo is the UI.
+
+### Channels
+
+The same agents are reachable from Telegram (API host) and from a terminal (`Daedalus.Cli`), on top of the
+Blazor `/agent` page. Both are built on Thalos's `ChannelPump` + `IChannelAdapter`/`IChannelSource` seam
+(`Thalos.NET.Channels` + `Thalos.NET.Channels.Telegram`); Daedalus supplies durable conversation binding
+(`PostgresConversationMap` → `ChannelConversations`, PK `(ChannelId, ConversationId)`) and host wiring
+(`AddDaedalusChannels`, `Daedalus.Agents/Channels/DaedalusChannelsServiceCollectionExtensions.cs`). Design:
+[docs/plans/2026-08-20-thalos-channels-design.md](docs/plans/2026-08-20-thalos-channels-design.md).
+
+**Two configuration sections**, both under `Thalos:Channels` — see the [Configuration](#configuration-thalos-in-srcdaedalusapiappsettingsjson)
+table above for every key:
+
+- `Thalos:Channels` — `DefaultAgent` (**an agent `Name`, not an `Id`** — see the table above; this shipped
+  wrong once and is worth re-reading), plus `Enabled`, `IdleTimeout` (default 12h) and `FlushInterval`
+  (default 1s, shared by every registered channel — there is no per-channel cadence).
+- `Thalos:Channels:Telegram` — `Enabled`, `BotToken`, `PrincipalId`, `AllowedUserIds`, `Roles`. Present in
+  `src/Daedalus.Api/appsettings.json` as a shape only (blank token, empty allow-list); see the config comment
+  right above the section for the single-instance and secrets rules repeated below.
+
+**The bot token never lives in the repository.** Locally:
+`dotnet user-secrets set Thalos:Channels:Telegram:BotToken <token> --project src/Daedalus.Api`. In the
+container: the `telegram-bot-token` Aspire parameter (`src/Daedalus.AppHost/Program.cs`), forwarded as
+`Thalos__Channels__Telegram__BotToken`. **An empty token is not an error** — `AddDaedalusChannels` checks
+`BotToken` before calling `AddTelegramChannel` at all (`IsTelegramConfigured`), so a host with no token simply
+never registers the Telegram channel: it starts cleanly and logs nothing about it. A deployer who *intended*
+Telegram to run and forgot the token gets silence, not a startup failure — check that the channel is actually
+registered, don't just check that the host started.
+
+**Telegram must run single-instance.** `getUpdates` long-polling refuses concurrent pollers for one bot
+token; two replicas fight over it and silently drop messages. If the API host is ever scaled past one
+replica, `Thalos:Channels:Telegram:Enabled` must be `true` on exactly one of them. This is an operational
+trap no test in this repo can catch — it is called out in the `appsettings.json` comment right next to the
+section.
+
+**Delivery is at-most-once, by design.** The inbound update offset is acknowledged *before* the turn runs, so
+a crash mid-turn loses that message rather than silently duplicating one. The alternative — acking after —
+would re-run a turn that may have already written memories or touched a repository, which is worse.
+
+**An empty `AllowedUserIds` fails host start, on purpose** — never "allow everyone". The recommended
+`Roles` posture is an **empty role set**, not an invented `"user"` role: the *absence* of `developer`/`admin`
+is what stops a phone-reachable bot from running mutating Roslyn tools (`roslyn__apply_*`, `roslyn__rename_*`)
+or deleting shared-owner memories. An empty role set still gives the Telegram principal full access to its
+own sessions — ownership is by caller id, not by role.
+
+**Redact or disable HTTP-client OpenTelemetry for `api.telegram.org`.** The bot token sits in the URL path
+of every Bot API call, so an unredacted `url.full` span attribute leaks it into traces. Nothing in
+`Thalos.NET.Channels.Telegram` can prevent this from the library side — it is an operator-side OpenTelemetry
+configuration (span/attribute redaction or exclusion for that host) that must be applied wherever traces are
+collected.
+
+**`Daedalus.Cli`** is a plain console host, run by hand — it is **not** registered in the Aspire AppHost,
+because it needs a real TTY and an AppHost-managed process has none:
+
+```bash
+dotnet run --project src/Daedalus.Cli
+```
+
+Six commands, identical across every channel because the pump parses them once: `/new [agentId]` (bind a
+fresh session; no argument uses `DefaultAgent`), `/end`, `/status`, `/agents` (list `AgentDefinition`s),
+`/cancel` (abort an in-flight turn) and `/help`. Plain text with nothing bound implicitly runs `/new`.
+
+Two known console limitations, both documented library behaviour rather than bugs to chase:
+- **Ctrl+C burns the host shutdown timeout.** `Console.In`'s `ReadLineAsync(ct)` does not observe
+  cancellation, so a graceful shutdown request waits out the full timeout instead of returning immediately.
+- **On `SessionBusy` / `SessionNotFound` / `SessionClosed` the current line is not closed.** The adapter never
+  sees a terminal event for these, so the next delta starts on a fresh line instead — cosmetic only.
+
+**The outbox has no producer in this phase.** `ChannelMessageQueued` / `ChannelMessageQueuedDispatcher`
+(`ZeroAlloc.Outbox` + `ZeroAlloc.Outbox.EfCore`, migration `AddChannelMessageOutbox`) are built, tested and
+wired, but **nothing writes to the outbox table** — terminal messages are delivered straight from the pump to
+`IChannelAdapter.DeliverAsync`, exactly as the design's §5 "one message, edited in place" behaviour requires.
+Routing terminal messages through the outbox instead would double-post every reply and leave the streamed
+message's activity line dangling — see the design's [§9 correction](docs/plans/2026-08-20-thalos-channels-design.md#9-outbox-errors-and-edge-cases)
+for the full account of why this was tried and reverted. The infrastructure is kept for **phase 1.5**
+(proactive/unsolicited pushes from scheduled and subagent runs), which is the first producer with no live turn
+to conflict with. Do not spend time wondering why terminal messages never appear in the outbox table — they
+are not supposed to, yet.
 
 ### `.mcp.json` (API content root)
 
@@ -705,8 +810,15 @@ rate limiter.
   recall one it produced itself. `HitCount` became Thalos' `RecallCount`/`LastRecalledAt`. Ralph is retired in phase 1.6.
 - **Startup order:** the AppHost uses `WaitForCompletion(migrations)` for `api` and `console` — `WaitFor` releases as soon
   as a one-shot job *starts*, which let hosts boot against an un-migrated database.
-- **Thalos.NET feed:** the packages come from nuget.org (`Thalos.NET*` 0.3.0 in `Directory.Packages.props`, nine
-  packages incl. `Thalos.NET.Memory` and `Thalos.NET.Memory.RagNet`). For unreleased Thalos changes use
+- **`Thalos:Channels:DefaultAgent` is a `Name`, not an `Id`, and nothing validates it at startup.** A wrong
+  value (a ULID, a typo) only fails the first time a channel needs to bind — see [Channels](#channels).
+- **Telegram is single-instance only.** `getUpdates` refuses concurrent pollers; scaling the API host past one
+  replica requires `Thalos:Channels:Telegram:Enabled` to be `true` on exactly one of them — see [Channels](#channels).
+- **The channel outbox has no producer yet.** `ChannelMessageQueued` is wired and tested but nothing writes to
+  it in this phase — terminal messages are delivered directly by the pump. Phase 1.5 is the first writer. See
+  [Channels](#channels).
+- **Thalos.NET feed:** the packages come from nuget.org (`Thalos.NET*` 0.4.0 in `Directory.Packages.props`, eleven
+  packages incl. `Thalos.NET.Channels` and `Thalos.NET.Channels.Telegram`). For unreleased Thalos changes use
   `scripts/pack-local.ps1` in the Thalos.NET repo and add its folder as a source temporarily.
 
 ---
@@ -915,7 +1027,7 @@ builder.Services.AddOidcAuthentication(options =>
 | Bogus                        | 35.6.5  | Test data generation                                   |
 | Respawn                      | 7.0.0   | Database cleanup between integration tests             |
 | Testcontainers.PostgreSql    | 4.14.0  | PostgreSQL Docker containers for integration tests (image `pgvector/pgvector:pg16`) |
-| Thalos.NET.Testing           | 0.3.0   | `ScriptedChatClient`, in-memory stores, `MemoryStoreContractTests`, `SkillStoreContractTests` |
+| Thalos.NET.Testing           | 0.4.0   | `ScriptedChatClient`, in-memory stores, `MemoryStoreContractTests`, `SkillStoreContractTests` |
 | TngTech.ArchUnitNET.xUnit    | 0.13.2  | Layer/boundary rules (`CleanArchitectureTests`)        |
 
 ### Commands
