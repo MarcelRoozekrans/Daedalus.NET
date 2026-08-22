@@ -27,6 +27,7 @@ This closes the defect that returned 401 on every `AgentSessionsController` endp
 
 1. **The outbox has no producer, and 1.5 is meant to supply it.** It is built, tested (round-trip plus retry-then-dead-letter) and wired, but nothing writes to it. Design §9 was corrected in place: routing terminal messages through it would break the edit-in-place streaming and post every reply twice. **1.5's proactive/unsolicited pushes are the intended writer** — they have no live turn to stream into, so no conflict.
 2. **Upstream bug in Thalos 0.4.0, unfixed:** `ChannelPump.CreateAndBindAsync` discards `BindAsync`'s `Result` without checking `IsFailure`. If the conversation map throws, the operator gets **no reply at all** while at-most-once has already discarded the message — violating the design's own "the operator is always told something". Worth a 0.4.1.
+   - Same review also parked a smaller upstream nit: `LogRejectedSender` takes a **pre-formatted string**, which defeats structured logging of `SenderId`. Roll into the same 0.4.1.
 3. **`AddDaedalusChannels` does NOT wire the outbox** — `AddDaedalusAgents` does, and the library's `AddOutbox()` uses a plain `AddHostedService`, so calling both would run two pollers. A host must call both. Pinned by `ApiHostChannelWiringTests`, which boots the real host.
 4. **`DefaultAgent` is an agent NAME, not an id.** `AgentId` is ULID-backed with no string constructor. Pinned by `DefaultAgentConfigurationTests` against each host's real `appsettings.json`, but there is still no startup validation.
 
@@ -41,10 +42,8 @@ This closes the defect that returned 401 on every `AgentSessionsController` endp
 
 1. Fix the `Playwright.Api` fixture, or file it and leave it.
 2. Configure a bot token so the Telegram path can be verified end to end.
-3. Delete the merged branches `feature/thalos-channels` (Thalos.NET) and `feature/daedalus-channels` (Daedalus), local and remote.
-4. Delete the two SDD workspaces: `Thalos.NET/.superpowers/sdd/2026-08-20-thalos-channels-plan-a/` and `daedalus/.superpowers/sdd/2026-08-20-thalos-channels-plan-b/`. Git history is the record now.
-5. Carried from 1.1: manual sample smoke of `samples/Thalos.Sample.Console` with a real `ANTHROPIC_API_KEY`.
-6. Two untracked pre-pivot files (`docs/regression-report-2026-03-01-1800.md` + screenshots) — left alone by choice.
+3. Carried from 1.1: manual sample smoke of `samples/Thalos.Sample.Console` with a real `ANTHROPIC_API_KEY`.
+4. Two untracked pre-pivot files (`docs/regression-report-2026-03-01-1800.md` + screenshots) — left alone by choice.
 
 ## Environment
 
@@ -55,3 +54,20 @@ Docker is UP. The local pgvector volume has a collation-version mismatch (`docke
 Run `start-next-phase`. Phase 1.5 (**Subagents & scheduling: `ZeroAlloc.Saga` orchestration, `ZeroAlloc.Scheduling` autonomous runs**, #231) is `pending` with no design spec, so it routes to `superpowers:brainstorming` first.
 
 **A process lesson worth carrying.** Across 31 tasks in this phase, findings were overwhelmingly plan defects and test-quality gaps rather than implementation defects. Several were caught only because a reviewer **ran** something rather than reading it — one test was failing 4 runs in 7 while reported green. Four pieces of dead API were removed before shipping. And my baseline for plan B covered only the suites I expected to touch, which left a 126-test Playwright failure outside my field of view for the whole plan: **baseline every test project, not just the ones the work should touch.**
+
+## Cleanup done (2026-08-22)
+
+Phase 1.4's branches and scratch are gone: `feature/thalos-channels` (Thalos.NET, was `d2f9902`) and `feature/daedalus-channels` (Daedalus, was `90bb111`), local and remote, plus both SDD workspaces. The Thalos branch needed `-D` rather than `-d` because **PR #41 was squash-merged**, so `git branch --merged` never sees it — verified contained first: `src`/`tests`/`samples` were byte-identical to main, and all four differing files traced to commits made on main *after* the merge.
+
+**Stale branches found but deliberately left alone** — none are mine to judge:
+
+| Repo | Branch | Ahead of main | Last commit |
+|---|---|---|---|
+| Thalos.NET | `feature/skills` | 27 | 2026-08-18 |
+| Thalos.NET | `fix/awesomeassertions-v9-namespace` | 2 | 2026-08-18 |
+| Thalos.NET | `release-please--branches--main` | 2 | 2026-08-18 |
+| Daedalus | `archive/pre-squash-main` | 100 | 2026-08-17 |
+| Daedalus | `feature/thalos-integration` | 89 | 2026-08-16 |
+| Daedalus | `claude/magical-shockley` | 1 | 2026-02-09 |
+
+`release-please--branches--main` is **live automation** — it holds the pending release PR for the two Renovate dependency bumps on Thalos main. Do not delete it. `archive/pre-squash-main` is named as a deliberate archive. The rest are phase 1.1–1.3 leftovers that look merged-and-forgotten, but each is tens of commits ahead of main and none was verified contained the way the two above were — **check before deleting any of them.**
