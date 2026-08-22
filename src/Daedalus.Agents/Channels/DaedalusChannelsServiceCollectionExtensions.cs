@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Thalos;
 using Thalos.Channels;
 using Thalos.Channels.Telegram;
@@ -106,6 +108,10 @@ public static class DaedalusChannelsServiceCollectionExtensions
             {
                 thalos.AddTelegramChannel(configuration);
             }
+            else
+            {
+                services.AddSingleton<IHostedService, TelegramNotConfiguredNotice>();
+            }
         });
 
         services.Replace(ServiceDescriptor.Singleton<IOutboxDispatcher<ChannelMessageQueued>, ChannelMessageQueuedDispatcher>());
@@ -122,4 +128,29 @@ public static class DaedalusChannelsServiceCollectionExtensions
     /// </summary>
     private static bool IsTelegramConfigured(IConfiguration configuration) =>
         !string.IsNullOrWhiteSpace(configuration[$"{TelegramOptions.SectionName}:{nameof(TelegramOptions.BotToken)}"]);
+}
+
+/// <summary>
+///     Logs, once at host startup, that the Telegram channel was not registered because
+///     <see cref="TelegramOptions.BotToken"/> is not configured (see
+///     <see cref="DaedalusChannelsServiceCollectionExtensions"/>'s private <c>IsTelegramConfigured</c> check).
+///     Registered only on that not-configured branch, so a host that never intended to run Telegram stays silent
+///     while a deployer who <i>did</i> intend it — and simply forgot the token — gets an explicit signal instead
+///     of the channel quietly never appearing.
+/// </summary>
+internal sealed partial class TelegramNotConfiguredNotice(ILogger<TelegramNotConfiguredNotice> logger) : IHostedService
+{
+    /// <inheritdoc />
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        LogTelegramNotConfigured(logger);
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    [LoggerMessage(EventId = 431, Level = LogLevel.Information,
+        Message = "Telegram channel not configured: Thalos:Channels:Telegram:BotToken is empty. Set a bot token to enable it.")]
+    private static partial void LogTelegramNotConfigured(ILogger logger);
 }

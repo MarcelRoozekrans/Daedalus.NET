@@ -278,9 +278,9 @@ The rule is that the operator is always told something.
 | `SessionBusy` | "Still working — `/cancel` to stop it." |
 | `Quarantined` (Sentinel) | Terminal message naming the detector; session returns to Idle. |
 | `ToolDenied` | Turn continues; the denial shows in the activity line, as on the web. |
-| `ProviderError` / `StoreError` | Terminal message with the `AgentError` code. The outbox retries delivery of *that notice*, not the turn. |
+| `ProviderError` / `StoreError` | Terminal message with the `AgentError` code, delivered directly by the pump like any other terminal message — the outbox has no producer in this phase (see the §9 correction above), so there is no retry of the notice itself. |
 | Telegram `400` parse failure | Resend as plain text (§6). |
-| Other Telegram `4xx` | Dead-letters after the configured attempts. |
+| Other Telegram `4xx` | Surfaced to the operator via the pump's normal terminal-message path; the outbox's dead-lettering does not apply here, since nothing routes terminal messages through the outbox in this phase. |
 | Telegram / network down | Long poll retries with capped backoff; the pump never crashes the host. |
 | Crash mid-turn | Message lost by design (C10) and logged; the operator can see it in their own chat history and retype. |
 

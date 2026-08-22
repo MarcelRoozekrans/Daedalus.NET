@@ -681,11 +681,12 @@ because it needs a real TTY and an AppHost-managed process has none:
 dotnet run --project src/Daedalus.Cli
 ```
 
-Six commands, identical across every channel because the pump parses them once: `/new [agentId]` (bind a
+Six commands, identical across every channel because the pump parses them once: `/new [agent name]` (bind a
 fresh session; no argument uses `DefaultAgent`), `/end`, `/status`, `/agents` (list `AgentDefinition`s),
 `/cancel` (abort an in-flight turn) and `/help`. Plain text with nothing bound implicitly runs `/new`.
 
-Two known console limitations, both documented library behaviour rather than bugs to chase:
+Two known console limitations, both observed behaviour of the shipped library (verified by hand in this
+phase's manual CLI session, not documented in Thalos's XML docs) rather than bugs to chase:
 - **Ctrl+C burns the host shutdown timeout.** `Console.In`'s `ReadLineAsync(ct)` does not observe
   cancellation, so a graceful shutdown request waits out the full timeout instead of returning immediately.
 - **On `SessionBusy` / `SessionNotFound` / `SessionClosed` the current line is not closed.** The adapter never

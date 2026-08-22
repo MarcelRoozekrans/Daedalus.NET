@@ -13,10 +13,13 @@ namespace Daedalus.Agents.Channels;
 /// </summary>
 /// <remarks>
 ///     No <see cref="IOutboxDispatcher{T}"/> for <see cref="ChannelMessageQueued"/> is registered here — that is
-///     the channel-sending business logic, added on top of this durability layer separately. Until it exists,
-///     ZeroAlloc.Outbox's fallback <c>DefaultOutboxDispatcher&lt;ChannelMessageQueued&gt;</c> throws at dispatch
-///     time, which is correct: nothing writes a <see cref="ChannelMessageQueued"/> yet either, so the worker never
-///     has a row to dispatch.
+///     the channel-sending business logic, added on top of this durability layer separately. Calling this method
+///     alone leaves ZeroAlloc.Outbox's fallback <c>DefaultOutboxDispatcher&lt;ChannelMessageQueued&gt;</c>
+///     registered, which throws at dispatch time. In practice a real dispatcher is always registered on top:
+///     <see cref="DaedalusChannelsServiceCollectionExtensions.AddDaedalusChannels"/> replaces it with
+///     <see cref="ChannelMessageQueuedDispatcher"/> via <c>Replace</c> so it wins regardless of call order. Nothing
+///     writes a <see cref="ChannelMessageQueued"/> yet in this phase either way, so the worker never has a row to
+///     dispatch — see <see cref="ChannelMessageQueuedDispatcher"/>'s remarks.
 /// </remarks>
 public static class ChannelOutboxServiceCollectionExtensions
 {

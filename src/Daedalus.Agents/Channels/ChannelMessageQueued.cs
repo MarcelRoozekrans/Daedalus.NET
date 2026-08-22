@@ -3,11 +3,12 @@ using ZeroAlloc.Outbox;
 namespace Daedalus.Agents.Channels;
 
 /// <summary>
-///     An outbound chat reply queued for durable delivery. Written inside the same transaction as the
-///     agent turn that produced it (see <see cref="IOutboxWriter{T}.WriteAsync"/>'s <c>transaction</c>
-///     parameter), so a host crash between "the agent decided what to say" and "the channel actually sent
-///     it" cannot silently drop the reply — it survives as a <c>Pending</c> row and the
-///     <c>OutboxWorkerService</c> delivers it once the host is back up.
+///     An outbound chat reply queued for durable delivery. Designed to be written inside the same transaction
+///     as the agent turn that produced it (see <see cref="IOutboxWriter{T}.WriteAsync"/>'s <c>transaction</c>
+///     parameter), so that a host crash between "the agent decided what to say" and "the channel actually sent
+///     it" cannot silently drop the reply — it would survive as a <c>Pending</c> row and the
+///     <c>OutboxWorkerService</c> would deliver it once the host is back up. Nothing writes one yet in this
+///     phase; see <see cref="ChannelMessageQueuedDispatcher"/>'s remarks.
 /// </summary>
 /// <param name="ChannelId">The channel adapter that owns the conversation (for example <c>telegram</c>).</param>
 /// <param name="ConversationId">The external chat id within <paramref name="ChannelId"/> (for example a Telegram chat id).</param>
