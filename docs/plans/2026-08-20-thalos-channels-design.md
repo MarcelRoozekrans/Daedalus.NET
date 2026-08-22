@@ -31,7 +31,7 @@ transport is a guess; the console adapter and the Telegram adapter differ in eve
 
 Webhooks; multi-user or public bot operation; account linking; Discord/Slack/WhatsApp; inbound media,
 files, voice or images; inline keyboards and callback queries; message reactions; per-channel agent
-routing beyond `/new <agentId>`; unsolicited/proactive pushes (1.5 owns these, and the outbox laid down
+routing beyond `/new <agent name>`; unsolicited/proactive pushes (1.5 owns these, and the outbox laid down
 here is what they will write into); an outbox dashboard.
 
 ## 2. Decisions taken during brainstorming
@@ -138,7 +138,7 @@ Commands are parsed by the pump, so every channel gets identical semantics:
 
 | Command | Behaviour |
 |---|---|
-| `/new [agentId]` | Closes the bound session if open, creates a fresh one, rebinds. No argument → configured default agent. |
+| `/new [agent name]` | Closes the bound session if open, creates a fresh one, rebinds. No argument → configured default agent. |
 | `/end` | `CloseSessionAsync`, unbind. |
 | `/status` | Current agent, session id, turn count, age. |
 | `/agents` | Lists available `AgentDefinition`s. |

@@ -87,9 +87,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // Sessions left in Running by a crashed host are reset to Idle before the host serves requests.
         services.AddHostedService<AgentSessionCrashRecovery>();
 
-        // Durable outbound chat delivery: writer + EF Core store + poller for ChannelMessageQueued. See
-        // AddChannelOutbox for the chosen polling/batch/retry values. No dispatcher is registered here yet —
-        // that is the channel-sending business logic, added on top of this durability layer separately.
+        // Durable outbound chat delivery: writer + EF Core store + poller for ChannelMessageQueued; see
+        // AddChannelOutbox for the chosen polling/batch/retry values. AddDaedalusChannels Replaces the
+        // library default with ChannelMessageQueuedDispatcher. Nothing writes to this outbox in phase 1.4 —
+        // it is durability laid down for 1.5 proactive pushes. See the design doc, section 9.
         services.AddChannelOutbox();
 
         ValidateMemoryConfig(options.Memory);
