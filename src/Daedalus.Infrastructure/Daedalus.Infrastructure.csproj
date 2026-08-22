@@ -37,6 +37,9 @@
         <PackageReference Include="Anthropic" />
         <PackageReference Include="ZLinq" />
         <PackageReference Include="LibGit2Sharp" />
+        <!-- OutboxMessageEntity + AddOutboxMessages(): ApplicationDbContext.OnModelCreating maps the outbox table here
+             because the model lives in this project; the DI wiring (AddOutbox/.WithEfCore) lives in Daedalus.Agents. -->
+        <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
     </ItemGroup>
 
 </Project>

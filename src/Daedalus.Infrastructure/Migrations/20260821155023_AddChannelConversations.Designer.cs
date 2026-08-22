@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Daedalus.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260821155023_AddChannelConversations")]
+    partial class AddChannelConversations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -839,46 +842,6 @@ namespace Daedalus.Infrastructure.Migrations
                         .HasDatabaseName("IX_TaskExecution_TaskId");
 
                     b.ToTable("TaskExecutions");
-                });
-
-            modelBuilder.Entity("ZeroAlloc.Outbox.EfCore.OutboxMessageEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DeadLetterError")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("NextRetryAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<byte[]>("Payload")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<DateTimeOffset?>("ProcessedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("RetryCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("TypeName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Status", "NextRetryAt")
-                        .HasDatabaseName("IX_OutboxMessages_Status_NextRetryAt");
-
-                    b.ToTable("OutboxMessages");
                 });
 
             modelBuilder.Entity("Daedalus.Domain.CodeAnalysis.AnalysisIteration", b =>

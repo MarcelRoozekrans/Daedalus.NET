@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using ZeroAlloc.Outbox.EfCore;
 using Project = Daedalus.Domain.Entities.Project;
 using Task = Daedalus.Domain.Entities.Task;
 
@@ -29,10 +30,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
     public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
     public DbSet<Skill> Skills => Set<Skill>();
+    public DbSet<ChannelConversation> ChannelConversations => Set<ChannelConversation>();
+
+    /// <summary>The ZeroAlloc.Outbox durable-delivery table (<c>OutboxMessages</c>); see <see cref="OutboxDbContextExtensions.AddOutboxMessages"/>.</summary>
+    public DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+        modelBuilder.AddOutboxMessages();
     }
 }

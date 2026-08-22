@@ -14,6 +14,9 @@
         <PublishAot>false</PublishAot>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
+        <!-- Lets `dotnet user-secrets set Thalos:Channels:Telegram:BotToken ...` (etc.) reach this host in
+             Development, the same mechanism Daedalus.Console already uses for its own secrets. -->
+        <UserSecretsId>0c04d16b-eee6-4e74-85c9-fcbe77850b42</UserSecretsId>
     </PropertyGroup>
 
     <ItemGroup>

@@ -15,7 +15,14 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     supplied fake. Everything else — controllers, ProblemDetails, response compression, rate limiting, JSON context,
 ///     the Postgres session store and the crash-recovery hosted service — is the production wiring.
 /// </summary>
-internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRuntime runtime) : WebApplicationFactory<Daedalus.Api.Program>
+/// <remarks>
+///     When <paramref name="keycloak"/> is supplied, the production JWT Bearer scheme is left in place and pointed at
+///     that fixture's authority instead of being swapped for <see cref="HeaderTestAuthHandler"/> — the only way to
+///     exercise the real Keycloak claim shape. When <see langword="null"/> (the default), the host behaves exactly as
+///     before.
+/// </remarks>
+internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null)
+    : WebApplicationFactory<Daedalus.Api.Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -33,27 +40,38 @@ internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRu
         // too late for builder.Configuration.GetConnectionString(...) in the minimal-hosting entry point).
         builder.UseSetting("ConnectionStrings:daedalus", connectionString);
 
+        if (keycloak is not null)
+        {
+            // Same "too late" reasoning as ConnectionStrings above: Program.cs reads these synchronously while
+            // registering AddJwtBearer, so they must land before the host builds, not via ConfigureAppConfiguration.
+            builder.UseSetting("Authentication:Authority", keycloak.Authority);
+            builder.UseSetting("Authentication:Audience", "daedalus-api");
+        }
+
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IAgentRuntime>();
             services.AddSingleton(runtime);
 
-            services.AddAuthentication(HeaderTestAuthHandler.SchemeName)
-                .AddScheme<AuthenticationSchemeOptions, HeaderTestAuthHandler>(HeaderTestAuthHandler.SchemeName, _ => { });
-            services.PostConfigureAll<AuthenticationOptions>(options =>
+            if (keycloak is null)
             {
-                options.DefaultAuthenticateScheme = HeaderTestAuthHandler.SchemeName;
-                options.DefaultChallengeScheme = HeaderTestAuthHandler.SchemeName;
-                options.DefaultScheme = HeaderTestAuthHandler.SchemeName;
-            });
+                services.AddAuthentication(HeaderTestAuthHandler.SchemeName)
+                    .AddScheme<AuthenticationSchemeOptions, HeaderTestAuthHandler>(HeaderTestAuthHandler.SchemeName, _ => { });
+                services.PostConfigureAll<AuthenticationOptions>(options =>
+                {
+                    options.DefaultAuthenticateScheme = HeaderTestAuthHandler.SchemeName;
+                    options.DefaultChallengeScheme = HeaderTestAuthHandler.SchemeName;
+                    options.DefaultScheme = HeaderTestAuthHandler.SchemeName;
+                });
 
-            // Never let the JWT handler try OIDC discovery against a Keycloak that is not there.
-            services.PostConfigureAll<JwtBearerOptions>(options =>
-            {
-                options.Authority = null;
-                options.RequireHttpsMetadata = false;
-                options.Configuration = new OpenIdConnectConfiguration();
-            });
+                // Never let the JWT handler try OIDC discovery against a Keycloak that is not there.
+                services.PostConfigureAll<JwtBearerOptions>(options =>
+                {
+                    options.Authority = null;
+                    options.RequireHttpsMetadata = false;
+                    options.Configuration = new OpenIdConnectConfiguration();
+                });
+            }
         });
     }
 }

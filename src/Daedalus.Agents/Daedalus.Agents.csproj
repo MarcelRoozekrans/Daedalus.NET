@@ -25,6 +25,8 @@
 
     <ItemGroup>
         <PackageReference Include="Thalos.NET" />
+        <PackageReference Include="Thalos.NET.Channels" />
+        <PackageReference Include="Thalos.NET.Channels.Telegram" />
         <PackageReference Include="Thalos.NET.Mcp" />
         <PackageReference Include="Thalos.NET.Anthropic" />
         <PackageReference Include="Thalos.NET.Sentinel" />
@@ -32,6 +34,8 @@
         <PackageReference Include="Thalos.NET.Memory.RagNet" />
         <PackageReference Include="Thalos.NET.Skills" />
         <PackageReference Include="ZeroAlloc.Mapping" />
+        <PackageReference Include="ZeroAlloc.Outbox" />
+        <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />
         <PackageReference Include="Microsoft.Extensions.AI" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />

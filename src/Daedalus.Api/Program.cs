@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Daedalus.Agents;
+using Daedalus.Agents.Channels;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Extensions;
@@ -67,6 +68,15 @@ if (!string.IsNullOrEmpty(ollamaConnectionString))
 // Thalos-based agents (strangler: lives beside Ralph until phase 1.6). Needs the DbContext factory (AddApplicationDatabase),
 // the Ollama embedding generator (memory index + Sentinel) and the knowledge-tool services registered by AddAgentFrameworkServices above.
 builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment, ollama);
+
+// Thalos channels (Telegram, for now): this host owns the runtime, the database and Sentinel, so the Telegram
+// long-poller runs here rather than in a separate process. Must run after AddDaedalusAgents above, which wires the
+// outbox durability layer (AddChannelOutbox) that AddDaedalusChannels deliberately does NOT wire itself — calling
+// AddChannelOutbox a second time would register a second OutboxWorkerService racing the same table. See the XML
+// doc on AddDaedalusChannels for the full reasoning, and DaedalusChannelsRegistrationTests /
+// ApiHostChannelWiringTests for what pins it. includeConsoleChannel stays false (its default): the API host has
+// no TTY, so a console channel here would leave a hosted service blocked reading a stream nobody writes to.
+builder.Services.AddDaedalusChannels(builder.Configuration);
 
 // Add code analysis services (Ralph Loop orchestration, Git operations)
 builder.Services.AddCodeAnalysisServices(builder.Configuration);

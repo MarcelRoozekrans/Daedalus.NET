@@ -29,7 +29,7 @@
     <PackageVersion Include="Testcontainers.Keycloak" Version="4.14.0" />
 
     <!-- AI stack aligned with Thalos.NET -->
-    <PackageVersion Include="Anthropic" Version="12.40.0" />
+    <PackageVersion Include="Anthropic" Version="12.42.0" />
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.9.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
@@ -41,21 +41,25 @@
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
 
     <!-- Thalos.NET (nuget.org) -->
-    <PackageVersion Include="Thalos.NET" Version="0.3.0" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.3.0" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.3.0" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.3.0" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.3.0" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.3.0" />
-    <PackageVersion Include="Thalos.NET.Memory" Version="0.3.0" />
-    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.3.0" />
-    <PackageVersion Include="Thalos.NET.Skills" Version="0.3.0" />
+    <PackageVersion Include="Thalos.NET" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Skills" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Channels" Version="0.4.0" />
+    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.4.0" />
     <PackageVersion Include="ZeroAlloc.Results" Version="1.2.0" />
     <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.0" />
     <PackageVersion Include="ZeroAlloc.Validation" Version="1.5.6" />
     <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="1.5.6" />
     <PackageVersion Include="ZeroAlloc.Validation.AspNetCore" Version="1.5.6" />
     <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.1" />
+    <PackageVersion Include="ZeroAlloc.Outbox" Version="2.5.2" />
+    <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="2.5.2" />
 
     <!-- ASP.NET Core / Blazor -->
     <PackageVersion Include="Asp.Versioning.Mvc" Version="8.1.0" />
