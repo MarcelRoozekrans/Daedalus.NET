@@ -96,7 +96,7 @@ namespace Thalos;
 /// <summary>Runs one agent turn with no live caller. Never streams; returns the finished result.</summary>
 public interface ISubagentRunner
 {
-    ValueTask<Result<SubagentRunResult, AgentError>> RunAsync(
+    ValueTask<Result<AgentTurnResult, AgentError>> RunAsync(
         SubagentRunRequest request, CancellationToken ct);
 }
 
@@ -110,8 +110,13 @@ public sealed record SubagentRunRequest
     public SessionId? ParentSessionId { get; init; }    // lineage for telemetry only
 }
 
-public sealed record SubagentRunResult(SessionId SessionId, TurnId TurnId, string Text, TurnUsage Usage);
 ```
+
+**It returns the existing `AgentTurnResult`, not a new type.** `AgentTurnResult` already carries `TurnId`,
+`SessionId`, `Text`, `Usage`, `ToolCalls` and `Elapsed` — everything a detached run has to report, and a
+superset of what a dedicated result record would hold. Adding a parallel `SubagentRunResult` would duplicate
+five fields to remove one, and would then need mapping at every call site. Caught while planning; the seam is
+cheap to add later if a detached run ever grows a field a live turn does not have.
 
 Internally: `CreateSessionAsync` → `RunTurnAsync` → `CloseSessionAsync`, with guards applied before the first
 model call. It resolves agents through the existing `IAgentCatalog` — **a subagent is an ordinary
