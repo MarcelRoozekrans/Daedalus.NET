@@ -1,7 +1,7 @@
 # Session State
 
 **Last session:** 2026-08-22
-**Current milestone:** 1 — Hermes-Style Agent Framework (**4 of 7 phases complete**)
+**Current milestone:** 1 — Hermes-Style Agent Framework (**4 of 8 phases complete**)
 **Current phase:** 1.4 — Channels: **complete**. Next is **1.5 — Subagents & scheduling** (#231).
 **Branch state:** Daedalus `main` at `11ca18d` (PR #241 merged). Thalos.NET `main` at the 0.4.0 release; `v0.4.0` tagged, GitHub release published, all eleven packages on nuget.org.
 
