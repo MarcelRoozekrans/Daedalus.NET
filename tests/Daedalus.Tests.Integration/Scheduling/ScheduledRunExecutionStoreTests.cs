@@ -207,6 +207,40 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     }
 
     [Fact]
+    public async Task Two_dispatchers_racing_to_fail_the_same_execution_write_the_operator_notice_exactly_once()
+    {
+        // Fix round 1: FailAsync used to have no concurrency-race protection at all - a redelivered step command
+        // and its original both failing the same execution would let one dispatcher's SaveChangesAsync throw
+        // DbUpdateConcurrencyException uncaught. It self-healed (the loser's retry no-ops on the row.Step check),
+        // but only by burning retry budget on an unhandled exception. This proves the fix: exactly one write wins,
+        // the loser returns normally, and the execution still ends up Failed exactly once.
+        var store = Store();
+        await store.TryBeginAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = (await SingleExecutionAsync()).Id;
+
+        // A deterministic rendezvous, not a sleep: both FailAsync calls signal readiness and wait for each other
+        // INSIDE the outbox write, so both have already read and mutated the row (row.Fail(...) already applied,
+        // both tracked as Modified) and are genuinely about to write before either takes Postgres's row lock. A
+        // sleep-based "start both, hope they overlap" version would flake under CI's variable scheduling; this
+        // does not, because neither side can proceed past the rendezvous until the other has already arrived at
+        // the same point.
+        var aReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var storeA = StoreThatRendezvousesBeforeFailing(aReady, bReady.Task);
+        var storeB = StoreThatRendezvousesBeforeFailing(bReady, aReady.Task);
+
+        var act = async () => await Task.WhenAll(
+            storeA.FailAsync(id, "provider returned 529", default).AsTask(),
+            storeB.FailAsync(id, "provider returned 529 (retry)", default).AsTask());
+
+        await act.Should().NotThrowAsync("the loser must no-op rather than throw or double-notify");
+        var row = await SingleExecutionAsync();
+        row.Step.Should().Be(RunStep.Failed);
+        var queued = await OutboxPayloadsAsync<ChannelMessageQueued>();
+        queued.Should().ContainSingle("exactly one dispatcher wins the race and writes the operator notice");
+    }
+
+    [Fact]
     public void The_insert_statement_lists_every_mapped_column()
     {
         using var db = fixture.CreateContext();
@@ -285,9 +319,22 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     private ScheduledRunExecutionStore Store() => ResolveStore();
 
     /// <summary>A store built the same real way as <see cref="Store"/>, except <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> always throws.</summary>
-    private ScheduledRunExecutionStore StoreWithFailingChannelWriter() => ResolveStore(useThrowingChannelWriter: true);
+    private ScheduledRunExecutionStore StoreWithFailingChannelWriter() =>
+        ResolveStore(wrapChannelWriter: (_, _) => new ThrowingChannelWriter());
 
-    private ScheduledRunExecutionStore ResolveStore(bool useThrowingChannelWriter = false)
+    /// <summary>
+    ///     A store whose <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> signals <paramref name="mySignal"/> and
+    ///     awaits <paramref name="otherSignal"/> before performing the real write — see
+    ///     <see cref="RendezvousChannelWriter"/> for why the rendezvous happens before, not after, the real write.
+    ///     Used in pairs so two concurrent <c>FailAsync</c> calls are both forced to have already read and mutated
+    ///     the row and be about to write before either is allowed to proceed, making them genuinely race for the
+    ///     same row's <c>xmin</c> instead of merely running one after the other.
+    /// </summary>
+    private ScheduledRunExecutionStore StoreThatRendezvousesBeforeFailing(TaskCompletionSource mySignal, Task otherSignal) =>
+        ResolveStore(wrapChannelWriter: (real, _) => new RendezvousChannelWriter(real, mySignal, otherSignal));
+
+    private ScheduledRunExecutionStore ResolveStore(
+        Func<IOutboxWriter<ChannelMessageQueued>, IServiceProvider, IOutboxWriter<ChannelMessageQueued>>? wrapChannelWriter = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -301,11 +348,17 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             .AddChannelMessageQueuedOutbox();
         services.AddScoped<ScheduledRunExecutionStore>();
 
-        if (useThrowingChannelWriter)
+        if (wrapChannelWriter is not null)
         {
             // Registered after AddChannelMessageQueuedOutbox's own registration: DI resolves the last
-            // registration for a service type, so this wins.
-            services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(_ => new ThrowingChannelWriter());
+            // registration for a service type, so this wins. The real, DI-resolved
+            // ChannelMessageQueuedOutboxWriter (accessible here via InternalsVisibleTo) is passed in so the
+            // wrapped write genuinely enlists in the ambient transaction, the same pattern
+            // ScheduledRunStoreTests uses for its own rendezvous.
+            services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(sp =>
+                wrapChannelWriter(
+                    new ChannelMessageQueuedOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>()),
+                    sp));
         }
 
         var provider = services.BuildServiceProvider();
@@ -321,5 +374,27 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     {
         public ValueTask WriteAsync(ChannelMessageQueued message, DbTransaction? transaction = null, CancellationToken ct = default) =>
             throw new InvalidOperationException("Simulated failure writing the ChannelMessageQueued outbox row.");
+    }
+
+    /// <summary>
+    ///     Signals readiness and waits for the paired writer's own signal BEFORE performing the real write. The
+    ///     rendezvous must happen before the write, not after: <c>EfCoreOutboxStore</c> shares the calling
+    ///     <see cref="ApplicationDbContext"/> (see <see cref="ScheduledRunExecutionStore"/>'s remarks), so its
+    ///     internal <c>SaveChangesAsync</c> flushes the already-mutated <c>ScheduledRunExecution</c> row too — the
+    ///     row lock is acquired inside the inner writer's write, not at <c>FailAsync</c>'s later explicit
+    ///     <c>SaveChangesAsync</c>. Rendezvousing after the write would have the loser block on Postgres's row lock
+    ///     INSIDE the write, unable to ever reach the signal the winner is waiting on — a deadlock. Rendezvousing
+    ///     first guarantees both sides have already read and mutated the row and are about to write before either
+    ///     takes the lock, so they race for real.
+    /// </summary>
+    private sealed class RendezvousChannelWriter(IOutboxWriter<ChannelMessageQueued> inner, TaskCompletionSource mySignal, Task otherSignal)
+        : IOutboxWriter<ChannelMessageQueued>
+    {
+        public async ValueTask WriteAsync(ChannelMessageQueued message, DbTransaction? transaction = null, CancellationToken ct = default)
+        {
+            mySignal.TrySetResult();
+            await otherSignal;
+            await inner.WriteAsync(message, transaction, ct);
+        }
     }
 }
