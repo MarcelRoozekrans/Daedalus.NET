@@ -72,8 +72,9 @@ public sealed partial class ScheduledRunStore(
     ///     wraps the whole loop for exactly that reason. Either way it is caught and treated as "another sweeper
     ///     already claimed this tick", not an error: it rolls back this sweep's whole transaction (including any
     ///     outbox rows already staged for other due runs in the same batch) and returns 0, exactly as if this sweep
-    ///     had found nothing due. The next tick will simply find nothing due either, since the winner already
-    ///     advanced <c>NextRunAt</c>.
+    ///     had found nothing due. Only the contested row will not be found due again - the winner already
+    ///     advanced its <c>NextRunAt</c>. Every other due row in this sweep rolled back with it too, though, and
+    ///     will simply be found due again on the next tick, firing correctly one tick late.
     ///     </para>
     /// </remarks>
     /// <param name="ct">Cancellation token.</param>
@@ -126,6 +127,14 @@ public sealed partial class ScheduledRunStore(
         catch (DbUpdateConcurrencyException ex)
         {
             LogConcurrencyLoss(_logger, ex);
+
+            // Rows advanced earlier in this loop are still tracked as Unchanged (their database rows just rolled
+            // back), the losing row is still tracked as Modified, and any OutboxMessageEntity staged by the last
+            // WriteAsync is still tracked as Added - none of that reflects reality once the transaction is gone.
+            // This method returns normally rather than throwing, so a caller reusing this scope must not resolve
+            // those stale tracked entities by identity on its next read, or insert a trigger on its next save for
+            // an occurrence this sweep never actually claimed.
+            _db.ChangeTracker.Clear();
             return 0;
         }
 
