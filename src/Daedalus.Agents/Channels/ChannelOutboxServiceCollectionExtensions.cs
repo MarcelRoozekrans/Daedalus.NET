@@ -1,3 +1,4 @@
+using Daedalus.Agents.Scheduling;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using ZeroAlloc.Outbox;
@@ -6,10 +7,12 @@ using ZeroAlloc.Outbox.EfCore;
 namespace Daedalus.Agents.Channels;
 
 /// <summary>
-///     Registers ZeroAlloc.Outbox's durable-delivery pipeline for <see cref="ChannelMessageQueued"/>: the
-///     background poller, the EF Core store bound to <see cref="ApplicationDbContext"/> (so the outbox table
-///     lives in the Daedalus database, not a separate store), and the generated
-///     <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c>.
+///     Registers ZeroAlloc.Outbox's durable-delivery pipeline for <see cref="ChannelMessageQueued"/> and for
+///     <see cref="ScheduledRunDue"/>: the background poller, the EF Core store bound to
+///     <see cref="ApplicationDbContext"/> (so the outbox table lives in the Daedalus database, not a separate
+///     store), and the generated <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> and
+///     <c>IOutboxWriter&lt;ScheduledRunDue&gt;</c>. Both message types share the single poller registered below —
+///     see the remarks on <see cref="AddChannelOutbox"/> for why a second one must never be started.
 /// </summary>
 /// <remarks>
 ///     No <see cref="IOutboxDispatcher{T}"/> for <see cref="ChannelMessageQueued"/> is registered here — that is
@@ -61,7 +64,12 @@ public static class ChannelOutboxServiceCollectionExtensions
                 o.RetryBaseDelay = TimeSpan.FromSeconds(1);
             })
             .WithEfCore<ApplicationDbContext>()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            // Chained onto the same IOutboxBuilder rather than calling the generated
+            // IServiceCollection.AddScheduledRunDueOutbox() overload: that overload calls
+            // services.AddOutbox() itself, which would register a second OutboxWorkerService
+            // (AddOutbox uses AddHostedService, not TryAdd) racing this one over the same rows.
+            .AddScheduledRunDueOutbox();
 
         return services;
     }
