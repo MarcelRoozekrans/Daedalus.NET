@@ -4,6 +4,7 @@ using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Memory;
+using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Sessions;
 using Daedalus.Agents.Skills;
@@ -86,6 +87,15 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         // Sessions left in Running by a crashed host are reset to Idle before the host serves requests.
         services.AddHostedService<AgentSessionCrashRecovery>();
+
+        // Reconciles the ScheduledRuns configuration array into the ScheduledRuns table before the host serves
+        // requests: an invalid configured schedule (bad cron, unknown Trigger) must stop the host at boot rather
+        // than defer the failure to that schedule's first firing (spec §7). Registered ahead of any future sweeper
+        // hosted service, which reads the table this reconciler populates. ScheduleReconciler is scoped (see its
+        // own remarks), so it is registered separately from the singleton ScheduleReconcilerHostedService that
+        // resolves it from a fresh scope per host start.
+        services.AddScoped<ScheduleReconciler>();
+        services.AddHostedService<ScheduleReconcilerHostedService>();
 
         // Durable outbound chat delivery: writer + EF Core store + poller for ChannelMessageQueued; see
         // AddChannelOutbox for the chosen polling/batch/retry values. AddDaedalusChannels Replaces the
