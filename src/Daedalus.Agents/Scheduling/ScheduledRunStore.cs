@@ -10,7 +10,7 @@ namespace Daedalus.Agents.Scheduling;
 /// <summary>
 ///     The atomic claim at the heart of the scheduling sweep: finds every enabled <c>ScheduledRun</c> whose
 ///     <c>NextRunAt</c> is due, advances each to its next occurrence, and enqueues a <see cref="ScheduledRunDue"/>
-///     trigger for the occurrence just claimed — all inside one database transaction per sweep, not one per row.
+///     trigger for the most recent due occurrence — all inside one database transaction per sweep, not one per row.
 ///     A per-row transaction would let a mid-sweep failure roll back the outbox write for one row while an earlier
 ///     row's advance had already committed, consuming that earlier occurrence with no trigger ever emitted. See
 ///     <see cref="ClaimAndEnqueueDueAsync"/>'s remarks for the full argument.
@@ -46,6 +46,7 @@ public sealed partial class ScheduledRunStore(
     ///     Claims every enabled, due <c>ScheduledRun</c> and enqueues its trigger.
     /// </summary>
     /// <remarks>
+    ///     <para>
     ///     Everything below runs inside a single transaction covering the whole sweep, committed once at the end.
     ///     <see cref="IOutboxWriter{T}.WriteAsync"/> is handed <c>tx.GetDbTransaction()</c> — the ambient EF
     ///     transaction converted to the ADO.NET <see cref="System.Data.Common.DbTransaction"/> the writer's
@@ -57,6 +58,23 @@ public sealed partial class ScheduledRunStore(
     ///     silently skipped run). Passing the real transaction makes the advance and the enqueue one atomic unit:
     ///     they commit together or, on any exception before <see cref="IDbContextTransaction.CommitAsync"/>, roll
     ///     back together — including every row already advanced earlier in the same sweep.
+    ///     </para>
+    ///     <para>
+    ///     <c>ScheduledRun</c> carries an <c>xmin</c> concurrency token (see
+    ///     <c>ScheduledRunConfiguration</c>), so two sweepers racing the same due row are already mutually
+    ///     exclusive at the database level without any explicit row lock: whichever's row-level <c>UPDATE</c>
+    ///     reaches Postgres first wins, and the loser's own <c>UPDATE</c> — issued against the now-stale <c>xmin</c>
+    ///     it read — affects zero rows once unblocked, which EF Core surfaces as
+    ///     <see cref="DbUpdateConcurrencyException"/>. Because <see cref="IOutboxWriter{T}"/> shares this sweep's
+    ///     own <see cref="ApplicationDbContext"/>, its internal <c>SaveChangesAsync</c> call flushes every tracked
+    ///     change so far — including an earlier row's <c>AdvanceTo</c> — so this exception can surface mid-loop, not
+    ///     only from the trailing <see cref="DbContext.SaveChangesAsync(CancellationToken)"/>; the <c>try</c> below
+    ///     wraps the whole loop for exactly that reason. Either way it is caught and treated as "another sweeper
+    ///     already claimed this tick", not an error: it rolls back this sweep's whole transaction (including any
+    ///     outbox rows already staged for other due runs in the same batch) and returns 0, exactly as if this sweep
+    ///     had found nothing due. The next tick will simply find nothing due either, since the winner already
+    ///     advanced <c>NextRunAt</c>.
+    ///     </para>
     /// </remarks>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The number of runs claimed and fired.</returns>
@@ -70,19 +88,46 @@ public sealed partial class ScheduledRunStore(
             .ToListAsync(ct).ConfigureAwait(false);
 
         var fired = 0;
-        foreach (var run in due)
+
+        try
         {
-            var occurrence = run.NextRunAt;
-            var (next, missed) = NextOccurrence(run.Cron, occurrence, now);
+            foreach (var run in due)
+            {
+                var (next, fireAt, missed) = NextOccurrence(run.Cron, run.NextRunAt, now);
 
-            run.AdvanceTo(next, now, missed);
-            await _outbox.WriteAsync(new ScheduledRunDue(run.Id, occurrence), tx.GetDbTransaction(), ct)
-                .ConfigureAwait(false);
-            fired++;
+                if (next is null)
+                {
+                    // A syntactically valid but impossible cron (e.g. "0 0 30 2 *") has no future occurrence. Cronos
+                    // returns null rather than throwing or looping forever, but DateTime.MaxValue (Kind=Unspecified)
+                    // cannot be persisted into a "timestamp with time zone" column - Npgsql rejects it - and even if
+                    // it could, "next run in year 9999" is a disabled schedule wearing a disguise. Disable it
+                    // honestly instead: this is the only mutation for this row, so it still commits atomically with
+                    // every other row in this sweep, and it does not stop those other rows from firing.
+                    run.Disable();
+                    LogNoFutureOccurrence(_logger, run.Name, run.Cron);
+                    continue;
+                }
+
+                run.AdvanceTo(next.Value, now, missed);
+
+                // IOutboxWriter<T>.WriteAsync shares this sweep's own ApplicationDbContext (see the class remarks),
+                // so EfCoreOutboxStore's internal SaveChangesAsync call - triggered by THIS write, for THIS row -
+                // flushes every change tracked so far, including the AdvanceTo above. A concurrency loss on this
+                // row's xmin can therefore surface right here, mid-loop, not only from the trailing SaveChangesAsync
+                // below - which is why the catch wraps the whole loop, not just the tail.
+                await _outbox.WriteAsync(new ScheduledRunDue(run.Id, fireAt), tx.GetDbTransaction(), ct)
+                    .ConfigureAwait(false);
+                fired++;
+            }
+
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
         }
-
-        await _db.SaveChangesAsync(ct).ConfigureAwait(false);
-        await tx.CommitAsync(ct).ConfigureAwait(false);
+        catch (DbUpdateConcurrencyException ex)
+        {
+            LogConcurrencyLoss(_logger, ex);
+            return 0;
+        }
 
         if (fired > 0)
         {
@@ -95,21 +140,45 @@ public sealed partial class ScheduledRunStore(
     [LoggerMessage(EventId = 440, Level = LogLevel.Information, Message = "Claimed and enqueued {Count} due scheduled run(s).")]
     private static partial void LogClaimed(ILogger logger, int count);
 
+    [LoggerMessage(EventId = 441, Level = LogLevel.Warning,
+        Message = "Scheduled run {Name} (cron {Cron}) has no future occurrence; disabling it instead of advancing forever.")]
+    private static partial void LogNoFutureOccurrence(ILogger logger, string name, string cron);
+
+    [LoggerMessage(EventId = 442, Level = LogLevel.Information,
+        Message = "Sweep lost a concurrency race to another sweeper claiming the same due run(s); yielding this tick.")]
+    private static partial void LogConcurrencyLoss(ILogger logger, DbUpdateConcurrencyException exception);
+
     /// <summary>
-    ///     Walks <paramref name="cron"/> forward with Cronos from the just-claimed <paramref name="occurrence"/> to
-    ///     the first occurrence strictly after <paramref name="now"/>, counting every occurrence it stepped past
-    ///     along the way as missed. A schedule that has been due for three days fires once (the caller only ever
-    ///     sees the current call's occurrence) and reports <c>Missed == 2</c> — see spec D8: catch-up-all would bill
-    ///     one subagent run per missed day for output nobody asked to see multiple times.
+    ///     Walks <paramref name="cron"/> forward with Cronos from <paramref name="dueSince"/> (the schedule's
+    ///     stored <c>NextRunAt</c>) to find every occurrence at or before <paramref name="now"/> that has
+    ///     accumulated since then, plus the first one after it.
     /// </summary>
+    /// <remarks>
+    ///     When more than one occurrence has piled up (e.g. after downtime), the <em>most recent</em> one is the
+    ///     one that fires — <paramref name="dueSince"/>'s replacement, returned as <c>FireAt</c> — and every older
+    ///     one is counted in <c>Missed</c>, never fired. Firing the oldest instead would invert spec D8's own
+    ///     reasoning: "yesterday's digest has no value today" is exactly why catch-up-all was rejected, and firing
+    ///     the stale first missed day while silently discarding today's occurrence does precisely that. A schedule
+    ///     that has been due for three days therefore fires the most recent (third) day's occurrence once and
+    ///     reports <c>Missed == 3</c> — the three occurrences (including the original stale <paramref
+    ///     name="dueSince"/>) that accumulated before it, none of which fire.
+    ///     <c>Next</c> is <see langword="null"/> when the cron has no occurrence after <paramref name="now"/> at
+    ///     all — a syntactically valid but impossible expression such as <c>0 0 30 2 *</c> — which the caller
+    ///     handles by disabling the schedule rather than persisting an unrepresentable "next run" value.
+    /// </remarks>
     /// <param name="cron">The schedule's cron expression, parsed here (never in the domain — see <c>ScheduledRun</c>).</param>
-    /// <param name="occurrence">The occurrence just claimed (the row's <c>NextRunAt</c> before this call).</param>
+    /// <param name="dueSince">The schedule's stored <c>NextRunAt</c> before this call - the earliest occurrence known to be due.</param>
     /// <param name="now">The current instant, from <see cref="TimeProvider"/>.</param>
-    /// <returns>The next occurrence after <paramref name="now"/>, and how many occurrences were skipped to reach it.</returns>
-    private static (DateTime Next, int Missed) NextOccurrence(string cron, DateTime occurrence, DateTime now)
+    /// <returns>
+    ///     The next occurrence strictly after <paramref name="now"/> (or <see langword="null"/> if the cron has
+    ///     none), the most recent occurrence at or before <paramref name="now"/> that should fire, and how many
+    ///     older occurrences were skipped.
+    /// </returns>
+    private static (DateTime? Next, DateTime FireAt, int Missed) NextOccurrence(string cron, DateTime dueSince, DateTime now)
     {
         var expression = CronExpression.Parse(cron);
-        var cursor = occurrence;
+        var cursor = dueSince;
+        var fireAt = dueSince;
         var missed = 0;
 
         while (true)
@@ -117,16 +186,17 @@ public sealed partial class ScheduledRunStore(
             var candidate = expression.GetNextOccurrence(cursor, TimeZoneInfo.Utc);
             if (candidate is null)
             {
-                return (DateTime.MaxValue, missed); // a one-shot cron with no future
+                return (null, fireAt, missed);
             }
 
             if (candidate > now)
             {
-                return (candidate.Value, missed);
+                return (candidate.Value, fireAt, missed);
             }
 
-            cursor = candidate.Value;
             missed++;
+            fireAt = candidate.Value;
+            cursor = candidate.Value;
         }
     }
 }
