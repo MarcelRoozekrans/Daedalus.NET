@@ -151,6 +151,12 @@ public sealed class ScheduledRun : Entity<Guid>
         Enabled = false;
     }
 
+    /// <summary>Enables this schedule. A re-enabled schedule is reconciled and fired again.</summary>
+    public void Enable()
+    {
+        Enabled = true;
+    }
+
     /// <summary>
     ///     Updates the mutable, config-owned fields of this schedule from a re-read configuration entry, enforcing
     ///     the same non-blank, length-cap, and non-empty-roles invariants as <see cref="Create"/> on those same six

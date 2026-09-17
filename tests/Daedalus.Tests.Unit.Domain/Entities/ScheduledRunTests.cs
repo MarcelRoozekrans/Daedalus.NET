@@ -95,6 +95,30 @@ public class ScheduledRunTests
     }
 
     [Fact]
+    public void Enable_sets_Enabled_true_and_leaves_everything_else_untouched()
+    {
+        var run = ScheduledRun.Create(
+            "daily-digest", "0 7 * * *", "RepoDigestSaga", "telegram", "123456",
+            "schedule:x", ["reader"], ScheduleOrigin.Config, Now).Value;
+        run.Disable();
+
+        run.Enable();
+
+        run.Enabled.Should().BeTrue();
+        run.Name.Should().Be("daily-digest");
+        run.Cron.Should().Be("0 7 * * *");
+        run.Trigger.Should().Be("RepoDigestSaga");
+        run.ChannelId.Should().Be("telegram");
+        run.ConversationId.Should().Be("123456");
+        run.PrincipalId.Should().Be("schedule:x");
+        run.Roles.Should().BeEquivalentTo(["reader"]);
+        run.Origin.Should().Be(ScheduleOrigin.Config);
+        run.NextRunAt.Should().Be(Now);
+        run.LastRunAt.Should().BeNull();
+        run.MissedOccurrences.Should().Be(0);
+    }
+
+    [Fact]
     public void UpdateFromConfig_applies_valid_changes()
     {
         var run = ScheduledRun.Create(

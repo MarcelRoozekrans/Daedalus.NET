@@ -165,7 +165,18 @@ public sealed partial class ScheduleReconciler(
                 _db.ScheduledRuns.Add(run);
             }
 
-            if (!entry.Enabled)
+            // Origin.Config rows are fully config-owned: this method already overwrites cron, trigger and
+            // delivery target from configuration without asking, so Enabled follows the same rule. A row
+            // someone (or a previous reconcile) disabled directly in the database is re-enabled here the
+            // moment its entry says Enabled: true -- that is the intended escape hatch, not collateral
+            // damage. Without this, the first thing an operator does after verifying a channel (flipping
+            // Enabled: false to true) would be silently ignored, and the only way to actually turn a
+            // schedule on would be a manual database edit.
+            if (entry.Enabled)
+            {
+                run.Enable();
+            }
+            else
             {
                 run.Disable();
             }

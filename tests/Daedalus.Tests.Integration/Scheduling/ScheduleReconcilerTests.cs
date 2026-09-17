@@ -99,6 +99,64 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
     }
 
     [Fact]
+    public async Task A_config_row_whose_Enabled_flips_from_false_to_true_is_enabled_on_the_next_reconcile()
+    {
+        // The primary path: an operator ships the sample schedule disabled (Telegram never verified), later gets
+        // a real chat id, and flips Enabled: true. Reconciliation must actually turn the schedule on, not just
+        // refuse to turn it off again.
+        var firstRun = BuildConfiguration(
+            "schedule:daedalus", ["reader"],
+            [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigest", "telegram", "482910337", Enabled: false)]);
+        var secondRun = BuildConfiguration(
+            "schedule:daedalus", ["reader"],
+            [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigest", "telegram", "482910337", Enabled: true)]);
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            await ReconcilerFor(db, firstRun).ReconcileAsync(default);
+        }
+
+        (await LoadAsync("daily-digest")).Enabled.Should().BeFalse("sanity check: the first run must land disabled");
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            await ReconcilerFor(db, secondRun).ReconcileAsync(default);
+        }
+
+        (await LoadAsync("daily-digest")).Enabled.Should().BeTrue(
+            "flipping Enabled: false to true in configuration is the intended way to turn a schedule on");
+    }
+
+    [Fact]
+    public async Task A_config_row_removed_and_then_re_added_is_enabled_again()
+    {
+        var present = BuildConfiguration(
+            "schedule:daedalus", ["reader"],
+            [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigest", "telegram", "482910337")]);
+        var removed = BuildConfiguration("schedule:daedalus", ["reader"], []);
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            await ReconcilerFor(db, present).ReconcileAsync(default);
+        }
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            await ReconcilerFor(db, removed).ReconcileAsync(default);
+        }
+
+        (await LoadAsync("daily-digest")).Enabled.Should().BeFalse("sanity check: removal must disable the row");
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            await ReconcilerFor(db, present).ReconcileAsync(default);
+        }
+
+        (await LoadAsync("daily-digest")).Enabled.Should().BeTrue(
+            "a schedule re-added to configuration is enabled again, not left disabled from its removal");
+    }
+
+    [Fact]
     public async Task Agent_origin_rows_are_never_touched_by_config_reconciliation()
     {
         var agentRun = ScheduledRun.Create(
