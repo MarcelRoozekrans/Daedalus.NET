@@ -78,7 +78,9 @@ Every task's requirements implicitly include this section. It restates plan B's 
 - **Thalos.NET 0.5.0.** `ISubagentRunner`, `SubagentRunRequest`, `SubagentBudget` come from the package. Daedalus is currently pinned to 0.4.0 — the bump is part of Task 14.
 - **Time comes from `TimeProvider`, injected.** Never `DateTime.UtcNow` or `DateTimeOffset.UtcNow` in scheduling, cron, deadline or catch-up code. Spec §7.
 - **Domain stays framework-free.** `Daedalus.Domain` references no EF Core, no Thalos, no ZeroAlloc.Outbox, no Cronos. Entities derive from `Entity<Guid>` and validate through a `static Result<T> Create(...)` factory using `CSharpFunctionalExtensions`.
-- **Stores are singletons taking `IDbContextFactory<ApplicationDbContext>`**, creating a fresh short-lived context per call. Follow `PostgresConversationMap`.
+- **Store lifetime depends on whether the store writes an outbox row inside its own transaction.**
+  - A store that does **not** write to the outbox is a singleton taking `IDbContextFactory<ApplicationDbContext>`, creating a fresh short-lived context per call. Follow `PostgresConversationMap`.
+  - A store that **does** write an outbox row inside its own transaction is **scoped**, and injects `ApplicationDbContext` directly. `EfCoreOutboxStore<TContext>`'s only constructor is `ctor(TContext db)` — it resolves the context from DI, not from a factory — and `EnqueueAsync` calls `db.Database.UseTransactionAsync(transaction)`, which requires the store's connection to be *the same object* as the transaction's. A factory-minted context can never satisfy that, and the failure is a runtime `InvalidOperationException: The specified transaction is not associated with the current connection`, not a compile error. `AddDbContextPool<ApplicationDbContext>` in `AspireExtensions.cs` already registers the context scoped, so two resolutions in one scope return the same instance. Callers resolve such a store per unit of work from an `IServiceScope`.
 - **One `AddOutbox()` in the solution.** New `[OutboxMessage]` types chain onto the existing `IOutboxBuilder` inside `AddChannelOutbox`. Never call the generated `IServiceCollection` overload — it is `[Obsolete]` under `ZAOBOX010` and registers a second poller.
 - **An outbox type key is the fully-qualified type name string** — `"Daedalus.Agents.Scheduling.RunScoutStep"`, emitted into the generated dispatcher as `TypeName`. Moving or renaming one of these records orphans any pending rows carrying the old name. Do not move them casually; if you must, drain the table first.
 - **A permanent condition is logged at `Error` and treated as handled, never thrown.** This is `ChannelMessageQueuedDispatcher`'s policy and it is now load-bearing for five more dispatchers: throwing burns the retry budget before dead-lettering something that could never succeed.
@@ -685,7 +687,8 @@ The correctness core. Every method is exactly one transaction, and every method 
 - Test: `tests/Daedalus.Tests.Integration/Scheduling/ScheduledRunExecutionStoreTests.cs`
 
 **Interfaces:**
-- Consumes: `IDbContextFactory<ApplicationDbContext>`, `IOutboxWriter<RunScoutStep>`, `IOutboxWriter<RunWriterStep>`, `IOutboxWriter<DeliverDigest>`, `IOutboxWriter<ChannelMessageQueued>`, `TimeProvider`, `ILogger<ScheduledRunExecutionStore>`.
+- Consumes: `ApplicationDbContext` **injected directly, not via `IDbContextFactory`** — this store writes outbox rows inside its own transactions, so it must share the scoped context the outbox writers resolve; see Global Constraints. `IOutboxWriter<RunScoutStep>`, `IOutboxWriter<RunWriterStep>`, `IOutboxWriter<DeliverDigest>`, `IOutboxWriter<ChannelMessageQueued>`, `TimeProvider`, `ILogger<ScheduledRunExecutionStore>`.
+- **Registered scoped**, and resolved per unit of work from an `IServiceScope` by its dispatchers.
 - Produces:
 
 ```csharp
@@ -904,7 +907,7 @@ public async ValueTask<bool> TryBeginAsync(ScheduledRunDue due, CancellationToke
     ArgumentNullException.ThrowIfNull(due);
 
     var now = _time.GetUtcNow().UtcDateTime;
-    await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+    var db = _db;   // injected scoped context, shared with the outbox writers — see Global Constraints
     await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
     var schedule = await db.ScheduledRuns
@@ -974,7 +977,7 @@ private async ValueTask<bool> TryAdvanceAsync(
     CancellationToken ct)
 {
     var now = _time.GetUtcNow().UtcDateTime;
-    await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+    var db = _db;   // injected scoped context, shared with the outbox writers — see Global Constraints
     await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
     var row = await db.ScheduledRunExecutions.SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
@@ -1045,7 +1048,7 @@ public ValueTask<bool> TryCompleteDeliveryAsync(Guid executionId, CancellationTo
 public async ValueTask FailAsync(Guid executionId, string error, CancellationToken ct)
 {
     var now = _time.GetUtcNow().UtcDateTime;
-    await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+    var db = _db;   // injected scoped context, shared with the outbox writers — see Global Constraints
     await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
     var row = await db.ScheduledRunExecutions.SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
@@ -1073,8 +1076,7 @@ public async ValueTask FailAsync(Guid executionId, string error, CancellationTok
 
 public async ValueTask<ScheduledRunExecution?> FindAsync(Guid executionId, CancellationToken ct)
 {
-    await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-    return await db.ScheduledRunExecutions.AsNoTracking()
+    return await _db.ScheduledRunExecutions.AsNoTracking()
         .SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
 }
 ```
