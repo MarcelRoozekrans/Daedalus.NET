@@ -112,41 +112,9 @@ public sealed class ScheduledRun : Entity<Guid>
         if (name.Length > MaxNameLength)
             return Result.Failure<ScheduledRun>($"Name must be at most {MaxNameLength} characters.");
 
-        if (string.IsNullOrWhiteSpace(cron))
-            return Result.Failure<ScheduledRun>("Cron is required.");
-
-        if (cron.Length > MaxCronLength)
-            return Result.Failure<ScheduledRun>($"Cron must be at most {MaxCronLength} characters.");
-
-        if (string.IsNullOrWhiteSpace(trigger))
-            return Result.Failure<ScheduledRun>("Trigger is required.");
-
-        if (trigger.Length > MaxTriggerLength)
-            return Result.Failure<ScheduledRun>($"Trigger must be at most {MaxTriggerLength} characters.");
-
-        if (string.IsNullOrWhiteSpace(channelId))
-            return Result.Failure<ScheduledRun>("Channel id is required.");
-
-        if (channelId.Length > MaxChannelIdLength)
-            return Result.Failure<ScheduledRun>($"Channel id must be at most {MaxChannelIdLength} characters.");
-
-        // Unlike ChannelConversation, a blank ConversationId is rejected here: a schedule with no delivery target
-        // cannot deliver, so the empty-string case that exists only for the console channel's live binding does
-        // not apply to a detached scheduled run.
-        if (string.IsNullOrWhiteSpace(conversationId))
-            return Result.Failure<ScheduledRun>("Conversation id is required.");
-
-        if (conversationId.Length > MaxConversationIdLength)
-            return Result.Failure<ScheduledRun>($"Conversation id must be at most {MaxConversationIdLength} characters.");
-
-        if (string.IsNullOrWhiteSpace(principalId))
-            return Result.Failure<ScheduledRun>("Principal id is required.");
-
-        if (principalId.Length > MaxPrincipalIdLength)
-            return Result.Failure<ScheduledRun>($"Principal id must be at most {MaxPrincipalIdLength} characters.");
-
-        if (roles is null || roles.Count == 0)
-            return Result.Failure<ScheduledRun>("At least one role is required.");
+        var fieldsValidation = ValidateConfigFields(cron, trigger, channelId, conversationId, principalId, roles);
+        if (fieldsValidation.IsFailure)
+            return Result.Failure<ScheduledRun>(fieldsValidation.Error);
 
         return Result.Success(new ScheduledRun
         {
@@ -184,16 +152,20 @@ public sealed class ScheduledRun : Entity<Guid>
     }
 
     /// <summary>
-    ///     Updates the mutable, config-owned fields of this schedule from a re-read configuration entry. Validation
-    ///     is the caller's responsibility (the reconciler re-validates a config entry the same way <see cref="Create"/>
-    ///     does before calling this); like <see cref="AdvanceTo"/>, this method itself only assigns the fields.
+    ///     Updates the mutable, config-owned fields of this schedule from a re-read configuration entry, enforcing
+    ///     the same non-blank, length-cap, and non-empty-roles invariants as <see cref="Create"/> on those same six
+    ///     fields, so this aggregate can never be updated into a state its own constructor would have refused.
     /// </summary>
     /// <param name="cron">The cron expression, stored verbatim and unparsed.</param>
     /// <param name="trigger">The identifier of what to run when the schedule fires.</param>
     /// <param name="channelId">Which channel adapter receives the run's output.</param>
     /// <param name="conversationId">The channel-specific conversation identifier that receives the run's output.</param>
     /// <param name="principalId">The identity this run executes as.</param>
-    /// <param name="roles">The roles granted to the run's principal.</param>
+    /// <param name="roles">The roles granted to the run's principal. Must be non-empty.</param>
+    /// <exception cref="InvalidOperationException">
+    ///     A field fails the same validation <see cref="Create"/> enforces. The message names this schedule
+    ///     (<see cref="Name"/>) and the field that failed.
+    /// </exception>
     public void UpdateFromConfig(
         string cron,
         string trigger,
@@ -202,11 +174,68 @@ public sealed class ScheduledRun : Entity<Guid>
         string principalId,
         IReadOnlyList<string> roles)
     {
+        var validation = ValidateConfigFields(cron, trigger, channelId, conversationId, principalId, roles);
+        if (validation.IsFailure)
+            throw new InvalidOperationException($"Schedule '{Name}' has an invalid config update: {validation.Error}");
+
         Cron = cron;
         Trigger = trigger;
         ChannelId = channelId;
         ConversationId = conversationId;
         PrincipalId = principalId;
         Roles = roles;
+    }
+
+    /// <summary>
+    ///     Validates the six config-owned fields shared by <see cref="Create"/> and <see cref="UpdateFromConfig"/>:
+    ///     non-blank and length-capped for <paramref name="cron"/>, <paramref name="trigger"/>,
+    ///     <paramref name="channelId"/>, <paramref name="conversationId"/>, and <paramref name="principalId"/>; and
+    ///     non-empty for <paramref name="roles"/>. Excludes <see cref="Name"/>, which only <see cref="Create"/> sets.
+    /// </summary>
+    private static Result ValidateConfigFields(
+        string cron,
+        string trigger,
+        string channelId,
+        string conversationId,
+        string principalId,
+        IReadOnlyList<string> roles)
+    {
+        if (string.IsNullOrWhiteSpace(cron))
+            return Result.Failure("Cron is required.");
+
+        if (cron.Length > MaxCronLength)
+            return Result.Failure($"Cron must be at most {MaxCronLength} characters.");
+
+        if (string.IsNullOrWhiteSpace(trigger))
+            return Result.Failure("Trigger is required.");
+
+        if (trigger.Length > MaxTriggerLength)
+            return Result.Failure($"Trigger must be at most {MaxTriggerLength} characters.");
+
+        if (string.IsNullOrWhiteSpace(channelId))
+            return Result.Failure("Channel id is required.");
+
+        if (channelId.Length > MaxChannelIdLength)
+            return Result.Failure($"Channel id must be at most {MaxChannelIdLength} characters.");
+
+        // Unlike ChannelConversation, a blank ConversationId is rejected here: a schedule with no delivery target
+        // cannot deliver, so the empty-string case that exists only for the console channel's live binding does
+        // not apply to a detached scheduled run.
+        if (string.IsNullOrWhiteSpace(conversationId))
+            return Result.Failure("Conversation id is required.");
+
+        if (conversationId.Length > MaxConversationIdLength)
+            return Result.Failure($"Conversation id must be at most {MaxConversationIdLength} characters.");
+
+        if (string.IsNullOrWhiteSpace(principalId))
+            return Result.Failure("Principal id is required.");
+
+        if (principalId.Length > MaxPrincipalIdLength)
+            return Result.Failure($"Principal id must be at most {MaxPrincipalIdLength} characters.");
+
+        if (roles is null || roles.Count == 0)
+            return Result.Failure("At least one role is required.");
+
+        return Result.Success();
     }
 }
