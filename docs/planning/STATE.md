@@ -2,8 +2,8 @@
 
 **Last session:** 2026-09-17
 **Current milestone:** 1 — Hermes-Style Agent Framework (**4 of 8 phases complete**)
-**Current phase:** 1.5 — Subagents & autonomous runs. Design done, both plans written, **plan A implemented and in review as Thalos.NET PR #99**. Plan B not started.
-**Branch state:** Daedalus `main` at `c372198`, **4 commits unpushed**. Thalos.NET `feature/thalos-subagents` at `f9e0256`, pushed, PR #99 open and MERGEABLE.
+**Current phase:** 1.5 — Subagents & autonomous runs. Design done, both plans written, **plan A merged as Thalos.NET PR #99**. Plan B not started.
+**Branch state:** Daedalus `main` in sync with `origin/main`. Thalos.NET `main` at `edadac9`, pushed; PR #99 merged as `be07faf`; **release PR [#101](https://github.com/MarcelRoozekrans/Thalos.NET/pull/101) `chore(main): release 0.5.0` is open and awaiting merge**.
 
 ## Where things actually stand
 
@@ -20,9 +20,15 @@ A `Surface` column was added to the ROADMAP table so `start-next-phase` routes 1
 
 ## Immediate next step
 
-1. **Check Thalos.NET PR #99.** At pause, `build-test (ubuntu-latest)`, `commitlint` and `pack-validate` had all **passed**; `build-test (windows-latest)` was still running. If green, merge it.
-2. Merging #99 lets **release-please** open a release PR. Merging *that* cuts **Thalos.NET 0.5.0** and publishes to nuget.org.
-3. **Plan B cannot start until 0.5.0 is live on nuget.** Its Task 1 step 1 hard-stops otherwise. It also needs **Docker running** — Tasks 1, 6, 7 and 10 are all Testcontainers-backed.
+1. ✅ **PR #99 merged** — all five checks green, squashed to `main` as `be07faf`.
+2. ✅ **Release PR [#101](https://github.com/MarcelRoozekrans/Thalos.NET/pull/101) `chore(main): release 0.5.0` opened.** Changelog verified to contain the `feat(subagents)` entry; manifest bumped `0.4.0` → `0.5.0`.
+3. **Merge #101**, then finish the release by hand — three steps, none automatic:
+   - `gh workflow run release-please.yml --ref main` — second dispatch, creates the GitHub release and the `v0.5.0` tag
+   - `gh workflow run ci.yml --ref v0.5.0 -f publish_to_nuget=true` — publishes to nuget.org
+   - Confirm `Thalos.NET 0.5.0` is listed on nuget.org before touching plan B
+4. **Plan B cannot start until 0.5.0 is live on nuget.** Its Task 1 step 1 hard-stops otherwise. It also needs **Docker running** — Tasks 1, 6, 7 and 10 are all Testcontainers-backed.
+
+> **Corrected 2026-09-17:** an earlier revision of this file said merging #99 would *let release-please open a release PR* on its own. It does not — `release-please.yml` is `workflow_dispatch` only, by design. It also needed an empty `Release-As: 0.5.0` commit first: `release-please-config.json` sets `bump-patch-for-minor-pre-major`, so pre-1.0 a `feat:` bumps the **patch**, and an undirected dispatch would have proposed **0.4.1**. That commit is `edadac9`. The same footer is required for every future deliberate minor — see `docs/release.md` in the Thalos.NET repo.
 
 Plan B: `docs/plans/2026-09-16-thalos-subagents-plan-b.md`, 13 tasks. **Task 1 is a de-risking spike that can invalidate Tasks 10–12** — see Blockers.
 
