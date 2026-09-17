@@ -93,7 +93,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // than defer the failure to that schedule's first firing (spec §7). Registered ahead of any future sweeper
         // hosted service, which reads the table this reconciler populates. ScheduleReconciler is scoped (see its
         // own remarks), so it is registered separately from the singleton ScheduleReconcilerHostedService that
-        // resolves it from a fresh scope per host start.
+        // resolves it from a fresh scope per host start. That hosted service also validates
+        // Thalos:Channels:DefaultAgent against the agent catalogue (AgentNameValidator) in the same boot pass.
         services.AddScoped<ScheduleReconciler>();
         services.AddHostedService<ScheduleReconcilerHostedService>();
 
