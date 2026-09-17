@@ -857,11 +857,17 @@ git commit -m "feat(subagents): add SubagentRunner for detached agent turns"
 - Consumes: `AgentTurnResult.Usage` of type `TurnUsage`
 - Produces: no signature change
 
-- [ ] **Step 1: Read `TurnUsage` to learn its real field names**
+- [ ] **Step 1: Confirm `TurnUsage`'s shape**
 
 Run: `cat src/Thalos.NET.Abstractions/Turns/TurnUsage.cs`
 
-The test below assumes a total-tokens accessor. Use whatever the record actually exposes — if it carries input and output separately, sum them.
+Expected — already verified, confirm it still holds:
+
+```csharp
+public readonly record struct TurnUsage(int InputTokens, int OutputTokens, string ModelId)
+```
+
+There is no total-tokens accessor; sum `InputTokens + OutputTokens`. The third constructor parameter is required — a two-argument `new TurnUsage(n, 0)` does not compile.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -918,8 +924,9 @@ public class SubagentBudgetTests
         result.IsSuccess.Should().BeTrue();
     }
 
-    // Replace with the real TurnUsage shape found in step 1.
-    private static TurnUsage UsageOf(int totalTokens) => new(totalTokens, 0);
+    // TurnUsage is (int InputTokens, int OutputTokens, string ModelId) — verified against
+    // src/Thalos.NET.Abstractions/Turns/TurnUsage.cs. The third parameter is required.
+    private static TurnUsage UsageOf(int totalTokens) => new(totalTokens, 0, "test-model");
 }
 ```
 
@@ -1041,7 +1048,11 @@ Pass `linked.Token` to `RunTurnAsync` instead of `ct`, and translate the outcome
 
 The `!ct.IsCancellationRequested` guard matters: a caller cancelling is `Cancelled`, not a deadline breach, and conflating them would report a shutdown as a runaway agent.
 
-`CloseSessionAsync` in the `finally` keeps taking `ct`, **not** `linked.Token` — closing the session is cleanup that must still happen once the deadline has fired, and passing an already-cancelled token would skip exactly the work the `finally` exists to guarantee.
+`CloseSessionAsync` in the `finally` takes **`CancellationToken.None`** — neither `ct` nor `linked.Token`.
+
+An earlier revision of this plan said "keeps taking `ct`". That was wrong, and the Task 7 review caught it: `ThalosAgentRuntime.CloseSessionAsync` awaits `LoadAuthorizedAsync(sessionId, caller, ct)`, so **any** already-cancelled token skips the close. The deadline token is the obvious hazard, but the caller's own `ct` is the likelier one — a caller cancelling mid-turn is the normal reason a detached run fails, and that is precisely when the session must still be released. Passing either token skips exactly the work the `finally` exists to guarantee, leaking a session that looks live until the idle timeout.
+
+If an unbounded cleanup call is a concern during host shutdown, bound it with its own short independent timeout — never with a token the caller or the deadline can cancel.
 
 The `CancellationTokenSource(TimeSpan, TimeProvider)` overload exists on net8.0 and net10.0; that is why the clock is injected.
 
