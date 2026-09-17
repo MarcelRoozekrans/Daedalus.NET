@@ -1,4 +1,5 @@
 using Daedalus.Agents.Channels;
+using Daedalus.Agents.Scheduling;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -56,5 +57,25 @@ public sealed class ApiHostChannelWiringTests(PostgresFixture fixture) : IAsyncL
         services.GetRequiredService<IOutboxDispatcher<ChannelMessageQueued>>().Should().BeOfType<ChannelMessageQueuedDispatcher>(
             "AddDaedalusChannels must replace ZeroAlloc.Outbox's throwing default dispatcher, or the worker " +
             "above would dead-letter every queued message instead of delivering it through a real IChannelAdapter");
+    }
+
+    [Fact]
+    public void The_API_host_runs_exactly_one_outbox_poller_for_every_message_type()
+    {
+        var services = _factory.Services;
+
+        services.GetServices<IHostedService>().Count(s => s is OutboxWorkerService).Should().Be(1,
+            "every [OutboxMessage] type rides one AddOutbox call and one OutboxMessages table; a second " +
+            "AddOutbox — which the generated IServiceCollection overloads perform, ZAOBOX010 — would start a " +
+            "second poller racing this one on the same rows");
+
+        // IOutboxWriter<T> is scoped (it shares the ambient IOutboxStore/DbContext — see ScheduledRunStore's
+        // remarks), so it cannot resolve from the host's root provider; a scope is required, same as
+        // ChannelOutboxTests' WriteAsync helper.
+        using var scope = services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IOutboxWriter<ScheduledRunDue>>().Should().NotBeNull();
+        scope.ServiceProvider.GetRequiredService<IOutboxWriter<RunScoutStep>>().Should().NotBeNull();
+        scope.ServiceProvider.GetRequiredService<IOutboxWriter<RunWriterStep>>().Should().NotBeNull();
+        scope.ServiceProvider.GetRequiredService<IOutboxWriter<DeliverDigest>>().Should().NotBeNull();
     }
 }
