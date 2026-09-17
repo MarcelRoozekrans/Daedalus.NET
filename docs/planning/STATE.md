@@ -2,8 +2,8 @@
 
 **Last session:** 2026-09-17
 **Current milestone:** 1 — Hermes-Style Agent Framework (**4 of 8 phases complete**)
-**Current phase:** 1.5 — Subagents & autonomous runs. Design done, both plans written, **plan A merged as Thalos.NET PR #99**. Plan B not started.
-**Branch state:** Daedalus `main` in sync with `origin/main`. Thalos.NET `main` at `edadac9`, pushed; PR #99 merged as `be07faf`; **release PR [#101](https://github.com/MarcelRoozekrans/Thalos.NET/pull/101) `chore(main): release 0.5.0` is open and awaiting merge**.
+**Current phase:** 1.5 — Subagents & autonomous runs. **Plan A done and released as Thalos.NET 0.5.0.** Plan B: Task 1 spike complete (FAIL — saga dropped); Tasks 2–9 ready, Tasks 10–12 need re-planning.
+**Branch state:** Daedalus `main` ahead of `origin/main` by 3, **unpushed**. Thalos.NET `main` at `b586290`, pushed and clean; `v0.5.0` tagged and published to nuget.org.
 
 ## Where things actually stand
 
@@ -20,15 +20,48 @@ A `Surface` column was added to the ROADMAP table so `start-next-phase` routes 1
 
 ## Immediate next step
 
-1. ✅ **PR #99 merged** — all five checks green, squashed to `main` as `be07faf`.
-2. ✅ **Release PR [#101](https://github.com/MarcelRoozekrans/Thalos.NET/pull/101) `chore(main): release 0.5.0` opened.** Changelog verified to contain the `feat(subagents)` entry; manifest bumped `0.4.0` → `0.5.0`.
-3. **Merge #101**, then finish the release by hand — three steps, none automatic:
-   - `gh workflow run release-please.yml --ref main` — second dispatch, creates the GitHub release and the `v0.5.0` tag
-   - `gh workflow run ci.yml --ref v0.5.0 -f publish_to_nuget=true` — publishes to nuget.org
-   - Confirm `Thalos.NET 0.5.0` is listed on nuget.org before touching plan B
-4. **Plan B cannot start until 0.5.0 is live on nuget.** Its Task 1 step 1 hard-stops otherwise. It also needs **Docker running** — Tasks 1, 6, 7 and 10 are all Testcontainers-backed.
+1. ✅ **Thalos.NET 0.5.0 is published on nuget.org** — all 11 packages. Plan A is done and released.
+2. ✅ **Release pipeline rebuilt.** Cutting a release is now *merge the release PR*, nothing else.
+   Thalos.NET [#102](https://github.com/MarcelRoozekrans/Thalos.NET/pull/102) + [#103](https://github.com/MarcelRoozekrans/Thalos.NET/pull/103), both merged. See `docs/release.md` in that repo.
+3. ✅ **Task 1 spike done — verdict FAIL.** `ZeroAlloc.Saga` is dropped from this phase.
+   `docs/plans/2026-09-16-saga-efcore-spike.md`.
+4. **Next: re-plan plan B Tasks 10–12** without the saga, orchestrating directly over
+   `ZeroAlloc.Outbox`. Tasks 2–9 are unaffected and can proceed as written.
+   Docker is **UP** — Tasks 1, 6, 7, 10 are Testcontainers-backed.
 
-> **Corrected 2026-09-17:** an earlier revision of this file said merging #99 would *let release-please open a release PR* on its own. It does not — `release-please.yml` is `workflow_dispatch` only, by design. It also needed an empty `Release-As: 0.5.0` commit first: `release-please-config.json` sets `bump-patch-for-minor-pre-major`, so pre-1.0 a `feat:` bumps the **patch**, and an undirected dispatch would have proposed **0.4.1**. That commit is `edadac9`. The same footer is required for every future deliberate minor — see `docs/release.md` in the Thalos.NET repo.
+## The Saga finding, in one paragraph
+
+A saga never receives its trigger event. `With{Saga}Saga()` registers its handlers **by
+interface**; `ZeroAlloc.Mediator`'s generated `Publish` dispatches to a **closed list of concrete
+handler types found in its own compilation** and never enumerates `INotificationHandler<T>` from
+DI. In the saga's own assembly no `Publish` is emitted at all; in another assembly it compiles and
+silently does nothing. **Not version skew** — Saga 1.6.0 with Mediator 3.0.0 fails identically, so
+the plan's "pin Saga back" fallback is dead. The Saga/Saga.EfCore pairing the spike was written to
+de-risk is *fine*, and reached real PostgreSQL on EF 10. Upstream:
+[ZeroAlloc.Saga#127](https://github.com/ZeroAlloc-Net/ZeroAlloc.Saga/issues/127).
+
+## Milestone 2 direction — Native AOT
+
+Decided 2026-09-17. Thalos.NET libraries get `IsAotCompatible`; Daedalus api/console publish with
+`PublishAot`. The blocker is persistence: **EF Core cannot be published AOT**, so M2 carries the
+Daedalus data-layer migration from EF Core 10 to **ZeroAlloc.ORM**. Deliberately its own milestone,
+not folded into phase 1.7 — it is larger than the rest of that phase combined. Brainstorm it with
+`new-milestone` after M1 closes.
+
+Dependency audit: `Microsoft.Agents.AI`, `Microsoft.Extensions.AI`, `Npgsql`, `ZeroAlloc.ORM` all
+trimmable. `AI.Sentinel` annotated `RequiresUnreferencedCode`. `Anthropic`,
+`Rag.NET.Abstractions`, `ZeroAlloc.Results`, `ZeroAlloc.Inject` unmarked — expect trim warnings.
+
+Missing upstream, both filed:
+[Saga.Orm](https://github.com/ZeroAlloc-Net/ZeroAlloc.Saga/issues/128),
+[Outbox.Orm](https://github.com/ZeroAlloc-Net/ZeroAlloc.Outbox/issues/144). Both saga and outbox
+persistence are EF-only today, so neither is usable in an AOT binary.
+
+> **Release-pipeline note (2026-09-17):** `bump-patch-for-minor-pre-major` was removed from
+> `release-please-config.json`. It held a `feat:` to a patch bump pre-1.0, so 0.1.0, 0.2.0, 0.3.0
+> and 0.5.0 all needed a hand-written `Release-As:` commit to override it — and forgetting it did
+> not fail, it shipped the wrong version. 0.5.0 would have gone out as 0.4.1. A `Release-As:`
+> footer is still the right tool for a genuinely chosen number, such as the eventual 1.0.0.
 
 Plan B: `docs/plans/2026-09-16-thalos-subagents-plan-b.md`, 13 tasks. **Task 1 is a de-risking spike that can invalidate Tasks 10–12** — see Blockers.
 
