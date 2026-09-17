@@ -44,6 +44,21 @@ public sealed class AgentNameValidationTests(PostgresFixture fixture) : IAsyncLi
     }
 
     [Fact]
+    public async Task A_DefaultAgent_differing_only_in_case_from_the_catalog_entry_still_starts_the_host()
+    {
+        // Daedalus.Api.appsettings.json's catalog names "Daedalus Architect"; agent names are typed by humans on
+        // phones, so ChannelPump resolves DefaultAgent case-insensitively (StringComparison.OrdinalIgnoreCase) and
+        // AgentNameValidator must match that comparison, or a name a human typed correctly but differently cased
+        // would fail this exact test by refusing to start the host.
+        using var host = BuildHost(("Thalos:Channels:DefaultAgent", "daedalus architect"));
+
+        var act = async () => await host.StartAsync();
+
+        await act.Should().NotThrowAsync();
+        await host.StopAsync();
+    }
+
+    [Fact]
     public void The_error_names_every_unknown_agent_at_once_not_just_the_first()
     {
         var catalog = new FakeAgentCatalog("Daedalus Architect");
