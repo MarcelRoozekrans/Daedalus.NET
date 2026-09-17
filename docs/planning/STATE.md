@@ -25,9 +25,38 @@ A `Surface` column was added to the ROADMAP table so `start-next-phase` routes 1
    Thalos.NET [#102](https://github.com/MarcelRoozekrans/Thalos.NET/pull/102) + [#103](https://github.com/MarcelRoozekrans/Thalos.NET/pull/103), both merged. See `docs/release.md` in that repo.
 3. ✅ **Task 1 spike done — verdict FAIL.** `ZeroAlloc.Saga` is dropped from this phase.
    `docs/plans/2026-09-16-saga-efcore-spike.md`.
-4. **Next: re-plan plan B Tasks 10–12** without the saga, orchestrating directly over
-   `ZeroAlloc.Outbox`. Tasks 2–9 are unaffected and can proceed as written.
-   Docker is **UP** — Tasks 1, 6, 7, 10 are Testcontainers-backed.
+4. ✅ **Replacement design brainstormed and approved by the user 2026-09-17** —
+   `docs/plans/2026-09-17-scheduled-runs-without-saga-design.md`. It supersedes §6 of the
+   subagents design; §4, §5 and §7 of that document still stand.
+5. **Next: `writing-plans` over plan B Tasks 10–13**, against the approved design.
+   Tasks 2–9 are unaffected and stand as written. **Nothing has been implemented yet.**
+   Docker was UP this session; it is Testcontainers-backed work, so bring it up again first.
+
+## The approved design, in short
+
+`ScheduledRunExecutions`, one row per occurrence, `UNIQUE (ScheduleId, OccurrenceAt)` — that unique
+key *is* the saga's correlation key, and is where idempotency now lives via
+`INSERT ... ON CONFLICT DO NOTHING`. Steps advance through the **outbox**: each step handler runs
+its subagent, then in one transaction persists its output, advances `Step`, and enqueues the next
+command. The final step writes `ChannelMessageQueued` transactionally — the guarantee phase 1.4's
+dispatcher has been waiting for, which was never the saga's doing, only the transaction's.
+
+Two decisions the user made explicitly:
+
+- **Crash mid-run resumes from the last completed step**, reusing persisted output, rather than
+  abandoning the run or retrying it whole. So scout tokens are not re-paid on a writer-stage crash.
+- **Steps are driven by outbox events**, not inline and not by the sweeper.
+
+Stated honestly in the design and worth not losing: a crash *after* a subagent returns but *before*
+its commit re-runs that step and pays twice. The saga had the same hole. The bounded guarantee is
+**one step can be lost, never the whole run**.
+
+`ZeroAlloc.StateMachine` 1.5.2 was considered and **not** adopted — five-value linear enum, a
+generated `TryFire` earns little, and it adds a dependency to a phase that just removed one.
+Revisit in 1.6 if workflows branch.
+
+Accepted cost: the saga's *"a new workflow is a `[Saga]` class and nothing else"* is gone. New
+workflows now need step commands, handlers and a `Trigger` value.
 
 ## The Saga finding, in one paragraph
 
@@ -123,4 +152,6 @@ Also carried from 1.4 and repeatedly vindicated: **four separate tests on this b
 
 The plan A ledger — every ruling, review verdict and fix round — is at
 `C:\Projects\Prive\Thalos.NET\.superpowers\sdd\2026-09-16-thalos-subagents-plan-a\progress.md`.
-It is git-ignored, so it exists on disk only. Preserved deliberately until PR #99 lands; `git clean -fdx` in that repo would destroy it.
+It is git-ignored, so it exists on disk only, and `git clean -fdx` in that repo would destroy it.
+**PR #99 has landed and 0.5.0 is released, so its reason for being preserved has expired** — it is
+kept only as a reference for how plan A was executed, and may be deleted whenever convenient.
