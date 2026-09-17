@@ -66,8 +66,9 @@ public static class ChannelOutboxServiceCollectionExtensions
             .WithEfCore<ApplicationDbContext>()
             .AddChannelMessageQueuedOutbox()
             // Scheduling rides the same table and the same poller. The generated IServiceCollection
-            // overload of each of these is [Obsolete] ZAOBOX010 and calls AddOutbox again, which would
-            // register a second OutboxWorkerService racing this one; the IOutboxBuilder form does not.
+            // overload of each of these is [Obsolete] under ZAOBOX010; with TreatWarningsAsErrors set
+            // solution-wide (Directory.Build.props), calling it fails the build outright. That compile-time
+            // failure is why the IOutboxBuilder form below is the one to use, not a runtime race avoided.
             .AddScheduledRunDueOutbox()
             .AddRunScoutStepOutbox()
             .AddRunWriterStepOutbox()

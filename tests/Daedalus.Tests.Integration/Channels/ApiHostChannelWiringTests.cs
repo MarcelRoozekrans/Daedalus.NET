@@ -65,9 +65,13 @@ public sealed class ApiHostChannelWiringTests(PostgresFixture fixture) : IAsyncL
         var services = _factory.Services;
 
         services.GetServices<IHostedService>().Count(s => s is OutboxWorkerService).Should().Be(1,
-            "every [OutboxMessage] type rides one AddOutbox call and one OutboxMessages table; a second " +
-            "AddOutbox — which the generated IServiceCollection overloads perform, ZAOBOX010 — would start a " +
-            "second poller racing this one on the same rows");
+            "every [OutboxMessage] type rides one AddOutbox call and one OutboxMessages table, so exactly one " +
+            "OutboxWorkerService should drain it; calling AddOutbox() a second time (the generated " +
+            "IServiceCollection overloads, ZAOBOX010, do this) registers OutboxWorkerService a second time too, " +
+            "but AddHostedService's TryAddEnumerable dedupes identical (service, implementation) pairs, so that " +
+            "specific mistake is caught at compile time instead, by the ZAOBOX010 obsolete diagnostic under " +
+            "TreatWarningsAsErrors. This assertion is defence in depth against a registration shape dedupe would " +
+            "not catch — a factory-lambda or wrapper-type registration of a second worker over the same table");
 
         // IOutboxWriter<T> is scoped (it shares the ambient IOutboxStore/DbContext — see ScheduledRunStore's
         // remarks), so it cannot resolve from the host's root provider; a scope is required, same as
