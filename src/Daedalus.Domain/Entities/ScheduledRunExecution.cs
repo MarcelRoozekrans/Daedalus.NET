@@ -115,6 +115,8 @@ public sealed class ScheduledRunExecution : Entity<Guid>
 
         return Result.Success(new ScheduledRunExecution
         {
+            // v7 (not the NewGuid this folder's other entities use): this table is append-heavy and
+            // kept indefinitely, and time-ordered ids give it sequential B-tree inserts.
             Id = Guid.CreateVersion7(),
             ScheduleId = scheduleId,
             OccurrenceAt = occurrenceAtUtc,
@@ -174,14 +176,26 @@ public sealed class ScheduledRunExecution : Entity<Guid>
     }
 
     /// <summary>
-    ///     Records a failure from any non-terminal step, moving this execution to <see cref="RunStep.Failed"/> and
-    ///     incrementing <see cref="Attempts"/>. Unlike the other transitions, this has no single required starting
-    ///     step: a step can fail regardless of which non-terminal step it failed at.
+    ///     Records a failure, moving this execution to <see cref="RunStep.Failed"/> and incrementing
+    ///     <see cref="Attempts"/>. Unlike the other transitions, this has no single required starting step: it is
+    ///     callable from <see cref="RunStep.Pending"/>, <see cref="RunStep.Scout"/>, <see cref="RunStep.Writer"/>,
+    ///     <see cref="RunStep.Deliver"/>, and — to let a retry loop accumulate attempts and overwrite
+    ///     <see cref="LastError"/> — from <see cref="RunStep.Failed"/> itself. It is not callable from
+    ///     <see cref="RunStep.Done"/>: a successfully delivered execution's record that the digest went out must
+    ///     never be overwritten, and that loss would be unrecoverable.
     /// </summary>
     /// <param name="error">The failure message. Overwrites any previous <see cref="LastError"/>.</param>
     /// <param name="nowUtc">The transition timestamp (UTC).</param>
+    /// <exception cref="InvalidOperationException">This execution is already <see cref="RunStep.Done"/>.</exception>
     public void Fail(string error, DateTime nowUtc)
     {
+        if (Step == RunStep.Done)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(Fail)} cannot be called once the execution is {RunStep.Done}. " +
+                "The dispatcher is expected to have checked the step before calling; reaching here means that check is missing.");
+        }
+
         Step = RunStep.Failed;
         LastError = error;
         Attempts += 1;

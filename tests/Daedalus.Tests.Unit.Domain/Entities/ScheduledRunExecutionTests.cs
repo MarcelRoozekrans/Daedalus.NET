@@ -124,6 +124,22 @@ public class ScheduledRunExecutionTests
     }
 
     [Fact]
+    public void Fail_throws_once_the_execution_is_Done()
+    {
+        // Done means delivered; turning a successfully delivered execution back into Failed would
+        // destroy the (unrecoverable) record that the digest went out
+        var execution = NewExecution();
+        execution.BeginScout(Now);
+        execution.RecordFindings("seed", Now);
+        execution.RecordDigest("seed", Now);
+        execution.Complete(Now);
+
+        var act = () => execution.Fail("too late", Now);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
     public void A_default_RunStep_is_Pending_and_therefore_never_a_real_step()
     {
         // AgentErrorCode.Validation being member 0 produced false-passing tests three times on one
