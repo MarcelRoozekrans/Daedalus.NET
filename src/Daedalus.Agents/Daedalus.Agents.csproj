@@ -36,6 +36,7 @@
         <PackageReference Include="ZeroAlloc.Mapping" />
         <PackageReference Include="ZeroAlloc.Outbox" />
         <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
+        <PackageReference Include="Cronos" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />
         <PackageReference Include="Microsoft.Extensions.AI" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
