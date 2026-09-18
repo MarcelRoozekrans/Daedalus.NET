@@ -128,7 +128,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
             thalos.UseAnthropic(configuration)
                 .UseSessionStore<PostgresAgentSessionStore>()
-                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools))
+                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools))
                 .AddMcpServersFromFile(ResolveMcpConfigPath(options.McpConfigPath, environment))
                 .AddPolicy<DeveloperPolicy>();
 
