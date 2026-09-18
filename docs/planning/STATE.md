@@ -1,157 +1,120 @@
 # Session State
 
-**Last session:** 2026-09-17
-**Current milestone:** 1 — Hermes-Style Agent Framework (**4 of 8 phases complete**)
-**Current phase:** 1.5 — Subagents & autonomous runs. **Plan A done and released as Thalos.NET 0.5.0.** Plan B: Task 1 spike complete (FAIL — saga dropped); Tasks 2–9 ready, Tasks 10–12 need re-planning.
-**Branch state:** Daedalus `main` ahead of `origin/main` by 3, **unpushed**. Thalos.NET `main` at `b586290`, pushed and clean; `v0.5.0` tagged and published to nuget.org.
+**Last session:** 2026-09-18
+**Current milestone:** 1 — Hermes-Style Agent Framework (**5 of 8 phases complete**)
+**Current phase:** 1.5 — Subagents & autonomous runs. **Complete and merged.**
+**Branch state:** `main` at `05ef6b8`, synced with `origin/main`. Clean tree apart from the two
+deliberately-untracked pre-pivot regression files.
 
-## Where things actually stand
+## Current Position
 
-Phase 1.5 was re-scoped and split this session. The roadmap now reads:
+Phase 1.5 is done. Plan A shipped as **Thalos.NET 0.5.0**; plan B merged via
+[#242](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/242) — 36 commits, 66 files, +10,797 lines.
 
-| # | Phase | Surface | Status |
-|---|---|---|---|
-| 1.5 | Subagents & autonomous runs | Backend | active — plan A in PR, plan B not started |
-| 1.6 | Schedule management — agent tools + Blazor | **UI** | pending (new) |
-| 1.7 | Ralph retirement + ZeroAlloc migration | Refactor | pending (was 1.6) |
-| 1.8 | Thalos.NET 1.0 release + docs | Docs | pending (was 1.7) |
+Scheduled autonomous runs work: a per-minute `BackgroundService` sweeper claims due schedules
+atomically, and each run walks scout → writer → deliver through the outbox, persisting each step's
+output. The terminal step queues `ChannelMessageQueued` in the same transaction that marks the run
+`Done` — the writer phase 1.4 had been waiting for.
 
-A `Surface` column was added to the ROADMAP table so `start-next-phase` routes 1.6 through `ui-design-system` and `ui-workflow` when it activates.
+**Suite: 1,519 passed / 135 failed / 1,654 total**, against a pre-work baseline of 1,416 / 135 / 1,551.
+**+103 passing, and not one pre-existing failure changed.** The 135 are the two known-failing suites:
+`Playwright.Api` at 126 from its pre-existing `E2EServerFixture` ordering bug, and 9
+`AuthenticationFlowTests` that fail while a `traefik` container holds port 8080.
 
-## Immediate next step
+### What replaced the saga
 
-1. ✅ **Thalos.NET 0.5.0 is published on nuget.org** — all 11 packages. Plan A is done and released.
-2. ✅ **Release pipeline rebuilt.** Cutting a release is now *merge the release PR*, nothing else.
-   Thalos.NET [#102](https://github.com/MarcelRoozekrans/Thalos.NET/pull/102) + [#103](https://github.com/MarcelRoozekrans/Thalos.NET/pull/103), both merged. See `docs/release.md` in that repo.
-3. ✅ **Task 1 spike done — verdict FAIL.** `ZeroAlloc.Saga` is dropped from this phase.
-   `docs/plans/2026-09-16-saga-efcore-spike.md`.
-4. ✅ **Replacement design brainstormed and approved by the user 2026-09-17** —
-   `docs/plans/2026-09-17-scheduled-runs-without-saga-design.md`. It supersedes §6 of the
-   subagents design; §4, §5 and §7 of that document still stand.
-5. **Next: `writing-plans` over plan B Tasks 10–13**, against the approved design.
-   Tasks 2–9 are unaffected and stand as written. **Nothing has been implemented yet.**
-   Docker was UP this session; it is Testcontainers-backed work, so bring it up again first.
+`ZeroAlloc.Saga` was dropped — a saga never receives its trigger event. Each guarantee was replaced
+explicitly: multi-step state became a `ScheduledRunExecutions` row; correlation-key idempotency became
+`UNIQUE (ScheduleId, OccurrenceAt)` plus `INSERT ... ON CONFLICT DO NOTHING`; step sequencing became
+outbox messages with `IOutboxDispatcher<T>`; compensation became `Step = Failed` plus an operator notice.
 
-## The approved design, in short
+**The guarantee is bounded and the code says so.** A crash after a subagent returns but before its step
+commits re-runs that step and pays its tokens twice. **One step can be lost, never the whole run.**
+Do not let anyone "improve" the docs into claiming exactly-once.
 
-`ScheduledRunExecutions`, one row per occurrence, `UNIQUE (ScheduleId, OccurrenceAt)` — that unique
-key *is* the saga's correlation key, and is where idempotency now lives via
-`INSERT ... ON CONFLICT DO NOTHING`. Steps advance through the **outbox**: each step handler runs
-its subagent, then in one transaction persists its output, advances `Step`, and enqueues the next
-command. The final step writes `ChannelMessageQueued` transactionally — the guarantee phase 1.4's
-dispatcher has been waiting for, which was never the saga's doing, only the transaction's.
+`ZeroAlloc.Scheduling` was also dropped — its EF job store needs a separate `SchedulingDbContext` that
+ships no migrations and cannot be bootstrapped with `EnsureCreated`, and the package cannot be used
+without that store at all. Both packages are now **enforced-absent by a `.csproj` scan** in
+`CleanArchitectureTests`; an ArchUnit rule would be vacuous for an unreferenced package.
 
-Two decisions the user made explicitly:
+## Blockers
 
-- **Crash mid-run resumes from the last completed step**, reusing persisted output, rather than
-  abandoning the run or retrying it whole. So scout tokens are not re-paid on a writer-stage crash.
-- **Steps are driven by outbox events**, not inline and not by the sweeper.
+1. **The application cannot boot. This blocks more than it looks like.**
+   Both `Daedalus.Api` and `Daedalus.Cli` crash during DI bootstrap with
+   `FileNotFoundException: ZeroAlloc.Results, Version=0.1.4.0`. **Pre-existing and upstream:**
+   `ZeroAlloc.Authorization` 2.1.0 — the latest published — is compiled against `ZeroAlloc.Results`
+   0.1.4, while Thalos.NET 0.5.0 forces 1.2.x. Phase 1.5 only moved that pin 1.2.0 → 1.2.1, which
+   cannot introduce a 0.1.4 conflict. Reproduced directly with `dotnet run --project src/Daedalus.Api`.
 
-Stated honestly in the design and worth not losing: a crash *after* a subagent returns but *before*
-its commit re-runs that step and pays twice. The saga had the same hole. The bounded guarantee is
-**one step can be lost, never the whole run**.
+   The hosts boot **fine** in-process under `dotnet test`, which is why a green 442-test suite coexists
+   with an unbootable app. Consequences: **the end-to-end AppHost run and the mid-flight-kill resume
+   proof were never performed**, and the Telegram path is still unverified end to end. Needs an upstream
+   fix, like the Saga generator defect. Worth filing.
 
-`ZeroAlloc.StateMachine` 1.5.2 was considered and **not** adopted — five-value linear enum, a
-generated `TryFire` earns little, and it adds a dependency to a phase that just removed one.
-Revisit in 1.6 if workflows branch.
+2. **The scout agent has no tools to do its job.** Its prompt asks for a repository, PR and CI sweep;
+   no git or GitHub MCP tool exists in the solution. The scheduling machinery is correct, but the first
+   real digest will be empty until this is addressed. Relevant to 1.6.
 
-Accepted cost: the saga's *"a new workflow is a `[Saga]` class and nothing else"* is gone. New
-workflows now need step commands, handlers and a `Trigger` value.
+3. Carried from 1.4 and still open: the `Playwright.Api` fixture bug (126/126, invisible in CI because
+   `ci.yml` excludes `~Playwright`); no Telegram bot token.
 
-## The Saga finding, in one paragraph
+## Open Decisions (user)
 
-A saga never receives its trigger event. `With{Saga}Saga()` registers its handlers **by
-interface**; `ZeroAlloc.Mediator`'s generated `Publish` dispatches to a **closed list of concrete
-handler types found in its own compilation** and never enumerates `INotificationHandler<T>` from
-DI. In the saga's own assembly no `Publish` is emitted at all; in another assembly it compiles and
-silently does nothing. **Not version skew** — Saga 1.6.0 with Mediator 3.0.0 fails identically, so
-the plan's "pin Saga back" fallback is dead. The Saga/Saga.EfCore pairing the spike was written to
-de-risk is *fine*, and reached real PostgreSQL on EF 10. Upstream:
-[ZeroAlloc.Saga#127](https://github.com/ZeroAlloc-Net/ZeroAlloc.Saga/issues/127).
+1. **`AgentErrorCode` gaining a `None = 0` member.** `Validation` is member 0, so `default(AgentError)`
+   is indistinguishable from a real validation failure. This produced false-passing tests three times on
+   one branch. Renumbering is impossible — the enum is serialized. Still awaiting a decision.
+2. **The deadline/budget asymmetry** in `ISubagentRunner` — an over-deadline turn that succeeds is
+   reported success; an over-budget one is reported failure. The reviewer argued this is correct and
+   should not be unified. Left as-is.
+3. **The stranded-run reaper, deferred from the final review.** A run whose step message dead-letters
+   after eight attempts sits in a non-terminal step forever with no `LastError` and no notice, which
+   contradicts the standing "the operator is always told something" rule. Deferred because it is new
+   functionality, not a fix — **phase 1.6 builds management over these very tables and is its natural
+   home.**
+4. **Cross-origin schedule name collision**, deferred to 1.6: a config entry sharing a `Name` with an
+   agent-created schedule stages a duplicate and fails at boot with a raw Postgres unique violation
+   rather than an actionable message. Unreachable until 1.6 creates agent-origin schedules.
 
-## Milestone 2 direction — Native AOT
+## Recommended Next Step
 
-Decided 2026-09-17. Thalos.NET libraries get `IsAotCompatible`; Daedalus api/console publish with
-`PublishAot`. The blocker is persistence: **EF Core cannot be published AOT**, so M2 carries the
-Daedalus data-layer migration from EF Core 10 to **ZeroAlloc.ORM**. Deliberately its own milestone,
-not folded into phase 1.7 — it is larger than the rest of that phase combined. Brainstorm it with
-`new-milestone` after M1 closes.
+**Phase 1.6 — Schedule management**, `Surface: UI`. It is the natural home for three carried items
+above: the stranded-run reaper, the cross-origin name collision, and the scout tooling gap.
 
-Dependency audit: `Microsoft.Agents.AI`, `Microsoft.Extensions.AI`, `Npgsql`, `ZeroAlloc.ORM` all
-trimmable. `AI.Sentinel` annotated `RequiresUnreferencedCode`. `Anthropic`,
-`Rag.NET.Abstractions`, `ZeroAlloc.Results`, `ZeroAlloc.Inject` unmarked — expect trim warnings.
+Because its Surface is `UI`, `start-next-phase` will route it through `ui-design-system` — check whether
+`docs/design/MASTER.md` exists first — and then `ui-workflow`'s `ui-phase` to produce a UI contract
+before `writing-plans` runs.
 
-Missing upstream, both filed:
-[Saga.Orm](https://github.com/ZeroAlloc-Net/ZeroAlloc.Saga/issues/128),
-[Outbox.Orm](https://github.com/ZeroAlloc-Net/ZeroAlloc.Outbox/issues/144). Both saga and outbox
-persistence are EF-only today, so neither is usable in an AOT binary.
+**Consider resolving blocker 1 first.** A UI over `ScheduledRuns` that nobody can run locally is hard to
+build and impossible to verify.
 
-> **Release-pipeline note (2026-09-17):** `bump-patch-for-minor-pre-major` was removed from
-> `release-please-config.json`. It held a `feat:` to a patch bump pre-1.0, so 0.1.0, 0.2.0, 0.3.0
-> and 0.5.0 all needed a hand-written `Release-As:` commit to override it — and forgetting it did
-> not fail, it shipped the wrong version. 0.5.0 would have gone out as 0.4.1. A `Release-As:`
-> footer is still the right tool for a genuinely chosen number, such as the eventual 1.0.0.
+## How This Phase Was Executed — worth carrying
 
-Plan B: `docs/plans/2026-09-16-thalos-subagents-plan-b.md`, 13 tasks. **Task 1 is a de-risking spike that can invalidate Tasks 10–12** — see Blockers.
+Subagent-driven development, 15 tasks, each with a fresh implementer and an independent review, plus a
+whole-branch review at the end. **Forty rulings** are preserved with their reasoning and cost-if-wrong in
+`docs/plans/2026-09-18-phase-1.5-rulings.md`.
 
-## Plan A — complete, 15 commits
+**Eight of those rulings correct defects in the implementation plan itself — and all eight were found by
+implementers running the work, not by the author writing it.** The plan claimed a runtime hazard that
+does not reproduce, named three library methods that do not exist, specified an EF format specifier that
+is not real, and twice carried a lesson into one place while leaving the same mistake standing in
+another.
 
-`ISubagentRunner` / `SubagentRunner`: one agent turn with **no live caller**, always closing its session, under three guards — token budget, wall-clock deadline, depth. Plus the two parked 0.4.x defect fixes.
-
-**983/983 tests passing**, all 10 projects, verified after rebasing onto fixed `main` with real dependencies and Docker up.
-
-Key facts to carry:
-
-- **The budget is a post-hoc check.** `RunTurnAsync` is buffered, so nothing can halt a turn mid-flight. It converts an overspend into a reported failure and bounds the next step. The code says so explicitly — **do not let anyone "fix" the docs to claim otherwise.**
-- `CloseSessionAsync` in the `finally` takes **`CancellationToken.None`**. A cancellable token there was a real bug; there is a regression test pinning it.
-- `SubagentRunRequest.Budget` is nullable; null falls back to `SubagentOptions.DefaultBudget`.
-- Rule stated on the API: **a deadline stops work, a budget settles it.**
-
-## Blockers / known issues
-
-- **Plan B Task 1 is a genuine risk, not a formality.** `ZeroAlloc.Saga.EfCore` 1.3.0 declares `ZeroAlloc.Saga >= 1.3.0`, but Saga is at **2.0.0** after a *breaking generator fix*. NuGet resolves it so it will build; that pairing has never shipped together. `Saga.EfCore` also pins EF Core Relational 9.0.4 while Daedalus is on EF 10. If broken, the phase changes shape — fallbacks are listed in the plan's Task 1 step 5.
-- **`Daedalus.Tests.Playwright.Api` fails 126/126.** `E2EServerFixture.GlobalSetupAsync()` touches `_factory.Services` before its own `EnsureCreatedAsync()` creates the schema. Pre-existing since phase 1.3; `ci.yml` excludes `~Playwright` so it stays invisible. Not phase 1.5's job, but plan B Task 2 must baseline it so it cannot be misattributed.
-- **The Telegram path has still never been exercised end to end** — no bot token. Carried from 1.4.
-- **`AgentErrorCode.Validation` is enum member 0**, so `default(AgentError)` is indistinguishable from a real validation failure. This produced false-passing tests **three times on one branch, in three files, from two implementers**. A `ShouldBeFailureWith` helper now immunises new tests, but the trap itself remains. Renumbering is impossible — the enum is serialized. A `None = 0` member is a design decision **awaiting the user**.
-
-## Open decisions (user)
-
-1. **The deadline/budget asymmetry.** An over-deadline turn that succeeds is reported success; an over-budget turn that succeeds is reported failure. The final reviewer argued this is *correct* and should not be unified — a deadline is a stop signal, a budget is a settlement check — and the real defect was that an over-deadline success was invisible, which is now logged. Left as-is; the user may still want them unified.
-2. **`AgentErrorCode` gaining a `None = 0` member**, per the trap above.
-3. Carried from 1.4: fix the `Playwright.Api` fixture or file it; configure a Telegram bot token; manual sample smoke with a real `ANTHROPIC_API_KEY`.
-4. Two untracked pre-pivot files — `docs/regression-report-2026-03-01-1800.md` and its screenshots — still deliberately left alone.
+That ratio is the argument for keeping the expensive parts of this process rather than trimming them:
+the mandated mutation checks, the "see it fail before you trust it" rule, and the instruction to report
+honestly when a predicted failure does **not** occur. Each of those directly produced a finding here —
+including the discovery that a race test had been passing without ever racing.
 
 ## Environment
 
-**Docker is UP** — started this session, 29.5.2.
+**Docker UP** (29.5.2), `daedalus_postgres` healthy, `traefik` holding 8080.
 
-**A real finding worth acting on independently of this work:** the global NuGet cache held a **locally-packed `Rag.NET.Abstractions 1.0.0`** whose `.nupkg.metadata` source was a *previous Claude session's scratchpad feed* under `AppData\Local\Temp\claude\c--Projects-Prive-Rag-NET\...`, dated Aug 3. `rag.net.parsers.audio 1.0.0` was contaminated identically. They shadowed the genuine nuget.org packages and made `main` fail to compile locally while CI built it fine. **Both purged**; re-restored from nuget.org. Any project on this machine consuming those versions was affected. An agent packing to a scratchpad feed should not be writing into the global cache.
-
-Aspire reuses an existing Keycloak container, so a `keycloak-realm.json` change needs `docker rm -f daedalus-realm-*`. Orphaned `dcp.exe`/dashboard processes from a killed AppHost run hold ports.
-
-## What happened to main this session
-
-Thalos.NET `main` had been **red for nine consecutive runs over four days** — not caused by this work. Two Renovate bumps changed upstream behaviour and two tests encoded the old behaviour:
-
-- **AI.Sentinel 2.2.0** added a rule layer so SEC-01 and SEC-05 fire *without* embeddings. The obsolete claim appeared in five places including the public `UseAISentinel` XML doc shipped to nuget.org and the console sample, where it understated readers' actual protection.
-- **Rag.NET 1.0.0** added a proactive dimension-mismatch guard that throws before Postgres is queried, so the SQL state the test expected no longer exists.
-
-Fixed in **PR #100, merged**. Tests and docs only; no production behaviour changed.
-
-**Recorded, not fixed:** every `throw new InvalidOperationException` site in Rag.NET's `PgVectorStore` discards the original exception — no `innerException` anywhere. That is what destroyed the SQL state and is worth raising upstream against Rag.NET.
-
-## A process lesson worth carrying
-
-**I branched from a local `main` that was 53 commits stale, without fetching.** The baseline I then measured — "928 passing, zero regressions" — was against the wrong tree, with Docker down so 21 RagNet tests were *unrun* rather than passing. Both facts were invisible until CI disagreed. The corrected figure after rebasing onto real `main` with Docker up is 983/983.
-
-**`git fetch` before branching, and treat "tests did not run" as distinct from "tests passed."** A suite that cannot execute is not a green suite.
-
-Also carried from 1.4 and repeatedly vindicated: **four separate tests on this branch initially passed while the bug they named was live.** Every one was caught by reverting the change and confirming the test fails. Assume nothing is pinned until you have seen it fail.
-
-## SDD workspace
-
-The plan A ledger — every ruling, review verdict and fix round — is at
-`C:\Projects\Prive\Thalos.NET\.superpowers\sdd\2026-09-16-thalos-subagents-plan-a\progress.md`.
-It is git-ignored, so it exists on disk only, and `git clean -fdx` in that repo would destroy it.
-**PR #99 has landed and 0.5.0 is released, so its reason for being preserved has expired** — it is
-kept only as a reference for how plan A was executed, and may be deleted whenever convenient.
+- The compose Postgres uses `daedalus`/`daedalus` while the code default is `postgres`/`postgres`, so
+  applying a migration locally needs an env-var override — and `dotnet ef migrations remove` cannot
+  target it at all, because the design-time factory hardcodes credentials.
+- `PostgresFixture` builds the test schema with `EnsureCreatedAsync`, **not** `MigrateAsync`, so no test
+  exercises the migrations. Both phase-1.5 migrations were verified by hand against a clean scratch
+  database this session — they apply cleanly and `xmin` is correctly elided from the DDL — but nothing
+  pins that in CI.
+- Aspire reuses an existing Keycloak container, so a `keycloak-realm.json` change needs
+  `docker rm -f daedalus-realm-*`. Orphaned `dcp.exe` or dashboard processes from a killed AppHost run
+  hold ports.
