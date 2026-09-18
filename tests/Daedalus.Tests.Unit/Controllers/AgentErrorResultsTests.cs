@@ -33,6 +33,9 @@ public sealed class AgentErrorResultsTests
     [InlineData(AgentErrorCode.SkillNotFound, StatusCodes.Status404NotFound)]
     [InlineData(AgentErrorCode.SkillSearchUnavailable, StatusCodes.Status503ServiceUnavailable)]
     [InlineData(AgentErrorCode.SkillStoreFailed, StatusCodes.Status502BadGateway)]
+    [InlineData(AgentErrorCode.SubagentBudgetExceeded, StatusCodes.Status422UnprocessableEntity)]
+    [InlineData(AgentErrorCode.SubagentDeadlineExceeded, StatusCodes.Status422UnprocessableEntity)]
+    [InlineData(AgentErrorCode.SubagentDepthExceeded, StatusCodes.Status422UnprocessableEntity)]
     public void ToStatusCode_maps_every_code(AgentErrorCode code, int expected)
     {
         AgentErrorResults.ToStatusCode(code).Should().Be(expected);
@@ -42,8 +45,8 @@ public sealed class AgentErrorResultsTests
     public void Every_AgentErrorCode_value_has_an_explicit_mapping_test()
     {
         // Guards the InlineData list above against Thalos adding codes: new values fall through to 502 silently otherwise.
-        // Thalos.NET 0.2.0 added the six Memory* codes; 0.3.0 added the four Skill* codes.
-        Enum.GetValues<AgentErrorCode>().Should().HaveCount(22);
+        // Thalos.NET 0.2.0 added the six Memory* codes; 0.3.0 added the four Skill* codes; 0.5.0 added the three Subagent* codes.
+        Enum.GetValues<AgentErrorCode>().Should().HaveCount(25);
     }
 
     [Fact]

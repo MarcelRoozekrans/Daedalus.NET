@@ -1,3 +1,4 @@
+using Daedalus.Agents.Scheduling;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using ZeroAlloc.Outbox;
@@ -6,10 +7,13 @@ using ZeroAlloc.Outbox.EfCore;
 namespace Daedalus.Agents.Channels;
 
 /// <summary>
-///     Registers ZeroAlloc.Outbox's durable-delivery pipeline for <see cref="ChannelMessageQueued"/>: the
-///     background poller, the EF Core store bound to <see cref="ApplicationDbContext"/> (so the outbox table
-///     lives in the Daedalus database, not a separate store), and the generated
-///     <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c>.
+///     Registers ZeroAlloc.Outbox's durable-delivery pipeline for <see cref="ChannelMessageQueued"/> and for the
+///     scheduling message types <see cref="ScheduledRunDue"/>, <see cref="RunScoutStep"/>, <see cref="RunWriterStep"/>,
+///     and <see cref="DeliverDigest"/>: the background poller, the EF Core store bound to
+///     <see cref="ApplicationDbContext"/> (so the outbox table lives in the Daedalus database, not a separate
+///     store), and the generated <c>IOutboxWriter&lt;T&gt;</c> for each. All five message types share the single
+///     poller registered below — see the remarks on <see cref="AddChannelOutbox"/> for why a second one must never
+///     be started.
 /// </summary>
 /// <remarks>
 ///     No <see cref="IOutboxDispatcher{T}"/> for <see cref="ChannelMessageQueued"/> is registered here — that is
@@ -17,15 +21,14 @@ namespace Daedalus.Agents.Channels;
 ///     alone leaves ZeroAlloc.Outbox's fallback <c>DefaultOutboxDispatcher&lt;ChannelMessageQueued&gt;</c>
 ///     registered, which throws at dispatch time. In practice a real dispatcher is always registered on top:
 ///     <see cref="DaedalusChannelsServiceCollectionExtensions.AddDaedalusChannels"/> replaces it with
-///     <see cref="ChannelMessageQueuedDispatcher"/> via <c>Replace</c> so it wins regardless of call order. Nothing
-///     writes a <see cref="ChannelMessageQueued"/> yet in this phase either way, so the worker never has a row to
-///     dispatch — see <see cref="ChannelMessageQueuedDispatcher"/>'s remarks.
+///     <see cref="ChannelMessageQueuedDispatcher"/> via <c>Replace</c> so it wins regardless of call order.
 /// </remarks>
 public static class ChannelOutboxServiceCollectionExtensions
 {
     /// <summary>
-    ///     Registers the outbox pipeline described on the type. Configuration is explicit rather than left at the
-    ///     library defaults (5 s / 50 / 5) because a default that changes in a future ZeroAlloc.Outbox version
+    ///     Registers the outbox pipeline described on the type — the channel message type and the scheduling
+    ///     message types together, over the single poller below. Configuration is explicit rather than left at
+    ///     the library defaults (5 s / 50 / 5) because a default that changes in a future ZeroAlloc.Outbox version
     ///     would otherwise silently change chat-delivery behaviour:
     ///     <list type="bullet">
     ///         <item><description>
@@ -61,7 +64,15 @@ public static class ChannelOutboxServiceCollectionExtensions
                 o.RetryBaseDelay = TimeSpan.FromSeconds(1);
             })
             .WithEfCore<ApplicationDbContext>()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            // Scheduling rides the same table and the same poller. The generated IServiceCollection
+            // overload of each of these is [Obsolete] under ZAOBOX010; with TreatWarningsAsErrors set
+            // solution-wide (Directory.Build.props), calling it fails the build outright. That compile-time
+            // failure is why the IOutboxBuilder form below is the one to use, not a runtime race avoided.
+            .AddScheduledRunDueOutbox()
+            .AddRunScoutStepOutbox()
+            .AddRunWriterStepOutbox()
+            .AddDeliverDigestOutbox();
 
         return services;
     }

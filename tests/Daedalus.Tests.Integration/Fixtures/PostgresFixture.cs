@@ -70,6 +70,9 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// <summary>Creates a new <see cref="ApplicationDbContext"/> over the fixture database (caller disposes).</summary>
     public ApplicationDbContext CreateDbContext() => new(CreateDbContextOptions());
 
+    /// <summary>Alias for <see cref="CreateDbContext"/>, for tests that read more naturally as "give me a context".</summary>
+    public ApplicationDbContext CreateContext() => CreateDbContext();
+
     /// <summary>
     ///     Starts the PostgreSQL container with retry logic.
     /// </summary>

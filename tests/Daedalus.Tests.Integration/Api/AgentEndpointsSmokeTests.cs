@@ -56,7 +56,10 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
         var agents = await response.Content.ReadFromJsonAsync<List<AgentSummaryDto>>(Json);
-        agents.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Id = ArchitectAgentId, Name = "Daedalus Architect" });
+        // The catalog also carries the RepoDigest workflow's scout and writer agents; this test only guards
+        // the human-facing Daedalus Architect entry.
+        agents.Should().ContainSingle(a => a.Name == "Daedalus Architect")
+            .Which.Should().BeEquivalentTo(new { Id = ArchitectAgentId, Name = "Daedalus Architect" });
     }
 
     [Fact]

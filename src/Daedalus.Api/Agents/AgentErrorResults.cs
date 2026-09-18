@@ -22,6 +22,10 @@ internal static class AgentErrorResults
         AgentErrorCode.AgentNotFound or AgentErrorCode.SessionNotFound or AgentErrorCode.ToolNotFound => StatusCodes.Status404NotFound,
         AgentErrorCode.SessionBusy or AgentErrorCode.SessionClosed => StatusCodes.Status409Conflict,
         AgentErrorCode.Quarantined or AgentErrorCode.ToolDenied => StatusCodes.Status422UnprocessableEntity,
+        // Thalos.NET 0.5.0: a subagent turn hit its budget, deadline, or nesting-depth cap — a policy limit, not a
+        // client input error or an upstream failure, so it joins Quarantined/ToolDenied rather than falling to 502.
+        AgentErrorCode.SubagentBudgetExceeded or AgentErrorCode.SubagentDeadlineExceeded or AgentErrorCode.SubagentDepthExceeded
+            => StatusCodes.Status422UnprocessableEntity,
         AgentErrorCode.Cancelled => ClientClosedRequest,
         AgentErrorCode.MemoryValidationFailed => StatusCodes.Status400BadRequest,
         AgentErrorCode.MemoryForbidden => StatusCodes.Status403Forbidden,

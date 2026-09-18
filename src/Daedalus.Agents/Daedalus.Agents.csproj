@@ -14,6 +14,7 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="Daedalus.Tests.Integration" />
+        <InternalsVisibleTo Include="Daedalus.Tests.Unit" />
         <InternalsVisibleTo Include="Daedalus.Tests.Unit.Application" />
     </ItemGroup>
 
@@ -36,6 +37,7 @@
         <PackageReference Include="ZeroAlloc.Mapping" />
         <PackageReference Include="ZeroAlloc.Outbox" />
         <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
+        <PackageReference Include="Cronos" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />
         <PackageReference Include="Microsoft.Extensions.AI" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />

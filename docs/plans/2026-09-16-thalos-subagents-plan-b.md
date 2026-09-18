@@ -410,6 +410,11 @@ git commit -m "feat(persistence): add the ScheduledRuns table"
 
 ### Task 5: `ScheduledRunDue` and its outbox wiring
 
+> **PARTIALLY SUPERSEDED (2026-09-17).** Steps 1 and 2 stand — `ScheduledRunDue` and
+> `ScheduleOccurrence` are unchanged. Steps 3 and 4 are replaced: this solution has no mediator, so
+> the dispatcher does not publish a saga start event. See Task 15 of
+> `docs/plans/2026-09-17-scheduled-runs-plan-b-continuation.md`.
+
 **Files:**
 - Create: `src/Daedalus.Agents/Scheduling/ScheduledRunDue.cs`
 - Create: `src/Daedalus.Agents/Scheduling/ScheduledRunDueDispatcher.cs`
@@ -658,6 +663,11 @@ git commit -m "feat(scheduling): claim due runs and enqueue their triggers atomi
 
 ### Task 7: `ScheduleReconciler` — config into the table, with validation
 
+> **PATCHED (2026-09-17).** `Trigger` no longer names a saga class. The configured value becomes
+> `"RepoDigest"` and the validation checks a known-workflow set; `DetachedRuns` also gains
+> `MaxTotalTokens` and `DeadlineSeconds`. See Task 17 step 1 of
+> `docs/plans/2026-09-17-scheduled-runs-plan-b-continuation.md`. Everything else stands.
+
 **Files:**
 - Create: `src/Daedalus.Agents/Scheduling/ScheduleReconciler.cs`
 - Modify: `src/Daedalus.Api/appsettings.json`
@@ -772,6 +782,11 @@ git commit -m "feat(agents): validate configured agent names at startup"
 
 ### Task 9: `RunSubagentCommand` and its handler
 
+> **SUPERSEDED (2026-09-17).** `IRequest<Unit>` and `INotification` are mediator abstractions that
+> do not exist in this solution. The single-`ISubagentRunner`-seam intent survives as
+> `ISubagentRunExecutor`; see Task 14 of
+> `docs/plans/2026-09-17-scheduled-runs-plan-b-continuation.md`. Do not implement this task.
+
 **Files:**
 - Create: `src/Daedalus.Agents/Sagas/RunSubagentCommand.cs`
 - Test: `tests/Daedalus.Tests.Unit/Sagas/RunSubagentHandlerTests.cs`
@@ -816,7 +831,12 @@ git commit -m "feat(sagas): run a subagent as the configured detached principal"
 
 ---
 
-### Task 10: `RepoDigestSaga`
+> **SUPERSEDED (2026-09-17).** Tasks 10–13 below are replaced in full by
+> `docs/plans/2026-09-17-scheduled-runs-plan-b-continuation.md`, which implements the approved
+> saga-free design. Do not implement them. They are kept for the record of what the saga approach
+> would have been.
+
+### Task 10: `RepoDigestSaga` — SUPERSEDED
 
 **Files:**
 - Create: `src/Daedalus.Agents/Sagas/RepoDigestSaga.cs`

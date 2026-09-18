@@ -1,0 +1,603 @@
+using Daedalus.Agents.Channels;
+using Daedalus.Agents.Scheduling;
+using Daedalus.Domain.Entities;
+using Daedalus.Infrastructure.Persistence;
+using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
+using Thalos;
+using Thalos.Testing;
+using ZeroAlloc.Outbox;
+using ZeroAlloc.Outbox.EfCore;
+using Task = System.Threading.Tasks.Task;
+
+namespace Daedalus.Tests.Integration.Scheduling;
+
+/// <summary>
+///     End-to-end acceptance tests for the saga-free scheduling redesign: a due schedule becomes an execution row,
+///     a scout run, a writer run, and finally a message queued to a channel. Drives the real
+///     <see cref="ScheduledRunDueDispatcher"/>, <see cref="RunScoutStepDispatcher"/>,
+///     <see cref="RunWriterStepDispatcher"/>, and <see cref="DeliverDigestDispatcher"/> over a real PostgreSQL
+///     database, with a real <see cref="SubagentRunExecutor"/> and Thalos agent runtime behind a
+///     <see cref="ScriptedChatClient"/> standing in for the model provider, and a fake <see cref="IChannelAdapter"/>
+///     recording deliveries.
+/// </summary>
+/// <remarks>
+///     These tests deliberately bypass <c>OutboxWorkerService</c>: each dispatcher is constructed directly and
+///     invoked with the message it should receive, exactly as the brief's own sample dispatchers are written
+///     against. The step commands' <c>ExecutionId</c> is read straight off the database rather than off an outbox
+///     row's deserialized payload, because what is under test here is what each dispatcher does with a message it
+///     is given, not the outbox's own delivery mechanics — those are Task 13's and phase 1.4's tests. The one
+///     exception is the terminal <see cref="ChannelMessageQueued"/> row <see cref="DeliverDigestDispatcher"/>
+///     causes the store to enqueue: that row is read back and fed to a real <see cref="ChannelMessageQueuedDispatcher"/>
+///     so a test can assert on what actually reaches the channel adapter, not merely on what the store queued.
+/// </remarks>
+[Collection(DatabaseCollection.Name)]
+public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifetime
+{
+    private const string TelegramChannelId = "telegram";
+    private const string ConversationId = "482910337";
+    private const string PrincipalId = "schedule:daedalus";
+
+    // A sentinel embedded in a scout response and asserted for in the writer's own prompt: proves the writer
+    // actually received the scout's findings (RepoDigestPrompts.WriterTask(execution.Findings!)), not merely
+    // that some plausible-looking digest happened to come back. Distinctive enough that it cannot match by
+    // accident against the writer's own scripted response or any other request text.
+    private const string ScoutFindingsSentinel = "SCOUT-FINDINGS-SENTINEL-4f2c9e";
+
+    private static readonly string[] Roles = ["reader", "writer"];
+    private static readonly DateTime Occurrence = new(2026, 9, 17, 7, 0, 0, DateTimeKind.Utc);
+
+    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 17, 7, 0, 5, TimeSpan.Zero));
+    private readonly List<IAsyncDisposable> _disposables = [];
+    private IOutboxSerializer? _serializer;
+    private Guid _scheduleId;
+
+    public async Task InitializeAsync()
+    {
+        await fixture.DatabaseResetter.ResetAsync();
+        _scheduleId = await SeedScheduleAsync("daily-digest", TelegramChannelId, ConversationId, PrincipalId, Roles);
+    }
+
+    public async Task DisposeAsync()
+    {
+        foreach (var disposable in _disposables)
+        {
+            await disposable.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_due_schedule_produces_a_digest_delivered_to_the_fake_adapter()
+    {
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText($"Scout findings: three open PRs, one failing CI run. {ScoutFindingsSentinel}");
+        scripted.ThenText("Here is your digest: three PRs are open and one CI run needs attention.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        var store = BuildStore();
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+        await new RunWriterStepDispatcher(store, executor, NullLogger<RunWriterStepDispatcher>.Instance)
+            .DispatchAsync(new RunWriterStep(id), default);
+        await new DeliverDigestDispatcher(store, NullLogger<DeliverDigestDispatcher>.Instance)
+            .DispatchAsync(new DeliverDigest(id), default);
+        await DrainChannelMessageAsync(adapter);
+
+        (await SingleExecutionRowAsync()).Step.Should().Be(RunStep.Done);
+        adapter.DeliveredTexts.Should().ContainSingle()
+            .Which.Should().Be("Here is your digest: three PRs are open and one CI run needs attention.");
+        scripted.Requests.Should().HaveCount(2, "one scout call and one writer call, and nothing else");
+        RequestText(scripted, 1).Should().Contain(ScoutFindingsSentinel,
+            "the writer's own prompt must carry the scout's findings text, not merely produce a plausible digest");
+    }
+
+    [Fact]
+    public async Task Redelivering_the_ScheduledRunDue_runs_the_subagents_once()
+    {
+        // The central claim of the redesign: at-least-once outbox delivery, at every one of the four steps,
+        // must never re-run a subagent turn that has already completed. The scripted client's call count is
+        // the only thing that can prove this - a delivery-only assertion would still pass if a step silently
+        // re-ran and simply overwrote its own output before the next step read it.
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: nothing urgent.");
+        scripted.ThenText("The repository is quiet today.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        var store = BuildStore();
+        var due = new ScheduledRunDue(_scheduleId, Occurrence);
+        var dueDispatcher = new ScheduledRunDueDispatcher(store);
+        await dueDispatcher.DispatchAsync(due, default);
+        await dueDispatcher.DispatchAsync(due, default); // redelivery of the trigger itself
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        var scoutDispatcher = new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance);
+        await scoutDispatcher.DispatchAsync(new RunScoutStep(id), default);
+        await scoutDispatcher.DispatchAsync(new RunScoutStep(id), default); // redelivery of the scout step
+
+        var writerDispatcher = new RunWriterStepDispatcher(store, executor, NullLogger<RunWriterStepDispatcher>.Instance);
+        await writerDispatcher.DispatchAsync(new RunWriterStep(id), default);
+        await writerDispatcher.DispatchAsync(new RunWriterStep(id), default); // redelivery of the writer step
+
+        var deliverDispatcher = new DeliverDigestDispatcher(store, NullLogger<DeliverDigestDispatcher>.Instance);
+        await deliverDispatcher.DispatchAsync(new DeliverDigest(id), default);
+        await deliverDispatcher.DispatchAsync(new DeliverDigest(id), default); // redelivery of the deliver step
+        await DrainChannelMessageAsync(adapter);
+
+        scripted.Requests.Should().HaveCount(2,
+            "every step command was delivered twice, but each subagent must still have run exactly once");
+        (await ExecutionCountAsync()).Should().Be(1, "the redelivered ScheduledRunDue must not create a second execution");
+        adapter.DeliveredTexts.Should().ContainSingle("the redelivered DeliverDigest must not queue a second channel message");
+    }
+
+    [Fact]
+    public async Task A_failure_in_the_writer_step_delivers_a_failure_notice_naming_the_schedule()
+    {
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: three open PRs.");
+        scripted.ThenThrow(new InvalidOperationException("simulated provider outage"));
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        var store = BuildStore();
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+        var act = async () => await new RunWriterStepDispatcher(store, executor, NullLogger<RunWriterStepDispatcher>.Instance)
+            .DispatchAsync(new RunWriterStep(id), default);
+
+        await act.Should().NotThrowAsync("no dispatcher throws; a subagent failure ends in FailAsync, not an outbox retry");
+        await DrainChannelMessageAsync(adapter);
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Failed);
+        row.LastError.Should().Contain("ProviderError");
+        adapter.DeliveredTexts.Should().ContainSingle()
+            .Which.Should().Contain("daily-digest").And.Contain("Writer");
+        scripted.Requests.Should().HaveCount(2, "the scout ran once and the writer's single failing attempt ran once");
+    }
+
+    [Fact]
+    public async Task A_cancelled_scout_turn_is_not_marked_Failed_and_queues_no_operator_notice()
+    {
+        // Thalos surfaces a turn cancelled by a host shutdown as Result.Failure(AgentError) with
+        // AgentErrorCode.Cancelled, not as a thrown OperationCanceledException - so the dispatcher's own
+        // "is not OperationCanceledException" catch filter around TryCompleteScoutAsync never sees it; this
+        // is the earlier, result.IsFailure branch. Without the fix, this would route through FailAsync and
+        // mark the execution Failed with a spurious operator notice, surviving only by coincidence today
+        // because FailAsync's own BeginTransactionAsync(ct) happens to throw on the same cancelled token.
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+        var store = BuildStore();
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = new CancelledSubagentRunExecutor();
+        var act = async () => await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+
+        await act.Should().ThrowAsync<OperationCanceledException>(
+            "a cancelled turn must propagate like a host shutdown, not detour through FailAsync");
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Scout, "a cancelled scout turn must not be marked Failed");
+        row.LastError.Should().BeNull();
+        (await OutboxCountAsync<ChannelMessageQueued>()).Should().Be(0,
+            "no operator notice may be queued for a cancelled turn");
+        adapter.DeliveredTexts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_restart_between_the_scout_and_writer_steps_resumes_without_re_running_the_scout()
+    {
+        // Models a host restart the way ScheduledRunExecutionStoreTests does: a brand-new store, a brand-new
+        // executor (and therefore a brand-new Thalos agent runtime/session store), and brand-new dispatcher
+        // instances resolved over the SAME database, so nothing about "the scout already ran" survives in
+        // memory - only what the database persisted. The scripted client itself is NOT rebuilt: it stands in
+        // for the external model provider, which is outside the restarting process, and its call count is what
+        // proves the resumed run skipped the scout rather than merely happening to still show one delivery.
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: nothing urgent.");
+        scripted.ThenText("The repository is quiet today.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        var storeBeforeRestart = BuildStore();
+        await new ScheduledRunDueDispatcher(storeBeforeRestart)
+            .DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executorBeforeRestart = BuildExecutor(scripted);
+        await new RunScoutStepDispatcher(storeBeforeRestart, executorBeforeRestart, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+
+        scripted.Requests.Should().HaveCount(1, "only the scout has run so far");
+        (await SingleExecutionRowAsync()).Step.Should().Be(RunStep.Writer);
+
+        // --- restart: everything below is constructed fresh, over the same database ---
+        var storeAfterRestart = BuildStore();
+        var executorAfterRestart = BuildExecutor(scripted);
+
+        // A redelivered RunScoutStep arriving after the restart, before the writer step ever ran, must not
+        // re-run the scout: the fresh dispatcher's pre-check reads the persisted Step (Writer, not Scout) off
+        // the database, not off any in-memory state, since nothing in memory survived the "restart".
+        await new RunScoutStepDispatcher(storeAfterRestart, executorAfterRestart, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+        scripted.Requests.Should().HaveCount(1,
+            "the resumed scout step must be a no-op; the scout has already completed and must not run again");
+
+        await new RunWriterStepDispatcher(storeAfterRestart, executorAfterRestart, NullLogger<RunWriterStepDispatcher>.Instance)
+            .DispatchAsync(new RunWriterStep(id), default);
+        scripted.Requests.Should().HaveCount(2, "the writer runs exactly once, resuming normally after the restart");
+
+        await new DeliverDigestDispatcher(storeAfterRestart, NullLogger<DeliverDigestDispatcher>.Instance)
+            .DispatchAsync(new DeliverDigest(id), default);
+        await DrainChannelMessageAsync(adapter);
+
+        (await SingleExecutionRowAsync()).Step.Should().Be(RunStep.Done);
+        adapter.DeliveredTexts.Should().ContainSingle().Which.Should().Be("The repository is quiet today.");
+    }
+
+    [Fact]
+    public async Task The_delivered_text_is_the_writer_output_not_the_scout_findings()
+    {
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("SCOUT-FINDINGS-MUST-NOT-BE-DELIVERED");
+        scripted.ThenText("WRITER-DIGEST-IS-WHAT-GETS-DELIVERED");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        var store = BuildStore();
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+        await new RunWriterStepDispatcher(store, executor, NullLogger<RunWriterStepDispatcher>.Instance)
+            .DispatchAsync(new RunWriterStep(id), default);
+        await new DeliverDigestDispatcher(store, NullLogger<DeliverDigestDispatcher>.Instance)
+            .DispatchAsync(new DeliverDigest(id), default);
+        await DrainChannelMessageAsync(adapter);
+
+        var delivered = adapter.DeliveredTexts.Should().ContainSingle().Subject;
+        delivered.Should().Be("WRITER-DIGEST-IS-WHAT-GETS-DELIVERED");
+        delivered.Should().NotContain("SCOUT-FINDINGS-MUST-NOT-BE-DELIVERED");
+    }
+
+    // The three tests below permanentize fix-round-1's manual mutation check (run once, then reverted) as
+    // regression coverage: each forces the relevant TryComplete*Async call to throw for a real reason (its own
+    // outbox enqueue fails), by breaking the specific IOutboxWriter<T> that call uses, without touching
+    // production source. Without the corresponding dispatcher's try/catch, any one of these would propagate out
+    // of DispatchAsync, and the outbox would retry - re-running the paid subagent turn up to eight times with
+    // nobody told, exactly the defect fix round 1 closed. A regression in only one dispatcher's catch would not
+    // be caught by the other two, which is why all three get their own test rather than one shared one.
+
+    [Fact]
+    public async Task A_database_failure_completing_the_scout_step_is_caught_and_ends_in_FailAsync()
+    {
+        const string marker = "MUTATION-SCOUT-1a2b3c";
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: irrelevant to this check.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        // TryCompleteScoutAsync's own enqueue writes RunWriterStep; breaking that writer is what makes the
+        // call throw for a real reason.
+        var store = BuildStore(wrapRunWriterStepWriter: _ => new MutationAlwaysThrowingWriter<RunWriterStep>(marker));
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        var act = async () => await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+
+        await act.Should().NotThrowAsync("the dispatcher's catch must turn the store's exception into FailAsync, not propagate it");
+        await DrainChannelMessageAsync(adapter);
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Failed);
+        row.LastError.Should().Contain(marker);
+        adapter.DeliveredTexts.Should().ContainSingle("the operator notice must still be queued and delivered");
+    }
+
+    [Fact]
+    public async Task A_database_failure_completing_the_writer_step_is_caught_and_ends_in_FailAsync()
+    {
+        const string marker = "MUTATION-WRITER-4d5e6f";
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: irrelevant to this check.");
+        scripted.ThenText("Digest: irrelevant to this check.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        // TryCompleteWriterAsync's own enqueue writes DeliverDigest; breaking that writer is what makes the
+        // call throw for a real reason.
+        var store = BuildStore(wrapDeliverDigestWriter: _ => new MutationAlwaysThrowingWriter<DeliverDigest>(marker));
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+        var act = async () => await new RunWriterStepDispatcher(store, executor, NullLogger<RunWriterStepDispatcher>.Instance)
+            .DispatchAsync(new RunWriterStep(id), default);
+
+        await act.Should().NotThrowAsync("the dispatcher's catch must turn the store's exception into FailAsync, not propagate it");
+        await DrainChannelMessageAsync(adapter);
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Failed);
+        row.LastError.Should().Contain(marker);
+        adapter.DeliveredTexts.Should().ContainSingle("the operator notice must still be queued and delivered");
+    }
+
+    [Fact]
+    public async Task A_database_failure_completing_the_deliver_step_is_caught_and_ends_in_FailAsync()
+    {
+        const string marker = "MUTATION-DELIVER-7g8h9i";
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: irrelevant to this check.");
+        scripted.ThenText("Digest: irrelevant to this check.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        // TryCompleteDeliveryAsync's own enqueue writes ChannelMessageQueued - the SAME outbox row type
+        // FailAsync's operator notice uses. Throwing on every call would break the notice too, so this throws
+        // ONCE (the digest enqueue) then delegates to the real writer, letting FailAsync's own notice write -
+        // the second call on the same store instance - succeed for real. Matches
+        // ScheduledRunExecutionStoreTests' own ThrowOnceThenDelegateChannelWriter for the identical reason.
+        var store = BuildStore(wrapChannelWriter: real => new MutationThrowOnceThenDelegateWriter<ChannelMessageQueued>(real, marker));
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+        await new RunWriterStepDispatcher(store, executor, NullLogger<RunWriterStepDispatcher>.Instance)
+            .DispatchAsync(new RunWriterStep(id), default);
+        var act = async () => await new DeliverDigestDispatcher(store, NullLogger<DeliverDigestDispatcher>.Instance)
+            .DispatchAsync(new DeliverDigest(id), default);
+
+        await act.Should().NotThrowAsync("the dispatcher's catch must turn the store's exception into FailAsync, not propagate it");
+        await DrainChannelMessageAsync(adapter);
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Failed);
+        row.LastError.Should().Contain(marker);
+        adapter.DeliveredTexts.Should().ContainSingle("the operator notice must still be queued and delivered");
+    }
+
+    /// <summary>Seeds a <see cref="ScheduledRun"/> via <see cref="ScheduledRun.Create"/>, due at <see cref="Occurrence"/>.</summary>
+    private async Task<Guid> SeedScheduleAsync(
+        string name, string channelId, string conversationId, string principalId, IReadOnlyList<string> roles)
+    {
+        var schedule = ScheduledRun.Create(
+            name, "0 7 * * *", "RepoDigestSaga", channelId, conversationId, principalId, roles,
+            ScheduleOrigin.Config, Occurrence).Value;
+
+        await using var db = fixture.CreateDbContext();
+        db.ScheduledRuns.Add(schedule);
+        await db.SaveChangesAsync();
+        return schedule.Id;
+    }
+
+    private async Task<ScheduledRunExecution> SingleExecutionRowAsync()
+    {
+        await using var db = fixture.CreateDbContext();
+        return await db.ScheduledRunExecutions.AsNoTracking().SingleAsync();
+    }
+
+    private async Task<Guid> SingleExecutionIdAsync() => (await SingleExecutionRowAsync()).Id;
+
+    /// <summary>
+    ///     The concatenated text of every <see cref="Microsoft.Extensions.AI.ChatMessage"/> in the
+    ///     <paramref name="scripted"/> client's <paramref name="requestIndex"/>-th captured request - what the
+    ///     model actually saw for that call, so a test can assert on the prompt content itself rather than only
+    ///     on the scripted response that came back.
+    /// </summary>
+    private static string RequestText(ScriptedChatClient scripted, int requestIndex) =>
+        string.Join('\n', scripted.Requests[requestIndex].Messages.Select(m => m.Text));
+
+    private async Task<int> ExecutionCountAsync()
+    {
+        await using var db = fixture.CreateDbContext();
+        return await db.ScheduledRunExecutions.CountAsync();
+    }
+
+    /// <summary>Counts outbox rows of type <typeparamref name="T"/>, by the same type-name column ZeroAlloc.Outbox's generated writer stamps.</summary>
+    private async Task<int> OutboxCountAsync<T>()
+    {
+        var typeName = typeof(T).FullName;
+        await using var db = fixture.CreateDbContext();
+        return await db.OutboxMessages.CountAsync(m => m.TypeName == typeName);
+    }
+
+    /// <summary>
+    ///     Reads the single <see cref="ChannelMessageQueued"/> outbox row written so far, deserializes it with the
+    ///     same <see cref="IOutboxSerializer"/> the host registers, and feeds it to a real
+    ///     <see cref="ChannelMessageQueuedDispatcher"/> over <paramref name="adapter"/> - the same last leg
+    ///     phase 1.4 already wired and tested, given its first real writer by this phase.
+    /// </summary>
+    private async Task DrainChannelMessageAsync(IChannelAdapter adapter)
+    {
+        var serializer = _serializer
+            ?? throw new InvalidOperationException($"{nameof(BuildStore)}() must be called before draining the channel outbox.");
+        var typeName = typeof(ChannelMessageQueued).FullName;
+
+        await using var db = fixture.CreateDbContext();
+        var row = await db.OutboxMessages.AsNoTracking().SingleAsync(m => m.TypeName == typeName);
+        var message = serializer.Deserialize<ChannelMessageQueued>(row.Payload);
+
+        var dispatcher = new ChannelMessageQueuedDispatcher([adapter], NullLogger<ChannelMessageQueuedDispatcher>.Instance);
+        await dispatcher.DispatchAsync(message, default);
+    }
+
+    /// <summary>
+    ///     A store resolved from its own scope, wired like production: the real generated
+    ///     <c>IOutboxWriter&lt;T&gt;</c> for each of the four message types shares the scope's single
+    ///     <see cref="ApplicationDbContext"/> with the store itself. Each call builds an entirely separate DI
+    ///     container - the same "brand-new store" fiction <c>ScheduledRunExecutionStoreTests</c> uses to model an
+    ///     independent process, which is what the restart test relies on.
+    /// </summary>
+    /// <param name="wrapRunWriterStepWriter">
+    ///     When supplied, replaces <c>IOutboxWriter&lt;RunWriterStep&gt;</c> with the wrapper this returns,
+    ///     given the real generated writer - the same "registered after, real writer underneath" pattern
+    ///     <c>ScheduledRunExecutionStoreTests</c> uses for its own rendezvous and throwing writers.
+    /// </param>
+    /// <param name="wrapDeliverDigestWriter">Same as <paramref name="wrapRunWriterStepWriter"/>, for <c>IOutboxWriter&lt;DeliverDigest&gt;</c>.</param>
+    /// <param name="wrapChannelWriter">Same as <paramref name="wrapRunWriterStepWriter"/>, for <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c>.</param>
+    private ScheduledRunExecutionStore BuildStore(
+        Func<IOutboxWriter<RunWriterStep>, IOutboxWriter<RunWriterStep>>? wrapRunWriterStepWriter = null,
+        Func<IOutboxWriter<DeliverDigest>, IOutboxWriter<DeliverDigest>>? wrapDeliverDigestWriter = null,
+        Func<IOutboxWriter<ChannelMessageQueued>, IOutboxWriter<ChannelMessageQueued>>? wrapChannelWriter = null)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<TimeProvider>(_time);
+        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
+        services.AddOutbox(o => { })
+            .WithEfCore<ApplicationDbContext>()
+            .AddRunScoutStepOutbox()
+            .AddRunWriterStepOutbox()
+            .AddDeliverDigestOutbox()
+            .AddChannelMessageQueuedOutbox();
+        services.AddScoped<ScheduledRunExecutionStore>();
+
+        if (wrapRunWriterStepWriter is not null)
+        {
+            services.AddTransient<IOutboxWriter<RunWriterStep>>(sp => wrapRunWriterStepWriter(
+                new RunWriterStepOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+        }
+
+        if (wrapDeliverDigestWriter is not null)
+        {
+            services.AddTransient<IOutboxWriter<DeliverDigest>>(sp => wrapDeliverDigestWriter(
+                new DeliverDigestOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+        }
+
+        if (wrapChannelWriter is not null)
+        {
+            services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(sp => wrapChannelWriter(
+                new ChannelMessageQueuedOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+        }
+
+        var provider = services.BuildServiceProvider();
+        _disposables.Add(provider);
+        var scope = provider.CreateAsyncScope();
+        _disposables.Add(scope);
+        _serializer = scope.ServiceProvider.GetRequiredService<IOutboxSerializer>();
+        return scope.ServiceProvider.GetRequiredService<ScheduledRunExecutionStore>();
+    }
+
+    /// <summary>
+    ///     A real <see cref="SubagentRunExecutor"/> over a real Thalos agent runtime (session store, agent
+    ///     factory, event hub - all wired by <c>AddThalos</c> exactly as production does), with only the chat
+    ///     client swapped for <paramref name="scripted"/> via a minimal <see cref="IChatClientProvider"/>. Every
+    ///     call builds an entirely separate DI container, mirroring <see cref="BuildStore"/>; <paramref name="scripted"/>
+    ///     itself is passed in rather than created here; see the restart test for why.
+    /// </summary>
+    private SubagentRunExecutor BuildExecutor(ScriptedChatClient scripted)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddThalos(thalos =>
+        {
+            thalos.UseChatClientProvider(new ScriptedChatClientProvider(scripted));
+            thalos.UseInMemorySessionStore();
+            thalos.AddAgent(new AgentDefinition { Id = AgentId.New(), Name = RepoDigestPrompts.ScoutAgent, Instructions = "You are the scout." });
+            thalos.AddAgent(new AgentDefinition { Id = AgentId.New(), Name = RepoDigestPrompts.WriterAgent, Instructions = "You are the writer." });
+        });
+
+        var provider = services.BuildServiceProvider();
+        _disposables.Add(provider);
+
+        var runner = provider.GetRequiredService<ISubagentRunner>();
+        var catalog = provider.GetRequiredService<IAgentCatalog>();
+        var options = Options.Create(new DetachedRunOptions
+        {
+            PrincipalId = PrincipalId,
+            Roles = Roles,
+            MaxTotalTokens = 50_000,
+            DeadlineSeconds = 300,
+        });
+
+        return new SubagentRunExecutor(runner, catalog, options, NullLogger<SubagentRunExecutor>.Instance);
+    }
+
+    /// <summary>Hands every agent the same scripted client, standing in for the real model provider.</summary>
+    private sealed class ScriptedChatClientProvider(Microsoft.Extensions.AI.IChatClient client) : IChatClientProvider
+    {
+        public string Name => "scripted";
+
+        public string DefaultModel => "scripted-model";
+
+        public Microsoft.Extensions.AI.IChatClient CreateChatClient(AgentDefinition agent) => client;
+    }
+
+    /// <summary>
+    ///     Always returns a <c>Result.Failure</c> carrying <see cref="AgentErrorCode.Cancelled"/>, simulating
+    ///     Thalos surfacing a turn cancelled mid-flight (e.g. by a host shutdown) as a
+    ///     <c>ZeroAlloc.Results.Result&lt;string, AgentError&gt;</c> rather than a thrown
+    ///     <see cref="OperationCanceledException"/>.
+    /// </summary>
+    private sealed class CancelledSubagentRunExecutor : ISubagentRunExecutor
+    {
+        public ValueTask<ZeroAlloc.Results.Result<string, AgentError>> RunAsync(
+            string agentName, string task, string principalId, IReadOnlyList<string> roles, CancellationToken ct) =>
+            ValueTask.FromResult(ZeroAlloc.Results.Result<string, AgentError>.Failure(AgentError.Cancelled()));
+    }
+
+    /// <summary>Fake <see cref="IChannelAdapter"/> recording every delivered message's text.</summary>
+    private sealed class RecordingChannelAdapter(string channelId) : IChannelAdapter
+    {
+        public string ChannelId { get; } = channelId;
+
+        public List<string> DeliveredTexts { get; } = [];
+
+        public ValueTask DeliverAsync(Thalos.ConversationId conversationId, AgentEvent agentEvent, CancellationToken ct)
+        {
+            DeliveredTexts.Add(((TextDeltaEvent)agentEvent).Text);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    ///     Always throws <paramref name="marker"/>, simulating a permanent database failure inside a step
+    ///     dispatcher's completion call - the same seam <c>ScheduledRunExecutionStoreTests</c>' own
+    ///     <c>ThrowingChannelWriter</c> uses, generalized to whichever outbox message type the caller is
+    ///     breaking.
+    /// </summary>
+    private sealed class MutationAlwaysThrowingWriter<T>(string marker) : IOutboxWriter<T> where T : notnull
+    {
+        public ValueTask WriteAsync(T message, System.Data.Common.DbTransaction? transaction = null, CancellationToken ct = default) =>
+            throw new InvalidOperationException(marker);
+    }
+
+    /// <summary>
+    ///     Throws <paramref name="marker"/> once, then delegates to <paramref name="inner"/> for every call
+    ///     after that - for a message type FailAsync's own operator notice also writes through
+    ///     (<see cref="ChannelMessageQueued"/>), so the failing attempt and the notice that follows it must not
+    ///     both break. Matches <c>ScheduledRunExecutionStoreTests</c>' own <c>ThrowOnceThenDelegateChannelWriter</c>
+    ///     for the identical reason.
+    /// </summary>
+    private sealed class MutationThrowOnceThenDelegateWriter<T>(IOutboxWriter<T> inner, string marker) : IOutboxWriter<T> where T : notnull
+    {
+        private bool _hasThrown;
+
+        public async ValueTask WriteAsync(T message, System.Data.Common.DbTransaction? transaction = null, CancellationToken ct = default)
+        {
+            if (!_hasThrown)
+            {
+                _hasThrown = true;
+                throw new InvalidOperationException(marker);
+            }
+
+            await inner.WriteAsync(message, transaction, ct);
+        }
+    }
+}

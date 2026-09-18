@@ -32,6 +32,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Skill> Skills => Set<Skill>();
     public DbSet<ChannelConversation> ChannelConversations => Set<ChannelConversation>();
 
+    /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
+    public DbSet<ScheduledRun> ScheduledRuns => Set<ScheduledRun>();
+
+    /// <summary>One row per firing of a <see cref="ScheduledRun"/>; see <see cref="ScheduledRunExecution"/>.</summary>
+    public DbSet<ScheduledRunExecution> ScheduledRunExecutions => Set<ScheduledRunExecution>();
+
     /// <summary>The ZeroAlloc.Outbox durable-delivery table (<c>OutboxMessages</c>); see <see cref="OutboxDbContextExtensions.AddOutboxMessages"/>.</summary>
     public DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
 
