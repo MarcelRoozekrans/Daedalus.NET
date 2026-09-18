@@ -116,6 +116,7 @@ Status is communicated by badge colour plus text, never colour alone. For phase 
 
 | Verdict | Severity | Token |
 |---|---|---|
+| `Disabled` | Light / muted | neutral |
 | `Delivered` | Success | `--rz-success` |
 | `Running` | Info | `--rz-info` |
 | `NotYetDue` | Light / muted | neutral |
