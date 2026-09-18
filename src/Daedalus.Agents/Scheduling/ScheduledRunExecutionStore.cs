@@ -92,7 +92,7 @@ public sealed partial class ScheduledRunExecutionStore(
     /// </summary>
     internal static readonly string[] InsertColumnNames =
     [
-        "Id", "ScheduleId", "OccurrenceAt", "Step", "Findings", "Digest", "ChannelId",
+        "Id", "ScheduleId", "OccurrenceAt", "Step", "FailedAtStep", "Findings", "Digest", "ChannelId",
         "ConversationId", "PrincipalId", "Roles", "Attempts", "LastError", "CreatedAt", "UpdatedAt",
     ];
 
@@ -174,15 +174,16 @@ public sealed partial class ScheduledRunExecutionStore(
             // constraint violation aborts the whole transaction, so the catch could not then go on to write
             // the outbox row in the same transaction — it would have to roll back and start again. One
             // statement, no exception control flow, and the unique index is the only arbiter.
-            // row.Findings, row.Digest, and row.LastError are all null at this point (a freshly created execution has
-            // completed no step and never failed) - the null-forgiving operator only tells the compiler that passing
-            // null here is intentional, not a bug. ExecuteSqlRawAsync binds each element as a DbParameter, so a null
-            // element becomes DBNull, exactly as it would for a normal parameterized query.
+            // row.FailedAtStep, row.Findings, row.Digest, and row.LastError are all null at this point (a freshly
+            // created execution has completed no step and never failed) - the null-forgiving operator only tells
+            // the compiler that passing null here is intentional, not a bug. ExecuteSqlRawAsync binds each element
+            // as a DbParameter, so a null element becomes DBNull, exactly as it would for a normal parameterized
+            // query.
             var inserted = await db.Database.ExecuteSqlRawAsync(
                 InsertSql,
                 [
-                    row.Id, row.ScheduleId, row.OccurrenceAt, row.Step.ToString(), row.Findings!,
-                    row.Digest!, row.ChannelId, row.ConversationId, row.PrincipalId,
+                    row.Id, row.ScheduleId, row.OccurrenceAt, row.Step.ToString(), row.FailedAtStep?.ToString()!,
+                    row.Findings!, row.Digest!, row.ChannelId, row.ConversationId, row.PrincipalId,
                     string.Join(',', row.Roles), row.Attempts, row.LastError!, row.CreatedAt, row.UpdatedAt,
                 ],
                 ct).ConfigureAwait(false);
