@@ -29,7 +29,7 @@ public enum RunVerdict
     /// <summary>The run is stuck: it has not reached a terminal step, and its last update is older than the configured staleness threshold.</summary>
     Stranded = 5,
 
-    /// <summary>The run completed, but the outbox could not be read, so delivery could not be confirmed.</summary>
+    /// <summary>The run completed, but delivery could not be confirmed: the outbox read failed, or the dead-letter scan was truncated before it reached this run.</summary>
     DeliveryUnknown = 6,
 
     /// <summary>The run failed; <see cref="RunDiagnosis.LastError"/> says why.</summary>

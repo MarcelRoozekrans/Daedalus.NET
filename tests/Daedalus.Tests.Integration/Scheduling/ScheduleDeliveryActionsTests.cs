@@ -76,11 +76,14 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
     [Fact]
     public async Task Requeue_reads_the_window_from_the_injected_clock_not_the_wall_clock()
     {
-        // Nowhere near the real wall clock, on purpose: RequeueAsync used to read DateTimeOffset.UtcNow
-        // directly, which this test could not have driven. If it ever regresses to that, the dead letter's
-        // CreatedAt — stamped relative to this fake "now" — falls outside the window a real clock would
-        // compute, and the requeue below fails.
-        var fakeNow = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        // fakeNow is deliberately far in the PAST relative to the real wall clock, and the dead letter is
+        // stamped just inside a 1-day lookback measured from fakeNow. A query of the shape "CreatedAt >= since"
+        // has no upper bound, so a dead letter stamped in the FUTURE relative to the real clock would still be
+        // found by an implementation that read the real wall clock -- that shape doesn't discriminate. Anchoring
+        // in the past does: measured from the real wall clock, a lookback of 1 day starting around "today" does
+        // not reach back to 2020, so the buggy DateTimeOffset.UtcNow implementation fails to find this row,
+        // while the fixed implementation -- which computes the window from the injected fake clock -- finds it and succeeds.
+        var fakeNow = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var time = new FakeTimeProvider(fakeNow);
 
         var schedule = await SeedScheduleAsync("morning-digest");
