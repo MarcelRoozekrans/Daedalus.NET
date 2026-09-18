@@ -5,7 +5,9 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using System.Collections.Concurrent;
 using System.Data.Common;
 using ZeroAlloc.Outbox;
 using ZeroAlloc.Outbox.EfCore;
@@ -194,16 +196,37 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     [Fact]
     public async Task Two_pollers_racing_one_step_advance_it_exactly_once()
     {
+        // Fix round 2: Task.WhenAll does not guarantee overlap. If the first call finished before the second
+        // began, the second would see Step already past Scout and return false through the STEP CHECK, never
+        // reaching the concurrency path - a race test that can pass without a race ever happening, indistinguishable
+        // from a version with no xmin token at all. A deterministic rendezvous (same approach as
+        // StoreThatRendezvousesBeforeFailing) forces both calls to have already read Step == Scout and mutated
+        // their own tracked copy before either is allowed to write, so the loser can only be turned away by the
+        // xmin concurrency check. Captured logs assert that directly: EventId 450 (LogLostStepRace) must appear,
+        // and EventId 449 (LogStepAlreadyPast) - the step-check path - must not, or this test would still be
+        // proving nothing beyond Task.WhenAll's ordering.
         var store = Store();
         await store.TryBeginAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
         var id = (await SingleExecutionAsync()).Id;
 
+        var aReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var loggerProvider = new CapturingLoggerProvider();
+        var storeA = StoreThatRendezvousesBeforeAdvancingScout(aReady, bReady.Task, loggerProvider);
+        var storeB = StoreThatRendezvousesBeforeAdvancingScout(bReady, aReady.Task, loggerProvider);
+
         var results = await Task.WhenAll(
-            Store().TryCompleteScoutAsync(id, "a", default).AsTask(),
-            Store().TryCompleteScoutAsync(id, "b", default).AsTask());
+            storeA.TryCompleteScoutAsync(id, "a", default).AsTask(),
+            storeB.TryCompleteScoutAsync(id, "b", default).AsTask());
 
         results.Count(r => r).Should().Be(1, "one wins; the other must no-op rather than throw or double-advance");
         (await OutboxRowsAsync<RunWriterStep>()).Should().ContainSingle();
+        loggerProvider.Entries.Should().Contain(e => e.EventId.Id == 450,
+            "the barrier forces both calls to have already read Step == Scout before either writes, so the loser " +
+            "can only be turned away by the xmin concurrency check (LogLostStepRace), never by the step-check " +
+            "branch - this is what proves the OCC guarantee rather than the redundant step check");
+        loggerProvider.Entries.Should().NotContain(e => e.EventId.Id == 449,
+            "if the step-check branch (LogStepAlreadyPast) fired at all, the two calls did not genuinely overlap");
     }
 
     [Fact]
@@ -333,11 +356,38 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     private ScheduledRunExecutionStore StoreThatRendezvousesBeforeFailing(TaskCompletionSource mySignal, Task otherSignal) =>
         ResolveStore(wrapChannelWriter: (real, _) => new RendezvousChannelWriter(real, mySignal, otherSignal));
 
+    /// <summary>
+    ///     A store whose <c>IOutboxWriter&lt;RunWriterStep&gt;</c> signals <paramref name="mySignal"/> and awaits
+    ///     <paramref name="otherSignal"/> before performing the real write — the same rendezvous shape as
+    ///     <see cref="StoreThatRendezvousesBeforeFailing"/>, over the step-advance path instead of the failure path.
+    ///     Used in pairs so two concurrent <c>TryCompleteScoutAsync</c> calls are both forced to have already read
+    ///     <c>Step == Scout</c> and mutated their own tracked copy before either is allowed to write, so the loser
+    ///     can only be turned away by the <c>xmin</c> concurrency check, never by the redundant step check.
+    ///     <paramref name="loggerProvider"/> is shared across both stores in a pair so the test can assert which
+    ///     path the loser actually took.
+    /// </summary>
+    private ScheduledRunExecutionStore StoreThatRendezvousesBeforeAdvancingScout(
+        TaskCompletionSource mySignal, Task otherSignal, ILoggerProvider loggerProvider) =>
+        ResolveStore(
+            wrapWriterStepWriter: (real, _) => new RendezvousWriterStepWriter(real, mySignal, otherSignal),
+            loggerProvider: loggerProvider);
+
     private ScheduledRunExecutionStore ResolveStore(
-        Func<IOutboxWriter<ChannelMessageQueued>, IServiceProvider, IOutboxWriter<ChannelMessageQueued>>? wrapChannelWriter = null)
+        Func<IOutboxWriter<ChannelMessageQueued>, IServiceProvider, IOutboxWriter<ChannelMessageQueued>>? wrapChannelWriter = null,
+        Func<IOutboxWriter<RunWriterStep>, IServiceProvider, IOutboxWriter<RunWriterStep>>? wrapWriterStepWriter = null,
+        ILoggerProvider? loggerProvider = null)
     {
         var services = new ServiceCollection();
-        services.AddLogging();
+        // AddLogging()'s default configuration adds no providers, so log calls are normally no-ops; a
+        // CapturingLoggerProvider is added only for tests that need to assert on which internal branch fired
+        // (see Two_pollers_racing_one_step_advance_it_exactly_once), not for every store.
+        services.AddLogging(builder =>
+        {
+            if (loggerProvider is not null)
+            {
+                builder.AddProvider(loggerProvider);
+            }
+        });
         services.AddSingleton<TimeProvider>(_time);
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddOutbox(o => { })
@@ -358,6 +408,15 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(sp =>
                 wrapChannelWriter(
                     new ChannelMessageQueuedOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>()),
+                    sp));
+        }
+
+        if (wrapWriterStepWriter is not null)
+        {
+            // Same "registered after, real writer underneath" pattern as wrapChannelWriter above.
+            services.AddTransient<IOutboxWriter<RunWriterStep>>(sp =>
+                wrapWriterStepWriter(
+                    new RunWriterStepOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>()),
                     sp));
         }
 
@@ -395,6 +454,47 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             mySignal.TrySetResult();
             await otherSignal;
             await inner.WriteAsync(message, transaction, ct);
+        }
+    }
+
+    /// <summary>Same rendezvous shape as <see cref="RendezvousChannelWriter"/>, over <see cref="RunWriterStep"/> instead.</summary>
+    private sealed class RendezvousWriterStepWriter(IOutboxWriter<RunWriterStep> inner, TaskCompletionSource mySignal, Task otherSignal)
+        : IOutboxWriter<RunWriterStep>
+    {
+        public async ValueTask WriteAsync(RunWriterStep message, DbTransaction? transaction = null, CancellationToken ct = default)
+        {
+            mySignal.TrySetResult();
+            await otherSignal;
+            await inner.WriteAsync(message, transaction, ct);
+        }
+    }
+
+    /// <summary>
+    ///     An <see cref="ILoggerProvider"/> that records every log entry across every category into one shared
+    ///     list, so a test can assert on which of two named outcomes a store actually logged (e.g.
+    ///     <c>LogLostStepRace</c> vs. <c>LogStepAlreadyPast</c>) rather than only on the boolean result the public
+    ///     API returns. Thread-safe: <see cref="Entries"/> is a <see cref="ConcurrentBag{T}"/> because the whole
+    ///     point of the tests that use this is two stores logging concurrently from different threads.
+    /// </summary>
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentBag<(string Category, EventId EventId, string Message)> Entries { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(categoryName, Entries);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(string category, ConcurrentBag<(string, EventId, string)> entries) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                entries.Add((category, eventId, formatter(state, exception)));
         }
     }
 }
