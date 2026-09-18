@@ -46,6 +46,13 @@ namespace Daedalus.Agents.Scheduling;
 ///     <see cref="RunVerdict.Delivered"/> — the page must never claim a delivery it could not confirm. A payload
 ///     that will not deserialize is skipped, not thrown on.
 ///     </para>
+///     <para>
+///     <b>An incomplete read is not a clean one.</b> There are three ways the outbox answer can be short of the
+///     truth and they must never collapse together: the read threw, the read was capped before it reached far
+///     enough back, or the read genuinely found nothing. The first two both mean "cannot confirm"; only the
+///     third means <see cref="RunVerdict.Delivered"/>. Both shortfalls also log, because a truncated answer
+///     that renders identically to a complete one is the exact failure this page exists to prevent.
+///     </para>
 /// </remarks>
 /// <param name="db">The scope's context; see the remarks on why it is not a factory.</param>
 /// <param name="timeProvider">The only clock this type reads. <c>DateTime.UtcNow</c> appears nowhere.</param>
@@ -73,18 +80,23 @@ public sealed class ScheduleDiagnostics(
 
     /// <inheritdoc/>
     /// <remarks>
-    ///     Active means <see cref="ScheduledRun.Enabled"/>. A disabled schedule is deliberately absent rather
-    ///     than reported <see cref="RunVerdict.Overdue"/>: it is not overdue, it is switched off, and
-    ///     <see cref="RunVerdict"/> has no member that says so.
+    ///     <para>
+    ///     Every schedule, disabled ones included. A disabled schedule is the first of the five ways a digest
+    ///     dies, so hiding it would make the most basic cause the hardest to see; it is reported
+    ///     <see cref="RunVerdict.Disabled"/> rather than excluded or mislabelled.
+    ///     </para>
+    ///     <para>
+    ///     Each row diagnoses the schedule's CURRENT state, which is not the same question as what its last run
+    ///     did — see <see cref="Classify"/> for the precedence and why it matters.
+    ///     </para>
     /// </remarks>
     public async ValueTask<IReadOnlyList<RunDiagnosis>> GetOverviewAsync(CancellationToken ct)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
-        // Read 1 of 3.
+        // Read 1 of 3. No Enabled filter: see the remarks.
         var schedules = await db.ScheduledRuns
             .AsNoTracking()
-            .Where(s => s.Enabled)
             .OrderBy(s => s.Name)
             .ToListAsync(ct);
 
@@ -110,15 +122,23 @@ public sealed class ScheduleDiagnostics(
         // Read 3 of 3.
         var deadLetters = await ReadDeadLettersAsync(now, ct);
 
-        return schedules.ConvertAll(s => Diagnose(s, byScheduleId.GetValueOrDefault(s.Id), deadLetters, now));
+        return schedules.ConvertAll(s => DiagnoseCurrentState(s, byScheduleId.GetValueOrDefault(s.Id), deadLetters, now));
     }
 
     /// <inheritdoc/>
     /// <remarks>
+    ///     <para>
     ///     Executions only. A schedule that has never been claimed has no history, and this returns an empty list
     ///     rather than synthesising a row: the contract is "the most recent executions", and a caller wanting the
     ///     <see cref="RunVerdict.NotYetDue"/> or <see cref="RunVerdict.Overdue"/> answer gets it from
     ///     <see cref="GetOverviewAsync"/>, which is where it belongs.
+    ///     </para>
+    ///     <para>
+    ///     Each row reports what THAT run did, deliberately without the schedule-level precedence
+    ///     <see cref="GetOverviewAsync"/> applies. Disabling a schedule must not rewrite the history of the runs
+    ///     that already happened into a wall of <see cref="RunVerdict.Disabled"/>; the drill-down exists to show
+    ///     what happened last time, which is exactly the question a switched-off schedule raises.
+    ///     </para>
     /// </remarks>
     public async ValueTask<IReadOnlyList<RunDiagnosis>> GetRunHistoryAsync(Guid scheduleId, int take, CancellationToken ct)
     {
@@ -148,7 +168,7 @@ public sealed class ScheduleDiagnostics(
 
         var deadLetters = await ReadDeadLettersAsync(now, ct);
 
-        return executions.ConvertAll(e => Diagnose(schedule, e, deadLetters, now));
+        return executions.ConvertAll(e => DiagnoseHistoricalRun(schedule, e, deadLetters, now));
     }
 
     /// <summary>
@@ -179,7 +199,7 @@ public sealed class ScheduleDiagnostics(
                             && m.CreatedAt >= since)
                 .OrderByDescending(m => m.CreatedAt)
                 .Take(_options.DeadLetterScanLimit)
-                .Select(m => new DeadLetterRow(m.Payload, m.DeadLetterError, m.RetryCount))
+                .Select(m => new DeadLetterRow(m.Payload, m.DeadLetterError, m.RetryCount, m.CreatedAt))
                 .ToListAsync(ct);
         }
         catch (OperationCanceledException)
@@ -192,6 +212,20 @@ public sealed class ScheduleDiagnostics(
             logger.LogWarning(ex, "Could not read dead-lettered {TypeName} messages; completed runs will be reported as {Verdict}.",
                 typeName, RunVerdict.DeliveryUnknown);
             return DeadLetterLookup.Unavailable;
+        }
+
+        // The cap is the other way this read can be incomplete, and it fails toward the MISLEADING answer: past
+        // the limit the dropped rows are the oldest, so their executions would find no dead letter and read
+        // Delivered. Remember how far back this scan can actually speak for, and say so out loud — a truncated
+        // answer that looks identical to a complete one is the failure mode this whole page exists to prevent.
+        DateTime? horizon = null;
+        if (rows.Count >= _options.DeadLetterScanLimit)
+        {
+            horizon = rows[^1].CreatedAt.UtcDateTime;
+            logger.LogWarning(
+                "Dead-letter scan for {TypeName} hit its limit of {Limit} rows; runs created before {Horizon} " +
+                "cannot be confirmed delivered and will be reported as {Verdict}. Raise {Option} or narrow the lookback.",
+                typeName, _options.DeadLetterScanLimit, horizon, RunVerdict.DeliveryUnknown, nameof(ScheduleDiagnosticsOptions.DeadLetterScanLimit));
         }
 
         // Deserialization happens OUTSIDE the try above on purpose: a payload that will not parse is one bad row,
@@ -221,7 +255,7 @@ public sealed class ScheduleDiagnostics(
             byExecutionId.TryAdd(executionId, new DeadLetterInfo(row.DeadLetterError, row.RetryCount));
         }
 
-        return DeadLetterLookup.From(byExecutionId);
+        return DeadLetterLookup.From(byExecutionId, horizon);
     }
 
     /// <summary>Start of the dead-letter window, floored so an absurdly wide <see cref="ScheduleDiagnosticsOptions.DeadLetterLookback"/> cannot underflow.</summary>
@@ -234,23 +268,64 @@ public sealed class ScheduleDiagnostics(
     }
 
     /// <summary>
-    ///     Where this run died, given everything that was read about it. A pure function of its arguments:
+    ///     The schedule's current state, which outranks what its last run did. A pure function of its arguments:
     ///     <see cref="RunVerdict.DeliveryUnknown"/> is deliberately not produced here, because it is a statement
-    ///     about the read rather than about the run. <see cref="Diagnose"/> applies it.
+    ///     about the read rather than about the run. <see cref="ApplyDeliveryConfidence"/> applies it.
     /// </summary>
     /// <param name="schedule">The schedule this run belongs to.</param>
-    /// <param name="execution">The run, or null if the sweeper never claimed the occurrence.</param>
-    /// <param name="deadLetter">This execution's dead letter, or null if there is none.</param>
+    /// <param name="execution">The latest run, or null if the sweeper never claimed an occurrence.</param>
+    /// <param name="deadLetter">That execution's dead letter, or null if there is none.</param>
     /// <param name="now">The current instant, from the injected <see cref="TimeProvider"/>.</param>
     /// <returns>The verdict.</returns>
+    /// <remarks>
+    ///     <para>
+    ///     <b>The precedence is load-bearing: Disabled, then an overdue next occurrence, then the run.</b>
+    ///     </para>
+    ///     <para>
+    ///     <b>Disabled first,</b> because <see cref="ScheduleSweeperService"/> selects on
+    ///     <c>Enabled &amp;&amp; NextRunAt &lt;= now</c>, so a switched-off schedule's
+    ///     <see cref="ScheduledRun.NextRunAt"/> is never advanced and slides further into the past every day.
+    ///     Ranked any lower, every disabled schedule would read <see cref="RunVerdict.Overdue"/> and send an
+    ///     operator hunting a sweeper that is working perfectly.
+    ///     </para>
+    ///     <para>
+    ///     <b>An overdue next occurrence before the last run's outcome,</b> because
+    ///     <see cref="ScheduledRunStore"/> calls <see cref="ScheduledRun.AdvanceTo"/> at CLAIM time, inside the
+    ///     same transaction that enqueues the run. So <c>NextRunAt &lt;= now</c> means precisely "nothing has
+    ///     claimed the next occurrence" and can never mask a run that is legitimately in flight — claiming moves
+    ///     it into the future first. Ranked below the execution, the common failure would be invisible: the
+    ///     sweeper dies overnight, yesterday's run still reports <see cref="RunVerdict.Delivered"/>, and a page
+    ///     whose whole job is "the digest never arrived" shows a healthy row.
+    ///     </para>
+    /// </remarks>
     private RunVerdict Classify(ScheduledRun schedule, ScheduledRunExecution? execution, DeadLetterInfo? deadLetter, DateTime now)
     {
-        if (execution is null)
+        if (!schedule.Enabled)
         {
-            return schedule.NextRunAt > now ? RunVerdict.NotYetDue : RunVerdict.Overdue;
+            return RunVerdict.Disabled;
         }
 
-        return execution.Step switch
+        if (schedule.NextRunAt <= now)
+        {
+            return RunVerdict.Overdue;
+        }
+
+        return execution is null
+            ? RunVerdict.NotYetDue
+            : ClassifyExecution(execution, deadLetter, now);
+    }
+
+    /// <summary>
+    ///     What one run itself did, on its own terms and with no reference to what the schedule is doing now.
+    ///     The drill-down reports this directly; the overview reaches it only after
+    ///     <see cref="Classify"/>'s precedence has passed.
+    /// </summary>
+    /// <param name="execution">The run.</param>
+    /// <param name="deadLetter">Its dead letter, or null if there is none.</param>
+    /// <param name="now">The current instant, from the injected <see cref="TimeProvider"/>.</param>
+    /// <returns>The verdict.</returns>
+    private RunVerdict ClassifyExecution(ScheduledRunExecution execution, DeadLetterInfo? deadLetter, DateTime now) =>
+        execution.Step switch
         {
             RunStep.Failed => RunVerdict.Failed,
 
@@ -263,26 +338,67 @@ public sealed class ScheduleDiagnostics(
                 ? RunVerdict.Stranded
                 : RunVerdict.Running,
         };
-    }
 
-    /// <summary>Builds the reported diagnosis for one run.</summary>
-    /// <param name="schedule">The schedule this run belongs to.</param>
-    /// <param name="execution">The run, or null if the sweeper never claimed the occurrence.</param>
-    /// <param name="deadLetters">The dead letters read for this pass, or <see cref="DeadLetterLookup.Unavailable"/>.</param>
+    /// <summary>The overview's diagnosis: the schedule's current state, with its latest run as supporting detail.</summary>
+    /// <param name="schedule">The schedule.</param>
+    /// <param name="execution">Its latest run, or null if the sweeper never claimed an occurrence.</param>
+    /// <param name="deadLetters">The dead letters read for this pass.</param>
     /// <param name="now">The current instant, from the injected <see cref="TimeProvider"/>.</param>
     /// <returns>The diagnosis.</returns>
-    private RunDiagnosis Diagnose(ScheduledRun schedule, ScheduledRunExecution? execution, DeadLetterLookup deadLetters, DateTime now)
+    /// <remarks>
+    ///     A row whose verdict is <see cref="RunVerdict.Disabled"/> or <see cref="RunVerdict.Overdue"/> still
+    ///     carries the latest execution's fields. The verdict answers "what is wrong now" while those fields
+    ///     answer "what happened last time", and the grid shows both columns.
+    /// </remarks>
+    private RunDiagnosis DiagnoseCurrentState(ScheduledRun schedule, ScheduledRunExecution? execution, DeadLetterLookup deadLetters, DateTime now)
     {
         var deadLetter = execution is null ? null : deadLetters.Find(execution.Id);
         var verdict = Classify(schedule, execution, deadLetter, now);
+        return Build(schedule, execution, deadLetter, ApplyDeliveryConfidence(verdict, execution, deadLetters));
+    }
 
-        // The one thing Classify cannot know: whether the absence it was handed is an answer or a failure.
-        // A completed run whose delivery could not be read is DeliveryUnknown, never Delivered.
-        if (!deadLetters.Available && execution?.Step == RunStep.Done)
-        {
-            verdict = RunVerdict.DeliveryUnknown;
-        }
+    /// <summary>The drill-down's diagnosis: what this one run did, whatever the schedule is doing now.</summary>
+    /// <param name="schedule">The schedule the run belongs to.</param>
+    /// <param name="execution">The run.</param>
+    /// <param name="deadLetters">The dead letters read for this pass.</param>
+    /// <param name="now">The current instant, from the injected <see cref="TimeProvider"/>.</param>
+    /// <returns>The diagnosis.</returns>
+    private RunDiagnosis DiagnoseHistoricalRun(ScheduledRun schedule, ScheduledRunExecution execution, DeadLetterLookup deadLetters, DateTime now)
+    {
+        var deadLetter = deadLetters.Find(execution.Id);
+        var verdict = ClassifyExecution(execution, deadLetter, now);
+        return Build(schedule, execution, deadLetter, ApplyDeliveryConfidence(verdict, execution, deadLetters));
+    }
 
+    /// <summary>
+    ///     Downgrades a <see cref="RunVerdict.Delivered"/> that the outbox read could not actually confirm.
+    ///     The one thing the classifiers cannot know: whether the absence they were handed is an answer or a
+    ///     gap. Degrade, never blank — and never claim a delivery this could not confirm.
+    /// </summary>
+    /// <param name="verdict">The classifier's verdict.</param>
+    /// <param name="execution">The run, or null if there is none.</param>
+    /// <param name="deadLetters">The dead letters read for this pass.</param>
+    /// <returns>The verdict, possibly downgraded to <see cref="RunVerdict.DeliveryUnknown"/>.</returns>
+    /// <remarks>
+    ///     Gated on the verdict already being <see cref="RunVerdict.Delivered"/>, not merely on the run having
+    ///     completed. Widened to every run, an unreachable outbox would erase <see cref="RunVerdict.Failed"/>,
+    ///     <see cref="RunVerdict.Stranded"/> and <see cref="RunVerdict.Overdue"/> — the verdicts that actually
+    ///     tell an operator what to do — and replace them all with a shrug. Only the delivery half is unknown,
+    ///     so only the delivery half degrades.
+    /// </remarks>
+    private static RunVerdict ApplyDeliveryConfidence(RunVerdict verdict, ScheduledRunExecution? execution, DeadLetterLookup deadLetters) =>
+        verdict == RunVerdict.Delivered && execution is not null && !deadLetters.CanConfirm(execution.CreatedAt)
+            ? RunVerdict.DeliveryUnknown
+            : verdict;
+
+    /// <summary>Assembles the reported record once the verdict is settled.</summary>
+    /// <param name="schedule">The schedule.</param>
+    /// <param name="execution">The run, or null if the sweeper never claimed an occurrence.</param>
+    /// <param name="deadLetter">The run's dead letter, or null.</param>
+    /// <param name="verdict">The settled verdict.</param>
+    /// <returns>The diagnosis.</returns>
+    private static RunDiagnosis Build(ScheduledRun schedule, ScheduledRunExecution? execution, DeadLetterInfo? deadLetter, RunVerdict verdict)
+    {
         if (execution is null)
         {
             // No execution row means no execution timestamps. Both mirror the occurrence rather than defaulting,
@@ -290,20 +406,23 @@ public sealed class ScheduleDiagnostics(
             return new RunDiagnosis(
                 verdict, schedule.Id, schedule.Name, schedule.NextRunAt,
                 (int)RunStep.Pending, null, null, 0, null, null,
-                schedule.NextRunAt, schedule.NextRunAt, Guid.Empty);
+                schedule.NextRunAt, schedule.NextRunAt, Guid.Empty,
+                schedule.Enabled, schedule.NextRunAt);
         }
 
         return new RunDiagnosis(
             verdict, schedule.Id, schedule.Name, execution.OccurrenceAt,
             (int)execution.Step, (int?)execution.FailedAtStep, execution.LastError, execution.Attempts,
-            deadLetter?.Error, deadLetter?.RetryCount, execution.CreatedAt, execution.UpdatedAt, execution.Id);
+            deadLetter?.Error, deadLetter?.RetryCount, execution.CreatedAt, execution.UpdatedAt, execution.Id,
+            schedule.Enabled, schedule.NextRunAt);
     }
 
-    /// <summary>The three columns of a dead-lettered row this type needs, projected in the database.</summary>
+    /// <summary>The columns of a dead-lettered row this type needs, projected in the database.</summary>
     /// <param name="Payload">The opaque serialized <see cref="ChannelMessageQueued"/>.</param>
     /// <param name="DeadLetterError">Why delivery was abandoned. The half <c>IOutboxDashboardStore</c> cannot give.</param>
     /// <param name="RetryCount">How many attempts were made before it was abandoned.</param>
-    private sealed record DeadLetterRow(byte[] Payload, string? DeadLetterError, int RetryCount);
+    /// <param name="CreatedAt">When the message was queued. Only used to find how far back a capped scan reaches.</param>
+    private sealed record DeadLetterRow(byte[] Payload, string? DeadLetterError, int RetryCount, DateTimeOffset CreatedAt);
 
     /// <summary>What a dead letter contributes to a diagnosis.</summary>
     /// <param name="Error">Why delivery was abandoned.</param>
@@ -311,25 +430,46 @@ public sealed class ScheduleDiagnostics(
     private sealed record DeadLetterInfo(string? Error, int RetryCount);
 
     /// <summary>
-    ///     The result of the dead-letter read. <see cref="Available"/> separates "the outbox says none died" from
-    ///     "the outbox could not be asked" — two answers that look identical as an empty dictionary and must
-    ///     never collapse into one.
+    ///     The result of the dead-letter read, and — just as importantly — how much of it can be trusted.
+    ///     <see cref="Available"/> separates "the outbox says none died" from "the outbox could not be asked",
+    ///     and <see cref="Horizon"/> separates both from "the outbox was only asked about recent rows". All
+    ///     three look identical as a missing dictionary entry and must never collapse into one.
     /// </summary>
-    /// <param name="Available">Whether the read succeeded.</param>
+    /// <param name="Available">Whether the read succeeded at all.</param>
     /// <param name="ByExecutionId">The dead letters found, keyed by the execution that produced the message.</param>
-    private sealed record DeadLetterLookup(bool Available, IReadOnlyDictionary<Guid, DeadLetterInfo> ByExecutionId)
+    /// <param name="Horizon">
+    ///     The oldest instant this scan reached, when the row cap truncated it; null when the scan was complete
+    ///     within its window. An absence older than this is not evidence of anything.
+    /// </param>
+    private sealed record DeadLetterLookup(bool Available, IReadOnlyDictionary<Guid, DeadLetterInfo> ByExecutionId, DateTime? Horizon)
     {
         /// <summary>The read failed. Completed runs degrade to <see cref="RunVerdict.DeliveryUnknown"/>.</summary>
-        public static readonly DeadLetterLookup Unavailable = new(false, ReadOnlyDictionary<Guid, DeadLetterInfo>.Empty);
+        public static readonly DeadLetterLookup Unavailable = new(false, ReadOnlyDictionary<Guid, DeadLetterInfo>.Empty, null);
 
         /// <summary>The read succeeded and found the given dead letters.</summary>
         /// <param name="byExecutionId">The dead letters found.</param>
+        /// <param name="horizon">How far back the scan reached if it was capped; null if it was complete.</param>
         /// <returns>An available lookup.</returns>
-        public static DeadLetterLookup From(IReadOnlyDictionary<Guid, DeadLetterInfo> byExecutionId) => new(true, byExecutionId);
+        public static DeadLetterLookup From(IReadOnlyDictionary<Guid, DeadLetterInfo> byExecutionId, DateTime? horizon) => new(true, byExecutionId, horizon);
 
         /// <summary>This execution's dead letter, or null if it has none.</summary>
         /// <param name="executionId">The execution to look up.</param>
         /// <returns>The dead letter, or null.</returns>
         public DeadLetterInfo? Find(Guid executionId) => ByExecutionId.GetValueOrDefault(executionId);
+
+        /// <summary>
+        ///     Whether "no dead letter found" is actually evidence of delivery for a run created at
+        ///     <paramref name="executionCreatedAt"/>.
+        /// </summary>
+        /// <param name="executionCreatedAt">When the execution row was created.</param>
+        /// <returns>True only if this scan genuinely covered that run's message.</returns>
+        /// <remarks>
+        ///     Compares against the execution's CREATION rather than its completion, which is the conservative
+        ///     side: the message is queued at the deliver step, so it is always newer than the row's
+        ///     <see cref="ScheduledRunExecution.CreatedAt"/>. A run that started after the horizon therefore had
+        ///     its message inside the scanned set for certain, and one that started before it may not have.
+        /// </remarks>
+        public bool CanConfirm(DateTime executionCreatedAt) =>
+            Available && (Horizon is null || executionCreatedAt >= Horizon.Value);
     }
 }

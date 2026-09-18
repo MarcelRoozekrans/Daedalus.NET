@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Data.Common;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
@@ -9,6 +10,7 @@ using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using ZeroAlloc.Outbox;
 using ZeroAlloc.Outbox.EfCore;
@@ -58,6 +60,9 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     // Nowhere near ScheduleDiagnosticsOptions' own 15-minute and 30-day defaults, on purpose.
     private static readonly TimeSpan _strandedAfter = TimeSpan.FromMinutes(11);
     private static readonly TimeSpan _deadLetterLookback = TimeSpan.FromHours(37);
+
+    // Comfortably above anything these tests seed, so only the saturation tests ever hit the cap.
+    private const int _defaultScanLimit = 100;
 
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(_now));
 
@@ -303,7 +308,192 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         history.Should().OnlyContain(h => h.ScheduleName == "morning-digest");
     }
 
+    [Fact]
+    public async Task A_disabled_schedule_is_Disabled()
+    {
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(-3), enabled: false);
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+        diagnosis.Verdict.Should().Be(RunVerdict.Disabled,
+            "the sweeper skips a disabled schedule, so its NextRunAt slides into the past and would otherwise " +
+            "read as Overdue — sending an operator after a sweeper that is working perfectly");
+        diagnosis.Enabled.Should().BeFalse();
+        diagnosis.NextRunAtUtc.Should().Be(schedule.NextRunAt);
+    }
+
+    [Fact]
+    public async Task A_disabled_schedule_with_a_completed_run_is_Disabled_not_Delivered()
+    {
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(-3), enabled: false);
+        var execution = await SeedDoneExecutionAsync(schedule, _now.AddHours(-26));
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+        diagnosis.Verdict.Should().Be(RunVerdict.Disabled,
+            "Disabled outranks the last run's outcome: yesterday's digest arriving says nothing about a " +
+            "schedule that will never fire again");
+
+        // The verdict answers "what is wrong now"; these still answer "what happened last time", which is the
+        // question a switched-off schedule immediately raises. The grid shows both columns.
+        diagnosis.ExecutionId.Should().Be(execution.Id);
+        diagnosis.StepReached.Should().Be((int)RunStep.Done);
+    }
+
+    [Fact]
+    public async Task An_overdue_next_occurrence_outranks_a_completed_previous_run()
+    {
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(-2));
+        var execution = await SeedDoneExecutionAsync(schedule, _now.AddHours(-26));
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+
+        // The sweeper dies overnight. Yesterday's run genuinely delivered, so a classifier that only looks at
+        // the latest execution reports a healthy row while today's digest never fires at all — the common case
+        // of death-cause 2, and invisible on exactly the page built to catch it. ScheduledRunStore advances
+        // NextRunAt at CLAIM time, so NextRunAt in the past means nothing has claimed the next occurrence and
+        // cannot mean a run is merely in flight.
+        diagnosis.Verdict.Should().Be(RunVerdict.Overdue);
+        diagnosis.NextRunAtUtc.Should().Be(_now.AddHours(-2));
+        diagnosis.Enabled.Should().BeTrue();
+
+        // Still carries the previous run, which is what the grid's "Last run" column shows.
+        diagnosis.ExecutionId.Should().Be(execution.Id);
+        diagnosis.OccurrenceAtUtc.Should().Be(_now.AddHours(-26), "OccurrenceAtUtc is the run that happened, not the one that did not");
+    }
+
+    [Fact]
+    public async Task A_failed_execution_is_still_Failed_when_the_outbox_read_throws()
+    {
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(1));
+        var execution = NewExecution(schedule, _now.AddHours(-2));
+        execution.BeginScout(_now.AddMinutes(-40));
+        execution.RecordFindings("three open PRs", _now.AddMinutes(-35));
+        execution.Fail("the writer subagent exceeded its token budget", _now.AddMinutes(-30));
+        await InsertAsync(execution);
+
+        await using var provider = BuildProvider(new ThrowOnOutboxReadInterceptor());
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+
+        // Only the DELIVERY half is unknown. A downgrade widened to every completed-or-not run would erase
+        // Failed, Stranded and Overdue — the verdicts that tell an operator what to actually do — and replace
+        // them all with a shrug, precisely when the system is already degraded.
+        diagnosis.Verdict.Should().Be(RunVerdict.Failed);
+        diagnosis.Verdict.Should().NotBe(RunVerdict.DeliveryUnknown);
+        diagnosis.FailedAtStep.Should().Be((int)RunStep.Writer);
+        diagnosis.LastError.Should().Be("the writer subagent exceeded its token budget");
+    }
+
+    [Fact]
+    public async Task A_run_older_than_a_saturated_dead_letter_scan_is_DeliveryUnknown_not_Delivered()
+    {
+        var warnings = new CapturingLoggerProvider();
+        await using var provider = await SeedSaturatedScanAsync(warnings);
+
+        var overview = await OverviewAsync(provider);
+        var byName = overview.ToDictionary(d => d.ScheduleName, StringComparer.Ordinal);
+
+        // The two newest dead letters fit inside the cap and answer for themselves.
+        byName["dead-recent"].Verdict.Should().Be(RunVerdict.Undelivered);
+        byName["dead-older"].Verdict.Should().Be(RunVerdict.Undelivered);
+
+        // This one's dead letter was dropped by the cap. Absence of a row the scan never reached is not
+        // evidence of delivery, and reporting Delivered here is the misleading direction.
+        byName["dead-ancient"].Verdict.Should().Be(RunVerdict.DeliveryUnknown);
+        byName["dead-ancient"].Verdict.Should().NotBe(RunVerdict.Delivered);
+
+        // And the horizon must not blanket-degrade: a run newer than it, with genuinely no dead letter, is
+        // still confidently Delivered. A degradation that swallowed everything would be as useless as one
+        // that swallowed nothing.
+        byName["clean-recent"].Verdict.Should().Be(RunVerdict.Delivered);
+    }
+
+    [Fact]
+    public async Task A_saturated_dead_letter_scan_says_so_in_the_log()
+    {
+        var warnings = new CapturingLoggerProvider();
+        await using var provider = await SeedSaturatedScanAsync(warnings);
+
+        await OverviewAsync(provider);
+
+        warnings.Warnings.Should().ContainSingle(w => w.Contains("Dead-letter scan", StringComparison.Ordinal))
+            .Which.Should().Contain("limit", "a scan that silently answered for only part of the window is the " +
+                "failure this page exists to prevent, so saturation must not be invisible");
+    }
+
+    [Fact]
+    public async Task The_run_history_still_reports_what_each_run_did_when_the_schedule_is_disabled()
+    {
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(-3), enabled: false);
+
+        var failed = NewExecution(schedule, _now.AddHours(-6));
+        failed.BeginScout(_now.AddHours(-6));
+        failed.Fail("the scout subagent timed out", _now.AddHours(-6));
+        await InsertAsync(failed);
+
+        var delivered = await SeedDoneExecutionAsync(schedule, _now.AddHours(-2));
+
+        await using var provider = BuildProvider();
+
+        // The overview says the schedule is off...
+        var overview = await OverviewAsync(provider);
+        overview.Should().ContainSingle().Subject.Verdict.Should().Be(RunVerdict.Disabled);
+
+        // ...but the drill-down must still say what actually happened. Disabling a schedule cannot rewrite the
+        // history of the runs that already ran into a wall of Disabled, which is the only reason to open it.
+        await using var scope = provider.CreateAsyncScope();
+        var history = await scope.ServiceProvider.GetRequiredService<IScheduleDiagnostics>()
+            .GetRunHistoryAsync(schedule.Id, take: 10, CancellationToken.None);
+
+        history.Select(h => h.ExecutionId).Should().Equal(delivered.Id, failed.Id);
+        history.Select(h => h.Verdict).Should().Equal(RunVerdict.Delivered, RunVerdict.Failed);
+        history.Should().OnlyContain(h => !h.Enabled, "the rows still report the schedule's state, they are just not ruled by it");
+    }
+
     // ---- harness ------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     Four completed runs across four schedules, three of them dead-lettered, against a scan capped at two
+    ///     rows — so the oldest dead letter is provably outside what the scan reached.
+    /// </summary>
+    /// <param name="warnings">Captures what the capped scan logs.</param>
+    /// <returns>A provider whose dead-letter scan saturates.</returns>
+    private async Task<ServiceProvider> SeedSaturatedScanAsync(CapturingLoggerProvider warnings)
+    {
+        // NextRunAt in the future on all four, so the Overdue precedence stays out of this test's way.
+        var recent = await SeedScheduleAsync("dead-recent", _now.AddHours(1));
+        var older = await SeedScheduleAsync("dead-older", _now.AddHours(1));
+        var ancient = await SeedScheduleAsync("dead-ancient", _now.AddHours(1));
+        var clean = await SeedScheduleAsync("clean-recent", _now.AddHours(1));
+
+        var recentRun = await SeedDoneExecutionAsync(recent, _now.AddMinutes(-60));
+        var olderRun = await SeedDoneExecutionAsync(older, _now.AddMinutes(-120));
+        var ancientRun = await SeedDoneExecutionAsync(ancient, _now.AddMinutes(-600));
+        await SeedDoneExecutionAsync(clean, _now.AddMinutes(-30));
+
+        var provider = BuildProviderWithScanLimit(scanLimit: 2, warnings);
+
+        await QueueMessageAsync(provider, recentRun.Id);
+        await QueueMessageAsync(provider, olderRun.Id);
+        await QueueMessageAsync(provider, ancientRun.Id);
+
+        // Ordered so the cap of two keeps the first two and drops the third. The horizon lands at -115m, which
+        // is newer than the ancient run's own CreatedAt of -600m and older than the clean run's of -30m.
+        await DeadLetterAsync(provider, recentRun.Id, "Telegram returned 429 after 8 attempts", retryCount: 7, createdAtUtc: _now.AddMinutes(-55));
+        await DeadLetterAsync(provider, olderRun.Id, "Telegram returned 429 after 8 attempts", retryCount: 7, createdAtUtc: _now.AddMinutes(-115));
+        await DeadLetterAsync(provider, ancientRun.Id, "Telegram returned 500 after 8 attempts", retryCount: 7, createdAtUtc: _now.AddMinutes(-595));
+
+        return provider;
+    }
 
     /// <summary>Seeds <paramref name="scheduleCount"/> schedules, each with one completed run, and counts the reads one overview issues.</summary>
     private async Task<int> MeasureOverviewQueriesAsync(int scheduleCount)
@@ -334,10 +524,23 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     ///     diagnostics service and the real generated <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> the seeds
     ///     use, so the payloads under test are the ones production actually writes.
     /// </summary>
-    private ServiceProvider BuildProvider(params IInterceptor[] interceptors)
+    private ServiceProvider BuildProvider(params IInterceptor[] interceptors) =>
+        BuildProviderCore(_defaultScanLimit, interceptors, warnings: null);
+
+    /// <summary>A provider whose dead-letter scan is capped at <paramref name="scanLimit"/> rows, capturing what it logs.</summary>
+    private ServiceProvider BuildProviderWithScanLimit(int scanLimit, CapturingLoggerProvider warnings) =>
+        BuildProviderCore(scanLimit, [], warnings);
+
+    private ServiceProvider BuildProviderCore(int scanLimit, IInterceptor[] interceptors, CapturingLoggerProvider? warnings)
     {
         var services = new ServiceCollection();
-        services.AddLogging();
+        services.AddLogging(b =>
+        {
+            if (warnings is not null)
+            {
+                b.AddProvider(warnings);
+            }
+        });
         services.AddSingleton<TimeProvider>(_time);
         services.AddDbContext<ApplicationDbContext>(o =>
         {
@@ -354,17 +557,23 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         {
             o.StrandedAfter = _strandedAfter;
             o.DeadLetterLookback = _deadLetterLookback;
+            o.DeadLetterScanLimit = scanLimit;
         });
         services.AddScoped<IScheduleDiagnostics, ScheduleDiagnostics>();
 
         return services.BuildServiceProvider();
     }
 
-    private async Task<ScheduledRun> SeedScheduleAsync(string name, DateTime nextRunAtUtc)
+    private async Task<ScheduledRun> SeedScheduleAsync(string name, DateTime nextRunAtUtc, bool enabled = true)
     {
         var schedule = ScheduledRun.Create(
             name, "0 7 * * *", "RepoDigest", "telegram", "482910337",
             "schedule:daedalus", ["reader", "writer"], ScheduleOrigin.Config, nextRunAtUtc).Value;
+
+        if (!enabled)
+        {
+            schedule.Disable();
+        }
 
         await using var db = fixture.CreateDbContext();
         db.ScheduledRuns.Add(schedule);
@@ -406,13 +615,13 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
             ct: CancellationToken.None);
     }
 
-    private async Task DeadLetterAsync(ServiceProvider provider, Guid executionId, string error, int retryCount) =>
+    private async Task DeadLetterAsync(ServiceProvider provider, Guid executionId, string error, int retryCount, DateTime? createdAtUtc = null) =>
         await MutateRowAsync(provider, executionId, row =>
         {
             row.Status = OutboxMessageStatus.DeadLetter;
             row.DeadLetterError = error;
             row.RetryCount = retryCount;
-            row.CreatedAt = new DateTimeOffset(_now.AddMinutes(-5));
+            row.CreatedAt = new DateTimeOffset(createdAtUtc ?? _now.AddMinutes(-5));
         });
 
     private async Task SetStatusAsync(ServiceProvider provider, Guid executionId, OutboxMessageStatus status) =>
@@ -460,6 +669,37 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     {
         await using var db = fixture.CreateDbContext();
         return await db.OutboxMessages.CountAsync();
+    }
+
+    /// <summary>Captures what the service logs, so "saturation must not be invisible" is an assertion rather than a hope.</summary>
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        private readonly ConcurrentQueue<string> _warnings = new();
+
+        public IReadOnlyCollection<string> Warnings => _warnings;
+
+        public ILogger CreateLogger(string categoryName) => new Capturing(_warnings);
+
+        public void Dispose()
+        {
+            // Nothing to release; the queue lives as long as the test.
+        }
+
+        private sealed class Capturing(ConcurrentQueue<string> warnings) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (logLevel >= LogLevel.Warning)
+                {
+                    warnings.Enqueue(formatter(state, exception));
+                }
+            }
+        }
     }
 
     /// <summary>Counts the reads a single overview issues, so an N+1 shows up as growth with the schedule count.</summary>
