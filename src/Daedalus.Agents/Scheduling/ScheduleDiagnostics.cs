@@ -279,7 +279,26 @@ public sealed class ScheduleDiagnostics(
     /// <returns>The verdict.</returns>
     /// <remarks>
     ///     <para>
-    ///     <b>The precedence is load-bearing: Disabled, then an overdue next occurrence, then the run.</b>
+    ///     <b>The precedence is load-bearing, and it is a product decision rather than an obvious one:</b>
+    ///     </para>
+    ///     <code>
+    ///     Disabled  &gt;  { Failed, Stranded, Undelivered }  &gt;  Overdue  &gt;  { Delivered, DeliveryUnknown, Running, NotYetDue }
+    ///     </code>
+    ///     <para>
+    ///     <b>The rule behind the ordering: <see cref="RunVerdict.Overdue"/> outranks another verdict only when
+    ///     that verdict would otherwise read as HEALTHY.</b> The defect it exists to fix is "the page says
+    ///     healthy when it is not" — yesterday's <see cref="RunVerdict.Delivered"/> masking a digest that never
+    ///     fired today. That reasoning does not extend to an alarm: once the row is already an alarm the
+    ///     operator is going to look, and the more specific alarm should win.
+    ///     <see cref="RunVerdict.Stranded"/> names a stuck run and the step it is stuck at, and
+    ///     <see cref="RunVerdict.Failed"/> carries the error text; <see cref="RunVerdict.Overdue"/> says only
+    ///     that nothing ran, so promoting it over either would trade detail for vagueness.
+    ///     </para>
+    ///     <para>
+    ///     Because <see cref="ScheduledRun.NextRunAt"/> advances at claim time, in practice
+    ///     <see cref="RunVerdict.Overdue"/> can only ever displace <see cref="RunVerdict.Delivered"/> and
+    ///     <see cref="RunVerdict.DeliveryUnknown"/> — the two that read healthy. That is the whole intent,
+    ///     stated here directly rather than left to fall out of the ordering.
     ///     </para>
     ///     <para>
     ///     <b>Disabled first,</b> because <see cref="ScheduleSweeperService"/> selects on
@@ -305,15 +324,35 @@ public sealed class ScheduleDiagnostics(
             return RunVerdict.Disabled;
         }
 
-        if (schedule.NextRunAt <= now)
-        {
-            return RunVerdict.Overdue;
-        }
-
-        return execution is null
+        var runVerdict = execution is null
             ? RunVerdict.NotYetDue
             : ClassifyExecution(execution, deadLetter, now);
+
+        // An alarm already tells the operator to look, and tells them more than Overdue could. Only a verdict
+        // that would otherwise read healthy gets displaced by an unclaimed occurrence.
+        if (IsAlarm(runVerdict))
+        {
+            return runVerdict;
+        }
+
+        return schedule.NextRunAt <= now ? RunVerdict.Overdue : runVerdict;
     }
+
+    /// <summary>
+    ///     Whether this verdict already tells an operator something is wrong. See <see cref="Classify"/>'s
+    ///     remarks: these are the verdicts <see cref="RunVerdict.Overdue"/> must not displace, because each
+    ///     names a more specific fault than "nothing ran" does.
+    /// </summary>
+    /// <param name="verdict">The run's own verdict.</param>
+    /// <returns>True if the verdict is an alarm rather than a healthy-looking state.</returns>
+    /// <remarks>
+    ///     <see cref="RunVerdict.DeliveryUnknown"/> is deliberately NOT an alarm here, on two grounds: it is
+    ///     applied after this by <see cref="ApplyDeliveryConfidence"/> and so cannot reach this check anyway,
+    ///     and it is a statement that nothing could be determined — strictly less informative than
+    ///     <see cref="RunVerdict.Overdue"/>, which at least names a real, observed fact about the schedule.
+    /// </remarks>
+    private static bool IsAlarm(RunVerdict verdict) =>
+        verdict is RunVerdict.Failed or RunVerdict.Stranded or RunVerdict.Undelivered;
 
     /// <summary>
     ///     What one run itself did, on its own terms and with no reference to what the schedule is doing now.

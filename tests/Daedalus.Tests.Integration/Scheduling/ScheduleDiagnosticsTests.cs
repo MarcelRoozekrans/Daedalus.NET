@@ -370,6 +370,63 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     }
 
     [Fact]
+    public async Task A_stranded_run_with_an_overdue_next_occurrence_is_Stranded_not_Overdue()
+    {
+        // Both things are wrong at once: a run stuck mid-flight since yesterday, AND nothing has claimed
+        // today's occurrence. Overdue displacing this would hide the more specific alarm behind the vaguer one.
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(-2));
+        var execution = NewExecution(schedule, _now.AddHours(-26));
+        execution.BeginScout(_now - _strandedAfter - TimeSpan.FromSeconds(1));
+        await InsertAsync(execution);
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+        diagnosis.Verdict.Should().Be(RunVerdict.Stranded,
+            "Overdue outranks a verdict only when that verdict would otherwise read HEALTHY; once the row is " +
+            "already an alarm the operator will look, and the alarm naming the stuck step beats the one that " +
+            "says only that nothing ran");
+        diagnosis.StepReached.Should().Be((int)RunStep.Scout, "which step it is stuck at is the half Overdue cannot tell anyone");
+    }
+
+    [Fact]
+    public async Task A_failed_run_with_an_overdue_next_occurrence_is_Failed_not_Overdue()
+    {
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(-2));
+        var execution = NewExecution(schedule, _now.AddHours(-26));
+        execution.BeginScout(_now.AddHours(-26));
+        execution.RecordFindings("three open PRs", _now.AddHours(-26));
+        execution.Fail("the writer subagent exceeded its token budget", _now.AddHours(-26));
+        await InsertAsync(execution);
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+        diagnosis.Verdict.Should().Be(RunVerdict.Failed);
+        diagnosis.LastError.Should().Be("the writer subagent exceeded its token budget",
+            "Overdue carries no error text, so displacing Failed would throw away the only account of what broke");
+    }
+
+    [Fact]
+    public async Task An_undelivered_run_with_an_overdue_next_occurrence_is_Undelivered_not_Overdue()
+    {
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(-2));
+        var execution = await SeedDoneExecutionAsync(schedule, _now.AddHours(-26));
+
+        await using var provider = BuildProvider();
+        await QueueMessageAsync(provider, execution.Id);
+        await DeadLetterAsync(provider, execution.Id, "Telegram returned 429 after 8 attempts", retryCount: 7);
+
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+        diagnosis.Verdict.Should().Be(RunVerdict.Undelivered);
+        diagnosis.DeadLetterError.Should().Be("Telegram returned 429 after 8 attempts");
+    }
+
+    [Fact]
     public async Task A_failed_execution_is_still_Failed_when_the_outbox_read_throws()
     {
         var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(1));
