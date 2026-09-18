@@ -81,7 +81,8 @@ Every task's requirements implicitly include this section. It restates plan B's 
 - **Store lifetime depends on whether the store writes an outbox row inside its own transaction.**
   - A store that does **not** write to the outbox is a singleton taking `IDbContextFactory<ApplicationDbContext>`, creating a fresh short-lived context per call. Follow `PostgresConversationMap`.
   - A store that **does** write an outbox row inside its own transaction is **scoped**, and injects `ApplicationDbContext` directly. `EfCoreOutboxStore<TContext>`'s only constructor is `ctor(TContext db)` — it resolves the context from DI, not from a factory — and `EnqueueAsync` calls `db.Database.UseTransactionAsync(transaction)`, which requires the store's connection to be *the same object* as the transaction's. A factory-minted context can never satisfy that, and the failure is a runtime `InvalidOperationException: The specified transaction is not associated with the current connection`, not a compile error. `AddDbContextPool<ApplicationDbContext>` in `AspireExtensions.cs` already registers the context scoped, so two resolutions in one scope return the same instance. Callers resolve such a store per unit of work from an `IServiceScope`.
-- **One `AddOutbox()` in the solution.** New `[OutboxMessage]` types chain onto the existing `IOutboxBuilder` inside `AddChannelOutbox`. Never call the generated `IServiceCollection` overload — it is `[Obsolete]` under `ZAOBOX010` and registers a second poller.
+- **One `AddOutbox()` in the solution.** New `[OutboxMessage]` types chain onto the existing `IOutboxBuilder` inside `AddChannelOutbox`. Never call the generated `IServiceCollection` overload — it is `[Obsolete]` under `ZAOBOX010`, and under `TreatWarningsAsErrors` that obsolete diagnostic **is the guard**: the build fails outright.
+  - **Correction, verified 2026-09-18:** the hazard is *not* a second `OutboxWorkerService` racing the first. `AddHostedService<T>()` in .NET 10 uses `TryAddEnumerable`, which dedupes by service-plus-implementation type, so calling `AddOutbox()` twice yields one poller — confirmed empirically, three calls produce one registration. Earlier text in this plan and in `DaedalusChannelsServiceCollectionExtensions`' phase 1.4 remarks claims a runtime race that does not reproduce on these versions. The poller-count assertion in `ApiHostChannelWiringTests` is therefore defence in depth against a shape DI dedupe would *not* catch — a factory-lambda or wrapper-type registration — rather than a reproduction of a live hazard. Do not restate the racing claim.
 - **An outbox type key is the fully-qualified type name string** — `"Daedalus.Agents.Scheduling.RunScoutStep"`, emitted into the generated dispatcher as `TypeName`. Moving or renaming one of these records orphans any pending rows carrying the old name. Do not move them casually; if you must, drain the table first.
 - **A permanent condition is logged at `Error` and treated as handled, never thrown.** This is `ChannelMessageQueuedDispatcher`'s policy and it is now load-bearing for five more dispatchers: throwing burns the retry budget before dead-lettering something that could never succeed.
 - **Migrations:** `dotnet ef migrations add <Name> --project src/Daedalus.Infrastructure --startup-project src/Daedalus.Api --output-dir Migrations`. Apply with `dotnet run --project src/Daedalus.Migrations`. EF 10 throws on `Migrate()` when the model has pending changes not in the snapshot — always regenerate, never hand-edit the snapshot.
@@ -940,6 +941,11 @@ public async ValueTask<bool> TryBeginAsync(ScheduledRunDue due, CancellationToke
     // constraint violation aborts the whole transaction, so the catch could not then go on to write
     // the outbox row in the same transaction — it would have to roll back and start again. One
     // statement, no exception control flow, and the unique index is the only arbiter.
+    // CORRECTION (2026-09-18): EF has no `:raw` format specifier — ExecuteSqlInterpolatedAsync
+    // parameterizes EVERY hole, so the column list would be sent as a bound parameter and Postgres
+    // would reject the statement as a syntax error. Verified live. Use ExecuteSqlRawAsync with the
+    // column list composed into the command text (it is a compile-time constant) and {0}..{n}
+    // placeholders for the values, which keeps every value parameterized.
     var inserted = await db.Database.ExecuteSqlInterpolatedAsync(
         $"""
          INSERT INTO "ScheduledRunExecutions" ({InsertColumns:raw})
@@ -994,11 +1000,16 @@ private async ValueTask<bool> TryAdvanceAsync(
         return false;
     }
 
+    // CORRECTION (2026-09-18): the try MUST also wrap enqueueNext, not only SaveChangesAsync.
+    // The outbox writer shares this scoped context, so its internal SaveChangesAsync can flush this
+    // row's pending update and raise the concurrency loss from inside the enqueue call. Reproduced
+    // under concurrent load in a full-suite run. ScheduledRunStore reached the same conclusion for
+    // the same reason; this plan failed to carry that lesson across.
     mutate(row, now);
-    await enqueueNext(row, tx, ct).ConfigureAwait(false);
 
     try
     {
+        await enqueueNext(row, tx, ct).ConfigureAwait(false);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
     catch (DbUpdateConcurrencyException)
@@ -1516,9 +1527,27 @@ public static IServiceCollection AddDaedalusScheduling(this IServiceCollection s
 
     // No saga registration: ZeroAlloc.Saga is not referenced by this solution. See
     // docs/plans/2026-09-17-scheduled-runs-without-saga-design.md.
-    services.AddScheduling()
-            .WithEfCoreStore<ApplicationDbContext>()
-            .AddScheduleSweeperJob();
+    // CORRECTION (2026-09-18) — the three lines below were written from a README and NONE of them
+    // exist. Probed off ZeroAlloc.Scheduling 1.2.46 and .EfCore 1.2.46:
+    //   AddScheduling(IServiceCollection, Action<SchedulingOptions> configure)  -- configure is REQUIRED
+    //   WithEfCore(ISchedulingBuilder, Action<...> configure)                   -- NOT WithEfCoreStore,
+    //                                                                              and NOT generic
+    //   the generator emits Add{TypeName}Job, so a class named ScheduleSweeperJob yields the
+    //   doubled-suffix AddScheduleSweeperJobJob(). That is correct, not a typo.
+    //
+    // THE HEADLINE: EfCoreJobStore's constructor is ctor(SchedulingDbContext db). Scheduling state
+    // does NOT live in ApplicationDbContext the way the outbox does — the package ships its own
+    // SchedulingDbContext, so this needs its own connection wiring and its own migration story.
+    // Resolve that before writing the DI extension.
+    //
+    // Confirmed good news: SchedulingWorkerService's ctor is
+    //   (IServiceScopeFactory, IOptionsMonitor<SchedulingOptions>, ILogger<...>, IEnumerable<IJobTypeExecutor>)
+    // so jobs ARE resolved per execution from a DI scope, and the scoped ScheduledRunStore works
+    // inside a job without hand-rolled scope management. The hosted-service type name this plan
+    // guessed for the host-wiring test is also right.
+    services.AddScheduling(/* configure */)
+            .WithEfCore(/* configure */)
+            .AddScheduleSweeperJobJob();
 
     services.AddSingleton<ScheduledRunStore>();
     services.AddSingleton<ScheduledRunExecutionStore>();
