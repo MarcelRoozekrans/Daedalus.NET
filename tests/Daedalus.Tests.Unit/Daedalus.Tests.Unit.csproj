@@ -48,6 +48,10 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>
+        <!-- Referenced only so its assembly is present in this project's output directory for
+             Assembly.Load("Daedalus.Cli") in CleanArchitectureTests (OnlySubagentRunExecutor_DependsOn_ISubagentRunner's
+             DaedalusOwnTypes) - Daedalus.Cli has no public type a typeof() expression could anchor on. -->
+        <ProjectReference Include="..\..\src\Daedalus.Cli\Daedalus.Cli.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Domain\Daedalus.Domain.csproj"/>

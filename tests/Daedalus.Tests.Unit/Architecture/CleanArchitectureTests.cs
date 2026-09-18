@@ -78,6 +78,19 @@ public sealed class CleanArchitectureTests
     private static readonly SysAssembly AgentsAssembly = typeof(DaedalusAgentsServiceCollectionExtensions).Assembly;
     private static readonly SysAssembly WebAssembly = typeof(Daedalus.Web.App).Assembly;
 
+    /// <summary>The Ralph console host. Has a public type (<c>RalphLoopWorker</c>) to anchor a <c>typeof()</c> on.</summary>
+    private static readonly SysAssembly ConsoleAssembly = typeof(Daedalus.Console.RalphLoopWorker).Assembly;
+
+    /// <summary>
+    ///     The CLI host. Loaded by simple name, not <c>typeof()</c>: <c>Daedalus.Cli</c> has exactly one source
+    ///     file (<c>Program.cs</c>, top-level statements) and declares no public type, only the <c>internal</c>
+    ///     <c>CliHostServices</c> — and its <c>InternalsVisibleTo</c> grants only <c>Daedalus.Tests.Integration</c>,
+    ///     not this project. <c>Daedalus.Tests.Unit.csproj</c> carries a <c>ProjectReference</c> to
+    ///     <c>Daedalus.Cli</c> purely so its assembly is present in this project's output directory for this call
+    ///     to find.
+    /// </summary>
+    private static readonly SysAssembly CliAssembly = SysAssembly.Load("Daedalus.Cli");
+
     private static readonly SysAssembly MemoryRagNetAssembly = typeof(RagNetMemoryOptions).Assembly; // Thalos.NET.Memory.RagNet
 
     /// <summary>Microsoft.EntityFrameworkCore itself, loaded so <see cref="DomainLayer_ShouldNotDependOn_EfCore"/> is non-vacuous.</summary>
@@ -116,6 +129,7 @@ public sealed class CleanArchitectureTests
 
     private static readonly ArchUnitNET.Domain.Architecture Architecture = new ArchLoader()
         .LoadAssemblies(DomainAssembly, ApplicationAssembly, InfrastructureAssembly, ApiAssembly, AgentsAssembly, WebAssembly)
+        .LoadAssemblies(ConsoleAssembly, CliAssembly)
         .LoadAssemblies(ThalosAssemblies)
         .LoadAssemblies(RagNetAssemblies)
         .LoadAssemblies(EfCoreAssembly)
@@ -160,7 +174,11 @@ public sealed class CleanArchitectureTests
 
     /// <summary>
     ///     Thalos' <c>ISubagentRunner</c> — the single seam <see cref="OnlySubagentRunExecutor_DependsOn_ISubagentRunner"/>
-    ///     restricts to <see cref="SubagentRunExecutor"/> alone.
+    ///     restricts to <see cref="SubagentRunExecutor"/> alone. If Thalos ever renames or moves this type, this
+    ///     matcher silently resolves to nothing and the rule above would pass without checking anything —
+    ///     <see cref="SubagentRunnerType_IsLoaded_SoTheSingleSeamRuleCoversIt"/> guards exactly that, the same way
+    ///     <see cref="EfCoreAssembly_IsLoaded_SoTheDomainRuleCoversIt"/> guards
+    ///     <see cref="DomainLayer_ShouldNotDependOn_EfCore"/>.
     /// </summary>
     private static readonly IObjectProvider<IType> SubagentRunnerType =
         Types().That().HaveFullName("Thalos.ISubagentRunner")
@@ -170,7 +188,10 @@ public sealed class CleanArchitectureTests
     ///     Every type declared in this solution's own assemblies, as opposed to a referenced package's. Used to
     ///     scope <see cref="OnlySubagentRunExecutor_DependsOn_ISubagentRunner"/> to Daedalus code: Thalos' own
     ///     <c>SubagentRunner</c> (the default <c>ISubagentRunner</c> implementation) and its own DI registration
-    ///     both legitimately "depend on" the interface they define and wire up, and are not offenders.
+    ///     both legitimately "depend on" the interface they define and wire up, and are not offenders. Covers
+    ///     every host in the solution, including the thin entry points (<c>Daedalus.Console</c>,
+    ///     <c>Daedalus.Cli</c>) — the rule claims the whole solution, so the scope must actually be the whole
+    ///     solution, not just the layers with the most code in them.
     /// </summary>
     private static readonly IObjectProvider<IType> DaedalusOwnTypes =
         Types().That().ResideInAssembly(DomainAssembly)
@@ -179,6 +200,8 @@ public sealed class CleanArchitectureTests
             .Or().ResideInAssembly(ApiAssembly)
             .Or().ResideInAssembly(AgentsAssembly)
             .Or().ResideInAssembly(WebAssembly)
+            .Or().ResideInAssembly(ConsoleAssembly)
+            .Or().ResideInAssembly(CliAssembly)
             .As("Daedalus (this solution's own assemblies)");
 
     [Fact]
@@ -303,6 +326,20 @@ public sealed class CleanArchitectureTests
             .Should().NotExist()
             .Because("SubagentRunExecutor is the only Daedalus type permitted to depend on Thalos' " +
                       "ISubagentRunner; every other caller must go through ISubagentRunExecutor instead");
+
+        rule.Check(Architecture);
+    }
+
+    /// <summary>Known positive: proves <c>Thalos.ISubagentRunner</c> is loaded so the single-seam rule covers it.</summary>
+    [Fact]
+    public void SubagentRunnerType_IsLoaded_SoTheSingleSeamRuleCoversIt()
+    {
+        // Same trap as the other "loaded" facts in this file: if Thalos ever renames or moves ISubagentRunner,
+        // HaveFullName("Thalos.ISubagentRunner") would resolve to nothing, DependOnAny would find an empty set,
+        // and OnlySubagentRunExecutor_DependsOn_ISubagentRunner would pass forever while checking nothing.
+        var rule = Types().That().Are(SubagentRunnerType)
+            .Should().Exist()
+            .Because("Thalos.ISubagentRunner must resolve to a real loaded type or the single-seam rule never sees it");
 
         rule.Check(Architecture);
     }
