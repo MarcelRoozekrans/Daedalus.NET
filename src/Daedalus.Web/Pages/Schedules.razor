@@ -50,7 +50,7 @@
             @if (run.Verdict == RunVerdict.DeliveryUnknown)
             {
                 <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" Style="margin-top: 0.5rem;">
-                    The run completed, but the outbox could not be read to confirm delivery.
+                    The run completed, but delivery could not be confirmed: either the outbox could not be read, or the scan did not reach back far enough to check.
                 </RadzenAlert>
             }
 
@@ -526,7 +526,7 @@ else
     {
         RunVerdict.Failed => row.LastError,
         RunVerdict.Undelivered => row.DeadLetterError,
-        RunVerdict.DeliveryUnknown => "The outbox could not be read to confirm delivery.",
+        RunVerdict.DeliveryUnknown => "Delivery could not be confirmed: outbox read failed, or the scan did not reach back far enough.",
         RunVerdict.Stranded => $"Stuck at {StepName(row.StepReached)}.",
         _ => null,
     };

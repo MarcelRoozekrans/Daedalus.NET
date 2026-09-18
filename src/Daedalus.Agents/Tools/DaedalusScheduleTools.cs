@@ -88,7 +88,7 @@ public sealed class DaedalusScheduleTools(IScheduleDiagnostics diagnostics)
         RunVerdict.NotYetDue => "This occurrence has not become due yet.",
         RunVerdict.Overdue => "Overdue: nothing has claimed this occurrence though it should have run by now.",
         RunVerdict.Stranded => $"Stranded at the {(RunStep)d.StepReached} step; it stopped advancing without completing or failing.",
-        RunVerdict.DeliveryUnknown => "The run completed, but delivery could not be confirmed because the outbox could not be read.",
+        RunVerdict.DeliveryUnknown => "The run completed, but delivery could not be confirmed: either the outbox could not be read, or the dead-letter scan did not reach back far enough to check.",
         RunVerdict.Failed => $"Failed at the {FailedStepName(d)} step: {d.LastError ?? "no error was recorded"}.",
         RunVerdict.Undelivered => $"The run completed, but the message was dead-lettered: " +
                                    $"{d.DeadLetterError ?? "no reason was recorded"}{RetrySuffix(d.RetryCount)}",
