@@ -159,7 +159,7 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     }
 
     [Fact]
-    public async Task Delivery_writes_the_channel_message_in_the_same_transaction_as_Done()
+    public async Task Delivery_marks_the_execution_Done_and_queues_the_channel_message()
     {
         var store = Store();
         await store.TryBeginAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);

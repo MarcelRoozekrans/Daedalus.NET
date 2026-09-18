@@ -201,7 +201,7 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
     }
 
     [Fact]
-    public async Task A_trigger_naming_no_registered_saga_throws_at_startup()
+    public async Task A_trigger_not_in_KnownTriggers_throws_at_startup()
     {
         var configuration = BuildConfiguration(
             "schedule:daedalus", ["reader"],

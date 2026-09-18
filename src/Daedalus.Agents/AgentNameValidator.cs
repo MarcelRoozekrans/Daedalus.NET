@@ -13,12 +13,11 @@ namespace Daedalus.Agents;
 ///     time something needs the name (for <c>DefaultAgent</c>, that is the first message a channel routes).
 ///     </para>
 ///     <para>
-///     Takes a collection rather than a single name on purpose. Today the only caller validates
-///     <c>Thalos:Channels:DefaultAgent</c> alone — there are no sagas in this phase (<c>ZeroAlloc.Saga</c> was
-///     dropped as undriveable) and no workflow-agent-name type exists yet to validate. A later task that
-///     introduces workflow agent names (e.g. a saga step's agent binding) extends the caller to pass those names
-///     alongside <c>DefaultAgent</c> in the same collection, so every unknown name — from every source — is still
-///     reported in one pass rather than one restart per name.
+///     Takes a collection rather than a single name on purpose. The caller,
+///     <c>ScheduleReconcilerHostedService</c>, already passes more than one source in the same collection:
+///     <c>Thalos:Channels:DefaultAgent</c> (when configured) alongside every <c>RepoDigestPrompts.AgentNames</c>
+///     entry — the <c>RepoDigest</c> workflow's scout and writer agent names. Validating them together means
+///     every unknown name, from every source, is reported in one pass rather than one restart per name.
 ///     </para>
 /// </remarks>
 public static class AgentNameValidator

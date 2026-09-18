@@ -168,6 +168,35 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
     }
 
     [Fact]
+    public async Task A_cancelled_scout_turn_is_not_marked_Failed_and_queues_no_operator_notice()
+    {
+        // Thalos surfaces a turn cancelled by a host shutdown as Result.Failure(AgentError) with
+        // AgentErrorCode.Cancelled, not as a thrown OperationCanceledException - so the dispatcher's own
+        // "is not OperationCanceledException" catch filter around TryCompleteScoutAsync never sees it; this
+        // is the earlier, result.IsFailure branch. Without the fix, this would route through FailAsync and
+        // mark the execution Failed with a spurious operator notice, surviving only by coincidence today
+        // because FailAsync's own BeginTransactionAsync(ct) happens to throw on the same cancelled token.
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+        var store = BuildStore();
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = new CancelledSubagentRunExecutor();
+        var act = async () => await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+
+        await act.Should().ThrowAsync<OperationCanceledException>(
+            "a cancelled turn must propagate like a host shutdown, not detour through FailAsync");
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Scout, "a cancelled scout turn must not be marked Failed");
+        row.LastError.Should().BeNull();
+        (await OutboxCountAsync<ChannelMessageQueued>()).Should().Be(0,
+            "no operator notice may be queued for a cancelled turn");
+        adapter.DeliveredTexts.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_restart_between_the_scout_and_writer_steps_resumes_without_re_running_the_scout()
     {
         // Models a host restart the way ScheduledRunExecutionStoreTests does: a brand-new store, a brand-new
@@ -380,6 +409,14 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         return await db.ScheduledRunExecutions.CountAsync();
     }
 
+    /// <summary>Counts outbox rows of type <typeparamref name="T"/>, by the same type-name column ZeroAlloc.Outbox's generated writer stamps.</summary>
+    private async Task<int> OutboxCountAsync<T>()
+    {
+        var typeName = typeof(T).FullName;
+        await using var db = fixture.CreateDbContext();
+        return await db.OutboxMessages.CountAsync(m => m.TypeName == typeName);
+    }
+
     /// <summary>
     ///     Reads the single <see cref="ChannelMessageQueued"/> outbox row written so far, deserializes it with the
     ///     same <see cref="IOutboxSerializer"/> the host registers, and feeds it to a real
@@ -500,6 +537,19 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         public string DefaultModel => "scripted-model";
 
         public Microsoft.Extensions.AI.IChatClient CreateChatClient(AgentDefinition agent) => client;
+    }
+
+    /// <summary>
+    ///     Always returns a <c>Result.Failure</c> carrying <see cref="AgentErrorCode.Cancelled"/>, simulating
+    ///     Thalos surfacing a turn cancelled mid-flight (e.g. by a host shutdown) as a
+    ///     <c>ZeroAlloc.Results.Result&lt;string, AgentError&gt;</c> rather than a thrown
+    ///     <see cref="OperationCanceledException"/>.
+    /// </summary>
+    private sealed class CancelledSubagentRunExecutor : ISubagentRunExecutor
+    {
+        public ValueTask<ZeroAlloc.Results.Result<string, AgentError>> RunAsync(
+            string agentName, string task, string principalId, IReadOnlyList<string> roles, CancellationToken ct) =>
+            ValueTask.FromResult(ZeroAlloc.Results.Result<string, AgentError>.Failure(AgentError.Cancelled()));
     }
 
     /// <summary>Fake <see cref="IChannelAdapter"/> recording every delivered message's text.</summary>

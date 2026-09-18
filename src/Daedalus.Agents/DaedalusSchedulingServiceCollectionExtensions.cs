@@ -56,12 +56,17 @@ public static class DaedalusSchedulingServiceCollectionExtensions
     ///     <c>[Saga]</c> class. Without one, adding a second workflow next to <c>RepoDigest</c> means: a new step
     ///     record per stage (like <see cref="Scheduling.RunScoutStep"/>, <see cref="Scheduling.RunWriterStep"/>,
     ///     <see cref="Scheduling.DeliverDigest"/>), a dispatcher per record registered here with its own
-    ///     <see cref="ServiceCollectionDescriptorExtensions.Replace"/> call, and a new entry in
-    ///     <see cref="Scheduling.ScheduleReconciler.KnownTriggers"/> so a schedule can select it. This was accepted
-    ///     because the alternative — <c>ZeroAlloc.Saga</c> — was found undriveable in this phase (its generated
-    ///     <c>Publish</c> dispatches to a closed list of handler types fixed at the saga's own compile time, and
-    ///     never enumerates handlers registered later via DI): a library that promises one class but cannot
-    ///     actually be driven is not cheaper than four.
+    ///     <see cref="ServiceCollectionDescriptorExtensions.Replace"/> call, and branching in
+    ///     <see cref="Scheduling.ScheduledRunExecutionStore.TryBeginAsync"/> to choose which chain a schedule
+    ///     starts. <b>Adding the new workflow's name to <see cref="Scheduling.ScheduleReconciler.KnownTriggers"/> is
+    ///     not, by itself, enough</b> — <c>KnownTriggers</c> is validated at boot but never read at run time:
+    ///     <c>TryBeginAsync</c> does not look at <c>ScheduledRun.Trigger</c> at all today and
+    ///     unconditionally starts the <c>RepoDigest</c> chain, so a schedule whose <c>Trigger</c> names a second,
+    ///     validated workflow would still silently run <c>RepoDigest</c> until that branching is added. This was
+    ///     accepted because the alternative — <c>ZeroAlloc.Saga</c> — was found undriveable in this phase (its
+    ///     generated <c>Publish</c> dispatches to a closed list of handler types fixed at the saga's own compile
+    ///     time, and never enumerates handlers registered later via DI): a library that promises one class but
+    ///     cannot actually be driven is not cheaper than four.
     ///     </para>
     /// </remarks>
     public static IServiceCollection AddDaedalusScheduling(this IServiceCollection services, IConfiguration configuration)

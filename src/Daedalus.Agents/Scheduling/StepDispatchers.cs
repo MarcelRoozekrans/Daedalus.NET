@@ -42,6 +42,19 @@ public sealed partial class RunScoutStepDispatcher(
 
         if (result.IsFailure)
         {
+            if (result.Error.Code == AgentErrorCode.Cancelled)
+            {
+                // Thalos surfaces a cancelled turn as Result.Failure(AgentError) with AgentErrorCode.Cancelled,
+                // not as a thrown OperationCanceledException - so the "is not OperationCanceledException" filter
+                // on the catch below never sees it. Without this check, a host shutdown mid-turn would route
+                // through FailAsync and mark the execution Failed with a spurious operator notice; it survived
+                // only because FailAsync's own BeginTransactionAsync(ct) happens to throw on the same cancelled
+                // token first - the exact "probably correct because of how another method orders its
+                // cancellation checks" reasoning this phase already rejected once. Propagate instead, exactly
+                // like the exception paths, so a run interrupted by a deploy resumes on redelivery.
+                throw new OperationCanceledException("The scout turn was cancelled.", null, ct);
+            }
+
             await store.FailAsync(message.ExecutionId, Describe(result.Error), ct).ConfigureAwait(false);
             return;
         }
@@ -111,6 +124,14 @@ public sealed partial class RunWriterStepDispatcher(
 
         if (result.IsFailure)
         {
+            // See RunScoutStepDispatcher's matching check for why AgentErrorCode.Cancelled is singled out here:
+            // Thalos surfaces a cancelled turn as a Result failure, not a thrown OperationCanceledException, so
+            // the catch below's "is not OperationCanceledException" filter never sees it.
+            if (result.Error.Code == AgentErrorCode.Cancelled)
+            {
+                throw new OperationCanceledException("The writer turn was cancelled.", null, ct);
+            }
+
             await store.FailAsync(message.ExecutionId, Describe(result.Error), ct).ConfigureAwait(false);
             return;
         }

@@ -140,60 +140,83 @@ public sealed partial class ScheduledRunExecutionStore(
         var now = _time.GetUtcNow().UtcDateTime;
         var db = _db; // injected scoped context, shared with the outbox writers — see the class remarks
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+        var committed = false;
 
-        var schedule = await db.ScheduledRuns
-            .AsNoTracking()
-            .SingleOrDefaultAsync(r => r.Id == due.ScheduleId, ct)
-            .ConfigureAwait(false);
-
-        if (schedule is null)
+        try
         {
-            // Permanent: retrying cannot make a deleted schedule reappear. Same policy as
-            // ChannelMessageQueuedDispatcher's unknown-channel branch — log loudly, treat as handled.
-            LogUnknownSchedule(_logger, due.ScheduleId, due.OccurrenceAtUtc);
-            return false;
+            var schedule = await db.ScheduledRuns
+                .AsNoTracking()
+                .SingleOrDefaultAsync(r => r.Id == due.ScheduleId, ct)
+                .ConfigureAwait(false);
+
+            if (schedule is null)
+            {
+                // Permanent: retrying cannot make a deleted schedule reappear. Same policy as
+                // ChannelMessageQueuedDispatcher's unknown-channel branch — log loudly, treat as handled.
+                LogUnknownSchedule(_logger, due.ScheduleId, due.OccurrenceAtUtc);
+                return false;
+            }
+
+            var created = ScheduledRunExecution.Create(
+                schedule.Id, due.OccurrenceAtUtc, schedule.ChannelId, schedule.ConversationId,
+                schedule.PrincipalId, schedule.Roles, now);
+
+            if (created.IsFailure)
+            {
+                LogInvalidSchedule(_logger, schedule.Name, created.Error);
+                return false;
+            }
+
+            var row = created.Value;
+            row.BeginScout(now);
+
+            // INSERT ... ON CONFLICT DO NOTHING rather than SaveChanges-and-catch-23505: in PostgreSQL a
+            // constraint violation aborts the whole transaction, so the catch could not then go on to write
+            // the outbox row in the same transaction — it would have to roll back and start again. One
+            // statement, no exception control flow, and the unique index is the only arbiter.
+            // row.Findings, row.Digest, and row.LastError are all null at this point (a freshly created execution has
+            // completed no step and never failed) - the null-forgiving operator only tells the compiler that passing
+            // null here is intentional, not a bug. ExecuteSqlRawAsync binds each element as a DbParameter, so a null
+            // element becomes DBNull, exactly as it would for a normal parameterized query.
+            var inserted = await db.Database.ExecuteSqlRawAsync(
+                InsertSql,
+                [
+                    row.Id, row.ScheduleId, row.OccurrenceAt, row.Step.ToString(), row.Findings!,
+                    row.Digest!, row.ChannelId, row.ConversationId, row.PrincipalId,
+                    string.Join(',', row.Roles), row.Attempts, row.LastError!, row.CreatedAt, row.UpdatedAt,
+                ],
+                ct).ConfigureAwait(false);
+
+            if (inserted == 0)
+            {
+                LogRedelivered(_logger, due.ScheduleId, due.OccurrenceAtUtc);
+                await tx.RollbackAsync(ct).ConfigureAwait(false);
+                return false;
+            }
+
+            await _scoutWriter.WriteAsync(new RunScoutStep(row.Id), tx.GetDbTransaction(), ct).ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+            committed = true;
+            return true;
         }
-
-        var created = ScheduledRunExecution.Create(
-            schedule.Id, due.OccurrenceAtUtc, schedule.ChannelId, schedule.ConversationId,
-            schedule.PrincipalId, schedule.Roles, now);
-
-        if (created.IsFailure)
+        finally
         {
-            LogInvalidSchedule(_logger, schedule.Name, created.Error);
-            return false;
+            // Same shape as TryAdvanceAsync's and FailAsync's finally, for the same reason: _scoutWriter.WriteAsync
+            // above is EfCoreOutboxStore, which Adds an OutboxMessageEntity to this store's own ApplicationDbContext
+            // and calls SaveChangesAsync itself before this method ever reaches its own tx.CommitAsync. If that
+            // save (or anything after it) throws, the transaction rolls back on dispose, but the outbox entity is
+            // still tracked as Added in this scope's ChangeTracker. Because the worker's DI scope is per batch, not
+            // per message (see the class remarks on why this store's own scope must be per unit of work), that
+            // orphaned Added entity would survive into the next message's dispatch and ride along on the worker's
+            // own, unrelated SaveChangesAsync — inserting a phantom RunScoutStep outside any transaction, pointing
+            // at an execution row that was never created. The other two early-return paths above (unknown schedule,
+            // invalid schedule) never Add anything, so this clear is a no-op there; it only matters on the path
+            // where WriteAsync ran and something after it failed to commit.
+            if (!committed)
+            {
+                db.ChangeTracker.Clear();
+            }
         }
-
-        var row = created.Value;
-        row.BeginScout(now);
-
-        // INSERT ... ON CONFLICT DO NOTHING rather than SaveChanges-and-catch-23505: in PostgreSQL a
-        // constraint violation aborts the whole transaction, so the catch could not then go on to write
-        // the outbox row in the same transaction — it would have to roll back and start again. One
-        // statement, no exception control flow, and the unique index is the only arbiter.
-        // row.Findings, row.Digest, and row.LastError are all null at this point (a freshly created execution has
-        // completed no step and never failed) - the null-forgiving operator only tells the compiler that passing
-        // null here is intentional, not a bug. ExecuteSqlRawAsync binds each element as a DbParameter, so a null
-        // element becomes DBNull, exactly as it would for a normal parameterized query.
-        var inserted = await db.Database.ExecuteSqlRawAsync(
-            InsertSql,
-            [
-                row.Id, row.ScheduleId, row.OccurrenceAt, row.Step.ToString(), row.Findings!,
-                row.Digest!, row.ChannelId, row.ConversationId, row.PrincipalId,
-                string.Join(',', row.Roles), row.Attempts, row.LastError!, row.CreatedAt, row.UpdatedAt,
-            ],
-            ct).ConfigureAwait(false);
-
-        if (inserted == 0)
-        {
-            LogRedelivered(_logger, due.ScheduleId, due.OccurrenceAtUtc);
-            await tx.RollbackAsync(ct).ConfigureAwait(false);
-            return false;
-        }
-
-        await _scoutWriter.WriteAsync(new RunScoutStep(row.Id), tx.GetDbTransaction(), ct).ConfigureAwait(false);
-        await tx.CommitAsync(ct).ConfigureAwait(false);
-        return true;
     }
 
     /// <summary>Advances a scouted execution to the writer step, persisting its findings.</summary>
@@ -402,7 +425,13 @@ public sealed partial class ScheduledRunExecutionStore(
         }
     }
 
-    /// <summary>Reads one execution by id, untracked. Used by resumption logic after a restart.</summary>
+    /// <summary>
+    ///     Reads one execution by id, untracked. Its only callers today are the three step dispatchers'
+    ///     (<see cref="RunScoutStepDispatcher"/>, <see cref="RunWriterStepDispatcher"/>,
+    ///     <see cref="DeliverDigestDispatcher"/>) cheap pre-checks before paying for a subagent turn — there is no
+    ///     resumption logic that runs after a restart; a crash simply leaves the row at its last persisted step,
+    ///     and the next redelivered step command finds it there via this same method.
+    /// </summary>
     public async ValueTask<ScheduledRunExecution?> FindAsync(Guid executionId, CancellationToken ct) =>
         await _db.ScheduledRunExecutions.AsNoTracking()
             .SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
