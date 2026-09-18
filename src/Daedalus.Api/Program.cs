@@ -78,6 +78,12 @@ builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment, o
 // no TTY, so a console channel here would leave a hosted service blocked reading a stream nobody writes to.
 builder.Services.AddDaedalusChannels(builder.Configuration);
 
+// Scheduled-run execution (the sweeper, the two run stores, the subagent seam, and the four step dispatchers).
+// Must run after AddDaedalusAgents above, which wires the outbox durability layer this method's dispatcher
+// Replace calls depend on, and which already registers ScheduleReconcilerHostedService — see the XML doc on
+// AddDaedalusScheduling for both hazards.
+builder.Services.AddDaedalusScheduling(builder.Configuration);
+
 // Add code analysis services (Ralph Loop orchestration, Git operations)
 builder.Services.AddCodeAnalysisServices(builder.Configuration);
 

@@ -44,6 +44,11 @@ try
             // AddDaedalusAgents above, which wires the outbox durability layer AddDaedalusChannels deliberately
             // does not wire itself — see the API host's Program.cs for the full reasoning.
             services.AddDaedalusChannels(context.Configuration, includeConsoleChannel: true);
+
+            // Scheduled-run execution: same composition as the API host. Must run after AddDaedalusAgents above,
+            // which wires the outbox durability layer this method's dispatcher Replace calls depend on, and which
+            // already registers ScheduleReconcilerHostedService — see the XML doc on AddDaedalusScheduling.
+            services.AddDaedalusScheduling(context.Configuration);
         })
         .Build();
 
