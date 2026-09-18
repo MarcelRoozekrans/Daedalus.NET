@@ -41,6 +41,13 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
     private const string TelegramChannelId = "telegram";
     private const string ConversationId = "482910337";
     private const string PrincipalId = "schedule:daedalus";
+
+    // A sentinel embedded in a scout response and asserted for in the writer's own prompt: proves the writer
+    // actually received the scout's findings (RepoDigestPrompts.WriterTask(execution.Findings!)), not merely
+    // that some plausible-looking digest happened to come back. Distinctive enough that it cannot match by
+    // accident against the writer's own scripted response or any other request text.
+    private const string ScoutFindingsSentinel = "SCOUT-FINDINGS-SENTINEL-4f2c9e";
+
     private static readonly string[] Roles = ["reader", "writer"];
     private static readonly DateTime Occurrence = new(2026, 9, 17, 7, 0, 0, DateTimeKind.Utc);
 
@@ -67,7 +74,7 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
     public async Task A_due_schedule_produces_a_digest_delivered_to_the_fake_adapter()
     {
         var scripted = new ScriptedChatClient();
-        scripted.ThenText("Scout findings: three open PRs, one failing CI run.");
+        scripted.ThenText($"Scout findings: three open PRs, one failing CI run. {ScoutFindingsSentinel}");
         scripted.ThenText("Here is your digest: three PRs are open and one CI run needs attention.");
         var adapter = new RecordingChannelAdapter(TelegramChannelId);
 
@@ -88,6 +95,8 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         adapter.DeliveredTexts.Should().ContainSingle()
             .Which.Should().Be("Here is your digest: three PRs are open and one CI run needs attention.");
         scripted.Requests.Should().HaveCount(2, "one scout call and one writer call, and nothing else");
+        RequestText(scripted, 1).Should().Contain(ScoutFindingsSentinel,
+            "the writer's own prompt must carry the scout's findings text, not merely produce a plausible digest");
     }
 
     [Fact]
@@ -255,6 +264,15 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
     }
 
     private async Task<Guid> SingleExecutionIdAsync() => (await SingleExecutionRowAsync()).Id;
+
+    /// <summary>
+    ///     The concatenated text of every <see cref="Microsoft.Extensions.AI.ChatMessage"/> in the
+    ///     <paramref name="scripted"/> client's <paramref name="requestIndex"/>-th captured request - what the
+    ///     model actually saw for that call, so a test can assert on the prompt content itself rather than only
+    ///     on the scripted response that came back.
+    /// </summary>
+    private static string RequestText(ScriptedChatClient scripted, int requestIndex) =>
+        string.Join('\n', scripted.Requests[requestIndex].Messages.Select(m => m.Text));
 
     private async Task<int> ExecutionCountAsync()
     {
