@@ -44,11 +44,18 @@ namespace Daedalus.Agents.Scheduling;
 ///     instead. <see cref="FailAsync"/> needs the same shape for the same reason: at-least-once delivery lets a
 ///     redelivered step command and its original both fail the same execution concurrently, and without this it
 ///     self-heals only by throwing an unhandled exception out of an outbox dispatcher and burning retry budget to
-///     get there. Both catch blocks also call <c>ChangeTracker.Clear()</c> before returning, matching
-///     <see cref="ScheduledRunStore.ClaimAndEnqueueDueAsync"/>'s own remarks on the same point: after a caught loss
-///     the context still holds the mutated row as <c>Modified</c> and any staged outbox row as <c>Added</c>, neither
-///     of which reflects reality once the transaction is gone, and a caller reusing this scope must not resolve
-///     those stale tracked entities on its next read.
+///     get there. Both methods clear the change tracker in a <c>finally</c> on every path that did not commit —
+///     not only the concurrency catch. An earlier version cleared only there, and a review found the gap: any
+///     <em>other</em> exception out of <c>enqueueNext</c> or <c>SaveChangesAsync</c> — exactly what
+///     <c>A_failure_to_write_the_channel_message_leaves_the_step_un_advanced</c> provokes — propagated with the
+///     row still tracked as <c>Modified</c> and <c>Step</c> already mutated in memory, even though the transaction
+///     rolled back. A caller reusing this scope (every caller does; see above) that next resolved the same
+///     execution by identity got that stale tracked instance back from EF's identity map instead of a fresh row —
+///     concretely, the natural dispatcher shape "call <see cref="TryCompleteDeliveryAsync"/>, catch, call
+///     <see cref="FailAsync"/> on the same store" would see the stale in-memory <see cref="RunStep.Done"/> and
+///     return through <see cref="FailAsync"/>'s own terminal guard without ever queuing the operator notice.
+///     Matches <see cref="ScheduledRunStore.ClaimAndEnqueueDueAsync"/>'s own remarks on the same point, and that
+///     store received the identical fix for the identical reason.
 ///     </para>
 ///     <para>
 ///     <b>The guarantee this store gives is bounded, not absolute.</b> A crash after a step's subagent returns but
@@ -243,52 +250,71 @@ public sealed partial class ScheduledRunExecutionStore(
         var now = _time.GetUtcNow().UtcDateTime;
         var db = _db; // injected scoped context, shared with the outbox writers — see the class remarks
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
-
-        var row = await db.ScheduledRunExecutions.SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
-        if (row is null)
-        {
-            LogUnknownExecution(_logger, executionId);
-            return false;
-        }
-
-        if (row.Step != expected)
-        {
-            // Redelivery, or the other poller won. Not an error: at-least-once delivery makes this routine.
-            LogStepAlreadyPast(_logger, executionId, expected, row.Step);
-            return false;
-        }
-
-        mutate(row, now);
+        var committed = false;
 
         try
         {
-            // enqueueNext is inside this try, not just the trailing SaveChangesAsync below: EfCoreOutboxStore
-            // shares this method's own ApplicationDbContext (see the class remarks), so its internal
-            // SaveChangesAsync call - triggered by THIS enqueue - flushes the mutate() above right here, before
-            // this method ever reaches its own SaveChangesAsync. A concurrency loss on this row's xmin can
-            // therefore surface from enqueueNext, not only from the call below; a full-suite run (not just this
-            // test class in isolation) reproduced exactly that with Two_pollers_racing_one_step_advance_it_exactly_once
-            // throwing DbUpdateConcurrencyException out of enqueueNext when the try/catch only wrapped
-            // SaveChangesAsync, matching ScheduledRunStore.ClaimAndEnqueueDueAsync's own remarks on the same hazard.
-            await enqueueNext(row, tx, ct).ConfigureAwait(false);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // xmin moved between the read and the save: the other poller advanced this step first.
-            // Roll back and report no-op, exactly as the step check above would have.
-            LogLostStepRace(_logger, executionId, expected);
-            await tx.RollbackAsync(ct).ConfigureAwait(false);
-            // The row is still tracked as Modified and any outbox row staged by enqueueNext is still tracked as
-            // Added - neither reflects reality once the transaction is gone. A caller reusing this scope (every
-            // caller does; the store is scoped per unit of work, not per call) must not resolve those stale
-            // tracked entities on its next read.
-            db.ChangeTracker.Clear();
-            return false;
-        }
+            var row = await db.ScheduledRunExecutions.SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
+            if (row is null)
+            {
+                LogUnknownExecution(_logger, executionId);
+                return false;
+            }
 
-        await tx.CommitAsync(ct).ConfigureAwait(false);
-        return true;
+            if (row.Step != expected)
+            {
+                // Redelivery, or the other poller won. Not an error: at-least-once delivery makes this routine.
+                LogStepAlreadyPast(_logger, executionId, expected, row.Step);
+                return false;
+            }
+
+            mutate(row, now);
+
+            try
+            {
+                // enqueueNext is inside this try, not just the trailing SaveChangesAsync below: EfCoreOutboxStore
+                // shares this method's own ApplicationDbContext (see the class remarks), so its internal
+                // SaveChangesAsync call - triggered by THIS enqueue - flushes the mutate() above right here, before
+                // this method ever reaches its own SaveChangesAsync. A concurrency loss on this row's xmin can
+                // therefore surface from enqueueNext, not only from the call below; a full-suite run (not just this
+                // test class in isolation) reproduced exactly that with Two_pollers_racing_one_step_advance_it_exactly_once
+                // throwing DbUpdateConcurrencyException out of enqueueNext when the try/catch only wrapped
+                // SaveChangesAsync, matching ScheduledRunStore.ClaimAndEnqueueDueAsync's own remarks on the same hazard.
+                await enqueueNext(row, tx, ct).ConfigureAwait(false);
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                // xmin moved between the read and the save: the other poller advanced this step first.
+                // Roll back and report no-op, exactly as the step check above would have.
+                LogLostStepRace(_logger, executionId, expected, ex);
+                await tx.RollbackAsync(ct).ConfigureAwait(false);
+                return false;
+            }
+
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+            committed = true;
+            return true;
+        }
+        finally
+        {
+            // Every path above except the committed one leaves this method with the transaction gone but some
+            // entity still tracked - the read row as Unchanged (row is null branch aside, which tracks nothing),
+            // as Modified (mutate() ran but the save was never reached, or lost the xmin race), or an outbox row
+            // as Added (enqueueNext ran but SaveChangesAsync threw for a reason OTHER than a concurrency loss -
+            // the exact gap review round 3 found: only the concurrency catch used to clear the tracker, so any
+            // other exception out of enqueueNext or SaveChangesAsync - precisely what
+            // A_failure_to_write_the_channel_message_leaves_the_step_un_advanced provokes - propagated with the
+            // row still tracked as Modified/Done. A caller reusing this scope (every caller does; the store is
+            // scoped per unit of work, not per call) that next reads this same execution by identity would get
+            // that stale tracked instance back from EF's identity map instead of a fresh row from the database,
+            // regardless of what actually committed. Clearing here, unconditionally, on every non-committed exit
+            // - including a plain early return, not only a caught exception - is what closes that gap.
+            if (!committed)
+            {
+                db.ChangeTracker.Clear();
+            }
+        }
     }
 
     /// <summary>
@@ -302,59 +328,78 @@ public sealed partial class ScheduledRunExecutionStore(
         var now = _time.GetUtcNow().UtcDateTime;
         var db = _db; // injected scoped context, shared with the outbox writers — see the class remarks
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
-
-        var row = await db.ScheduledRunExecutions.SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
-        if (row is null)
-        {
-            LogUnknownExecution(_logger, executionId);
-            return;
-        }
-
-        if (row.Step is RunStep.Done or RunStep.Failed)
-        {
-            return;
-        }
-
-        var schedule = await db.ScheduledRuns.AsNoTracking()
-            .SingleOrDefaultAsync(r => r.Id == row.ScheduleId, ct).ConfigureAwait(false);
-        var name = schedule?.Name ?? row.ScheduleId.ToString();
-        var failedStep = row.Step;
-
-        row.Fail(error, now);
-
-        // The channels design's standing rule, and the subject of both parked phase 1.4 defects: the operator is
-        // always told something. A run that fails silently at 07:00 with no live turn to notice is indistinguishable
-        // from one that never fired.
-        var notice = $"Scheduled run \"{name}\" failed during the {failedStep} step: {error}";
+        var committed = false;
 
         try
         {
-            // Both the enqueue and the trailing save are inside this try, for the same reason TryAdvanceAsync's is
-            // (see the class remarks): EfCoreOutboxStore shares this method's own ApplicationDbContext, so its
-            // internal SaveChangesAsync - triggered by THIS enqueue - can flush the row.Fail(...) mutation above and
-            // raise a concurrency loss from inside the enqueue call, not only from the SaveChangesAsync below. This
-            // is reachable, not theoretical: at-least-once delivery lets a redelivered step command and its
-            // original both fail the same execution concurrently. It self-heals either way - the loser's own retry
-            // no-ops on the row.Step check above, and the winner already wrote the operator notice, so nobody is
-            // left uninformed - but uncaught, that self-healing happens by throwing out of an outbox dispatcher and
-            // burning retry budget to get there. Catching it here makes the self-healing quiet instead of noisy.
-            await _channelWriter.WriteAsync(
-                new ChannelMessageQueued(row.ChannelId, row.ConversationId, notice), tx.GetDbTransaction(), ct)
-                .ConfigureAwait(false);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // xmin moved between the read and the save: another dispatcher already failed (or otherwise advanced)
-            // this execution first. Not an error - two dispatchers racing to fail the same execution is exactly the
-            // at-least-once-delivery case this method exists to survive.
-            LogLostFailRace(_logger, executionId);
-            await tx.RollbackAsync(ct).ConfigureAwait(false);
-            db.ChangeTracker.Clear();
-            return;
-        }
+            var row = await db.ScheduledRunExecutions.SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
+            if (row is null)
+            {
+                LogUnknownExecution(_logger, executionId);
+                return;
+            }
 
-        await tx.CommitAsync(ct).ConfigureAwait(false);
+            if (row.Step is RunStep.Done or RunStep.Failed)
+            {
+                return;
+            }
+
+            var schedule = await db.ScheduledRuns.AsNoTracking()
+                .SingleOrDefaultAsync(r => r.Id == row.ScheduleId, ct).ConfigureAwait(false);
+            var name = schedule?.Name ?? row.ScheduleId.ToString();
+            var failedStep = row.Step;
+
+            row.Fail(error, now);
+
+            // The channels design's standing rule, and the subject of both parked phase 1.4 defects: the operator
+            // is always told something. A run that fails silently at 07:00 with no live turn to notice is
+            // indistinguishable from one that never fired.
+            var notice = $"Scheduled run \"{name}\" failed during the {failedStep} step: {error}";
+
+            try
+            {
+                // Both the enqueue and the trailing save are inside this try, for the same reason TryAdvanceAsync's
+                // is (see the class remarks): EfCoreOutboxStore shares this method's own ApplicationDbContext, so
+                // its internal SaveChangesAsync - triggered by THIS enqueue - can flush the row.Fail(...) mutation
+                // above and raise a concurrency loss from inside the enqueue call, not only from the
+                // SaveChangesAsync below. This is reachable, not theoretical: at-least-once delivery lets a
+                // redelivered step command and its original both fail the same execution concurrently. It
+                // self-heals either way - the loser's own retry no-ops on the row.Step check above, and the winner
+                // already wrote the operator notice, so nobody is left uninformed - but uncaught, that self-healing
+                // happens by throwing out of an outbox dispatcher and burning retry budget to get there. Catching
+                // it here makes the self-healing quiet instead of noisy.
+                await _channelWriter.WriteAsync(
+                    new ChannelMessageQueued(row.ChannelId, row.ConversationId, notice), tx.GetDbTransaction(), ct)
+                    .ConfigureAwait(false);
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                // xmin moved between the read and the save: another dispatcher already failed (or otherwise
+                // advanced) this execution first. Not an error - two dispatchers racing to fail the same execution
+                // is exactly the at-least-once-delivery case this method exists to survive.
+                LogLostFailRace(_logger, executionId, ex);
+                await tx.RollbackAsync(ct).ConfigureAwait(false);
+                return;
+            }
+
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+            committed = true;
+        }
+        finally
+        {
+            // See TryAdvanceAsync's finally for the full argument. The gap a review found: a non-concurrency
+            // exception here (e.g. a permanently broken channel writer) used to propagate with row still tracked
+            // as Modified and Step already set to Failed in memory, even though the transaction rolled back. A
+            // dispatcher that calls TryCompleteDeliveryAsync, catches the failure, and then calls this method on
+            // the same store would, without this fix, resolve the stale tracked instance by identity, see a Step
+            // that was never actually persisted, and return through one of the guards above without ever queuing
+            // the operator notice the standing rule promises.
+            if (!committed)
+            {
+                db.ChangeTracker.Clear();
+            }
+        }
     }
 
     /// <summary>Reads one execution by id, untracked. Used by resumption logic after a restart.</summary>
@@ -384,9 +429,9 @@ public sealed partial class ScheduledRunExecutionStore(
 
     [LoggerMessage(EventId = 450, Level = LogLevel.Information,
         Message = "Execution {ExecutionId} lost a concurrency race advancing past {Expected}; another poller won.")]
-    private static partial void LogLostStepRace(ILogger logger, Guid executionId, RunStep expected);
+    private static partial void LogLostStepRace(ILogger logger, Guid executionId, RunStep expected, DbUpdateConcurrencyException exception);
 
     [LoggerMessage(EventId = 451, Level = LogLevel.Information,
         Message = "Execution {ExecutionId} lost a concurrency race in FailAsync; another dispatcher already failed or advanced it.")]
-    private static partial void LogLostFailRace(ILogger logger, Guid executionId);
+    private static partial void LogLostFailRace(ILogger logger, Guid executionId, DbUpdateConcurrencyException exception);
 }

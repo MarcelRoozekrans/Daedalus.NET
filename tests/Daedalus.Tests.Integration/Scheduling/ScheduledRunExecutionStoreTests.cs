@@ -29,6 +29,12 @@ namespace Daedalus.Tests.Integration.Scheduling;
 public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private static readonly DateTime Occurrence = new(2026, 9, 17, 7, 0, 0, DateTimeKind.Utc);
+
+    // Generous enough that it never fires on the happy path (a rendezvous resolves in microseconds once both
+    // sides arrive), short enough that a genuine hang - one side turned away before it ever reaches the barrier -
+    // fails the test with a diagnosable TimeoutException instead of a CI job timeout.
+    private static readonly TimeSpan _rendezvousTimeout = TimeSpan.FromSeconds(10);
+
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 17, 7, 0, 5, TimeSpan.Zero));
     private readonly List<IAsyncDisposable> _disposables = [];
     private IOutboxSerializer? _serializer;
@@ -37,7 +43,10 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     public async Task InitializeAsync()
     {
         await fixture.DatabaseResetter.ResetAsync();
-        _scheduleId = await SeedScheduleAsync("daily-digest", "telegram", "123456", "schedule:daedalus", ["reader"]);
+        // Two roles, not one: a single-element list round-trips through almost any encoding (JSON, a different
+        // delimiter, ...) unchanged, so it cannot catch a drift between the store's hand-encoded
+        // string.Join(',', row.Roles) and ScheduledRunExecutionConfiguration's independently declared converter.
+        _scheduleId = await SeedScheduleAsync("daily-digest", "telegram", "123456", "schedule:daedalus", ["reader", "writer"]);
     }
 
     public async Task DisposeAsync()
@@ -60,6 +69,16 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
         row.ConversationId.Should().Be("123456");
         row.PrincipalId.Should().Be("schedule:daedalus",
             "identity is frozen at claim time, so editing the schedule mid-run cannot change a run already in flight");
+        // OccurrenceAt is half the correlation key (UNIQUE (ScheduleId, OccurrenceAt)); every test uses the same
+        // Occurrence constant, so a wrong binding in the hand-written INSERT would still produce consistent
+        // ON CONFLICT matches and every other test would pass regardless. Roles is the authorization identity
+        // frozen at claim time, hand-encoded here via string.Join(',', ...) while ScheduledRunExecutionConfiguration
+        // independently declares the same delimiter - nothing pins the two together, and the column-drift guard
+        // compares column NAMES only, so a future encoding change (JSON, a different delimiter, ...) would pass
+        // that guard while silently corrupting the roles a detached run executes under. Order matters too:
+        // Should().Equal (not BeEquivalentTo) fails if a delimiter change reordered the roles.
+        row.OccurrenceAt.Should().Be(Occurrence);
+        row.Roles.Should().Equal("reader", "writer");
         (await OutboxRowsAsync<RunScoutStep>()).Should().ContainSingle();
     }
 
@@ -170,9 +189,46 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
 
         var act = async () => await StoreWithFailingChannelWriter().TryCompleteDeliveryAsync(id, default);
 
-        await act.Should().ThrowAsync<Exception>();
+        // Narrowed to what ThrowingChannelWriter actually throws: asserting the base Exception type would let an
+        // unrelated regression (e.g. a NullReferenceException from a totally different bug) satisfy this test.
+        await act.Should().ThrowAsync<InvalidOperationException>();
         (await SingleExecutionAsync()).Step.Should().Be(RunStep.Deliver,
             "a digest marked delivered that was never queued is the one outcome with no recovery path");
+    }
+
+    [Fact]
+    public async Task A_non_concurrency_failure_still_lets_FailAsync_queue_the_operator_notice_on_the_same_store()
+    {
+        // Fix round 3, the blocking finding: ChangeTracker.Clear() used to sit only in the
+        // DbUpdateConcurrencyException catch. Any OTHER exception out of enqueueNext or SaveChangesAsync -
+        // exactly what a broken channel writer provokes - propagated with the row still tracked as Modified and
+        // Step already set to Done in memory, even though the transaction rolled back. The natural dispatcher
+        // shape is: call TryCompleteDeliveryAsync, catch, call FailAsync on the SAME store instance. Without the
+        // fix, FailAsync's read would resolve that STALE tracked instance by identity - not the row's true,
+        // rolled-back Deliver step - see Step == Done, and return through its own terminal guard, and no operator
+        // notice would ever be queued for a run that just failed. This is the regression this fix exists to
+        // prevent, and per the review it must be seen to fail first (see the round-3 report).
+        var store = StoreWithChannelWriterThatFailsOnce();
+        await store.TryBeginAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = (await SingleExecutionAsync()).Id;
+        await store.TryCompleteScoutAsync(id, "f", default);
+        await store.TryCompleteWriterAsync(id, "d", default);
+
+        var act = async () => await store.TryCompleteDeliveryAsync(id, default);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+
+        // Same store instance, same ApplicationDbContext - exactly the shape a real dispatcher uses.
+        await store.FailAsync(id, "channel adapter unreachable", default);
+
+        var row = await SingleExecutionAsync();
+        row.Step.Should().Be(RunStep.Failed,
+            "FailAsync must see the row's true, rolled-back Deliver step to be allowed to fail it at all - a " +
+            "stale tracked Done would have turned it away at the terminal guard instead");
+        var queued = await OutboxPayloadsAsync<ChannelMessageQueued>();
+        queued.Should().ContainSingle(
+            "the operator notice must still be queued; a stale tracked Done would have made FailAsync return " +
+            "through its terminal guard without queuing anything, defeating the standing rule that the operator " +
+            "is always told something");
     }
 
     [Fact]
@@ -346,6 +402,18 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
         ResolveStore(wrapChannelWriter: (_, _) => new ThrowingChannelWriter());
 
     /// <summary>
+    ///     A store whose <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> throws on its first call and delegates to
+    ///     the real, DI-resolved writer on every call after that — for proving a non-concurrency exception (unlike
+    ///     <see cref="ThrowingChannelWriter"/>'s permanent break) still leaves the store instance usable
+    ///     afterward. <c>ScheduledRunExecutionStore</c> is constructed once per DI scope and this writer is one of
+    ///     its constructor-injected dependencies, so the SAME <see cref="ThrowOnceThenDelegateChannelWriter"/>
+    ///     instance backs every call this store makes - the first call throws, and the very next call (whichever
+    ///     method makes it) delegates for real.
+    /// </summary>
+    private ScheduledRunExecutionStore StoreWithChannelWriterThatFailsOnce() =>
+        ResolveStore(wrapChannelWriter: (real, _) => new ThrowOnceThenDelegateChannelWriter(real));
+
+    /// <summary>
     ///     A store whose <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> signals <paramref name="mySignal"/> and
     ///     awaits <paramref name="otherSignal"/> before performing the real write — see
     ///     <see cref="RendezvousChannelWriter"/> for why the rendezvous happens before, not after, the real write.
@@ -435,6 +503,23 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             throw new InvalidOperationException("Simulated failure writing the ChannelMessageQueued outbox row.");
     }
 
+    /// <summary>Throws on its first call (simulating a transient channel fault), then delegates to the real writer on every call after that.</summary>
+    private sealed class ThrowOnceThenDelegateChannelWriter(IOutboxWriter<ChannelMessageQueued> inner) : IOutboxWriter<ChannelMessageQueued>
+    {
+        private bool _hasThrown;
+
+        public async ValueTask WriteAsync(ChannelMessageQueued message, DbTransaction? transaction = null, CancellationToken ct = default)
+        {
+            if (!_hasThrown)
+            {
+                _hasThrown = true;
+                throw new InvalidOperationException("Simulated one-time (transient) failure writing the ChannelMessageQueued outbox row.");
+            }
+
+            await inner.WriteAsync(message, transaction, ct);
+        }
+    }
+
     /// <summary>
     ///     Signals readiness and waits for the paired writer's own signal BEFORE performing the real write. The
     ///     rendezvous must happen before the write, not after: <c>EfCoreOutboxStore</c> shares the calling
@@ -452,7 +537,10 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
         public async ValueTask WriteAsync(ChannelMessageQueued message, DbTransaction? transaction = null, CancellationToken ct = default)
         {
             mySignal.TrySetResult();
-            await otherSignal;
+            // A generous budget, not a happy-path timing assumption: if a regression turns one side away before
+            // it ever reaches this write, the other would otherwise block forever and CI would report a job
+            // timeout instead of a named, diagnosable assertion failure.
+            await otherSignal.WaitAsync(_rendezvousTimeout);
             await inner.WriteAsync(message, transaction, ct);
         }
     }
@@ -464,7 +552,7 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
         public async ValueTask WriteAsync(RunWriterStep message, DbTransaction? transaction = null, CancellationToken ct = default)
         {
             mySignal.TrySetResult();
-            await otherSignal;
+            await otherSignal.WaitAsync(_rendezvousTimeout);
             await inner.WriteAsync(message, transaction, ct);
         }
     }

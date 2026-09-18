@@ -89,6 +89,7 @@ public sealed partial class ScheduledRunStore(
             .ToListAsync(ct).ConfigureAwait(false);
 
         var fired = 0;
+        var committed = false;
 
         try
         {
@@ -98,12 +99,13 @@ public sealed partial class ScheduledRunStore(
 
                 if (next is null)
                 {
-                    // A syntactically valid but impossible cron (e.g. "0 0 30 2 *") has no future occurrence. Cronos
-                    // returns null rather than throwing or looping forever, but DateTime.MaxValue (Kind=Unspecified)
-                    // cannot be persisted into a "timestamp with time zone" column - Npgsql rejects it - and even if
-                    // it could, "next run in year 9999" is a disabled schedule wearing a disguise. Disable it
-                    // honestly instead: this is the only mutation for this row, so it still commits atomically with
-                    // every other row in this sweep, and it does not stop those other rows from firing.
+                    // A syntactically valid but impossible cron (e.g. "0 0 30 2 *") has no future occurrence.
+                    // Cronos returns null rather than throwing or looping forever, but DateTime.MaxValue
+                    // (Kind=Unspecified) cannot be persisted into a "timestamp with time zone" column - Npgsql
+                    // rejects it - and even if it could, "next run in year 9999" is a disabled schedule wearing
+                    // a disguise. Disable it honestly instead: this is the only mutation for this row, so it
+                    // still commits atomically with every other row in this sweep, and it does not stop those
+                    // other rows from firing.
                     run.Disable();
                     LogNoFutureOccurrence(_logger, run.Name, run.Cron);
                     continue;
@@ -111,11 +113,12 @@ public sealed partial class ScheduledRunStore(
 
                 run.AdvanceTo(next.Value, now, missed);
 
-                // IOutboxWriter<T>.WriteAsync shares this sweep's own ApplicationDbContext (see the class remarks),
-                // so EfCoreOutboxStore's internal SaveChangesAsync call - triggered by THIS write, for THIS row -
-                // flushes every change tracked so far, including the AdvanceTo above. A concurrency loss on this
-                // row's xmin can therefore surface right here, mid-loop, not only from the trailing SaveChangesAsync
-                // below - which is why the catch wraps the whole loop, not just the tail.
+                // IOutboxWriter<T>.WriteAsync shares this sweep's own ApplicationDbContext (see the class
+                // remarks), so EfCoreOutboxStore's internal SaveChangesAsync call - triggered by THIS write,
+                // for THIS row - flushes every change tracked so far, including the AdvanceTo above. A
+                // concurrency loss on this row's xmin can therefore surface right here, mid-loop, not only
+                // from the trailing SaveChangesAsync below - which is why the catch wraps the whole loop, not
+                // just the tail.
                 await _outbox.WriteAsync(new ScheduledRunDue(run.Id, fireAt), tx.GetDbTransaction(), ct)
                     .ConfigureAwait(false);
                 fired++;
@@ -123,19 +126,28 @@ public sealed partial class ScheduledRunStore(
 
             await _db.SaveChangesAsync(ct).ConfigureAwait(false);
             await tx.CommitAsync(ct).ConfigureAwait(false);
+            committed = true;
         }
         catch (DbUpdateConcurrencyException ex)
         {
             LogConcurrencyLoss(_logger, ex);
-
+            return 0;
+        }
+        finally
+        {
             // Rows advanced earlier in this loop are still tracked as Unchanged (their database rows just rolled
             // back), the losing row is still tracked as Modified, and any OutboxMessageEntity staged by the last
             // WriteAsync is still tracked as Added - none of that reflects reality once the transaction is gone.
-            // This method returns normally rather than throwing, so a caller reusing this scope must not resolve
-            // those stale tracked entities by identity on its next read, or insert a trigger on its next save for
-            // an occurrence this sweep never actually claimed.
-            _db.ChangeTracker.Clear();
-            return 0;
+            // A caller reusing this scope must not resolve those stale tracked entities by identity on its next
+            // read, or insert a trigger on its next save for an occurrence this sweep never actually claimed. This
+            // finally covers every non-committed exit, not only the concurrency catch above: a review of the
+            // sibling ScheduledRunExecutionStore found that guarding only the concurrency path left any OTHER
+            // exception out of WriteAsync or SaveChangesAsync free to propagate with the tracker still dirty, and
+            // this store had the identical gap.
+            if (!committed)
+            {
+                _db.ChangeTracker.Clear();
+            }
         }
 
         if (fired > 0)
