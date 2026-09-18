@@ -52,7 +52,9 @@ public sealed class ApiThalosConfigurationTests
     {
         using var sp = BuildWithApiConfiguration();
 
-        var agent = sp.GetRequiredService<IAgentCatalog>().Agents.Should().ContainSingle().Subject;
+        // The catalog also carries the RepoDigest workflow's scout and writer agents; this test only guards
+        // the human-facing Daedalus Architect entry and its stable id.
+        var agent = sp.GetRequiredService<IAgentCatalog>().Agents.Should().ContainSingle(a => a.Name == "Daedalus Architect").Subject;
 
         // Sessions reference this id — changing it orphans them. Update the test only together with a data migration.
         agent.Id.Should().Be(AgentId.Parse("01M05YCM7DPKRG9X04870B2JYH", null));

@@ -13,17 +13,18 @@ namespace Daedalus.Tests.Integration.Agents;
 /// <summary>
 ///     Covers <see cref="AgentNameValidator"/>: the pure aggregation logic (naming every unknown name at once) and
 ///     its wiring into <c>ScheduleReconcilerHostedService</c>, which stops a host at boot when
-///     <c>Thalos:Channels:DefaultAgent</c> names no configured agent (spec §7) rather than deferring the failure to
-///     the first message a channel needs to route (<c>ChannelPump</c> resolves the name at that point, too late for
-///     an operator to catch before traffic arrives).
+///     <c>Thalos:Channels:DefaultAgent</c> or a <c>RepoDigestPrompts.AgentNames</c> entry names no configured agent
+///     (spec §7) rather than deferring the failure to the first message a channel needs to route
+///     (<c>ChannelPump</c> resolves the name at that point, too late for an operator to catch before traffic
+///     arrives) or the first time a <c>RunScoutStep</c>/<c>RunWriterStep</c> dispatcher resolves a workflow agent.
 /// </summary>
 /// <remarks>
-///     Scope: <c>DefaultAgent</c> only. There are no sagas in this phase (<c>ZeroAlloc.Saga</c> was dropped as
-///     undriveable — see <c>ScheduleReconciler.KnownTriggers</c>'s remarks) and no workflow-agent-name type exists
-///     yet, so this suite does not — and cannot — cover a saga referencing an unknown agent name. That check moves
-///     to whichever later task introduces workflow agent names; it extends <see cref="AgentNameValidator.Validate"/>
-///     with more names in the same collection, which is why the method takes <c>IEnumerable&lt;string&gt;</c>
-///     rather than a single name.
+///     <c>DefaultAgent</c> and <c>RepoDigestPrompts.AgentNames</c> are both checked, in one pass, every boot —
+///     there are no sagas in this phase (<c>ZeroAlloc.Saga</c> was dropped as undriveable — see
+///     <c>ScheduleReconciler.KnownTriggers</c>'s remarks), so workflow agent names come from the one workflow
+///     that exists (<c>RepoDigest</c>) rather than from saga configuration. <see cref="AgentNameValidator.Validate"/>
+///     takes <c>IEnumerable&lt;string&gt;</c> rather than a single name precisely so both sources are reported
+///     together, not one restart per source.
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
 public sealed class AgentNameValidationTests(PostgresFixture fixture) : IAsyncLifetime
@@ -41,6 +42,22 @@ public sealed class AgentNameValidationTests(PostgresFixture fixture) : IAsyncLi
 
         var exception = await act.Should().ThrowAsync<InvalidOperationException>();
         exception.Which.Message.Should().Contain("Nonexistent Agent");
+    }
+
+    [Fact]
+    public async Task A_host_configured_with_an_unknown_workflow_agent_name_fails_to_start()
+    {
+        // RepoDigestPrompts.AgentNames ("scout", "writer") is checked unconditionally, independent of
+        // Thalos:Channels:DefaultAgent — a misconfigured RepoDigest workflow agent must fail the boot rather
+        // than surface the first time RunScoutStepDispatcher tries to resolve it at 07:00. Index 1 in
+        // Daedalus.Api.appsettings.json's Agents array is "scout"; renaming it simulates the catalog entry
+        // going missing (a typo, a dropped entry) without touching DefaultAgent at index 0.
+        using var host = BuildHost(("Thalos:Agents:1:Name", "Scoot"));
+
+        var act = async () => await host.StartAsync();
+
+        var exception = await act.Should().ThrowAsync<InvalidOperationException>();
+        exception.Which.Message.Should().Contain("scout");
     }
 
     [Fact]

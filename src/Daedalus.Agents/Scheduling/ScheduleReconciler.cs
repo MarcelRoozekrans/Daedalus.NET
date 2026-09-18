@@ -266,23 +266,26 @@ public sealed partial class ScheduleReconciler(
 /// <summary>
 ///     Runs <see cref="ScheduleReconciler.ReconcileAsync"/> once at host start, ahead of any hosted service that
 ///     later sweeps <c>ScheduledRuns</c> for due occurrences, and then validates <c>Thalos:Channels:DefaultAgent</c>
-///     against the agent catalogue via <see cref="AgentNameValidator"/>. <see cref="ScheduleReconciler"/> is scoped
-///     (see its remarks) while hosted services are singletons, so this type's only job is to open one
-///     <see cref="IServiceScope"/> per host start, resolve the reconciler from it, and let the scope go away once
-///     both checks finish. A failure in either step throws out of <see cref="StartAsync"/> uncaught — by design:
-///     an invalid configured schedule, or an agent name nothing in the catalogue answers to, must stop the host at
-///     boot rather than defer the failure to the schedule's first firing (or the first channel message routed
-///     through the unresolved default agent).
+///     and every <see cref="RepoDigestPrompts.AgentNames"/> entry against the agent catalogue in one pass via
+///     <see cref="AgentNameValidator"/>. <see cref="ScheduleReconciler"/> is scoped (see its remarks) while hosted
+///     services are singletons, so this type's only job is to open one <see cref="IServiceScope"/> per host start,
+///     resolve the reconciler from it, and let the scope go away once both checks finish. A failure in either step
+///     throws out of <see cref="StartAsync"/> uncaught — by design: an invalid configured schedule, or an agent
+///     name nothing in the catalogue answers to, must stop the host at boot rather than defer the failure to the
+///     schedule's first firing (or the first channel message routed through the unresolved default agent).
 /// </summary>
 /// <remarks>
 ///     The agent-name check lives here — alongside schedule reconciliation, in the one hosted service both share —
 ///     rather than in a second hosted service, so a slow-booting host runs one boot-validation pass, not two.
-///     Only <c>DefaultAgent</c> is checked in this phase: there are no sagas (<c>ZeroAlloc.Saga</c> was dropped as
-///     undriveable) and therefore no workflow agent names to validate alongside it yet. <c>DefaultAgent</c> is read
-///     directly off <see cref="IConfiguration"/> rather than <c>IOptions&lt;ChannelOptions&gt;</c> so this check
-///     does not depend on a host having called <c>AddDaedalusChannels</c> — <see cref="ScheduleReconcilerHostedService"/>
-///     is registered by <c>AddDaedalusAgents</c> alone, and a host that never configures channels (or leaves
-///     <c>Thalos:Channels:DefaultAgent</c> unset) has nothing to check here.
+///     <c>DefaultAgent</c> is read directly off <see cref="IConfiguration"/> rather than
+///     <c>IOptions&lt;ChannelOptions&gt;</c> so this check does not depend on a host having called
+///     <c>AddDaedalusChannels</c> — <see cref="ScheduleReconcilerHostedService"/> is registered by
+///     <c>AddDaedalusAgents</c> alone, and a host that never configures channels (or leaves
+///     <c>Thalos:Channels:DefaultAgent</c> unset) simply drops it from the checked names.
+///     <see cref="RepoDigestPrompts.AgentNames"/> is always checked, independent of <c>DefaultAgent</c>: the
+///     <c>RepoDigest</c> workflow's scout and writer agents must exist for any host that runs
+///     <see cref="RunScoutStep"/> and <see cref="RunWriterStep"/>, whether or not that host also routes
+///     channel messages.
 /// </remarks>
 public sealed class ScheduleReconcilerHostedService(IServiceScopeFactory scopeFactory) : IHostedService
 {
@@ -300,11 +303,12 @@ public sealed class ScheduleReconcilerHostedService(IServiceScopeFactory scopeFa
 
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var defaultAgent = configuration[DefaultAgentConfigurationKey];
-        if (!string.IsNullOrWhiteSpace(defaultAgent))
-        {
-            var catalog = scope.ServiceProvider.GetRequiredService<IAgentCatalog>();
-            AgentNameValidator.Validate(catalog, [defaultAgent]);
-        }
+        var names = string.IsNullOrWhiteSpace(defaultAgent)
+            ? RepoDigestPrompts.AgentNames
+            : (IReadOnlyList<string>) [defaultAgent, .. RepoDigestPrompts.AgentNames];
+
+        var catalog = scope.ServiceProvider.GetRequiredService<IAgentCatalog>();
+        AgentNameValidator.Validate(catalog, names);
     }
 
     /// <inheritdoc />
