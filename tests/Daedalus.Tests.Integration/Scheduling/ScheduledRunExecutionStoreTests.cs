@@ -178,6 +178,26 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     }
 
     [Fact]
+    public async Task The_delivered_message_carries_its_execution_id()
+    {
+        // Not merely non-null: this pins the id written into the outbox row to the SAME execution that produced
+        // it, read back from the database - a store that stamped some other Guid (or a fresh Guid.CreateVersion7())
+        // would also satisfy a plain "is not null" assertion.
+        var store = Store();
+        await store.TryBeginAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = (await SingleExecutionAsync()).Id;
+        await store.TryCompleteScoutAsync(id, "three open PRs", default);
+        await store.TryCompleteWriterAsync(id, "Here is your digest.", default);
+
+        await store.TryCompleteDeliveryAsync(id, default);
+
+        var queued = await OutboxPayloadsAsync<ChannelMessageQueued>();
+        queued.Should().ContainSingle();
+        queued[0].ExecutionId.Should().Be(id,
+            "the diagnostics page correlates a dead-lettered delivery back to the execution that produced it");
+    }
+
+    [Fact]
     public async Task A_failure_to_write_the_channel_message_leaves_the_step_un_advanced()
     {
         // the atomicity claim for the terminal step: Done and the outbox row commit together or not at all
@@ -247,6 +267,24 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
         var queued = await OutboxPayloadsAsync<ChannelMessageQueued>();
         queued.Should().ContainSingle();
         queued[0].Text.Should().Contain("daily-digest").And.Contain("529");
+    }
+
+    [Fact]
+    public async Task The_failure_notice_carries_its_execution_id()
+    {
+        // Same claim as The_delivered_message_carries_its_execution_id, for FailAsync's write site: the
+        // operator-notice path is the other of the two places ChannelMessageQueued is enqueued, and missing it
+        // there would silently unlink every failed run's notice from its execution.
+        var store = Store();
+        await store.TryBeginAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = (await SingleExecutionAsync()).Id;
+
+        await store.FailAsync(id, "provider returned 529", default);
+
+        var queued = await OutboxPayloadsAsync<ChannelMessageQueued>();
+        queued.Should().ContainSingle();
+        queued[0].ExecutionId.Should().Be(id,
+            "the diagnostics page correlates a failure notice back to the execution that produced it");
     }
 
     [Fact]
@@ -335,6 +373,31 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
                 "TryBeginAsync writes this table with hand-written SQL; a property added to the entity without a " +
                 "matching column here is inserted as NULL or rejected at run time, and only at run time");
     }
+
+    [Fact]
+    public void A_payload_written_before_the_field_existed_deserializes_with_a_null_execution_id()
+    {
+        // Guards the compatibility rule ChannelMessageQueued's own remarks state: ZeroAlloc.Outbox stores this
+        // record as an opaque serialized payload, so a row queued before ExecutionId existed must deserialize
+        // harmlessly with it defaulted, not throw. OriginalChannelMessageQueued models exactly that pre-existing
+        // three-property shape; the real, DI-resolved IOutboxSerializer (not an assumed wire format) both writes
+        // the "old" payload and reads it back as the current record.
+        Store(); // populates _serializer as a side effect; this test makes no database calls itself
+        var serializer = _serializer!;
+
+        var oldPayload = serializer.Serialize(new OriginalChannelMessageQueued("telegram", "123456", "hello"));
+        var current = serializer.Deserialize<ChannelMessageQueued>(oldPayload);
+
+        current.ExecutionId.Should().BeNull(
+            "a row queued before ExecutionId existed has no execution to correlate to");
+    }
+
+    /// <summary>
+    ///     <see cref="ChannelMessageQueued"/>'s shape before <c>ExecutionId</c> existed — a stand-in for a row
+    ///     already sitting in the outbox table when that field ships, used only by
+    ///     <see cref="A_payload_written_before_the_field_existed_deserializes_with_a_null_execution_id"/>.
+    /// </summary>
+    private sealed record OriginalChannelMessageQueued(string ChannelId, string ConversationId, string Text);
 
     /// <summary>Seeds a <see cref="ScheduledRun"/> via <see cref="ScheduledRun.Create"/>, due at <see cref="Occurrence"/>.</summary>
     private async Task<Guid> SeedScheduleAsync(

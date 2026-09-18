@@ -242,9 +242,11 @@ public sealed partial class ScheduledRunExecutionStore(
         TryAdvanceAsync(executionId, RunStep.Deliver,
             (row, now) => row.Complete(now),
             // row.Digest! is safe precisely because the step check below already required RunStep.Deliver:
-            // RecordDigest is the only transition into Deliver, and it always sets Digest first.
+            // RecordDigest is the only transition into Deliver, and it always sets Digest first. ExecutionId is
+            // row.Id: the diagnostics page needs to walk from a dead-lettered outbox row back to the execution
+            // that produced it, which is only possible if this write site stamps it.
             (row, tx, token) => _channelWriter.WriteAsync(
-                new ChannelMessageQueued(row.ChannelId, row.ConversationId, row.Digest!), tx.GetDbTransaction(), token),
+                new ChannelMessageQueued(row.ChannelId, row.ConversationId, row.Digest!, row.Id), tx.GetDbTransaction(), token),
             ct);
 
     /// <summary>
@@ -391,8 +393,11 @@ public sealed partial class ScheduledRunExecutionStore(
                 // already wrote the operator notice, so nobody is left uninformed - but uncaught, that self-healing
                 // happens by throwing out of an outbox dispatcher and burning retry budget to get there. Catching
                 // it here makes the self-healing quiet instead of noisy.
+                // ExecutionId is row.Id, same as TryCompleteDeliveryAsync's write site: an operator notice is a
+                // failed run's only outbox row, and the diagnostics page needs it correlated too, or a
+                // dead-lettered notice would be silently unlinked from the execution it reports on.
                 await _channelWriter.WriteAsync(
-                    new ChannelMessageQueued(row.ChannelId, row.ConversationId, notice), tx.GetDbTransaction(), ct)
+                    new ChannelMessageQueued(row.ChannelId, row.ConversationId, notice, row.Id), tx.GetDbTransaction(), ct)
                     .ConfigureAwait(false);
                 await db.SaveChangesAsync(ct).ConfigureAwait(false);
             }
