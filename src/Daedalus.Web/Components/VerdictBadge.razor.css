@@ -1,0 +1,14 @@
+/* =============================================================================
+   VerdictBadge – scoped styles
+   ============================================================================= */
+
+/*
+   The contract's one required deviation from Radzen defaults: RadzenBadge renders white text on the
+   severity colour, which on --rz-warning (~#f59e0b) is roughly 1.75:1 and fails WCAG AA. Overdue,
+   Stranded and DeliveryUnknown all use BadgeStyle.Warning, so they need a dark foreground instead.
+   !important is deliberate here, not a shortcut: this is the one place the page knowingly overrides a
+   library default, and it must win regardless of Radzen's own rule specificity or stylesheet order.
+*/
+::deep .rz-badge.verdict-badge-dark {
+    color: var(--rz-text-title-color) !important;
+}

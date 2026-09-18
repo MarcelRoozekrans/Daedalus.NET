@@ -1,0 +1,60 @@
+@using Daedalus.Application.DTOs.Scheduling
+
+@*
+    The single place a RunVerdict becomes visible. Every other part of the schedules page renders a
+    verdict through this component so the verdict-to-colour mapping cannot drift across views.
+
+    RunVerdict has ten members: Unknown = 0 (a sentinel, never returned by the service), eight real
+    verdicts, and Disabled = 9. Every switch below carries a discard arm so an unmapped or future value
+    renders as a muted "Unknown" badge instead of throwing inside a Blazor render — which, on this page,
+    would mean a blank page.
+*@
+<RadzenBadge Text="@Text" BadgeStyle="@Style" class="@CssClass" title="@Detail"/>
+
+@code {
+    /// <summary>The verdict to render. The only required input — this component is pure display.</summary>
+    [Parameter, EditorRequired]
+    public RunVerdict Verdict { get; set; }
+
+    /// <summary>Optional extra context surfaced as the badge's native tooltip.</summary>
+    [Parameter]
+    public string? Detail { get; set; }
+
+    private string Text => Verdict switch
+    {
+        RunVerdict.Disabled => "Disabled",
+        RunVerdict.Delivered => "Delivered",
+        RunVerdict.Running => "Running",
+        RunVerdict.NotYetDue => "Not yet due",
+        RunVerdict.Overdue => "Overdue",
+        RunVerdict.Stranded => "Stranded",
+        RunVerdict.DeliveryUnknown => "Delivery unknown",
+        RunVerdict.Failed => "Failed",
+        RunVerdict.Undelivered => "Undelivered",
+        _ => "Unknown", // Unknown = 0, and any future member this page hasn't been taught yet.
+    };
+
+    private BadgeStyle Style => Verdict switch
+    {
+        RunVerdict.Delivered => BadgeStyle.Success,
+        RunVerdict.Running => BadgeStyle.Info,
+        RunVerdict.Overdue => BadgeStyle.Warning,
+        RunVerdict.Stranded => BadgeStyle.Warning,
+        RunVerdict.DeliveryUnknown => BadgeStyle.Warning,
+        RunVerdict.Failed => BadgeStyle.Danger,
+        RunVerdict.Undelivered => BadgeStyle.Danger,
+        RunVerdict.Disabled => BadgeStyle.Light,
+        RunVerdict.NotYetDue => BadgeStyle.Light,
+        _ => BadgeStyle.Light, // Unknown reads as muted, not as an alarming colour it hasn't earned.
+    };
+
+    /// <summary>
+    ///     RadzenBadge renders white text on the severity colour. On <c>--rz-warning</c> that is roughly
+    ///     1.75:1, which fails WCAG AA. The contract requires a dark foreground specifically on the three
+    ///     warning-severity verdicts; every other verdict keeps the library default, which meets AA.
+    /// </summary>
+    private bool NeedsDarkForeground =>
+        Verdict is RunVerdict.Overdue or RunVerdict.Stranded or RunVerdict.DeliveryUnknown;
+
+    private string CssClass => NeedsDarkForeground ? "verdict-badge-dark" : "";
+}
