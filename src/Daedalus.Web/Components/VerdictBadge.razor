@@ -34,7 +34,16 @@
         _ => "Unknown", // Unknown = 0, and any future member this page hasn't been taught yet.
     };
 
-    private BadgeStyle Style => Verdict switch
+    private BadgeStyle Style => BadgeStyleFor(Verdict);
+
+    /// <summary>
+    ///     The <see cref="BadgeStyle"/> this verdict renders as. Public and static so other parts of the page —
+    ///     e.g. the mobile card's error line — can colour themselves to match the badge's own decision instead
+    ///     of deriving severity a second time. A duplicated mapping is exactly how the mobile error line once
+    ///     drifted to a hardcoded danger red for <see cref="RunVerdict.Stranded"/> and
+    ///     <see cref="RunVerdict.DeliveryUnknown"/>, both Warning severity.
+    /// </summary>
+    public static BadgeStyle BadgeStyleFor(RunVerdict verdict) => verdict switch
     {
         RunVerdict.Delivered => BadgeStyle.Success,
         RunVerdict.Running => BadgeStyle.Info,
@@ -49,12 +58,27 @@
     };
 
     /// <summary>
-    ///     RadzenBadge renders white text on the severity colour. On <c>--rz-warning</c> that is roughly
-    ///     1.75:1, which fails WCAG AA. The contract requires a dark foreground specifically on the three
-    ///     warning-severity verdicts; every other verdict keeps the library default, which meets AA.
+    ///     The <c>--rz-*</c> token this verdict's severity maps to, for callers that need to colour plain text
+    ///     rather than render a full badge — e.g. the mobile card's error line. Derived from
+    ///     <see cref="BadgeStyleFor"/> rather than a second switch over <see cref="RunVerdict"/>, so the two can
+    ///     never disagree about what severity a verdict is.
     /// </summary>
-    private bool NeedsDarkForeground =>
-        Verdict is RunVerdict.Overdue or RunVerdict.Stranded or RunVerdict.DeliveryUnknown;
+    public static string ColorToken(RunVerdict verdict) => BadgeStyleFor(verdict) switch
+    {
+        BadgeStyle.Success => "var(--rz-success)",
+        BadgeStyle.Info => "var(--rz-info)",
+        BadgeStyle.Warning => "var(--rz-warning)",
+        BadgeStyle.Danger => "var(--rz-danger)",
+        _ => "var(--rz-text-color)", // Light/muted: no accent colour, matching the badge's own intent.
+    };
+
+    /// <summary>
+    ///     RadzenBadge renders white text on the severity colour. On <c>--rz-warning</c> that is roughly
+    ///     1.75:1, which fails WCAG AA. Derived from <see cref="BadgeStyleFor"/> rather than naming the three
+    ///     verdicts again, so a future Warning-severity verdict gets the fix automatically instead of silently
+    ///     missing it. Every other verdict keeps the library default, which meets AA.
+    /// </summary>
+    private bool NeedsDarkForeground => BadgeStyleFor(Verdict) == BadgeStyle.Warning;
 
     private string CssClass => NeedsDarkForeground ? "verdict-badge-dark" : "";
 }

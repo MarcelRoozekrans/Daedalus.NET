@@ -71,6 +71,8 @@ public enum RunVerdict
 /// <param name="ExecutionId">The execution, or <see cref="Guid.Empty"/> when no run was ever claimed.</param>
 /// <param name="Enabled">Whether the schedule is switched on. See the remarks.</param>
 /// <param name="NextRunAtUtc">The schedule's upcoming occurrence. See the remarks.</param>
+/// <param name="Findings">The scout stage's output, or null until it has run. See the remarks.</param>
+/// <param name="Digest">The writer stage's output, or null until it has run. See the remarks.</param>
 /// <remarks>
 ///     <paramref name="Enabled"/> and <paramref name="NextRunAtUtc"/> describe the SCHEDULE, not the run, and are
 ///     appended for the overview grid, which shows both alongside the last run. They are not derivable from the
@@ -78,6 +80,11 @@ public enum RunVerdict
 ///     happened, so without <paramref name="NextRunAtUtc"/> the next one cannot be rendered at all.
 ///     <paramref name="NextRunAtUtc"/> is populated on every diagnosis, including a disabled schedule's, where it
 ///     is the stale value the sweeper will never act on — the page has <paramref name="Enabled"/> to know that.
+///     <paramref name="Findings"/> and <paramref name="Digest"/> are appended last, after every member above was
+///     already fixed by an earlier task: this record is serialized across the API boundary, and appending rather
+///     than inserting keeps every value already on the wire meaning what it always meant. Both are the model's
+///     own output and can be long; the UI contract renders them collapsed by default and never truncated once
+///     expanded, so neither is trimmed here.
 /// </remarks>
 public record RunDiagnosis(
     RunVerdict Verdict,
@@ -94,4 +101,6 @@ public record RunDiagnosis(
     DateTime UpdatedAtUtc,
     Guid ExecutionId,
     bool Enabled,
-    DateTime? NextRunAtUtc);
+    DateTime? NextRunAtUtc,
+    string? Findings,
+    string? Digest);

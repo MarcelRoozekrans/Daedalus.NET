@@ -82,6 +82,29 @@
                     }
                 </div>
             }
+
+            @* Findings/Digest are the scout and writer stages' own output: present once a run reaches Done,
+               regardless of whether delivery itself later succeeded, failed to confirm, or dead-lettered.
+               Collapsed by default, expanded on demand, and never truncated once expanded — a native
+               <details> element gives that plus keyboard and screen-reader support for free. *@
+            @if (run.Findings is not null)
+            {
+                <details class="run-detail-disclosure">
+                    <summary>Findings</summary>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="white-space: pre-wrap; margin: 0.5rem 0 0 0;">
+                        @run.Findings
+                    </RadzenText>
+                </details>
+            }
+            @if (run.Digest is not null)
+            {
+                <details class="run-detail-disclosure">
+                    <summary>Digest</summary>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="white-space: pre-wrap; margin: 0.5rem 0 0 0;">
+                        @run.Digest
+                    </RadzenText>
+                </details>
+            }
         </RadzenStack>
     </div>;
 }
@@ -243,7 +266,7 @@ else
                         @if (ErrorLineFor(row) is { } errorLine)
                         {
                             <RadzenText TextStyle="TextStyle.Body2"
-                                        Style="margin: 0.25rem 0 0 0; color: var(--rz-danger); display: block;">
+                                        Style="@($"margin: 0.25rem 0 0 0; color: {VerdictBadge.ColorToken(row.Verdict)}; display: block;")">
                                 @errorLine
                             </RadzenText>
                         }

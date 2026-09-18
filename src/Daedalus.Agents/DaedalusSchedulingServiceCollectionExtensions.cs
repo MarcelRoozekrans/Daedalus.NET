@@ -1,10 +1,12 @@
 using Daedalus.Agents.Scheduling;
 using Daedalus.Application.Abstractions;
+using Daedalus.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using ZeroAlloc.Outbox;
+using ZeroAlloc.Outbox.EfCore;
 
 namespace Daedalus.Agents;
 
@@ -16,8 +18,9 @@ public static class DaedalusSchedulingServiceCollectionExtensions
     ///     that hold all of the sweep and step logic (<see cref="ScheduledRunStore"/>,
     ///     <see cref="ScheduledRunExecutionStore"/>), the single seam onto a subagent
     ///     (<see cref="ISubagentRunExecutor"/>) with the <c>DetachedRuns</c> options it reads its budget from, the
-    ///     read-only diagnostics seam <see cref="ScheduleDiagnostics"/> with its own options section, and the four
-    ///     step dispatchers in place of ZeroAlloc.Outbox's throwing defaults.
+    ///     read-only diagnostics seam <see cref="ScheduleDiagnostics"/> with its own options section, the
+    ///     write-only delivery seam <see cref="ScheduleDeliveryActions"/> kept deliberately separate from it, and
+    ///     the four step dispatchers in place of ZeroAlloc.Outbox's throwing defaults.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">Host configuration; the <c>DetachedRuns</c> and <c>ScheduleDiagnostics</c> sections are read.</param>
@@ -95,6 +98,17 @@ public static class DaedalusSchedulingServiceCollectionExtensions
         // directly, and EfCoreOutboxStore.EnqueueAsync needs connection identity with whatever else is in the scope.
         services.AddScoped<IScheduleDiagnostics, ScheduleDiagnostics>();
         services.Configure<ScheduleDiagnosticsOptions>(configuration.GetSection(ScheduleDiagnosticsOptions.SectionName));
+
+        // TryAdd: EfCoreOutboxStore<ApplicationDbContext> implements both IOutboxStore and IOutboxDashboardStore,
+        // but AddChannelOutbox's WithEfCore<ApplicationDbContext>() call only registers the former. This fills
+        // the dashboard seam without risking a second, conflicting registration if a future ZeroAlloc.Outbox
+        // version starts registering it itself.
+        services.TryAddScoped<IOutboxDashboardStore, EfCoreOutboxStore<ApplicationDbContext>>();
+
+        // Scoped, same rule as ScheduleDiagnostics: ScheduleDeliveryActions also takes ApplicationDbContext
+        // directly. Deliberately its own registration rather than added to IScheduleDiagnostics — see
+        // IScheduleDeliveryActions's remarks for why the read-only seam handed to agent tools must stay read-only.
+        services.AddScoped<IScheduleDeliveryActions, ScheduleDeliveryActions>();
 
         // Replace, not Add — see remarks above.
         services.Replace(ServiceDescriptor.Transient<IOutboxDispatcher<ScheduledRunDue>, ScheduledRunDueDispatcher>());

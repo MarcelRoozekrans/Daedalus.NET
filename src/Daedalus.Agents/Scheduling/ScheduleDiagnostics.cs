@@ -440,20 +440,23 @@ public sealed class ScheduleDiagnostics(
     {
         if (execution is null)
         {
-            // No execution row means no execution timestamps. Both mirror the occurrence rather than defaulting,
-            // so the page never renders 0001-01-01 and reads it as data.
+            // No execution row means no execution timestamps, and no scout/writer output either. Both
+            // timestamps mirror the occurrence rather than defaulting, so the page never renders 0001-01-01
+            // and reads it as data.
             return new RunDiagnosis(
                 verdict, schedule.Id, schedule.Name, schedule.NextRunAt,
                 (int)RunStep.Pending, null, null, 0, null, null,
                 schedule.NextRunAt, schedule.NextRunAt, Guid.Empty,
-                schedule.Enabled, schedule.NextRunAt);
+                schedule.Enabled, schedule.NextRunAt, null, null);
         }
 
+        // Findings and Digest are already loaded on execution — GetOverviewAsync and GetRunHistoryAsync both
+        // fetch full ScheduledRunExecution rows, not a projection — so reading them here adds no query.
         return new RunDiagnosis(
             verdict, schedule.Id, schedule.Name, execution.OccurrenceAt,
             (int)execution.Step, (int?)execution.FailedAtStep, execution.LastError, execution.Attempts,
             deadLetter?.Error, deadLetter?.RetryCount, execution.CreatedAt, execution.UpdatedAt, execution.Id,
-            schedule.Enabled, schedule.NextRunAt);
+            schedule.Enabled, schedule.NextRunAt, execution.Findings, execution.Digest);
     }
 
     /// <summary>The columns of a dead-lettered row this type needs, projected in the database.</summary>

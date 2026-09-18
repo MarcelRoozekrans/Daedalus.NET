@@ -194,6 +194,39 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     }
 
     [Fact]
+    public async Task A_done_execution_reports_the_findings_and_digest_it_produced()
+    {
+        // The projection change that added these two fields must not turn into a fourth query: Findings and
+        // Digest are already loaded on the same ScheduledRunExecution row GetOverviewAsync always fetches in
+        // full, never a partial Select. The_overview_issues_one_query_per_table_not_one_per_schedule pins that
+        // this stays true; this test pins that the values themselves come through.
+        var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(1));
+        await SeedDoneExecutionAsync(schedule, _now.AddHours(-2));
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+        diagnosis.Findings.Should().Be("three open PRs, one failing CI run");
+        diagnosis.Digest.Should().Be("Three PRs are waiting on you.");
+    }
+
+    [Fact]
+    public async Task A_schedule_with_no_execution_reports_no_findings_or_digest()
+    {
+        // A schedule that never fired has no scout or writer output to show — null, not "" or a placeholder
+        // string that would render on the page and read as data.
+        await SeedScheduleAsync("morning-digest", _now.AddHours(1));
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        var diagnosis = overview.Should().ContainSingle().Subject;
+        diagnosis.Findings.Should().BeNull();
+        diagnosis.Digest.Should().BeNull();
+    }
+
+    [Fact]
     public async Task A_done_execution_with_no_dead_letter_is_Delivered()
     {
         var schedule = await SeedScheduleAsync("morning-digest", _now.AddHours(1));
