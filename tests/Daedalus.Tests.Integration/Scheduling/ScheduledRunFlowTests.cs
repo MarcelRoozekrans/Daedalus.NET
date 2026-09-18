@@ -243,6 +243,106 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         delivered.Should().NotContain("SCOUT-FINDINGS-MUST-NOT-BE-DELIVERED");
     }
 
+    // The three tests below permanentize fix-round-1's manual mutation check (run once, then reverted) as
+    // regression coverage: each forces the relevant TryComplete*Async call to throw for a real reason (its own
+    // outbox enqueue fails), by breaking the specific IOutboxWriter<T> that call uses, without touching
+    // production source. Without the corresponding dispatcher's try/catch, any one of these would propagate out
+    // of DispatchAsync, and the outbox would retry - re-running the paid subagent turn up to eight times with
+    // nobody told, exactly the defect fix round 1 closed. A regression in only one dispatcher's catch would not
+    // be caught by the other two, which is why all three get their own test rather than one shared one.
+
+    [Fact]
+    public async Task A_database_failure_completing_the_scout_step_is_caught_and_ends_in_FailAsync()
+    {
+        const string marker = "MUTATION-SCOUT-1a2b3c";
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: irrelevant to this check.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        // TryCompleteScoutAsync's own enqueue writes RunWriterStep; breaking that writer is what makes the
+        // call throw for a real reason.
+        var store = BuildStore(wrapRunWriterStepWriter: _ => new MutationAlwaysThrowingWriter<RunWriterStep>(marker));
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        var act = async () => await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+
+        await act.Should().NotThrowAsync("the dispatcher's catch must turn the store's exception into FailAsync, not propagate it");
+        await DrainChannelMessageAsync(adapter);
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Failed);
+        row.LastError.Should().Contain(marker);
+        adapter.DeliveredTexts.Should().ContainSingle("the operator notice must still be queued and delivered");
+    }
+
+    [Fact]
+    public async Task A_database_failure_completing_the_writer_step_is_caught_and_ends_in_FailAsync()
+    {
+        const string marker = "MUTATION-WRITER-4d5e6f";
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: irrelevant to this check.");
+        scripted.ThenText("Digest: irrelevant to this check.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        // TryCompleteWriterAsync's own enqueue writes DeliverDigest; breaking that writer is what makes the
+        // call throw for a real reason.
+        var store = BuildStore(wrapDeliverDigestWriter: _ => new MutationAlwaysThrowingWriter<DeliverDigest>(marker));
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+        var act = async () => await new RunWriterStepDispatcher(store, executor, NullLogger<RunWriterStepDispatcher>.Instance)
+            .DispatchAsync(new RunWriterStep(id), default);
+
+        await act.Should().NotThrowAsync("the dispatcher's catch must turn the store's exception into FailAsync, not propagate it");
+        await DrainChannelMessageAsync(adapter);
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Failed);
+        row.LastError.Should().Contain(marker);
+        adapter.DeliveredTexts.Should().ContainSingle("the operator notice must still be queued and delivered");
+    }
+
+    [Fact]
+    public async Task A_database_failure_completing_the_deliver_step_is_caught_and_ends_in_FailAsync()
+    {
+        const string marker = "MUTATION-DELIVER-7g8h9i";
+        var scripted = new ScriptedChatClient();
+        scripted.ThenText("Scout findings: irrelevant to this check.");
+        scripted.ThenText("Digest: irrelevant to this check.");
+        var adapter = new RecordingChannelAdapter(TelegramChannelId);
+
+        // TryCompleteDeliveryAsync's own enqueue writes ChannelMessageQueued - the SAME outbox row type
+        // FailAsync's operator notice uses. Throwing on every call would break the notice too, so this throws
+        // ONCE (the digest enqueue) then delegates to the real writer, letting FailAsync's own notice write -
+        // the second call on the same store instance - succeed for real. Matches
+        // ScheduledRunExecutionStoreTests' own ThrowOnceThenDelegateChannelWriter for the identical reason.
+        var store = BuildStore(wrapChannelWriter: real => new MutationThrowOnceThenDelegateWriter<ChannelMessageQueued>(real, marker));
+        await new ScheduledRunDueDispatcher(store).DispatchAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
+        var id = await SingleExecutionIdAsync();
+
+        var executor = BuildExecutor(scripted);
+        await new RunScoutStepDispatcher(store, executor, NullLogger<RunScoutStepDispatcher>.Instance)
+            .DispatchAsync(new RunScoutStep(id), default);
+        await new RunWriterStepDispatcher(store, executor, NullLogger<RunWriterStepDispatcher>.Instance)
+            .DispatchAsync(new RunWriterStep(id), default);
+        var act = async () => await new DeliverDigestDispatcher(store, NullLogger<DeliverDigestDispatcher>.Instance)
+            .DispatchAsync(new DeliverDigest(id), default);
+
+        await act.Should().NotThrowAsync("the dispatcher's catch must turn the store's exception into FailAsync, not propagate it");
+        await DrainChannelMessageAsync(adapter);
+
+        var row = await SingleExecutionRowAsync();
+        row.Step.Should().Be(RunStep.Failed);
+        row.LastError.Should().Contain(marker);
+        adapter.DeliveredTexts.Should().ContainSingle("the operator notice must still be queued and delivered");
+    }
+
     /// <summary>Seeds a <see cref="ScheduledRun"/> via <see cref="ScheduledRun.Create"/>, due at <see cref="Occurrence"/>.</summary>
     private async Task<Guid> SeedScheduleAsync(
         string name, string channelId, string conversationId, string principalId, IReadOnlyList<string> roles)
@@ -307,7 +407,17 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
     ///     container - the same "brand-new store" fiction <c>ScheduledRunExecutionStoreTests</c> uses to model an
     ///     independent process, which is what the restart test relies on.
     /// </summary>
-    private ScheduledRunExecutionStore BuildStore()
+    /// <param name="wrapRunWriterStepWriter">
+    ///     When supplied, replaces <c>IOutboxWriter&lt;RunWriterStep&gt;</c> with the wrapper this returns,
+    ///     given the real generated writer - the same "registered after, real writer underneath" pattern
+    ///     <c>ScheduledRunExecutionStoreTests</c> uses for its own rendezvous and throwing writers.
+    /// </param>
+    /// <param name="wrapDeliverDigestWriter">Same as <paramref name="wrapRunWriterStepWriter"/>, for <c>IOutboxWriter&lt;DeliverDigest&gt;</c>.</param>
+    /// <param name="wrapChannelWriter">Same as <paramref name="wrapRunWriterStepWriter"/>, for <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c>.</param>
+    private ScheduledRunExecutionStore BuildStore(
+        Func<IOutboxWriter<RunWriterStep>, IOutboxWriter<RunWriterStep>>? wrapRunWriterStepWriter = null,
+        Func<IOutboxWriter<DeliverDigest>, IOutboxWriter<DeliverDigest>>? wrapDeliverDigestWriter = null,
+        Func<IOutboxWriter<ChannelMessageQueued>, IOutboxWriter<ChannelMessageQueued>>? wrapChannelWriter = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -320,6 +430,24 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
             .AddDeliverDigestOutbox()
             .AddChannelMessageQueuedOutbox();
         services.AddScoped<ScheduledRunExecutionStore>();
+
+        if (wrapRunWriterStepWriter is not null)
+        {
+            services.AddTransient<IOutboxWriter<RunWriterStep>>(sp => wrapRunWriterStepWriter(
+                new RunWriterStepOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+        }
+
+        if (wrapDeliverDigestWriter is not null)
+        {
+            services.AddTransient<IOutboxWriter<DeliverDigest>>(sp => wrapDeliverDigestWriter(
+                new DeliverDigestOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+        }
+
+        if (wrapChannelWriter is not null)
+        {
+            services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(sp => wrapChannelWriter(
+                new ChannelMessageQueuedOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+        }
 
         var provider = services.BuildServiceProvider();
         _disposables.Add(provider);
@@ -385,6 +513,41 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         {
             DeliveredTexts.Add(((TextDeltaEvent)agentEvent).Text);
             return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    ///     Always throws <paramref name="marker"/>, simulating a permanent database failure inside a step
+    ///     dispatcher's completion call - the same seam <c>ScheduledRunExecutionStoreTests</c>' own
+    ///     <c>ThrowingChannelWriter</c> uses, generalized to whichever outbox message type the caller is
+    ///     breaking.
+    /// </summary>
+    private sealed class MutationAlwaysThrowingWriter<T>(string marker) : IOutboxWriter<T> where T : notnull
+    {
+        public ValueTask WriteAsync(T message, System.Data.Common.DbTransaction? transaction = null, CancellationToken ct = default) =>
+            throw new InvalidOperationException(marker);
+    }
+
+    /// <summary>
+    ///     Throws <paramref name="marker"/> once, then delegates to <paramref name="inner"/> for every call
+    ///     after that - for a message type FailAsync's own operator notice also writes through
+    ///     (<see cref="ChannelMessageQueued"/>), so the failing attempt and the notice that follows it must not
+    ///     both break. Matches <c>ScheduledRunExecutionStoreTests</c>' own <c>ThrowOnceThenDelegateChannelWriter</c>
+    ///     for the identical reason.
+    /// </summary>
+    private sealed class MutationThrowOnceThenDelegateWriter<T>(IOutboxWriter<T> inner, string marker) : IOutboxWriter<T> where T : notnull
+    {
+        private bool _hasThrown;
+
+        public async ValueTask WriteAsync(T message, System.Data.Common.DbTransaction? transaction = null, CancellationToken ct = default)
+        {
+            if (!_hasThrown)
+            {
+                _hasThrown = true;
+                throw new InvalidOperationException(marker);
+            }
+
+            await inner.WriteAsync(message, transaction, ct);
         }
     }
 }

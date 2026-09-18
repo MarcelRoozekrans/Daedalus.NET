@@ -50,7 +50,11 @@ public sealed partial class RunScoutStepDispatcher(
         {
             await store.TryCompleteScoutAsync(message.ExecutionId, result.Value, ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        // Excludes OperationCanceledException: a normal host shutdown cancels ct mid-call, and without this
+        // filter that cancellation would detour through a doomed FailAsync attempt on the same cancelled
+        // token instead of propagating - this restores the behaviour from before this catch existed, where a
+        // cancellation propagated directly rather than being caught here at all.
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // TryCompleteScoutAsync only throws for a database failure (ScheduledRunExecutionStore's own
             // remarks document that non-concurrency exceptions are deliberately left to escape it). FailAsync
@@ -115,7 +119,8 @@ public sealed partial class RunWriterStepDispatcher(
         {
             await store.TryCompleteWriterAsync(message.ExecutionId, result.Value, ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        // See RunScoutStepDispatcher's catch for why OperationCanceledException is excluded from this filter.
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // See RunScoutStepDispatcher's matching catch: FailAsync only queues an outbox row, so a genuine
             // database outage still propagates from FailAsync's own BeginTransactionAsync, while a permanent
@@ -174,7 +179,11 @@ public sealed partial class DeliverDigestDispatcher(
         {
             await store.TryCompleteDeliveryAsync(message.ExecutionId, ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        // The "is not OperationCanceledException" filter matters, not just style: a normal host shutdown
+        // cancels ct mid-call, and without this filter that cancellation would detour through FailAsync on
+        // the same cancelled token instead of propagating - restoring the behaviour from before this catch
+        // existed, where a cancellation propagated directly.
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             await store.FailAsync(message.ExecutionId, Describe(ex), ct).ConfigureAwait(false);
         }
