@@ -57,12 +57,12 @@ If the generator change broke the 1.3.0-era store, that reshapes the phase. Find
 
 **Interfaces:** none — nothing downstream consumes this.
 
-- [ ] **Step 1: Confirm Thalos.NET 0.5.0 is live**
+- [x] **Step 1: Confirm Thalos.NET 0.5.0 is live**
 
 Run: `curl -s https://api.nuget.org/v3-flatcontainer/thalos.net/index.json | tail -c 200`
 Expected: `0.5.0` present. If absent, **stop** — plan A is not finished and every later task depends on it.
 
-- [ ] **Step 2: Create a throwaway console project**
+- [x] **Step 2: Create a throwaway console project**
 
 ```bash
 mkdir -p spikes/SagaEfCoreSmoke && cd spikes/SagaEfCoreSmoke
@@ -75,7 +75,7 @@ dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
 
 Do **not** add this to the solution — it must not reach CI.
 
-- [ ] **Step 3: Write the smallest saga that proves the store works**
+- [x] **Step 3: Write the smallest saga that proves the store works**
 
 ```csharp
 // A two-step saga over the EfCore store. The point is not the workflow, it is that
@@ -100,19 +100,19 @@ Wire it with `services.AddSaga().WithSmokeSaga()` plus the EfCore store, point i
 
 Read `ZeroAlloc.Saga.EfCore`'s own README before writing the wiring — the fluent call for selecting the EfCore store is named there, and guessing it wastes a cycle.
 
-- [ ] **Step 4: Run it against a real Postgres**
+- [x] **Step 4: Run it against a real Postgres**
 
 Run: `docker run --rm -d -p 5433:5432 -e POSTGRES_PASSWORD=spike --name saga-spike postgres:16`
 then `dotnet run`.
 Expected: the saga completes and its row is gone.
 
-- [ ] **Step 5: Record the verdict**
+- [x] **Step 5: Record the verdict**
 
 Write the outcome into `docs/plans/2026-09-16-saga-efcore-spike.md` — versions tried, whether it worked, and any API that differed from the README. **This file is kept**; the spike project is not.
 
 If it **failed**, stop and report. Options are: pin `ZeroAlloc.Saga` to 1.3.0 and forgo the 2.0.0 generator fix; raise a fix upstream in the ZeroAlloc-Net org and wait for a `Saga.EfCore` 2.x; or fall back to the InMemory store and accept that sagas do not survive a restart, which would contradict spec D1 and needs your decision.
 
-- [ ] **Step 6: Delete the spike project, keep the note**
+- [x] **Step 6: Delete the spike project, keep the note**
 
 ```bash
 docker rm -f saga-spike
@@ -132,12 +132,12 @@ Spec §7. Phase 1.4's retrospective names this omission as what hid a 126-test P
 
 **Interfaces:** none.
 
-- [ ] **Step 1: Enumerate every test project**
+- [x] **Step 1: Enumerate every test project**
 
 Run: `dotnet sln list | grep -i test`
 Expected: seven projects, including `Daedalus.Tests.Playwright.Api` and `Daedalus.Tests.Playwright.Browser`.
 
-- [ ] **Step 2: Run each one separately and record the result**
+- [x] **Step 2: Run each one separately and record the result**
 
 ```bash
 for p in $(dotnet sln list | grep -i 'tests'); do
@@ -148,7 +148,7 @@ done
 
 Record pass/fail/skip per project in the baseline file. Run each **separately** — a single root `dotnet test` masks which project a failure came from.
 
-- [ ] **Step 3: Record the known-failing suites explicitly**
+- [x] **Step 3: Record the known-failing suites explicitly**
 
 Two failures are expected and are **not** this plan's to fix:
 
@@ -157,7 +157,7 @@ Two failures are expected and are **not** this plan's to fix:
 
 Write both into the baseline with their counts. **The purpose is attribution:** at review time, these must be provably pre-existing rather than something phase 1.5 broke.
 
-- [ ] **Step 4: Commit the baseline**
+- [x] **Step 4: Commit the baseline**
 
 ```bash
 git add docs/plans/2026-09-16-plan-b-baseline.md
@@ -180,7 +180,7 @@ git commit -m "docs(baseline): record test state before plan B"
   - `void Disable()`, `void UpdateFromConfig(...)`
   - `enum ScheduleOrigin { Config, Agent }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 using AwesomeAssertions;
@@ -258,12 +258,12 @@ public class ScheduledRunTests
 }
 ```
 
-- [ ] **Step 2: Run and verify it fails**
+- [x] **Step 2: Run and verify it fails**
 
 Run: `dotnet test tests/Daedalus.Tests.Unit.Domain --filter FullyQualifiedName~ScheduledRunTests`
 Expected: FAIL — the type does not exist.
 
-- [ ] **Step 3: Write the aggregate**
+- [x] **Step 3: Write the aggregate**
 
 Follow `ChannelConversation` exactly for shape: `sealed class ... : Entity<Guid>`, private setters, a static `Create` returning `Result<T>` from `CSharpFunctionalExtensions`, `const int Max*Length` fields, XML docs on every public member. Roles are stored as a `IReadOnlyList<string>` and persisted as a delimited string by the EF configuration in Task 4.
 
@@ -275,12 +275,12 @@ Key rules in `Create`:
 
 `AdvanceTo` sets `NextRunAt`, `LastRunAt`, and does `MissedOccurrences += missed`.
 
-- [ ] **Step 4: Run and verify it passes**
+- [x] **Step 4: Run and verify it passes**
 
 Run: `dotnet test tests/Daedalus.Tests.Unit.Domain --filter FullyQualifiedName~ScheduledRunTests`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Daedalus.Domain tests/Daedalus.Tests.Unit.Domain
@@ -300,7 +300,7 @@ git commit -m "feat(domain): add the ScheduledRun aggregate"
 **Interfaces:**
 - Produces: `ApplicationDbContext.ScheduledRuns` as `DbSet<ScheduledRun>`; table `ScheduledRuns`; unique index `IX_ScheduledRun_Name`
 
-- [ ] **Step 1: Write the configuration**
+- [x] **Step 1: Write the configuration**
 
 Model it on `ChannelConversationConfiguration`:
 
@@ -347,7 +347,7 @@ builder.Property<uint>("xmin").IsRowVersion().HasColumnName("xmin");
 
 The `ValueComparer` is required: without it EF cannot detect changes to a converted collection and the roles column silently never updates.
 
-- [ ] **Step 2: Add the `DbSet`**
+- [x] **Step 2: Add the `DbSet`**
 
 In `ApplicationDbContext`, beside `ChannelConversations`:
 
@@ -356,7 +356,7 @@ In `ApplicationDbContext`, beside `ChannelConversations`:
     public DbSet<ScheduledRun> ScheduledRuns => Set<ScheduledRun>();
 ```
 
-- [ ] **Step 3: Generate the migration**
+- [x] **Step 3: Generate the migration**
 
 Run:
 ```bash
@@ -365,7 +365,7 @@ dotnet ef migrations add AddScheduledRuns --project src/Daedalus.Infrastructure 
 
 Read the generated `Up` before continuing. Expected: one `CreateTable` and two `CreateIndex`. If it contains changes to any other table, the model has drifted — stop and find out why rather than applying it.
 
-- [ ] **Step 4: Apply and verify against a real database**
+- [x] **Step 4: Apply and verify against a real database**
 
 Run: `dotnet run --project src/Daedalus.Migrations`
 Then confirm: `docker exec -it <postgres-container> psql -U postgres -d daedalus -c '\d "ScheduledRuns"'`
@@ -373,7 +373,7 @@ Expected: the table with both indexes.
 
 If Postgres complains about a collation version mismatch, that is the known local issue — `docker volume rm daedalus_postgres_data` or `REINDEX DATABASE daedalus;`.
 
-- [ ] **Step 5: Write a round-trip test**
+- [x] **Step 5: Write a round-trip test**
 
 ```csharp
 [Fact]
@@ -399,7 +399,7 @@ Use whatever context fixture `tests/Daedalus.Tests.Unit.Infrastructure` already 
 
 Run it. Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Daedalus.Infrastructure tests
@@ -427,7 +427,7 @@ git commit -m "feat(persistence): add the ScheduledRuns table"
   - `ScheduledRunDueDispatcher : IOutboxDispatcher<ScheduledRunDue>`
   - `readonly record struct ScheduleOccurrence(Guid ScheduleId, DateTime OccurrenceAtUtc)` — the saga correlation key
 
-- [ ] **Step 1: Create the message**
+- [x] **Step 1: Create the message**
 
 ```csharp
 using ZeroAlloc.Outbox;
@@ -452,7 +452,7 @@ public sealed record ScheduledRunDue(Guid ScheduleId, DateTime OccurrenceAtUtc);
 
 The generated DI extension is `Add{TypeName}Outbox` — `AddScheduledRunDueOutbox()`. This is `ZeroAlloc.Outbox`'s `OutboxCodeWriter.DiExtensionMethodName` formatting `$"Add{typeName}Outbox"`, as `ChannelMessageQueued` documents.
 
-- [ ] **Step 2: Create the correlation key type**
+- [x] **Step 2: Create the correlation key type**
 
 ```csharp
 namespace Daedalus.Agents.Scheduling;
@@ -461,7 +461,7 @@ namespace Daedalus.Agents.Scheduling;
 public readonly record struct ScheduleOccurrence(Guid ScheduleId, DateTime OccurrenceAtUtc);
 ```
 
-- [ ] **Step 3: Write the failing dispatcher test**
+- [x] **Step 3: Write the failing dispatcher test**
 
 ```csharp
 [Fact]
@@ -480,14 +480,14 @@ public async Task Dispatching_publishes_a_saga_start_event_for_the_occurrence()
 
 `ZeroAlloc.Mediator` generates an internal `IMediator` per assembly. Check how `Daedalus.Agents` already obtains one — if it cannot be substituted, introduce a thin `IScheduleTriggerPublisher` the dispatcher depends on, and test that instead. Look at how `IAgentNotificationPublisher` solves the same problem before inventing anything.
 
-- [ ] **Step 4: Run, implement, re-run**
+- [x] **Step 4: Run, implement, re-run**
 
 Implement `ScheduledRunDueDispatcher` to publish the saga start event. Follow `ChannelMessageQueuedDispatcher`'s error policy exactly: a **permanent** condition — an unknown schedule id — is logged at `Error` and treated as handled, never thrown, because retrying cannot make a deleted row reappear and throwing only burns the retry budget before dead-lettering something that could never succeed.
 
 Run: `dotnet test tests/Daedalus.Tests.Unit --filter FullyQualifiedName~ScheduledRunDueDispatcherTests`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/Daedalus.Agents tests/Daedalus.Tests.Unit
@@ -507,7 +507,7 @@ This is the correctness core of the phase. Spec §5.
 **Interfaces:**
 - Produces: `ScheduledRunStore(IDbContextFactory<ApplicationDbContext>, IOutboxWriter<ScheduledRunDue>, TimeProvider, ILogger<ScheduledRunStore>)` with `ValueTask<int> ClaimAndEnqueueDueAsync(CancellationToken ct)` returning the number of runs fired
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 public class ScheduledRunStoreTests : IClassFixture<PostgresFixture>
@@ -582,12 +582,12 @@ public class ScheduledRunStoreTests : IClassFixture<PostgresFixture>
 
 `PostgresFixture` — reuse the Testcontainers fixture `Daedalus.Tests.Integration` already has. Read that project first.
 
-- [ ] **Step 2: Run and verify they fail**
+- [x] **Step 2: Run and verify they fail**
 
 Run: `dotnet test tests/Daedalus.Tests.Integration --filter FullyQualifiedName~ScheduledRunStoreTests`
 Expected: FAIL — the store does not exist.
 
-- [ ] **Step 3: Implement the store**
+- [x] **Step 3: Implement the store**
 
 ```csharp
 public async ValueTask<int> ClaimAndEnqueueDueAsync(CancellationToken ct)
@@ -642,17 +642,17 @@ Confirm `IOutboxWriter<T>.WriteAsync`'s transaction parameter against `ZeroAlloc
 
 **Do not "improve" this into a per-row transaction.** One transaction per sweep is what makes the last test pass: if the outbox write throws on row three, rows one and two must roll back too, or those occurrences are consumed with no trigger.
 
-- [ ] **Step 4: Run and verify all five pass**
+- [x] **Step 4: Run and verify all five pass**
 
 Run: `dotnet test tests/Daedalus.Tests.Integration --filter FullyQualifiedName~ScheduledRunStoreTests`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Run them five times**
+- [x] **Step 5: Run them five times**
 
 Run: `for i in 1 2 3 4 5; do dotnet test tests/Daedalus.Tests.Integration --filter FullyQualifiedName~ScheduledRunStoreTests || echo "FAILED run $i"; done`
 Expected: five clean runs. Transactional tests against containers are exactly where intermittent failures hide.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Daedalus.Agents tests/Daedalus.Tests.Integration
@@ -676,7 +676,7 @@ git commit -m "feat(scheduling): claim due runs and enqueue their triggers atomi
 **Interfaces:**
 - Produces: `ScheduleReconciler.ReconcileAsync(CancellationToken) -> ValueTask`, throwing `InvalidOperationException` on invalid configuration; `ScheduledRunOptions` bound from `ScheduledRuns`
 
-- [ ] **Step 1: Add the configuration sections**
+- [x] **Step 1: Add the configuration sections**
 
 ```json
 "DetachedRuns": {
@@ -697,7 +697,7 @@ git commit -m "feat(scheduling): claim due runs and enqueue their triggers atomi
 
 `Enabled: false` by default: the Telegram path has never been exercised end to end, so a fresh clone must not start pushing to an unverified chat id on a timer.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 ```csharp
 [Fact]
@@ -716,7 +716,7 @@ public async Task A_trigger_naming_no_registered_saga_throws_at_startup()
 
 Write each body out. The fourth is the one that protects phase 1.6 — seed a row with `Origin.Agent` and a name absent from configuration, reconcile, and assert it is still enabled and unchanged. Without it, 1.6's agent-created schedules get disabled on every restart.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Upsert by `Name` for `Origin == Config` rows only. Disable — never delete — config rows missing from configuration, so history and `MissedOccurrences` survive. Validate before writing anything:
 
@@ -725,16 +725,16 @@ Upsert by `Name` for `Origin == Config` rows only. Disable — never delete — 
 
 Spec §7 requires the boot to fail rather than defer the error to 07:00.
 
-- [ ] **Step 4: Wire it to run at startup**
+- [x] **Step 4: Wire it to run at startup**
 
 An `IHostedService` that calls `ReconcileAsync` in `StartAsync`, registered ahead of the sweeper. A throw here must stop the host — that is the point.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `dotnet test tests/Daedalus.Tests.Integration --filter FullyQualifiedName~ScheduleReconcilerTests`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/Daedalus.Agents src/Daedalus.Api tests/Daedalus.Tests.Integration
@@ -754,7 +754,7 @@ Spec §7 — the thread carried since phase 1.4. `DefaultAgent` is an agent **na
 **Interfaces:**
 - Produces: `AgentNameValidator.Validate(IAgentCatalog, IEnumerable<string> names)` throwing `InvalidOperationException` listing every unknown name
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 [Fact]
@@ -767,11 +767,11 @@ public async Task The_error_names_every_unknown_agent_at_once_not_just_the_first
 
 The third matters: failing on the first unknown name means a misconfigured host is fixed one restart at a time.
 
-- [ ] **Step 2: Implement and wire into the same startup hosted service as Task 7**
+- [x] **Step 2: Implement and wire into the same startup hosted service as Task 7**
 
 Resolve names case-insensitively — `ChannelPump` already does, because agent names are typed by humans on phones.
 
-- [ ] **Step 3: Run, then commit**
+- [x] **Step 3: Run, then commit**
 
 ```bash
 git add src/Daedalus.Agents tests/Daedalus.Tests.Integration
@@ -798,7 +798,7 @@ git commit -m "feat(agents): validate configured agent names at startup"
   - `record SubagentFailed(ScheduleOccurrence Occurrence, string AgentName, AgentErrorCode Code, string Message) : INotification`
   - `RunSubagentHandler` — **the only type in Daedalus that touches `ISubagentRunner`**
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 [Fact]
@@ -813,13 +813,13 @@ public async Task An_unknown_agent_name_publishes_SubagentFailed_rather_than_thr
 
 The third is spec D7 and §4 made falsifiable — assert the `ISecurityContext` handed to `ISubagentRunner` has `Id == "schedule:daedalus"` and `Roles` exactly `["reader"]`, not a human's identity. Substitute `ISubagentRunner` and capture the request.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Resolve `AgentName` to an `AgentId` through `IAgentCatalog` case-insensitively. Build the caller as `new ConfiguredSecurityContext(options.PrincipalId, options.Roles)` from the `DetachedRuns` section — **never** from any ambient user context. Call `ISubagentRunner.RunAsync`. Publish `SubagentFinished` on success, `SubagentFailed` on failure.
 
 The handler **never throws** on an agent error: a throw escapes into the saga's step dispatch as an infrastructure fault, while a `SubagentFailed` notification is a domain outcome the saga can compensate on. These are different things and conflating them loses the compensation path.
 
-- [ ] **Step 3: Run, then commit**
+- [x] **Step 3: Run, then commit**
 
 Run: `dotnet test tests/Daedalus.Tests.Unit --filter FullyQualifiedName~RunSubagentHandlerTests`
 Expected: PASS, 4 tests.
