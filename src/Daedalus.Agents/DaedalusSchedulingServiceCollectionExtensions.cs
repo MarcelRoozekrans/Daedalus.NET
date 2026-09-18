@@ -1,4 +1,5 @@
 using Daedalus.Agents.Scheduling;
+using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,11 +15,12 @@ public static class DaedalusSchedulingServiceCollectionExtensions
     ///     Registers the trigger for scheduled runs (<see cref="ScheduleSweeperService"/>), the two scoped stores
     ///     that hold all of the sweep and step logic (<see cref="ScheduledRunStore"/>,
     ///     <see cref="ScheduledRunExecutionStore"/>), the single seam onto a subagent
-    ///     (<see cref="ISubagentRunExecutor"/>) with the <c>DetachedRuns</c> options it reads its budget from, and
-    ///     the four step dispatchers in place of ZeroAlloc.Outbox's throwing defaults.
+    ///     (<see cref="ISubagentRunExecutor"/>) with the <c>DetachedRuns</c> options it reads its budget from, the
+    ///     read-only diagnostics seam <see cref="ScheduleDiagnostics"/> with its own options section, and the four
+    ///     step dispatchers in place of ZeroAlloc.Outbox's throwing defaults.
     /// </summary>
     /// <param name="services">The service collection.</param>
-    /// <param name="configuration">Host configuration; the <c>DetachedRuns</c> section is read.</param>
+    /// <param name="configuration">Host configuration; the <c>DetachedRuns</c> and <c>ScheduleDiagnostics</c> sections are read.</param>
     /// <remarks>
     ///     <para>
     ///     <b>No scheduling package.</b> This method originally planned to lean on
@@ -88,6 +90,11 @@ public static class DaedalusSchedulingServiceCollectionExtensions
         services.AddScoped<ScheduledRunStore>();
         services.AddScoped<ScheduledRunExecutionStore>();
         services.AddScoped<ISubagentRunExecutor, SubagentRunExecutor>();
+
+        // Scoped, not singleton — same rule as the two stores above: ScheduleDiagnostics takes ApplicationDbContext
+        // directly, and EfCoreOutboxStore.EnqueueAsync needs connection identity with whatever else is in the scope.
+        services.AddScoped<IScheduleDiagnostics, ScheduleDiagnostics>();
+        services.Configure<ScheduleDiagnosticsOptions>(configuration.GetSection(ScheduleDiagnosticsOptions.SectionName));
 
         // Replace, not Add — see remarks above.
         services.Replace(ServiceDescriptor.Transient<IOutboxDispatcher<ScheduledRunDue>, ScheduledRunDueDispatcher>());
