@@ -44,6 +44,25 @@ public sealed class ScheduledRunExecutionPersistenceTests(PostgresFixture fixtur
     }
 
     [Fact]
+    public async Task A_failed_execution_round_trips_the_step_it_failed_at()
+    {
+        await using (var db = fixture.CreateContext())
+        {
+            var execution = Execution();
+            execution.BeginScout(Now);
+            execution.Fail("scout timed out", Now);
+            db.ScheduledRunExecutions.Add(execution);
+            await db.SaveChangesAsync();
+        }
+
+        await using var read = fixture.CreateContext();
+        var loaded = await read.ScheduledRunExecutions.SingleAsync(e => e.ScheduleId == ScheduleId);
+
+        loaded.Step.Should().Be(RunStep.Failed);
+        loaded.FailedAtStep.Should().Be(RunStep.Scout);
+    }
+
+    [Fact]
     public async Task A_second_row_for_the_same_schedule_and_occurrence_is_rejected_by_the_database()
     {
         // the idempotency guarantee, enforced where no handler can forget it

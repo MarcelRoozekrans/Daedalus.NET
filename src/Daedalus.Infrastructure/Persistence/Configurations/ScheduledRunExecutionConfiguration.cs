@@ -19,6 +19,7 @@ internal sealed class ScheduledRunExecutionConfiguration : IEntityTypeConfigurat
         builder.Property(e => e.ScheduleId).IsRequired();
         builder.Property(e => e.OccurrenceAt).IsRequired();
         builder.Property(e => e.Step).IsRequired().HasConversion<string>().HasMaxLength(16);
+        builder.Property(e => e.FailedAtStep).HasConversion<string>().HasMaxLength(16);
         builder.Property(e => e.Findings);
         builder.Property(e => e.Digest);
         builder.Property(e => e.ChannelId).IsRequired().HasMaxLength(ScheduledRunExecution.MaxChannelIdLength);
