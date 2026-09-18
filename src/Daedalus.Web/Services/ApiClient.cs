@@ -288,12 +288,6 @@ public sealed class ApiClient(HttpClient httpClient)
     /// <summary>
     ///     Requeues an undelivered run's message for redelivery.
     /// </summary>
-    /// <remarks>
-    ///     There is no server-side route for this yet — <c>SchedulesController</c> exposes only the two
-    ///     read endpoints. Calling this returns a failure Result today, which the resend UI renders as its
-    ///     documented failed state; wiring the endpoint to the outbox store's requeue capability is
-    ///     tracked as follow-up work, not part of this page.
-    /// </remarks>
     public async Task<Result> ResendScheduleRunAsync(
         Guid scheduleId, Guid executionId, CancellationToken ct = default) =>
         await PostAsync($"/api/schedules/{scheduleId}/runs/{executionId}/resend", new { }, ct);

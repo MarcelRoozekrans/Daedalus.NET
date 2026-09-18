@@ -23,7 +23,7 @@ namespace Daedalus.Api.Controllers;
 [Produces("application/json")]
 public sealed class SchedulesController(IScheduleDiagnostics diagnostics, IScheduleDeliveryActions deliveryActions) : ControllerBase
 {
-    /// <summary>Every active schedule's current state and the verdict on its most recent run.</summary>
+    /// <summary>Every schedule's current state and the verdict on its most recent run, including disabled ones.</summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<RunDiagnosis>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetOverview(CancellationToken ct) =>

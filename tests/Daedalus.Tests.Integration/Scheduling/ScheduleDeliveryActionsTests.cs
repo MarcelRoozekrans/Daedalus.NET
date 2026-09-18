@@ -7,6 +7,7 @@ using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Time.Testing;
 using ZeroAlloc.Outbox;
 using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
@@ -73,6 +74,31 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
     }
 
     [Fact]
+    public async Task Requeue_reads_the_window_from_the_injected_clock_not_the_wall_clock()
+    {
+        // Nowhere near the real wall clock, on purpose: RequeueAsync used to read DateTimeOffset.UtcNow
+        // directly, which this test could not have driven. If it ever regresses to that, the dead letter's
+        // CreatedAt — stamped relative to this fake "now" — falls outside the window a real clock would
+        // compute, and the requeue below fails.
+        var fakeNow = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var time = new FakeTimeProvider(fakeNow);
+
+        var schedule = await SeedScheduleAsync("morning-digest");
+        var execution = await SeedDoneExecutionAsync(schedule);
+
+        await using var provider = BuildProvider(time);
+        await QueueMessageAsync(provider, execution.Id);
+        await DeadLetterAsync(provider, execution.Id, "Telegram returned 429 after 8 attempts", retryCount: 7,
+            createdAt: fakeNow.AddMinutes(-5));
+
+        await using var scope = provider.CreateAsyncScope();
+        var actions = scope.ServiceProvider.GetRequiredService<IScheduleDeliveryActions>();
+        var result = await actions.RequeueAsync(execution.Id, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : null);
+    }
+
+    [Fact]
     public async Task Requeue_only_touches_the_matching_executions_dead_letter_not_another_schedules()
     {
         var targeted = await SeedScheduleAsync("morning-digest");
@@ -97,11 +123,11 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
             "the other schedule's dead letter shares the type name and must be left alone");
     }
 
-    private ServiceProvider BuildProvider()
+    private ServiceProvider BuildProvider(TimeProvider? timeProvider = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton(timeProvider ?? TimeProvider.System);
         services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddOutbox(o => o.PollingInterval = TimeSpan.FromHours(1))
             .WithEfCore<ApplicationDbContext>()
@@ -156,13 +182,13 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
             ct: CancellationToken.None);
     }
 
-    private async Task DeadLetterAsync(ServiceProvider provider, Guid executionId, string error, int retryCount) =>
+    private async Task DeadLetterAsync(ServiceProvider provider, Guid executionId, string error, int retryCount, DateTimeOffset? createdAt = null) =>
         await MutateRowAsync(provider, executionId, row =>
         {
             row.Status = OutboxMessageStatus.DeadLetter;
             row.DeadLetterError = error;
             row.RetryCount = retryCount;
-            row.CreatedAt = new DateTimeOffset(_now.AddMinutes(-5));
+            row.CreatedAt = createdAt ?? new DateTimeOffset(_now.AddMinutes(-5));
         });
 
     /// <summary>

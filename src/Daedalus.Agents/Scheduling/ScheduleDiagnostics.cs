@@ -187,7 +187,7 @@ public sealed class ScheduleDiagnostics(
         // by a payload field in SQL, so both must deserialize candidates; this one also returns the reason.
         // Use the dashboard store's RequeueAsync and CancelAsync when the page offers to resend.
         var typeName = _channelMessageTypeName;
-        var since = WindowStart(now);
+        var since = WindowStart(_options.DeadLetterLookback, now);
 
         List<DeadLetterRow> rows;
         try
@@ -258,14 +258,18 @@ public sealed class ScheduleDiagnostics(
         return DeadLetterLookup.From(byExecutionId, horizon);
     }
 
-    /// <summary>Start of the dead-letter window, floored so an absurdly wide <see cref="ScheduleDiagnosticsOptions.DeadLetterLookback"/> cannot underflow.</summary>
-    private DateTimeOffset WindowStart(DateTime now)
-    {
-        var lookback = _options.DeadLetterLookback;
-        return lookback > TimeSpan.Zero && now - DateTime.UnixEpoch > lookback
+    /// <summary>
+    ///     Start of the dead-letter window, floored so an absurdly wide <see cref="ScheduleDiagnosticsOptions.DeadLetterLookback"/>
+    ///     cannot underflow. Internal, and shared with <see cref="ScheduleDeliveryActions"/> — both need exactly the
+    ///     same window over the same clock to resolve the same dead letter, and there must be only one definition
+    ///     of what that window is.
+    /// </summary>
+    /// <param name="lookback">How far back the window reaches, from <see cref="ScheduleDiagnosticsOptions.DeadLetterLookback"/>.</param>
+    /// <param name="now">The current instant, from the injected <see cref="TimeProvider"/>.</param>
+    internal static DateTimeOffset WindowStart(TimeSpan lookback, DateTime now) =>
+        lookback > TimeSpan.Zero && now - DateTime.UnixEpoch > lookback
             ? new DateTimeOffset(now - lookback, TimeSpan.Zero)
             : DateTimeOffset.UnixEpoch;
-    }
 
     /// <summary>
     ///     The schedule's current state, which outranks what its last run did. A pure function of its arguments:

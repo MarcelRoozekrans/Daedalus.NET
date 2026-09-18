@@ -44,10 +44,12 @@ namespace Daedalus.Agents.Channels;
 ///     retries or blocking the delivery of other, deliverable messages behind it.
 ///     </para>
 ///     <para>
-///     <b>Nothing calls this in this phase.</b> No producer writes a <see cref="ChannelMessageQueued"/> — terminal
-///     messages are delivered straight from the pump to <see cref="IChannelAdapter.DeliverAsync"/> instead (see the
-///     design's §9 correction). This dispatcher and the outbox table it drains are wired and tested ahead of their
-///     first real writer: phase 1.5's proactive/unsolicited pushes (scheduled and subagent runs with no live turn).
+///     <b>This is live.</b> <c>ScheduledRunExecutionStore</c> writes a <see cref="ChannelMessageQueued"/> both for a
+///     completed run's digest and for a failed run's operator notice, in the same transaction that advances the
+///     execution — the proactive, unsolicited pushes this dispatcher exists to deliver (scheduled and subagent runs
+///     with no live turn). A terminal message from a live turn still goes straight from the pump to
+///     <see cref="IChannelAdapter.DeliverAsync"/> instead (see the design's §9 correction); this dispatcher only
+///     drains the outbox table.
 ///     </para>
 /// </remarks>
 public sealed partial class ChannelMessageQueuedDispatcher : IOutboxDispatcher<ChannelMessageQueued>

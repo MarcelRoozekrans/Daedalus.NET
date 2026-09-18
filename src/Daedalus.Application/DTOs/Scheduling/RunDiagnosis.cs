@@ -26,16 +26,16 @@ public enum RunVerdict
     /// <summary>The scheduled occurrence is overdue; it has not run though it should have.</summary>
     Overdue = 4,
 
-    /// <summary>The run reached a terminal state without completion; left in the queue without a handler.</summary>
+    /// <summary>The run is stuck: it has not reached a terminal step, and its last update is older than the configured staleness threshold.</summary>
     Stranded = 5,
 
-    /// <summary>The run completed but whether delivery succeeded is unknown; state may be inconsistent.</summary>
+    /// <summary>The run completed, but the outbox could not be read, so delivery could not be confirmed.</summary>
     DeliveryUnknown = 6,
 
     /// <summary>The run failed; <see cref="RunDiagnosis.LastError"/> says why.</summary>
     Failed = 7,
 
-    /// <summary>The run was not delivered; it did not run at all despite being due.</summary>
+    /// <summary>The run completed, but its channel message was dead-lettered, so delivery failed.</summary>
     Undelivered = 8,
 
     /// <summary>

@@ -64,7 +64,7 @@ public sealed class DaedalusScheduleTools(IScheduleDiagnostics diagnostics)
     {
         var history = await diagnostics.GetRunHistoryAsync(scheduleId, take, ct);
         return history.Count == 0
-            ? $"Schedule {scheduleId} has no recorded runs."
+            ? $"Schedule {scheduleId} has no recorded runs, or no such schedule exists."
             : string.Join('\n', history.Select(RenderRunLine));
     }
 

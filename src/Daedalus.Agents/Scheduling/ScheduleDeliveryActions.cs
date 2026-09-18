@@ -38,12 +38,14 @@ namespace Daedalus.Agents.Scheduling;
 ///     </para>
 /// </remarks>
 /// <param name="db">The scope's context; see the remarks on why it is not a factory.</param>
+/// <param name="timeProvider">The only clock this type reads. <c>DateTimeOffset.UtcNow</c> appears nowhere.</param>
 /// <param name="dashboardStore">Requeues the resolved outbox row once it is found.</param>
 /// <param name="serializer">The same serializer the host registers, so no wire format is assumed here.</param>
 /// <param name="options">Reuses <see cref="ScheduleDiagnosticsOptions"/>'s dead-letter scan bounds.</param>
 /// <param name="logger">Records a skipped, unreadable candidate row.</param>
 public sealed class ScheduleDeliveryActions(
     ApplicationDbContext db,
+    TimeProvider timeProvider,
     IOutboxDashboardStore dashboardStore,
     IOutboxSerializer serializer,
     IOptions<ScheduleDiagnosticsOptions> options,
@@ -58,9 +60,8 @@ public sealed class ScheduleDeliveryActions(
     /// <inheritdoc/>
     public async Task<Result> RequeueAsync(Guid executionId, CancellationToken ct)
     {
-        var since = _options.DeadLetterLookback > TimeSpan.Zero
-            ? DateTimeOffset.UtcNow - _options.DeadLetterLookback
-            : DateTimeOffset.UnixEpoch;
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var since = ScheduleDiagnostics.WindowStart(_options.DeadLetterLookback, now);
 
         var candidates = await db.OutboxMessages
             .AsNoTracking()
