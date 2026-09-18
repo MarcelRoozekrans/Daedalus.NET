@@ -44,6 +44,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\Daedalus.Agents\Daedalus.Agents.csproj"/>
+        <ProjectReference Include="..\..\src\Daedalus.Cli\Daedalus.Cli.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>
