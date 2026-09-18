@@ -13,6 +13,16 @@ namespace Daedalus.Domain.Entities;
 ///     saga's old correlation key; a later task adds a UNIQUE (ScheduleId, OccurrenceAt) database index over it so
 ///     the same occurrence can never be enqueued twice.
 /// </summary>
+/// <remarks>
+///     <b>The guarantee this row's persistence gives is bounded, not absolute.</b> Every step already completed —
+///     recorded by a prior call to <see cref="RecordFindings"/> or <see cref="RecordDigest"/> — is never re-paid:
+///     its output is on this row, and the dispatcher for a finished step is a no-op on redelivery. But a crash
+///     after a subagent call returns and before the step that records its result commits re-runs that one step
+///     and pays its tokens twice — there is no two-phase protocol with the model provider to prevent that. One
+///     step can be lost this way; the run as a whole cannot, because every earlier step's output survives on this
+///     row. See <c>RunScoutStep</c> in <c>Daedalus.Agents</c> (<c>Scheduling/RunSteps.cs</c>) for the
+///     dispatcher-side half of this same guarantee.
+/// </remarks>
 public sealed class ScheduledRunExecution : Entity<Guid>
 {
     /// <summary>Maximum length of <see cref="ChannelId"/>, reusing <see cref="ChannelConversation.MaxChannelIdLength"/>.</summary>

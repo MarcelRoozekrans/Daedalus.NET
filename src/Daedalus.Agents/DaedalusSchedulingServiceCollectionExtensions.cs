@@ -51,6 +51,18 @@ public static class DaedalusSchedulingServiceCollectionExtensions
     ///     <c>ChannelMessageQueuedDispatcher</c>. Leaving the throwing default in place would dead-letter every
     ///     step instead of running it.
     ///     </para>
+    ///     <para>
+    ///     <b>The extensibility cost this design accepted.</b> A saga library would have let a new workflow be one
+    ///     <c>[Saga]</c> class. Without one, adding a second workflow next to <c>RepoDigest</c> means: a new step
+    ///     record per stage (like <see cref="Scheduling.RunScoutStep"/>, <see cref="Scheduling.RunWriterStep"/>,
+    ///     <see cref="Scheduling.DeliverDigest"/>), a dispatcher per record registered here with its own
+    ///     <see cref="ServiceCollectionDescriptorExtensions.Replace"/> call, and a new entry in
+    ///     <see cref="Scheduling.ScheduleReconciler.KnownTriggers"/> so a schedule can select it. This was accepted
+    ///     because the alternative — <c>ZeroAlloc.Saga</c> — was found undriveable in this phase (its generated
+    ///     <c>Publish</c> dispatches to a closed list of handler types fixed at the saga's own compile time, and
+    ///     never enumerates handlers registered later via DI): a library that promises one class but cannot
+    ///     actually be driven is not cheaper than four.
+    ///     </para>
     /// </remarks>
     public static IServiceCollection AddDaedalusScheduling(this IServiceCollection services, IConfiguration configuration)
     {

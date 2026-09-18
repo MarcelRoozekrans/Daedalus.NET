@@ -2,6 +2,7 @@ using ArchUnitNET.Domain;
 using ArchUnitNET.Loader;
 using ArchUnitNET.xUnit;
 using Daedalus.Agents;
+using Daedalus.Agents.Scheduling;
 using Daedalus.Application.Abstractions;
 using Daedalus.Infrastructure.Persistence;
 using Rag.NET.Abstractions;
@@ -15,6 +16,7 @@ using Thalos.Memory;
 using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
 using Thalos.Skills;
+using ZeroAlloc.Outbox;
 using static ArchUnitNET.Fluent.ArchRuleDefinition;
 using SysAssembly = System.Reflection.Assembly;
 using Task = Daedalus.Domain.Entities.Task;
@@ -52,6 +54,23 @@ public sealed class CleanArchitectureTests
     /// <summary>Anchored on EF Core's own namespace, so the fact fails if the assembly is not loaded.</summary>
     private const string EfCoreNamespacePattern = "^Microsoft\\.EntityFrameworkCore(\\.|$)";
 
+    /// <summary>
+    ///     Anchored on ZeroAlloc.Outbox's own namespace, so the fact fails if the assembly is not loaded. Unlike
+    ///     <c>ZeroAlloc.Saga</c> and <c>ZeroAlloc.Scheduling</c> (see <see cref="No_project_references_ZeroAlloc_Saga"/>
+    ///     and <see cref="No_project_references_ZeroAlloc_Scheduling"/>), this package genuinely is referenced
+    ///     elsewhere in the solution (<c>Daedalus.Agents</c>, <c>Daedalus.Infrastructure</c>), so a namespace rule
+    ///     over it is capable of failing and is not the vacuous-rule trap those two packages fall into.
+    /// </summary>
+    private const string ZeroAllocOutboxNamespacePattern = "^ZeroAlloc\\.Outbox(\\.|$)";
+
+    /// <summary>
+    ///     Anchored on Cronos' own namespace, so the fact fails if the assembly is not loaded. Cronos is genuinely
+    ///     referenced by <c>Daedalus.Agents</c> (<see cref="ScheduleReconciler"/> and
+    ///     <see cref="ScheduledRunStore"/>), so this rule is non-vacuous the same way the
+    ///     <see cref="ZeroAllocOutboxNamespacePattern"/> rule is.
+    /// </summary>
+    private const string CronosNamespacePattern = "^Cronos(\\.|$)";
+
     private static readonly SysAssembly DomainAssembly = typeof(Task).Assembly;
     private static readonly SysAssembly ApplicationAssembly = typeof(ITaskRepository).Assembly;
     private static readonly SysAssembly InfrastructureAssembly = typeof(ApplicationDbContext).Assembly;
@@ -63,6 +82,12 @@ public sealed class CleanArchitectureTests
 
     /// <summary>Microsoft.EntityFrameworkCore itself, loaded so <see cref="DomainLayer_ShouldNotDependOn_EfCore"/> is non-vacuous.</summary>
     private static readonly SysAssembly EfCoreAssembly = typeof(Microsoft.EntityFrameworkCore.DbContext).Assembly; // Microsoft.EntityFrameworkCore
+
+    /// <summary>ZeroAlloc.Outbox itself, loaded so <see cref="DomainLayer_ShouldNotDependOn_ZeroAllocOutbox"/> is non-vacuous.</summary>
+    private static readonly SysAssembly ZeroAllocOutboxAssembly = typeof(IOutboxWriter<>).Assembly; // ZeroAlloc.Outbox
+
+    /// <summary>Cronos itself, loaded so <see cref="DomainLayer_ShouldNotDependOn_Cronos"/> is non-vacuous.</summary>
+    private static readonly SysAssembly CronosAssembly = typeof(Cronos.CronExpression).Assembly; // Cronos
 
     private static readonly SysAssembly[] ThalosAssemblies =
     [
@@ -94,6 +119,7 @@ public sealed class CleanArchitectureTests
         .LoadAssemblies(ThalosAssemblies)
         .LoadAssemblies(RagNetAssemblies)
         .LoadAssemblies(EfCoreAssembly)
+        .LoadAssemblies(ZeroAllocOutboxAssembly, CronosAssembly)
         .Build();
 
     private static readonly IObjectProvider<IType> DomainTypes =
@@ -131,6 +157,29 @@ public sealed class CleanArchitectureTests
     private static readonly IObjectProvider<IType> MemoryRagNetTypes =
         Types().That().ResideInAssembly(MemoryRagNetAssembly)
             .As("Thalos.NET.Memory.RagNet");
+
+    /// <summary>
+    ///     Thalos' <c>ISubagentRunner</c> — the single seam <see cref="OnlySubagentRunExecutor_DependsOn_ISubagentRunner"/>
+    ///     restricts to <see cref="SubagentRunExecutor"/> alone.
+    /// </summary>
+    private static readonly IObjectProvider<IType> SubagentRunnerType =
+        Types().That().HaveFullName("Thalos.ISubagentRunner")
+            .As("ISubagentRunner (Thalos.NET)");
+
+    /// <summary>
+    ///     Every type declared in this solution's own assemblies, as opposed to a referenced package's. Used to
+    ///     scope <see cref="OnlySubagentRunExecutor_DependsOn_ISubagentRunner"/> to Daedalus code: Thalos' own
+    ///     <c>SubagentRunner</c> (the default <c>ISubagentRunner</c> implementation) and its own DI registration
+    ///     both legitimately "depend on" the interface they define and wire up, and are not offenders.
+    /// </summary>
+    private static readonly IObjectProvider<IType> DaedalusOwnTypes =
+        Types().That().ResideInAssembly(DomainAssembly)
+            .Or().ResideInAssembly(ApplicationAssembly)
+            .Or().ResideInAssembly(InfrastructureAssembly)
+            .Or().ResideInAssembly(ApiAssembly)
+            .Or().ResideInAssembly(AgentsAssembly)
+            .Or().ResideInAssembly(WebAssembly)
+            .As("Daedalus (this solution's own assemblies)");
 
     [Fact]
     public void DomainLayer_ShouldNotDependOn_ApplicationLayer()
@@ -212,6 +261,48 @@ public sealed class CleanArchitectureTests
         var rule = Types().That().Are(DomainTypes)
             .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(EfCoreNamespacePattern)
             .Because("Domain entities must stay persistence-ignorant; EF Core configuration lives in Infrastructure");
+
+        rule.Check(Architecture);
+    }
+
+    [Fact]
+    public void DomainLayer_ShouldNotDependOn_ZeroAllocOutbox()
+    {
+        // ZeroAlloc.Outbox's [OutboxMessage] records -- ScheduledRunDue, RunScoutStep, RunWriterStep, DeliverDigest
+        // -- live in Daedalus.Agents, never in Domain. ScheduledRunExecution (Domain) only records which step a run
+        // is at; it does not know how that step got dispatched.
+        var rule = Types().That().Are(DomainTypes)
+            .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(ZeroAllocOutboxNamespacePattern)
+            .Because("Domain must stay ignorant of the outbox transport; step messages live in Daedalus.Agents");
+
+        rule.Check(Architecture);
+    }
+
+    [Fact]
+    public void DomainLayer_ShouldNotDependOn_Cronos()
+    {
+        // ScheduledRun.Cron is stored as a plain string and parsed only by ScheduleReconciler and
+        // ScheduledRunStore (both in Daedalus.Agents), precisely so Cronos -- a framework concern -- stays out of
+        // Domain. See ScheduleReconciler's own remarks for why cron parsing lives there.
+        var rule = Types().That().Are(DomainTypes)
+            .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(CronosNamespacePattern)
+            .Because("Domain must not parse cron expressions; that framework concern lives in Daedalus.Agents");
+
+        rule.Check(Architecture);
+    }
+
+    [Fact]
+    public void OnlySubagentRunExecutor_DependsOn_ISubagentRunner()
+    {
+        // The single-seam claim (Task 14): every step dispatcher reaches an LLM through ISubagentRunExecutor,
+        // never through Thalos' concrete ISubagentRunner directly. Enforced here rather than left as a comment.
+        // Scoped to DaedalusOwnTypes: Thalos' own SubagentRunner (the default implementation) and its own DI
+        // registration both legitimately depend on the interface they define, and are not offenders.
+        var rule = Types().That().Are(DaedalusOwnTypes).And().DependOnAny(SubagentRunnerType)
+            .And().DoNotHaveFullName(typeof(SubagentRunExecutor).FullName!)
+            .Should().NotExist()
+            .Because("SubagentRunExecutor is the only Daedalus type permitted to depend on Thalos' " +
+                      "ISubagentRunner; every other caller must go through ISubagentRunExecutor instead");
 
         rule.Check(Architecture);
     }
@@ -405,5 +496,89 @@ public sealed class CleanArchitectureTests
             .Because("Microsoft.EntityFrameworkCore must be loaded into the architecture or the Domain-EF-Core rule never sees an EF Core type");
 
         rule.Check(Architecture);
+    }
+
+    /// <summary>Known positive: proves ZeroAlloc.Outbox is loaded so <see cref="DomainLayer_ShouldNotDependOn_ZeroAllocOutbox"/> is non-vacuous.</summary>
+    [Fact]
+    public void ZeroAllocOutboxAssembly_IsLoaded_SoTheDomainRuleCoversIt()
+    {
+        var rule = Types().That().ResideInNamespaceMatching(ZeroAllocOutboxNamespacePattern)
+            .Should().Exist()
+            .Because("ZeroAlloc.Outbox must be loaded into the architecture or the Domain-outbox rule never sees an outbox type");
+
+        rule.Check(Architecture);
+    }
+
+    /// <summary>Known positive: proves Cronos is loaded so <see cref="DomainLayer_ShouldNotDependOn_Cronos"/> is non-vacuous.</summary>
+    [Fact]
+    public void CronosAssembly_IsLoaded_SoTheDomainRuleCoversIt()
+    {
+        var rule = Types().That().ResideInNamespaceMatching(CronosNamespacePattern)
+            .Should().Exist()
+            .Because("Cronos must be loaded into the architecture or the Domain-Cronos rule never sees a Cronos type");
+
+        rule.Check(Architecture);
+    }
+
+    // ---- Packages ArchUnitNET cannot see, because nothing in the solution loads them ----
+    //
+    // ArchUnitNET only synthesises types for assemblies it is explicitly told to load (see the "known positive"
+    // facts above). A namespace rule against a package nobody references would never see a single type belonging
+    // to it, so the rule would report success without ever having checked anything -- the exact trap
+    // DomainLayer_ShouldNotDependOn_EfCore's own non-vacuity fact documents. ZeroAlloc.Saga and ZeroAlloc.Scheduling
+    // are both in that position: the whole point of dropping them is that no project references them, so an
+    // ArchUnitNET rule here would be vacuously true by construction. Asserting directly on .csproj text is the only
+    // way to make "must not be referenced at all" an assertion that can actually fail.
+
+    [Fact]
+    public void No_project_references_ZeroAlloc_Saga()
+    {
+        var offenders = FindCsprojFilesReferencing("ZeroAlloc.Saga");
+
+        offenders.Should().BeEmpty(
+            "a saga never receives its trigger event: ZeroAlloc.Mediator's generated Publish dispatches to a " +
+            "closed list of concrete handler types in its own compilation and never enumerates " +
+            "INotificationHandler<T> from DI. See docs/plans/2026-09-16-saga-efcore-spike.md and ZeroAlloc.Saga " +
+            "issue 127. Phase 1.5 removed the dependency; re-adding it compiles and then silently does nothing " +
+            "at run time.");
+    }
+
+    [Fact]
+    public void No_project_references_ZeroAlloc_Scheduling()
+    {
+        var offenders = FindCsprojFilesReferencing("ZeroAlloc.Scheduling");
+
+        offenders.Should().BeEmpty(
+            "ZeroAlloc.Scheduling was dropped for this phase: its EF Core job store requires a separate " +
+            "SchedulingDbContext that ships no migrations and cannot be bootstrapped with EnsureCreated, and the " +
+            "sweep this solution needs is idempotent, so durable job state buys nothing over the plain " +
+            "BackgroundService ScheduleSweeperService already is. Re-adding the package without also solving the " +
+            "migration gap reintroduces a dependency that cannot boot.");
+    }
+
+    /// <summary>
+    ///     Finds every <c>.csproj</c> under <see cref="FindRepositoryRoot"/> whose text contains
+    ///     <paramref name="packageName"/>. A text scan, not an ArchUnitNET rule, because the whole point of the two
+    ///     callers above is to catch a reference that would make ArchUnitNET's own namespace-based rules vacuous.
+    /// </summary>
+    private static List<string> FindCsprojFilesReferencing(string packageName) =>
+        Directory
+            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
+            .Where(p => File.ReadAllText(p).Contains(packageName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    /// <summary>Walks up from <see cref="AppContext.BaseDirectory"/> to the directory containing <c>Daedalus.sln</c>.</summary>
+    /// <exception cref="InvalidOperationException">No ancestor directory contains <c>Daedalus.sln</c>.</exception>
+    private static string FindRepositoryRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Daedalus.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        return dir?.FullName
+            ?? throw new InvalidOperationException(
+                $"Could not find Daedalus.sln walking up from {AppContext.BaseDirectory}.");
     }
 }
