@@ -3,7 +3,7 @@ using ZeroAlloc.Outbox;
 namespace Daedalus.Agents.Scheduling;
 
 /// <summary>
-///     A scheduled run became due. Written by <see cref="ScheduleSweeperService"/> inside the same transaction that
+///     A scheduled run became due. Written by <see cref="ScheduledRunStore.ClaimAndEnqueueDueAsync"/> inside the same transaction that
 ///     advances the row's <c>NextRunAt</c>, so the advance and the trigger commit together or not at all — a crash
 ///     between them can neither lose the run nor fire it twice.
 /// </summary>
