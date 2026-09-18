@@ -13,6 +13,18 @@ namespace Daedalus.Agents.Channels;
 /// <param name="ChannelId">The channel adapter that owns the conversation (for example <c>telegram</c>).</param>
 /// <param name="ConversationId">The external chat id within <paramref name="ChannelId"/> (for example a Telegram chat id).</param>
 /// <param name="Text">The reply text to send.</param>
+/// <param name="ExecutionId">See the remarks below.</param>
+/// <remarks>
+///     <para>
+///     <paramref name="ExecutionId"/> links a queued message back to the scheduled run that produced it,
+///     so a dead-lettered delivery can be diagnosed. Null for ordinary channel replies, which have no run.
+///     </para>
+///     <para>
+///     <b>Only ever add nullable fields to this record.</b> The outbox stores it as an opaque serialized
+///     payload, so rows queued before a field ships deserialize with that field defaulted. That is harmless
+///     for a nullable addition and silently wrong for anything else.
+///     </para>
+/// </remarks>
 /// <remarks>
 ///     <c>[OutboxMessage]</c> triggers ZeroAlloc.Outbox's source generator, which emits
 ///     <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> and the DI extension <c>AddChannelMessageQueuedOutbox()</c>
@@ -28,4 +40,4 @@ namespace Daedalus.Agents.Channels;
 ///     <c>Payload</c> blob (see <c>AddChannelMessageOutbox</c>'s <c>OutboxMessages</c> table), not per-field columns.
 /// </remarks>
 [OutboxMessage]
-public sealed record ChannelMessageQueued(string ChannelId, string ConversationId, string Text);
+public sealed record ChannelMessageQueued(string ChannelId, string ConversationId, string Text, Guid? ExecutionId = null);

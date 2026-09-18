@@ -92,7 +92,7 @@ public sealed partial class ScheduledRunExecutionStore(
     /// </summary>
     internal static readonly string[] InsertColumnNames =
     [
-        "Id", "ScheduleId", "OccurrenceAt", "Step", "Findings", "Digest", "ChannelId",
+        "Id", "ScheduleId", "OccurrenceAt", "Step", "FailedAtStep", "Findings", "Digest", "ChannelId",
         "ConversationId", "PrincipalId", "Roles", "Attempts", "LastError", "CreatedAt", "UpdatedAt",
     ];
 
@@ -174,15 +174,16 @@ public sealed partial class ScheduledRunExecutionStore(
             // constraint violation aborts the whole transaction, so the catch could not then go on to write
             // the outbox row in the same transaction — it would have to roll back and start again. One
             // statement, no exception control flow, and the unique index is the only arbiter.
-            // row.Findings, row.Digest, and row.LastError are all null at this point (a freshly created execution has
-            // completed no step and never failed) - the null-forgiving operator only tells the compiler that passing
-            // null here is intentional, not a bug. ExecuteSqlRawAsync binds each element as a DbParameter, so a null
-            // element becomes DBNull, exactly as it would for a normal parameterized query.
+            // row.FailedAtStep, row.Findings, row.Digest, and row.LastError are all null at this point (a freshly
+            // created execution has completed no step and never failed) - the null-forgiving operator only tells
+            // the compiler that passing null here is intentional, not a bug. ExecuteSqlRawAsync binds each element
+            // as a DbParameter, so a null element becomes DBNull, exactly as it would for a normal parameterized
+            // query.
             var inserted = await db.Database.ExecuteSqlRawAsync(
                 InsertSql,
                 [
-                    row.Id, row.ScheduleId, row.OccurrenceAt, row.Step.ToString(), row.Findings!,
-                    row.Digest!, row.ChannelId, row.ConversationId, row.PrincipalId,
+                    row.Id, row.ScheduleId, row.OccurrenceAt, row.Step.ToString(), row.FailedAtStep?.ToString()!,
+                    row.Findings!, row.Digest!, row.ChannelId, row.ConversationId, row.PrincipalId,
                     string.Join(',', row.Roles), row.Attempts, row.LastError!, row.CreatedAt, row.UpdatedAt,
                 ],
                 ct).ConfigureAwait(false);
@@ -242,9 +243,11 @@ public sealed partial class ScheduledRunExecutionStore(
         TryAdvanceAsync(executionId, RunStep.Deliver,
             (row, now) => row.Complete(now),
             // row.Digest! is safe precisely because the step check below already required RunStep.Deliver:
-            // RecordDigest is the only transition into Deliver, and it always sets Digest first.
+            // RecordDigest is the only transition into Deliver, and it always sets Digest first. ExecutionId is
+            // row.Id: the diagnostics page needs to walk from a dead-lettered outbox row back to the execution
+            // that produced it, which is only possible if this write site stamps it.
             (row, tx, token) => _channelWriter.WriteAsync(
-                new ChannelMessageQueued(row.ChannelId, row.ConversationId, row.Digest!), tx.GetDbTransaction(), token),
+                new ChannelMessageQueued(row.ChannelId, row.ConversationId, row.Digest!, row.Id), tx.GetDbTransaction(), token),
             ct);
 
     /// <summary>
@@ -391,8 +394,11 @@ public sealed partial class ScheduledRunExecutionStore(
                 // already wrote the operator notice, so nobody is left uninformed - but uncaught, that self-healing
                 // happens by throwing out of an outbox dispatcher and burning retry budget to get there. Catching
                 // it here makes the self-healing quiet instead of noisy.
+                // ExecutionId is row.Id, same as TryCompleteDeliveryAsync's write site: an operator notice is a
+                // failed run's only outbox row, and the diagnostics page needs it correlated too, or a
+                // dead-lettered notice would be silently unlinked from the execution it reports on.
                 await _channelWriter.WriteAsync(
-                    new ChannelMessageQueued(row.ChannelId, row.ConversationId, notice), tx.GetDbTransaction(), ct)
+                    new ChannelMessageQueued(row.ChannelId, row.ConversationId, notice, row.Id), tx.GetDbTransaction(), ct)
                     .ConfigureAwait(false);
                 await db.SaveChangesAsync(ct).ConfigureAwait(false);
             }

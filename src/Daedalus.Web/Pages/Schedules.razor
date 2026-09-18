@@ -1,0 +1,577 @@
+@page "/schedules"
+@using Daedalus.Application.DTOs.Scheduling
+@using Microsoft.JSInterop
+@inject ApiClient Api
+@inject NavigationManager Navigation
+@inject IJSRuntime Js
+@implements IAsyncDisposable
+
+<RadzenStack Gap="0.25rem" class="rz-mb-4">
+    <RadzenText TextStyle="TextStyle.H3" TagName="TagName.H1" Style="margin: 0;">Schedules</RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+        A digest did not arrive — where did it die?
+    </RadzenText>
+</RadzenStack>
+
+@{
+    // The single place a RunDiagnosis becomes RunDetail markup, shared by the desktop expanded region
+    // and the mobile card's "Details" disclosure so the two surfaces cannot drift apart.
+    RenderFragment<RunDiagnosis> RunDetailTemplate = run => @<div class="run-detail">
+        <RadzenStack Gap="0.25rem">
+            <RadzenText TextStyle="TextStyle.Body1" Style="margin: 0; font-weight: 600;">
+                Occurrence @FormatDateTime(run.OccurrenceAtUtc)
+            </RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center"
+                         Wrap="FlexWrap.Wrap">
+                <VerdictBadge Verdict="@run.Verdict" Detail="@ErrorLineFor(run)"/>
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.7;">
+                    Step reached: @StepName(run.StepReached)
+                </RadzenText>
+            </RadzenStack>
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">
+                Created @FormatDateTime(run.CreatedAtUtc) &middot; Updated @FormatDateTime(run.UpdatedAtUtc)
+            </RadzenText>
+
+            @if (run.Verdict == RunVerdict.Failed)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" Style="margin-top: 0.5rem;">
+                    Failed at @StepName(run.FailedAtStep) after @run.Attempts
+                    attempt@(run.Attempts == 1 ? "" : "s"): @run.LastError
+                </RadzenAlert>
+            }
+
+            @if (run.Verdict == RunVerdict.Stranded)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" Style="margin-top: 0.5rem;">
+                    Stuck at @StepName(run.StepReached) for @FormatDuration(DateTime.UtcNow - run.UpdatedAtUtc).
+                </RadzenAlert>
+            }
+
+            @if (run.Verdict == RunVerdict.DeliveryUnknown)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" Style="margin-top: 0.5rem;">
+                    The run completed, but delivery could not be confirmed: either the outbox could not be read, or the scan did not reach back far enough to check.
+                </RadzenAlert>
+            }
+
+            @if (run.Verdict == RunVerdict.Undelivered)
+            {
+                var retries = run.RetryCount ?? 0;
+                <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" Style="margin-top: 0.5rem;">
+                    Dead-lettered after @retries retry attempt@(retries == 1 ? "" : "s"): @run.DeadLetterError
+                </RadzenAlert>
+
+                var resend = GetResendState(run.ExecutionId);
+                <div aria-live="polite" style="margin-top: 0.5rem;">
+                    <RadzenButton Text="@(resend.InFlight ? "Resending…" : "Resend")"
+                                  ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
+                                  IsBusy="@resend.InFlight" Disabled="@resend.InFlight"
+                                  Click="@(() => ResendAsync(run))"/>
+                    @if (resend.Succeeded)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption"
+                                    Style="color: var(--rz-success); display: block; margin-top: 0.25rem;">
+                            Requeued. The verdict will update on the next refresh.
+                        </RadzenText>
+                    }
+                    @if (resend.ErrorMessage is { } resendError)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" Style="margin-top: 0.25rem;">
+                            @resendError
+                        </RadzenAlert>
+                    }
+                </div>
+            }
+
+            @* Findings/Digest are the scout and writer stages' own output: present once a run reaches Done,
+               regardless of whether delivery itself later succeeded, failed to confirm, or dead-lettered.
+               Collapsed by default, expanded on demand, and never truncated once expanded — a native
+               <details> element gives that plus keyboard and screen-reader support for free. *@
+            @if (run.Findings is not null)
+            {
+                <details class="run-detail-disclosure">
+                    <summary>Findings</summary>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="white-space: pre-wrap; margin: 0.5rem 0 0 0;">
+                        @run.Findings
+                    </RadzenText>
+                </details>
+            }
+            @if (run.Digest is not null)
+            {
+                <details class="run-detail-disclosure">
+                    <summary>Digest</summary>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="white-space: pre-wrap; margin: 0.5rem 0 0 0;">
+                        @run.Digest
+                    </RadzenText>
+                </details>
+            }
+        </RadzenStack>
+    </div>;
+}
+
+@if (_state == LoadState.Error)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter">
+        @_errorMessage
+        <div style="margin-top: 0.5rem;">
+            <RadzenButton Text="Retry" Icon="refresh" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined"
+                          Click="@LoadOverviewAsync"/>
+        </div>
+    </RadzenAlert>
+}
+else if (_state == LoadState.Loaded && _overview.Count == 0)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter">
+        No schedules configured. Add entries under the ScheduledRuns configuration section to see them here.
+    </RadzenAlert>
+}
+else
+{
+    <div class="schedules-desktop-only">
+        <RadzenDataGrid @ref="_overviewGrid" TItem="RunDiagnosis" Data="@_overview"
+                        IsLoading="@(_state == LoadState.Loading)"
+                        AllowPaging="true" PageSize="15" AllowSorting="true" AllowColumnResize="true"
+                        ExpandMode="DataGridExpandMode.Single"
+                        RowExpand="@OnRowExpand" RowCollapse="@OnRowCollapse"
+                        PagerHorizontalAlign="HorizontalAlign.Center" ShowPagingSummary="true"
+                        Style="height: auto;">
+            <Columns>
+                <RadzenDataGridColumn TItem="RunDiagnosis" Property="ScheduleName" Title="Name">
+                    <Template Context="row">
+                        <span id="@RowNameElementId(row.ScheduleId)" tabindex="-1">@row.ScheduleName</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="RunDiagnosis" Property="Verdict" Title="Verdict">
+                    <Template Context="row">
+                        <VerdictBadge Verdict="@row.Verdict" Detail="@ErrorLineFor(row)"/>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="RunDiagnosis" Property="OccurrenceAtUtc" Title="Last run">
+                    <Template Context="row">
+                        @(row.ExecutionId == Guid.Empty ? "-" : FormatDateTime(row.OccurrenceAtUtc))
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="RunDiagnosis" Property="NextRunAtUtc" Title="Next run"
+                                      HeaderCssClass="schedules-col-secondary" CssClass="schedules-col-secondary">
+                    <Template Context="row">
+                        @(row.NextRunAtUtc is { } next ? FormatDateTime(next) : "-")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="RunDiagnosis" Property="Enabled" Title="Enabled" TextAlign="TextAlign.Center"
+                                      HeaderCssClass="schedules-col-secondary" CssClass="schedules-col-secondary">
+                    <Template Context="row">
+                        <RadzenBadge Text="@(row.Enabled ? "Yes" : "No")"
+                                     BadgeStyle="@(row.Enabled ? BadgeStyle.Success : BadgeStyle.Light)"/>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+            <Template Context="row">
+                <div class="schedule-expanded-region">
+                    <h2 tabindex="-1" @ref="_expandedRegionHeading" class="schedule-expanded-heading">
+                        Run history — @row.ScheduleName
+                    </h2>
+                    @{ var historyState = _historyByScheduleId.GetValueOrDefault(row.ScheduleId); }
+                    @if (historyState is null || historyState.Loading)
+                    {
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenProgressBarCircular ProgressBarStyle="ProgressBarStyle.Primary"
+                                                        Mode="ProgressBarMode.Indeterminate"
+                                                        Size="ProgressBarCircularSize.Small" Value="100"/>
+                            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">Loading run history…</RadzenText>
+                        </RadzenStack>
+                    }
+                    else if (historyState.Error is not null)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter">
+                            @historyState.Error
+                            <RadzenButton Text="Retry" Icon="refresh" ButtonStyle="ButtonStyle.Danger"
+                                          Variant="Variant.Outlined" Size="ButtonSize.Small"
+                                          Style="margin-left: 0.75rem;"
+                                          Click="@(() => RetryHistoryAsync(row.ScheduleId))"/>
+                        </RadzenAlert>
+                    }
+                    else if (historyState.Runs.Count == 0)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter">No runs yet.</RadzenAlert>
+                    }
+                    else
+                    {
+                        <RadzenDataGrid TItem="RunDiagnosis" Data="@historyState.Runs" AllowSorting="false"
+                                        AllowPaging="false" RowSelect="@(run => OnRunSelected(row.ScheduleId, run))">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="RunDiagnosis" Property="OccurrenceAtUtc" Title="Occurrence">
+                                    <Template Context="run">@FormatDateTime(run.OccurrenceAtUtc)</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RunDiagnosis" Property="Verdict" Title="Verdict">
+                                    <Template Context="run">
+                                        <VerdictBadge Verdict="@run.Verdict" Detail="@ErrorLineFor(run)"/>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RunDiagnosis" Property="StepReached" Title="Step reached">
+                                    <Template Context="run">@StepName(run.StepReached)</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RunDiagnosis" Title="Duration">
+                                    <Template Context="run">@FormatDuration(run.UpdatedAtUtc - run.CreatedAtUtc)</Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+
+                        @if (historyState.SelectedRun is { } selectedRun)
+                        {
+                            <div class="run-detail-panel">
+                                @RunDetailTemplate(selectedRun)
+                            </div>
+                        }
+                    }
+                </div>
+            </Template>
+        </RadzenDataGrid>
+    </div>
+
+    @if (_state == LoadState.Loading)
+    {
+        <ul class="schedules-mobile-only" aria-label="Schedules loading" aria-busy="true">
+            @for (var i = 0; i < 3; i++)
+            {
+                <li>
+                    <RadzenCard class="schedule-mobile-card schedule-skeleton-card">
+                        <div class="skeleton-line skeleton-line-title"></div>
+                        <div class="skeleton-line skeleton-line-body"></div>
+                        <div class="skeleton-line skeleton-line-body short"></div>
+                    </RadzenCard>
+                </li>
+            }
+        </ul>
+    }
+    else
+    {
+        <ul class="schedules-mobile-only" aria-label="Schedules">
+            @foreach (var row in _overview)
+            {
+                var expanded = _mobileExpandedScheduleIds.Contains(row.ScheduleId);
+                var detailId = $"schedule-mobile-detail-{row.ScheduleId}";
+                <li>
+                    <RadzenCard class="schedule-mobile-card">
+                        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween"
+                                     AlignItems="AlignItems.Start" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0; font-weight: 600;">
+                                @row.ScheduleName
+                            </RadzenText>
+                            <VerdictBadge Verdict="@row.Verdict" Detail="@ErrorLineFor(row)"/>
+                        </RadzenStack>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.7; margin: 0.25rem 0 0 0;">
+                            @StepName(row.StepReached) &middot;
+                            @(row.ExecutionId == Guid.Empty ? "no run yet" : FormatDateTime(row.OccurrenceAtUtc))
+                        </RadzenText>
+                        @if (ErrorLineFor(row) is { } errorLine)
+                        {
+                            <RadzenText TextStyle="TextStyle.Body2"
+                                        Style="@($"margin: 0.25rem 0 0 0; color: {VerdictBadge.ColorToken(row.Verdict)}; display: block;")">
+                                @errorLine
+                            </RadzenText>
+                        }
+                        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End"
+                                     Style="margin-top: 0.5rem;">
+                            <RadzenButton Text="@(expanded ? "Hide details" : "Details")"
+                                          ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                          aria-expanded="@(expanded ? "true" : "false")"
+                                          aria-controls="@detailId"
+                                          Click="@(() => ToggleMobileDetails(row.ScheduleId))"/>
+                        </RadzenStack>
+                        @if (expanded)
+                        {
+                            <div id="@detailId" class="schedule-mobile-detail">
+                                @RunDetailTemplate(row)
+                            </div>
+                        }
+                    </RadzenCard>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    private enum LoadState
+    {
+        Loading,
+        Loaded,
+        Error,
+    }
+
+    private sealed class RunHistoryState
+    {
+        public bool Loading = true;
+        public string? Error;
+        public IReadOnlyList<RunDiagnosis> Runs = [];
+        public RunDiagnosis? SelectedRun;
+    }
+
+    private sealed class ResendState
+    {
+        public bool InFlight;
+        public bool Succeeded;
+        public string? ErrorMessage;
+    }
+
+    private const int RunHistoryTake = 20;
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "scheduleId")]
+    public Guid? ScheduleId { get; set; }
+
+    private LoadState _state = LoadState.Loading;
+    private IReadOnlyList<RunDiagnosis> _overview = [];
+    private string? _errorMessage;
+    private CancellationTokenSource? _cts;
+
+    private readonly Dictionary<Guid, RunHistoryState> _historyByScheduleId = new();
+    private readonly Dictionary<Guid, ResendState> _resendStates = new();
+    private readonly HashSet<Guid> _mobileExpandedScheduleIds = new();
+
+    private RadzenDataGrid<RunDiagnosis>? _overviewGrid;
+    private ElementReference _expandedRegionHeading;
+    private bool _focusExpandedPending;
+    private Guid? _focusCollapseTargetScheduleId;
+    private bool _appliedDeepLink;
+    private IJSObjectReference? _jsModule;
+
+    protected override async Task OnInitializedAsync() => await LoadOverviewAsync();
+
+    private async Task LoadOverviewAsync()
+    {
+        _state = LoadState.Loading;
+        _errorMessage = null;
+        StateHasChanged();
+
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+
+        _cts = new CancellationTokenSource();
+
+        var result = await Api.GetScheduleOverviewAsync(_cts.Token);
+        if (result.IsSuccess)
+        {
+            _overview = result.Value;
+            _state = LoadState.Loaded;
+        }
+        else
+        {
+            _errorMessage = result.Error;
+            _state = LoadState.Error;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task EnsureHistoryLoadedAsync(Guid scheduleId)
+    {
+        if (_historyByScheduleId.ContainsKey(scheduleId))
+        {
+            return;
+        }
+
+        var state = new RunHistoryState();
+        _historyByScheduleId[scheduleId] = state;
+        StateHasChanged();
+
+        var result = await Api.GetScheduleRunHistoryAsync(scheduleId, RunHistoryTake, _cts?.Token ?? default);
+        if (result.IsSuccess)
+        {
+            state.Runs = result.Value;
+        }
+        else
+        {
+            state.Error = result.Error;
+        }
+
+        state.Loading = false;
+        StateHasChanged();
+    }
+
+    private Task RetryHistoryAsync(Guid scheduleId)
+    {
+        _historyByScheduleId.Remove(scheduleId);
+        return EnsureHistoryLoadedAsync(scheduleId);
+    }
+
+    private Task OnRowExpand(RunDiagnosis row)
+    {
+        _focusExpandedPending = true;
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("scheduleId", row.ScheduleId.ToString()), replace: true);
+        return EnsureHistoryLoadedAsync(row.ScheduleId);
+    }
+
+    private Task OnRowCollapse(RunDiagnosis row)
+    {
+        _focusCollapseTargetScheduleId = row.ScheduleId;
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("scheduleId", (string?)null), replace: true);
+        return Task.CompletedTask;
+    }
+
+    private void OnRunSelected(Guid scheduleId, RunDiagnosis run)
+    {
+        if (_historyByScheduleId.TryGetValue(scheduleId, out var state))
+        {
+            state.SelectedRun = run;
+        }
+    }
+
+    private void ToggleMobileDetails(Guid scheduleId)
+    {
+        if (!_mobileExpandedScheduleIds.Add(scheduleId))
+        {
+            _mobileExpandedScheduleIds.Remove(scheduleId);
+        }
+    }
+
+    private ResendState GetResendState(Guid executionId)
+    {
+        if (!_resendStates.TryGetValue(executionId, out var state))
+        {
+            state = new ResendState();
+            _resendStates[executionId] = state;
+        }
+
+        return state;
+    }
+
+    private async Task ResendAsync(RunDiagnosis run)
+    {
+        var state = GetResendState(run.ExecutionId);
+        state.InFlight = true;
+        state.ErrorMessage = null;
+        state.Succeeded = false;
+        StateHasChanged();
+
+        // Do not optimistically rewrite the verdict: the page must never claim a delivery it has not
+        // observed. On success we only record that the request was accepted; the row's verdict re-resolves
+        // from the server the next time the overview is reloaded.
+        var result = await Api.ResendScheduleRunAsync(run.ScheduleId, run.ExecutionId, _cts?.Token ?? default);
+        if (result.IsSuccess)
+        {
+            state.Succeeded = true;
+        }
+        else
+        {
+            state.ErrorMessage = result.Error;
+        }
+
+        state.InFlight = false;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusExpandedPending)
+        {
+            _focusExpandedPending = false;
+            try
+            {
+                await _expandedRegionHeading.FocusAsync();
+            }
+            catch (JSException)
+            {
+                // The row may have collapsed again before this render completed.
+            }
+        }
+
+        if (_focusCollapseTargetScheduleId is { } collapsedScheduleId)
+        {
+            _focusCollapseTargetScheduleId = null;
+            var module = await GetJsModuleAsync();
+            await module.InvokeVoidAsync("focusElementById", RowNameElementId(collapsedScheduleId));
+        }
+
+        if (!_appliedDeepLink && _state == LoadState.Loaded && ScheduleId is { } deepLinkId && _overviewGrid is not null)
+        {
+            _appliedDeepLink = true;
+            var match = _overview.FirstOrDefault(r => r.ScheduleId == deepLinkId);
+            if (match is not null)
+            {
+                await _overviewGrid.ExpandRow(match);
+            }
+        }
+    }
+
+    private async Task<IJSObjectReference> GetJsModuleAsync() =>
+        _jsModule ??= await Js.InvokeAsync<IJSObjectReference>("import", "./js/schedules-page.js");
+
+    private static string RowNameElementId(Guid scheduleId) => $"schedule-name-{scheduleId}";
+
+    /// <summary>
+    ///     The step an execution reached, by the wire-format int <see cref="RunDiagnosis.StepReached"/> carries.
+    ///     Mirrors <c>Daedalus.Domain.Entities.RunStep</c> without referencing it — Daedalus.Web references
+    ///     only Daedalus.Application, so the DTO carries a plain int and this page interprets it locally.
+    ///     Carries a discard arm for the same reason every RunVerdict switch does: an unmapped value must
+    ///     render as text, not throw.
+    /// </summary>
+    private static string StepName(int? step) => step switch
+    {
+        null => "-",
+        0 => "Pending",
+        1 => "Scout",
+        2 => "Writer",
+        3 => "Deliver",
+        4 => "Done",
+        5 => "Failed",
+        _ => "Unknown",
+    };
+
+    /// <summary>The error line a row or card reads as, visible without interaction. Null when nothing is wrong.</summary>
+    private static string? ErrorLineFor(RunDiagnosis row) => row.Verdict switch
+    {
+        RunVerdict.Failed => row.LastError,
+        RunVerdict.Undelivered => row.DeadLetterError,
+        RunVerdict.DeliveryUnknown => "Delivery could not be confirmed: outbox read failed, or the scan did not reach back far enough.",
+        RunVerdict.Stranded => $"Stuck at {StepName(row.StepReached)}.",
+        _ => null,
+    };
+
+    private static string FormatDateTime(DateTime value) =>
+        value == default ? "-" : value.ToLocalTime().ToString("g");
+
+    private static string FormatDuration(TimeSpan span)
+    {
+        if (span < TimeSpan.Zero)
+        {
+            span = TimeSpan.Zero;
+        }
+
+        if (span.TotalMinutes < 1)
+        {
+            return $"{span.Seconds}s";
+        }
+
+        if (span.TotalHours < 1)
+        {
+            return $"{span.Minutes}m {span.Seconds}s";
+        }
+
+        return $"{(int)span.TotalHours}h {span.Minutes}m";
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+
+        if (_jsModule is not null)
+        {
+            try
+            {
+                await _jsModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuit/runtime already gone during navigation away; nothing left to clean up.
+            }
+        }
+    }
+}

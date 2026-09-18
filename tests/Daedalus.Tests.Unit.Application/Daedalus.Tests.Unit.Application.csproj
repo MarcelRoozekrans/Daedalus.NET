@@ -36,6 +36,9 @@
         <PackageReference Include="Thalos.NET"/>
         <PackageReference Include="Microsoft.Extensions.Configuration"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
+        <!-- ZeroAlloc.Results 1.2.1 ships AssemblyVersion 0.1.0.0, a downgrade from 1.2.0's 1.2.0.0, which
+             breaks the default assembly binder at host startup. Remove this override once 1.2.2 fixes the stamp. -->
+        <PackageReference Include="ZeroAlloc.Results" VersionOverride="1.2.0"/>
     </ItemGroup>
 
     <ItemGroup>

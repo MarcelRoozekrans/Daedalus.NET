@@ -1,5 +1,6 @@
 global using CSharpFunctionalExtensions;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using Daedalus.Application.DTOs.Scheduling;
 using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
 using BrainstormSessionDto = Daedalus.Application.DTOs.BrainstormSessionDto;
 using BrainstormSessionSummaryDto = Daedalus.Application.DTOs.BrainstormSessionSummaryDto;
@@ -115,6 +116,16 @@ public sealed class ApiClient(HttpClient httpClient)
 
     public async Task<Result<ProjectDto>> GetProjectWithTasksAsync(Guid id, CancellationToken ct = default) =>
         await GetAsync<ProjectDto>($"/api/projects/{id}/with-tasks", ct);
+
+    // Schedules
+    public async Task<Result<List<RunDiagnosis>>> GetScheduleOverviewAsync(CancellationToken ct = default) =>
+        await GetAsync<List<RunDiagnosis>>("/api/schedules", ct);
+
+    public async Task<Result<List<RunDiagnosis>>> GetScheduleRunHistoryAsync(
+        Guid scheduleId,
+        int take = 20,
+        CancellationToken ct = default) =>
+        await GetAsync<List<RunDiagnosis>>($"/api/schedules/{scheduleId}/runs?take={take}", ct);
 
     // Write helpers
     private async Task<Result<T>> PostAsync<T>(string url, object body, CancellationToken ct = default)
@@ -272,4 +283,12 @@ public sealed class ApiClient(HttpClient httpClient)
     public async Task<Result<List<TaskDto>>> GenerateBrainstormTasksAsync(
         Guid sessionId, CancellationToken ct = default) =>
         await PostAsync<List<TaskDto>>($"/api/brainstorm/sessions/{sessionId}/generate-tasks", new { }, ct);
+
+    // Schedules — resend
+    /// <summary>
+    ///     Requeues an undelivered run's message for redelivery.
+    /// </summary>
+    public async Task<Result> ResendScheduleRunAsync(
+        Guid scheduleId, Guid executionId, CancellationToken ct = default) =>
+        await PostAsync($"/api/schedules/{scheduleId}/runs/{executionId}/resend", new { }, ct);
 }

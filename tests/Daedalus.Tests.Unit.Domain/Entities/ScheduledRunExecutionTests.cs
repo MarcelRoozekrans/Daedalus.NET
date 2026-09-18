@@ -177,4 +177,41 @@ public class ScheduledRunExecutionTests
         if (target is RunStep.Done) { execution.Complete(Now); return; }
         execution.Fail("seed", Now);
     }
+
+    [Fact]
+    public void Fail_records_the_step_it_was_at()
+    {
+        var execution = NewExecution();
+        execution.BeginScout(Now);
+        execution.RecordFindings("three open PRs", Now);   // now at Writer
+
+        execution.Fail("provider returned 529", Now.AddSeconds(3));
+
+        execution.Step.Should().Be(RunStep.Failed);
+        execution.FailedAtStep.Should().Be(RunStep.Writer,
+            "the page exists to answer where a run died, and Step is overwritten by Fail");
+    }
+
+    [Fact]
+    public void FailedAtStep_is_null_until_a_failure()
+    {
+        var execution = NewExecution();
+        execution.BeginScout(Now);
+
+        execution.FailedAtStep.Should().BeNull();
+    }
+
+    [Fact]
+    public void Fail_twice_keeps_the_step_of_the_first_failure()
+    {
+        // the second Fail is called from Failed, so naively capturing Step would record Failed
+        var execution = NewExecution();
+        execution.BeginScout(Now);
+        execution.Fail("first", Now);
+
+        execution.Fail("second", Now.AddSeconds(1));
+
+        execution.FailedAtStep.Should().Be(RunStep.Scout,
+            "the step that actually failed is the one before the first Fail, not Failed itself");
+    }
 }
