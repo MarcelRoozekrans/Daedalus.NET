@@ -3,6 +3,7 @@ using System.Reflection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
+using Daedalus.Agents.GitHub;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
@@ -33,6 +34,28 @@ public static class DaedalusAgentsServiceCollectionExtensions
 {
     /// <summary>The Thalos tool-source name of <see cref="DaedalusKnowledgeTools"/>; tools appear as <c>daedalus__{tool}</c>.</summary>
     public const string KnowledgeToolSourceName = "daedalus";
+
+    /// <summary>
+    ///     The Thalos tool-source name of <see cref="DaedalusRepoActionTools"/>; tools appear as
+    ///     <c>repoaction__{tool}</c>.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         <b>A separate source, and this name in particular.</b> The unattended scout's allow-list is
+    ///         <c>daedalus__*</c>. Naming this source <c>daedalus_write</c> would produce
+    ///         <c>daedalus_write__comment_on_issue</c>, which is one character away from being swallowed by that
+    ///         glob by accident; <c>repoaction__*</c> cannot be. The read tools stay in
+    ///         <see cref="KnowledgeToolSourceName"/> for the mirror-image reason: the scout already allows that
+    ///         prefix, so reads reach it with no configuration change at all.
+    ///     </para>
+    ///     <para>
+    ///         The source split and the agent allow-list are defence in depth. The boundary that actually holds is
+    ///         the <c>repoaction__*</c> → <see cref="DeveloperPolicy"/> binding in <c>Thalos:ToolPolicies</c>: a
+    ///         scheduled run authenticates as <c>schedule:daedalus</c> with roles <c>["reader"]</c>, so
+    ///         <c>DefaultToolAuthorizer</c> denies every tool here whatever an agent's tool list says.
+    ///     </para>
+    /// </remarks>
+    public const string RepoActionToolSourceName = "repoaction";
 
     /// <summary>Name of the application database connection string (<c>ConnectionStrings:daedalus</c>), shared with the Rag.NET memory index.</summary>
     public const string DatabaseConnectionName = "daedalus";
@@ -104,6 +127,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // it is durability laid down for 1.5 proactive pushes. See the design doc, section 9.
         services.AddChannelOutbox();
 
+        AddGitHub(services, configuration);
+
         ValidateMemoryConfig(options.Memory);
         services.TryAddSingleton(options.Memory);
         services.TryAddSingleton(options.Memory.RalphRecall);
@@ -128,7 +153,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
             thalos.UseAnthropic(configuration)
                 .UseSessionStore<PostgresAgentSessionStore>()
-                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools))
+                // Reads join the existing source the scout already allows; writes go in their own, which its
+                // daedalus__* glob cannot name. See RepoActionToolSourceName for why the split is not the boundary.
+                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools))
+                .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
                 .AddMcpServersFromFile(ResolveMcpConfigPath(options.McpConfigPath, environment))
                 .AddPolicy<DeveloperPolicy>();
 
@@ -210,6 +238,49 @@ public static class DaedalusAgentsServiceCollectionExtensions
         services.AddThalos(thalos => ConfigureMemory(
             thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: false));
         return services;
+    }
+
+    /// <summary>
+    ///     Registers the GitHub seam behind <see cref="DaedalusRepoTools"/> and <see cref="DaedalusRepoActionTools"/>:
+    ///     <see cref="GitHubOptions"/> from <see cref="GitHubOptions.SectionName"/>, the token source, and one
+    ///     <see cref="GitHubApi"/> exposed as both halves of the read/write split.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         <b>The token is not configuration.</b> <see cref="GitHubTokenSource"/> reads
+    ///         <c>GITHUB_TOKEN</c> from the environment, so nothing bound here ever carries a credential and no
+    ///         token can be committed. <c>ExternalServices:Platforms:GitHub:AuthToken</c> exists for the older
+    ///         Infrastructure platform clients and is deliberately left alone — <see cref="GitHubOptions"/> does
+    ///         not bind it.
+    ///     </para>
+    ///     <para>
+    ///         <b>Why <c>AddHttpClient</c>.</b> It hands <see cref="GitHubApi"/> a client over the pooled,
+    ///         rotated handler instead of a hand-newed one, which is what keeps sockets from being exhausted and
+    ///         DNS from going stale on a long-running host.
+    ///     </para>
+    ///     <para>
+    ///         Both interfaces resolve the same concrete type, but each tool class can only reach its own half:
+    ///         <see cref="DaedalusRepoTools"/> injects <see cref="IGitHubReader"/> and
+    ///         <see cref="DaedalusRepoActionTools"/> injects <see cref="IGitHubWriter"/>, so a read-only tool has
+    ///         no path to a write however it is called.
+    ///     </para>
+    /// </remarks>
+    private static void AddGitHub(IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<GitHubOptions>(configuration.GetSection(GitHubOptions.SectionName));
+
+        // Explicit factory rather than type registration: GitHubTokenSource has a second constructor taking the
+        // environment lookup as a delegate (so tests need not mutate process state), and nothing should depend on
+        // which one the container's constructor selection happens to pick.
+        services.TryAddSingleton<IGitHubTokenSource>(_ => new GitHubTokenSource());
+
+        // GitHubApi takes TimeProvider outright. AddDaedalusScheduling also TryAdds it; whichever runs first wins
+        // and both mean TimeProvider.System, but AddDaedalusAgents must not depend on being called second.
+        services.TryAddSingleton(TimeProvider.System);
+
+        services.AddHttpClient<GitHubApi>();
+        services.AddScoped<IGitHubReader>(sp => sp.GetRequiredService<GitHubApi>());
+        services.AddScoped<IGitHubWriter>(sp => sp.GetRequiredService<GitHubApi>());
     }
 
     private static string ResolveConnectionString(IConfiguration configuration) =>
