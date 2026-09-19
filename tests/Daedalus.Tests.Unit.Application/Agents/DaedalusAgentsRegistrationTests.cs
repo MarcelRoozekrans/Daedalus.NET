@@ -131,7 +131,9 @@ public sealed class DaedalusAgentsRegistrationTests
 
         var sources = sp.GetServices<IToolSource>().ToList();
 
-        sources.Should().ContainSingle(s => s is LocalToolSource).Which.Name.Should().Be("daedalus");
+        // Two local sources, and the split is the point: reads live under the prefix agents already allow, writes
+        // under one no daedalus__* glob can reach. See RepoToolBoundaryTests for the boundary itself.
+        sources.OfType<LocalToolSource>().Select(s => s.Name).Should().Equal("daedalus", "repoaction");
     }
 
     [Fact]

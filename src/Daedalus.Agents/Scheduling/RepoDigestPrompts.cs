@@ -13,15 +13,24 @@ public static class RepoDigestPrompts
     /// <summary>The catalog name of the agent that turns findings into a summary.</summary>
     public const string WriterAgent = "writer";
 
-    /// <summary>The task handed to <see cref="ScoutAgent"/> for every scheduled run of this workflow.</summary>
-    public const string ScoutTask =
-        """
-        Sweep this repository for everything that changed since the last digest: new commits on the default
-        branch, merged and still-open pull requests, issues opened or closed, and any CI runs that failed.
-        For each item, note what changed, who it affects, and whether it needs a human's attention before the
-        next digest. Do not write prose yet — list findings as short, factual bullet points a second agent
-        will turn into a summary. If nothing changed in a category, say so explicitly rather than omitting it.
-        """;
+    /// <summary>The task handed to <see cref="ScoutAgent"/> for one scheduled run, over one repository and one window.</summary>
+    /// <remarks>
+    ///     This was a constant reading "this repository", with nothing resolving which one. The tools take an
+    ///     explicit <c>owner/name</c>, so the prompt has to name it.
+    /// </remarks>
+    /// <param name="repo">The repository to sweep, as <c>owner/name</c>.</param>
+    /// <param name="sinceUtc">The window's start (UTC) — the previous completed digest's occurrence, or the configured default lookback when there is none.</param>
+    public static string ScoutTask(string repo, DateTime sinceUtc) =>
+        $"""
+         Sweep the repository {repo} for everything that changed since {sinceUtc:yyyy-MM-dd HH:mm} UTC: new commits on
+         the default branch, merged and still-open pull requests, issues opened or closed, and any CI runs that failed.
+         Use the daedalus__repo_activity tool with repo "{repo}" and since "{sinceUtc:O}" — do not guess at activity you
+         have not retrieved.
+         For each item, note what changed, who it affects, and whether it needs a human's attention before the next
+         digest. Do not write prose yet — list findings as short, factual bullet points a second agent will turn into a
+         summary. If a category is empty, say so explicitly rather than omitting it. If the tool reports that a category
+         could not be read, say that instead — never report an unreadable category as quiet.
+         """;
 
     /// <summary>The task handed to <see cref="WriterAgent"/>, over the scout's findings.</summary>
     public static string WriterTask(string findings) =>

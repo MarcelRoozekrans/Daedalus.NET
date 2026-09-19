@@ -42,6 +42,9 @@ public sealed class ScheduledRun : Entity<Guid>
     /// <summary>Maximum length of <see cref="PrincipalId"/>.</summary>
     public const int MaxPrincipalIdLength = 128;
 
+    /// <summary>Maximum length of <see cref="Repository"/>.</summary>
+    public const int MaxRepositoryLength = 256;
+
     /// <summary>Gets the unique, human-assigned name of this schedule (e.g. "daily-digest").</summary>
     public string Name { get; private set; } = string.Empty;
 
@@ -66,6 +69,15 @@ public sealed class ScheduledRun : Entity<Guid>
 
     /// <summary>Gets the roles granted to the run's principal. Never empty: a principal with no roles can do nothing.</summary>
     public IReadOnlyList<string> Roles { get; private set; } = [];
+
+    /// <summary>
+    ///     Gets the GitHub repository (<c>owner/name</c>) this schedule's workflow sweeps, or <see langword="null"/>
+    ///     for a workflow that does not need one. Required whenever <see cref="Trigger"/> is <c>RepoDigest</c> — the
+    ///     scout's tools take an explicit <c>owner/name</c> and cannot guess one. That requirement is enforced by
+    ///     <c>RepoDigestRepositoryValidator</c> at boot, not by this aggregate, the same way <see cref="Trigger"/>'s
+    ///     own membership in <c>ScheduleReconciler.KnownTriggers</c> is enforced by the reconciler rather than here.
+    /// </summary>
+    public string? Repository { get; private set; }
 
     /// <summary>Gets where this schedule's definition came from.</summary>
     public ScheduleOrigin Origin { get; private set; }
@@ -94,6 +106,12 @@ public sealed class ScheduledRun : Entity<Guid>
     /// <param name="roles">The roles granted to the run's principal. Must be non-empty.</param>
     /// <param name="origin">Where this schedule's definition came from.</param>
     /// <param name="nextRunAtUtc">The first computed occurrence (UTC), supplied by the caller.</param>
+    /// <param name="repository">
+    ///     The GitHub repository (<c>owner/name</c>) this schedule's workflow sweeps, or <see langword="null"/> for
+    ///     a workflow that does not need one. Optional and defaulted so every existing caller that predates this
+    ///     field keeps compiling; required in practice only when <paramref name="trigger"/> is <c>RepoDigest</c>,
+    ///     which <c>RepoDigestRepositoryValidator</c> enforces at boot.
+    /// </param>
     /// <returns>A Result containing the new schedule or the first validation error.</returns>
     public static Result<ScheduledRun> Create(
         string name,
@@ -104,7 +122,8 @@ public sealed class ScheduledRun : Entity<Guid>
         string principalId,
         IReadOnlyList<string> roles,
         ScheduleOrigin origin,
-        DateTime nextRunAtUtc)
+        DateTime nextRunAtUtc,
+        string? repository = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             return Result.Failure<ScheduledRun>("Name is required.");
@@ -112,7 +131,7 @@ public sealed class ScheduledRun : Entity<Guid>
         if (name.Length > MaxNameLength)
             return Result.Failure<ScheduledRun>($"Name must be at most {MaxNameLength} characters.");
 
-        var fieldsValidation = ValidateConfigFields(cron, trigger, channelId, conversationId, principalId, roles);
+        var fieldsValidation = ValidateConfigFields(cron, trigger, channelId, conversationId, principalId, roles, repository);
         if (fieldsValidation.IsFailure)
             return Result.Failure<ScheduledRun>(fieldsValidation.Error);
 
@@ -126,6 +145,7 @@ public sealed class ScheduledRun : Entity<Guid>
             ConversationId = conversationId,
             PrincipalId = principalId,
             Roles = roles,
+            Repository = repository,
             Origin = origin,
             NextRunAt = nextRunAtUtc,
             LastRunAt = null,
@@ -168,6 +188,10 @@ public sealed class ScheduledRun : Entity<Guid>
     /// <param name="conversationId">The channel-specific conversation identifier that receives the run's output.</param>
     /// <param name="principalId">The identity this run executes as.</param>
     /// <param name="roles">The roles granted to the run's principal. Must be non-empty.</param>
+    /// <param name="repository">
+    ///     The GitHub repository (<c>owner/name</c>) this schedule's workflow sweeps, or <see langword="null"/> for
+    ///     a workflow that does not need one. See <see cref="Create"/>'s matching parameter for why it is optional.
+    /// </param>
     /// <exception cref="InvalidOperationException">
     ///     A field fails the same validation <see cref="Create"/> enforces. The message names this schedule
     ///     (<see cref="Name"/>) and the field that failed.
@@ -178,9 +202,10 @@ public sealed class ScheduledRun : Entity<Guid>
         string channelId,
         string conversationId,
         string principalId,
-        IReadOnlyList<string> roles)
+        IReadOnlyList<string> roles,
+        string? repository = null)
     {
-        var validation = ValidateConfigFields(cron, trigger, channelId, conversationId, principalId, roles);
+        var validation = ValidateConfigFields(cron, trigger, channelId, conversationId, principalId, roles, repository);
         if (validation.IsFailure)
             throw new InvalidOperationException($"Schedule '{Name}' has an invalid config update: {validation.Error}");
 
@@ -190,13 +215,18 @@ public sealed class ScheduledRun : Entity<Guid>
         ConversationId = conversationId;
         PrincipalId = principalId;
         Roles = roles;
+        Repository = repository;
     }
 
     /// <summary>
-    ///     Validates the six config-owned fields shared by <see cref="Create"/> and <see cref="UpdateFromConfig"/>:
+    ///     Validates the config-owned fields shared by <see cref="Create"/> and <see cref="UpdateFromConfig"/>:
     ///     non-blank and length-capped for <paramref name="cron"/>, <paramref name="trigger"/>,
-    ///     <paramref name="channelId"/>, <paramref name="conversationId"/>, and <paramref name="principalId"/>; and
-    ///     non-empty for <paramref name="roles"/>. Excludes <see cref="Name"/>, which only <see cref="Create"/> sets.
+    ///     <paramref name="channelId"/>, <paramref name="conversationId"/>, and <paramref name="principalId"/>;
+    ///     non-empty for <paramref name="roles"/>; and, when present, length-capped for
+    ///     <paramref name="repository"/>. Excludes <see cref="Name"/>, which only <see cref="Create"/> sets.
+    ///     <paramref name="repository"/> has no non-blank requirement here — whether it is required depends on
+    ///     <paramref name="trigger"/>, and that workflow-specific rule is <c>RepoDigestRepositoryValidator</c>'s job,
+    ///     not this framework-free aggregate's.
     /// </summary>
     private static Result ValidateConfigFields(
         string cron,
@@ -204,7 +234,8 @@ public sealed class ScheduledRun : Entity<Guid>
         string channelId,
         string conversationId,
         string principalId,
-        IReadOnlyList<string> roles)
+        IReadOnlyList<string> roles,
+        string? repository = null)
     {
         if (string.IsNullOrWhiteSpace(cron))
             return Result.Failure("Cron is required.");
@@ -241,6 +272,9 @@ public sealed class ScheduledRun : Entity<Guid>
 
         if (roles is null || roles.Count == 0)
             return Result.Failure("At least one role is required.");
+
+        if (repository is not null && repository.Length > MaxRepositoryLength)
+            return Result.Failure($"Repository must be at most {MaxRepositoryLength} characters.");
 
         return Result.Success();
     }

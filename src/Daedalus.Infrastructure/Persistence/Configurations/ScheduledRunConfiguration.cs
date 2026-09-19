@@ -22,6 +22,10 @@ internal sealed class ScheduledRunConfiguration : IEntityTypeConfiguration<Sched
         builder.Property(r => r.ChannelId).IsRequired().HasMaxLength(ScheduledRun.MaxChannelIdLength);
         builder.Property(r => r.ConversationId).IsRequired().HasMaxLength(ScheduledRun.MaxConversationIdLength);
         builder.Property(r => r.PrincipalId).IsRequired().HasMaxLength(ScheduledRun.MaxPrincipalIdLength);
+
+        // Nullable: only a RepoDigest schedule needs one, enforced by RepoDigestRepositoryValidator at boot,
+        // not by this mapping.
+        builder.Property(r => r.Repository).HasMaxLength(ScheduledRun.MaxRepositoryLength);
         builder.Property(r => r.Origin).IsRequired().HasConversion<string>().HasMaxLength(16);
         builder.Property(r => r.NextRunAt).IsRequired();
         builder.Property(r => r.LastRunAt);

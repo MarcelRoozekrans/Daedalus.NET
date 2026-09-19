@@ -372,13 +372,18 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         adapter.DeliveredTexts.Should().ContainSingle("the operator notice must still be queued and delivered");
     }
 
-    /// <summary>Seeds a <see cref="ScheduledRun"/> via <see cref="ScheduledRun.Create"/>, due at <see cref="Occurrence"/>.</summary>
+    /// <summary>
+    ///     Seeds a <see cref="ScheduledRun"/> via <see cref="ScheduledRun.Create"/>, due at <see cref="Occurrence"/>.
+    ///     Configures a repository (Task 7) so <see cref="RunScoutStepDispatcher"/>'s scout call actually runs
+    ///     instead of short-circuiting on "no configured Repository" — this flow's own end-to-end assertions are
+    ///     about the step machinery, not about that guard, which <c>RepoDigestWindowTests</c> covers directly.
+    /// </summary>
     private async Task<Guid> SeedScheduleAsync(
         string name, string channelId, string conversationId, string principalId, IReadOnlyList<string> roles)
     {
         var schedule = ScheduledRun.Create(
             name, "0 7 * * *", "RepoDigestSaga", channelId, conversationId, principalId, roles,
-            ScheduleOrigin.Config, Occurrence).Value;
+            ScheduleOrigin.Config, Occurrence, repository: "owner/repo").Value;
 
         await using var db = fixture.CreateDbContext();
         db.ScheduledRuns.Add(schedule);

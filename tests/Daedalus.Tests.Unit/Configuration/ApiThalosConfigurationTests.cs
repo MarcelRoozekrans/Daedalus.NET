@@ -59,7 +59,9 @@ public sealed class ApiThalosConfigurationTests
         // Sessions reference this id — changing it orphans them. Update the test only together with a data migration.
         agent.Id.Should().Be(AgentId.Parse("01M05YCM7DPKRG9X04870B2JYH", null));
         agent.Name.Should().Be("Daedalus Architect");
-        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "memory__*", "skills__*", "context7__*");
+        // repoaction__* is on the Architect and nowhere else: it is the interactive agent, so a human is present
+        // for every comment, label or close. The unattended scout must never carry it.
+        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "memory__*", "skills__*", "context7__*", "repoaction__*");
         agent.Skills.Should().Equal("*");
         agent.Instructions.Should().Contain("roslyn__").And.Contain("daedalus__").And.Contain("memory__").And.Contain("skills__");
     }
@@ -72,7 +74,10 @@ public sealed class ApiThalosConfigurationTests
         sp.GetRequiredService<IChatClientProvider>().DefaultModel.Should().Be("claude-sonnet-5");
 
         var policies = sp.GetRequiredService<IOptions<ThalosOptions>>().Value.ToolPolicies;
-        policies.Select(p => (p.ToolPattern, p.PolicyName)).Should().Equal(("roslyn__apply_*", "developer"), ("roslyn__rename_*", "developer"));
+        policies.Select(p => (p.ToolPattern, p.PolicyName)).Should().Equal(
+            ("roslyn__apply_*", "developer"),
+            ("roslyn__rename_*", "developer"),
+            ("repoaction__*", "developer"));
 
         var sentinel = sp.GetRequiredService<SentinelOptions>();
         sentinel.OnCritical.Should().Be(SentinelAction.Quarantine);
