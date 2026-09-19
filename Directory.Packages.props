@@ -52,7 +52,7 @@
     <PackageVersion Include="Thalos.NET.Skills" Version="0.5.0" />
     <PackageVersion Include="Thalos.NET.Channels" Version="0.5.0" />
     <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.5.0" />
-    <PackageVersion Include="ZeroAlloc.Results" Version="1.2.1" />
+    <PackageVersion Include="ZeroAlloc.Results" Version="1.2.2" />
     <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.0" />
     <PackageVersion Include="ZeroAlloc.Validation" Version="1.7.0" />
     <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="1.5.6" />
