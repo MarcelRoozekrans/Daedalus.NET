@@ -6,6 +6,7 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using ZeroAlloc.Outbox;
 using ZeroAlloc.Outbox.EfCore;
@@ -26,6 +27,12 @@ namespace Daedalus.Tests.Integration.Scheduling;
 public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private const string Repository = "owner/repo";
+
+    // Deliberately far from GitHubOptions' real 24-hour default: a hardcoded TimeSpan.FromHours(24) fallback in
+    // production would satisfy an assertion against the real default without the configured value ever being
+    // read. Asserting against a distinctly different configured value makes that failure mode visible.
+    private static readonly TimeSpan ConfiguredLookback = TimeSpan.FromHours(6);
+
     private static readonly string[] Roles = ["reader"];
 
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 18, 7, 0, 5, TimeSpan.Zero));
@@ -55,7 +62,9 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
 
         var since = await ResolveWindowStartAsync(schedule.Id);
 
-        since.Should().Be(Now - new GitHubOptions().DefaultLookback);
+        since.Should().Be(Now - ConfiguredLookback,
+            "BuildStore configures a non-default lookback specifically so a hardcoded 24-hour fallback in " +
+            "production cannot pass this test by coincidence");
     }
 
     [Fact]
@@ -174,14 +183,16 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
     ///     A store resolved from its own scope, wired like production — the same minimal shape
     ///     <see cref="ScheduledRunExecutionStoreTests"/> and <see cref="ScheduledRunFlowTests"/> use. This test
     ///     class never advances a step, so the outbox writers are wired only because the store's constructor
-    ///     requires them; <see cref="GitHubOptions"/> is left unconfigured so <c>IOptions&lt;GitHubOptions&gt;</c>
-    ///     resolves to its real default (<see cref="GitHubOptions.DefaultLookback"/> = 24 hours), exactly what a
-    ///     host that never overrides <c>ExternalServices:Platforms:GitHub</c> would get.
+    ///     requires them. <see cref="GitHubOptions.DefaultLookback"/> is configured to <see cref="ConfiguredLookback"/>
+    ///     — six hours, nowhere near the real 24-hour default — so
+    ///     <c>A_schedule_with_no_previous_occurrence_uses_the_configured_lookback</c> cannot pass against a
+    ///     production fallback that ignores configuration entirely.
     /// </summary>
     private ScheduledRunExecutionStore BuildStore()
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.Configure<GitHubOptions>(o => o.DefaultLookback = ConfiguredLookback);
         services.AddSingleton<TimeProvider>(_time);
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddOutbox(o => { })
