@@ -61,6 +61,22 @@ public class DaedalusRepoToolsTests
     }
 
     [Fact]
+    public async Task A_truncated_and_empty_category_is_reported_as_incomplete_not_clean()
+    {
+        var reader = Substitute.For<IGitHubReader>();
+        reader.GetActivityAsync(Arg.Any<RepoRef>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(ActivityWith(CategoryResult<CommitSummary>.Ok([], truncated: true)));
+
+        var output = await CreateTools(reader).RepoActivity("owner/repo", null);
+
+        output.Should().NotContainEquivalentOf("no commits",
+            "a page that filled the ceiling and filtered down to zero is not the same thing as a repository " +
+            "that had nothing happen — reporting it as clean discards the truncation signal");
+        output.Should().ContainEquivalentOf("commits",
+            "the category must still say something happened worth investigating further");
+    }
+
+    [Fact]
     public async Task A_malformed_repository_argument_is_refused_without_calling_the_reader()
     {
         var reader = Substitute.For<IGitHubReader>();

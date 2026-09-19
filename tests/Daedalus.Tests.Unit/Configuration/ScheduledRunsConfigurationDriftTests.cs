@@ -3,8 +3,8 @@ using Microsoft.Extensions.Configuration;
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
-///     Pins the <c>ScheduledRuns</c> and <c>DetachedRuns</c> sections of the Api and Cli hosts' <c>appsettings.json</c>
-///     files against each other.
+///     Pins the <c>ScheduledRuns</c>, <c>DetachedRuns</c> and <c>Thalos:ToolPolicies</c> sections of the Api and Cli
+///     hosts' <c>appsettings.json</c> files against each other.
 /// </summary>
 /// <remarks>
 ///     Both hosts register <c>ScheduleReconciler</c> (via <c>AddDaedalusAgents</c>) and point at the same
@@ -14,6 +14,13 @@ namespace Daedalus.Tests.Unit.Configuration;
 ///     names and disable every config-origin schedule the Api created. A code comment is currently the only guard
 ///     against that drift (see both <c>appsettings.json</c> files' <c>_comment_ScheduledRuns</c> entries); this test
 ///     converts it into a build failure instead.
+///     <para>
+///     <c>Thalos:ToolPolicies</c> is pinned for a related reason: both hosts register <c>DaedalusRepoActionTools</c>
+///     (via <c>AddDaedalusAgents</c>), and <c>DefaultToolAuthorizer</c> is the only thing standing between an
+///     agent's <c>Tools</c> list and an actual write against a real repository. A host missing the
+///     <c>repoaction__*</c> → <c>developer</c> binding would defend those tools by agent configuration alone —
+///     the exact brittleness this policy layer exists to remove.
+///     </para>
 /// </remarks>
 public sealed class ScheduledRunsConfigurationDriftTests
 {
@@ -33,6 +40,7 @@ public sealed class ScheduledRunsConfigurationDriftTests
     [Theory]
     [InlineData("ScheduledRuns")]
     [InlineData("DetachedRuns")]
+    [InlineData("Thalos:ToolPolicies")]
     public void Api_and_Cli_agree_on_the_scheduling_section(string sectionKey)
     {
         var api = Flatten(Load("Daedalus.Api.appsettings.json"), sectionKey);

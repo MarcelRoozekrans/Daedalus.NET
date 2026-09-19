@@ -25,8 +25,12 @@ public sealed class GitHubTokenSource(Func<string, string?> readEnvironmentVaria
     {
         var token = readEnvironmentVariable(VariableName);
 
+        // Trimmed here, once, at the source: `gh auth token` and docker env files both emit a trailing newline,
+        // and an untrimmed token throws FormatException from the auth header assignment. That is caught on the
+        // read path but escapes SendWriteAsync, which has no try — breaking IGitHubWriter's contract that it
+        // always returns a Result instead of throwing.
         return string.IsNullOrWhiteSpace(token)
             ? Result.Failure<string>($"No GitHub token is configured. Set the {VariableName} environment variable.")
-            : Result.Success(token);
+            : Result.Success(token.Trim());
     }
 }

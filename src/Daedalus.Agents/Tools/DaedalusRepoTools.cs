@@ -128,6 +128,10 @@ public sealed class DaedalusRepoTools(IGitHubReader reader, TimeProvider clock, 
         if (!category.Checked)
             return $"- {Capitalize(label)} could not be read: {category.Unavailable}.";
 
+        if (category.Truncated && category.Items.Count == 0)
+            return $"- {Capitalize(label)}: more of this window exists than could be read, and none of what " +
+                   "was read qualified — this category is incomplete, not clean.";
+
         if (category.Items.Count == 0)
             return $"- No {label}.";
 
