@@ -32,7 +32,10 @@ namespace Daedalus.Tests.Integration.Agents;
 ///             scheduled run executes as <c>schedule:daedalus</c> with roles <c>["reader"]</c>, so
 ///             <c>DefaultToolAuthorizer</c> denies it whatever its tool list happens to say. The previous phase
 ///             shipped a write boundary enforced only by tool-surface absence and its own review called that
-///             brittle; this layer is the fix.
+///             brittle; this layer is the fix. Those roles are configuration — <c>DetachedRuns:Roles</c> — so
+///             <see cref="The_configured_detached_run_roles_fail_the_developer_policy"/> reads the shipped value
+///             rather than a literal: without it, adding <c>developer</c> to that one line would delete the
+///             boundary with every test here still green.
 ///         </item>
 ///     </list>
 ///     <para>
@@ -75,7 +78,11 @@ public sealed class RepoToolBoundaryTests(PostgresFixture fixture) : IAsyncLifet
     [Fact]
     public void The_write_source_name_cannot_be_matched_by_the_scout_glob()
     {
-        foreach (var name in ToolNames().Where(n => n.StartsWith("repoaction__", StringComparison.Ordinal)))
+        var writeTools = ToolNames().Where(n => n.StartsWith("repoaction__", StringComparison.Ordinal)).ToList();
+
+        writeTools.Should().NotBeEmpty("otherwise this test passes vacuously");
+
+        foreach (var name in writeTools)
         {
             GlobMatches("daedalus__*", name).Should().BeFalse(
                 "a write tool one character away from the read prefix would be matched by accident");
@@ -121,6 +128,32 @@ public sealed class RepoToolBoundaryTests(PostgresFixture fixture) : IAsyncLifet
 
         result.IsFailure.Should().BeTrue(
             "this is the layer that holds when someone widens a tool list by accident");
+    }
+
+    /// <summary>
+    ///     The one configuration line the whole boundary rests on. Layer 3 holds only because a detached run
+    ///     carries roles that <see cref="DeveloperPolicy"/> rejects, and those roles come from
+    ///     <c>DetachedRuns:Roles</c> — so this reads the shipped value rather than restating it. Adding
+    ///     <c>developer</c> or <c>admin</c> there would hand every unattended 07:00 run the ability to comment on,
+    ///     label and close issues, and every other test in this file would stay green while it happened.
+    /// </summary>
+    [Fact]
+    public async Task The_configured_detached_run_roles_fail_the_developer_policy()
+    {
+        var configured = _factory.Services.GetRequiredService<IOptions<DetachedRunOptions>>().Value;
+
+        // Not defensive: empty roles here would mean the section bound nothing, and an empty role set fails the
+        // policy for the wrong reason — the test would pass while proving nothing about the shipped configuration.
+        configured.Roles.Should().NotBeEmpty("otherwise this test passes vacuously");
+
+        var scheduled = new DetachedPrincipal(configured.PrincipalId, configured.Roles);
+
+        var result = await new DeveloperPolicy().EvaluateAsync(scheduled);
+
+        result.IsFailure.Should().BeTrue(
+            $"DetachedRuns:Roles is [{string.Join(", ", configured.Roles)}] and must never grant " +
+            $"'{DeveloperPolicy.DeveloperRole}' or '{DeveloperPolicy.AdminRole}' — that one line is what makes " +
+            "the repoaction__* tool policy deny an unattended run at all");
     }
 
     /// <summary>Qualified <c>{source}__{tool}</c> names, read once from the built host in <see cref="InitializeAsync"/>.</summary>
