@@ -32,7 +32,7 @@ Agent Framework 1.17). Daedalus consumes it. Design: `docs/plans/2026-08-16-thal
 | 1.3 | Skills: agent-scoped procedure documents | complete (2026-08-19; Thalos.NET 0.3.0 on nuget.org, #229) |
 | 1.4 | Channels: Telegram (+ CLI) | complete (2026-08-22; Thalos.NET 0.4.0 on nuget.org, #241) |
 | 1.5 | Subagents & autonomous runs (`ISubagentRunner` + outbox-driven steps, no Saga, no Scheduling) | complete (2026-09-18; plan A as Thalos.NET 0.5.0, plan B merged via #242) |
-| 1.6 | Schedule management (agent tools + Blazor page) | pending |
+| 1.6 | Schedule diagnostics (Blazor page + read-only agent tools) | complete (2026-09-19) |
 | 1.7 | Ralph retirement + Daedalus ZeroAlloc migration | pending |
 | 1.8 | Thalos.NET 1.0 release + docs | pending |
 
