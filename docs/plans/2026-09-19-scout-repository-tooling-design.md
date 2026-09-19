@@ -90,9 +90,40 @@ class that cannot reach the writer cannot write, whatever an agent asks it to do
 `IScheduleDiagnostics` / `IScheduleDeliveryActions` from phase 1.6, which the final whole-branch
 review confirmed was genuinely enforced in DI rather than merely intended.
 
-**The boundary is enforced twice:** the scout's `Tools` list in configuration omits the write
-pattern, **and** a test asserts the scout's configured patterns match no tool on the write type.
-Phase 1.6's equivalent boundary held because nobody wired it wrong. This one fails the build.
+### The boundary is enforced three times, and the strongest is authorization
+
+Amended after reading how Thalos actually works. The original design enforced this by tool-list
+membership alone, which is what phase 1.6's final review called brittle — "enforced by tool-surface
+absence, not authorization ... brittle the day a generic HTTP tool appears". That criticism applies
+to the first two layers below. The third closes it.
+
+1. **Separate tool source.** `AddLocalTools` exposes tools as `{sourceName}__{tool}`. Reads register
+   under the existing `daedalus` source; writes register under a new, clearly distinct source, so
+   the scout's existing `daedalus__*` glob cannot match a write tool. The names must not be one
+   character apart — `daedalus_write__x` sits uncomfortably close to `daedalus__*` and is rejected
+   for that reason.
+
+2. **The agent allow-list.** `AgentDefinition.Tools` is a glob allow-list over qualified
+   `source__tool` names. The scout's list omits the write source. **Note its default is
+   everything** — an agent with no explicit list gets every tool, so this layer only protects agents
+   that declare one.
+
+3. **A tool policy — the real boundary.** `Thalos:ToolPolicies` binds a tool pattern to a named
+   authorization policy, evaluated by `DefaultToolAuthorizer` against the caller's
+   `ISecurityContext`. The precedent already exists: `roslyn__apply_*` and `roslyn__rename_*` are
+   bound to `developer`, so mutating tools already require a role in this codebase.
+
+   A scheduled run executes as `DetachedPrincipal(principalId, roles)` built from the persisted
+   execution row, and the configured principal is `schedule:daedalus` with roles `["reader"]`.
+   `DeveloperPolicy` requires `developer` or `admin`. **So binding the write pattern to `developer`
+   denies the scheduled run at the authorizer, whatever its tool list says** — and it reuses an
+   existing policy rather than inventing one.
+
+Layer 3 is what makes this hold when someone later widens a tool list by accident. Layers 1 and 2
+are defence in depth. A test covers each.
+
+Phase 1.6's equivalent boundary held because nobody wired it wrong. This one is enforced by the
+authorizer.
 
 **Why not build on the existing GitHub code.** `GitHubPullRequestFactory`,
 `RepositoryAuthenticationProvider` and `GitRepositoryManager` already exist in
@@ -187,6 +218,11 @@ valid platforms — this phase is GitHub only, and the reader interface is not p
 them. Retiring the Ralph-era GitHub code, which belongs to phase 1.7.
 
 ## Known narrowing
+
+**Closed, not carried:** phase 1.6 recorded that its agent write-boundary was enforced by
+tool-surface absence rather than authorization. This phase does not inherit that weakness — see
+layer 3 above. The same technique would retrofit 1.6's resend endpoint, which is worth a follow-up
+but is out of scope here.
 
 **Write capability ships without a human-visible audit trail in Daedalus.** An agent comment on
 GitHub is visible on GitHub, but nothing in the schedule diagnostics page records that an agent
