@@ -152,4 +152,74 @@ public class GitHubApiReadTests
         activity.WindowStartUtc.Should().Be(Since);
         activity.WindowEndUtc.Should().Be(Now, "the end of the window is the injected clock, never DateTime.UtcNow");
     }
+
+    [Fact]
+    public async Task Truncation_of_merged_pull_requests_is_measured_before_filtering_by_merge_date()
+    {
+        var unmergedOrOld = string.Join(",", Enumerable.Range(0, 45).Select(i =>
+            $"{{\"number\":{i},\"title\":\"pr{i}\",\"user\":{{\"login\":\"a\"}},\"updated_at\":\"2026-09-19T06:00:00Z\",\"merged_at\":null}}"));
+        var recentlyMerged = string.Join(",", Enumerable.Range(45, 5).Select(i =>
+            $"{{\"number\":{i},\"title\":\"pr{i}\",\"user\":{{\"login\":\"a\"}},\"updated_at\":\"2026-09-19T06:00:00Z\",\"merged_at\":\"2026-09-19T06:00:00Z\"}}"));
+
+        var handler = new StubHandler()
+            .Route("/repos/owner/repo/commits", HttpStatusCode.OK, "[]")
+            .Route("/repos/owner/repo/actions/runs", HttpStatusCode.OK, """{"workflow_runs":[]}""")
+            .Route("/repos/owner/repo/pulls", HttpStatusCode.OK, $"[{unmergedOrOld},{recentlyMerged}]")
+            .Route("/repos/owner/repo/issues", HttpStatusCode.OK, "[]")
+            .Route("/repos/owner/repo", HttpStatusCode.OK, """{"default_branch":"main"}""");
+
+        var activity = await Build(handler).GetActivityAsync(RepoRef.Parse("owner/repo").Value, Since);
+
+        activity.MergedPullRequests.Items.Should().HaveCount(5,
+            "only five of the fifty raw results are merged within the window");
+        activity.MergedPullRequests.Truncated.Should().BeTrue(
+            "the raw page fetched was a full page of fifty, even though filtering by merge date left only five");
+    }
+
+    [Fact]
+    public async Task Truncation_of_issues_is_measured_before_dropping_pull_requests()
+    {
+        var pullRequestsFromIssuesEndpoint = string.Join(",", Enumerable.Range(0, 45).Select(i =>
+            $"{{\"number\":{i},\"title\":\"pr{i}\",\"state\":\"open\",\"updated_at\":\"2026-09-19T06:00:00Z\",\"pull_request\":{{}}}}"));
+        var actualIssues = string.Join(",", Enumerable.Range(45, 5).Select(i =>
+            $"{{\"number\":{i},\"title\":\"issue{i}\",\"state\":\"open\",\"updated_at\":\"2026-09-19T06:00:00Z\"}}"));
+
+        var handler = new StubHandler()
+            .Route("/repos/owner/repo/commits", HttpStatusCode.OK, "[]")
+            .Route("/repos/owner/repo/actions/runs", HttpStatusCode.OK, """{"workflow_runs":[]}""")
+            .Route("/repos/owner/repo/pulls", HttpStatusCode.OK, "[]")
+            .Route("/repos/owner/repo/issues", HttpStatusCode.OK, $"[{pullRequestsFromIssuesEndpoint},{actualIssues}]")
+            .Route("/repos/owner/repo", HttpStatusCode.OK, """{"default_branch":"main"}""");
+
+        var activity = await Build(handler).GetActivityAsync(RepoRef.Parse("owner/repo").Value, Since);
+
+        activity.Issues.Items.Should().HaveCount(5,
+            "forty-five of the fifty raw results were pull requests returned by the issues endpoint, not issues");
+        activity.Issues.Truncated.Should().BeTrue(
+            "the raw page fetched was a full page of fifty, even though dropping pull requests left only five");
+    }
+
+    [Fact]
+    public async Task Truncation_of_failed_runs_is_measured_before_filtering_by_start_time()
+    {
+        var tooOld = string.Join(",", Enumerable.Range(0, 45).Select(i =>
+            $"{{\"id\":{i},\"name\":\"ci\",\"conclusion\":\"failure\",\"head_branch\":\"main\",\"run_started_at\":\"2026-09-01T00:00:00Z\"}}"));
+        var withinWindow = string.Join(",", Enumerable.Range(45, 5).Select(i =>
+            $"{{\"id\":{i},\"name\":\"ci\",\"conclusion\":\"failure\",\"head_branch\":\"main\",\"run_started_at\":\"2026-09-19T06:00:00Z\"}}"));
+        var runsJson = "{\"workflow_runs\":[" + tooOld + "," + withinWindow + "]}";
+
+        var handler = new StubHandler()
+            .Route("/repos/owner/repo/commits", HttpStatusCode.OK, "[]")
+            .Route("/repos/owner/repo/actions/runs", HttpStatusCode.OK, runsJson)
+            .Route("/repos/owner/repo/pulls", HttpStatusCode.OK, "[]")
+            .Route("/repos/owner/repo/issues", HttpStatusCode.OK, "[]")
+            .Route("/repos/owner/repo", HttpStatusCode.OK, """{"default_branch":"main"}""");
+
+        var activity = await Build(handler).GetActivityAsync(RepoRef.Parse("owner/repo").Value, Since);
+
+        activity.FailedRuns.Items.Should().HaveCount(5,
+            "only five of the fifty raw runs started within the window");
+        activity.FailedRuns.Truncated.Should().BeTrue(
+            "the raw page fetched was a full page of fifty, even though filtering by start time left only five");
+    }
 }

@@ -176,8 +176,16 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
     {
         using var doc = await GetJsonAsync(RepoUrl(repo), token, ct).ConfigureAwait(false);
 
-        return doc.RootElement.TryGetProperty("default_branch", out var branchEl) ? branchEl.GetString() ?? "main"
-            : throw new GitHubRequestException("GitHub did not report a default branch for this repository.");
+        if (doc.RootElement.TryGetProperty("default_branch", out var branchEl) && branchEl.ValueKind == JsonValueKind.String)
+        {
+            var branch = branchEl.GetString();
+            if (!string.IsNullOrWhiteSpace(branch))
+                return branch;
+        }
+
+        // No guessing "main": a caller may name any repository, and a wrong assumed branch would make the
+        // commits query silently return nothing rather than surface as the error this actually is.
+        throw new GitHubRequestException("GitHub did not report a default branch for this repository.");
     }
 
     private async Task<CategoryResult<CommitSummary>> GetCommitsAsync(
@@ -187,6 +195,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
                   $"&per_page={_options.MaxItemsPerCategory}";
 
         using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
+        var rawCount = doc.RootElement.GetArrayLength();
 
         var items = new List<CommitSummary>();
         foreach (var element in doc.RootElement.EnumerateArray())
@@ -208,7 +217,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
             items.Add(new CommitSummary(sha, message, authorName, committedAt));
         }
 
-        return BuildCategoryResult(items);
+        return BuildCategoryResult(items, rawCount);
     }
 
     private async Task<CategoryResult<PullRequestSummary>> GetMergedPullRequestsAsync(
@@ -216,6 +225,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
     {
         var url = $"{RepoUrl(repo)}/pulls?state=closed&sort=updated&direction=desc&per_page={_options.MaxItemsPerCategory}";
         using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
+        var rawCount = doc.RootElement.GetArrayLength();
 
         var items = new List<PullRequestSummary>();
         foreach (var element in doc.RootElement.EnumerateArray())
@@ -229,7 +239,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
             items.Add(MapPullRequest(element, merged: true));
         }
 
-        return BuildCategoryResult(items);
+        return BuildCategoryResult(items, rawCount);
     }
 
     private async Task<CategoryResult<PullRequestSummary>> GetOpenPullRequestsAsync(RepoRef repo, string token, CancellationToken ct)
@@ -238,13 +248,14 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
         using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
 
         var items = doc.RootElement.EnumerateArray().Select(element => MapPullRequest(element, merged: false)).ToList();
-        return BuildCategoryResult(items);
+        return BuildCategoryResult(items, doc.RootElement.GetArrayLength());
     }
 
     private async Task<CategoryResult<IssueSummary>> GetIssuesAsync(RepoRef repo, string token, DateTime sinceUtc, CancellationToken ct)
     {
         var url = $"{RepoUrl(repo)}/issues?since={Uri.EscapeDataString(FormatIso(sinceUtc))}&state=all&per_page={_options.MaxItemsPerCategory}";
         using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
+        var rawCount = doc.RootElement.GetArrayLength();
 
         var items = new List<IssueSummary>();
         foreach (var element in doc.RootElement.EnumerateArray())
@@ -264,7 +275,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
             items.Add(new IssueSummary(number, title, state, updatedAt));
         }
 
-        return BuildCategoryResult(items);
+        return BuildCategoryResult(items, rawCount);
     }
 
     private async Task<CategoryResult<WorkflowRunSummary>> GetFailedRunsAsync(
@@ -274,8 +285,11 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
         using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
 
         var items = new List<WorkflowRunSummary>();
+        var rawCount = 0;
         if (doc.RootElement.TryGetProperty("workflow_runs", out var runsEl) && runsEl.ValueKind == JsonValueKind.Array)
         {
+            rawCount = runsEl.GetArrayLength();
+
             foreach (var element in runsEl.EnumerateArray())
             {
                 var startedAt = element.TryGetProperty("run_started_at", out var startedEl) && startedEl.TryGetDateTime(out var started)
@@ -294,7 +308,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
             }
         }
 
-        return BuildCategoryResult(items);
+        return BuildCategoryResult(items, rawCount);
     }
 
     private static PullRequestSummary MapPullRequest(JsonElement element, bool merged)
@@ -312,9 +326,14 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
         return new PullRequestSummary(number, title, author, updatedAt, merged);
     }
 
-    private CategoryResult<T> BuildCategoryResult<T>(List<T> items)
+    /// <summary>
+    ///     Builds the category result. <paramref name="rawCount"/> is the length of the array GitHub returned
+    ///     before any client-side filtering — truncation must be judged against what the page could have held, not
+    ///     against what survived filtering, or a full page that filters down to a handful reports as complete.
+    /// </summary>
+    private CategoryResult<T> BuildCategoryResult<T>(List<T> items, int rawCount)
     {
-        var truncated = items.Count >= _options.MaxItemsPerCategory;
+        var truncated = rawCount >= _options.MaxItemsPerCategory;
         IReadOnlyList<T> taken = items.Count > _options.MaxItemsPerCategory
             ? items.Take(_options.MaxItemsPerCategory).ToList()
             : items;
