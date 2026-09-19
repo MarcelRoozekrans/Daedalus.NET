@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using CSharpFunctionalExtensions;
 using Microsoft.Extensions.Logging;
@@ -9,11 +10,13 @@ using Microsoft.Extensions.Options;
 namespace Daedalus.Agents.GitHub;
 
 /// <summary>
-///     Reads repository activity straight from the GitHub REST API. Every request is authenticated up front — an
-///     unauthenticated request to a private repository 404s and looks identical to a missing repository, so a
-///     missing token fails before anything is sent rather than surfacing as a confusing category error later.
+///     Reads repository activity straight from the GitHub REST API, and — for interactive agents only — acts on it.
+///     Every request is authenticated up front — an unauthenticated request to a private repository 404s and looks
+///     identical to a missing repository, so a missing token fails before anything is sent rather than surfacing as
+///     a confusing category error later. Writes carry no retry: a failure is returned to the caller as-is, because a
+///     retried comment or label is a visible action taken twice.
 /// </summary>
-public sealed class GitHubApi : IGitHubReader
+public sealed class GitHubApi : IGitHubReader, IGitHubWriter
 {
     private const string ApiVersion = "2022-11-28";
 
@@ -47,6 +50,66 @@ public sealed class GitHubApi : IGitHubReader
         {
             return Result.Failure<string>(ex.Message);
         }
+    }
+
+    public async Task<Result<string>> CommentAsync(RepoRef repo, int number, string body, CancellationToken ct = default)
+    {
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result.Failure<string>(token.Error);
+
+        var payload = JsonSerializer.Serialize(new { body });
+        return await SendWriteAsync(
+            HttpMethod.Post, $"{IssueUrl(repo, number)}/comments", payload, token.Value,
+            $"Comment posted to {repo}#{number}.", ct).ConfigureAwait(false);
+    }
+
+    public async Task<Result<string>> AddLabelAsync(RepoRef repo, int number, string label, CancellationToken ct = default)
+    {
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result.Failure<string>(token.Error);
+
+        var payload = JsonSerializer.Serialize(new { labels = new[] { label } });
+        return await SendWriteAsync(
+            HttpMethod.Post, $"{IssueUrl(repo, number)}/labels", payload, token.Value,
+            $"Label '{label}' added to {repo}#{number}.", ct).ConfigureAwait(false);
+    }
+
+    public async Task<Result<string>> CloseIssueAsync(RepoRef repo, int number, CancellationToken ct = default)
+    {
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result.Failure<string>(token.Error);
+
+        var payload = JsonSerializer.Serialize(new { state = "closed" });
+        return await SendWriteAsync(
+            HttpMethod.Patch, IssueUrl(repo, number), payload, token.Value,
+            $"{repo}#{number} closed.", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Sends a single write request and returns whatever GitHub said, mapped through the same error helper the
+    ///     read side uses. There is no retry here — this method is called exactly once per public write method, and
+    ///     a non-success response returns a failure directly rather than looping or re-queuing.
+    /// </summary>
+    private async Task<Result<string>> SendWriteAsync(
+        HttpMethod method, string url, string jsonPayload, string token, string successMessage, CancellationToken ct)
+    {
+        // Not disposed here (unlike the read path's request): the stub handler in tests keeps this request around
+        // so a test can inspect the body it sent, and disposing it would dispose that content out from under it.
+        var request = new HttpRequestMessage(method, url)
+        {
+            Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json"),
+        };
+        ApplyHeaders(request, token);
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        return response.IsSuccessStatusCode
+            ? Result.Success(successMessage)
+            : Result.Failure<string>(MapError(response, body));
     }
 
     public async Task<RepoActivity> GetActivityAsync(RepoRef repo, DateTime sinceUtc, CancellationToken ct = default)
@@ -262,10 +325,7 @@ public sealed class GitHubApi : IGitHubReader
     private async Task<JsonDocument> GetJsonAsync(string url, string token, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.UserAgent.ParseAdd(_options.UserAgent);
-        request.Headers.Accept.ParseAdd("application/vnd.github+json");
-        request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+        ApplyHeaders(request, token);
 
         using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -276,8 +336,19 @@ public sealed class GitHubApi : IGitHubReader
         return JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
     }
 
+    /// <summary>Headers GitHub requires on every request, read or write: the bearer token, User-Agent and API version.</summary>
+    private void ApplyHeaders(HttpRequestMessage request, string token)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.UserAgent.ParseAdd(_options.UserAgent);
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+        request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+    }
+
     private string RepoUrl(RepoRef repo) =>
         $"{_options.ApiUrl.TrimEnd('/')}/repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}";
+
+    private string IssueUrl(RepoRef repo, int number) => $"{RepoUrl(repo)}/issues/{number}";
 
     private static string FormatIso(DateTime value) => value.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 

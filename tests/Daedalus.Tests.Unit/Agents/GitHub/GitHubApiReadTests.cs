@@ -1,27 +1,14 @@
 using System.Globalization;
 using System.Net;
 using Daedalus.Agents.GitHub;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
+using static Daedalus.Tests.Unit.Agents.GitHub.GitHubApiTestSupport;
 
 namespace Daedalus.Tests.Unit.Agents.GitHub;
 
 public class GitHubApiReadTests
 {
-    private static readonly DateTime Now = new(2026, 9, 19, 7, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime Now = GitHubApiTestSupport.Now;
     private static readonly DateTime Since = Now.AddHours(-24);
-
-    private static GitHubApi Build(StubHandler handler, string? token = "ghp_example")
-    {
-        var http = new HttpClient(handler);
-        return new GitHubApi(
-            http,
-            Options.Create(new GitHubOptions()),
-            new GitHubTokenSource(_ => token),
-            new FakeTimeProvider(Now),
-            NullLogger<GitHubApi>.Instance);
-    }
 
     [Fact]
     public async Task The_request_carries_the_auth_header_the_user_agent_and_the_api_version()
