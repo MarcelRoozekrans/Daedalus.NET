@@ -35,6 +35,7 @@ Agent Framework 1.17). Daedalus consumes it. Design: `docs/plans/2026-08-16-thal
 | 1.6 | Schedule diagnostics (Blazor page + read-only agent tools) | complete (2026-09-19) |
 | 1.7 | Ralph retirement + Daedalus ZeroAlloc migration | pending |
 | 1.8 | Thalos.NET 1.0 release + docs | pending |
+| 1.9 | Scout repository tooling (GitHub read tools + policy-gated write tools) | complete (2026-09-19) |
 
 ## Audit History
 
