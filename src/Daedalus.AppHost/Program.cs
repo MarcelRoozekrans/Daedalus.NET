@@ -23,6 +23,17 @@ var anthropicApiKey = builder.AddParameter("anthropic-api-key", true);
 // full secret-handling story, including the single-instance operational trap.
 var telegramBotToken = builder.AddParameter("telegram-bot-token", new EmptyStringParameterDefault(), secret: true);
 
+// GitHub token for the scout's repository tools, added in phase 1.9. OPTIONAL in exactly the same way as
+// telegram-bot-token above: GitHubTokenSource fails loudly when it is absent rather than falling back to
+// unauthenticated requests, so the tools report every category as unreadable instead of silently claiming a
+// repository is quiet. The AppHost must still start without it.
+//
+// Aspire child processes do inherit the AppHost's own environment, so an exported GITHUB_TOKEN would often
+// reach the api by accident. Forwarding it explicitly is deliberate: an implicitly-inherited credential works
+// on the machine that happened to export it and nowhere else. Override via AppHost user-secrets
+// (`Parameters:github-token`) or `$env:PARAMETERS__GITHUB_TOKEN`. Never write the value into this repository.
+var gitHubToken = builder.AddParameter("github-token", new EmptyStringParameterDefault(), secret: true);
+
 // Resolve project paths relative to solution root (src/) and repo root
 var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
 var repoRoot = Path.GetFullPath(Path.Combine(solutionRoot, ".."));
@@ -104,6 +115,7 @@ var api = builder.AddProject("api", apiPath)
     .WithEnvironment("Authentication__Authority", "http://localhost:8082/realms/daedalus")
     .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
     .WithEnvironment("Thalos__Channels__Telegram__BotToken", telegramBotToken)
+    .WithEnvironment("GITHUB_TOKEN", gitHubToken)
     .WaitForCompletion(migrations)
     .WaitFor(keycloak);
 
