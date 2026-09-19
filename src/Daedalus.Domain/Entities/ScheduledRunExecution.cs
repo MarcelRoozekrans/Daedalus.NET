@@ -46,6 +46,16 @@ public sealed class ScheduledRunExecution : Entity<Guid>
     /// <summary>Gets which step of the run should happen next.</summary>
     public RunStep Step { get; private set; }
 
+    /// <summary>
+    ///     Gets which step a scheduled run failed at, or null if this execution has not failed.
+    ///     The <see cref="Step"/> property is overwritten to <see cref="RunStep.Failed"/> by <see cref="Fail"/>,
+    ///     destroying the original step where the failure occurred — this page exists to answer "where did a digest die?",
+    ///     so this property preserves that history for operators. Set only on the first failure; subsequent calls to
+    ///     <see cref="Fail"/> do not overwrite it because <see cref="Fail"/> is callable from <see cref="RunStep.Failed"/>
+    ///     (for retries) and the <see cref="RunStep.Failed"/> state is not the real failure point.
+    /// </summary>
+    public RunStep? FailedAtStep { get; private set; }
+
     /// <summary>Gets the scout stage's output, or null until <see cref="RecordFindings"/> has run.</summary>
     public string? Findings { get; private set; }
 
@@ -206,6 +216,7 @@ public sealed class ScheduledRunExecution : Entity<Guid>
                 "The dispatcher is expected to have checked the step before calling; reaching here means that check is missing.");
         }
 
+        FailedAtStep ??= Step;   // the first failure's step is the real one; Fail is callable from Failed
         Step = RunStep.Failed;
         LastError = error;
         Attempts += 1;
