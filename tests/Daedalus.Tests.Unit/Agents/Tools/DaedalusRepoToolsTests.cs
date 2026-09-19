@@ -1,10 +1,17 @@
 using Daedalus.Agents.GitHub;
 using Daedalus.Agents.Tools;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Daedalus.Tests.Unit.Agents.Tools;
 
 public class DaedalusRepoToolsTests
 {
+    private static readonly DateTimeOffset FixedNow = new(2026, 9, 19, 7, 0, 0, TimeSpan.Zero);
+
+    private static DaedalusRepoTools CreateTools(IGitHubReader reader) =>
+        new(reader, new FakeTimeProvider(FixedNow), Options.Create(new GitHubOptions()));
+
     [Fact]
     public async Task An_unchecked_category_is_stated_in_the_output_not_omitted()
     {
@@ -20,7 +27,7 @@ public class DaedalusRepoToolsTests
                 CategoryResult<IssueSummary>.Ok([], false),
                 CategoryResult<WorkflowRunSummary>.Failed("500 from the actions endpoint")));
 
-        var output = await new DaedalusRepoTools(reader).RepoActivity("owner/repo", null);
+        var output = await CreateTools(reader).RepoActivity("owner/repo", null);
 
         output.Should().ContainEquivalentOf("could not");
         output.Should().ContainEquivalentOf("CI");
@@ -33,7 +40,7 @@ public class DaedalusRepoToolsTests
     {
         var reader = StubActivityReader();
 
-        var output = await new DaedalusRepoTools(reader).RepoActivity("owner/repo", null);
+        var output = await CreateTools(reader).RepoActivity("owner/repo", null);
 
         output.Should().Contain("2026-09-18");
         output.Should().Contain("2026-09-19");
@@ -48,7 +55,7 @@ public class DaedalusRepoToolsTests
                 [new CommitSummary("abc1234", "a change", "someone", new DateTime(2026, 9, 19, 6, 0, 0, DateTimeKind.Utc))],
                 truncated: true)));
 
-        var output = await new DaedalusRepoTools(reader).RepoActivity("owner/repo", null);
+        var output = await CreateTools(reader).RepoActivity("owner/repo", null);
 
         output.Should().ContainEquivalentOf("more than");
     }
@@ -58,7 +65,7 @@ public class DaedalusRepoToolsTests
     {
         var reader = Substitute.For<IGitHubReader>();
 
-        var output = await new DaedalusRepoTools(reader).RepoActivity("not-a-repo", null);
+        var output = await CreateTools(reader).RepoActivity("not-a-repo", null);
 
         output.Should().ContainEquivalentOf("owner/name");
         await reader.DidNotReceiveWithAnyArgs().GetActivityAsync(default!, default, default);

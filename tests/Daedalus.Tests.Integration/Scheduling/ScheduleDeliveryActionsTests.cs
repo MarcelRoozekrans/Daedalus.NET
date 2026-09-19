@@ -37,10 +37,16 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
     [Fact]
     public async Task Requeue_finds_the_dead_lettered_message_and_resets_it_for_redelivery()
     {
+        // Anchored to _now rather than inherited from the real wall clock: the dead letter below is stamped at
+        // _now minus five minutes, and DeadLetterLookback is one day measured from "now". Time only moves
+        // forward, so a test that let this fall back to TimeProvider.System would pass on the day it was
+        // written and fail permanently once the real clock drifted a day past _now.
+        var time = new FakeTimeProvider(new DateTimeOffset(_now));
+
         var schedule = await SeedScheduleAsync("morning-digest");
         var execution = await SeedDoneExecutionAsync(schedule);
 
-        await using var provider = BuildProvider();
+        await using var provider = BuildProvider(time);
         await QueueMessageAsync(provider, execution.Id);
         await DeadLetterAsync(provider, execution.Id, "Telegram returned 429 after 8 attempts", retryCount: 7);
 
@@ -104,12 +110,17 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
     [Fact]
     public async Task Requeue_only_touches_the_matching_executions_dead_letter_not_another_schedules()
     {
+        // Same reasoning as Requeue_finds_the_dead_lettered_message_and_resets_it_for_redelivery: both dead
+        // letters below are stamped relative to _now, so the lookback window must be measured from _now too,
+        // not from whatever the real wall clock happens to be when this test runs.
+        var time = new FakeTimeProvider(new DateTimeOffset(_now));
+
         var targeted = await SeedScheduleAsync("morning-digest");
         var other = await SeedScheduleAsync("weekly-digest");
         var targetedExecution = await SeedDoneExecutionAsync(targeted);
         var otherExecution = await SeedDoneExecutionAsync(other);
 
-        await using var provider = BuildProvider();
+        await using var provider = BuildProvider(time);
         await QueueMessageAsync(provider, targetedExecution.Id);
         await QueueMessageAsync(provider, otherExecution.Id);
         await DeadLetterAsync(provider, targetedExecution.Id, "Telegram returned 429 after 8 attempts", retryCount: 7);

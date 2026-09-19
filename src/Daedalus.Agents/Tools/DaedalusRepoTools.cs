@@ -24,17 +24,20 @@ namespace Daedalus.Agents.Tools;
 /// </remarks>
 /// <param name="reader">The one seam this tool reads a repository through.</param>
 /// <param name="clock">
-///     Where "now" comes from when <c>since</c> is omitted. Defaults to <see cref="TimeProvider.System"/> so the
-///     constructor still resolves in tests that only supply <paramref name="reader"/>; production wiring supplies
-///     the shared clock through dependency injection like every other reader of time in this codebase.
+///     Where "now" comes from when <c>since</c> is omitted. Required, like every other <see cref="TimeProvider"/>
+///     consumer in this codebase (<c>PostgresMemoryStore</c>, <c>ScheduledRunStore</c>, <c>ScheduleReconciler</c>,
+///     <c>PostgresAgentSessionStore</c>, <c>PostgresSkillStore</c>): an optional clock with an ambient fallback
+///     would let a DI regression silently substitute <see cref="TimeProvider.System"/> instead of failing fast.
 /// </param>
-/// <param name="options">The configured lookback used when <c>since</c> is omitted.</param>
+/// <param name="options">
+///     The configured lookback used when <c>since</c> is omitted. Required for the same reason as
+///     <paramref name="clock"/>: a broken configuration binding must surface as a startup error, not silently
+///     fall back to a hardcoded default.
+/// </param>
 [ThalosToolType]
-public sealed class DaedalusRepoTools(IGitHubReader reader, TimeProvider? clock = null, IOptions<GitHubOptions>? options = null)
+public sealed class DaedalusRepoTools(IGitHubReader reader, TimeProvider clock, IOptions<GitHubOptions> options)
 {
-    private TimeProvider Clock => clock ?? TimeProvider.System;
-
-    private GitHubOptions Options => options?.Value ?? new GitHubOptions();
+    private GitHubOptions Options => options.Value;
 
     /// <summary>Reports commits, pull requests, issues and failed CI runs for a repository within a time window.</summary>
     [ThalosTool("repo_activity")]
@@ -81,7 +84,7 @@ public sealed class DaedalusRepoTools(IGitHubReader reader, TimeProvider? clock 
 
         if (string.IsNullOrWhiteSpace(since))
         {
-            sinceUtc = Clock.GetUtcNow().UtcDateTime - Options.DefaultLookback;
+            sinceUtc = clock.GetUtcNow().UtcDateTime - Options.DefaultLookback;
             return true;
         }
 
