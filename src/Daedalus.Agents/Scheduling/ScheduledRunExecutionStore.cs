@@ -1,10 +1,12 @@
 using System.Data.Common;
 using Daedalus.Agents.Channels;
+using Daedalus.Agents.GitHub;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ZeroAlloc.Outbox;
 
 namespace Daedalus.Agents.Scheduling;
@@ -72,6 +74,7 @@ public sealed partial class ScheduledRunExecutionStore(
     IOutboxWriter<DeliverDigest> deliverWriter,
     IOutboxWriter<ChannelMessageQueued> channelWriter,
     TimeProvider time,
+    IOptions<GitHubOptions> gitHubOptions,
     ILogger<ScheduledRunExecutionStore> logger)
 {
     private readonly ApplicationDbContext _db = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
@@ -80,6 +83,7 @@ public sealed partial class ScheduledRunExecutionStore(
     private readonly IOutboxWriter<DeliverDigest> _deliverWriter = deliverWriter ?? throw new ArgumentNullException(nameof(deliverWriter));
     private readonly IOutboxWriter<ChannelMessageQueued> _channelWriter = channelWriter ?? throw new ArgumentNullException(nameof(channelWriter));
     private readonly TimeProvider _time = time ?? throw new ArgumentNullException(nameof(time));
+    private readonly IOptions<GitHubOptions> _gitHubOptions = gitHubOptions ?? throw new ArgumentNullException(nameof(gitHubOptions));
     private readonly ILogger<ScheduledRunExecutionStore> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <summary>
@@ -441,6 +445,55 @@ public sealed partial class ScheduledRunExecutionStore(
     public async ValueTask<ScheduledRunExecution?> FindAsync(Guid executionId, CancellationToken ct) =>
         await _db.ScheduledRunExecutions.AsNoTracking()
             .SingleOrDefaultAsync(e => e.Id == executionId, ct).ConfigureAwait(false);
+
+    /// <summary>
+    ///     Reads the repository configured on the firing <see cref="ScheduledRun"/> — what
+    ///     <see cref="RunScoutStepDispatcher"/> hands to <see cref="RepoDigestPrompts.ScoutTask"/>. Read straight
+    ///     off <see cref="ScheduledRun.Repository"/> rather than copied onto the execution row at claim time,
+    ///     unlike <see cref="ScheduledRunExecution.ChannelId"/> and its siblings: a schedule's repository is read
+    ///     only once per firing, at the Scout step, so there is no redelivery-consistency argument for carrying a
+    ///     second copy of it forward through Writer and Deliver, which never need it.
+    /// </summary>
+    /// <param name="scheduleId">The schedule that fired.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>
+    ///     The configured repository, or <see langword="null"/> if the schedule no longer exists or never
+    ///     configured one — the caller's job to treat as a failure, not this read's.
+    /// </returns>
+    public async Task<string?> GetScheduleRepositoryAsync(Guid scheduleId, CancellationToken ct) =>
+        await _db.ScheduledRuns.AsNoTracking()
+            .Where(r => r.Id == scheduleId)
+            .Select(r => r.Repository)
+            .SingleOrDefaultAsync(ct).ConfigureAwait(false);
+
+    /// <summary>
+    ///     Resolves the start of the scout's window for one occurrence: the <see cref="ScheduledRunExecution.OccurrenceAt"/>
+    ///     of the most recent <see cref="RunStep.Done"/> execution of the same schedule strictly before
+    ///     <paramref name="occurrenceAtUtc"/>, or <c>now - <see cref="GitHubOptions.DefaultLookback"/></c> when
+    ///     there is none.
+    /// </summary>
+    /// <remarks>
+    ///     Only <see cref="RunStep.Done"/> counts as "the last digest" — a <see cref="RunStep.Failed"/> execution
+    ///     reported nothing, so anchoring on it would silently narrow the window to the point of the failure
+    ///     instead of correctly widening it back to the last occurrence that actually delivered. This is the fix
+    ///     for the bug a fixed 24-hour lookback would have: a run missed at 07:00 and caught by redelivery at
+    ///     08:00 must not drop the intervening hour, so the window always reaches back to the last real digest,
+    ///     however many occurrences ago that was.
+    /// </remarks>
+    /// <param name="scheduleId">The schedule whose window is being resolved.</param>
+    /// <param name="occurrenceAtUtc">The current occurrence's <c>OccurrenceAt</c>; only strictly earlier executions count as "previous".</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The UTC instant the scout's sweep should start from.</returns>
+    public async Task<DateTime> ResolveWindowStartAsync(Guid scheduleId, DateTime occurrenceAtUtc, CancellationToken ct)
+    {
+        var previousOccurrenceAt = await _db.ScheduledRunExecutions.AsNoTracking()
+            .Where(e => e.ScheduleId == scheduleId && e.Step == RunStep.Done && e.OccurrenceAt < occurrenceAtUtc)
+            .OrderByDescending(e => e.OccurrenceAt)
+            .Select(e => (DateTime?) e.OccurrenceAt)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+        return previousOccurrenceAt ?? _time.GetUtcNow().UtcDateTime - _gitHubOptions.Value.DefaultLookback;
+    }
 
     [LoggerMessage(EventId = 445, Level = LogLevel.Warning,
         Message = "ScheduledRunDue for schedule {ScheduleId} (occurrence {OccurrenceAt}) references a schedule that no longer exists; treating as handled.")]

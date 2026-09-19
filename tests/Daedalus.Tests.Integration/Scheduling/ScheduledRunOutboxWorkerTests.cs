@@ -88,9 +88,11 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
     private async Task<Guid> SeedScoutExecutionAsync()
     {
         var now = _time.GetUtcNow().UtcDateTime;
+        // repository: "owner/repo" (Task 7) — RunScoutStepDispatcher now fails the execution outright when a
+        // RepoDigest schedule has none, and this test drives the real dispatcher through the real outbox worker.
         var schedule = ScheduledRun.Create(
             "daily-digest", "0 7 * * *", "RepoDigest", "telegram", "482910337",
-            "schedule:daedalus", ["reader", "writer"], ScheduleOrigin.Config, Occurrence).Value;
+            "schedule:daedalus", ["reader", "writer"], ScheduleOrigin.Config, Occurrence, repository: "owner/repo").Value;
 
         var execution = ScheduledRunExecution.Create(
             schedule.Id, Occurrence, schedule.ChannelId, schedule.ConversationId,

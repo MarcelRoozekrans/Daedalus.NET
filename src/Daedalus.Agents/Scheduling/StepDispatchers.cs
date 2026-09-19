@@ -36,8 +36,24 @@ public sealed partial class RunScoutStepDispatcher(
         // redelivery arriving after a restart already advanced this execution past Scout).
         if (execution.Step != RunStep.Scout) { return; }
 
+        // Repository is not on the execution row (see GetScheduleRepositoryAsync's remarks): read it off the
+        // firing ScheduledRun. Null here means either the schedule was deleted mid-run or RepoDigestRepositoryValidator
+        // somehow let a repository-less RepoDigest schedule through — both permanent, not worth eight retries of a
+        // paid turn the scout could never complete anyway.
+        var repository = await store.GetScheduleRepositoryAsync(execution.ScheduleId, ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(repository))
+        {
+            await store.FailAsync(message.ExecutionId,
+                "Schedule has no configured Repository; RepoDigestRepositoryValidator should have caught this at boot.",
+                ct).ConfigureAwait(false);
+            return;
+        }
+
+        var sinceUtc = await store.ResolveWindowStartAsync(execution.ScheduleId, execution.OccurrenceAt, ct)
+            .ConfigureAwait(false);
+
         var result = await executor.RunAsync(
-            RepoDigestPrompts.ScoutAgent, RepoDigestPrompts.ScoutTask,
+            RepoDigestPrompts.ScoutAgent, RepoDigestPrompts.ScoutTask(repository, sinceUtc),
             execution.PrincipalId, execution.Roles, ct).ConfigureAwait(false);
 
         if (result.IsFailure)

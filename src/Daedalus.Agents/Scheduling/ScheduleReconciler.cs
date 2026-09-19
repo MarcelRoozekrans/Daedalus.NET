@@ -38,6 +38,14 @@ public sealed class ScheduledRunOptions
 
     /// <summary>Whether this schedule should be enabled. Defaults to <see langword="true"/> when omitted.</summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     The GitHub repository (<c>owner/name</c>) this schedule's workflow sweeps. Required when
+    ///     <see cref="Trigger"/> is <c>RepoDigest</c> — <see cref="RepoDigestRepositoryValidator"/> fails the host
+    ///     at boot if it is blank on such an entry, rather than letting the scout guess at 07:00. Unused by any
+    ///     other trigger today.
+    /// </summary>
+    public string? Repository { get; set; }
 }
 
 /// <summary>
@@ -148,14 +156,16 @@ public sealed partial class ScheduleReconciler(
             ScheduledRun run;
             if (byName.TryGetValue(entry.Name, out var existing))
             {
-                existing.UpdateFromConfig(entry.Cron, entry.Trigger, entry.ChannelId, entry.ConversationId, principalId, roles);
+                existing.UpdateFromConfig(
+                    entry.Cron, entry.Trigger, entry.ChannelId, entry.ConversationId, principalId, roles,
+                    entry.Repository);
                 run = existing;
             }
             else
             {
                 var created = ScheduledRun.Create(
                     entry.Name, entry.Cron, entry.Trigger, entry.ChannelId, entry.ConversationId,
-                    principalId, roles, ScheduleOrigin.Config, nextRunAtUtc);
+                    principalId, roles, ScheduleOrigin.Config, nextRunAtUtc, entry.Repository);
 
                 if (created.IsFailure)
                 {
@@ -265,19 +275,21 @@ public sealed partial class ScheduleReconciler(
 
 /// <summary>
 ///     Runs <see cref="ScheduleReconciler.ReconcileAsync"/> once at host start, ahead of any hosted service that
-///     later sweeps <c>ScheduledRuns</c> for due occurrences, and then validates <c>Thalos:Channels:DefaultAgent</c>
-///     and every <see cref="RepoDigestPrompts.AgentNames"/> entry against the agent catalogue in one pass via
-///     <see cref="AgentNameValidator"/>. <see cref="ScheduleReconciler"/> is scoped (see its remarks) while hosted
-///     services are singletons, so this type's only job is to open one <see cref="IServiceScope"/> per host start,
-///     resolve the reconciler from it, and let the scope go away once both checks finish. A failure in either step
-///     throws out of <see cref="StartAsync"/> uncaught — by design: an invalid configured schedule, or an agent
-///     name nothing in the catalogue answers to, must stop the host at boot rather than defer the failure to the
-///     schedule's first firing (or the first channel message routed through the unresolved default agent).
+///     later sweeps <c>ScheduledRuns</c> for due occurrences, then validates every configured <c>RepoDigest</c>
+///     schedule names a repository via <see cref="RepoDigestRepositoryValidator"/>, and finally validates
+///     <c>Thalos:Channels:DefaultAgent</c> and every <see cref="RepoDigestPrompts.AgentNames"/> entry against the
+///     agent catalogue via <see cref="AgentNameValidator"/>. <see cref="ScheduleReconciler"/> is scoped (see its
+///     remarks) while hosted services are singletons, so this type's only job is to open one
+///     <see cref="IServiceScope"/> per host start, resolve the reconciler from it, and let the scope go away once
+///     every check finishes. A failure in any step throws out of <see cref="StartAsync"/> uncaught — by design: an
+///     invalid configured schedule, a <c>RepoDigest</c> schedule with no repository, or an agent name nothing in
+///     the catalogue answers to, must stop the host at boot rather than defer the failure to the schedule's first
+///     firing (or the first channel message routed through the unresolved default agent).
 /// </summary>
 /// <remarks>
-///     The agent-name check lives here — alongside schedule reconciliation, in the one hosted service both share —
-///     rather than in a second hosted service, so a slow-booting host runs one boot-validation pass, not two.
-///     <c>DefaultAgent</c> is read directly off <see cref="IConfiguration"/> rather than
+///     Both extra checks live here — alongside schedule reconciliation, in the one hosted service all three share —
+///     rather than in a second hosted service, so a slow-booting host runs one boot-validation pass, not two or
+///     three. <c>DefaultAgent</c> is read directly off <see cref="IConfiguration"/> rather than
 ///     <c>IOptions&lt;ChannelOptions&gt;</c> so this check does not depend on a host having called
 ///     <c>AddDaedalusChannels</c> — <see cref="ScheduleReconcilerHostedService"/> is registered by
 ///     <c>AddDaedalusAgents</c> alone, and a host that never configures channels (or leaves
@@ -285,7 +297,10 @@ public sealed partial class ScheduleReconciler(
 ///     <see cref="RepoDigestPrompts.AgentNames"/> is always checked, independent of <c>DefaultAgent</c>: the
 ///     <c>RepoDigest</c> workflow's scout and writer agents must exist for any host that runs
 ///     <see cref="RunScoutStep"/> and <see cref="RunWriterStep"/>, whether or not that host also routes
-///     channel messages.
+///     channel messages. <see cref="RepoDigestRepositoryValidator"/> reads the raw configured entries directly,
+///     the same way <see cref="ScheduleReconciler.ReconcileAsync"/> does, rather than the rows
+///     <c>ReconcileAsync</c> just wrote — the validator's job is to catch a configuration mistake before it is
+///     even acted on, not to re-check what was already persisted.
 /// </remarks>
 public sealed class ScheduleReconcilerHostedService(IServiceScopeFactory scopeFactory) : IHostedService
 {
@@ -302,6 +317,11 @@ public sealed class ScheduleReconcilerHostedService(IServiceScopeFactory scopeFa
         await reconciler.ReconcileAsync(cancellationToken).ConfigureAwait(false);
 
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+
+        var scheduleEntries = configuration.GetSection(ScheduledRunOptions.SectionName).Get<List<ScheduledRunOptions>>()
+            ?? [];
+        RepoDigestRepositoryValidator.Validate(scheduleEntries);
+
         var defaultAgent = configuration[DefaultAgentConfigurationKey];
         var names = string.IsNullOrWhiteSpace(defaultAgent)
             ? RepoDigestPrompts.AgentNames
@@ -313,4 +333,49 @@ public sealed class ScheduleReconcilerHostedService(IServiceScopeFactory scopeFa
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+/// <summary>
+///     Validates that every configured schedule whose <see cref="ScheduledRunOptions.Trigger"/> is
+///     <see cref="RepoDigestTrigger"/> also names a <see cref="ScheduledRunOptions.Repository"/>. Mirrors
+///     <see cref="AgentNameValidator"/>'s reporting shape — every offending schedule named in one exception,
+///     not just the first — so a misconfigured host is fixed in one restart, not one per missing entry.
+/// </summary>
+/// <remarks>
+///     The scout's tools take an explicit <c>owner/name</c> (<c>daedalus__repo_activity</c>), so a
+///     <c>RepoDigest</c> schedule with no repository configured would leave <see cref="RunScoutStep"/> guessing at
+///     07:00 instead of failing the boot that could have caught it — spec §7 again, the same rule
+///     <see cref="AgentNameValidator"/> already enforces for a bad agent name.
+/// </remarks>
+public static class RepoDigestRepositoryValidator
+{
+    /// <summary>The <see cref="ScheduledRunOptions.Trigger"/> value that requires a <see cref="ScheduledRunOptions.Repository"/>.</summary>
+    public const string RepoDigestTrigger = "RepoDigest";
+
+    /// <summary>
+    ///     Checks every entry in <paramref name="entries"/> whose <see cref="ScheduledRunOptions.Trigger"/> is
+    ///     <see cref="RepoDigestTrigger"/> for a non-blank <see cref="ScheduledRunOptions.Repository"/>.
+    /// </summary>
+    /// <param name="entries">The configured <c>ScheduledRuns</c> entries to check. May be empty; never throws in that case.</param>
+    /// <exception cref="InvalidOperationException">
+    ///     One or more entries has <see cref="ScheduledRunOptions.Trigger"/> <see cref="RepoDigestTrigger"/> and a
+    ///     blank <see cref="ScheduledRunOptions.Repository"/>. The message names every offending schedule at once.
+    /// </exception>
+    public static void Validate(IEnumerable<ScheduledRunOptions> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        var missing = entries
+            .Where(e => string.Equals(e.Trigger, RepoDigestTrigger, StringComparison.Ordinal)
+                && string.IsNullOrWhiteSpace(e.Repository))
+            .Select(e => e.Name)
+            .ToList();
+
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Schedule(s) {string.Join(", ", missing)} use Trigger '{RepoDigestTrigger}' but configure no " +
+                "Repository. Set ScheduledRuns:Repository to the owner/name the scout should sweep.");
+        }
+    }
 }
