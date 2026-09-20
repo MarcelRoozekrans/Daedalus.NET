@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -107,33 +107,33 @@ public sealed class ScheduledRunExecution : Entity<Guid>
         DateTime nowUtc)
     {
         if (scheduleId == Guid.Empty)
-            return Result.Failure<ScheduledRunExecution>("Schedule id is required.");
+            return Result<ScheduledRunExecution>.Failure("Schedule id is required.");
 
         if (occurrenceAtUtc.Kind != DateTimeKind.Utc)
-            return Result.Failure<ScheduledRunExecution>("Occurrence must be UTC.");
+            return Result<ScheduledRunExecution>.Failure("Occurrence must be UTC.");
 
         if (string.IsNullOrWhiteSpace(channelId))
-            return Result.Failure<ScheduledRunExecution>("Channel id is required.");
+            return Result<ScheduledRunExecution>.Failure("Channel id is required.");
 
         if (channelId.Length > MaxChannelIdLength)
-            return Result.Failure<ScheduledRunExecution>($"Channel id must be at most {MaxChannelIdLength} characters.");
+            return Result<ScheduledRunExecution>.Failure($"Channel id must be at most {MaxChannelIdLength} characters.");
 
         if (string.IsNullOrWhiteSpace(conversationId))
-            return Result.Failure<ScheduledRunExecution>("Conversation id is required.");
+            return Result<ScheduledRunExecution>.Failure("Conversation id is required.");
 
         if (conversationId.Length > MaxConversationIdLength)
-            return Result.Failure<ScheduledRunExecution>($"Conversation id must be at most {MaxConversationIdLength} characters.");
+            return Result<ScheduledRunExecution>.Failure($"Conversation id must be at most {MaxConversationIdLength} characters.");
 
         if (string.IsNullOrWhiteSpace(principalId))
-            return Result.Failure<ScheduledRunExecution>("Principal id is required.");
+            return Result<ScheduledRunExecution>.Failure("Principal id is required.");
 
         if (principalId.Length > MaxPrincipalIdLength)
-            return Result.Failure<ScheduledRunExecution>($"Principal id must be at most {MaxPrincipalIdLength} characters.");
+            return Result<ScheduledRunExecution>.Failure($"Principal id must be at most {MaxPrincipalIdLength} characters.");
 
         if (roles is null || roles.Count == 0)
-            return Result.Failure<ScheduledRunExecution>("At least one role is required.");
+            return Result<ScheduledRunExecution>.Failure("At least one role is required.");
 
-        return Result.Success(new ScheduledRunExecution
+        return Result<ScheduledRunExecution>.Success(new ScheduledRunExecution
         {
             // v7 (not the NewGuid this folder's other entities use): this table is append-heavy and
             // kept indefinitely, and time-ordered ids give it sequential B-tree inserts.

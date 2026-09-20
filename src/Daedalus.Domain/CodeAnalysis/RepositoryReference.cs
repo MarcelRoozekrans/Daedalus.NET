@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using ZeroAlloc.ValueObjects;
 
 namespace Daedalus.Domain.CodeAnalysis;
@@ -34,9 +34,9 @@ public sealed partial class RepositoryReference
     public static Result<RepositoryReference> Create(string url, string? branch = null, string? commitSha = null)
     {
         if (string.IsNullOrWhiteSpace(url))
-            return Result.Failure<RepositoryReference>("Repository URL cannot be empty");
+            return Result<RepositoryReference>.Failure("Repository URL cannot be empty");
 
-        return Result.Success(new RepositoryReference
+        return Result<RepositoryReference>.Success(new RepositoryReference
         {
             Url = url.Trim(),
             Branch = branch?.Trim(),

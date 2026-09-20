@@ -1,7 +1,7 @@
 #pragma warning disable CA1819 // EF Core concurrency token standard pattern
 #pragma warning disable S1144 // EF Core sets RowVersion via reflection
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -49,15 +49,15 @@ public sealed class AgentSession : AggregateRoot<Guid>
     public static Result<AgentSession> Create(Guid id, Guid agentId, string ownerId, DateTime utcNow)
     {
         if (id == Guid.Empty)
-            return Result.Failure<AgentSession>("Session id is required.");
+            return Result<AgentSession>.Failure("Session id is required.");
 
         if (agentId == Guid.Empty)
-            return Result.Failure<AgentSession>("Agent id is required.");
+            return Result<AgentSession>.Failure("Agent id is required.");
 
         if (string.IsNullOrWhiteSpace(ownerId))
-            return Result.Failure<AgentSession>("Owner id is required.");
+            return Result<AgentSession>.Failure("Owner id is required.");
 
-        return Result.Success(new AgentSession
+        return Result<AgentSession>.Success(new AgentSession
         {
             Id = id,
             AgentId = agentId,

@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -58,28 +58,28 @@ public sealed class ChannelConversation : Entity<Guid>
         string channelId, string conversationId, Guid sessionId, Guid agentId, DateTime utcNow)
     {
         if (string.IsNullOrWhiteSpace(channelId))
-            return Result.Failure<ChannelConversation>("Channel id is required.");
+            return Result<ChannelConversation>.Failure("Channel id is required.");
 
         if (channelId.Length > MaxChannelIdLength)
-            return Result.Failure<ChannelConversation>($"Channel id must be at most {MaxChannelIdLength} characters.");
+            return Result<ChannelConversation>.Failure($"Channel id must be at most {MaxChannelIdLength} characters.");
 
         // Unlike ChannelId, a blank/empty ConversationId is deliberately NOT rejected here: ConversationId.Value
         // (Thalos.NET) normalises a defaulted struct to "" on read, and PostgresConversationMap's IConversationMap
         // contract requires that exact empty string to round-trip through Bind/Get. ConversationId is still bounded
         // by MaxConversationIdLength below - only the "non-blank" rule is gone, and only for this field.
         if (conversationId is null)
-            return Result.Failure<ChannelConversation>("Conversation id is required.");
+            return Result<ChannelConversation>.Failure("Conversation id is required.");
 
         if (conversationId.Length > MaxConversationIdLength)
-            return Result.Failure<ChannelConversation>($"Conversation id must be at most {MaxConversationIdLength} characters.");
+            return Result<ChannelConversation>.Failure($"Conversation id must be at most {MaxConversationIdLength} characters.");
 
         if (sessionId == Guid.Empty)
-            return Result.Failure<ChannelConversation>("Session id is required.");
+            return Result<ChannelConversation>.Failure("Session id is required.");
 
         if (agentId == Guid.Empty)
-            return Result.Failure<ChannelConversation>("Agent id is required.");
+            return Result<ChannelConversation>.Failure("Agent id is required.");
 
-        return Result.Success(new ChannelConversation
+        return Result<ChannelConversation>.Success(new ChannelConversation
         {
             Id = Guid.NewGuid(),
             ChannelId = channelId,

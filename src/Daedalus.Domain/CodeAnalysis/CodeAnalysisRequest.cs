@@ -1,6 +1,6 @@
 #pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Domain.Entities;
 
 namespace Daedalus.Domain.CodeAnalysis;
@@ -102,48 +102,48 @@ public sealed class CodeAnalysisRequest : AggregateRoot<Guid>
         // Validation
         if (string.IsNullOrWhiteSpace(title))
         {
-            return Result.Failure<CodeAnalysisRequest>("Title cannot be empty");
+            return Result<CodeAnalysisRequest>.Failure("Title cannot be empty");
         }
 
         if (title.Length > 256)
         {
-            return Result.Failure<CodeAnalysisRequest>("Title cannot exceed 256 characters");
+            return Result<CodeAnalysisRequest>.Failure("Title cannot exceed 256 characters");
         }
 
         if (string.IsNullOrWhiteSpace(description))
         {
-            return Result.Failure<CodeAnalysisRequest>("Description cannot be empty");
+            return Result<CodeAnalysisRequest>.Failure("Description cannot be empty");
         }
 
         if (description.Length > 2000)
         {
-            return Result.Failure<CodeAnalysisRequest>("Description cannot exceed 2000 characters");
+            return Result<CodeAnalysisRequest>.Failure("Description cannot exceed 2000 characters");
         }
 
         if (string.IsNullOrWhiteSpace(repositoryUrl))
         {
-            return Result.Failure<CodeAnalysisRequest>("Repository URL cannot be empty");
+            return Result<CodeAnalysisRequest>.Failure("Repository URL cannot be empty");
         }
 
         if (maxIterations < 1 || maxIterations > 100)
         {
-            return Result.Failure<CodeAnalysisRequest>("Max iterations must be between 1 and 100");
+            return Result<CodeAnalysisRequest>.Failure("Max iterations must be between 1 and 100");
         }
 
         // Create value objects
         var repoResult = RepositoryReference.Create(repositoryUrl, repositoryBranch, commitSha);
         if (repoResult.IsFailure)
         {
-            return Result.Failure<CodeAnalysisRequest>(repoResult.Error);
+            return Result<CodeAnalysisRequest>.Failure(repoResult.Error);
         }
 
         var locationResult = CodeLocation.Create(filePath);
         if (locationResult.IsFailure)
         {
-            return Result.Failure<CodeAnalysisRequest>(locationResult.Error);
+            return Result<CodeAnalysisRequest>.Failure(locationResult.Error);
         }
 
-        return Result.Success(new CodeAnalysisRequest
+        return Result<CodeAnalysisRequest>.Success(new CodeAnalysisRequest
         {
             Id = id,
             Title = title.Trim(),

@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -103,38 +103,38 @@ public sealed class AgentMemory : Entity<Guid>
         DateTime? updatedAt = null, bool isArchived = false, int recallCount = 0, DateTime? lastRecalledAt = null)
     {
         if (id == Guid.Empty)
-            return Result.Failure<AgentMemory>("Memory id is required.");
+            return Result<AgentMemory>.Failure("Memory id is required.");
 
         if (string.IsNullOrWhiteSpace(ownerId))
-            return Result.Failure<AgentMemory>("Owner id is required.");
+            return Result<AgentMemory>.Failure("Owner id is required.");
 
         if (ownerId.Length > MaxOwnerIdLength)
-            return Result.Failure<AgentMemory>($"Owner id must be at most {MaxOwnerIdLength} characters.");
+            return Result<AgentMemory>.Failure($"Owner id must be at most {MaxOwnerIdLength} characters.");
 
         if (!IsValidKind(kind))
-            return Result.Failure<AgentMemory>("Kind must match ^[a-z][a-z0-9_-]{0,31}$.");
+            return Result<AgentMemory>.Failure("Kind must match ^[a-z][a-z0-9_-]{0,31}$.");
 
         var textCheck = ValidateText(text);
         if (textCheck.IsFailure)
-            return Result.Failure<AgentMemory>(textCheck.Error);
+            return Result<AgentMemory>.Failure(textCheck.Error);
 
         var normalisedTags = NormaliseTags(tags);
         if (normalisedTags.IsFailure)
-            return Result.Failure<AgentMemory>(normalisedTags.Error);
+            return Result<AgentMemory>.Failure(normalisedTags.Error);
 
         var normalisedSource = source ?? string.Empty;
         if (normalisedSource.Length > MaxSourceLength)
-            return Result.Failure<AgentMemory>($"Source must be at most {MaxSourceLength} characters.");
+            return Result<AgentMemory>.Failure($"Source must be at most {MaxSourceLength} characters.");
 
         var importanceCheck = ValidateImportance(importance);
         if (importanceCheck.IsFailure)
-            return Result.Failure<AgentMemory>(importanceCheck.Error);
+            return Result<AgentMemory>.Failure(importanceCheck.Error);
 
         if (updatedAt is { } u && u < utcNow)
-            return Result.Failure<AgentMemory>("UpdatedAt must not precede CreatedAt.");
+            return Result<AgentMemory>.Failure("UpdatedAt must not precede CreatedAt.");
 
         if (recallCount < 0)
-            return Result.Failure<AgentMemory>("Recall count must not be negative.");
+            return Result<AgentMemory>.Failure("Recall count must not be negative.");
 
         var memory = new AgentMemory
         {
@@ -153,7 +153,7 @@ public sealed class AgentMemory : Entity<Guid>
             IndexPending = indexPending,
         };
         memory._tags.AddRange(normalisedTags.Value);
-        return Result.Success(memory);
+        return Result<AgentMemory>.Success(memory);
     }
 
     /// <summary>
@@ -251,11 +251,11 @@ public sealed class AgentMemory : Entity<Guid>
 #pragma warning restore CA1308
 
         if (list.Count > MaxTags)
-            return Result.Failure<List<string>>($"At most {MaxTags} tags are allowed.");
+            return Result<List<string>>.Failure($"At most {MaxTags} tags are allowed.");
 
         if (list.Exists(t => t.Length > MaxTagLength))
-            return Result.Failure<List<string>>($"Tags must be at most {MaxTagLength} characters.");
+            return Result<List<string>>.Failure($"Tags must be at most {MaxTagLength} characters.");
 
-        return Result.Success(list);
+        return Result<List<string>>.Success(list);
     }
 }

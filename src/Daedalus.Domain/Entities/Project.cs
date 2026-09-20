@@ -2,7 +2,7 @@
 #pragma warning disable S1144 // EF Core sets RowVersion via reflection (unused private setter is required)
 #pragma warning disable CA1054, CA1056 // Repository URL stored as string for EF Core mapping and git CLI consumption
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -57,35 +57,35 @@ public sealed class Project : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(projectName))
         {
-            return Result.Failure<Project>("Project name cannot be empty");
+            return Result<Project>.Failure("Project name cannot be empty");
         }
 
         if (projectName.Length > 256)
         {
-            return Result.Failure<Project>("Project name cannot exceed 256 characters");
+            return Result<Project>.Failure("Project name cannot exceed 256 characters");
         }
 
         if (string.IsNullOrWhiteSpace(description))
         {
-            return Result.Failure<Project>("Description cannot be empty");
+            return Result<Project>.Failure("Description cannot be empty");
         }
 
         if (description.Length > 2000)
         {
-            return Result.Failure<Project>("Description cannot exceed 2000 characters");
+            return Result<Project>.Failure("Description cannot exceed 2000 characters");
         }
 
         if (string.IsNullOrWhiteSpace(version))
         {
-            return Result.Failure<Project>("Version cannot be empty");
+            return Result<Project>.Failure("Version cannot be empty");
         }
 
         if (version.Length > 50)
         {
-            return Result.Failure<Project>("Version cannot exceed 50 characters");
+            return Result<Project>.Failure("Version cannot exceed 50 characters");
         }
 
-        return Result.Success(new Project
+        return Result<Project>.Success(new Project
         {
             Id = id,
             ProjectName = projectName.Trim(),

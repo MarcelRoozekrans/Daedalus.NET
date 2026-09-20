@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -47,20 +47,20 @@ public readonly record struct PromptSection
     {
         if (priority < 0)
         {
-            return Result.Failure<PromptSection>("Priority must be non-negative");
+            return Result<PromptSection>.Failure("Priority must be non-negative");
         }
 
         if (string.IsNullOrWhiteSpace(priorityLabel))
         {
-            return Result.Failure<PromptSection>("Priority label cannot be empty");
+            return Result<PromptSection>.Failure("Priority label cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(content))
         {
-            return Result.Failure<PromptSection>("Content cannot be empty");
+            return Result<PromptSection>.Failure("Content cannot be empty");
         }
 
-        return Result.Success(new PromptSection(priority, priorityLabel.Trim(), content.Trim(), category, isEnabled));
+        return Result<PromptSection>.Success(new PromptSection(priority, priorityLabel.Trim(), content.Trim(), category, isEnabled));
     }
 
     /// <summary>

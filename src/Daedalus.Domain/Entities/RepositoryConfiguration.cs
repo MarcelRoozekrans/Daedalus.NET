@@ -3,7 +3,7 @@
 #pragma warning disable CA1056 // URI properties should not be strings
 #pragma warning disable S1144 // EF Core sets RowVersion via reflection (unused private setter is required)
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -71,41 +71,41 @@ public sealed class RepositoryConfiguration : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            return Result.Failure<RepositoryConfiguration>("Name cannot be empty");
+            return Result<RepositoryConfiguration>.Failure("Name cannot be empty");
         }
 
         if (name.Length > 256)
         {
-            return Result.Failure<RepositoryConfiguration>("Name cannot exceed 256 characters");
+            return Result<RepositoryConfiguration>.Failure("Name cannot exceed 256 characters");
         }
 
         if (string.IsNullOrWhiteSpace(url))
         {
-            return Result.Failure<RepositoryConfiguration>("URL cannot be empty");
+            return Result<RepositoryConfiguration>.Failure("URL cannot be empty");
         }
 
         if (url.Length > 1024)
         {
-            return Result.Failure<RepositoryConfiguration>("URL cannot exceed 1024 characters");
+            return Result<RepositoryConfiguration>.Failure("URL cannot exceed 1024 characters");
         }
 
         if (string.IsNullOrWhiteSpace(platform))
         {
-            return Result.Failure<RepositoryConfiguration>("Platform cannot be empty");
+            return Result<RepositoryConfiguration>.Failure("Platform cannot be empty");
         }
 
         if (!Array.Exists(ValidPlatforms, p => string.Equals(p, platform, StringComparison.OrdinalIgnoreCase)))
         {
-            return Result.Failure<RepositoryConfiguration>(
+            return Result<RepositoryConfiguration>.Failure(
                 $"Platform must be one of: {string.Join(", ", ValidPlatforms)}");
         }
 
         if (description is { Length: > 2000 })
         {
-            return Result.Failure<RepositoryConfiguration>("Description cannot exceed 2000 characters");
+            return Result<RepositoryConfiguration>.Failure("Description cannot exceed 2000 characters");
         }
 
-        return Result.Success(new RepositoryConfiguration
+        return Result<RepositoryConfiguration>.Success(new RepositoryConfiguration
         {
             Id = id,
             Name = name.Trim(),

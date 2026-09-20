@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using ZeroAlloc.ValueObjects;
 
 namespace Daedalus.Domain.CodeAnalysis;
@@ -28,9 +28,9 @@ public sealed partial class CodeLocation
     public static Result<CodeLocation> Create(string? filePath, int? startLine = null, int? endLine = null)
     {
         if (startLine.HasValue && endLine.HasValue && startLine > endLine)
-            return Result.Failure<CodeLocation>("StartLine cannot be greater than EndLine");
+            return Result<CodeLocation>.Failure("StartLine cannot be greater than EndLine");
 
-        return Result.Success(new CodeLocation
+        return Result<CodeLocation>.Success(new CodeLocation
         {
             FilePath = filePath?.Trim() ?? string.Empty,
             StartLine = startLine,

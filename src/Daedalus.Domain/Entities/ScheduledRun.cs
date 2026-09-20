@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -126,16 +126,16 @@ public sealed class ScheduledRun : Entity<Guid>
         string? repository = null)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return Result.Failure<ScheduledRun>("Name is required.");
+            return Result<ScheduledRun>.Failure("Name is required.");
 
         if (name.Length > MaxNameLength)
-            return Result.Failure<ScheduledRun>($"Name must be at most {MaxNameLength} characters.");
+            return Result<ScheduledRun>.Failure($"Name must be at most {MaxNameLength} characters.");
 
         var fieldsValidation = ValidateConfigFields(cron, trigger, channelId, conversationId, principalId, roles, repository);
         if (fieldsValidation.IsFailure)
-            return Result.Failure<ScheduledRun>(fieldsValidation.Error);
+            return Result<ScheduledRun>.Failure(fieldsValidation.Error);
 
-        return Result.Success(new ScheduledRun
+        return Result<ScheduledRun>.Success(new ScheduledRun
         {
             Id = Guid.NewGuid(),
             Name = name,

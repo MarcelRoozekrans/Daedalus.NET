@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -68,11 +68,11 @@ public sealed class Skill : Entity<string>
         string sourcePath, string contentHash, bool isActive, DateTime updatedAt)
     {
         if (!IsValidName(name))
-            return Result.Failure<Skill>($"Name must match ^[a-z][a-z0-9_-]{{0,{MaxNameLength - 1}}}$.");
+            return Result<Skill>.Failure($"Name must match ^[a-z][a-z0-9_-]{{0,{MaxNameLength - 1}}}$.");
 
         var fields = ValidateFields(description, body, tags, sourcePath, contentHash);
         if (fields.IsFailure)
-            return Result.Failure<Skill>(fields.Error);
+            return Result<Skill>.Failure(fields.Error);
 
         var skill = new Skill
         {
@@ -85,7 +85,7 @@ public sealed class Skill : Entity<string>
             UpdatedAt = updatedAt,
         };
         skill._tags.AddRange(fields.Value);
-        return Result.Success(skill);
+        return Result<Skill>.Success(skill);
     }
 
     /// <summary>
@@ -122,28 +122,28 @@ public sealed class Skill : Entity<string>
         string description, string body, IEnumerable<string>? tags, string sourcePath, string contentHash)
     {
         if (string.IsNullOrWhiteSpace(description))
-            return Result.Failure<List<string>>("Description is required.");
+            return Result<List<string>>.Failure("Description is required.");
 
         if (description.Length > MaxDescriptionLength)
-            return Result.Failure<List<string>>($"Description must be at most {MaxDescriptionLength} characters.");
+            return Result<List<string>>.Failure($"Description must be at most {MaxDescriptionLength} characters.");
 
         if (string.IsNullOrWhiteSpace(body))
-            return Result.Failure<List<string>>("Body is required.");
+            return Result<List<string>>.Failure("Body is required.");
 
         if (body.Length > MaxBodyLength)
-            return Result.Failure<List<string>>($"Body must be at most {MaxBodyLength} characters.");
+            return Result<List<string>>.Failure($"Body must be at most {MaxBodyLength} characters.");
 
         if (string.IsNullOrWhiteSpace(sourcePath))
-            return Result.Failure<List<string>>("Source path is required.");
+            return Result<List<string>>.Failure("Source path is required.");
 
         if (sourcePath.Length > MaxSourcePathLength)
-            return Result.Failure<List<string>>($"Source path must be at most {MaxSourcePathLength} characters.");
+            return Result<List<string>>.Failure($"Source path must be at most {MaxSourcePathLength} characters.");
 
         if (string.IsNullOrWhiteSpace(contentHash))
-            return Result.Failure<List<string>>("Content hash is required.");
+            return Result<List<string>>.Failure("Content hash is required.");
 
         return contentHash.Length > MaxContentHashLength
-            ? Result.Failure<List<string>>($"Content hash must be at most {MaxContentHashLength} characters.")
+            ? Result<List<string>>.Failure($"Content hash must be at most {MaxContentHashLength} characters.")
             : NormaliseTags(tags);
     }
 
@@ -158,10 +158,10 @@ public sealed class Skill : Entity<string>
 #pragma warning restore CA1308
 
         if (list.Count > MaxTags)
-            return Result.Failure<List<string>>($"At most {MaxTags} tags are allowed.");
+            return Result<List<string>>.Failure($"At most {MaxTags} tags are allowed.");
 
         return list.Exists(t => t.Length > MaxTagLength)
-            ? Result.Failure<List<string>>($"Tags must be at most {MaxTagLength} characters.")
-            : Result.Success(list);
+            ? Result<List<string>>.Failure($"Tags must be at most {MaxTagLength} characters.")
+            : Result<List<string>>.Success(list);
     }
 }

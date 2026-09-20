@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -40,12 +40,12 @@ public sealed class BrainstormMessage : Entity<Guid>
         BrainstormPhase phase)
     {
         if (brainstormSessionId == Guid.Empty)
-            return Result.Failure<BrainstormMessage>("BrainstormSessionId cannot be empty.");
+            return Result<BrainstormMessage>.Failure("BrainstormSessionId cannot be empty.");
 
         if (string.IsNullOrWhiteSpace(content))
-            return Result.Failure<BrainstormMessage>("Content cannot be empty.");
+            return Result<BrainstormMessage>.Failure("Content cannot be empty.");
 
-        return Result.Success(new BrainstormMessage
+        return Result<BrainstormMessage>.Success(new BrainstormMessage
         {
             Id = Guid.NewGuid(),
             BrainstormSessionId = brainstormSessionId,
