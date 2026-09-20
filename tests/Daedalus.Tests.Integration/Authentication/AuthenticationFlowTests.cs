@@ -1,3 +1,4 @@
+using System.Text;
 using Daedalus.Tests.Integration.Fixtures;
 using Thalos;
 using Task = System.Threading.Tasks.Task;
@@ -142,35 +143,36 @@ public sealed class AuthenticationFlowTests(PostgresFixture postgres, KeycloakFi
     }
 
     /// <summary>
-    ///     Tests that all protected API endpoints follow the same authorization pattern.
+    ///     Tests that all protected API endpoints follow the same authorization pattern. Each case carries the verb
+    ///     the endpoint actually exposes — <c>/api/codeanalysis</c> has no <c>GET</c> action, only <c>POST</c>, so
+    ///     probing it with <c>GET</c> would hit ASP.NET Core's routing before authorization ever runs and return
+    ///     <c>405</c>, not <c>401</c>, proving nothing about auth. A minimal-but-valid JSON body is supplied for the
+    ///     <c>POST</c> case purely so a missing token is unambiguously the reason for <c>401</c>, never a side effect
+    ///     of a body FluentValidation would have rejected anyway.
     /// </summary>
-    /// <remarks>
-    ///     Known pre-existing failure, unrelated to authentication: <c>/api/codeanalysis</c> has never had a bare
-    ///     <c>GET</c> action (only <c>POST</c> at that exact route, plus <c>GET</c> on more specific sub-routes such as
-    ///     <c>next-pending</c>) — confirmed back to this controller's first commit. ASP.NET Core's routing matches the
-    ///     route template for the wrong verb and returns <c>405 Method Not Allowed</c> before authorization ever runs,
-    ///     so this case fails expecting <c>401</c> both here and against a real deployed API. Left as-is and not
-    ///     weakened or dropped per this ticket's constraints — the assertion is correct for every other endpoint here;
-    ///     this one case is a latent test-data defect this conversion surfaced by finally letting the theory execute.
-    /// </remarks>
     [Theory]
-    [InlineData("/api/tasks")]
-    [InlineData("/api/executionsessions")]
-    [InlineData("/api/projects")]
-    [InlineData("/api/taskexecutions/task/00000000-0000-0000-0000-000000000000")]
-    [InlineData("/api/codeanalysis")]
-    [InlineData("/api/ralph-config")]
-    public async Task AllProtectedEndpoints_RequireJwtToken(string endpoint)
+    [InlineData("GET", "/api/tasks", null)]
+    [InlineData("GET", "/api/executionsessions", null)]
+    [InlineData("GET", "/api/projects", null)]
+    [InlineData("GET", "/api/taskexecutions/task/00000000-0000-0000-0000-000000000000", null)]
+    [InlineData("POST", "/api/codeanalysis",
+        """{"RepositoryUrl":"https://github.com/org/repo","FilePath":"src/Foo.cs","Type":1,"Title":"Auth probe","Description":"Auth probe","Requirements":[]}""")]
+    [InlineData("GET", "/api/ralph-config", null)]
+    public async Task AllProtectedEndpoints_RequireJwtToken(string method, string endpoint, string? body)
     {
         // Arrange
-        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(endpoint, UriKind.Relative));
+        using var request = new HttpRequestMessage(new HttpMethod(method), new Uri(endpoint, UriKind.Relative));
+        if (body is not null)
+        {
+            request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+        }
 
         // Act
         var response = await _client.SendAsync(request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
-            $"Endpoint {endpoint} should require authorization");
+            $"{method} {endpoint} should require authorization");
     }
 
     /// <summary>
