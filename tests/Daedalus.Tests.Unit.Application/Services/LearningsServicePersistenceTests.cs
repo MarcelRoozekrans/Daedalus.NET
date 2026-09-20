@@ -19,7 +19,7 @@ public sealed class LearningsServicePersistenceTests
     public async Task ParseAndPersist_remembers_every_parsed_entry_under_the_task_source()
     {
         var taskId = Guid.NewGuid();
-        _memory.RememberAsync(Arg.Any<ParsedLearning>(), taskId, Arg.Any<CancellationToken>()).Returns(Result.Success("id"));
+        _memory.RememberAsync(Arg.Any<ParsedLearning>(), taskId, Arg.Any<CancellationToken>()).Returns(Result<string>.Success("id"));
 
         var result = await Sut().ParseAndPersistLearningsAsync(
             "⚠ 3 errors encountered:\n  - CS1061: Type does not contain definition\n✓ Success achieved at iteration 5",
@@ -36,7 +36,7 @@ public sealed class LearningsServicePersistenceTests
     public async Task ParseAndPersist_counts_only_successful_remembers_and_never_throws()
     {
         var taskId = Guid.NewGuid();
-        _memory.RememberAsync(Arg.Any<ParsedLearning>(), taskId, Arg.Any<CancellationToken>()).Returns(Result.Failure<string>("index down"));
+        _memory.RememberAsync(Arg.Any<ParsedLearning>(), taskId, Arg.Any<CancellationToken>()).Returns(Result<string>.Failure("index down"));
 
         var result = await Sut().ParseAndPersistLearningsAsync(
             "Error: Missing using directive for ZLinq\n- Use AsValueEnumerable() from ZLinq namespace",
@@ -61,11 +61,11 @@ public sealed class LearningsServicePersistenceTests
     [Fact]
     public async Task Enrichment_recalls_learnings_for_the_prompt_and_appends_failure_patterns()
     {
-        _memory.RecallAsync("implement the EF migration", 10, Arg.Any<CancellationToken>()).Returns(Result.Success<IReadOnlyList<RecalledLearning>>(
+        _memory.RecallAsync("implement the EF migration", 10, Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<RecalledLearning>>.Success(
         [
             new RecalledLearning("m1", "Migration needs pgvector\nUse pgvector/pgvector:pg16", ["errorpattern", "high", "migration"], 0.91, DateTimeOffset.UtcNow),
         ]));
-        _failures.SearchByPromptContextAsync("implement the EF migration", 5, Arg.Any<CancellationToken>()).Returns(Result.Success<IReadOnlyList<FailurePatternRecord>>(
+        _failures.SearchByPromptContextAsync("implement the EF migration", 5, Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<FailurePatternRecord>>.Success(
         [
             new FailurePatternRecord
             {
@@ -88,8 +88,8 @@ public sealed class LearningsServicePersistenceTests
     [Fact]
     public async Task Enrichment_is_empty_when_nothing_is_recalled_and_no_patterns_match()
     {
-        _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result.Failure<IReadOnlyList<RecalledLearning>>("unavailable"));
-        _failures.SearchByPromptContextAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result.Success<IReadOnlyList<FailurePatternRecord>>([]));
+        _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<RecalledLearning>>.Failure("unavailable"));
+        _failures.SearchByPromptContextAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<FailurePatternRecord>>.Success([]));
 
         var result = await Sut().GetEnrichmentContextAsync("x", null, Guid.NewGuid(), 10, 5, CancellationToken.None);
 

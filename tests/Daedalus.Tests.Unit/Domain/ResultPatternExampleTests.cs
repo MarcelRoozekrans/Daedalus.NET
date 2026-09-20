@@ -15,7 +15,7 @@ public class ResultPatternExampleTests : UnitTestBase
         const string expected = "test value";
 
         // Act
-        var result = Result.Success(expected);
+        var result = Result<string>.Success(expected);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -30,7 +30,7 @@ public class ResultPatternExampleTests : UnitTestBase
         const string expectedError = "Something went wrong";
 
         // Act
-        var result = Result.Failure<string>(expectedError);
+        var result = Result<string>.Failure(expectedError);
 
         // Assert
         result.IsSuccess.Should().BeFalse();
@@ -42,12 +42,12 @@ public class ResultPatternExampleTests : UnitTestBase
     public void Result_Bind_WithSuccess_ShouldChainOperations()
     {
         // Arrange
-        var initialResult = Result.Success(5);
+        var initialResult = Result<int>.Success(5);
 
         // Act
         var finalResult = initialResult
-            .Bind(x => Result.Success(x * 2))
-            .Bind(x => Result.Success(x + 1));
+            .Bind(x => Result<int>.Success(x * 2))
+            .Bind(x => Result<int>.Success(x + 1));
 
         // Assert
         finalResult.IsSuccess.Should().BeTrue();
@@ -58,7 +58,7 @@ public class ResultPatternExampleTests : UnitTestBase
     public void Result_Bind_WithFailure_ShouldShortCircuit()
     {
         // Arrange
-        var initialResult = Result.Failure<int>("Initial failure");
+        var initialResult = Result<int>.Failure("Initial failure");
         var secondOperationCalled = false;
 
         // Act
@@ -66,7 +66,7 @@ public class ResultPatternExampleTests : UnitTestBase
             .Bind(x =>
             {
                 secondOperationCalled = true;
-                return Result.Success(x * 2);
+                return Result<int>.Success(x * 2);
             });
 
         // Assert
@@ -79,7 +79,7 @@ public class ResultPatternExampleTests : UnitTestBase
     public void Result_Map_ShouldTransformValue()
     {
         // Arrange
-        var result = Result.Success("hello");
+        var result = Result<string>.Success("hello");
 
         // Act
         var mapped = result.Map(s => s.ToUpperInvariant());
@@ -89,40 +89,56 @@ public class ResultPatternExampleTests : UnitTestBase
         mapped.Value.Should().Be("HELLO");
     }
 
-    [Fact]
-    public void Result_Ensure_WithValidCondition_ShouldSucceed()
+    // ZeroAlloc.Results has no Ensure(predicate, error) combinator for the single-generic
+    // Result<T> — only Bind, Map, Match, Tap, TapError and Combine exist as extension
+    // methods (see ZeroAlloc.Results.Extensions), and Ensure itself only has an overload
+    // for the two-generic Result<T, E>. The same "validate, then either carry the value
+    // forward or fail" intent is expressed directly below with an if/return, which is
+    // exactly what a hand-rolled Ensure would do internally.
+    private static Result<int> GuardPositive(Result<int> result, int minimum)
     {
-        // Arrange
-        var result = Result.Success(10);
+        if (result.IsFailure)
+        {
+            return Result<int>.Failure(result.Error);
+        }
 
-        // Act
-        var ensured = result.Ensure(x => x > 0, "Value must be positive");
-
-        // Assert
-        ensured.IsSuccess.Should().BeTrue();
-        ensured.Value.Should().Be(10);
+        return result.Value > minimum ? result : Result<int>.Failure("Value must be positive");
     }
 
     [Fact]
-    public void Result_Ensure_WithInvalidCondition_ShouldFail()
+    public void Result_GuardCondition_WithValidCondition_ShouldSucceed()
     {
         // Arrange
-        var result = Result.Success(-5);
+        var result = Result<int>.Success(10);
 
         // Act
-        var ensured = result.Ensure(x => x > 0, "Value must be positive");
+        var guarded = GuardPositive(result, 0);
 
         // Assert
-        ensured.IsFailure.Should().BeTrue();
-        ensured.Error.Should().Be("Value must be positive");
+        guarded.IsSuccess.Should().BeTrue();
+        guarded.Value.Should().Be(10);
+    }
+
+    [Fact]
+    public void Result_GuardCondition_WithInvalidCondition_ShouldFail()
+    {
+        // Arrange
+        var result = Result<int>.Success(-5);
+
+        // Act
+        var guarded = GuardPositive(result, 0);
+
+        // Assert
+        guarded.IsFailure.Should().BeTrue();
+        guarded.Error.Should().Be("Value must be positive");
     }
 
     [Fact]
     public void Result_Match_ShouldHandleBothCases()
     {
         // Arrange
-        var successResult = Result.Success("data");
-        var failureResult = Result.Failure<string>("error");
+        var successResult = Result<string>.Success("data");
+        var failureResult = Result<string>.Failure("error");
 
         // Act
         var successOutput = successResult.Match(

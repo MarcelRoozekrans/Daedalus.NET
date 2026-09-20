@@ -31,7 +31,7 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="CSharpFunctionalExtensions"/>
+        <PackageReference Include="ZeroAlloc.Results"/>
         <PackageReference Include="Bogus"/>
         <PackageReference Include="Spectre.Console.Testing"/>
         <PackageReference Include="TngTech.ArchUnitNET.xUnit"/>

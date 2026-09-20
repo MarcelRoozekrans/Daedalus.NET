@@ -14,7 +14,7 @@ public sealed class DaedalusLearningsToolsTests
     [Fact]
     public async Task SearchLearnings_recalls_and_formats_json()
     {
-        _memory.RecallAsync("npgsql timeout", 5, Arg.Any<CancellationToken>()).Returns(Result.Success<IReadOnlyList<RecalledLearning>>(
+        _memory.RecallAsync("npgsql timeout", 5, Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<RecalledLearning>>.Success(
             [new RecalledLearning("m1", "Timeouts\nRaise CommandTimeout", ["errorpattern", "high"], 0.9, new DateTimeOffset(2026, 8, 17, 0, 0, 0, TimeSpan.Zero))]));
 
         var json = await Sut().SearchLearnings("npgsql timeout");
@@ -25,17 +25,17 @@ public sealed class DaedalusLearningsToolsTests
     [Fact]
     public async Task SearchLearnings_reports_no_matches_and_never_throws()
     {
-        _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result.Success<IReadOnlyList<RecalledLearning>>([]));
+        _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<RecalledLearning>>.Success([]));
         (await Sut().SearchLearnings("x", 3)).Should().Be("No matching learnings found.");
 
-        _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result.Failure<IReadOnlyList<RecalledLearning>>("MemoryIndexUnavailable: down"));
+        _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<RecalledLearning>>.Failure("MemoryIndexUnavailable: down"));
         (await Sut().SearchLearnings("x", 3)).Should().StartWith("Learnings memory unavailable");
     }
 
     [Fact]
     public async Task SearchLearnings_clamps_max_results_into_the_supported_range()
     {
-        _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result.Success<IReadOnlyList<RecalledLearning>>([]));
+        _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<RecalledLearning>>.Success([]));
 
         await Sut().SearchLearnings("x", 500);
         await Sut().SearchLearnings("x", 0);

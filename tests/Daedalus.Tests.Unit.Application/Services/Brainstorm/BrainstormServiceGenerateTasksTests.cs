@@ -91,10 +91,10 @@ public class BrainstormServiceGenerateTasksTests
         var session = CreateSessionInTaskCreationPhase();
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult
             {
                 Response = GetValidLlmJsonResponse(),
                 InputTokens = 100,
@@ -107,7 +107,7 @@ public class BrainstormServiceGenerateTasksTests
                 session.ProjectId,
                 Arg.Any<IReadOnlyList<PrdItemForConversionDto>>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Result.Success(expectedTasks));
+            .Returns(Result<List<TaskDto>>.Success(expectedTasks));
 
         _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
             .Returns(Result.Success());
@@ -136,7 +136,7 @@ public class BrainstormServiceGenerateTasksTests
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         // Act
         var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
@@ -152,7 +152,7 @@ public class BrainstormServiceGenerateTasksTests
         // Arrange
         var sessionId = Guid.NewGuid();
         _repository.GetByIdAsync(sessionId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<BrainstormSession>("Session not found"));
+            .Returns(Result<BrainstormSession>.Failure("Session not found"));
 
         // Act
         var result = await _service.GenerateTasksAsync(sessionId, CancellationToken.None);
@@ -176,7 +176,7 @@ public class BrainstormServiceGenerateTasksTests
         // Do NOT set implementation plan
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         // Act
         var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
@@ -193,10 +193,10 @@ public class BrainstormServiceGenerateTasksTests
         var session = CreateSessionInTaskCreationPhase();
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<LlmInvocationResult>("LLM service unavailable"));
+            .Returns(Result<LlmInvocationResult>.Failure("LLM service unavailable"));
 
         // Act
         var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
@@ -213,10 +213,10 @@ public class BrainstormServiceGenerateTasksTests
         var session = CreateSessionInTaskCreationPhase();
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult
             {
                 Response = "This is not valid JSON at all",
                 InputTokens = 100,

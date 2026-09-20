@@ -19,7 +19,7 @@ public sealed class DaedalusKnowledgeToolsTests
 
     public DaedalusKnowledgeToolsTests() =>
         _failures.SearchByErrorAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<FailurePatternRecord>>([]));
+            .Returns(Result<IReadOnlyList<FailurePatternRecord>>.Success([]));
 
     private DaedalusKnowledgeTools CreateSut() => new(
         new DaedalusFailurePatternsTools(_failures, NullLogger<DaedalusFailurePatternsTools>.Instance));

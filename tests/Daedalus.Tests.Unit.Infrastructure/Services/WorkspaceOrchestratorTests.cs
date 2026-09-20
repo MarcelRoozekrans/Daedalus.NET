@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
@@ -123,7 +123,7 @@ public class WorkspaceOrchestratorTests
         // Arrange
         var projectId = Guid.NewGuid();
         _projectRepository.GetByIdAsync(projectId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<Project>("Not found"));
+            .Returns(Result<Project>.Failure("Not found"));
 
         // Act
         var result = await _orchestrator.PrepareWorkspaceAsync(
@@ -161,7 +161,7 @@ public class WorkspaceOrchestratorTests
         SetupProjectExists(projectId, project);
         _gitManager.CloneRepositoryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<GitOperationContext>("Clone failed"));
+            .Returns(Result<GitOperationContext>.Failure("Clone failed"));
 
         // Act
         var result = await _orchestrator.PrepareWorkspaceAsync(
@@ -183,7 +183,7 @@ public class WorkspaceOrchestratorTests
         SetupCloneSuccess("/tmp/workspace");
         _gitManager.CreateFeatureBranchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<string>("Branch creation failed"));
+            .Returns(Result<string>.Failure("Branch creation failed"));
         _gitManager.CleanupAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Result.Success());
 
@@ -214,7 +214,7 @@ public class WorkspaceOrchestratorTests
             .Returns(Result.Success());
         _prFactory.CreatePullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new PullRequestResult { WebUrl = "https://github.com/org/repo/pull/1" }));
+            .Returns(Result<PullRequestResult>.Success(new PullRequestResult { WebUrl = "https://github.com/org/repo/pull/1" }));
         _gitManager.CleanupAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Result.Success());
 
@@ -379,21 +379,21 @@ public class WorkspaceOrchestratorTests
     private void SetupProjectExists(Guid projectId, Project project)
     {
         _projectRepository.GetByIdAsync(projectId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(project));
+            .Returns(Result<Project>.Success(project));
     }
 
     private void SetupCloneSuccess(string workspacePath)
     {
         _gitManager.CloneRepositoryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new GitOperationContext { LocalWorkTreePath = workspacePath }));
+            .Returns(Result<GitOperationContext>.Success(new GitOperationContext { LocalWorkTreePath = workspacePath }));
     }
 
     private void SetupBranchCreationSuccess()
     {
         _gitManager.CreateFeatureBranchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<CancellationToken>())
-            .Returns(callInfo => Result.Success(callInfo.ArgAt<string>(1)));
+            .Returns(callInfo => Result<string>.Success(callInfo.ArgAt<string>(1)));
     }
 
     private static WorkspaceInfo CreateWorkspaceInfo()

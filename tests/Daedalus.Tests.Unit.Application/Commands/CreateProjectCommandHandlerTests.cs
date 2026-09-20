@@ -209,7 +209,7 @@ public class CreateProjectCommandHandlerTests
         var command = new CreateProjectCommand("Test Project", "Description", "1.0");
         _projectRepository
             .AddAsync(Arg.Any<Project>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<Project>("Database connection failed"));
+            .Returns(Result<Project>.Failure("Database connection failed"));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -264,7 +264,7 @@ public class CreateProjectCommandHandlerTests
     {
         _projectRepository
             .AddAsync(Arg.Any<Project>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => Result.Success(callInfo.Arg<Project>()));
+            .Returns(callInfo => Result<Project>.Success(callInfo.Arg<Project>()));
     }
 
     #endregion

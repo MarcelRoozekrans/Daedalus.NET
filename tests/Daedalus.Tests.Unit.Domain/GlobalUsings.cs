@@ -1,5 +1,5 @@
 global using AwesomeAssertions;
-global using CSharpFunctionalExtensions;
+global using ZeroAlloc.Results;
 global using Daedalus.Tests.Unit.Domain.Abstractions;
 global using NSubstitute;
 global using Xunit;

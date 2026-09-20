@@ -35,7 +35,7 @@ public class CodeAnalysisControllerIntegrationTests
             new List<string> { "req1", "req2" });
 
         _repositoryMock.CreateAsync(Arg.Any<CodeAnalysisRequest>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => Result.Success(callInfo.Arg<CodeAnalysisRequest>()));
+            .Returns(callInfo => Result<CodeAnalysisRequest>.Success(callInfo.Arg<CodeAnalysisRequest>()));
 
         // Act
         var result = await _controller.SubmitAnalysis(request, CancellationToken.None);
@@ -63,7 +63,7 @@ public class CodeAnalysisControllerIntegrationTests
             .Returns(callInfo =>
             {
                 capturedRequest = callInfo.Arg<CodeAnalysisRequest>();
-                return Result.Success(capturedRequest);
+                return Result<CodeAnalysisRequest>.Success(capturedRequest);
             });
 
         // Act
@@ -90,7 +90,7 @@ public class CodeAnalysisControllerIntegrationTests
             .Returns(callInfo =>
             {
                 capturedRequest = callInfo.Arg<CodeAnalysisRequest>();
-                return Result.Success(capturedRequest);
+                return Result<CodeAnalysisRequest>.Success(capturedRequest);
             });
 
         // Act
@@ -111,7 +111,7 @@ public class CodeAnalysisControllerIntegrationTests
             new List<string>());
 
         _repositoryMock.CreateAsync(Arg.Any<CodeAnalysisRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<CodeAnalysisRequest>("Database error"));
+            .Returns(Result<CodeAnalysisRequest>.Failure("Database error"));
 
         // Act
         var result = await _controller.SubmitAnalysis(request, CancellationToken.None);
@@ -132,7 +132,7 @@ public class CodeAnalysisControllerIntegrationTests
         // Arrange
         var entity = CreateTestEntity();
         _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<CodeAnalysisRequest>.Success(entity));
 
         // Act
         var result = await _controller.GetAnalysisStatus(entity.Id, CancellationToken.None);
@@ -150,7 +150,7 @@ public class CodeAnalysisControllerIntegrationTests
         // Arrange
         var id = Guid.NewGuid();
         _repositoryMock.GetByIdAsync(id, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<CodeAnalysisRequest>("Not found"));
+            .Returns(Result<CodeAnalysisRequest>.Failure("Not found"));
 
         // Act
         var result = await _controller.GetAnalysisStatus(id, CancellationToken.None);
@@ -167,7 +167,7 @@ public class CodeAnalysisControllerIntegrationTests
         // Arrange
         var entity = CreateTestEntity();
         _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<CodeAnalysisRequest>.Success(entity));
 
         // Act
         var result = await _controller.GetAnalysisStatus(entity.Id, CancellationToken.None);
@@ -193,7 +193,7 @@ public class CodeAnalysisControllerIntegrationTests
         var iterateRequest = new IterateAnalysisRequest(entity.Id, "AI response text");
 
         _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<CodeAnalysisRequest>.Success(entity));
         _repositoryMock.UpdateIterationAsync(
                 entity.Id, 1, Arg.Any<string>(), "AI response text", Arg.Any<CancellationToken>())
             .Returns(Result.Success());
@@ -213,7 +213,7 @@ public class CodeAnalysisControllerIntegrationTests
         var iterateRequest = new IterateAnalysisRequest(id, "Response");
 
         _repositoryMock.GetByIdAsync(id, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<CodeAnalysisRequest>("Not found"));
+            .Returns(Result<CodeAnalysisRequest>.Failure("Not found"));
 
         // Act
         var result = await _controller.IterateAnalysis(id, iterateRequest, CancellationToken.None);
@@ -230,7 +230,7 @@ public class CodeAnalysisControllerIntegrationTests
         var iterateRequest = new IterateAnalysisRequest(entity.Id, "Response");
 
         _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<CodeAnalysisRequest>.Success(entity));
         _repositoryMock.UpdateIterationAsync(
                 entity.Id, Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Result.Failure("Max iterations exceeded"));
@@ -256,7 +256,7 @@ public class CodeAnalysisControllerIntegrationTests
         _repositoryMock.CompleteAsync(entity.Id, null, null, Arg.Any<CancellationToken>())
             .Returns(Result.Success());
         _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<CodeAnalysisRequest>.Success(entity));
 
         // Act
         var result = await _controller.FinalizeAnalysis(entity.Id, finalizeRequest, CancellationToken.None);
@@ -343,7 +343,7 @@ public class CodeAnalysisControllerIntegrationTests
         // Arrange
         var entity = CreateTestEntity();
         _repositoryMock.GetPendingAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeAnalysisRequest>>(new List<CodeAnalysisRequest> { entity }));
+            .Returns(Result<IReadOnlyList<CodeAnalysisRequest>>.Success(new List<CodeAnalysisRequest> { entity }));
 
         // Act
         var result = await _controller.GetNextPending(CancellationToken.None);
@@ -359,7 +359,7 @@ public class CodeAnalysisControllerIntegrationTests
     {
         // Arrange
         _repositoryMock.GetPendingAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeAnalysisRequest>>(new List<CodeAnalysisRequest>()));
+            .Returns(Result<IReadOnlyList<CodeAnalysisRequest>>.Success(new List<CodeAnalysisRequest>()));
 
         // Act
         var result = await _controller.GetNextPending(CancellationToken.None);
@@ -373,7 +373,7 @@ public class CodeAnalysisControllerIntegrationTests
     {
         // Arrange
         _repositoryMock.GetPendingAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<IReadOnlyList<CodeAnalysisRequest>>("Database error"));
+            .Returns(Result<IReadOnlyList<CodeAnalysisRequest>>.Failure("Database error"));
 
         // Act
         var result = await _controller.GetNextPending(CancellationToken.None);
@@ -394,7 +394,7 @@ public class CodeAnalysisControllerIntegrationTests
         // Arrange
         var entity = CreateTestEntity();
         _repositoryMock.GetByStatusAsync(AnalysisStatus.Pending, Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeAnalysisRequest>>(new List<CodeAnalysisRequest> { entity }));
+            .Returns(Result<IReadOnlyList<CodeAnalysisRequest>>.Success(new List<CodeAnalysisRequest> { entity }));
 
         // Act
         var result = await _controller.GetByStatus((int)AnalysisStatus.Pending, CancellationToken.None);
@@ -418,7 +418,7 @@ public class CodeAnalysisControllerIntegrationTests
     {
         // Arrange
         _repositoryMock.GetByStatusAsync(AnalysisStatus.Completed, Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeAnalysisRequest>>(new List<CodeAnalysisRequest>()));
+            .Returns(Result<IReadOnlyList<CodeAnalysisRequest>>.Success(new List<CodeAnalysisRequest>()));
 
         // Act
         var result = await _controller.GetByStatus((int)AnalysisStatus.Completed, CancellationToken.None);
@@ -437,7 +437,7 @@ public class CodeAnalysisControllerIntegrationTests
         // Arrange
         var entity = CreateTestEntity();
         _repositoryMock.GetByRepositoryAsync("https://github.com/org/repo", Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeAnalysisRequest>>(new List<CodeAnalysisRequest> { entity }));
+            .Returns(Result<IReadOnlyList<CodeAnalysisRequest>>.Success(new List<CodeAnalysisRequest> { entity }));
 
         // Act
         var result = await _controller.GetByRepository("https://github.com/org/repo", CancellationToken.None);

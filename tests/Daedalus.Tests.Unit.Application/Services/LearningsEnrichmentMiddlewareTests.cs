@@ -47,7 +47,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(string.Empty));
+            .Returns(Result<string>.Success(string.Empty));
 
         // Act
         await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
@@ -65,7 +65,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(string.Empty));
+            .Returns(Result<string>.Success(string.Empty));
 
         // Act
         await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
@@ -125,7 +125,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success("=== CROSS-TASK LEARNINGS ===\nSome learnings"));
+            .Returns(Result<string>.Success("=== CROSS-TASK LEARNINGS ===\nSome learnings"));
 
         // Act
         await _middleware.InvokeAsync(context, () =>
@@ -169,7 +169,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Some enrichment data"));
+            .Returns(Result<string>.Success("Some enrichment data"));
 
         // Act
         await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
@@ -201,7 +201,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Enrichment at iteration 6"));
+            .Returns(Result<string>.Success("Enrichment at iteration 6"));
 
         // Act
         await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
@@ -222,7 +222,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(string.Empty));
+            .Returns(Result<string>.Success(string.Empty));
 
         // Act
         await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
@@ -240,7 +240,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success("New cross-task learnings"));
+            .Returns(Result<string>.Success("New cross-task learnings"));
 
         // Act
         await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
@@ -258,7 +258,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Is<Guid?>(p => p == null), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Enrichment"));
+            .Returns(Result<string>.Success("Enrichment"));
 
         // Act
         await _middleware.InvokeAsync(context, () => Task.FromResult(Result.Success()), _cancellationToken);
@@ -281,7 +281,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<string>("Database connection failed"));
+            .Returns(Result<string>.Failure("Database connection failed"));
         var continuationCalled = false;
 
         // Act
@@ -331,7 +331,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Some enrichment"));
+            .Returns(Result<string>.Success("Some enrichment"));
         var continuationCalled = false;
 
         // Act
@@ -353,7 +353,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
         _learningsService.GetEnrichmentContextAsync(
                 Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid>(),
                 Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success("Enrichment"));
+            .Returns(Result<string>.Success("Enrichment"));
 
         // Act
         var result = await _middleware.InvokeAsync(

@@ -35,7 +35,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)tasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)tasks));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -61,7 +61,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)emptyList));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)emptyList));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -158,7 +158,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(5, 5, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)pageItems));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)pageItems));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -187,7 +187,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(10, 5, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)pageItems));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)pageItems));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -210,7 +210,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<IReadOnlyList<DomainTask>>("Database error"));
+            .Returns(Result<IReadOnlyList<DomainTask>>.Failure("Database error"));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -234,7 +234,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, cts.Token)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)tasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)tasks));
 
         // Act
         var result = await _handler.Handle(query, cts.Token);
@@ -262,7 +262,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)tasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)tasks));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -289,7 +289,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 50, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)tasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)tasks));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);

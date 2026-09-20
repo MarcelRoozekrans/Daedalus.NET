@@ -149,7 +149,7 @@ public class UpdateProjectCommandHandlerTests
         var command = new UpdateProjectCommand(projectId, "Updated", null, null);
         _projectRepository
             .GetByIdAsync(projectId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<Project>("Not found"));
+            .Returns(Result<Project>.Failure("Not found"));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -279,7 +279,7 @@ public class UpdateProjectCommandHandlerTests
     {
         _projectRepository
             .GetByIdAsync(projectId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(project));
+            .Returns(Result<Project>.Success(project));
     }
 
     private void SetupRepositoryUpdateSuccess()

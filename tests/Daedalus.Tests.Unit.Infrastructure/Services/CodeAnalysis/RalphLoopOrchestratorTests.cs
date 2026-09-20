@@ -57,7 +57,7 @@ public class RalphLoopOrchestratorTests
         // Mock the repository to return the request (simulates persistent storage)
         _repositoryMock
             .CreateAsync(Arg.Any<CodeAnalysisRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(returnedRequest)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(returnedRequest)));
 
         // Act
         var result = await orchestrator.SubmitAnalysisAsync(
@@ -89,7 +89,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .CreateAsync(Arg.Any<CodeAnalysisRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Failure<CodeAnalysisRequest>(errorMessage)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Failure(errorMessage)));
 
         // Act
         var result = await orchestrator.SubmitAnalysisAsync(
@@ -136,7 +136,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         // Act
         var result = await orchestrator.GetAnalysisPromptAsync(requestId, CancellationToken.None);
@@ -167,15 +167,15 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         _codeExtractorMock
             .BuildAnalysisContextAsync(request, "/tmp/repo", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(context)));
+            .Returns(Task.FromResult(Result<AnalysisContext>.Success(context)));
 
         _promptBuilderMock
             .BuildPromptAsync(request, context, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(generatedPrompt)));
+            .Returns(Task.FromResult(Result<string>.Success(generatedPrompt)));
 
         _repositoryMock
             .UpdateLastPromptAsync(requestId, generatedPrompt, "", Arg.Any<CancellationToken>())
@@ -200,7 +200,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Failure<CodeAnalysisRequest>("Not found")));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Failure("Not found")));
 
         // Act
         var result = await orchestrator.GetAnalysisPromptAsync(requestId, CancellationToken.None);
@@ -228,11 +228,11 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         _codeExtractorMock
             .BuildAnalysisContextAsync(request, "/tmp/repo", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Failure<AnalysisContext>("Context build error")));
+            .Returns(Task.FromResult(Result<AnalysisContext>.Failure("Context build error")));
 
         // Act
         var result = await orchestrator.GetAnalysisPromptAsync(requestId, CancellationToken.None);
@@ -272,15 +272,21 @@ public class RalphLoopOrchestratorTests
             var request = createResult.Value;
             // Set work tree path and prompt via domain methods
             request.SetWorkTreePath(workTreePath);
-            request.RecordPromptAndResponse("prompt", "");
+            // A blank response fails RecordPromptAndResponse's own validation and leaves
+            // LastPromptSent unset. That silently detached this test from the path it
+            // claims to exercise: UpdateIterationAsync's mock below matches on the
+            // literal "prompt", so a null LastPromptSent means the real call never
+            // matches that setup and NSubstitute falls back to an unconfigured default.
+            var recordPromptResult = request.RecordPromptAndResponse("prompt", "initial response");
+            Assert.True(recordPromptResult.IsSuccess);
 
             _repositoryMock
                 .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-                .Returns(Task.FromResult(Result.Success(request)));
+                .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
             _changeApplierMock
                 .ExtractChangesAsync(aiResponse, Arg.Any<CancellationToken>())
-                .Returns(Task.FromResult(Result.Success((IReadOnlyList<CodeModification>)changes)));
+                .Returns(Task.FromResult(Result<IReadOnlyList<CodeModification>>.Success((IReadOnlyList<CodeModification>)changes)));
 
             _changeApplierMock
                 .ApplyChangesAsync(workTreePath, changes, Arg.Any<CancellationToken>())
@@ -343,11 +349,11 @@ public class RalphLoopOrchestratorTests
 
             _repositoryMock
                 .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-                .Returns(Task.FromResult(Result.Success(request)));
+                .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
             _changeApplierMock
                 .ExtractChangesAsync(aiResponse, Arg.Any<CancellationToken>())
-                .Returns(Task.FromResult(Result.Failure<IReadOnlyList<CodeModification>>("Extraction failed")));
+                .Returns(Task.FromResult(Result<IReadOnlyList<CodeModification>>.Failure("Extraction failed")));
 
             _repositoryMock
                 .RecordValidationAsync(requestId, "Extraction failed", true, Arg.Any<CancellationToken>())
@@ -398,7 +404,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         _repositoryMock
             .UpdateStatusAsync(requestId, AnalysisStatus.Completed, Arg.Any<CancellationToken>())
@@ -412,7 +418,7 @@ public class RalphLoopOrchestratorTests
                 Arg.Any<string>(),
                 Arg.Any<string>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(prResult)));
+            .Returns(Task.FromResult(Result<PullRequestResult>.Success(prResult)));
 
         _repositoryMock
             .CompleteAsync(requestId, prUrl, null, Arg.Any<CancellationToken>())
@@ -451,7 +457,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         _repositoryMock
             .UpdateStatusAsync(requestId, AnalysisStatus.Completed, Arg.Any<CancellationToken>())
@@ -490,7 +496,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetPendingAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success((IReadOnlyList<CodeAnalysisRequest>)requests)));
+            .Returns(Task.FromResult(Result<IReadOnlyList<CodeAnalysisRequest>>.Success((IReadOnlyList<CodeAnalysisRequest>)requests)));
 
         // Act
         var result = await orchestrator.GetNextPendingAsync(CancellationToken.None);
@@ -510,7 +516,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetPendingAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success((IReadOnlyList<CodeAnalysisRequest>)emptyList)));
+            .Returns(Task.FromResult(Result<IReadOnlyList<CodeAnalysisRequest>>.Success((IReadOnlyList<CodeAnalysisRequest>)emptyList)));
 
         // Act
         var result = await orchestrator.GetNextPendingAsync(CancellationToken.None);
@@ -551,7 +557,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         // Act
         var result = await orchestrator.IsCompleteAsync(requestId, CancellationToken.None);
@@ -580,7 +586,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         // Act
         var result = await orchestrator.IsCompleteAsync(requestId, CancellationToken.None);
@@ -607,7 +613,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         // Act
         var result = await orchestrator.IsCompleteAsync(requestId, CancellationToken.None);
@@ -638,7 +644,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         // Act
         var result = await orchestrator.GetStatusAsync(requestId, CancellationToken.None);
@@ -657,7 +663,7 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Failure<CodeAnalysisRequest>("Not found")));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Failure("Not found")));
 
         // Act
         var result = await orchestrator.GetStatusAsync(requestId, CancellationToken.None);
@@ -697,11 +703,11 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         _gitManagerMock
             .CloneRepositoryAsync("https://github.com/owner/repo", "main", null, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(context)));
+            .Returns(Task.FromResult(Result<GitOperationContext>.Success(context)));
 
         _repositoryMock
             .UpdateWorkTreePathAsync(requestId, workTreePath, Arg.Any<CancellationToken>())
@@ -709,7 +715,7 @@ public class RalphLoopOrchestratorTests
 
         _gitManagerMock
             .CreateFeatureBranchAsync(workTreePath, Arg.Any<string>(), "main", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success($"ralph-loop/{requestId:N}")));
+            .Returns(Task.FromResult(Result<string>.Success($"ralph-loop/{requestId:N}")));
 
         _repositoryMock
             .UpdateStatusAsync(requestId, AnalysisStatus.Ready, Arg.Any<CancellationToken>())
@@ -747,12 +753,12 @@ public class RalphLoopOrchestratorTests
 
         _repositoryMock
             .GetByIdAsync(requestId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Success(request)));
+            .Returns(Task.FromResult(Result<CodeAnalysisRequest>.Success(request)));
 
         _gitManagerMock
             .CloneRepositoryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(Result.Failure<GitOperationContext>("Clone failed")));
+            .Returns(Task.FromResult(Result<GitOperationContext>.Failure("Clone failed")));
 
         _repositoryMock
             .FailAsync(requestId, Arg.Any<string>(), Arg.Any<CancellationToken>())

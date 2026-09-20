@@ -27,10 +27,10 @@ public class BrainstormServiceTests
         var projectId = Guid.NewGuid();
         var project = ApplicationTestFactory.CreateProject(projectId);
         _projectRepository.GetByIdAsync(projectId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(project));
+            .Returns(Result<Project>.Success(project));
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult
             {
                 Response = "Project summary here. [PHASE_COMPLETE]",
                 InputTokens = 100,
@@ -39,7 +39,7 @@ public class BrainstormServiceTests
             }));
 
         _repository.AddAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => Result.Success(callInfo.Arg<BrainstormSession>()));
+            .Returns(callInfo => Result<BrainstormSession>.Success(callInfo.Arg<BrainstormSession>()));
 
         _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
             .Returns(Result.Success());
@@ -58,7 +58,7 @@ public class BrainstormServiceTests
     {
         // Arrange
         _projectRepository.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<Daedalus.Domain.Entities.Project>("Project not found"));
+            .Returns(Result<Daedalus.Domain.Entities.Project>.Failure("Project not found"));
 
         // Act
         var result = await _service.CreateSessionAsync(Guid.NewGuid(), CancellationToken.None);
@@ -75,13 +75,13 @@ public class BrainstormServiceTests
         var projectId = Guid.NewGuid();
         var project = ApplicationTestFactory.CreateProject(projectId);
         _projectRepository.GetByIdAsync(projectId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(project));
+            .Returns(Result<Project>.Success(project));
 
         _repository.AddAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => Result.Success(callInfo.Arg<BrainstormSession>()));
+            .Returns(callInfo => Result<BrainstormSession>.Success(callInfo.Arg<BrainstormSession>()));
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<LlmInvocationResult>("LLM service unavailable"));
+            .Returns(Result<LlmInvocationResult>.Failure("LLM service unavailable"));
 
         // Act
         var result = await _service.CreateSessionAsync(projectId, CancellationToken.None);
@@ -97,7 +97,7 @@ public class BrainstormServiceTests
         // Arrange
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         // Act
         var result = await _service.GetSessionAsync(session.Id, CancellationToken.None);
@@ -118,7 +118,7 @@ public class BrainstormServiceTests
             BrainstormSession.Create(projectId).Value
         };
         _repository.GetByProjectIdAsync(projectId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<BrainstormSession>>(sessions));
+            .Returns(Result<IReadOnlyList<BrainstormSession>>.Success(sessions));
 
         // Act
         var result = await _service.GetSessionsByProjectAsync(projectId, CancellationToken.None);
@@ -137,10 +137,10 @@ public class BrainstormServiceTests
         session.AdvancePhase();
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult
             {
                 Response = "What type of feature?",
                 InputTokens = 100,
@@ -166,7 +166,7 @@ public class BrainstormServiceTests
         // Arrange
         var sessionId = Guid.NewGuid();
         _repository.GetByIdAsync(sessionId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<BrainstormSession>("Session not found"));
+            .Returns(Result<BrainstormSession>.Failure("Session not found"));
 
         // Act
         var result = await _service.SendMessageAsync(sessionId, "Hello", CancellationToken.None);
@@ -183,10 +183,10 @@ public class BrainstormServiceTests
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<LlmInvocationResult>("LLM timeout"));
+            .Returns(Result<LlmInvocationResult>.Failure("LLM timeout"));
 
         // Act
         var result = await _service.SendMessageAsync(session.Id, "Hello", CancellationToken.None);
@@ -204,10 +204,10 @@ public class BrainstormServiceTests
         session.AddMessage(MessageRole.Assistant, "Done. [PHASE_COMPLETE]");
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult
             {
                 Response = "First question?",
                 InputTokens = 100,
@@ -234,7 +234,7 @@ public class BrainstormServiceTests
         // No [PHASE_COMPLETE] marker -- PhaseCompleteSignaled is false
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         // Act
         var result = await _service.AdvancePhaseAsync(session.Id, CancellationToken.None);
@@ -250,7 +250,7 @@ public class BrainstormServiceTests
         // Arrange
         var sessionId = Guid.NewGuid();
         _repository.GetByIdAsync(sessionId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<BrainstormSession>("Session not found"));
+            .Returns(Result<BrainstormSession>.Failure("Session not found"));
 
         // Act
         var result = await _service.AdvancePhaseAsync(sessionId, CancellationToken.None);
@@ -266,7 +266,7 @@ public class BrainstormServiceTests
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
             .Returns(Result.Success());
@@ -284,7 +284,7 @@ public class BrainstormServiceTests
         // Arrange
         var sessionId = Guid.NewGuid();
         _repository.GetByIdAsync(sessionId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<BrainstormSession>("Session not found"));
+            .Returns(Result<BrainstormSession>.Failure("Session not found"));
 
         // Act
         var result = await _service.AbandonSessionAsync(sessionId, CancellationToken.None);
@@ -301,7 +301,7 @@ public class BrainstormServiceTests
         session.Abandon(); // Already abandoned
 
         _repository.GetByIdAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         // Act
         var result = await _service.AbandonSessionAsync(session.Id, CancellationToken.None);

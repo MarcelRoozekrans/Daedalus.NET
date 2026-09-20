@@ -40,7 +40,7 @@ public class RepositoriesControllerIntegrationTests
             IntegrationTestFactory.CreateRepositoryConfiguration(name: "Repo 2")
         };
         _repositoryMock.GetAllAsync(Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<RepositoryConfiguration>>(entities));
+            .Returns(Result<IReadOnlyList<RepositoryConfiguration>>.Success(entities));
 
         // Act
         var result = await _controller.GetAll(CancellationToken.None);
@@ -56,7 +56,7 @@ public class RepositoriesControllerIntegrationTests
     {
         // Arrange
         _repositoryMock.GetAllAsync(Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<RepositoryConfiguration>>(new List<RepositoryConfiguration>()));
+            .Returns(Result<IReadOnlyList<RepositoryConfiguration>>.Success(new List<RepositoryConfiguration>()));
 
         // Act
         var result = await _controller.GetAll(CancellationToken.None);
@@ -70,7 +70,7 @@ public class RepositoriesControllerIntegrationTests
     {
         // Arrange
         _repositoryMock.GetAllAsync(Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<IReadOnlyList<RepositoryConfiguration>>("Database error"));
+            .Returns(Result<IReadOnlyList<RepositoryConfiguration>>.Failure("Database error"));
 
         // Act
         var result = await _controller.GetAll(CancellationToken.None);
@@ -91,7 +91,7 @@ public class RepositoriesControllerIntegrationTests
         // Arrange
         var entity = IntegrationTestFactory.CreateRepositoryConfiguration(name: "Found Repo");
         _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<RepositoryConfiguration>.Success(entity));
 
         // Act
         var result = await _controller.GetById(entity.Id, CancellationToken.None);
@@ -110,7 +110,7 @@ public class RepositoriesControllerIntegrationTests
         // Arrange
         var id = Guid.NewGuid();
         _repositoryMock.GetByIdAsync(id, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<RepositoryConfiguration>("not found"));
+            .Returns(Result<RepositoryConfiguration>.Failure("not found"));
 
         // Act
         var result = await _controller.GetById(id, CancellationToken.None);
@@ -136,7 +136,7 @@ public class RepositoriesControllerIntegrationTests
         };
 
         _repositoryMock.AddAsync(Arg.Any<RepositoryConfiguration>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => Result.Success(callInfo.Arg<RepositoryConfiguration>()));
+            .Returns(callInfo => Result<RepositoryConfiguration>.Success(callInfo.Arg<RepositoryConfiguration>()));
 
         // Act
         var result = await _controller.Create(dto, CancellationToken.None);
@@ -180,7 +180,7 @@ public class RepositoriesControllerIntegrationTests
         };
 
         _repositoryMock.AddAsync(Arg.Any<RepositoryConfiguration>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<RepositoryConfiguration>("Database error"));
+            .Returns(Result<RepositoryConfiguration>.Failure("Database error"));
 
         // Act
         var result = await _controller.Create(dto, CancellationToken.None);
@@ -209,7 +209,7 @@ public class RepositoriesControllerIntegrationTests
         };
 
         _repositoryMock.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<RepositoryConfiguration>.Success(entity));
         _repositoryMock.UpdateAsync(entity, Arg.Any<CancellationToken>())
             .Returns(Result.Success());
 
@@ -232,7 +232,7 @@ public class RepositoriesControllerIntegrationTests
         };
 
         _repositoryMock.GetByIdTrackingAsync(id, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<RepositoryConfiguration>("not found"));
+            .Returns(Result<RepositoryConfiguration>.Failure("not found"));
 
         // Act
         var result = await _controller.Update(id, dto, CancellationToken.None);
@@ -255,7 +255,7 @@ public class RepositoriesControllerIntegrationTests
         };
 
         _repositoryMock.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<RepositoryConfiguration>.Success(entity));
         _repositoryMock.UpdateAsync(entity, Arg.Any<CancellationToken>())
             .Returns(Result.Failure("The repository was modified by another operation"));
 
@@ -282,7 +282,7 @@ public class RepositoriesControllerIntegrationTests
         };
 
         _repositoryMock.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<RepositoryConfiguration>.Success(entity));
 
         // Act
         var result = await _controller.Update(entity.Id, dto, CancellationToken.None);
@@ -337,10 +337,10 @@ public class RepositoriesControllerIntegrationTests
             name: "Connectable", url: "https://github.com/org/repo");
 
         _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<RepositoryConfiguration>.Success(entity));
         _connectionTesterMock.TestConnectionAsync(
                 "https://github.com/org/repo", null, null, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new GitConnectionResult
+            .Returns(Result<GitConnectionResult>.Success(new GitConnectionResult
             {
                 Connected = true,
                 Message = "Connection successful"
@@ -366,10 +366,10 @@ public class RepositoriesControllerIntegrationTests
             name: "Unreachable", url: "https://github.com/org/unreachable");
 
         _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(entity));
+            .Returns(Result<RepositoryConfiguration>.Success(entity));
         _connectionTesterMock.TestConnectionAsync(
                 "https://github.com/org/unreachable", null, null, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<GitConnectionResult>("Connection refused"));
+            .Returns(Result<GitConnectionResult>.Failure("Connection refused"));
 
         // Act
         var result = await _controller.TestConnection(entity.Id, CancellationToken.None);
@@ -384,7 +384,7 @@ public class RepositoriesControllerIntegrationTests
         // Arrange
         var id = Guid.NewGuid();
         _repositoryMock.GetByIdAsync(id, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<RepositoryConfiguration>("not found"));
+            .Returns(Result<RepositoryConfiguration>.Failure("not found"));
 
         // Act
         var result = await _controller.TestConnection(id, CancellationToken.None);
