@@ -1,6 +1,6 @@
 namespace Daedalus.Benchmarks;
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 /// <summary>
 /// Benchmarks for domain entity creation, state transitions, and collection operations.
