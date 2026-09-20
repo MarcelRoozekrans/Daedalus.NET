@@ -1,10 +1,15 @@
 using Daedalus.Domain.Entities;
+using ZeroAlloc.Validation;
 
 namespace Daedalus.Application.DTOs;
 
 public record CreateBrainstormSessionDto(Guid ProjectId);
 
-public record SendBrainstormMessageDto(string Content);
+[Validate]
+public record SendBrainstormMessageDto(
+    [property: NotEmpty(Message = "Message content is required.")]
+    [property: MaxLength(10000, Message = "Message cannot exceed 10,000 characters.")]
+    string Content);
 
 public record BrainstormSessionDto(
     Guid Id,
