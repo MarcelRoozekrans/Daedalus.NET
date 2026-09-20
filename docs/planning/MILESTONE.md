@@ -6,11 +6,18 @@
 ## Goal
 
 Transform Daedalus from a Ralph Loop orchestrator into a Hermes-like, .NET-oriented
-autonomous agent framework. The Ralph Loop setup is retired. The new framework
+autonomous agent framework. The new framework
 provides a general agentic core (agent loop, tool use, sessions) and integrates the
 existing in-house libraries: **Rag.NET** (retrieval-augmented memory and knowledge)
 and **AI.Sentinel** (security monitoring, detection, and approval workflows at the
 model boundary).
+
+**Scope change (2026-09-20):** retiring the Ralph Loop was part of this milestone and has
+moved out of it, to phase 2.5. Ralph is not deleted as dead weight — the Wiggum loop is the
+seed of the Milestone 2 software-manufacturing design, so it is redesigned rather than
+removed, and it is switched off only once its replacement demonstrably does the job. Phase 1.7
+keeps the three library migrations that were bundled with it. Milestone 1 therefore closes
+with Ralph still running.
 
 ## Definition of Done
 
@@ -33,7 +40,7 @@ Agent Framework 1.17). Daedalus consumes it. Design: `docs/plans/2026-08-16-thal
 | 1.4 | Channels: Telegram (+ CLI) | complete (2026-08-22; Thalos.NET 0.4.0 on nuget.org, #241) |
 | 1.5 | Subagents & autonomous runs (`ISubagentRunner` + outbox-driven steps, no Saga, no Scheduling) | complete (2026-09-18; plan A as Thalos.NET 0.5.0, plan B merged via #242) |
 | 1.6 | Schedule diagnostics (Blazor page + read-only agent tools) | complete (2026-09-19) |
-| 1.7 | Ralph retirement + Daedalus ZeroAlloc migration | pending |
+| 1.7 | Daedalus ZeroAlloc migration: FluentValidation → `ZeroAlloc.Validation`, CQRS → `ZeroAlloc.Mediator`, CSFE → `ZeroAlloc.Results` | pending |
 | 1.8 | Thalos.NET 1.0 release + docs | pending |
 | 1.9 | Scout repository tooling (GitHub read tools + policy-gated write tools) | complete (2026-09-19) |
 
