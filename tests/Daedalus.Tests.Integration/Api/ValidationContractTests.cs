@@ -6,10 +6,10 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Api;
 
 /// <summary>
-///     Pins the current FluentValidation-backed 400 response shape for <c>POST /api/tasks</c> before phase 1.7's
-///     ZeroAlloc.Validation migration touches anything. <c>Daedalus.Api.Middleware.FluentValidationFilter</c> wraps
-///     <c>Daedalus.Application.Validators.CreateTaskDtoValidator</c>'s failures into an RFC 7807
-///     <see cref="ValidationProblemDetails"/> body; this test is the guard that the swap must reproduce exactly —
+///     Pins the 400 response shape for <c>POST /api/tasks</c> across phase 1.7's ZeroAlloc.Validation
+///     migration. <c>Daedalus.Api.Middleware.ZeroAllocValidationFilter</c> wraps
+///     <c>Daedalus.Application.DTOs.CreateTaskDtoValidator</c>'s failures into an RFC 7807
+///     <see cref="ValidationProblemDetails"/> body; this test is the guard that the swap had to reproduce exactly —
 ///     status, <c>Title</c>, <c>Type</c>, and the per-property error messages keyed by property name — not merely
 ///     "still 400".
 /// </summary>
@@ -66,7 +66,7 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
     /// <summary>
     ///     <c>CreateTask</c> sits behind both the class-level authenticated-user check and the
     ///     <c>TaskManagement</c> policy (role <c>task-manager</c> or <c>admin</c>) — without the roles header this
-    ///     would 403 before the FluentValidation action filter ever runs, masking the contract under test.
+    ///     would 403 before the ZeroAlloc.Validation action filter ever runs, masking the contract under test.
     /// </summary>
     private async Task<HttpResponseMessage> Send(object body)
     {
