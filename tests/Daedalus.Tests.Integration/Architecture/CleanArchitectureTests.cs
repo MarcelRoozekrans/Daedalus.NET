@@ -1,4 +1,3 @@
-using System.Reflection;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.DTOs;
 using Daedalus.Tests.Integration.Fixtures;
@@ -10,8 +9,8 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Architecture;
 
 /// <summary>
-///     Phase 1.7 enforcement: FluentValidation must not return, and every DTO carrying
-///     <see cref="ValidateAttribute"/> must have a live <see cref="IValidationAdapter"/> registration.
+///     Phase 1.7 enforcement: every DTO carrying <see cref="ValidateAttribute"/> must have a live
+///     <see cref="IValidationAdapter"/> registration.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -28,12 +27,16 @@ namespace Daedalus.Tests.Integration.Architecture;
 ///         <c>ValidatorFor&lt;T&gt;</c> set.
 ///     </para>
 ///     <para>
-///         This lives in the Integration project, not alongside the ArchUnitNET-based
-///         <c>Daedalus.Tests.Unit.Architecture.CleanArchitectureTests</c>, because proving the adapter set
-///         requires the real DI container <c>Daedalus.Api</c>'s <c>Program</c> builds — the
-///         <see cref="IValidationAdapter"/> registrations are top-level statements on <c>builder.Services</c>,
-///         not exposed any other way. <see cref="ApiWebApplicationFactory"/> is the existing seam for booting
-///         that container in-process, hence the <see cref="PostgresFixture"/> dependency below.
+///         This test lives in the Integration project, not alongside the ArchUnitNET-based
+///         <c>Daedalus.Tests.Unit.Architecture.CleanArchitectureTests</c> (which also carries the FluentValidation
+///         ban — a pure file-system scan with no database dependency belongs in the fast suite that runs on every
+///         ordinary task-verification pass), because proving the adapter set requires the real DI container
+///         <c>Daedalus.Api</c>'s <c>Program</c> builds. The <see cref="IValidationAdapter"/> registrations are
+///         top-level statements on <c>builder.Services</c> inside <c>Program.cs</c>, not exposed any other way —
+///         a source-text scan could only ever check that a registration line's text exists, not that it actually
+///         runs and lands in the container the action filter resolves from. Booting the host is the truthful
+///         check; <see cref="ApiWebApplicationFactory"/> is the existing seam for doing that in-process, hence
+///         the <see cref="PostgresFixture"/> dependency below.
 ///     </para>
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
@@ -55,22 +58,6 @@ public sealed class CleanArchitectureTests(PostgresFixture fixture) : IAsyncLife
         await _factory.DisposeAsync();
     }
 
-    /// <summary>What would break this: a <c>PackageReference</c> or <c>PackageVersion</c> for FluentValidation
-    /// added back to any <c>.csproj</c> or to <c>Directory.Packages.props</c>.</summary>
-    [Fact]
-    public void FluentValidation_is_absent_from_every_project_and_from_central_package_management()
-    {
-        var offenders = Directory
-            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
-            .Where(IsOutsideWorktrees)
-            .Append(Path.Combine(FindRepositoryRoot(), "Directory.Packages.props"))
-            .Where(f => File.ReadAllText(f).Contains("FluentValidation", StringComparison.Ordinal))
-            .ToList();
-
-        Assert.True(offenders.Count == 0,
-            $"FluentValidation was reintroduced in: {string.Join(", ", offenders)}");
-    }
-
     /// <summary>What would break this: adding <c>[Validate]</c> to a DTO in <c>Daedalus.Application</c> and
     /// forgetting the matching <c>AddSingleton&lt;IValidationAdapter, ValidationAdapter&lt;T&gt;&gt;()</c> line
     /// in <c>Daedalus.Api</c>'s <c>Program.cs</c>. Verified red/green manually — see task-6-report.md.</summary>
@@ -89,32 +76,5 @@ public sealed class CleanArchitectureTests(PostgresFixture fixture) : IAsyncLife
 
         Assert.True(unregistered.Count == 0,
             $"[Validate] DTOs with no registered adapter, so they are never validated: {string.Join(", ", unregistered)}");
-    }
-
-    /// <summary>
-    ///     Excludes the git worktree(s) under <c>.claude/worktrees/</c> — a second checkout of this repository
-    ///     (potentially on a different branch, with its own stale <c>Directory.Packages.props</c>) that would
-    ///     otherwise produce confusing duplicate offenders or false positives when this scan walks the whole
-    ///     repository root.
-    /// </summary>
-    private static bool IsOutsideWorktrees(string path) =>
-        !path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
-            .Any(segment => segment is ".claude" or "worktrees");
-
-    /// <summary>Walks up from <see cref="AppContext.BaseDirectory"/> to the directory containing <c>Daedalus.sln</c>.
-    /// Mirrors <c>Daedalus.Tests.Unit.Architecture.CleanArchitectureTests.FindRepositoryRoot</c> exactly; duplicated
-    /// here rather than shared because that method is private to a different test assembly.</summary>
-    /// <exception cref="InvalidOperationException">No ancestor directory contains <c>Daedalus.sln</c>.</exception>
-    private static string FindRepositoryRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Daedalus.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        return dir?.FullName
-            ?? throw new InvalidOperationException(
-                $"Could not find Daedalus.sln walking up from {AppContext.BaseDirectory}.");
     }
 }

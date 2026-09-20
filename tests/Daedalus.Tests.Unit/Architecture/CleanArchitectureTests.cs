@@ -594,6 +594,27 @@ public sealed class CleanArchitectureTests
     }
 
     /// <summary>
+    ///     Phase 1.7 replaced FluentValidation with ZeroAlloc.Validation. Belongs here, not in
+    ///     <c>Daedalus.Tests.Integration</c>, precisely because it is a pure file-system scan with no database
+    ///     dependency: this project's suite is the one that runs on every ordinary task-verification pass, whereas
+    ///     the container-bound Integration suite runs only at batch boundaries. A ban sitting only in Integration
+    ///     would not catch a reintroduced FluentValidation reference until much later than it should.
+    /// </summary>
+    [Fact]
+    public void FluentValidation_is_absent_from_every_project_and_from_central_package_management()
+    {
+        var offenders = Directory
+            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
+            .Where(IsOutsideWorktrees)
+            .Append(Path.Combine(FindRepositoryRoot(), "Directory.Packages.props"))
+            .Where(f => File.ReadAllText(f).Contains("FluentValidation", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(offenders.Count == 0,
+            $"FluentValidation was reintroduced in: {string.Join(", ", offenders)}");
+    }
+
+    /// <summary>
     ///     Finds every <c>.csproj</c> under <see cref="FindRepositoryRoot"/> whose text contains
     ///     <paramref name="packageName"/>. A text scan, not an ArchUnitNET rule, because the whole point of the two
     ///     callers above is to catch a reference that would make ArchUnitNET's own namespace-based rules vacuous.
@@ -601,8 +622,22 @@ public sealed class CleanArchitectureTests
     private static List<string> FindCsprojFilesReferencing(string packageName) =>
         Directory
             .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
-            .Where(p => File.ReadAllText(p).Contains(packageName, StringComparison.OrdinalIgnoreCase))
+            .Where(p => IsOutsideWorktrees(p) && File.ReadAllText(p).Contains(packageName, StringComparison.OrdinalIgnoreCase))
             .ToList();
+
+    /// <summary>
+    ///     Excludes <c>.claude/worktrees/...</c> — a second git worktree checkout of this same repository,
+    ///     potentially on a different branch with different package references — from a repository-wide file
+    ///     scan. Without this, a stale or in-progress worktree checkout can make a "must not be referenced"
+    ///     assertion false-positive on a reference that exists only in that other checkout, not in the branch
+    ///     actually under test. This was a latent gap in <see cref="FindCsprojFilesReferencing"/> before phase
+    ///     1.7 task 6 — it happened not to be tripped because no worktree csproj referenced ZeroAlloc.Saga or
+    ///     ZeroAlloc.Scheduling, but a worktree checkout's <c>Directory.Packages.props</c> did already contain
+    ///     the literal string "FluentValidation", which is what surfaced the gap.
+    /// </summary>
+    private static bool IsOutsideWorktrees(string path) =>
+        !path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
+            .Any(segment => segment is ".claude" or "worktrees");
 
     /// <summary>Walks up from <see cref="AppContext.BaseDirectory"/> to the directory containing <c>Daedalus.sln</c>.</summary>
     /// <exception cref="InvalidOperationException">No ancestor directory contains <c>Daedalus.sln</c>.</exception>
