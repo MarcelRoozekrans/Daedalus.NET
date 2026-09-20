@@ -2,6 +2,7 @@ using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.UpdateProject;
 
@@ -10,9 +11,9 @@ namespace Daedalus.Application.Commands.UpdateProject;
 /// </summary>
 public sealed partial class UpdateProjectCommandHandler(
     IProjectRepository projectRepository,
-    ILogger<UpdateProjectCommandHandler> logger) : ICommandHandler<UpdateProjectCommand, Result<ProjectDto>>
+    ILogger<UpdateProjectCommandHandler> logger) : IRequestHandler<UpdateProjectCommand, Result<ProjectDto>>
 {
-    public async Task<Result<ProjectDto>> Handle(UpdateProjectCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ProjectDto>> Handle(UpdateProjectCommand command, CancellationToken cancellationToken)
     {
         try
         {

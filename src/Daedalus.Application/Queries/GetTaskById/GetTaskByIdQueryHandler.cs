@@ -2,6 +2,7 @@ using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Queries.GetTaskById;
 
@@ -9,12 +10,12 @@ namespace Daedalus.Application.Queries.GetTaskById;
 ///     Handles GetTaskByIdQuery by retrieving a task from the repository and returning its DTO.
 /// </summary>
 public sealed class GetTaskByIdQueryHandler(ITaskRepository taskRepository)
-    : IQueryHandler<GetTaskByIdQuery, Result<TaskDto>>
+    : IRequestHandler<GetTaskByIdQuery, Result<TaskDto>>
 {
     /// <summary>
     ///     Retrieves a task by ID and returns its DTO representation.
     /// </summary>
-    public async Task<Result<TaskDto>> Handle(GetTaskByIdQuery query, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(GetTaskByIdQuery query, CancellationToken cancellationToken)
     {
         // Validate query
         if (query.TaskId == Guid.Empty)

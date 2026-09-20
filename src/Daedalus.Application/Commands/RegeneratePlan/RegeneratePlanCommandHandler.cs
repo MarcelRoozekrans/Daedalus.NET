@@ -3,6 +3,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.RegeneratePlan;
 
@@ -16,7 +17,7 @@ public sealed partial class RegeneratePlanCommandHandler(
     IRalphAgentFactory agentFactory,
     IOptions<RalphLoopConfiguration> configurationOptions,
     ILogger<RegeneratePlanCommandHandler> logger)
-    : ICommandHandler<RegeneratePlanCommand, Result<RegeneratePlanResult>>
+    : IRequestHandler<RegeneratePlanCommand, Result<RegeneratePlanResult>>
 {
     private const string PlanFileName = "fix_plan.md";
     private const string BackupSuffix = ".bak";
@@ -37,7 +38,7 @@ public sealed partial class RegeneratePlanCommandHandler(
         Message = "Failed to regenerate plan for task {TaskId}: {Error}")]
     private static partial void LogPlanRegenerationFailed(ILogger logger, Guid taskId, string error);
 
-    public async Task<Result<RegeneratePlanResult>> Handle(
+    public async ValueTask<Result<RegeneratePlanResult>> Handle(
         RegeneratePlanCommand command,
         CancellationToken cancellationToken)
     {

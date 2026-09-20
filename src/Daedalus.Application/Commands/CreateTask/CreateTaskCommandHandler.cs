@@ -3,6 +3,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using Daedalus.Application.Services;
+using ZeroAlloc.Mediator;
 using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Application.Commands.CreateTask;
@@ -11,12 +12,12 @@ namespace Daedalus.Application.Commands.CreateTask;
 ///     Handles CreateTaskCommand by validating input, creating the domain entity, and persisting it.
 /// </summary>
 public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
-    : ICommandHandler<CreateTaskCommand, Result<TaskDto>>
+    : IRequestHandler<CreateTaskCommand, Result<TaskDto>>
 {
     /// <summary>
     ///     Creates a new task and returns its DTO representation.
     /// </summary>
-    public async Task<Result<TaskDto>> Handle(CreateTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(CreateTaskCommand command, CancellationToken cancellationToken)
     {
         // Validate and normalize command input using optimized zero-allocation validation
         var promptValidation = PerformanceOptimizations.ValidateAndTrimString(command.Prompt, out var promptError);

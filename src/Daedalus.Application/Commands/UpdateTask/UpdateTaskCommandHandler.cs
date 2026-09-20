@@ -3,6 +3,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using Daedalus.Application.Services;
+using ZeroAlloc.Mediator;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.UpdateTask;
@@ -11,9 +12,9 @@ namespace Daedalus.Application.Commands.UpdateTask;
 ///     Handles UpdateTaskCommand by updating task metadata while preserving execution history.
 /// </summary>
 public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
-    : ICommandHandler<UpdateTaskCommand, Result<TaskDto>>
+    : IRequestHandler<UpdateTaskCommand, Result<TaskDto>>
 {
-    public async Task<Result<TaskDto>> Handle(UpdateTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(UpdateTaskCommand command, CancellationToken cancellationToken)
     {
         if (command.TaskId == Guid.Empty)
         {

@@ -5,6 +5,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.GeneratePrd;
 
@@ -13,7 +14,7 @@ namespace Daedalus.Application.Commands.GeneratePrd;
 /// </summary>
 public sealed partial class GeneratePrdCommandHandler(
     IRalphAgentFactory agentFactory,
-    ILogger<GeneratePrdCommandHandler> logger) : ICommandHandler<GeneratePrdCommand, Result<PrdResponseDto>>
+    ILogger<GeneratePrdCommandHandler> logger) : IRequestHandler<GeneratePrdCommand, Result<PrdResponseDto>>
 {
     private const string _prdAgentPrompt = """
                                            You are a Product Requirements Document (PRD) Agent. Your task is to analyze user requirements and generate a structured PRD.
@@ -52,7 +53,7 @@ public sealed partial class GeneratePrdCommandHandler(
                                            Return ONLY valid JSON, no markdown, no code blocks, no explanations.
                                            """;
 
-    public async Task<Result<PrdResponseDto>> Handle(GeneratePrdCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<PrdResponseDto>> Handle(GeneratePrdCommand command, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(command.UserRequirements))
         {

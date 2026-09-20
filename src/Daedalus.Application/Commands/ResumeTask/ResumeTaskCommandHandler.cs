@@ -2,6 +2,7 @@ using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.ResumeTask;
 
@@ -9,9 +10,9 @@ namespace Daedalus.Application.Commands.ResumeTask;
 ///     Handles ResumeTaskCommand by marking an abandoned task as pending again.
 /// </summary>
 public sealed class ResumeTaskCommandHandler(ITaskRepository taskRepository)
-    : ICommandHandler<ResumeTaskCommand, Result<TaskDto>>
+    : IRequestHandler<ResumeTaskCommand, Result<TaskDto>>
 {
-    public async Task<Result<TaskDto>> Handle(ResumeTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(ResumeTaskCommand command, CancellationToken cancellationToken)
     {
         if (command.TaskId == Guid.Empty)
         {

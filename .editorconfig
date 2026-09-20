@@ -235,3 +235,7 @@ dotnet_diagnostic.CS4033.severity = suggestion
 
 # CS9035: Required member not set
 dotnet_diagnostic.CS9035.severity = suggestion
+
+# ZAM008: Handler has no parameterless constructor - only matters for the static Mediator.Send
+# dispatcher, which this codebase never uses; every handler is invoked through DI-injected IMediator.
+dotnet_diagnostic.ZAM008.severity = suggestion

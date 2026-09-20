@@ -2,6 +2,7 @@ using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Mappers;
 using Daedalus.Domain.Entities;
+using ZeroAlloc.Mediator;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.ExecuteTask;
@@ -12,12 +13,12 @@ namespace Daedalus.Application.Commands.ExecuteTask;
 /// </summary>
 public sealed class ExecuteTaskCommandHandler(
     ITaskRepository taskRepository,
-    IRalphAgentFactory agentFactory) : ICommandHandler<ExecuteTaskCommand, Result<ExecuteTaskResult>>
+    IRalphAgentFactory agentFactory) : IRequestHandler<ExecuteTaskCommand, Result<ExecuteTaskResult>>
 {
     /// <summary>
     ///     Executes a task: fetches it, runs the LLM, checks for completion, and updates state.
     /// </summary>
-    public async Task<Result<ExecuteTaskResult>> Handle(ExecuteTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ExecuteTaskResult>> Handle(ExecuteTaskCommand command, CancellationToken cancellationToken)
     {
         // Validate command
         if (command.TaskId == Guid.Empty)

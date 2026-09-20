@@ -4,6 +4,7 @@ using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Application.Commands.ConvertPrdToTasks;
@@ -13,9 +14,9 @@ namespace Daedalus.Application.Commands.ConvertPrdToTasks;
 /// </summary>
 public sealed partial class ConvertPrdToTasksCommandHandler(
     ITaskRepository taskRepository,
-    ILogger<ConvertPrdToTasksCommandHandler> logger) : ICommandHandler<ConvertPrdToTasksCommand, Result<List<TaskDto>>>
+    ILogger<ConvertPrdToTasksCommandHandler> logger) : IRequestHandler<ConvertPrdToTasksCommand, Result<List<TaskDto>>>
 {
-    public async Task<Result<List<TaskDto>>> Handle(ConvertPrdToTasksCommand command,
+    public async ValueTask<Result<List<TaskDto>>> Handle(ConvertPrdToTasksCommand command,
         CancellationToken cancellationToken)
     {
         if (command.PrdItems.Count == 0)

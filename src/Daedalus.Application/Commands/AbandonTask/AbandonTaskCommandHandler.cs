@@ -2,6 +2,7 @@ using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using ZeroAlloc.Mediator;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.AbandonTask;
@@ -10,12 +11,12 @@ namespace Daedalus.Application.Commands.AbandonTask;
 ///     Handles AbandonTaskCommand by marking a task as abandoned and setting its result reason.
 /// </summary>
 public sealed class AbandonTaskCommandHandler(ITaskRepository taskRepository)
-    : ICommandHandler<AbandonTaskCommand, Result<TaskDto>>
+    : IRequestHandler<AbandonTaskCommand, Result<TaskDto>>
 {
     /// <summary>
     ///     Abandons a task and returns its updated DTO representation.
     /// </summary>
-    public async Task<Result<TaskDto>> Handle(AbandonTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(AbandonTaskCommand command, CancellationToken cancellationToken)
     {
         // Validate command
         if (command.TaskId == Guid.Empty)

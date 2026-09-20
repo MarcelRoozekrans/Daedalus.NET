@@ -1,6 +1,7 @@
 using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.DeleteProject;
 
@@ -9,9 +10,9 @@ namespace Daedalus.Application.Commands.DeleteProject;
 /// </summary>
 public sealed partial class DeleteProjectCommandHandler(
     IProjectRepository projectRepository,
-    ILogger<DeleteProjectCommandHandler> logger) : ICommandHandler<DeleteProjectCommand, Result>
+    ILogger<DeleteProjectCommandHandler> logger) : IRequestHandler<DeleteProjectCommand, Result>
 {
-    public async Task<Result> Handle(DeleteProjectCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result> Handle(DeleteProjectCommand command, CancellationToken cancellationToken)
     {
         try
         {

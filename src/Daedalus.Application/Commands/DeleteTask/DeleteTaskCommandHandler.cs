@@ -1,5 +1,6 @@
 using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
+using ZeroAlloc.Mediator;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.DeleteTask;
@@ -9,9 +10,9 @@ namespace Daedalus.Application.Commands.DeleteTask;
 ///     Only pending or abandoned tasks can be deleted.
 /// </summary>
 public sealed class DeleteTaskCommandHandler(ITaskRepository taskRepository)
-    : ICommandHandler<DeleteTaskCommand, Result>
+    : IRequestHandler<DeleteTaskCommand, Result>
 {
-    public async Task<Result> Handle(DeleteTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result> Handle(DeleteTaskCommand command, CancellationToken cancellationToken)
     {
         if (command.TaskId == Guid.Empty)
         {

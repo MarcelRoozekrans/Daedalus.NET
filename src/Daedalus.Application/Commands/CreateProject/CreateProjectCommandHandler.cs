@@ -3,6 +3,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.CreateProject;
 
@@ -11,9 +12,9 @@ namespace Daedalus.Application.Commands.CreateProject;
 /// </summary>
 public sealed partial class CreateProjectCommandHandler(
     IProjectRepository projectRepository,
-    ILogger<CreateProjectCommandHandler> logger) : ICommandHandler<CreateProjectCommand, Result<ProjectDto>>
+    ILogger<CreateProjectCommandHandler> logger) : IRequestHandler<CreateProjectCommand, Result<ProjectDto>>
 {
-    public async Task<Result<ProjectDto>> Handle(CreateProjectCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ProjectDto>> Handle(CreateProjectCommand command, CancellationToken cancellationToken)
     {
         try
         {

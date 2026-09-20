@@ -2,6 +2,7 @@ using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Queries.GetAllTasks;
 
@@ -9,12 +10,12 @@ namespace Daedalus.Application.Queries.GetAllTasks;
 ///     Handles GetAllTasksQuery by retrieving all tasks from the repository with pagination support.
 /// </summary>
 public sealed class GetAllTasksQueryHandler(ITaskRepository taskRepository)
-    : IQueryHandler<GetAllTasksQuery, Result<PagedResultDto<TaskDto>>>
+    : IRequestHandler<GetAllTasksQuery, Result<PagedResultDto<TaskDto>>>
 {
     /// <summary>
     ///     Retrieves all tasks with optional pagination and returns them as DTO list.
     /// </summary>
-    public async Task<Result<PagedResultDto<TaskDto>>> Handle(GetAllTasksQuery query,
+    public async ValueTask<Result<PagedResultDto<TaskDto>>> Handle(GetAllTasksQuery query,
         CancellationToken cancellationToken)
     {
         // Validate query
