@@ -1,9 +1,9 @@
 using ZeroAlloc.Results;
-using Daedalus.Application.Abstractions;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.DeleteTask;
 
 /// <summary>
 ///     Command to delete a task by its ID.
 /// </summary>
-public record DeleteTaskCommand(Guid TaskId) : ICommand<Result>;
+public readonly record struct DeleteTaskCommand(Guid TaskId) : IRequest<Result>;

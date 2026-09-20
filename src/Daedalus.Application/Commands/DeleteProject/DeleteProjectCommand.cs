@@ -1,9 +1,9 @@
 using ZeroAlloc.Results;
-using Daedalus.Application.Abstractions;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.DeleteProject;
 
 /// <summary>
 ///     Command to delete a project by ID.
 /// </summary>
-public record DeleteProjectCommand(Guid Id) : ICommand<Result>;
+public readonly record struct DeleteProjectCommand(Guid Id) : IRequest<Result>;
