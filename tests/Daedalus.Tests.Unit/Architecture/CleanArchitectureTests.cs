@@ -615,6 +615,29 @@ public sealed class CleanArchitectureTests
     }
 
     /// <summary>
+    ///     Phase 1.7's whole point: CSharpFunctionalExtensions is now unused everywhere in the solution (tasks 9
+    ///     through 14 migrated every caller), and this is the rule that makes its return impossible rather than
+    ///     merely undocumented. Belongs here, not in <c>Daedalus.Tests.Integration</c>, for the same reason as
+    ///     <see cref="FluentValidation_is_absent_from_every_project_and_from_central_package_management"/>: this
+    ///     project's suite runs on every ordinary task-verification pass, whereas the container-bound Integration
+    ///     suite runs only at batch boundaries.
+    /// </summary>
+    [Fact]
+    public void CSharpFunctionalExtensions_is_absent_from_every_project_and_from_central_package_management()
+    {
+        var offenders = FindCsprojFilesReferencing("CSharpFunctionalExtensions");
+
+        var packagesPropsPath = Path.Combine(FindRepositoryRoot(), "Directory.Packages.props");
+        if (File.ReadAllText(packagesPropsPath).Contains("CSharpFunctionalExtensions", StringComparison.Ordinal))
+        {
+            offenders.Add(packagesPropsPath);
+        }
+
+        Assert.True(offenders.Count == 0,
+            $"CSharpFunctionalExtensions was reintroduced in: {string.Join(", ", offenders)}");
+    }
+
+    /// <summary>
     ///     Finds every <c>.csproj</c> under <see cref="FindRepositoryRoot"/> whose text contains
     ///     <paramref name="packageName"/>. A text scan, not an ArchUnitNET rule, because the whole point of the two
     ///     callers above is to catch a reference that would make ArchUnitNET's own namespace-based rules vacuous.
