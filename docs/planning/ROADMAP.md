@@ -99,11 +99,13 @@ its place, which is the only retirement that proves anything.
 | # | Phase | Surface | Status | Depends on |
 |---|---|---|---|---|
 | 2.1 | Git write tooling: branch, commit, push and pull-request tools, gated behind the `developer` policy exactly as `repoaction__*` is. Phase 1.9 built the GitHub *read* surface and the authorization boundary; this is the write half that boundary was built for | Backend | planned | 1.9 |
-| 2.2 | Durable workflow engine: branching, loops, and human approval gates, resumable across process restarts. The one genuinely new subsystem in this milestone — everything else composes it | Backend | planned | 2.1 |
+| 2.2 | Durable workflow engine: branching, loops, and human approval gates, resumable across process restarts. The one genuinely new subsystem in this milestone — everything else composes it. Built on `ZeroAlloc.StateMachine` and `ZeroAlloc.EventSourcing`, with `ZeroAlloc.AsyncEvents` for internal dispatch — these are the substrate, not an add-on. `RunStep` is already a hand-written state machine, so the pattern is not speculative here | Backend | planned | 2.1 |
 | 2.3 | The manufacturing squad: a role roster, per-role memory scoping so a reviewer does not inherit the implementer's context, and routing between them | Backend | planned | 2.2 |
 | 2.4 | The process as skills: the manufacturing steps written as skills rather than code, including an explicit review stage, so the process can change without a redeploy | Mixed | planned | 2.3 |
 | 2.5 | Ralph retirement: delete the loop once 2.1–2.4 demonstrably do its job better | Refactor | planned | 2.4 |
-| 2.6 | Observability: `ZeroAlloc.Telemetry` source-generated spans and metrics. Candidate, not committed — five OpenTelemetry packages are pinned today but `src` contains **zero** `ActivitySource` or `Meter`, so nothing emits a custom span. It earns its keep once a manufacturing run is a thing worth tracing | Backend | candidate | 2.2 |
+| 2.6 | Observability: `ZeroAlloc.Telemetry` source-generated spans and metrics. Five OpenTelemetry packages are pinned today but `src` contains **zero** `ActivitySource` or `Meter`, so nothing emits a custom span. A manufacturing run that cannot be traced cannot be debugged | Backend | planned | 2.2 |
+| 2.7 | The scout HTTP path: `ZeroAlloc.Rest` replaces the 6 hand-rolled `HttpClient` API clients, and `ZeroAlloc.Cache` fronts the **rate-limited** GitHub API the scout hits on every digest. One subsystem, so they land together rather than separately | Backend | planned | 2.1 |
+| 2.8 | Manufacturing console: `ZeroAlloc.Flux` for Blazor state, covering the approval-gate and run-inspection surfaces 2.2 and 2.3 produce | UI | planned | 2.2, 2.3 |
 
 ## Milestone 3: Native AOT [status: planned]
 
@@ -115,7 +117,13 @@ audit and the reasoning — this was recorded as Milestone 2 until 2026-09-20 an
 Software Manufacturing took that slot. The analysis is unchanged; only the ordering moved.
 
 **Also carries, per `docs/plans/2026-09-20-zeroalloc-org-adoption-review.md`:** `ZeroAlloc.Inject`
-(compile-time DI is an AOT prerequisite), `ZeroAlloc.Rest` (6 hand-rolled `HttpClient` API clients,
-AOT-clean once swapped — deliberately not done earlier, because rewriting the GitHub client phase
-1.9 just proved against live GitHub would trade working code for unproven code with no AOT deadline
-forcing it), and `ZeroAlloc.Resilience` for the 2 `AddStandardResilience` sites.
+(compile-time DI is an AOT prerequisite), `ZeroAlloc.Resilience` for the 2 `AddStandardResilience`
+sites, `ZeroAlloc.Serialisation` as a deliberate `System.Text.Json` swap rather than the transitive
+arrival phase 1.7 gives it, `ZeroAlloc.Collections` once AOT work supplies the benchmarks that
+justify pooled collections, and `ZeroAlloc.Specification` alongside the ORM migration that finally
+gives query composition a surface.
+
+**Adoption programme.** 23 of the org's 27 libraries now have a named phase. The four that do not:
+`Saga` and `Scheduling` are banned by an architecture test on upstream defects and un-banning them
+is upstream work; `Templates` is a `dotnet new` template rather than a package reference; `Notify`
+has no hook, because Blazor does not use `INotifyPropertyChanged`.

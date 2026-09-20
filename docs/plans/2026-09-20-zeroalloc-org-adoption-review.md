@@ -105,7 +105,7 @@ and still open upstream; it is simply not on this path.
 | `ZeroAlloc.Templates` | A `dotnet new` template, not a dependency |
 | `ZeroAlloc.Pipeline` | Generator infrastructure; arrives transitively under Mediator |
 
-## Recommendation
+## Recommendation (superseded — see Adoption programme below)
 
 Phase 1.7 takes **Tier 1 plus the two free Tier-2 items** — `Analyzers` and `TestHelpers`. That
 removes `CSharpFunctionalExtensions` and both `FluentValidation` packages outright, activates two
@@ -117,3 +117,55 @@ Milestone 2.2, where it is load-bearing rather than optional.
 
 Counting honestly: 5 libraries adopted today, **11 after phase 1.7**, 13 with Telemetry and Rest,
 17 by the end of Milestone 3. The remainder are excluded on evidence, and two of them are banned.
+
+
+## Adoption programme (decided 2026-09-20)
+
+The tiering above was written to answer "which of these are worth adopting?" The answer given was
+"adopt as much as possible", which changes the question to "where does each one go?" Every library
+with a real hook now has a named phase. Nothing is dropped for being merely unexciting — the only
+exclusions left are ones that cannot be adopted, and each says why.
+
+Two exclusions in the tiering above were too quick and are corrected here:
+
+- **`ZeroAlloc.Cache`** was dismissed as "no caching exists, so adopting it invents a feature." But
+  `GitHubApi` calls a **rate-limited** API on every digest. That is a real hook.
+- **`ZeroAlloc.StateMachine`** was parked in Milestone 2 as a future fit. `ScheduledRunExecution.Step`
+  and `RunStep` already *are* a state machine, with hand-written transitions, today.
+
+| # | Library | Home | Why there |
+|---|---|---|---|
+| 1 | `Authorization` | adopted | detached-run policy boundary, phase 1.9 |
+| 2 | `Mapping` | adopted | — |
+| 3 | `Outbox` (+ `.EfCore`) | adopted | phases 1.4, 1.5 |
+| 4 | `Results` | **1.7** | replaces CSFE `Result<T>`, 151 files |
+| 5 | `Validation` | **1.7** | replaces FluentValidation, 11 files |
+| 6 | `Mediator` | **1.7** | replaces the hand-rolled CQRS layer |
+| 7 | `ValueObjects` | **1.7** | replaces CSFE `ValueObject`, 3 classes |
+| 8 | `Analyzers` | **1.7** | analyzer-only, no runtime surface |
+| 9 | `TestHelpers` | **1.7** | test-only allocation assertions |
+| 10 | `Pipeline` | **1.7** (transitive) | generator infrastructure beneath Mediator |
+| 11 | `Serialisation` | **1.7** (transitive), explicit in **3** | arrives via ValueObjects; the deliberate `System.Text.Json` swap waits for AOT to justify it |
+| 12 | `StateMachine` | **2.2** | the durable workflow engine's substrate — and `RunStep` is already a hand-written state machine |
+| 13 | `EventSourcing` | **2.2** | durable, resumable workflow state |
+| 14 | `AsyncEvents` | **2.2** | event dispatch inside the workflow engine |
+| 15 | `Telemetry` | **2.6** | 5 OTel packages pinned, zero `ActivitySource` in `src` — a real gap |
+| 16 | `Rest` | **2.7** | replaces 6 hand-rolled `HttpClient` API clients |
+| 17 | `Cache` | **2.7** | fronts the rate-limited GitHub API the scout hits every digest — pairs with Rest, same subsystem |
+| 18 | `Flux` | **2.8** | Blazor state for the manufacturing console |
+| 19 | `ORM` | **3** | EF Core cannot publish AOT |
+| 20 | `Inject` | **3** | compile-time DI is an AOT prerequisite |
+| 21 | `Resilience` | **3** | the 2 `AddStandardResilience` sites |
+| 22 | `Collections` | **3** | pooled collections, once AOT work supplies benchmarks to justify them |
+| 23 | `Specification` | **3** | query composition, alongside the ORM migration that gives it a surface |
+
+### Cannot be adopted
+
+| Library | Why |
+|---|---|
+| `Saga` | **Banned by an architecture test.** Generated `Publish` ignores DI-registered `INotificationHandler<T>`, so a saga never receives its trigger event — [Saga#127](https://github.com/ZeroAlloc-Net/ZeroAlloc.Saga/issues/127). Un-banning it is upstream work, not a Daedalus change |
+| `Scheduling` | **Banned by the same test.** Its EF job store needs a separate context that ships no migrations and cannot be bootstrapped with `EnsureCreated`, which would leave the `Jobs` table silently missing |
+| `Templates` | A `dotnet new` template, not a package reference. Adoptable only as structural conformance |
+| `Notify` | `INotifyPropertyChanged`: 0 files. Blazor does not use INPC. Revisit only if an MVVM or desktop surface ever appears |
+
+**23 of 27 have a home. 2 are blocked on upstream bugs, 1 is not a package, 1 has no hook.**
