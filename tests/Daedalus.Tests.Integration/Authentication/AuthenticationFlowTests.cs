@@ -1,20 +1,41 @@
-using Daedalus.Tests.Integration.Attributes;
 using Daedalus.Tests.Integration.Fixtures;
+using Thalos;
+using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Authentication;
 
 /// <summary>
 ///     Integration tests for complete authentication flows.
-///     Keycloak tests use Testcontainers.Keycloak (auto-started, no docker-compose needed).
-///     API endpoint tests still require a running API server and are skipped when unavailable.
+///     Keycloak-only tests (obtaining tokens) use Testcontainers.Keycloak directly (auto-started, no docker-compose
+///     needed). API endpoint tests drive the real Daedalus.Api <c>Program</c> in-process via
+///     <see cref="ApiWebApplicationFactory"/> with the production JWT Bearer pipeline pointed at that same Keycloak
+///     fixture — see <see cref="RealKeycloakIdentityTests"/> for the pattern this follows. They previously made bare
+///     <see cref="HttpClient"/> calls to a hardcoded <c>http://localhost:8080</c>, gated by a TCP-connect probe
+///     that could not tell the real API apart from any other process holding that port (e.g. an unrelated Traefik
+///     container) — see <c>auth-flow-investigation.md</c> for the incident this replaced.
 /// </summary>
-[Collection(KeycloakCollection.Name)]
+[Collection(DatabaseCollection.Name)]
 [Trait("Category", "AuthenticationFlow")]
-public class AuthenticationFlowTests(KeycloakFixture keycloak)
+public sealed class AuthenticationFlowTests(PostgresFixture postgres, KeycloakFixture keycloak)
+    : IClassFixture<KeycloakFixture>, IAsyncLifetime
 {
-    private const string ApiBaseUrl = "http://localhost:8080";
-
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private readonly IAgentRuntime _runtime = Substitute.For<IAgentRuntime>();
+    private ApiWebApplicationFactory _factory = null!;
+    private HttpClient _client = null!;
+
+    public async Task InitializeAsync()
+    {
+        await postgres.DatabaseResetter.ResetAsync();
+        _factory = new ApiWebApplicationFactory(postgres.ConnectionString, _runtime, keycloak);
+        _client = _factory.CreateClient();
+    }
+
+    public async Task DisposeAsync()
+    {
+        _client.Dispose();
+        await _factory.DisposeAsync();
+    }
 
     /// <summary>
     ///     Tests the OAuth 2.0 Client Credentials Flow.
@@ -64,14 +85,14 @@ public class AuthenticationFlowTests(KeycloakFixture keycloak)
     /// <summary>
     ///     Tests that API endpoints return 401 Unauthorized without a valid JWT token.
     /// </summary>
-    [RequiresApiFact]
+    [Fact]
     public async Task ApiEndpoint_WithoutToken_Returns401Unauthorized()
     {
         // Arrange
-        var request = new HttpRequestMessage(HttpMethod.Get, $"{ApiBaseUrl}/api/tasks");
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("/api/tasks", UriKind.Relative));
 
         // Act
-        var response = await _httpClient.SendAsync(request);
+        var response = await _client.SendAsync(request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
@@ -81,18 +102,18 @@ public class AuthenticationFlowTests(KeycloakFixture keycloak)
     /// <summary>
     ///     Tests that API endpoints accept requests with valid JWT token.
     /// </summary>
-    [RequiresApiFact]
+    [Fact]
     public async Task ApiEndpoint_WithValidToken_Returns200Ok()
     {
         // Arrange
         var token = await keycloak.ObtainAccessTokenAsync();
-        var request = new HttpRequestMessage(HttpMethod.Get, $"{ApiBaseUrl}/api/tasks")
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("/api/tasks", UriKind.Relative))
         {
             Headers = { { "Authorization", $"Bearer {token}" } }
         };
 
         // Act
-        var response = await _httpClient.SendAsync(request);
+        var response = await _client.SendAsync(request);
 
         // Assert
         response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized,
@@ -102,18 +123,18 @@ public class AuthenticationFlowTests(KeycloakFixture keycloak)
     /// <summary>
     ///     Tests that API endpoints reject requests with invalid or malformed tokens.
     /// </summary>
-    [RequiresApiFact]
+    [Fact]
     public async Task ApiEndpoint_WithInvalidToken_Returns401Unauthorized()
     {
         // Arrange
-        var invalidToken = "invalid.malformed.token";
-        var request = new HttpRequestMessage(HttpMethod.Get, $"{ApiBaseUrl}/api/tasks")
+        const string invalidToken = "invalid.malformed.token";
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("/api/tasks", UriKind.Relative))
         {
             Headers = { { "Authorization", $"Bearer {invalidToken}" } }
         };
 
         // Act
-        var response = await _httpClient.SendAsync(request);
+        var response = await _client.SendAsync(request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
@@ -123,7 +144,16 @@ public class AuthenticationFlowTests(KeycloakFixture keycloak)
     /// <summary>
     ///     Tests that all protected API endpoints follow the same authorization pattern.
     /// </summary>
-    [RequiresApiTheory]
+    /// <remarks>
+    ///     Known pre-existing failure, unrelated to authentication: <c>/api/codeanalysis</c> has never had a bare
+    ///     <c>GET</c> action (only <c>POST</c> at that exact route, plus <c>GET</c> on more specific sub-routes such as
+    ///     <c>next-pending</c>) — confirmed back to this controller's first commit. ASP.NET Core's routing matches the
+    ///     route template for the wrong verb and returns <c>405 Method Not Allowed</c> before authorization ever runs,
+    ///     so this case fails expecting <c>401</c> both here and against a real deployed API. Left as-is and not
+    ///     weakened or dropped per this ticket's constraints — the assertion is correct for every other endpoint here;
+    ///     this one case is a latent test-data defect this conversion surfaced by finally letting the theory execute.
+    /// </remarks>
+    [Theory]
     [InlineData("/api/tasks")]
     [InlineData("/api/executionsessions")]
     [InlineData("/api/projects")]
@@ -133,10 +163,10 @@ public class AuthenticationFlowTests(KeycloakFixture keycloak)
     public async Task AllProtectedEndpoints_RequireJwtToken(string endpoint)
     {
         // Arrange
-        var request = new HttpRequestMessage(HttpMethod.Get, $"{ApiBaseUrl}{endpoint}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(endpoint, UriKind.Relative));
 
         // Act
-        var response = await _httpClient.SendAsync(request);
+        var response = await _client.SendAsync(request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
