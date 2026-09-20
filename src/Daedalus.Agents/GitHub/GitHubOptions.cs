@@ -13,7 +13,7 @@ public sealed class GitHubOptions
     public string UserAgent { get; set; } = "Daedalus";
 
     /// <summary>Per-category ceiling. A category that hits it reports that it was truncated.</summary>
-    public int MaxItemsPerCategory { get; set; } = 50;
+    public int MaxItemsPerCategory { get; set; } = 15;
 
     /// <summary>Window used only when a run has no previous occurrence to measure from.</summary>
     public TimeSpan DefaultLookback { get; set; } = TimeSpan.FromHours(24);
