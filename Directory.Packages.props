@@ -61,6 +61,9 @@
     <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="$(ZeroAllocValidationVersion)" />
     <PackageVersion Include="ZeroAlloc.Validation.Testing" Version="$(ZeroAllocValidationVersion)" />
     <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.1" />
+    <PackageVersion Include="ZeroAlloc.Mediator" Version="5.1.1" />
+    <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="5.1.1" />
+    <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.2.2" />
     <PackageVersion Include="ZeroAlloc.Outbox" Version="2.5.2" />
     <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="2.5.2" />
 

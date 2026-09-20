@@ -28,6 +28,8 @@
         <PackageReference Include="Microsoft.Extensions.Options" />
         <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="ZLinq" />
+        <PackageReference Include="ZeroAlloc.Mediator" />
+        <PackageReference Include="ZeroAlloc.Mediator.Generator" PrivateAssets="all" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     </ItemGroup>
 
 </Project>
