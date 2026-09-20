@@ -18,8 +18,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="FluentValidation" />
-        <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
         <PackageReference Include="ZeroAlloc.Validation" />
         <PackageReference Include="ZeroAlloc.Validation.Generator" PrivateAssets="all" OutputItemType="Analyzer" />
         <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />

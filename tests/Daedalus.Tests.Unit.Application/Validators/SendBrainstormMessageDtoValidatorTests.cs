@@ -1,6 +1,5 @@
 using Daedalus.Application.DTOs;
-using Daedalus.Application.Validators;
-using FluentValidation.TestHelper;
+using ZeroAlloc.Validation.Testing;
 
 namespace Daedalus.Tests.Unit.Application.Validators;
 
@@ -12,23 +11,23 @@ public class SendBrainstormMessageDtoValidatorTests
     public void Validate_WithValidContent_ShouldPass()
     {
         var dto = new SendBrainstormMessageDto("I need a caching layer");
-        var result = _validator.TestValidate(dto);
-        result.ShouldNotHaveAnyValidationErrors();
+        var result = _validator.Validate(dto);
+        ValidationAssert.NoErrors(result);
     }
 
     [Fact]
     public void Validate_WithEmptyContent_ShouldFail()
     {
         var dto = new SendBrainstormMessageDto("");
-        var result = _validator.TestValidate(dto);
-        result.ShouldHaveValidationErrorFor(x => x.Content);
+        var result = _validator.Validate(dto);
+        ValidationAssert.HasError(result, nameof(SendBrainstormMessageDto.Content));
     }
 
     [Fact]
     public void Validate_WithTooLongContent_ShouldFail()
     {
         var dto = new SendBrainstormMessageDto(new string('x', 10001));
-        var result = _validator.TestValidate(dto);
-        result.ShouldHaveValidationErrorFor(x => x.Content);
+        var result = _validator.Validate(dto);
+        ValidationAssert.HasError(result, nameof(SendBrainstormMessageDto.Content));
     }
 }

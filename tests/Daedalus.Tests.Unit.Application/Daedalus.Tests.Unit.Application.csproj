@@ -32,7 +32,7 @@
         </PackageReference>
         <PackageReference Include="CSharpFunctionalExtensions"/>
         <PackageReference Include="Bogus"/>
-        <PackageReference Include="FluentValidation"/>
+        <PackageReference Include="ZeroAlloc.Validation.Testing"/>
         <PackageReference Include="Thalos.NET"/>
         <PackageReference Include="Microsoft.Extensions.Configuration"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>

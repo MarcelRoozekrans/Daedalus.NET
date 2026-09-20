@@ -1,9 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.Services;
-using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using ZeroAlloc.Validation;
 
 namespace Daedalus.Application.Extensions;
 
@@ -46,8 +47,21 @@ public static class ApplicationServiceExtensions
         // Register phase chaining orchestrator for multi-phase task dependency resolution
         services.AddScoped<IPhaseOrchestrator, PhaseOrchestrator>();
 
-        // Register FluentValidation validators from the Application assembly
-        services.AddValidatorsFromAssembly(typeof(ApplicationServiceExtensions).Assembly, ServiceLifetime.Scoped);
+        // Register the ZeroAlloc.Validation-generated validators. ZeroAlloc.Validation.Inject's
+        // AddZeroAllocValidators() only discovers `class`-declared [Validate] targets — its
+        // generator filters on ClassDeclarationSyntax, which a `record` (positional or otherwise)
+        // does not satisfy, verified against the shipped 1.7.3 assembly. Every validated DTO here
+        // is a record, so the bulk registration would find nothing (and the extension method
+        // itself would not even be emitted). Register the eight generated validators explicitly
+        // instead; they are stateless, so singleton is safe.
+        services.AddSingleton<ValidatorFor<CreateProjectDto>, CreateProjectDtoValidator>();
+        services.AddSingleton<ValidatorFor<UpdateProjectDto>, UpdateProjectDtoValidator>();
+        services.AddSingleton<ValidatorFor<CreateTaskDto>, CreateTaskDtoValidator>();
+        services.AddSingleton<ValidatorFor<UpdateTaskDto>, UpdateTaskDtoValidator>();
+        services.AddSingleton<ValidatorFor<CreateRepositoryConfigurationDto>, CreateRepositoryConfigurationDtoValidator>();
+        services.AddSingleton<ValidatorFor<UpdateRepositoryConfigurationDto>, UpdateRepositoryConfigurationDtoValidator>();
+        services.AddSingleton<ValidatorFor<SendBrainstormMessageDto>, SendBrainstormMessageDtoValidator>();
+        services.AddSingleton<ValidatorFor<SubmitAnalysisRequest>, SubmitAnalysisRequestValidator>();
 
         return services;
     }

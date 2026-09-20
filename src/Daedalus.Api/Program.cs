@@ -4,8 +4,10 @@ using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
+using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.Extensions;
 using Daedalus.Application.Services.Brainstorm;
 using Daedalus.Infrastructure.Extensions;
@@ -122,10 +124,22 @@ builder.Services.AddApiVersioning(options =>
 // Add OpenAPI document generation for Scalar API reference
 builder.Services.AddOpenApi();
 
-// Add controllers with FluentValidation filter for automatic DTO validation
+// Register one non-generic adapter per validated DTO — ZeroAllocValidationFilter iterates
+// untyped ActionArguments and cannot call ValidatorFor<T>.Validate directly (ValidatorFor<T>
+// exposes no non-generic base), so each adapter closes over its DTO type explicitly here.
+builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<CreateTaskDto>>();
+builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateTaskDto>>();
+builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<CreateProjectDto>>();
+builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateProjectDto>>();
+builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<CreateRepositoryConfigurationDto>>();
+builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateRepositoryConfigurationDto>>();
+builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<SendBrainstormMessageDto>>();
+builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<SubmitAnalysisRequest>>();
+
+// Add controllers with the ZeroAlloc.Validation filter for automatic DTO validation
 builder.Services.AddControllers(options =>
 {
-    options.Filters.Add<Daedalus.Api.Middleware.FluentValidationFilter>();
+    options.Filters.Add<ZeroAllocValidationFilter>();
 });
 
 // Add response compression (reduces JSON payloads by ~80%)
