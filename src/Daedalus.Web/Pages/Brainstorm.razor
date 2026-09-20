@@ -118,9 +118,14 @@
     private async Task LoadSession()
     {
         var result = await Api.GetBrainstormSessionAsync(SessionId, _cts?.Token ?? CancellationToken.None);
-        result.Match(
-            session => _session = session,
-            error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+        if (result.IsSuccess)
+        {
+            _session = result.Value;
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+        }
     }
 
     private async Task SendMessage()
@@ -136,9 +141,10 @@
             var result = await Api.SendBrainstormMessageAsync(
                 SessionId, new SendBrainstormMessageDto(message), _cts?.Token ?? CancellationToken.None);
 
-            result.Match(
-                _ => { },
-                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            if (result.IsFailure)
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            }
 
             await LoadSession();
         }
@@ -156,9 +162,14 @@
             var result = await Api.AdvanceBrainstormPhaseAsync(
                 SessionId, _cts?.Token ?? CancellationToken.None);
 
-            result.Match(
-                session => _session = session,
-                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            if (result.IsSuccess)
+            {
+                _session = result.Value;
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            }
         }
         finally
         {
@@ -174,14 +185,16 @@
             var result = await Api.GenerateBrainstormTasksAsync(
                 SessionId, _cts?.Token ?? CancellationToken.None);
 
-            result.Match(
-                tasks =>
-                {
-                    NotificationService.Notify(NotificationSeverity.Success,
-                        "Tasks Created", $"{tasks.Count} tasks generated");
-                    Navigation.NavigateTo("/tasks");
-                },
-                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success,
+                    "Tasks Created", $"{result.Value.Count} tasks generated");
+                Navigation.NavigateTo("/tasks");
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            }
         }
         finally
         {

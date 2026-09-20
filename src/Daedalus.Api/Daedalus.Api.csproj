@@ -27,7 +27,7 @@
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
         <PackageReference Include="OllamaSharp" />
-        <PackageReference Include="CSharpFunctionalExtensions" />
+        <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="OpenTelemetry" />
         <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
         <PackageReference Include="OpenTelemetry.Extensions.Hosting" />

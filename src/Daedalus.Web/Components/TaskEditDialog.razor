@@ -151,13 +151,15 @@
                 _maxIterations != Task.MaxIterations ? _maxIterations : null);
 
             var result = await Api.UpdateTaskAsync(Task.Id, dto);
-            result.Match(
-                _ =>
-                {
-                    NotificationService.Notify(NotificationSeverity.Success, "Success", "Task updated");
-                    DialogService.Close(true);
-                },
-                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "Success", "Task updated");
+                DialogService.Close(true);
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            }
         }
         finally
         {

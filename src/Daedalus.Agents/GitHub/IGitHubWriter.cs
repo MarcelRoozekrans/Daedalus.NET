@@ -1,11 +1,11 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.GitHub;
 
 /// <summary>
 ///     Acts on a GitHub repository — for interactive agents only. There is no retry anywhere in this path: a
 ///     retried comment is a double comment on someone's pull request, and a retried label or close is a visible
-///     action taken twice. A failure returns <see cref="Result.Failure{T}(string)"/> and stops; it must surface to
+///     action taken twice. A failure returns <see cref="Result{T}.Failure(string)"/> and stops; it must surface to
 ///     the agent rather than be swallowed, because otherwise the agent will report success to a person when the
 ///     write did not happen.
 /// </summary>

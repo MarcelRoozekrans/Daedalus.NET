@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.GitHub;
 
@@ -23,25 +23,25 @@ public sealed class RepoRef
     public static Result<RepoRef> Parse(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
-            return Result.Failure<RepoRef>("Repository must be given as owner/name.");
+            return Result<RepoRef>.Failure("Repository must be given as owner/name.");
 
         var parts = value.Split('/');
         if (parts.Length != 2)
-            return Result.Failure<RepoRef>($"Repository must be given as owner/name, not '{value}'.");
+            return Result<RepoRef>.Failure($"Repository must be given as owner/name, not '{value}'.");
 
         var owner = parts[0];
         var name = parts[1];
 
         if (string.IsNullOrWhiteSpace(owner) || string.IsNullOrWhiteSpace(name))
-            return Result.Failure<RepoRef>($"Repository must be given as owner/name, not '{value}'.");
+            return Result<RepoRef>.Failure($"Repository must be given as owner/name, not '{value}'.");
 
         if (owner.IndexOfAny(Forbidden) >= 0 || name.IndexOfAny(Forbidden) >= 0
             || owner.Contains("..", StringComparison.Ordinal) || name.Contains("..", StringComparison.Ordinal))
         {
-            return Result.Failure<RepoRef>($"Repository name contains characters that are not allowed: '{value}'.");
+            return Result<RepoRef>.Failure($"Repository name contains characters that are not allowed: '{value}'.");
         }
 
-        return Result.Success(new RepoRef(owner, name));
+        return Result<RepoRef>.Success(new RepoRef(owner, name));
     }
 
     public override string ToString() => $"{Owner}/{Name}";

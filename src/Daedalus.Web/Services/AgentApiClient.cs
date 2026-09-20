@@ -32,21 +32,21 @@ public sealed class AgentApiClient(HttpClient http)
             using var response = await http.PostAsync(Relative($"/api/agents/{Uri.EscapeDataString(agentId)}/sessions"), content: null, ct);
             if (!response.IsSuccessStatusCode)
             {
-                return Result.Failure<string>(await ReadProblemMessageAsync(response, ct));
+                return Result<string>.Failure(await ReadProblemMessageAsync(response, ct));
             }
 
             var created = await response.Content.ReadFromJsonAsync<CreateAgentSessionResponseDto>(Json, ct);
             return created is null
-                ? Result.Failure<string>("No data returned from server")
-                : Result.Success(created.SessionId);
+                ? Result<string>.Failure("No data returned from server")
+                : Result<string>.Success(created.SessionId);
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result.Failure<string>(LoginRequired);
+            return Result<string>.Failure(LoginRequired);
         }
         catch (HttpRequestException ex)
         {
-            return Result.Failure<string>($"API error: {ex.Message}");
+            return Result<string>.Failure($"API error: {ex.Message}");
         }
     }
 
@@ -178,21 +178,21 @@ public sealed class AgentApiClient(HttpClient http)
             using var response = await http.GetAsync(Relative(url), ct);
             if (!response.IsSuccessStatusCode)
             {
-                return Result.Failure<T>(await ReadProblemMessageAsync(response, ct));
+                return Result<T>.Failure(await ReadProblemMessageAsync(response, ct));
             }
 
             var result = await response.Content.ReadFromJsonAsync<T>(Json, ct);
             return result is not null
-                ? Result.Success(result)
-                : Result.Failure<T>("No data returned from server");
+                ? Result<T>.Success(result)
+                : Result<T>.Failure("No data returned from server");
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result.Failure<T>(LoginRequired);
+            return Result<T>.Failure(LoginRequired);
         }
         catch (HttpRequestException ex)
         {
-            return Result.Failure<T>($"API error: {ex.Message}");
+            return Result<T>.Failure($"API error: {ex.Message}");
         }
     }
 

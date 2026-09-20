@@ -130,18 +130,17 @@ else if (string.IsNullOrEmpty(_filterType))
                 ? await Api.GetExecutionsByTaskAsync(id, 1, 200, _cts.Token)
                 : await Api.GetExecutionsBySessionAsync(id, 1, 200, _cts.Token);
 
-            result.Match(
-                executions =>
-                {
-                    _executions = executions.Items;
-                    _totalCount = executions.Total;
-                },
-                error =>
-                {
-                    _errorMessage = error;
-                    _executions = null;
-                    _totalCount = 0;
-                });
+            if (result.IsSuccess)
+            {
+                _executions = result.Value.Items;
+                _totalCount = result.Value.Total;
+            }
+            else
+            {
+                _errorMessage = result.Error;
+                _executions = null;
+                _totalCount = 0;
+            }
         }
         catch (OperationCanceledException)
         {

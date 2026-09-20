@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.GitHub;
 
@@ -30,7 +30,7 @@ public sealed class GitHubTokenSource(Func<string, string?> readEnvironmentVaria
         // read path but escapes SendWriteAsync, which has no try — breaking IGitHubWriter's contract that it
         // always returns a Result instead of throwing.
         return string.IsNullOrWhiteSpace(token)
-            ? Result.Failure<string>($"No GitHub token is configured. Set the {VariableName} environment variable.")
-            : Result.Success(token.Trim());
+            ? Result<string>.Failure($"No GitHub token is configured. Set the {VariableName} environment variable.")
+            : Result<string>.Success(token.Trim());
     }
 }

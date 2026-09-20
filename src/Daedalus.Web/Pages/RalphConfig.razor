@@ -154,29 +154,32 @@ else if (_config is not null)
         {
             var ct = _cts?.Token ?? CancellationToken.None;
             var result = await Api.GetRalphConfigAsync(ct);
-            result.Match(
-                dto =>
+            if (result.IsSuccess)
+            {
+                var dto = result.Value;
+                _config = new RalphConfigModel
                 {
-                    _config = new RalphConfigModel
+                    IterationDelayMs = dto.IterationDelayMs,
+                    MaxConsecutiveFailures = dto.MaxConsecutiveFailures,
+                    MaxIterations = dto.MaxIterations,
+                    RequestTimeoutSeconds = dto.RequestTimeoutSeconds,
+                    EnableDetailedLogging = dto.EnableDetailedLogging,
+                    PromptOptions = new RalphPromptConfigModel
                     {
-                        IterationDelayMs = dto.IterationDelayMs,
-                        MaxConsecutiveFailures = dto.MaxConsecutiveFailures,
-                        MaxIterations = dto.MaxIterations,
-                        RequestTimeoutSeconds = dto.RequestTimeoutSeconds,
-                        EnableDetailedLogging = dto.EnableDetailedLogging,
-                        PromptOptions = new RalphPromptConfigModel
-                        {
-                            MaxParallelSubagents = dto.PromptOptions.MaxParallelSubagents,
-                            IncludeGitWorkflow = dto.PromptOptions.IncludeGitWorkflow,
-                            IncludeTestInstructions = dto.PromptOptions.IncludeTestInstructions,
-                            IncludeQualityGuards = dto.PromptOptions.IncludeQualityGuards,
-                            IncludeSelfImprovement = dto.PromptOptions.IncludeSelfImprovement,
-                            IncludeCodingStandards = dto.PromptOptions.IncludeCodingStandards,
-                            IncludeLoggingInstructions = dto.PromptOptions.IncludeLoggingInstructions
-                        }
-                    };
-                },
-                error => _errorMessage = error);
+                        MaxParallelSubagents = dto.PromptOptions.MaxParallelSubagents,
+                        IncludeGitWorkflow = dto.PromptOptions.IncludeGitWorkflow,
+                        IncludeTestInstructions = dto.PromptOptions.IncludeTestInstructions,
+                        IncludeQualityGuards = dto.PromptOptions.IncludeQualityGuards,
+                        IncludeSelfImprovement = dto.PromptOptions.IncludeSelfImprovement,
+                        IncludeCodingStandards = dto.PromptOptions.IncludeCodingStandards,
+                        IncludeLoggingInstructions = dto.PromptOptions.IncludeLoggingInstructions
+                    }
+                };
+            }
+            else
+            {
+                _errorMessage = result.Error;
+            }
         }
         catch (Exception ex)
         {
@@ -212,9 +215,14 @@ else if (_config is not null)
 
             var ct = _cts?.Token ?? CancellationToken.None;
             var result = await Api.UpdateRalphConfigAsync(dto, ct);
-            result.Match(
-                _ => NotificationService.Notify(NotificationSeverity.Success, "Saved", "Configuration updated successfully"),
-                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "Saved", "Configuration updated successfully");
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            }
         }
         finally
         {

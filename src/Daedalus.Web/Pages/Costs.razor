@@ -203,9 +203,9 @@
 
             await Task.WhenAll(summaryTask, projectsTask, pricingTask);
 
-            _summary = summaryTask.Result.Match(s => (CostSummaryDto?)s, _ => null);
-            _projectCosts = projectsTask.Result.Match(p => p, _ => []);
-            _pricingModels = pricingTask.Result.Match(p => p, _ => []);
+            _summary = summaryTask.Result.IsSuccess ? (CostSummaryDto?)summaryTask.Result.Value : null;
+            _projectCosts = projectsTask.Result.IsSuccess ? projectsTask.Result.Value : [];
+            _pricingModels = pricingTask.Result.IsSuccess ? pricingTask.Result.Value : [];
 
             if (_pricingModels.Count > 0)
             {
@@ -228,7 +228,7 @@
     {
         var estimateResult = await Api.EstimateCostAsync(
             _selectedModelId, _estimateMaxIterations, _estimatePromptTokens, ct);
-        _estimate = estimateResult.Match(e => (CostEstimateDto?)e, _ => null);
+        _estimate = estimateResult.IsSuccess ? (CostEstimateDto?)estimateResult.Value : null;
     }
 
     private async void OnEstimateParamsChanged()
@@ -244,9 +244,10 @@
         if (_cts is null) return;
 
         var result = await Api.GetCostsByProjectIdAsync(project.ProjectId, _cts.Token);
-        result.Match(
-            tasks => _taskCostsCache[project.ProjectId] = tasks,
-            _ => { });
+        if (result.IsSuccess)
+        {
+            _taskCostsCache[project.ProjectId] = result.Value;
+        }
         StateHasChanged();
     }
 

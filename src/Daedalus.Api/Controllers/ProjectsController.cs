@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.CreateProject;
 using Daedalus.Application.Commands.DeleteProject;

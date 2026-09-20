@@ -130,13 +130,13 @@
         try
         {
             var tasksResult = await Api.GetTasksAsync(1, 1, ct);
-            _tasksCount = tasksResult.Match(r => r.Total, _ => 0);
+            _tasksCount = tasksResult.IsSuccess ? tasksResult.Value.Total : 0;
 
             var sessionsResult = await Api.GetSessionsAsync(1, 1, ct);
-            _sessionsCount = sessionsResult.Match(r => r.Total, _ => 0);
+            _sessionsCount = sessionsResult.IsSuccess ? sessionsResult.Value.Total : 0;
 
             var activeResult = await Api.GetActiveSessionsAsync(1, 1, ct);
-            _activeSessions = activeResult.Match(r => r.Total, _ => 0);
+            _activeSessions = activeResult.IsSuccess ? activeResult.Value.Total : 0;
 
             // Estimate completed from total - active (rough heuristic)
             _completedTasks = Math.Max(0, _tasksCount - _activeSessions);

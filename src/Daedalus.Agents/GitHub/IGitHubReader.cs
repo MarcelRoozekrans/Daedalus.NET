@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.GitHub;
 
