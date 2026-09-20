@@ -55,9 +55,14 @@ repositories in the ZeroAlloc org**; all 23 are fixed and merged, tracked in
 
 ## Blockers
 
-1. **The Telegram delivery path is still unverified end to end.** Carried since 1.4. The scout now
-   produces real content and the machinery is verified, but no digest has actually been delivered to
-   a chat. Needs a bot token and a real `ConversationId`.
+1. ~~The Telegram delivery path is unverified end to end.~~ **CLOSED 2026-09-20.** A real digest was
+   delivered to a real chat. The full chain ran: sweeper claimed the schedule, the scout swept the
+   repository with the phase 1.9 GitHub tools, the writer produced prose, and the outbox dispatched
+   `ChannelMessageQueued` to Telegram — five outbox rows, all succeeded, `RetryCount` 0, no dead
+   letters, execution `Done` with no `FailedAtStep`.
+
+   **Verifying it found two real bugs, neither findable any other way.** See "What the first real
+   digest cost" below.
 
 2. **`ci.yml` excludes `~Playwright`**, so ~99 browser tests and the whole `Playwright.Api` suite
    never run in CI. The `Playwright.Api` fixture bug — 126 of 126 failing in `OneTimeSetUp` on
@@ -76,6 +81,44 @@ repositories in the ZeroAlloc org**; all 23 are fixed and merged, tracked in
 Phase 1.9 added an `AddScheduledRunRepository` migration, and a bare run does not apply migrations.
 Either use the AppHost, which runs them, or apply it by hand first. This is not a defect; it is the
 first phase to add a migration that an existing local database will not already have.
+
+## What the first real digest cost
+
+Two defects surfaced the moment the path was exercised for real. Both are fixed and merged.
+
+**The Telegram channel had never worked, since phase 1.4.** A bot token is `<digits>:<secret>`, so
+`bot{token}/{method}` parses as an **absolute** uri whose scheme is `bot<digits>` — a scheme may be
+letters and digits followed by a colon. `HttpClient.PostAsync`'s string overload applies
+`BaseAddress` only to a *relative* string, so the configured `api.telegram.org` was never consulted
+and every call threw `The 'bot<digits>' scheme is not supported`. Fixed upstream in
+[Thalos.NET#120](https://github.com/MarcelRoozekrans/Thalos.NET/pull/120), released as 0.5.1,
+adopted here in #252.
+
+**Why no test caught it:** every token fixture in the Thalos suite was colon-free — `"TOKEN"`,
+`"T"`, `"cfg-token"`. Those build a genuinely *relative* uri, so `BaseAddress` applied and the tests
+passed. The existing test asserted exactly the right property with a fixture incapable of exposing
+the failure. **The shape of the fixture was the bug.**
+
+**The scout's budget and page size had never been reconciled.** `MaxTotalTokens` was 50000 per
+subagent run while `MaxItemsPerCategory` was 50, so the scout could pull five categories of fifty
+items on top of the `roslyn__*`, `daedalus__*` and `memory__*` schemas it carries before fetching
+anything. Fixed in #251: page size 15, budget 150000, `DeadlineSeconds` deliberately unchanged.
+
+**A third gap was found before it could bite:** the AppHost forwarded only the Anthropic key and the
+Telegram token, never `GITHUB_TOKEN`, so under Aspire the scout would have reported every category
+unreadable. Fixed in #250.
+
+### Operational notes from that run
+
+- **Orphaned `dcp.exe` processes hold ports 17300, 18889 and 18890** after a killed AppHost, and a
+  relaunch then fails with `Unable to allocate a network port` **after** printing its dashboard
+  banner. Killing containers is not enough; kill `dcp.exe` too and verify the ports are free.
+- **The Aspire Postgres is volume-backed**, so execution and outbox rows survive the container being
+  recreated. A stale failed row will look exactly like a fresh failure — check `CreatedAt` before
+  concluding anything.
+- **Changing a schedule's cron does not recompute `NextRunAt`.** `UpdateFromConfig` sets `Cron` and
+  the reconciler does not reschedule, so a cron change takes effect only after the schedule fires
+  once on its old one. To fire on demand, set `NextRunAt` into the past directly.
 
 ## Known Narrowings — state these rather than paper over them
 
@@ -121,10 +164,12 @@ first phase to add a migration that an existing local database will not already 
 **Phase 1.7 — Ralph retirement + ZeroAlloc migration** is next in the roadmap, and nothing now
 blocks it.
 
-Worth weighing first: **blocker 1 is the last thing standing between this and a working product.**
-The scout produces real findings, the writer turns them into prose, the scheduler runs, and the
-diagnostics page reports where it died — but no digest has ever reached a human. That is a small
-amount of work for the first end-to-end proof of everything built since 1.4.
+**That gap is now closed.** A real digest reached a real chat on 2026-09-20, which is the first
+end-to-end proof of everything built since 1.4. The remaining blockers are all secondary: CI does
+not run the Playwright suites, the Cli has a DI gap in Ralph-era code that 1.7 retires, and the
+development connection strings disagree with the compose container.
+
+So 1.7 is genuinely next, with nothing blocking it.
 
 ## How This Phase Was Executed — worth carrying
 
