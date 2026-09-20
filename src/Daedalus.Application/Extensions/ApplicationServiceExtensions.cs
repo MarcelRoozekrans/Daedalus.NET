@@ -32,6 +32,12 @@ public static class ApplicationServiceExtensions
         services.AddScoped<ICommandHandlerFactory>(sp => new CommandQueryHandlerFactory(sp));
         services.AddScoped<IQueryHandlerFactory>(sp => new CommandQueryHandlerFactory(sp));
 
+        // Register the generated IMediator (internal to this assembly - AddMediator() is itself
+        // internal, so it can only be called from code compiled into Daedalus.Application) and the
+        // public facade that lets the two MVC controllers dispatch across the assembly boundary.
+        services.AddMediator();
+        services.AddScoped<IApplicationCommands, ApplicationCommands>();
+
         // Register prompt building and MCP agent selection
         services.AddPromptBuilding();
 

@@ -1,4 +1,3 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.CreateProject;
 using Daedalus.Application.Commands.DeleteProject;
@@ -17,7 +16,7 @@ namespace Daedalus.Api.Controllers;
 [Produces("application/json")]
 public sealed partial class ProjectsController(
     IProjectQueryService projectService,
-    ICommandHandlerFactory commandFactory,
+    IApplicationCommands commands,
     ILogger<ProjectsController> logger)
     : ControllerBase
 {
@@ -113,8 +112,7 @@ public sealed partial class ProjectsController(
             request.RepositoryUrl,
             request.DefaultBranch);
 
-        var handler = commandFactory.GetHandler<CreateProjectCommand, Result<ProjectDto>>(command);
-        var result = await handler.Handle(command, ct);
+        var result = await commands.CreateProjectAsync(command, ct);
 
         return result.IsSuccess
             ? CreatedAtAction(nameof(GetProjectById), new { id = result.Value.Id }, result.Value)
@@ -137,8 +135,7 @@ public sealed partial class ProjectsController(
             request.Description,
             request.Version);
 
-        var handler = commandFactory.GetHandler<UpdateProjectCommand, Result<ProjectDto>>(command);
-        var result = await handler.Handle(command, ct);
+        var result = await commands.UpdateProjectAsync(command, ct);
 
         if (result.IsSuccess)
         {
@@ -159,8 +156,7 @@ public sealed partial class ProjectsController(
     public async Task<IActionResult> DeleteProject(Guid id, CancellationToken ct = default)
     {
         var command = new DeleteProjectCommand(id);
-        var handler = commandFactory.GetHandler<DeleteProjectCommand, Result>(command);
-        var result = await handler.Handle(command, ct);
+        var result = await commands.DeleteProjectAsync(command, ct);
 
         if (result.IsSuccess)
         {

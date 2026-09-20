@@ -1,5 +1,4 @@
 using System.Threading.RateLimiting;
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.AbandonTask;
 using Daedalus.Application.Commands.CreateTask;
@@ -21,7 +20,7 @@ namespace Daedalus.Api.Controllers;
 [Produces("application/json")]
 public sealed partial class TasksController(
     ITaskQueryService taskService,
-    ICommandHandlerFactory commandFactory,
+    IApplicationCommands commands,
     ILogger<TasksController> logger) : ControllerBase
 {
     [LoggerMessage(EventId = 100, Level = LogLevel.Error, Message = "Error retrieving tasks")]
@@ -94,8 +93,7 @@ public sealed partial class TasksController(
             dto.CompletionPromise,
             dto.MaxIterations);
 
-        var handler = commandFactory.GetHandler<CreateTaskCommand, Result<TaskDto>>(command);
-        var result = await handler.Handle(command, ct);
+        var result = await commands.CreateTaskAsync(command, ct);
 
         return result.IsSuccess
             ? CreatedAtAction(nameof(GetTaskById), new { id = result.Value.Id }, result.Value)
@@ -123,8 +121,7 @@ public sealed partial class TasksController(
             dto.CompletionPromise,
             dto.MaxIterations);
 
-        var handler = commandFactory.GetHandler<UpdateTaskCommand, Result<TaskDto>>(command);
-        var result = await handler.Handle(command, ct);
+        var result = await commands.UpdateTaskAsync(command, ct);
 
         if (result.IsSuccess)
         {
@@ -146,8 +143,7 @@ public sealed partial class TasksController(
     public async Task<IActionResult> DeleteTask(Guid id, CancellationToken ct = default)
     {
         var command = new DeleteTaskCommand(id);
-        var handler = commandFactory.GetHandler<DeleteTaskCommand, Result>(command);
-        var result = await handler.Handle(command, ct);
+        var result = await commands.DeleteTaskAsync(command, ct);
 
         if (result.IsSuccess)
         {
@@ -169,8 +165,7 @@ public sealed partial class TasksController(
     public async Task<IActionResult> AbandonTask(Guid id, [FromBody] AbandonTaskDto dto, CancellationToken ct = default)
     {
         var command = new AbandonTaskCommand(id, dto.Reason);
-        var handler = commandFactory.GetHandler<AbandonTaskCommand, Result<TaskDto>>(command);
-        var result = await handler.Handle(command, ct);
+        var result = await commands.AbandonTaskAsync(command, ct);
 
         if (result.IsSuccess)
         {
@@ -192,8 +187,7 @@ public sealed partial class TasksController(
     public async Task<IActionResult> ResumeTask(Guid id, [FromBody] ResumeTaskDto dto, CancellationToken ct = default)
     {
         var command = new ResumeTaskCommand(id, dto.NewSessionId);
-        var handler = commandFactory.GetHandler<ResumeTaskCommand, Result<TaskDto>>(command);
-        var result = await handler.Handle(command, ct);
+        var result = await commands.ResumeTaskAsync(command, ct);
 
         if (result.IsSuccess)
         {
