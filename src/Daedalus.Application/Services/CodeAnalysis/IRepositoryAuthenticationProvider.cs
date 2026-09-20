@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Domain.CodeAnalysis;
 
 namespace Daedalus.Application.Services.CodeAnalysis;

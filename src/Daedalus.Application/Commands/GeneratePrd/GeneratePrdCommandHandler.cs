@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
@@ -56,7 +56,7 @@ public sealed partial class GeneratePrdCommandHandler(
     {
         if (string.IsNullOrWhiteSpace(command.UserRequirements))
         {
-            return Result.Failure<PrdResponseDto>("User requirements cannot be empty");
+            return Result<PrdResponseDto>.Failure("User requirements cannot be empty");
         }
 
         try
@@ -69,24 +69,24 @@ public sealed partial class GeneratePrdCommandHandler(
 
             if (llmResult.IsFailure)
             {
-                return Result.Failure<PrdResponseDto>($"LLM invocation failed: {llmResult.Error}");
+                return Result<PrdResponseDto>.Failure($"LLM invocation failed: {llmResult.Error}");
             }
 
             var prdResult = ParsePrdResponse(llmResult.Value.Response, command.ProjectId, logger);
             if (prdResult.IsFailure)
             {
-                return Result.Failure<PrdResponseDto>(prdResult.Error);
+                return Result<PrdResponseDto>.Failure(prdResult.Error);
             }
 
             var itemCount = prdResult.Value.AllItems.Count;
             LogPrdGeneratedSuccessfully(logger, itemCount);
 
-            return Result.Success(prdResult.Value);
+            return Result<PrdResponseDto>.Success(prdResult.Value);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error generating PRD for project {ProjectId}", command.ProjectId);
-            return Result.Failure<PrdResponseDto>($"Error generating PRD: {ex.Message}");
+            return Result<PrdResponseDto>.Failure($"Error generating PRD: {ex.Message}");
         }
     }
 
@@ -124,7 +124,7 @@ public sealed partial class GeneratePrdCommandHandler(
             var features = ParsePrdItems(root.GetProperty("features"));
             var tasks = ParsePrdItems(root.GetProperty("tasks"));
 
-            return Result.Success(new PrdResponseDto(
+            return Result<PrdResponseDto>.Success(new PrdResponseDto(
                 Guid.NewGuid().ToString(),
                 projectId,
                 productOverview,
@@ -138,7 +138,7 @@ public sealed partial class GeneratePrdCommandHandler(
         catch (JsonException ex)
         {
             logger.LogError(ex, "Failed to parse PRD JSON response");
-            return Result.Failure<PrdResponseDto>("Invalid PRD JSON format from LLM");
+            return Result<PrdResponseDto>.Failure("Invalid PRD JSON format from LLM");
         }
     }
 

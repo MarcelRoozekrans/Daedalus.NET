@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
@@ -28,7 +28,7 @@ public sealed partial class CreateProjectCommandHandler(
 
             if (createResult.IsFailure)
             {
-                return Result.Failure<ProjectDto>(createResult.Error);
+                return Result<ProjectDto>.Failure(createResult.Error);
             }
 
             var project = createResult.Value;
@@ -38,7 +38,7 @@ public sealed partial class CreateProjectCommandHandler(
             if (addResult.IsFailure)
             {
                 LogCreateProjectFailed(logger, addResult.Error);
-                return Result.Failure<ProjectDto>(addResult.Error);
+                return Result<ProjectDto>.Failure(addResult.Error);
             }
 
             var dto = new ProjectDto(
@@ -53,12 +53,12 @@ public sealed partial class CreateProjectCommandHandler(
                 new List<TaskDto>());
 
             LogProjectCreated(logger, project.Id);
-            return Result.Success(dto);
+            return Result<ProjectDto>.Success(dto);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Unexpected error creating project");
-            return Result.Failure<ProjectDto>($"Error creating project: {ex.Message}");
+            return Result<ProjectDto>.Failure($"Error creating project: {ex.Message}");
         }
     }
 

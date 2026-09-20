@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging;
@@ -44,12 +44,12 @@ public sealed partial class RegeneratePlanCommandHandler(
         // Validate command
         var validation = command.Validate();
         if (validation.IsFailure)
-            return Result.Failure<RegeneratePlanResult>(validation.Error);
+            return Result<RegeneratePlanResult>.Failure(validation.Error);
 
         // Resolve workspace path
         var workspacePath = command.WorkspacePath ?? configurationOptions.Value.WorkspacePath;
         if (string.IsNullOrEmpty(workspacePath))
-            return Result.Failure<RegeneratePlanResult>(
+            return Result<RegeneratePlanResult>.Failure(
                 "WorkspacePath must be provided either in the command or via RalphLoop configuration");
 
         LogRegeneratingPlan(logger, command.TaskId, workspacePath);
@@ -57,7 +57,7 @@ public sealed partial class RegeneratePlanCommandHandler(
         // Fetch task for context
         var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
         if (taskResult.IsFailure)
-            return Result.Failure<RegeneratePlanResult>($"Task not found: {taskResult.Error}");
+            return Result<RegeneratePlanResult>.Failure($"Task not found: {taskResult.Error}");
 
         var task = taskResult.Value;
 
@@ -81,7 +81,7 @@ public sealed partial class RegeneratePlanCommandHandler(
         if (llmResult.IsFailure)
         {
             LogPlanRegenerationFailed(logger, command.TaskId, llmResult.Error);
-            return Result.Failure<RegeneratePlanResult>($"LLM plan generation failed: {llmResult.Error}");
+            return Result<RegeneratePlanResult>.Failure($"LLM plan generation failed: {llmResult.Error}");
         }
 
         var planContent = llmResult.Value.Response;
@@ -91,7 +91,7 @@ public sealed partial class RegeneratePlanCommandHandler(
 
         LogPlanRegenerated(logger, command.TaskId, planContent.Length);
 
-        return Result.Success(new RegeneratePlanResult(
+        return Result<RegeneratePlanResult>.Success(new RegeneratePlanResult(
             planFilePath,
             planContent,
             previousPlanBackedUp));

@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 using Task = Daedalus.Domain.Entities.Task;
@@ -37,7 +37,7 @@ public sealed partial class TaskAssignmentService(
 
         if (staleResult.IsFailure)
         {
-            return staleResult;
+            return Result.Failure(staleResult.Error);
         }
 
         var staleCount = staleResult.Value.Count;

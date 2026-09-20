@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Domain.Entities;
@@ -51,7 +51,7 @@ public sealed partial class RalphLoopPipelineService(
         if (contextResult.IsFailure)
         {
             LogFailedInitializeContext(logger, contextResult.Error);
-            return contextResult;
+            return Result.Failure(contextResult.Error);
         }
 
         var promptContext = contextResult.Value;

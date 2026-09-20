@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
@@ -22,19 +22,19 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
         var promptValidation = PerformanceOptimizations.ValidateAndTrimString(command.Prompt, out var promptError);
         if (promptValidation == null)
         {
-            return Result.Failure<TaskDto>($"Prompt: {promptError}");
+            return Result<TaskDto>.Failure($"Prompt: {promptError}");
         }
 
         var promiseValidation =
             PerformanceOptimizations.ValidateAndTrimString(command.CompletionPromise, out var promiseError);
         if (promiseValidation == null)
         {
-            return Result.Failure<TaskDto>($"CompletionPromise: {promiseError}");
+            return Result<TaskDto>.Failure($"CompletionPromise: {promiseError}");
         }
 
         if (command.MaxIterations <= 0)
         {
-            return Result.Failure<TaskDto>("MaxIterations must be greater than 0");
+            return Result<TaskDto>.Failure("MaxIterations must be greater than 0");
         }
 
         // Create domain entity using factory method
@@ -54,7 +54,7 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
 
         if (createResult.IsFailure)
         {
-            return Result.Failure<TaskDto>(createResult.Error);
+            return Result<TaskDto>.Failure(createResult.Error);
         }
 
         var task = createResult.Value;
@@ -65,12 +65,12 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
         // Return failure if persistence failed
         if (addResult.IsFailure)
         {
-            return Result.Failure<TaskDto>(addResult.Error);
+            return Result<TaskDto>.Failure(addResult.Error);
         }
 
         // Map domain entity to DTO
         var taskDto = TaskDtoMapper.ToDto(addResult.Value);
 
-        return Result.Success(taskDto);
+        return Result<TaskDto>.Success(taskDto);
     }
 }

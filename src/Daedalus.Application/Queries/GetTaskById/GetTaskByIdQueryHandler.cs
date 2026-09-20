@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
@@ -19,7 +19,7 @@ public sealed class GetTaskByIdQueryHandler(ITaskRepository taskRepository)
         // Validate query
         if (query.TaskId == Guid.Empty)
         {
-            return Result.Failure<TaskDto>("TaskId cannot be empty");
+            return Result<TaskDto>.Failure("TaskId cannot be empty");
         }
 
         // Fetch the task
@@ -28,11 +28,11 @@ public sealed class GetTaskByIdQueryHandler(ITaskRepository taskRepository)
         // Return failure if not found
         if (result.IsFailure)
         {
-            return Result.Failure<TaskDto>(result.Error);
+            return Result<TaskDto>.Failure(result.Error);
         }
 
         // Map to DTO and return
         var taskDto = TaskDtoMapper.ToDto(result.Value);
-        return Result.Success(taskDto);
+        return Result<TaskDto>.Success(taskDto);
     }
 }

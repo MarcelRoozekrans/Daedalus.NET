@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
@@ -17,13 +17,13 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
     {
         if (command.TaskId == Guid.Empty)
         {
-            return Result.Failure<TaskDto>("TaskId cannot be empty");
+            return Result<TaskDto>.Failure("TaskId cannot be empty");
         }
 
         var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
         if (taskResult.IsFailure)
         {
-            return Result.Failure<TaskDto>($"Task not found: {taskResult.Error}");
+            return Result<TaskDto>.Failure($"Task not found: {taskResult.Error}");
         }
 
         var task = taskResult.Value;
@@ -31,7 +31,7 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
         // Only allow updates on pending tasks
         if (task.Status != TaskStatus.Pending)
         {
-            return Result.Failure<TaskDto>(
+            return Result<TaskDto>.Failure(
                 $"Cannot update task: current status is {task.Status}. Only pending tasks can be updated.");
         }
 
@@ -49,7 +49,7 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
 
             if (updateResult.IsFailure)
             {
-                return Result.Failure<TaskDto>(updateResult.Error);
+                return Result<TaskDto>.Failure(updateResult.Error);
             }
         }
 
@@ -65,16 +65,16 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
 
             if (configResult.IsFailure)
             {
-                return Result.Failure<TaskDto>(configResult.Error);
+                return Result<TaskDto>.Failure(configResult.Error);
             }
         }
 
         var updateDbResult = await taskRepository.UpdateAsync(task, cancellationToken);
         if (updateDbResult.IsFailure)
         {
-            return Result.Failure<TaskDto>($"Failed to update task: {updateDbResult.Error}");
+            return Result<TaskDto>.Failure($"Failed to update task: {updateDbResult.Error}");
         }
 
-        return Result.Success(TaskDtoMapper.ToDto(task));
+        return Result<TaskDto>.Success(TaskDtoMapper.ToDto(task));
     }
 }

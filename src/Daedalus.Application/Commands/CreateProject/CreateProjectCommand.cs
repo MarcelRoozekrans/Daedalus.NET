@@ -1,5 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 
