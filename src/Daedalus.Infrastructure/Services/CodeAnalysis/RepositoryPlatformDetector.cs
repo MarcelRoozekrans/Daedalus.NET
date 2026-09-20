@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -54,13 +54,13 @@ public sealed class RepositoryPlatformDetector(ILogger<RepositoryPlatformDetecto
                 RepositoryPlatform.AzureDevOps => await ParseAzureDevOpsUrlAsync(repositoryUrl, ct)
                     .ConfigureAwait(false),
                 RepositoryPlatform.GitLab => await ParseGitLabUrlAsync(repositoryUrl, ct).ConfigureAwait(false),
-                _ => Result.Failure<RepositoryInfo>("Unsupported platform")
+                _ => Result<RepositoryInfo>.Failure("Unsupported platform")
             };
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error parsing repository URL: {Url}", repositoryUrl);
-            return Result.Failure<RepositoryInfo>($"Error parsing repository URL: {ex.Message}");
+            return Result<RepositoryInfo>.Failure($"Error parsing repository URL: {ex.Message}");
         }
     }
 
@@ -74,7 +74,7 @@ public sealed class RepositoryPlatformDetector(ILogger<RepositoryPlatformDetecto
 
         if (parts.Length < 2)
         {
-            return Result.Failure<RepositoryInfo>("Invalid GitHub repository URL format");
+            return Result<RepositoryInfo>.Failure("Invalid GitHub repository URL format");
         }
 
         var owner = parts[0];
@@ -91,7 +91,7 @@ public sealed class RepositoryPlatformDetector(ILogger<RepositoryPlatformDetecto
             ApiBaseUrl = GetGitHubApiBaseUrl()
         };
 
-        return await Task.FromResult(Result.Success(info)).ConfigureAwait(false);
+        return await Task.FromResult(Result<RepositoryInfo>.Success(info)).ConfigureAwait(false);
     }
 
     private async Task<Result<RepositoryInfo>> ParseAzureDevOpsUrlAsync(
@@ -104,7 +104,7 @@ public sealed class RepositoryPlatformDetector(ILogger<RepositoryPlatformDetecto
 
         if (segments.Length < 4 || segments[2] != "_git")
         {
-            return Result.Failure<RepositoryInfo>("Invalid Azure DevOps repository URL format");
+            return Result<RepositoryInfo>.Failure("Invalid Azure DevOps repository URL format");
         }
 
         var org = segments[0];
@@ -122,7 +122,7 @@ public sealed class RepositoryPlatformDetector(ILogger<RepositoryPlatformDetecto
             ApiBaseUrl = $"https://dev.azure.com/{org}/{project}/_apis"
         };
 
-        return await Task.FromResult(Result.Success(info)).ConfigureAwait(false);
+        return await Task.FromResult(Result<RepositoryInfo>.Success(info)).ConfigureAwait(false);
     }
 
     private async Task<Result<RepositoryInfo>> ParseGitLabUrlAsync(
@@ -135,7 +135,7 @@ public sealed class RepositoryPlatformDetector(ILogger<RepositoryPlatformDetecto
 
         if (parts.Length < 2)
         {
-            return Result.Failure<RepositoryInfo>("Invalid GitLab repository URL format");
+            return Result<RepositoryInfo>.Failure("Invalid GitLab repository URL format");
         }
 
         var owner = parts[0];
@@ -152,7 +152,7 @@ public sealed class RepositoryPlatformDetector(ILogger<RepositoryPlatformDetecto
             ApiBaseUrl = GetGitLabApiBaseUrl()
         };
 
-        return await Task.FromResult(Result.Success(info)).ConfigureAwait(false);
+        return await Task.FromResult(Result<RepositoryInfo>.Success(info)).ConfigureAwait(false);
     }
 
     private static string BuildGitHubHttpsUrl(string owner, string repo) => $"{_gitHubBaseUrl}/{owner}/{repo}.git";

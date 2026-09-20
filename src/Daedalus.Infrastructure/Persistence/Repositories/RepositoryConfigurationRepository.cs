@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -24,12 +24,12 @@ public sealed partial class RepositoryConfigurationRepository(
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<RepositoryConfiguration>)repos);
+            return Result<IReadOnlyList<RepositoryConfiguration>>.Success((IReadOnlyList<RepositoryConfiguration>)repos);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingRepositories(logger, ex);
-            return Result.Failure<IReadOnlyList<RepositoryConfiguration>>(
+            return Result<IReadOnlyList<RepositoryConfiguration>>.Failure(
                 $"Error retrieving repositories: {ex.Message}");
         }
     }
@@ -45,14 +45,14 @@ public sealed partial class RepositoryConfigurationRepository(
                 .ConfigureAwait(false);
 
             return repo is not null
-                ? Result.Success(repo)
-                : Result.Failure<RepositoryConfiguration>(
+                ? Result<RepositoryConfiguration>.Success(repo)
+                : Result<RepositoryConfiguration>.Failure(
                     $"Repository configuration {id} not found");
         }
         catch (Exception ex)
         {
             LogErrorRetrievingRepository(logger, ex, id);
-            return Result.Failure<RepositoryConfiguration>(
+            return Result<RepositoryConfiguration>.Failure(
                 $"Error retrieving repository: {ex.Message}");
         }
     }
@@ -67,14 +67,14 @@ public sealed partial class RepositoryConfigurationRepository(
                 .ConfigureAwait(false);
 
             return repo is not null
-                ? Result.Success(repo)
-                : Result.Failure<RepositoryConfiguration>(
+                ? Result<RepositoryConfiguration>.Success(repo)
+                : Result<RepositoryConfiguration>.Failure(
                     $"Repository configuration {id} not found");
         }
         catch (Exception ex)
         {
             LogErrorRetrievingRepository(logger, ex, id);
-            return Result.Failure<RepositoryConfiguration>(
+            return Result<RepositoryConfiguration>.Failure(
                 $"Error retrieving repository: {ex.Message}");
         }
     }
@@ -86,12 +86,12 @@ public sealed partial class RepositoryConfigurationRepository(
         {
             dbContext.RepositoryConfigurations.Add(repository);
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success(repository);
+            return Result<RepositoryConfiguration>.Success(repository);
         }
         catch (Exception ex)
         {
             LogErrorAddingRepository(logger, ex, repository.Id);
-            return Result.Failure<RepositoryConfiguration>(
+            return Result<RepositoryConfiguration>.Failure(
                 $"Error adding repository: {ex.Message}");
         }
     }

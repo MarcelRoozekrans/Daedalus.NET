@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -37,7 +37,7 @@ public sealed class PullRequestFactory(
             RepositoryPlatform.AzureDevOps => await azureDevOps.CreatePullRequestAsync(
                 repositoryUrl, featureBranch, baseBranch, title, description, ct).ConfigureAwait(false),
 
-            _ => Result.Failure<PullRequestResult>($"Unsupported platform: {platform}")
+            _ => Result<PullRequestResult>.Failure($"Unsupported platform: {platform}")
         };
     }
 }

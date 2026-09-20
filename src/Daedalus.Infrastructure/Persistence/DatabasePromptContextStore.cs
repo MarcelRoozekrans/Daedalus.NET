@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -49,7 +49,7 @@ public sealed partial class DatabasePromptContextStore(
 
             if (task is null)
             {
-                return Result.Failure<PromptContext>($"Task {taskId} not found in database");
+                return Result<PromptContext>.Failure($"Task {taskId} not found in database");
             }
 
             // Get executions for this specific session, ordered by iteration
@@ -101,12 +101,12 @@ public sealed partial class DatabasePromptContextStore(
             }
 
             LogContextLoaded(logger, taskId, sessionId, context.Iteration, sessionExecutions.Count);
-            return Result.Success(context);
+            return Result<PromptContext>.Success(context);
         }
         catch (Exception ex)
         {
             LogContextLoadError(logger, taskId, ex.Message);
-            return Result.Failure<PromptContext>($"Failed to load prompt context from DB: {ex.Message}");
+            return Result<PromptContext>.Failure($"Failed to load prompt context from DB: {ex.Message}");
         }
     }
 

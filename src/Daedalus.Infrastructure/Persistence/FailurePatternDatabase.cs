@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -22,7 +22,7 @@ public sealed partial class FailurePatternDatabase(
         {
             if (string.IsNullOrWhiteSpace(errorText))
             {
-                return Result.Success<IReadOnlyList<FailurePatternRecord>>([]);
+                return Result<IReadOnlyList<FailurePatternRecord>>.Success([]);
             }
 
             // Find task executions that had errors matching the search text
@@ -73,12 +73,12 @@ public sealed partial class FailurePatternDatabase(
                 }
             }
 
-            return Result.Success<IReadOnlyList<FailurePatternRecord>>(patterns);
+            return Result<IReadOnlyList<FailurePatternRecord>>.Success(patterns);
         }
         catch (Exception ex)
         {
             LogSearchByErrorFailed(logger, ex, errorText);
-            return Result.Failure<IReadOnlyList<FailurePatternRecord>>(
+            return Result<IReadOnlyList<FailurePatternRecord>>.Failure(
                 $"Failed to search failure patterns: {ex.Message}");
         }
     }
@@ -90,14 +90,14 @@ public sealed partial class FailurePatternDatabase(
         {
             if (string.IsNullOrWhiteSpace(promptContent))
             {
-                return Result.Success<IReadOnlyList<FailurePatternRecord>>([]);
+                return Result<IReadOnlyList<FailurePatternRecord>>.Success([]);
             }
 
             // Extract meaningful keywords from prompt for search
             var keywords = ExtractSearchKeywords(promptContent);
             if (keywords.Count == 0)
             {
-                return Result.Success<IReadOnlyList<FailurePatternRecord>>([]);
+                return Result<IReadOnlyList<FailurePatternRecord>>.Success([]);
             }
 
             // Search for error executions matching any of the extracted keywords
@@ -127,12 +127,12 @@ public sealed partial class FailurePatternDatabase(
                 .Take(maxResults)
                 .ToList();
 
-            return Result.Success<IReadOnlyList<FailurePatternRecord>>(deduplicated);
+            return Result<IReadOnlyList<FailurePatternRecord>>.Success(deduplicated);
         }
         catch (Exception ex)
         {
             LogSearchByPromptFailed(logger, ex);
-            return Result.Failure<IReadOnlyList<FailurePatternRecord>>(
+            return Result<IReadOnlyList<FailurePatternRecord>>.Failure(
                 $"Failed to search failure patterns by prompt context: {ex.Message}");
         }
     }

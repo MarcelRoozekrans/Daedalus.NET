@@ -33,7 +33,7 @@
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-        <PackageReference Include="CSharpFunctionalExtensions" />
+        <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="Anthropic" />
         <PackageReference Include="ZLinq" />
         <PackageReference Include="LibGit2Sharp" />

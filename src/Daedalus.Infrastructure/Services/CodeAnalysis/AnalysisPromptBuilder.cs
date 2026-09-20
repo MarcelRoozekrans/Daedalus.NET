@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -63,12 +63,12 @@ public sealed class AnalysisPromptBuilder(ILogger<AnalysisPromptBuilder> logger)
                           Include a summary of changes at the end using <promise>SUMMARY_OF_CHANGES</promise> tags.
                           """;
 
-            return Result.Success(prompt);
+            return Result<string>.Success(prompt);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error building analysis prompt");
-            return Result.Failure<string>($"Error building prompt: {ex.Message}");
+            return Result<string>.Failure($"Error building prompt: {ex.Message}");
         }
     }
 
@@ -130,12 +130,12 @@ public sealed class AnalysisPromptBuilder(ILogger<AnalysisPromptBuilder> logger)
                           Include a detailed summary of how you addressed each issue using <promise>REFINEMENT_SUMMARY</promise> tags.
                           """;
 
-            return Result.Success(prompt);
+            return Result<string>.Success(prompt);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error building feedback prompt");
-            return Result.Failure<string>($"Error building feedback prompt: {ex.Message}");
+            return Result<string>.Failure($"Error building feedback prompt: {ex.Message}");
         }
     }
 

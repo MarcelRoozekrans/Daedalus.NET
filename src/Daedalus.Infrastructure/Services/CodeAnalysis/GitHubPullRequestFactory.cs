@@ -4,7 +4,7 @@
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -32,7 +32,7 @@ public sealed class GitHubPullRequestFactory(
             var token = await authProvider.GetAuthTokenAsync(RepositoryPlatform.GitHub, ct).ConfigureAwait(false);
             if (token.IsFailure)
             {
-                return Result.Failure<PullRequestResult>(token.Error);
+                return Result<PullRequestResult>.Failure(token.Error);
             }
 
             // Parse owner/repo from URL
@@ -44,7 +44,7 @@ public sealed class GitHubPullRequestFactory(
 
             if (urlParts.Length < 2)
             {
-                return Result.Failure<PullRequestResult>("Invalid GitHub URL format");
+                return Result<PullRequestResult>.Failure("Invalid GitHub URL format");
             }
 
             var owner = urlParts[0];
@@ -74,7 +74,7 @@ public sealed class GitHubPullRequestFactory(
             {
                 var errorContent = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 logger.LogError("GitHub API error: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                return Result.Failure<PullRequestResult>($"GitHub API error: {response.StatusCode}");
+                return Result<PullRequestResult>.Failure($"GitHub API error: {response.StatusCode}");
             }
 
             var jsonString = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -94,12 +94,12 @@ public sealed class GitHubPullRequestFactory(
                 logger.LogInformation("Created GitHub PR: {PrUrl}", prResult.WebUrl);
             }
 
-            return Result.Success(prResult);
+            return Result<PullRequestResult>.Success(prResult);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating GitHub pull request");
-            return Result.Failure<PullRequestResult>($"Error creating PR: {ex.Message}");
+            return Result<PullRequestResult>.Failure($"Error creating PR: {ex.Message}");
         }
     }
 }

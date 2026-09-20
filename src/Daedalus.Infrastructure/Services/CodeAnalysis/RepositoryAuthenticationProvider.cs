@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -28,15 +28,15 @@ public sealed class RepositoryAuthenticationProvider(
             if (string.IsNullOrWhiteSpace(token))
             {
                 logger.LogWarning("No authentication token found for platform {Platform}", platform);
-                return Result.Failure<string>($"No authentication token configured for {platform}");
+                return Result<string>.Failure($"No authentication token configured for {platform}");
             }
 
-            return await Task.FromResult(Result.Success(token)).ConfigureAwait(false);
+            return await Task.FromResult(Result<string>.Success(token)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting authentication token for platform {Platform}", platform);
-            return Result.Failure<string>($"Error getting auth token: {ex.Message}");
+            return Result<string>.Failure($"Error getting auth token: {ex.Message}");
         }
     }
 

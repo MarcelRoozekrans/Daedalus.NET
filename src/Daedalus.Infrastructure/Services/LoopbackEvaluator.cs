@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -25,7 +25,7 @@ public sealed partial class LoopbackEvaluator(
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Result.Failure<LoopbackResult>("Workspace path cannot be empty");
+            return Result<LoopbackResult>.Failure("Workspace path cannot be empty");
         }
 
         LogStartingEvaluation(logger, workspacePath);
@@ -35,7 +35,7 @@ public sealed partial class LoopbackEvaluator(
             .ConfigureAwait(false);
         if (buildResult.IsFailure)
         {
-            return Result.Failure<LoopbackResult>($"Build command failed to execute: {buildResult.Error}");
+            return Result<LoopbackResult>.Failure($"Build command failed to execute: {buildResult.Error}");
         }
 
         var build = buildResult.Value;
@@ -85,7 +85,7 @@ public sealed partial class LoopbackEvaluator(
         LogEvaluationCompleted(logger, result.BuildSucceeded, result.TestsPassed,
             testsPassed, testsFailed);
 
-        return Result.Success(result);
+        return Result<LoopbackResult>.Success(result);
     }
 
     public async Task<Result<CommandExecutionResult>> RunCommandAsync(
@@ -97,7 +97,7 @@ public sealed partial class LoopbackEvaluator(
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Result.Failure<CommandExecutionResult>("Workspace path cannot be empty");
+            return Result<CommandExecutionResult>.Failure("Workspace path cannot be empty");
         }
 
         var psi = new ProcessStartInfo
@@ -144,7 +144,7 @@ public sealed partial class LoopbackEvaluator(
             await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
             stopwatch.Stop();
 
-            return Result.Success(new CommandExecutionResult
+            return Result<CommandExecutionResult>.Success(new CommandExecutionResult
             {
                 ExitCode = process.ExitCode,
                 StandardOutput = stdoutBuilder.ToString(),
@@ -165,7 +165,7 @@ public sealed partial class LoopbackEvaluator(
                 // Best-effort kill
             }
 
-            return Result.Success(new CommandExecutionResult
+            return Result<CommandExecutionResult>.Success(new CommandExecutionResult
             {
                 ExitCode = -1,
                 StandardOutput = stdoutBuilder.ToString(),
@@ -177,7 +177,7 @@ public sealed partial class LoopbackEvaluator(
         catch (Exception ex)
         {
             stopwatch.Stop();
-            return Result.Failure<CommandExecutionResult>($"Failed to execute '{command}': {ex.Message}");
+            return Result<CommandExecutionResult>.Failure($"Failed to execute '{command}': {ex.Message}");
         }
     }
 

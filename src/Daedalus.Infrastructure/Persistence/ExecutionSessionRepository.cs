@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -22,13 +22,13 @@ public sealed partial class ExecutionSessionRepository(
                 .FirstOrDefaultAsync(s => s.Id == id, ct).ConfigureAwait(false);
 
             return session is not null
-                ? Result.Success(session)
-                : Result.Failure<ExecutionSession>($"Session {id} not found");
+                ? Result<ExecutionSession>.Success(session)
+                : Result<ExecutionSession>.Failure($"Session {id} not found");
         }
         catch (Exception ex)
         {
             LogErrorRetrievingSession(logger, ex, id);
-            return Result.Failure<ExecutionSession>($"Error retrieving session: {ex.Message}");
+            return Result<ExecutionSession>.Failure($"Error retrieving session: {ex.Message}");
         }
     }
 
@@ -39,12 +39,12 @@ public sealed partial class ExecutionSessionRepository(
             dbContext.ExecutionSessions.Add(session);
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
             LogSessionCreated(logger, session.Id, session.WorkerName);
-            return Result.Success(session);
+            return Result<ExecutionSession>.Success(session);
         }
         catch (Exception ex)
         {
             LogErrorAddingSession(logger, ex, session.Id);
-            return Result.Failure<ExecutionSession>($"Error adding session: {ex.Message}");
+            return Result<ExecutionSession>.Failure($"Error adding session: {ex.Message}");
         }
     }
 
@@ -73,12 +73,12 @@ public sealed partial class ExecutionSessionRepository(
                 .OrderBy(s => s.StartedAt)
                 .ToListAsync(ct).ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<ExecutionSession>)sessions);
+            return Result<IReadOnlyList<ExecutionSession>>.Success((IReadOnlyList<ExecutionSession>)sessions);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingActiveSessions(logger, ex);
-            return Result.Failure<IReadOnlyList<ExecutionSession>>($"Error retrieving sessions: {ex.Message}");
+            return Result<IReadOnlyList<ExecutionSession>>.Failure($"Error retrieving sessions: {ex.Message}");
         }
     }
 

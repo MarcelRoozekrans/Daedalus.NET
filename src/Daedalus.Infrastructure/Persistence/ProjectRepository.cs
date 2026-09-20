@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -22,13 +22,13 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
                 .ConfigureAwait(false);
 
             return project is not null
-                ? Result.Success(project)
-                : Result.Failure<Project>($"Project {id} not found");
+                ? Result<Project>.Success(project)
+                : Result<Project>.Failure($"Project {id} not found");
         }
         catch (Exception ex)
         {
             LogErrorRetrievingProject(logger, ex, id);
-            return Result.Failure<Project>($"Error retrieving project: {ex.Message}");
+            return Result<Project>.Failure($"Error retrieving project: {ex.Message}");
         }
     }
 
@@ -38,12 +38,12 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
         {
             dbContext.Projects.Add(project);
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success(project);
+            return Result<Project>.Success(project);
         }
         catch (Exception ex)
         {
             LogErrorAddingProject(logger, ex, project.Id);
-            return Result.Failure<Project>($"Error adding project: {ex.Message}");
+            return Result<Project>.Failure($"Error adding project: {ex.Message}");
         }
     }
 

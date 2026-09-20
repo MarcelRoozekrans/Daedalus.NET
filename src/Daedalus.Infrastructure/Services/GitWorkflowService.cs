@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -27,7 +27,7 @@ public sealed partial class GitWorkflowService(
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Result.Failure<string>("Workspace path cannot be empty");
+            return Result<string>.Failure("Workspace path cannot be empty");
         }
 
         // Stage all changes
@@ -35,7 +35,7 @@ public sealed partial class GitWorkflowService(
         if (!stageResult.Succeeded)
         {
             LogGitOperationFailed(logger, "stage", stageResult.StandardError);
-            return Result.Failure<string>($"Failed to stage changes: {stageResult.StandardError}");
+            return Result<string>.Failure($"Failed to stage changes: {stageResult.StandardError}");
         }
 
         // Check if there are staged changes
@@ -43,7 +43,7 @@ public sealed partial class GitWorkflowService(
         if (statusResult.Succeeded)
         {
             LogNoChangesToCommit(logger, taskId, iterationNumber);
-            return Result.Success("no-changes");
+            return Result<string>.Success("no-changes");
         }
 
         // Commit with descriptive message
@@ -55,14 +55,14 @@ public sealed partial class GitWorkflowService(
         if (!commitResult.Succeeded)
         {
             LogGitOperationFailed(logger, "commit", commitResult.StandardError);
-            return Result.Failure<string>($"Failed to commit: {commitResult.StandardError}");
+            return Result<string>.Failure($"Failed to commit: {commitResult.StandardError}");
         }
 
         // Extract commit SHA from output
         var sha = await GetHeadShaAsync(workspacePath, ct).ConfigureAwait(false);
         LogCommitCreated(logger, taskId, iterationNumber, sha);
 
-        return Result.Success(sha);
+        return Result<string>.Success(sha);
     }
 
     public async Task<Result<string>> TagOnCompletionAsync(
@@ -72,14 +72,14 @@ public sealed partial class GitWorkflowService(
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Result.Failure<string>("Workspace path cannot be empty");
+            return Result<string>.Failure("Workspace path cannot be empty");
         }
 
         // Get latest tag to determine next version
         var latestTagResult = await GetLatestTagAsync(workspacePath, ct).ConfigureAwait(false);
         if (latestTagResult.IsFailure)
         {
-            return Result.Failure<string>(latestTagResult.Error);
+            return Result<string>.Failure(latestTagResult.Error);
         }
 
         var nextTag = IncrementPatchVersion(latestTagResult.Value);
@@ -92,11 +92,11 @@ public sealed partial class GitWorkflowService(
         if (!tagResult.Succeeded)
         {
             LogGitOperationFailed(logger, "tag", tagResult.StandardError);
-            return Result.Failure<string>($"Failed to create tag: {tagResult.StandardError}");
+            return Result<string>.Failure($"Failed to create tag: {tagResult.StandardError}");
         }
 
         LogTagCreated(logger, nextTag, taskId);
-        return Result.Success(nextTag);
+        return Result<string>.Success(nextTag);
     }
 
     public async Task<Result> ResetToLastGoodAsync(
@@ -157,7 +157,7 @@ public sealed partial class GitWorkflowService(
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Result.Failure<string?>("Workspace path cannot be empty");
+            return Result<string?>.Failure("Workspace path cannot be empty");
         }
 
         var result = await RunGitAsync(workspacePath, "describe --tags --abbrev=0", ct).ConfigureAwait(false);
@@ -165,10 +165,10 @@ public sealed partial class GitWorkflowService(
         if (!result.Succeeded)
         {
             // No tags exist yet
-            return Result.Success<string?>(null);
+            return Result<string?>.Success(null);
         }
 
-        return Result.Success<string?>(result.StandardOutput.Trim());
+        return Result<string?>.Success(result.StandardOutput.Trim());
     }
 
     /// <summary>

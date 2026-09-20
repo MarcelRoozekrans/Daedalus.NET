@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
@@ -24,7 +24,7 @@ public sealed partial class WorkspaceOrchestrator(
     {
         if (projectId == Guid.Empty)
         {
-            return Result.Failure<WorkspaceInfo>("Project ID is required for workspace preparation");
+            return Result<WorkspaceInfo>.Failure("Project ID is required for workspace preparation");
         }
 
         // Load project to get repository URL
@@ -32,14 +32,14 @@ public sealed partial class WorkspaceOrchestrator(
         if (projectResult.IsFailure)
         {
             LogProjectNotFound(logger, projectId, projectResult.Error);
-            return Result.Failure<WorkspaceInfo>($"Project not found: {projectResult.Error}");
+            return Result<WorkspaceInfo>.Failure($"Project not found: {projectResult.Error}");
         }
 
         var project = projectResult.Value;
         if (string.IsNullOrEmpty(project.RepositoryUrl))
         {
             LogNoRepositoryUrl(logger, projectId);
-            return Result.Failure<WorkspaceInfo>("Project has no repository URL configured");
+            return Result<WorkspaceInfo>.Failure("Project has no repository URL configured");
         }
 
         var baseBranch = !string.IsNullOrEmpty(project.DefaultBranch) ? project.DefaultBranch : "main";
@@ -52,7 +52,7 @@ public sealed partial class WorkspaceOrchestrator(
         if (cloneResult.IsFailure)
         {
             LogCloneFailed(logger, project.RepositoryUrl, cloneResult.Error);
-            return Result.Failure<WorkspaceInfo>($"Failed to clone repository: {cloneResult.Error}");
+            return Result<WorkspaceInfo>.Failure($"Failed to clone repository: {cloneResult.Error}");
         }
 
         var workspacePath = cloneResult.Value.LocalWorkTreePath;
@@ -68,7 +68,7 @@ public sealed partial class WorkspaceOrchestrator(
             LogBranchCreationFailed(logger, branchName, branchResult.Error);
             // Cleanup the cloned repo on failure
             await gitManager.CleanupAsync(workspacePath, ct).ConfigureAwait(false);
-            return Result.Failure<WorkspaceInfo>($"Failed to create feature branch: {branchResult.Error}");
+            return Result<WorkspaceInfo>.Failure($"Failed to create feature branch: {branchResult.Error}");
         }
 
         var workspace = new WorkspaceInfo(
@@ -80,7 +80,7 @@ public sealed partial class WorkspaceOrchestrator(
             taskTitle);
 
         LogWorkspacePrepared(logger, workspacePath, branchName);
-        return Result.Success(workspace);
+        return Result<WorkspaceInfo>.Success(workspace);
     }
 
     public async Task<Result<string?>> FinalizeWorkspaceAsync(
@@ -128,12 +128,12 @@ public sealed partial class WorkspaceOrchestrator(
                 LogCleanupFailed(logger, workspace.WorkspacePath, cleanupResult.Error);
             }
 
-            return Result.Success(prUrl);
+            return Result<string?>.Success(prUrl);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error finalizing workspace at {Path}", workspace.WorkspacePath);
-            return Result.Failure<string?>($"Error finalizing workspace: {ex.Message}");
+            return Result<string?>.Failure($"Error finalizing workspace: {ex.Message}");
         }
     }
 

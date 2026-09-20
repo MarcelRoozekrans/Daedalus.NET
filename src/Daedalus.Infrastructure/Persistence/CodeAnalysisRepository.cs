@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
@@ -26,13 +26,13 @@ public sealed partial class CodeAnalysisRepository(
                 .ConfigureAwait(false);
 
             return request is not null
-                ? Result.Success(request)
-                : Result.Failure<CodeAnalysisRequest>($"Analysis request {requestId} not found");
+                ? Result<CodeAnalysisRequest>.Success(request)
+                : Result<CodeAnalysisRequest>.Failure($"Analysis request {requestId} not found");
         }
         catch (Exception ex)
         {
             LogErrorRetrievingAnalysisRequest(logger, ex, requestId);
-            return Result.Failure<CodeAnalysisRequest>($"Error retrieving analysis request: {ex.Message}");
+            return Result<CodeAnalysisRequest>.Failure($"Error retrieving analysis request: {ex.Message}");
         }
     }
 
@@ -51,12 +51,12 @@ public sealed partial class CodeAnalysisRepository(
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingPendingRequests(logger, ex);
-            return Result.Failure<IReadOnlyList<CodeAnalysisRequest>>(
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Failure(
                 $"Error retrieving pending requests: {ex.Message}");
         }
     }
@@ -74,12 +74,12 @@ public sealed partial class CodeAnalysisRepository(
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingRequestsByStatus(logger, ex, status);
-            return Result.Failure<IReadOnlyList<CodeAnalysisRequest>>($"Error retrieving requests: {ex.Message}");
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Failure($"Error retrieving requests: {ex.Message}");
         }
     }
 
@@ -96,12 +96,12 @@ public sealed partial class CodeAnalysisRepository(
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingRequestsByRepository(logger, ex, repositoryUrl);
-            return Result.Failure<IReadOnlyList<CodeAnalysisRequest>>($"Error retrieving requests: {ex.Message}");
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Failure($"Error retrieving requests: {ex.Message}");
         }
     }
 
@@ -124,12 +124,12 @@ public sealed partial class CodeAnalysisRepository(
                     request.Repository.Url);
             }
 
-            return Result.Success(request);
+            return Result<CodeAnalysisRequest>.Success(request);
         }
         catch (Exception ex)
         {
             LogErrorCreatingRequest(logger, ex);
-            return Result.Failure<CodeAnalysisRequest>($"Error creating analysis request: {ex.Message}");
+            return Result<CodeAnalysisRequest>.Failure($"Error creating analysis request: {ex.Message}");
         }
     }
 
