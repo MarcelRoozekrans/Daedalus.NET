@@ -20,7 +20,7 @@ public record CreateRepositoryConfigurationDto
     [MaxLength(1024, Message = "Repository URL cannot exceed 1024 characters.")]
     public string Url { get; set; } = string.Empty;
 
-    [NotEmpty(Message = "Platform is required.")]
+    [Must(nameof(IsPresent), Message = "Platform is required.")]
     [Must(nameof(IsValidPlatform), Message = "Platform must be one of: GitHub, GitLab, AzureDevOps, Bitbucket, Gitea.")]
     public string Platform { get; set; } = "GitHub";
 
@@ -45,8 +45,9 @@ public record CreateRepositoryConfigurationDto
     ///     Backs the <c>[Must]</c> rules above. FluentValidation's <c>NotEmpty()</c> rejects
     ///     whitespace-only strings; ZeroAlloc.Validation's <c>[NotEmpty]</c> lowers to
     ///     <c>string.IsNullOrEmpty</c>, which does not, so a plain <c>[NotEmpty]</c> here would
-    ///     silently accept "   ". <c>Platform</c> keeps its original <c>[NotEmpty]</c> — its
-    ///     separate <c>[Must(IsValidPlatform)]</c> already rejects whitespace, so it is left as-is.
+    ///     silently accept "   ". <c>Platform</c> uses this too, ahead of its separate
+    ///     <c>[Must(IsValidPlatform)]</c> check, so whitespace still produces both original
+    ///     messages in the original order — not just one.
     /// </summary>
     [SuppressMessage("Performance", "CA1822", Justification = "ZeroAlloc.Validation's [Must] attribute requires an instance method.")]
     [SuppressMessage("Major Code Smell", "S2325", Justification = "ZeroAlloc.Validation's [Must] attribute requires an instance method.")]
