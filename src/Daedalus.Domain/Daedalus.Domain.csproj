@@ -11,6 +11,8 @@
 
     <ItemGroup>
         <PackageReference Include="CSharpFunctionalExtensions"/>
+        <PackageReference Include="ZeroAlloc.ValueObjects"/>
+        <PackageReference Include="ZeroAlloc.Serialisation"/>
     </ItemGroup>
 
 </Project>

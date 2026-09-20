@@ -1,4 +1,5 @@
 using CSharpFunctionalExtensions;
+using ZeroAlloc.ValueObjects;
 
 namespace Daedalus.Domain.CodeAnalysis;
 
@@ -8,12 +9,24 @@ namespace Daedalus.Domain.CodeAnalysis;
 ///     Value object representing a git repository reference.
 ///     Groups repository URL, branch, commit SHA, and platform detection.
 /// </summary>
-public sealed class RepositoryReference : ValueObject
+[ValueObject]
+public sealed partial class RepositoryReference
 {
-    public string Url { get; private set; } = string.Empty;
+    [EqualityMember] public string Url { get; private set; } = string.Empty;
     public string? Branch { get; private set; }
     public string? CommitSha { get; private set; }
-    public RepositoryPlatform Platform { get; private set; }
+
+    // Equality-only normalisation, in the same order as the former GetEqualityComponents():
+    // Url, Branch, CommitSha, Platform. Branch and CommitSha used to coalesce a null string to
+    // string.Empty before comparing; these reproduce that exact behaviour for ZeroAlloc's
+    // member-based equality. MUST be public: ZeroAlloc.ValueObjects 2.0.7 silently ignores
+    // [EqualityMember] on non-public members (verified empirically — see task-9-report.md) rather
+    // than erroring, so a private member here would silently drop out of equality instead of
+    // narrowing it loudly.
+    [EqualityMember] public string BranchForEquality => Branch ?? string.Empty;
+    [EqualityMember] public string CommitShaForEquality => CommitSha ?? string.Empty;
+
+    [EqualityMember] public RepositoryPlatform Platform { get; private set; }
 
     // Required by EF Core for owned type materialization
     private RepositoryReference() { }
@@ -44,13 +57,5 @@ public sealed class RepositoryReference : ValueObject
         if (url.Contains("gitea", StringComparison.OrdinalIgnoreCase))
             return RepositoryPlatform.Gitea;
         return RepositoryPlatform.None;
-    }
-
-    protected override IEnumerable<IComparable> GetEqualityComponents()
-    {
-        yield return Url;
-        yield return Branch ?? string.Empty;
-        yield return CommitSha ?? string.Empty;
-        yield return Platform;
     }
 }
