@@ -39,7 +39,11 @@ public sealed partial class FailurePatternDatabase(
 
             foreach (var errorExecution in errorExecutions)
             {
-                // Look for the next successful iteration on the same task
+                // Look for the next successful iteration on the same task.
+                // This issues one query per errorExecution (an N+1 pattern). Batching it into a
+                // single query (e.g. a join across all errorExecutions' TaskIds) is a real
+                // optimisation but a larger change than this task's scope; tracked as follow-up
+                // alongside the ZA0601/ZA0501 NoWarn note in Directory.Build.props.
                 var resolution = await dbContext.TaskExecutions
                     .AsNoTracking()
                     .Where(e => e.TaskId == errorExecution.TaskId &&

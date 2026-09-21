@@ -152,8 +152,7 @@ public sealed partial class GeneratePrdCommandHandler(
             var priority = ParsePriority(item, "priority");
             var complexity = ParseComplexity(item, "estimatedComplexity");
             var dependencies = item.TryGetProperty("dependencies", out var depsElement)
-                ? new ReadOnlyCollection<string>(
-                    depsElement.EnumerateArray().Select(d => d.GetString() ?? string.Empty).ToList())
+                ? ParseDependencies(depsElement)
                 : new ReadOnlyCollection<string>([]);
 
             var prdItem = new PrdItemDto(
@@ -175,6 +174,17 @@ public sealed partial class GeneratePrdCommandHandler(
         }
 
         return items;
+    }
+
+    private static ReadOnlyCollection<string> ParseDependencies(JsonElement depsElement)
+    {
+        var dependencies = new List<string>();
+        foreach (var dep in depsElement.EnumerateArray())
+        {
+            dependencies.Add(dep.GetString() ?? string.Empty);
+        }
+
+        return new ReadOnlyCollection<string>(dependencies);
     }
 
     private static Priority ParsePriority(JsonElement element, string propertyName)

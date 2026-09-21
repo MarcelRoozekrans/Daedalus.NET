@@ -63,11 +63,15 @@ public class AllocationBenchmarks
     [Benchmark(Description = "String concatenation: Building 100 items")]
     public string BuildStringConcat()
     {
+        // ZA0201 correctly flags this, but the naive concatenation is the point: this benchmark
+        // exists to measure it against BuildStringBuilder above, not to be optimised away.
+#pragma warning disable ZA0201
         string result = "";
         for (int i = 0; i < 100; i++)
         {
             result += $"Item_{i},";
         }
         return result;
+#pragma warning restore ZA0201
     }
 }

@@ -202,12 +202,15 @@ public sealed partial class McpToolBuilder(
                 var probeInstance = ActivatorUtilities.CreateInstance(probeScope.ServiceProvider, toolType);
 
                 // Discover public methods annotated with [McpServerTool]
-                var methods = toolType
-                    .GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public)
-                    .Where(m => Attribute.IsDefined(m, typeof(McpServerToolAttribute)));
+                var allMethods = toolType.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public);
 
-                foreach (var method in methods)
+                foreach (var method in allMethods)
                 {
+                    if (!Attribute.IsDefined(method, typeof(McpServerToolAttribute)))
+                    {
+                        continue;
+                    }
+
                     var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>()!;
                     var name = toolAttr.Name ?? method.Name;
                     var description = method.GetCustomAttribute<DescriptionAttribute>()?.Description;

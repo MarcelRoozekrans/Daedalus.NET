@@ -7,8 +7,12 @@
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
         <!-- Suppress code analysis warnings for test project -->
+        <!-- S1215/S3241 appended: ZeroAlloc.TestHelpers' AllocationGate.cs content file compiles into
+             every referencing project; it calls GC.Collect intentionally (allocation-budget
+             measurement) and ignores a GC query's return value by design. Vendor file, cannot be
+             edited here. -->
         <NoWarn>
-            $(NoWarn);CA1707;CA1012;CA1051;CA1033;CA1024;CA1055;CA1822;CA1721;MA0017;MA0016;MA0002;MA0009;S3442;S2325;S1481;S2699;CS0612;CS8605;S1144;CA1001;CA1054;CA1307;CA1305;MA0011;MA0110;SYSLIB1045;S1125;CA1508;CA1823;CA2234
+            $(NoWarn);CA1707;CA1012;CA1051;CA1033;CA1024;CA1055;CA1822;CA1721;MA0017;MA0016;MA0002;MA0009;S3442;S2325;S1481;S2699;CS0612;CS8605;S1144;CA1001;CA1054;CA1307;CA1305;MA0011;MA0110;SYSLIB1045;S1125;CA1508;CA1823;CA2234;S1215;S3241
         </NoWarn>
         <!-- Disable trimming for tests -->
         <TrimMode>none</TrimMode>
@@ -29,6 +33,15 @@
         <PackageReference Include="Npgsql"/>
         <PackageReference Include="xunit"/>
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing"/>
+        <PackageReference Include="ZeroAlloc.TestHelpers"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- ZeroAlloc.TestHelpers ships GeneratorSnapshot.cs (source-generator snapshot testing,
+             needs Microsoft.CodeAnalysis) unconditionally alongside AllocationGate.cs. This repo
+             does not test generator output directly, so exclude the file we don't use rather than
+             add an unused Roslyn dependency. -->
+        <Compile Remove="$(NuGetPackageRoot)zeroalloc.testhelpers\**\GeneratorSnapshot.cs"/>
     </ItemGroup>
 
     <ItemGroup>

@@ -118,8 +118,15 @@ public static class ApplicationServiceExtensions
         var requestHandlerType = typeof(IRequestHandler<,>);
         foreach (var handler in handlers)
         {
-            var isRequestHandler = handler.GetInterfaces()
-                .Any(iface => iface.IsGenericType && iface.GetGenericTypeDefinition() == requestHandlerType);
+            var isRequestHandler = false;
+            foreach (var iface in handler.GetInterfaces())
+            {
+                if (iface.IsGenericType && iface.GetGenericTypeDefinition() == requestHandlerType)
+                {
+                    isRequestHandler = true;
+                    break;
+                }
+            }
 
             if (isRequestHandler)
             {

@@ -124,9 +124,15 @@ public static class AgentDtoMapper
         ArgumentNullException.ThrowIfNull(messages);
 
         var results = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var result in messages.SelectMany(m => m.Contents.OfType<FunctionResultContent>()))
+        foreach (var message in messages)
         {
-            results.TryAdd(result.CallId, result.Result?.ToString());
+            foreach (var content in message.Contents)
+            {
+                if (content is FunctionResultContent result)
+                {
+                    results.TryAdd(result.CallId, result.Result?.ToString());
+                }
+            }
         }
 
         var list = new List<AgentMessageDto>(messages.Count);
@@ -137,9 +143,14 @@ public static class AgentDtoMapper
                 continue;
             }
 
-            var calls = message.Contents.OfType<FunctionCallContent>()
-                .Select(c => new AgentToolCallDto(c.CallId, c.Name, SerializeArguments(c.Arguments), results.GetValueOrDefault(c.CallId)))
-                .ToList();
+            var calls = new List<AgentToolCallDto>();
+            foreach (var content in message.Contents)
+            {
+                if (content is FunctionCallContent c)
+                {
+                    calls.Add(new AgentToolCallDto(c.CallId, c.Name, SerializeArguments(c.Arguments), results.GetValueOrDefault(c.CallId)));
+                }
+            }
 
             if (string.IsNullOrEmpty(message.Text) && calls.Count == 0)
             {

@@ -155,7 +155,13 @@ public sealed partial class RalphLoopPipelineService(
 
             foreach (var group in errorGroups)
             {
-                learnings.Append(CultureInfo.InvariantCulture, $"  - {group.Key} ({group.Count()} occurrence(s))");
+                var occurrences = 0;
+                foreach (var _ in group)
+                {
+                    occurrences++;
+                }
+
+                learnings.Append(CultureInfo.InvariantCulture, $"  - {group.Key} ({occurrences} occurrence(s))");
                 learnings.Append(Environment.NewLine);
             }
 
