@@ -11,6 +11,23 @@
 > Framework 1.17). Daedalus is its first consumer. Ralph is retired via the strangler
 > pattern in phase 1.6. See `docs/plans/2026-08-16-thalos-agent-core-design.md`.
 >
+> **Direction (2026-09-21): Thalos.NET is the reusable framework; Daedalus is one consumer.**
+> This restates the 2026-08-16 refinement rather than changing it — "Daedalus is its first consumer"
+> only means something if there are meant to be others. Reaffirmed because phase 2.1 nearly drifted
+> from it: the first draft put generic git write tooling in `Daedalus.Agents` purely because that was
+> the simpler single-repo change.
+> **The rule:** generic agent capability lands in Thalos.NET. Daedalus keeps only what is genuinely its
+> own — its domain, its hosting, its orchestration. Git write tooling is generic: any agent doing
+> software work wants to branch, commit, push and open a pull request, and nothing about that is
+> specific to tasks and projects.
+> **Thalos must never reference Daedalus.** Where a capability needs something host-specific, Thalos
+> defines the abstraction and the consumer implements it — never the reverse. That failure would be
+> silent until someone tried to consume Thalos standalone, so it is worth a test in that repo.
+> **Consequence for Milestone 2, to decide consciously rather than discover:** if the manufacturing
+> pipeline is meant to be reusable, most of it belongs in Thalos too — the workflow engine in 2.2, the
+> squad roster in 2.3, the process-as-skills in 2.4 — with Daedalus supplying domain and hosting. That
+> is a larger claim than 2.1 and is flagged here so each phase does not quietly re-litigate placement.
+>
 > **Direction (2026-09-17, renumbered 2026-09-20): Native AOT is a Milestone 3 goal.** Thalos.NET and the Daedalus
 > api/console binaries should publish with `PublishAot`. A dependency audit is encouraging —
 > `Microsoft.Agents.AI`, `Microsoft.Extensions.AI`, `Npgsql` and `ZeroAlloc.ORM` are all
