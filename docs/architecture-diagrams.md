@@ -1662,6 +1662,398 @@ sequenceDiagram
 
 ---
 
+## 17. Channels and Delivery
+
+Sections 15 and 16 covered one live turn end to end. This section covers the other side: how a message
+reaches a human, whether or not a turn is still open to answer it. Source: `src/Daedalus.Agents/Channels/`
+and the `Thalos.NET.Channels` / `Thalos.NET.Channels.Telegram` packages (pinned at 0.5.1).
+
+### `IChannelAdapter`: keyed on the conversation, not the session
+
+`IChannelAdapter` (`Thalos.IChannelAdapter`, `Thalos.NET.Abstractions`) is a delivery channel — Telegram, the
+console, a future WebSocket. It exposes a `ChannelId` property and one method, confirmed against the
+package's own XML docs at 0.5.1:
+
+```csharp
+ValueTask DeliverAsync(ConversationId conversationId, AgentEvent agentEvent, CancellationToken ct);
+```
+
+**This was a breaking change.** Diffing the package XML docs across versions in the local NuGet cache shows
+`DeliverAsync` took a `SessionId` through `Thalos.NET.Abstractions` 0.3.0 and a `ConversationId` from 0.4.0
+onward — confirmed by grepping both versions' shipped XML for the member signature directly, not from
+changelog prose. The package's own remarks explain why: much of what a channel must say belongs to a
+conversation that has no session at all — `/help`, an unrecognised command, "that session had already
+ended" — and a session-keyed seam can only deliver those by inventing a session id that resolves to nothing.
+`AgentEvent` still carries its own `SessionId` for an adapter that wants to correlate a delivery with one.
+
+### The two adapters actually registered
+
+| Adapter | Package | Registered by | Condition |
+|---|---|---|---|
+| `TelegramChannelAdapter` / `TelegramChannelSource` | `Thalos.NET.Channels.Telegram` | `AddDaedalusChannels` (both hosts) | Only when `Thalos:Channels:Telegram:BotToken` is configured — calling `AddTelegramChannel` unconditionally would `ValidateOnStart`-crash a host with no token, since the validator rejects a blank `BotToken`, `PrincipalId`, or empty `AllowedUserIds` |
+| `ConsoleChannelAdapter` / `ConsoleChannelSource` | `Thalos.NET.Channels` | `AddDaedalusChannels(..., includeConsoleChannel: true)`, called only by `Daedalus.Cli` | The "CLI adapter": reads one line per input, prints only the unprinted suffix of each turn (a terminal cannot edit what it already emitted) |
+
+`Daedalus.Api` never passes `includeConsoleChannel: true` — an API host has no TTY, so a console channel
+registered there would leave a hosted service blocked reading from a stream nobody writes to.
+`DaedalusChannelsServiceCollectionExtensions.AddDaedalusChannels` is the single composition point both hosts
+call; the boolean parameter, not two divergent call sites, is what keeps the console channel off the one
+host that must never get it.
+
+`PostgresConversationMap` (`IConversationMap` over the `ChannelConversations` table) replaces Thalos's
+in-memory default so a conversation-to-session binding survives a restart. Binding goes through
+`ChannelConversation.Create` for validation and a genuine `INSERT ... ON CONFLICT ... DO UPDATE` upsert on
+`(ChannelId, ConversationId)` — not a read-then-write — because the CLI host can run concurrently against
+the same database and a read-then-write has a TOCTOU window a database-level upsert closes.
+
+### Two delivery paths, not one
+
+A live turn's output goes straight from `ChannelPump` (the package's reader-loop/dispatch hosted service) to
+`IChannelAdapter.DeliverAsync` — no outbox involved. A **detached** run — no live caller holding a socket
+open, i.e. a scheduled run or a subagent step (section 18) — has nothing to stream to, so its output is
+queued for durable delivery instead:
+
+- `ChannelMessageQueued` (`ChannelId`, `ConversationId`, `Text`, `Guid? ExecutionId`) is a `[OutboxMessage]`
+  record — the `ZeroAlloc.Outbox` source generator emits `IOutboxWriter<ChannelMessageQueued>` and the DI
+  extension `AddChannelMessageQueuedOutbox()`. It is written inside the same transaction as whatever produced
+  it, so a host crash between "decided what to say" and "actually sent it" cannot silently drop the reply —
+  it survives as a `Pending` outbox row.
+- `ChannelMessageQueuedDispatcher` (`IOutboxDispatcher<ChannelMessageQueued>`) resolves the adapter matching
+  the message's `ChannelId` and calls `DeliverAsync` with a synthetic `TextDeltaEvent`. `SessionId` is
+  `Guid.Empty` (no live turn exists by delivery time) and `TurnId` is fresh per call, so a Telegram redelivery
+  after a restart renders as its own message rather than silently overwriting an earlier one. An unknown
+  `ChannelId` is logged at `Error` and treated as handled, not thrown — a missing adapter registration is
+  permanent, so retrying would only burn the outbox's retry budget before dead-lettering something that could
+  never have succeeded.
+- `AddChannelOutbox` registers one poller (2 s interval, batch 20, 8 max attempts, 1 s base retry delay — all
+  explicit rather than left at the library defaults) shared by `ChannelMessageQueued` **and** the three
+  scheduling message types from section 18 (`ScheduledRunDue`, `RunScoutStep`/`RunWriterStep`,
+  `DeliverDigest`). A second call to `AddOutbox` would start a second poller racing the same table, so only
+  `AddDaedalusAgents` calls it.
+
+```mermaid
+graph TD
+    subgraph Live["Live turn — no outbox"]
+        Source["IChannelSource<br/>(Telegram / Console)"] --> Pump["ChannelPump"]
+        Pump --> Runtime["IAgentRuntime<br/>RunTurnStreamingAsync"]
+        Runtime --> Pump
+        Pump -->|"DeliverAsync(ConversationId, event)"| Adapter1["IChannelAdapter"]
+    end
+
+    subgraph Detached["Detached run — durable delivery"]
+        Producer["Scheduled run / subagent step<br/>(section 18)"] -->|"same transaction"| Outbox[("OutboxMessages table<br/>ChannelMessageQueued row")]
+        Poller["OutboxWorkerService<br/>(2s poll, batch 20)"] --> Outbox
+        Poller --> Dispatcher["ChannelMessageQueuedDispatcher"]
+        Dispatcher -->|"DeliverAsync(ConversationId, TextDeltaEvent)"| Adapter2["IChannelAdapter"]
+    end
+
+    Adapter1 -.->|"resolved by ChannelId"| Map["PostgresConversationMap<br/>(ChannelConversations table)"]
+    Adapter2 -.->|"resolved by ChannelId"| Map
+```
+
+---
+
+## 18. Scheduling
+
+Recurring autonomous work — the daily repository digest — without a durable job framework. Source:
+`src/Daedalus.Agents/Scheduling/`, `src/Daedalus.Domain/Entities/ScheduledRun.cs` and
+`ScheduledRunExecution.cs`.
+
+### `ScheduledRun`: the schedule, and `NextRunAt` as the only source of truth
+
+`ScheduledRun` (`Daedalus.Domain.Entities`) is one configured recurring run: `Cron` (text, never parsed in
+Domain), `Trigger` (a workflow identifier, e.g. `RepoDigest`), `ChannelId`/`ConversationId` (delivery
+target), `PrincipalId`/`Roles` (the identity it executes as), `Origin` (`Config` or `Agent`), and —
+load-bearing — `NextRunAt`. Nothing else tracks whether a schedule is due; `NextRunAt` is it.
+`ScheduleReconciler` upserts `Config`-origin rows from the `ScheduledRuns` configuration array into the table
+on every host start (by `Name`; a row missing from config is disabled, never deleted, so `MissedOccurrences`
+survives a schedule being temporarily removed). `Agent`-origin rows — created by a tool call — are never
+touched by the reconciler at all.
+
+### The sweeper: a `BackgroundService`, not a durable job store
+
+`ScheduleSweeperService` is a plain `BackgroundService` driving a **one-minute `PeriodicTimer`**. Each tick
+opens a fresh `IServiceScope` and calls `ScheduledRunStore.ClaimAndEnqueueDueAsync`, which — inside a single
+transaction per sweep, not per row — finds every enabled row with `NextRunAt <= now`, advances each to its
+next Cronos-computed occurrence, and enqueues a `ScheduledRunDue` outbox message for the most recent due
+occurrence. A `ScheduledRun` carries an `xmin` concurrency token, so two sweepers racing the same due row are
+mutually exclusive at the database level with no explicit lock: the loser's `DbUpdateConcurrencyException` is
+caught and treated as "another sweeper already claimed this tick" — the whole sweep's transaction rolls back
+and every other due row in the same batch is simply found due again on the next tick, one minute late. A
+tick's own exception is caught and logged, never allowed to escape: letting it escape would stop
+`BackgroundService`'s loop and end every future sweep, not just the failing one.
+
+**Why there is no durable job store, stated directly:** `ZeroAlloc.Scheduling` was evaluated for this
+trigger and dropped by design, not because it is broken. `ClaimAndEnqueueDueAsync` is idempotent and
+`ScheduledRuns.NextRunAt` is the sweep's only source of truth — a missed tick is simply picked up by the
+next one, and there is no "the sweeper ran" row that would ever need to survive a crash. Durable jobs,
+retries, dead-lettering, a dashboard: none of it buys anything over the plain `BackgroundService` this
+already is. This is enforced, not merely documented: `CleanArchitectureTests.No_project_references_ZeroAlloc_Scheduling`
+(`tests/Daedalus.Tests.Unit/Architecture/CleanArchitectureTests.cs`) asserts by direct `.csproj` text scan
+that no project references the package — a namespace-based ArchUnitNET rule would be vacuously true here,
+since the whole point of dropping the package is that nothing loads it, so the test greps `.csproj` files
+directly instead. The test's own failure message records that the decision is reversible: the package now
+ships a zero-setup in-memory store and a public `SchedulingDbContext` migrations could target, so it can slot
+back in later if durable job state is ever genuinely needed — "if that is ever wanted, delete this fact
+rather than working around it."
+
+### From "due" to "delivered": one execution row, four outbox steps
+
+Firing a schedule does not run a saga; it walks a persisted state machine. `ScheduledRunExecution` (one row
+per firing) has a `Step` (`RunStep`: `Pending → Scout → Writer → Deliver → Done`, or `→ Failed` from any
+non-terminal step) and persists each stage's output (`Findings`, then `Digest`) as it advances, so a crash
+mid-run never re-pays for work already done. `ScheduledRunDue` (`ScheduleId`, `OccurrenceAtUtc`) — enqueued
+by the sweep above — is picked up by `ScheduledRunDueDispatcher`, which calls
+`ScheduledRunExecutionStore.TryBeginAsync`: a hand-written `INSERT ... ON CONFLICT ("ScheduleId",
+"OccurrenceAt") DO NOTHING`. That `UNIQUE (ScheduleId, OccurrenceAt)` constraint is the idempotency key —
+outbox delivery is at-least-once, and a redelivered `ScheduledRunDue` finds the row already present and
+inserts nothing rather than starting the run twice.
+
+Three more outbox message types drive the remaining steps, each with its own dispatcher, each calling
+`ISubagentRunExecutor` (section 16) for the two that run a subagent turn:
+
+| Message | Dispatcher | Does |
+|---|---|---|
+| `RunScoutStep(ExecutionId)` | `RunScoutStepDispatcher` | Runs the `scout` agent (`RepoDigestPrompts.ScoutAgent`) over the schedule's `Repository`, records `Findings`, advances to `Writer` |
+| `RunWriterStep(ExecutionId)` | `RunWriterStepDispatcher` | Runs the `writer` agent over the scout's `Findings`, records `Digest`, advances to `Deliver` |
+| `DeliverDigest(ExecutionId)` | `DeliverDigestDispatcher` | No subagent call — queues a `ChannelMessageQueued` (section 17) and marks the execution `Done`, **in the same transaction** |
+
+No dispatcher in this pipeline throws on a subagent failure: every failure path ends in
+`ScheduledRunExecutionStore.FailAsync`, which records `LastError`/`FailedAtStep` and queues an operator
+notice. A throw would hand the message back to the outbox for eight retries with exponential backoff,
+re-running the (paid) subagent turn each time with nobody told until it dead-letters. A turn cancelled by a
+host shutdown is deliberately excluded from that rule and re-thrown instead, so a run interrupted by a deploy
+resumes on redelivery rather than being marked `Failed`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Sweeper as ScheduleSweeperService<br/>(BackgroundService, 1-min PeriodicTimer)
+    participant Store as ScheduledRunStore
+    participant Outbox as ZeroAlloc.Outbox<br/>(shared poller)
+    participant ExecStore as ScheduledRunExecutionStore
+    participant Sub as ISubagentRunExecutor<br/>(section 16)
+    participant Chan as ChannelMessageQueued<br/>(section 17)
+
+    Sweeper->>Store: ClaimAndEnqueueDueAsync (1 transaction / sweep)
+    Store->>Store: NextRunAt <= now ? advance via Cronos
+    Store->>Outbox: enqueue ScheduledRunDue
+    Outbox->>ExecStore: TryBeginAsync (INSERT ... ON CONFLICT DO NOTHING)
+    ExecStore->>Outbox: enqueue RunScoutStep
+    Outbox->>Sub: RunAsync(scout, repo activity task)
+    Sub-->>ExecStore: Findings recorded, Step=Writer
+    ExecStore->>Outbox: enqueue RunWriterStep
+    Outbox->>Sub: RunAsync(writer, findings task)
+    Sub-->>ExecStore: Digest recorded, Step=Deliver
+    ExecStore->>Outbox: enqueue DeliverDigest
+    Outbox->>Chan: queue ChannelMessageQueued + Step=Done (1 transaction)
+```
+
+---
+
+## 19. Schedule Diagnostics
+
+Answers one question: a digest did not arrive — where did it die? Design source:
+`docs/plans/2026-09-18-schedule-diagnostics-design.md`; implementation:
+`src/Daedalus.Agents/Scheduling/ScheduleDiagnostics.cs` behind `IScheduleDiagnostics`
+(`src/Daedalus.Application/Abstractions/`).
+
+### `IScheduleDiagnostics`
+
+Two read methods, shared by the `SchedulesController` page and the `daedalus__list_schedules` /
+`daedalus__why_did_a_run_fail` agent tools (`DaedalusScheduleTools`) — one implementation, so a page and an
+agent cannot give an operator different answers about the same run:
+
+```csharp
+ValueTask<IReadOnlyList<RunDiagnosis>> GetOverviewAsync(CancellationToken ct);
+ValueTask<IReadOnlyList<RunDiagnosis>> GetRunHistoryAsync(Guid scheduleId, int take, CancellationToken ct);
+```
+
+### The five ways a digest dies
+
+From the design doc, and still an accurate map of the tables involved:
+
+1. **Never fired** — schedule disabled, or a cron that computes no future occurrence. `ScheduledRuns`.
+2. **Sweeper not claiming** — `NextRunAt` in the past with no execution row at all.
+3. **Stranded mid-flight** — a non-terminal `Step` with a stale `UpdatedAt`.
+4. **Failed** — `LastError` and `FailedAtStep` say why and where.
+5. **Ran fine, delivery died** — the execution reached `Done`, but its `ChannelMessageQueued` dead-lettered.
+
+Case 5 is why diagnostics reaches into the outbox at all: a run that succeeded and never arrived is exactly
+the confusing case this exists to resolve, and stopping at the execution table would show it as healthy.
+
+### The verdict model: nine values, verified against `RunVerdict`
+
+**Verified directly against the shipped enum** (`src/Daedalus.Application/DTOs/Scheduling/RunDiagnosis.cs`),
+not copied from the design doc:
+
+| Verdict | Meaning |
+|---|---|
+| `Delivered` | Completed; no dead letter found for its channel message |
+| `Running` | Non-terminal step, recently updated |
+| `NotYetDue` | No execution row; `NextRunAt` is in the future |
+| `Overdue` | No execution row; `NextRunAt` is in the past |
+| `Stranded` | Non-terminal step, `UpdatedAt` older than the configured threshold (default 15 minutes) |
+| `DeliveryUnknown` | Completed, but delivery could not be confirmed — the outbox read failed, or the dead-letter scan was truncated before it reached this run |
+| `Failed` | `Step == Failed`; `LastError` says why |
+| `Undelivered` | Completed, but its channel message was dead-lettered |
+| `Disabled` | The schedule is switched off; this occurrence will never fire |
+
+(`Unknown = 0` is a tenth member but is a sentinel for "uninitialized," explicitly documented as "never
+returned by the service" — the real verdict model is the nine above.)
+
+**Drift found, as instructed:** the design doc's own Testing section states "the eight verdicts are the
+spec" and its verdict table lists exactly eight rows — `Disabled` does not appear in the design doc at all.
+The shipped enum adds `Disabled` as member 9, and its own doc comment explains why it was appended rather
+than inserted alongside the other "never ran" verdicts: these values are serialized across the API boundary,
+and renumbering would silently change the meaning of every value already on the wire. So this is not a
+documentation error to fix by editing the design doc — it is a real post-design addition, correctly shipped
+additively for exactly that reason.
+
+### Precedence: only an alarm outranks a false "healthy"
+
+`Classify` applies a strict precedence, verified against `ScheduleDiagnostics.Classify`/`IsAlarm`:
+
+```text
+Disabled  >  { Failed, Stranded, Undelivered }  >  Overdue  >  { Delivered, DeliveryUnknown, Running, NotYetDue }
+```
+
+The rule behind it: `Overdue` outranks another verdict only when that verdict would otherwise read as
+*healthy*. `Disabled` ranks above everything because `ScheduleSweeperService` selects on `Enabled &&
+NextRunAt <= now` — a disabled schedule's `NextRunAt` is simply never advanced and slides further into the
+past forever, so without this rule every disabled schedule would misreport as `Overdue`. Once a row is
+already an alarm (`Failed`, `Stranded`, `Undelivered`) the operator is already going to look, and a more
+specific alarm should never be displaced by the vaguer "nothing ran" — `Overdue` in practice can only ever
+displace `Delivered` or `DeliveryUnknown`, the two verdicts that read healthy. `DeliveryUnknown` is
+deliberately not counted as an alarm for this precedence: it is applied afterward by a separate
+"never claim a delivery it could not confirm" pass over the dead-letter scan, and it says only that nothing
+could be determined — strictly less informative than `Overdue`, which at least names a real, observed fact.
+
+```mermaid
+flowchart TD
+    Start["ScheduledRun"] --> Disabled{"Enabled?"}
+    Disabled -->|No| VDisabled["Disabled"]
+    Disabled -->|Yes| HasExec{"Latest execution exists?"}
+    HasExec -->|No| DueCheck{"NextRunAt <= now?"}
+    DueCheck -->|No| VNotYetDue["NotYetDue"]
+    DueCheck -->|Yes| VOverdue1["Overdue"]
+    HasExec -->|Yes| StepCheck{"Step?"}
+    StepCheck -->|Failed| VFailed["Failed"]
+    StepCheck -->|"Done, dead letter found"| VUndelivered["Undelivered"]
+    StepCheck -->|"Done, no dead letter"| DeliveryConfirm{"Dead-letter scan<br/>covers this run?"}
+    DeliveryConfirm -->|No| VUnknown["DeliveryUnknown"]
+    DeliveryConfirm -->|Yes| VDelivered["Delivered"]
+    StepCheck -->|"non-terminal"| StaleCheck{"UpdatedAt stale<br/>(> threshold)?"}
+    StaleCheck -->|Yes| VStranded["Stranded"]
+    StaleCheck -->|No| VRunning["Running"]
+    VDelivered --> Overdue2{"Overrides:<br/>NextRunAt <= now?"}
+    VUnknown --> Overdue2
+    VRunning --> Overdue2
+    Overdue2 -->|Yes| VOverdue2["Overdue"]
+    Overdue2 -->|No| Keep["keep original verdict"]
+```
+
+---
+
+## 20. The Scout and Repository Tooling
+
+Read/write access to GitHub, split so hard that the write half is unreachable from the read half's code —
+and enforced so the split cannot be bypassed by an agent's own tool list. Source:
+`src/Daedalus.Agents/GitHub/` and `src/Daedalus.Agents/Tools/DaedalusRepoTools.cs` /
+`DaedalusRepoActionTools.cs`.
+
+### `IGitHubReader` and `IGitHubWriter`
+
+Both interfaces are implemented by a single class, `GitHubApi : IGitHubReader, IGitHubWriter`, registered
+once and exposed as each interface separately (`services.AddScoped<IGitHubReader>(...)` /
+`AddScoped<IGitHubWriter>(...)`, both resolving the same `GitHubApi`):
+
+```csharp
+public interface IGitHubReader
+{
+    Task<RepoActivity> GetActivityAsync(RepoRef repo, DateTime sinceUtc, CancellationToken ct = default);
+    Task<Result<string>> GetDefaultBranchAsync(RepoRef repo, CancellationToken ct = default);
+}
+
+public interface IGitHubWriter
+{
+    Task<Result<string>> CommentAsync(RepoRef repo, int number, string body, CancellationToken ct = default);
+    Task<Result<string>> AddLabelAsync(RepoRef repo, int number, string label, CancellationToken ct = default);
+    Task<Result<string>> CloseIssueAsync(RepoRef repo, int number, CancellationToken ct = default);
+}
+```
+
+`RepoRef.Parse` validates an `owner/name` string before it ever reaches a URL — rejecting `?`, `#`, `\`,
+spaces and `..` segments — because agents pass this straight from a model, not from a trusted caller.
+`IGitHubWriter`'s own doc comment states it is "for interactive agents only" and carries no retry: a retried
+comment is a visible double comment on someone's pull request.
+
+Two tool classes each hold only one half of the seam — not by convention, but because each class's
+constructor only accepts one interface:
+
+| Tool class | Injects | Tool source | Tools |
+|---|---|---|---|
+| `DaedalusRepoTools` | `IGitHubReader` only | `daedalus` (same source as `DaedalusKnowledgeTools`/`DaedalusScheduleTools`) | `daedalus__repo_activity`, `daedalus__repo_default_branch` |
+| `DaedalusRepoActionTools` | `IGitHubWriter` only | `repoaction` | `repoaction__comment_on_issue`, `repoaction__add_label`, `repoaction__close_issue` |
+
+A tool class that cannot reach the writer cannot write, whatever an agent asks it to do — this is the first
+layer of the boundary, not the whole of it.
+
+### The authorization boundary: enforced by policy, not by tool naming
+
+This is the part that is easy to state backwards. The `repoaction__*` / `daedalus__*` source split, and the
+fact that the unattended scout agent's tool allow-list only names `daedalus__*`, are **defense in depth** —
+real, but not the boundary that actually holds. The boundary that holds is a policy binding, verified
+directly in both hosts' `appsettings.json` (`Thalos:ToolPolicies`):
+
+```json
+{ "Pattern": "repoaction__*", "Policy": "developer" }
+```
+
+`DeveloperPolicy` (`src/Daedalus.Agents/Security/DeveloperPolicy.cs`) passes only when the caller's
+`ISecurityContext.Roles` contains `developer` or `admin`. A scheduled run's identity comes from
+`DetachedRunOptions`, also verified in both hosts' configuration:
+
+```json
+"DetachedRuns": { "PrincipalId": "schedule:daedalus", "Roles": [ "reader" ] }
+```
+
+So a detached scheduled run authenticates as `schedule:daedalus` holding only `reader` — never `developer` or
+`admin`. Thalos's `DefaultToolAuthorizer` evaluates `repoaction__*` against `DeveloperPolicy` for every call
+regardless of source, so it **denies every `repoaction__*` tool to a scheduled run no matter what that run's
+agent definition's `Tools` list says.** Naming a tool `repoaction__*` instead of `daedalus_write__*` makes it
+harder to *accidentally* glob-match into the scout's `daedalus__*` allow-list, but removing the tool-source
+split entirely would not open this hole — removing the `Thalos:ToolPolicies` binding above would. The
+source's own comment on the config entry states the stakes directly: "removing this line does not merely
+relax a check; it makes an unattended 07:00 run able to close a pull request a human only finds out about at
+09:00."
+
+The `scout` and `writer` agents from section 18's `RepoDigestPrompts` are exactly this scheduled, `reader`-
+only caller — the scout's task prompt tells it to call `daedalus__repo_activity`, and it has no path to any
+`repoaction__*` tool that would actually succeed even if its prompt were compromised into attempting one. An
+interactive human session authenticated with the `developer` role is the only caller `repoaction__*` ever
+lets through.
+
+```mermaid
+graph TD
+    subgraph Interactive["Interactive session — developer role"]
+        Human["Human via chat/CLI"] --> AgentDev["Agent with developer/admin role"]
+        AgentDev -->|"repoaction__comment_on_issue"| AuthzDev{"DefaultToolAuthorizer<br/>evaluates DeveloperPolicy"}
+        AuthzDev -->|"role check passes"| WriterIface["IGitHubWriter"]
+    end
+
+    subgraph Scheduled["Scheduled run — reader role only"]
+        Sweep["Scout/writer subagent<br/>(section 18, DetachedPrincipal)"] -->|"PrincipalId=schedule:daedalus<br/>Roles=reader only"| AgentSched["Subagent run"]
+        AgentSched -->|"even if it attempted repoaction__*"| AuthzSched{"DefaultToolAuthorizer<br/>evaluates DeveloperPolicy"}
+        AuthzSched -->|"role check FAILS"| Denied["Denied — reader has no developer/admin role"]
+        AgentSched -->|"daedalus__repo_activity"| ReaderIface["IGitHubReader"]
+    end
+
+    WriterIface --> Api["GitHubApi<br/>(implements both interfaces)"]
+    ReaderIface --> Api
+```
+
+---
+
 ## Key Architectural Principles
 
 ### 🏗️ **Layered Architecture**
