@@ -7,9 +7,12 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Playwright.Api.Fixtures;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 // Alias to resolve ambiguity between Daedalus.Api.Program and Daedalus.Console.Program
 using ApiProgram = Daedalus.Api.Program;
@@ -193,6 +196,28 @@ public class E2EServerFixture
                         // Remove and replace health checks to avoid database dependencies
                         RemoveServicesByType(services, "HealthCheck");
                         services.AddHealthChecks();
+
+                        // Production registers a global 100 req/min limiter (partitioned per user) and a
+                        // 30 req/min "write-operations" limiter. All E2E tests authenticate as the same
+                        // TestAuthHandler identity, so they share one partition; a full test run fires far
+                        // more than 100 requests well within a minute and starts getting 429s that have
+                        // nothing to do with the behavior under test. Replace the configured RateLimiterOptions
+                        // with effectively unlimited policies of the same names so [EnableRateLimiting(...)]
+                        // attributes still resolve, but never actually throttle in tests.
+                        RemoveConfigureOptions<RateLimiterOptions>(services);
+                        services.AddRateLimiter(options =>
+                        {
+                            options.AddFixedWindowLimiter("llm-operations", limiterOptions =>
+                            {
+                                limiterOptions.PermitLimit = int.MaxValue;
+                                limiterOptions.Window = TimeSpan.FromMilliseconds(1);
+                            });
+                            options.AddFixedWindowLimiter("write-operations", limiterOptions =>
+                            {
+                                limiterOptions.PermitLimit = int.MaxValue;
+                                limiterOptions.Window = TimeSpan.FromMilliseconds(1);
+                            });
+                        });
                     });
                 });
 
@@ -249,6 +274,28 @@ public class E2EServerFixture
     {
         var toRemove = services
             .Where(d => d.ServiceType.Name.Contains(typeNamePart, StringComparison.Ordinal))
+            .ToList();
+        foreach (var descriptor in toRemove)
+        {
+            services.Remove(descriptor);
+        }
+    }
+
+    /// <summary>
+    ///     Removes IConfigureOptions/IPostConfigureOptions registrations for <typeparamref name="TOptions" />.
+    ///     Needed because Program.cs's AddRateLimiter(...) already ran (it's part of top-level Program
+    ///     construction) by the time this ConfigureServices callback executes, and RateLimiterOptions'
+    ///     AddPolicy throws if a policy name is registered twice on the same options instance -- so the
+    ///     production limiter configuration must be removed outright before re-adding permissive policies.
+    /// </summary>
+    private static void RemoveConfigureOptions<TOptions>(IServiceCollection services)
+    {
+        var toRemove = services
+            .Where(d => d.ServiceType.IsGenericType
+                        && d.ServiceType.GenericTypeArguments.Length == 1
+                        && d.ServiceType.GenericTypeArguments[0] == typeof(TOptions)
+                        && (d.ServiceType.GetGenericTypeDefinition() == typeof(IConfigureOptions<>)
+                            || d.ServiceType.GetGenericTypeDefinition() == typeof(IPostConfigureOptions<>)))
             .ToList();
         foreach (var descriptor in toRemove)
         {
