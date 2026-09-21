@@ -56,10 +56,10 @@ public sealed class CleanArchitectureTests
 
     /// <summary>
     ///     Anchored on ZeroAlloc.Outbox's own namespace, so the fact fails if the assembly is not loaded. Unlike
-    ///     <c>ZeroAlloc.Saga</c> and <c>ZeroAlloc.Scheduling</c> (see <see cref="No_project_references_ZeroAlloc_Saga"/>
-    ///     and <see cref="No_project_references_ZeroAlloc_Scheduling"/>), this package genuinely is referenced
-    ///     elsewhere in the solution (<c>Daedalus.Agents</c>, <c>Daedalus.Infrastructure</c>), so a namespace rule
-    ///     over it is capable of failing and is not the vacuous-rule trap those two packages fall into.
+    ///     <c>ZeroAlloc.Scheduling</c> (see <see cref="No_project_references_ZeroAlloc_Scheduling"/>), this package
+    ///     genuinely is referenced elsewhere in the solution by <c>Daedalus.Agents</c> and
+    ///     <c>Daedalus.Infrastructure</c>, so a namespace rule over it is capable of failing and is not the
+    ///     vacuous-rule trap that package falls into.
     /// </summary>
     private const string ZeroAllocOutboxNamespacePattern = "^ZeroAlloc\\.Outbox(\\.|$)";
 
@@ -568,29 +568,18 @@ public sealed class CleanArchitectureTests
     // way to make "must not be referenced at all" an assertion that can actually fail.
 
     [Fact]
-    public void No_project_references_ZeroAlloc_Saga()
-    {
-        var offenders = FindCsprojFilesReferencing("ZeroAlloc.Saga");
-
-        offenders.Should().BeEmpty(
-            "a saga never receives its trigger event: ZeroAlloc.Mediator's generated Publish dispatches to a " +
-            "closed list of concrete handler types in its own compilation and never enumerates " +
-            "INotificationHandler<T> from DI. See docs/plans/2026-09-16-saga-efcore-spike.md and ZeroAlloc.Saga " +
-            "issue 127. Phase 1.5 removed the dependency; re-adding it compiles and then silently does nothing " +
-            "at run time.");
-    }
-
-    [Fact]
     public void No_project_references_ZeroAlloc_Scheduling()
     {
         var offenders = FindCsprojFilesReferencing("ZeroAlloc.Scheduling");
 
         offenders.Should().BeEmpty(
-            "ZeroAlloc.Scheduling was dropped for this phase: its EF Core job store requires a separate " +
-            "SchedulingDbContext that ships no migrations and cannot be bootstrapped with EnsureCreated, and the " +
-            "sweep this solution needs is idempotent, so durable job state buys nothing over the plain " +
-            "BackgroundService ScheduleSweeperService already is. Re-adding the package without also solving the " +
-            "migration gap reintroduces a dependency that cannot boot.");
+            "ZeroAlloc.Scheduling is excluded by DESIGN, not because it is broken. ScheduledRuns.NextRunAt is the " +
+            "source of truth and the sweep is idempotent, so durable job state buys nothing over the plain " +
+            "BackgroundService that ScheduleSweeperService already is. Re-adding it means taking on a second " +
+            "persistence surface for no behaviour gain. Note the ORIGINAL bootstrap objection no longer holds: as " +
+            "of 1.2.56 the package ships ZeroAlloc.Scheduling.InMemory with a zero-setup WithInMemoryStore, and " +
+            "SchedulingDbContext is public so dotnet ef migrations add --context SchedulingDbContext works. Verified " +
+            "2026-09-21. If durable job state is ever genuinely wanted, delete this fact rather than working around it.");
     }
 
     /// <summary>

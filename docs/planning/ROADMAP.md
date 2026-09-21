@@ -52,6 +52,28 @@
 > one-minute `PeriodicTimer`. Both `ZeroAlloc.Saga` and `ZeroAlloc.Scheduling` are now enforced-absent
 > by a `.csproj` scan in `CleanArchitectureTests` — an ArchUnit rule would be vacuous for an
 > unreferenced package.
+>
+> **Correction (2026-09-21): both of the above are superseded. Re-measured, not re-read.**
+> All three upstream issues behind these two exclusions are fixed, and each fix was verified by re-running
+> the original experiment rather than by trusting the issue status — a closed issue is a claim, not a
+> measurement.
+> **`ZeroAlloc.Saga` is unblocked.** Saga 3.0.0 with Mediator 5.1.4 on .NET 10: the saga received its
+> trigger event through `IMediator.Publish`, ran its `[Step]` and dispatched its command. That is exactly
+> the scenario the 2026-09-16 spike proved broken. The architecture ban is **lifted**. Saga is now a live
+> candidate for phase 2.2's durable workflow engine alongside `StateMachine` and `EventSourcing` — a design
+> question to settle when 2.2 is brainstormed, not a foregone conclusion.
+> **`ZeroAlloc.Scheduling` stays excluded, but the stated reason was wrong and is now corrected.** The
+> bootstrap objection no longer holds: 1.2.56 ships `ZeroAlloc.Scheduling.InMemory` with a zero-setup
+> `WithInMemoryStore`, and `SchedulingDbContext` is public so `dotnet ef migrations add --context
+> SchedulingDbContext` works. What survives is the *design* half of the original argument:
+> `ScheduledRuns.NextRunAt` is the source of truth and the sweep is idempotent, so durable job state buys
+> nothing over the `BackgroundService` that `ScheduleSweeperService` already is. The ban now says that, and
+> only that. `AddScheduling` alone does still register no `IJobStore`.
+> **The two AOT-clean stores now exist.** `ZeroAlloc.Saga.Orm` 3.0.0 and `ZeroAlloc.Outbox.Orm` 2.6.0 have
+> **zero EF Core** anywhere in their dependency trees, built on `ZeroAlloc.ORM` 1.6.6. A real saga was
+> wired end to end through `WithOrmStore` against SQLite migrated by ZeroAlloc.ORM's own `MigrationRunner`.
+> **This half-retires Milestone 3's premise:** "EF Core cannot publish AOT and no AOT-clean stores exist"
+> is now only true in its first clause. The data-layer migration remains the work.
 
 ## Milestone 1: Hermes-Style Agent Framework [status: active]
 **Goal:** Replace the Ralph Loop setup with a Hermes-like .NET agent framework (Thalos.NET) that integrates Rag.NET and AI.Sentinel.
