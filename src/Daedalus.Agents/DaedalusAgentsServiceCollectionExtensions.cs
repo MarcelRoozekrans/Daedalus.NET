@@ -8,6 +8,7 @@ using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Sessions;
 using Daedalus.Agents.Skills;
+using Daedalus.Agents.Git;
 using Daedalus.Agents.Tools;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
@@ -22,6 +23,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Anthropic;
+using Thalos.Git;
 using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
@@ -129,6 +131,13 @@ public static class DaedalusAgentsServiceCollectionExtensions
         services.AddChannelOutbox();
 
         AddGitHub(services, configuration);
+
+        // Thalos's pull-request publisher abstraction, implemented over Daedalus's existing pull-request-factory
+        // dispatcher, so the future git pull-request tool inherits GitHub and Azure DevOps routing for free. The
+        // factory it delegates to is registered by AddCodeAnalysisServices in Daedalus.Infrastructure, not here — a
+        // host calling this method alone resolves the publisher fine but only fails, at first use, if it never
+        // called that one too. That mirrors how the factory itself already gets consumed across composition roots.
+        services.AddScoped<IPullRequestPublisher, ThalosPullRequestPublisher>();
 
         ValidateMemoryConfig(options.Memory);
         services.TryAddSingleton(options.Memory);

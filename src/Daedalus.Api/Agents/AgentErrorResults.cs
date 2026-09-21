@@ -36,6 +36,12 @@ internal static class AgentErrorResults
         AgentErrorCode.SkillNotFound => StatusCodes.Status404NotFound,
         AgentErrorCode.SkillSearchUnavailable => StatusCodes.Status503ServiceUnavailable,
         AgentErrorCode.SkillStoreFailed => StatusCodes.Status502BadGateway,
+        // Thalos.NET 0.6.0: local git write / pull-request-publish failures. Statuses match Thalos's own
+        // AgentErrorCode doc comments (branch conflict, missing repo, bad credentials, everything else).
+        AgentErrorCode.GitBranchAlreadyExists => StatusCodes.Status409Conflict,
+        AgentErrorCode.GitRepositoryNotFound => StatusCodes.Status404NotFound,
+        AgentErrorCode.GitAuthenticationFailed => StatusCodes.Status401Unauthorized,
+        AgentErrorCode.GitOperationFailed => StatusCodes.Status502BadGateway,
         // ProviderError, StoreError and anything Thalos adds later: an upstream dependency failed.
         _ => StatusCodes.Status502BadGateway,
     };
