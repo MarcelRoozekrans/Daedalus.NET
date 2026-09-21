@@ -1,6 +1,6 @@
 using ZeroAlloc.Results;
 
-namespace Daedalus.Agents.GitHub;
+namespace Daedalus.Infrastructure.Services.GitHub;
 
 public interface IGitHubTokenSource
 {

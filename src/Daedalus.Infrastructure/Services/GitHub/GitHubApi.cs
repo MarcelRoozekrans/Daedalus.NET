@@ -1,16 +1,25 @@
+#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute — JsonSerializer.Serialize
+                               // over small anonymous write payloads; accepted risk, matching GitHubPullRequestFactory
+                               // and AzureDevOpsPullRequestFactory elsewhere in this project.
+
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using ZeroAlloc.Results;
+using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Daedalus.Agents.GitHub;
+namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>
 ///     Reads repository activity straight from the GitHub REST API, and — for interactive agents only — acts on it.
+///     Also the one place that opens a pull request on GitHub: <see cref="CreatePullRequestAsync"/> serves the
+///     non-interactive Ralph Loop and workspace orchestrators through
+///     <c>Daedalus.Infrastructure.Services.CodeAnalysis.GitHubPullRequestFactory</c>, which owns URL parsing and
+///     keeps its place behind <c>IPullRequestFactory</c>'s platform dispatch but no longer speaks HTTP itself.
 ///     Every request is authenticated up front — an unauthenticated request to a private repository 404s and looks
 ///     identical to a missing repository, so a missing token fails before anything is sent rather than surfacing as
 ///     a confusing category error later. Writes carry no retry: a failure is returned to the caller as-is, because a
@@ -86,6 +95,46 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
         return await SendWriteAsync(
             HttpMethod.Patch, IssueUrl(repo, number), payload, token.Value,
             $"{repo}#{number} closed.", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Opens a pull request. Unlike the other writes, a successful response body is not a fixed confirmation
+    ///     string — the caller needs the number GitHub assigned and both the API and web URLs — so this does not
+    ///     go through <see cref="SendWriteAsync"/>, which only ever returns the message it was given.
+    /// </summary>
+    public async Task<Result<PullRequestResult>> CreatePullRequestAsync(
+        RepoRef repo, string featureBranch, string baseBranch, string title, string description, CancellationToken ct = default)
+    {
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<PullRequestResult>.Failure(token.Error);
+
+        var payload = JsonSerializer.Serialize(new { title, body = description, head = featureBranch, @base = baseBranch, draft = false });
+
+        // Not disposed here, matching SendWriteAsync: the stub handler in tests keeps this request around so a
+        // test can inspect the body it sent, and disposing it would dispose that content out from under it.
+        var request = new HttpRequestMessage(HttpMethod.Post, $"{RepoUrl(repo)}/pulls")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+        ApplyHeaders(request, token.Value);
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+            return Result<PullRequestResult>.Failure(MapError(response, body));
+
+        using var doc = JsonDocument.Parse(body);
+        var content = doc.RootElement;
+
+        return Result<PullRequestResult>.Success(new PullRequestResult
+        {
+            PullRequestId = content.GetProperty("number").GetInt32().ToString(CultureInfo.InvariantCulture),
+            PullRequestUrl = content.GetProperty("url").GetString() ?? string.Empty,
+            WebUrl = content.GetProperty("html_url").GetString() ?? string.Empty,
+            Status = PullRequestStatus.Open,
+        });
     }
 
     /// <summary>

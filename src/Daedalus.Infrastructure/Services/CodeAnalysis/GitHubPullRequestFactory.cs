@@ -1,22 +1,19 @@
 #pragma warning disable CA1054 // URI-like parameters should not be strings
-#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute
 
-using System.Globalization;
-using System.Net.Http.Json;
-using System.Text.Json;
 using ZeroAlloc.Results;
-using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.Logging;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
 /// <summary>
-///     Factory for creating pull requests on GitHub
+///     Factory for creating pull requests on GitHub — the GitHub-specific leg of <see cref="PullRequestFactory"/>'s
+///     platform dispatch. Owns only URL parsing here; the actual HTTP call is delegated to <see cref="GitHubApi"/>,
+///     which is the single client that ever speaks to the GitHub REST API from this codebase.
 /// </summary>
 public sealed class GitHubPullRequestFactory(
-    HttpClient httpClient,
-    IRepositoryAuthenticationProvider authProvider,
+    GitHubApi gitHub,
     ILogger<GitHubPullRequestFactory> logger)
 {
     public async Task<Result<PullRequestResult>> CreatePullRequestAsync(
@@ -29,12 +26,6 @@ public sealed class GitHubPullRequestFactory(
     {
         try
         {
-            var token = await authProvider.GetAuthTokenAsync(RepositoryPlatform.GitHub, ct).ConfigureAwait(false);
-            if (token.IsFailure)
-            {
-                return Result<PullRequestResult>.Failure(token.Error);
-            }
-
             // Parse owner/repo from URL
             var urlParts = repositoryUrl
                 .Replace("https://github.com/", "", StringComparison.OrdinalIgnoreCase)
@@ -47,54 +38,27 @@ public sealed class GitHubPullRequestFactory(
                 return Result<PullRequestResult>.Failure("Invalid GitHub URL format");
             }
 
-            var owner = urlParts[0];
-            var repo = urlParts[1];
-
-            var request = new
+            var repoRef = RepoRef.Parse($"{urlParts[0]}/{urlParts[1]}");
+            if (repoRef.IsFailure)
             {
-                title,
-                body = description,
-                head = featureBranch,
-                @base = baseBranch,
-                draft = false
-            };
-
-            httpClient.DefaultRequestHeaders.Clear();
-            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token.Value}");
-            httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
-            httpClient.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-
-            var response = await httpClient.PostAsJsonAsync(
-                    $"https://api.github.com/repos/{owner}/{repo}/pulls",
-                    request,
-                    ct)
-                .ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                logger.LogError("GitHub API error: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                return Result<PullRequestResult>.Failure($"GitHub API error: {response.StatusCode}");
+                return Result<PullRequestResult>.Failure(repoRef.Error);
             }
 
-            var jsonString = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(jsonString);
-            var content = doc.RootElement;
+            var result = await gitHub.CreatePullRequestAsync(
+                repoRef.Value, featureBranch, baseBranch, title, description, ct).ConfigureAwait(false);
 
-            var prResult = new PullRequestResult
+            if (result.IsFailure)
             {
-                PullRequestId = content.GetProperty("number").GetInt32().ToString(CultureInfo.InvariantCulture),
-                PullRequestUrl = content.GetProperty("url").GetString() ?? string.Empty,
-                WebUrl = content.GetProperty("html_url").GetString() ?? string.Empty,
-                Status = PullRequestStatus.Open
-            };
+                logger.LogError("GitHub API error: {Error}", result.Error);
+                return result;
+            }
 
             if (logger.IsEnabled(LogLevel.Information))
             {
-                logger.LogInformation("Created GitHub PR: {PrUrl}", prResult.WebUrl);
+                logger.LogInformation("Created GitHub PR: {PrUrl}", result.Value.WebUrl);
             }
 
-            return Result<PullRequestResult>.Success(prResult);
+            return result;
         }
         catch (Exception ex)
         {

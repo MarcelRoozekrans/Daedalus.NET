@@ -3,7 +3,6 @@ using System.Reflection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
-using Daedalus.Agents.GitHub;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
@@ -13,7 +12,9 @@ using Daedalus.Agents.Tools;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Infrastructure.Agents.Tools;
+using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -241,7 +242,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
-    ///     Registers the GitHub seam behind <see cref="DaedalusRepoTools"/> and <see cref="DaedalusRepoActionTools"/>:
+    ///     Registers the GitHub seam behind <see cref="DaedalusRepoTools"/> and <see cref="DaedalusRepoActionTools"/>
+    ///     by delegating to <c>Daedalus.Infrastructure.Extensions.InfrastructureServiceExtensions.AddGitHubApi</c>:
     ///     <see cref="GitHubOptions"/> from <see cref="GitHubOptions.SectionName"/>, the token source, and one
     ///     <see cref="GitHubApi"/> exposed as both halves of the read/write split.
     /// </summary>
@@ -254,11 +256,6 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///         not bind it.
     ///     </para>
     ///     <para>
-    ///         <b>Why <c>AddHttpClient</c>.</b> It hands <see cref="GitHubApi"/> a client over the pooled,
-    ///         rotated handler instead of a hand-newed one, which is what keeps sockets from being exhausted and
-    ///         DNS from going stale on a long-running host.
-    ///     </para>
-    ///     <para>
     ///         Both interfaces resolve the same concrete type, but each tool class can only reach its own half:
     ///         <see cref="DaedalusRepoTools"/> injects <see cref="IGitHubReader"/> and
     ///         <see cref="DaedalusRepoActionTools"/> injects <see cref="IGitHubWriter"/>, so a read-only tool has
@@ -267,20 +264,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     private static void AddGitHub(IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<GitHubOptions>(configuration.GetSection(GitHubOptions.SectionName));
-
-        // Explicit factory rather than type registration: GitHubTokenSource has a second constructor taking the
-        // environment lookup as a delegate (so tests need not mutate process state), and nothing should depend on
-        // which one the container's constructor selection happens to pick.
-        services.TryAddSingleton<IGitHubTokenSource>(_ => new GitHubTokenSource());
-
-        // GitHubApi takes TimeProvider outright. AddDaedalusScheduling also TryAdds it; whichever runs first wins
-        // and both mean TimeProvider.System, but AddDaedalusAgents must not depend on being called second.
-        services.TryAddSingleton(TimeProvider.System);
-
-        services.AddHttpClient<GitHubApi>();
-        services.AddScoped<IGitHubReader>(sp => sp.GetRequiredService<GitHubApi>());
-        services.AddScoped<IGitHubWriter>(sp => sp.GetRequiredService<GitHubApi>());
+        // GitHubApi now lives in Daedalus.Infrastructure (Agents already references Infrastructure, and this is
+        // what lets Daedalus.Infrastructure.Services.CodeAnalysis.GitHubPullRequestFactory delegate to it directly
+        // without a circular project reference). AddGitHubApi is idempotent, so a host that also calls
+        // AddCodeAnalysisServices (which registers the same client for PR creation) does not double-register it.
+        services.AddGitHubApi(configuration);
     }
 
     private static string ResolveConnectionString(IConfiguration configuration) =>

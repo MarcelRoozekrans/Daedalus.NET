@@ -1,6 +1,6 @@
 using ZeroAlloc.Results;
 
-namespace Daedalus.Agents.GitHub;
+namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>
 ///     A validated <c>owner/name</c> repository reference. Agents pass this string straight from a model, so it is

@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Net;
-using Daedalus.Agents.GitHub;
+using Daedalus.Infrastructure.Services.GitHub;
 using static Daedalus.Tests.Unit.Agents.GitHub.GitHubApiTestSupport;
 
 namespace Daedalus.Tests.Unit.Agents.GitHub;

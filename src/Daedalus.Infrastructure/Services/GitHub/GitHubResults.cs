@@ -1,4 +1,4 @@
-namespace Daedalus.Agents.GitHub;
+namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>
 ///     One category of repository activity, and whether we actually managed to read it.

@@ -1,6 +1,6 @@
 using System.Data.Common;
 using Daedalus.Agents.Channels;
-using Daedalus.Agents.GitHub;
+using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;

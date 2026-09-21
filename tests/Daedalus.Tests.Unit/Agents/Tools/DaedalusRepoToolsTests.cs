@@ -1,4 +1,4 @@
-using Daedalus.Agents.GitHub;
+using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Agents.Tools;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;

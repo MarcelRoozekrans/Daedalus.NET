@@ -10,8 +10,10 @@ using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Services.Git;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Polly;
 
@@ -134,23 +136,13 @@ public static class InfrastructureServiceExtensions
         // Register Git change applier
         services.AddScoped<IGitChangeApplier, GitChangeApplier>();
 
-        // Register resilient HTTP clients for GitHub and Azure DevOps API calls
+        // Register the single GitHub HTTP client (GitHubApi) that GitHubPullRequestFactory now delegates to,
+        // with the same resilience pipeline its own HttpClient used to carry directly.
+        services.AddGitHubApi(configuration);
+
+        // Register resilient HTTP client for Azure DevOps API calls
         // Uses Microsoft.Extensions.Http.Resilience (Polly v8) standard resilience pipeline:
         // retry (exponential backoff), circuit breaker, and timeout
-        services.AddHttpClient<GitHubPullRequestFactory>(client =>
-            {
-                client.DefaultRequestHeaders.Add("User-Agent", "Daedalus-RalphLoop");
-            })
-            .AddStandardResilienceHandler(options =>
-            {
-                options.Retry.MaxRetryAttempts = 3;
-                options.Retry.BackoffType = DelayBackoffType.Exponential;
-                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
-                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
-                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
-                options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
-            });
-
         services.AddHttpClient<AzureDevOpsPullRequestFactory>(client =>
             {
                 client.DefaultRequestHeaders.Add("User-Agent", "Daedalus-RalphLoop");
@@ -173,6 +165,55 @@ public static class InfrastructureServiceExtensions
 
         // Register Ralph Loop orchestrator
         services.AddScoped<IRalphLoopOrchestrator, RalphLoopOrchestrator>();
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers the single GitHub HTTP client — <see cref="GitHubApi"/> — and its two read/write interfaces,
+    ///     plus <see cref="GitHubOptions"/> and the token source. Called both from here (for
+    ///     <see cref="GitHubPullRequestFactory"/>, so PR creation works on any host that registers code analysis
+    ///     services alone) and from Daedalus.Agents' agent wiring (for the <c>daedalus__*</c>/<c>repoaction__*</c>
+    ///     tool classes, so reads and comments work on any host that registers agents alone). A host that calls
+    ///     both ends up calling this twice; the guard below makes the second call a no-op rather than a second
+    ///     <c>HttpClient</c> registration.
+    /// </summary>
+    public static IServiceCollection AddGitHubApi(this IServiceCollection services, IConfiguration configuration)
+    {
+        if (services.Any(descriptor => descriptor.ServiceType == typeof(GitHubApi)))
+        {
+            return services;
+        }
+
+        // IL2026: Configuration binding uses reflection; accepted risk for configuration scenarios (matches the
+        // pattern used for ExternalServicesConfiguration above).
+#pragma warning disable IL2026
+        services.Configure<GitHubOptions>(configuration.GetSection(GitHubOptions.SectionName));
+#pragma warning restore IL2026
+
+        // Explicit factory rather than type registration: GitHubTokenSource has a second constructor taking the
+        // environment lookup as a delegate (so tests need not mutate process state), and nothing should depend on
+        // which one the container's constructor selection happens to pick.
+        services.TryAddSingleton<IGitHubTokenSource>(_ => new GitHubTokenSource());
+
+        // Whichever caller registers this first wins; both mean TimeProvider.System.
+        services.TryAddSingleton(TimeProvider.System);
+
+        // The same resilience pipeline GitHubPullRequestFactory's own HttpClient used to carry directly now
+        // covers every GitHub call — reads, comments, labels, closes and PR creation alike.
+        services.AddHttpClient<GitHubApi>()
+            .AddStandardResilienceHandler(options =>
+            {
+                options.Retry.MaxRetryAttempts = 3;
+                options.Retry.BackoffType = DelayBackoffType.Exponential;
+                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+                options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
+            });
+
+        services.AddScoped<IGitHubReader>(sp => sp.GetRequiredService<GitHubApi>());
+        services.AddScoped<IGitHubWriter>(sp => sp.GetRequiredService<GitHubApi>());
 
         return services;
     }

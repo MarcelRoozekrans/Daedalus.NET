@@ -1,6 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
-using Daedalus.Agents.GitHub;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.Options;
 using Thalos;
 

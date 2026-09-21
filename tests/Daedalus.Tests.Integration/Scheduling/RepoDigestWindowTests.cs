@@ -1,5 +1,5 @@
 using Daedalus.Agents.Channels;
-using Daedalus.Agents.GitHub;
+using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
