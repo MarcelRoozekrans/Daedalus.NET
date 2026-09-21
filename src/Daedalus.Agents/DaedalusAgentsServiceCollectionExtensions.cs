@@ -24,6 +24,7 @@ using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Anthropic;
 using Thalos.Git;
+using Thalos.Git.LibGit2Sharp;
 using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
@@ -59,6 +60,20 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     </para>
     /// </remarks>
     public const string RepoActionToolSourceName = "repoaction";
+
+    /// <summary>
+    ///     The Thalos tool-source name of <see cref="GitActionTools"/>; tools appear as <c>git__{tool}</c>
+    ///     (<c>git__create_branch</c>, <c>git__commit</c>, <c>git__push</c>, <c>git__open_pull_request</c>).
+    /// </summary>
+    /// <remarks>
+    ///     <b>Same boundary as <see cref="RepoActionToolSourceName"/>, owned by Thalos instead of Daedalus.</b>
+    ///     <see cref="GitActionTools"/> is defined in <c>Thalos.NET.Git</c> — Daedalus only registers it and binds
+    ///     <c>git__*</c> to <see cref="DeveloperPolicy"/> in <c>Thalos:ToolPolicies</c>, exactly as it does for
+    ///     <c>repoaction__*</c>. The property that makes either binding safe is the same one: a scheduled run
+    ///     authenticates as <c>schedule:daedalus</c> with roles <c>["reader"]</c>, so <c>DefaultToolAuthorizer</c>
+    ///     denies every <c>git__*</c> tool whatever an agent's tool list contains.
+    /// </remarks>
+    public const string GitToolSourceName = "git";
 
     /// <summary>Name of the application database connection string (<c>ConnectionStrings:daedalus</c>), shared with the Rag.NET memory index.</summary>
     public const string DatabaseConnectionName = "daedalus";
@@ -167,6 +182,12 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 // daedalus__* glob cannot name. See RepoActionToolSourceName for why the split is not the boundary.
                 .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools))
                 .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
+                // Thalos's own local-git write capability (branch, commit, push, open pull request). UseLibGit2SharpGit
+                // registers the IGitWriteService implementation GitActionTools needs alongside IPullRequestPublisher
+                // (registered above, in AddDaedalusAgents proper). Same write boundary as repoaction__*, just owned by
+                // Thalos: see GitToolSourceName for why the git__* -> developer binding is what actually holds it.
+                .UseLibGit2SharpGit()
+                .AddLocalTools(GitToolSourceName, typeof(GitActionTools))
                 .AddMcpServersFromFile(ResolveMcpConfigPath(options.McpConfigPath, environment))
                 .AddPolicy<DeveloperPolicy>();
 
