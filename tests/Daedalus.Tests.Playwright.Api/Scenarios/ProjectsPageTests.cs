@@ -291,9 +291,23 @@ public class ProjectsPageTests : ApiTestBase
     [Description("User can update project details")]
     public async Task ProjectsPage_EditProject_UpdatesSuccessfully()
     {
-        // Arrange
-        var all = await GetApiAsync<PagedResultDto<ProjectDto>>("/api/projects").ConfigureAwait(false);
-        var projectId = all!.Items[0].Id;
+        // Arrange — create a disposable project of our own rather than renaming
+        // all.Items[0]: commands now go through the real handlers (no more
+        // always-throwing StubCommandHandlerFactory), so grabbing an arbitrary
+        // item from the shared list risked renaming the fixture-seeded project
+        // or another test's project instead of one this test owns. The list is
+        // sorted by ProjectName, so items[0] is not stable across the run either.
+        var createResponse = await PostApiAsync("/api/projects",
+            new
+            {
+                projectName = $"Edit Me {Guid.NewGuid().ToString()[..8]}",
+                description = "Created only to be edited",
+                version = "1.0"
+            }).ConfigureAwait(false);
+        createResponse.Status.Should().Be(201, "Arrange step should create the project to edit");
+        var createdBody = await createResponse.TextAsync().ConfigureAwait(false);
+        var created = JsonSerializer.Deserialize<ProjectDto>(createdBody, ApiJsonOptions);
+        var projectId = created!.Id;
 
         // Act
         var response = await PutApiAsync($"/api/projects/{projectId}",
@@ -338,11 +352,24 @@ public class ProjectsPageTests : ApiTestBase
     [Description("User can delete a project")]
     public async Task ProjectsPage_DeleteProject_DeletesSuccessfully()
     {
-        // Arrange — use seeded project (create doesn't persist to DB)
-        var all = await GetApiAsync<PagedResultDto<ProjectDto>>("/api/projects").ConfigureAwait(false);
-        var projectId = all!.Items[0].Id;
+        // Arrange — create a disposable project of our own rather than deleting
+        // all.Items[0]: commands now go through the real handlers (no more
+        // always-throwing StubCommandHandlerFactory), so grabbing an arbitrary
+        // item from the shared list risked deleting the fixture-seeded project
+        // or another test's project instead of one this test owns.
+        var createResponse = await PostApiAsync("/api/projects",
+            new
+            {
+                projectName = $"Delete Me {Guid.NewGuid().ToString()[..8]}",
+                description = "Created only to be deleted",
+                version = "1.0"
+            }).ConfigureAwait(false);
+        createResponse.Status.Should().Be(201, "Arrange step should create the project to delete");
+        var createdBody = await createResponse.TextAsync().ConfigureAwait(false);
+        var created = JsonSerializer.Deserialize<ProjectDto>(createdBody, ApiJsonOptions);
+        var projectId = created!.Id;
 
-        // Act — delete the seeded project (controller checks DB)
+        // Act — delete the project this test created
         var deleteResponse = await DeleteApiAsync($"/api/projects/{projectId}").ConfigureAwait(false);
 
         // Assert
