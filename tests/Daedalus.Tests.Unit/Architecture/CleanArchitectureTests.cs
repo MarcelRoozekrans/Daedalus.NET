@@ -603,9 +603,7 @@ public sealed class CleanArchitectureTests
     [Fact]
     public void FluentValidation_is_absent_from_every_project_and_from_central_package_management()
     {
-        var offenders = Directory
-            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
-            .Where(IsOutsideWorktrees)
+        var offenders = FindCsprojFilesOutsideWorktrees()
             .Append(Path.Combine(FindRepositoryRoot(), "Directory.Packages.props"))
             .Where(f => File.ReadAllText(f).Contains("FluentValidation", StringComparison.Ordinal))
             .ToList();
@@ -643,10 +641,34 @@ public sealed class CleanArchitectureTests
     ///     callers above is to catch a reference that would make ArchUnitNET's own namespace-based rules vacuous.
     /// </summary>
     private static List<string> FindCsprojFilesReferencing(string packageName) =>
-        Directory
-            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
-            .Where(p => IsOutsideWorktrees(p) && File.ReadAllText(p).Contains(packageName, StringComparison.OrdinalIgnoreCase))
+        FindCsprojFilesOutsideWorktrees()
+            .Where(p => File.ReadAllText(p).Contains(packageName, StringComparison.OrdinalIgnoreCase))
             .ToList();
+
+    /// <summary>
+    ///     Enumerates every <c>.csproj</c> under <see cref="FindRepositoryRoot"/>, excluding worktree checkouts
+    ///     via <see cref="IsOutsideWorktrees"/>, and asserts a plausible floor on how many were found. Every ban
+    ///     test in this class — <c>ZeroAlloc.Saga</c>, <c>ZeroAlloc.Scheduling</c>, <c>FluentValidation</c>, and
+    ///     <c>CSharpFunctionalExtensions</c> — is built on this scan. If <see cref="IsOutsideWorktrees"/> ever
+    ///     filtered out every <c>.csproj</c> in the repository (for example, if this repository were ever cloned
+    ///     into a directory literally named <c>worktrees</c>), each of those bans would pass having scanned
+    ///     nothing, silently stop guarding against the dependency they ban being reintroduced. This solution has
+    ///     19 <c>.csproj</c> files today; 15 is a safe floor that will not false-positive on ordinary project
+    ///     churn while still catching a scan that came back empty or near-empty.
+    /// </summary>
+    private static List<string> FindCsprojFilesOutsideWorktrees()
+    {
+        var files = Directory
+            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
+            .Where(IsOutsideWorktrees)
+            .ToList();
+
+        files.Count.Should().BeGreaterThanOrEqualTo(15,
+            "IsOutsideWorktrees must not filter out (nearly) every .csproj in the repository — if it does, " +
+            "every ban test built on this scan passes having scanned nothing");
+
+        return files;
+    }
 
     /// <summary>
     ///     Excludes <c>.claude/worktrees/...</c> — a second git worktree checkout of this same repository,
