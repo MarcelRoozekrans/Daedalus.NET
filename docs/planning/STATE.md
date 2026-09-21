@@ -3,7 +3,9 @@
 **Last session:** 2026-09-19
 **Current milestone:** 1 — Hermes-Style Agent Framework (**8 of 9 phases complete**; only 1.8 remains)
 
-**Next:** phase 1.8 — Thalos.NET **0.6.0**, docs and architecture diagrams. The 1.0 tag is deliberately
+**Next:** phase 1.8 — Thalos.NET **0.6.0**, docs and architecture diagrams.
+
+**Parked ideas:** `docs/planning/parked-ideas.md` — currently one, a customer chatbot product on Rag.NET, deferred as a separate application rather than a Daedalus milestone. The 1.0 tag is deliberately
 held back until Milestone 2 settles the agent contracts, since 2.2's workflow engine and 2.3's squad
 roster will likely want changes to `ISubagentRunner`. Decision recorded 2026-09-21 on ROADMAP 1.8 and
 issue #233.
