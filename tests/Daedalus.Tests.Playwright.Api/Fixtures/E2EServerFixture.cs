@@ -221,29 +221,6 @@ public class E2EServerFixture
                     });
                 });
 
-            // Create database schema from model BEFORE the host starts. Touching _factory.Services below
-            // builds and starts the host, and several registered IHostedServices (AgentSessionCrashRecovery,
-            // ScheduleReconcilerHostedService, ScheduleSweeperService, ReindexPendingMemoriesHostedService)
-            // plus the Thalos PostgresSkillStore query the database during startup. If the schema isn't
-            // created first, those startup queries fail with "relation ... does not exist".
-            var bootstrapOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(ConnectionString)
-                .Options;
-            await using (var bootstrap = new ApplicationDbContext(bootstrapOptions))
-            {
-                // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
-                await bootstrap.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
-                await bootstrap.Database.EnsureCreatedAsync().ConfigureAwait(false);
-            }
-
-            // Now it's safe to touch _factory.Services: this builds and starts the host, and the schema
-            // already exists for any hosted services that query the database during startup.
-            using var scope = _factory.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-            // Seed some initial data for testing
-            await SeedTestDataAsync(dbContext).ConfigureAwait(false);
-
             // Verify the server is responding via in-memory TestServer
             using var client = _factory.CreateClient();
             var response = await client.GetAsync("/health").ConfigureAwait(false);
