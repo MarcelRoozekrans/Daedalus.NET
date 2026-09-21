@@ -1,5 +1,5 @@
 using System.Globalization;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -41,12 +41,12 @@ public sealed class RepositoryCodeExtractor(ILogger<RepositoryCodeExtractor> log
                 LastAuthor = "Unknown"
             };
 
-            return Result.Success(file);
+            return Result<RepositoryFile>.Success(file);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error reading file {FilePath}", filePath);
-            return Result.Failure<RepositoryFile>($"Error reading file: {ex.Message}");
+            return Result<RepositoryFile>.Failure($"Error reading file: {ex.Message}");
         }
     }
 
@@ -73,7 +73,7 @@ public sealed class RepositoryCodeExtractor(ILogger<RepositoryCodeExtractor> log
             var fullPath = Path.Combine(workTreePath, filePath);
             if (!File.Exists(fullPath))
             {
-                return Result.Failure<string>($"File not found: {filePath}");
+                return Result<string>.Failure($"File not found: {filePath}");
             }
 
             var lines = await File.ReadAllLinesAsync(fullPath, ct).ConfigureAwait(false);
@@ -82,18 +82,18 @@ public sealed class RepositoryCodeExtractor(ILogger<RepositoryCodeExtractor> log
 
             if (start < 0 || start >= lines.Length)
             {
-                return Result.Failure<string>("Invalid start line");
+                return Result<string>.Failure("Invalid start line");
             }
 
             var snippetLines = lines.Skip(start).Take(end - start).ToList();
             var snippet = string.Join('\n', snippetLines);
 
-            return Result.Success(snippet);
+            return Result<string>.Success(snippet);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error extracting snippet from {FilePath}", filePath);
-            return Result.Failure<string>($"Error extracting snippet: {ex.Message}");
+            return Result<string>.Failure($"Error extracting snippet: {ex.Message}");
         }
     }
 
@@ -115,7 +115,7 @@ public sealed class RepositoryCodeExtractor(ILogger<RepositoryCodeExtractor> log
 
             if (!Directory.Exists(workTreePath))
             {
-                return Result.Success((IReadOnlyList<string>)relatedFiles);
+                return Result<IReadOnlyList<string>>.Success((IReadOnlyList<string>)relatedFiles);
             }
 
             var fileExtension = Path.GetExtension(filePath);
@@ -132,12 +132,12 @@ public sealed class RepositoryCodeExtractor(ILogger<RepositoryCodeExtractor> log
 
             relatedFiles.AddRange(files);
 
-            return Result.Success((IReadOnlyList<string>)relatedFiles.AsReadOnly());
+            return Result<IReadOnlyList<string>>.Success((IReadOnlyList<string>)relatedFiles.AsReadOnly());
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error finding related files");
-            return Result.Failure<IReadOnlyList<string>>($"Error finding files: {ex.Message}");
+            return Result<IReadOnlyList<string>>.Failure($"Error finding files: {ex.Message}");
         }
     }
 
@@ -161,12 +161,12 @@ public sealed class RepositoryCodeExtractor(ILogger<RepositoryCodeExtractor> log
 
             var commits = new List<GitCommitInfo>();
 
-            return Result.Success((IReadOnlyList<GitCommitInfo>)commits.AsReadOnly());
+            return Result<IReadOnlyList<GitCommitInfo>>.Success((IReadOnlyList<GitCommitInfo>)commits.AsReadOnly());
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting file history");
-            return Result.Failure<IReadOnlyList<GitCommitInfo>>($"Error getting history: {ex.Message}");
+            return Result<IReadOnlyList<GitCommitInfo>>.Failure($"Error getting history: {ex.Message}");
         }
     }
 
@@ -191,7 +191,7 @@ public sealed class RepositoryCodeExtractor(ILogger<RepositoryCodeExtractor> log
 
             if (fileResult.IsFailure)
             {
-                return Result.Failure<AnalysisContext>(fileResult.Error);
+                return Result<AnalysisContext>.Failure(fileResult.Error);
             }
 
             var mainFile = fileResult.Value;
@@ -223,12 +223,12 @@ public sealed class RepositoryCodeExtractor(ILogger<RepositoryCodeExtractor> log
                 RecentHistory = history
             };
 
-            return Result.Success(context);
+            return Result<AnalysisContext>.Success(context);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error building analysis context");
-            return Result.Failure<AnalysisContext>($"Error building context: {ex.Message}");
+            return Result<AnalysisContext>.Failure($"Error building context: {ex.Message}");
         }
     }
 }

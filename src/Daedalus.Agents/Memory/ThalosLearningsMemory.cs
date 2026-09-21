@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Services;
@@ -37,7 +37,7 @@ public sealed partial class ThalosLearningsMemory(
         if (SharedOwnerId is not { Length: > 0 } owner)
         {
             LogNoSharedOwner(logger);
-            return Result.Failure<string>("No shared memory owner is configured; the learning was not stored.");
+            return Result<string>.Failure("No shared memory owner is configured; the learning was not stored.");
         }
 
         var request = new RememberRequest
@@ -55,10 +55,10 @@ public sealed partial class ThalosLearningsMemory(
         if (result.IsFailure)
         {
             LogRememberFailed(logger, result.Error.Code, result.Error.Message);
-            return Result.Failure<string>($"{result.Error.Code}: {result.Error.Message}");
+            return Result<string>.Failure($"{result.Error.Code}: {result.Error.Message}");
         }
 
-        return Result.Success(result.Value.Id.ToString());
+        return Result<string>.Success(result.Value.Id.ToString());
     }
 
     /// <inheritdoc />
@@ -66,13 +66,13 @@ public sealed partial class ThalosLearningsMemory(
     {
         if (string.IsNullOrWhiteSpace(query))
         {
-            return Result.Success<IReadOnlyList<RecalledLearning>>([]);
+            return Result<IReadOnlyList<RecalledLearning>>.Success([]);
         }
 
         if (SharedOwnerId is not { Length: > 0 } owner)
         {
             LogNoSharedOwner(logger);
-            return Result.Failure<IReadOnlyList<RecalledLearning>>("No shared memory owner is configured; nothing was recalled.");
+            return Result<IReadOnlyList<RecalledLearning>>.Failure("No shared memory owner is configured; nothing was recalled.");
         }
 
         // Owner-wide shared scope: no agent pin, no second (shared) owner — the learnings *are* the shared owner's memories.
@@ -88,12 +88,12 @@ public sealed partial class ThalosLearningsMemory(
         if (result.IsFailure)
         {
             LogRecallFailed(logger, result.Error.Code, result.Error.Message);
-            return Result.Failure<IReadOnlyList<RecalledLearning>>($"{result.Error.Code}: {result.Error.Message}");
+            return Result<IReadOnlyList<RecalledLearning>>.Failure($"{result.Error.Code}: {result.Error.Message}");
         }
 
         IReadOnlyList<RecalledLearning> learnings = [.. result.Value
             .Select(h => new RecalledLearning(h.Record.Id.ToString(), h.Record.Text, h.Record.Tags, h.Score, h.Record.CreatedAt))];
-        return Result.Success(learnings);
+        return Result<IReadOnlyList<RecalledLearning>>.Success(learnings);
     }
 
     [LoggerMessage(EventId = 500, Level = LogLevel.Warning, Message = "Remembering a Ralph learning failed: {Code} {Message}")]

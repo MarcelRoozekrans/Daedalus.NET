@@ -29,7 +29,7 @@ public class GetTaskByIdQueryHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(domainTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(domainTask));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -50,7 +50,7 @@ public class GetTaskByIdQueryHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<DomainTask>("Task not found"));
+            .Returns(Result<DomainTask>.Failure("Task not found"));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -90,7 +90,7 @@ public class GetTaskByIdQueryHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(domainTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(domainTask));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -112,7 +112,7 @@ public class GetTaskByIdQueryHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, cts.Token)
-            .Returns(Result.Success(domainTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(domainTask));
 
         // Act
         var result = await _handler.Handle(query, cts.Token);
@@ -150,7 +150,7 @@ public class GetTaskByIdQueryHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(domainTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(domainTask));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -190,7 +190,7 @@ public class GetTaskByIdQueryHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<DomainTask>(errorMessage));
+            .Returns(Result<DomainTask>.Failure(errorMessage));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -230,7 +230,7 @@ public class GetTaskByIdQueryHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(domainTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(domainTask));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);

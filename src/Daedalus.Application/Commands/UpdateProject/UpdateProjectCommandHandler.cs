@@ -1,7 +1,8 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.UpdateProject;
 
@@ -10,18 +11,18 @@ namespace Daedalus.Application.Commands.UpdateProject;
 /// </summary>
 public sealed partial class UpdateProjectCommandHandler(
     IProjectRepository projectRepository,
-    ILogger<UpdateProjectCommandHandler> logger) : ICommandHandler<UpdateProjectCommand, Result<ProjectDto>>
+    ILogger<UpdateProjectCommandHandler> logger) : IRequestHandler<UpdateProjectCommand, Result<ProjectDto>>
 {
-    public async Task<Result<ProjectDto>> Handle(UpdateProjectCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ProjectDto>> Handle(UpdateProjectCommand command, CancellationToken ct)
     {
         try
         {
-            var projectResult = await projectRepository.GetByIdAsync(command.Id, cancellationToken)
+            var projectResult = await projectRepository.GetByIdAsync(command.Id, ct)
                 .ConfigureAwait(false);
 
             if (projectResult.IsFailure)
             {
-                return Result.Failure<ProjectDto>($"Project {command.Id} not found");
+                return Result<ProjectDto>.Failure($"Project {command.Id} not found");
             }
 
             var project = projectResult.Value;
@@ -38,7 +39,7 @@ public sealed partial class UpdateProjectCommandHandler(
             var metadataResult = project.UpdateMetadata(projectName, description);
             if (metadataResult.IsFailure)
             {
-                return Result.Failure<ProjectDto>(metadataResult.Error);
+                return Result<ProjectDto>.Failure(metadataResult.Error);
             }
 
             // Update version if provided
@@ -47,17 +48,17 @@ public sealed partial class UpdateProjectCommandHandler(
                 var versionResult = project.UpdateVersion(command.Version);
                 if (versionResult.IsFailure)
                 {
-                    return Result.Failure<ProjectDto>(versionResult.Error);
+                    return Result<ProjectDto>.Failure(versionResult.Error);
                 }
             }
 
-            var updateResult = await projectRepository.UpdateAsync(project, cancellationToken)
+            var updateResult = await projectRepository.UpdateAsync(project, ct)
                 .ConfigureAwait(false);
 
             if (updateResult.IsFailure)
             {
                 LogUpdateProjectFailed(logger, updateResult.Error);
-                return Result.Failure<ProjectDto>(updateResult.Error);
+                return Result<ProjectDto>.Failure(updateResult.Error);
             }
 
             var dto = new ProjectDto(
@@ -72,12 +73,12 @@ public sealed partial class UpdateProjectCommandHandler(
                 new List<TaskDto>());
 
             LogProjectUpdated(logger, project.Id);
-            return Result.Success(dto);
+            return Result<ProjectDto>.Success(dto);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Unexpected error updating project {ProjectId}", command.Id);
-            return Result.Failure<ProjectDto>($"Error updating project: {ex.Message}");
+            return Result<ProjectDto>.Failure($"Error updating project: {ex.Message}");
         }
     }
 

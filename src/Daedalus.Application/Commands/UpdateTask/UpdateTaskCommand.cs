@@ -1,14 +1,14 @@
-using CSharpFunctionalExtensions;
-using Daedalus.Application.Abstractions;
+using ZeroAlloc.Results;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.UpdateTask;
 
 /// <summary>
 ///     Command to update an existing task's metadata.
 /// </summary>
-public record UpdateTaskCommand(
+public readonly record struct UpdateTaskCommand(
     Guid TaskId,
     string? Title,
     string? Description,
@@ -18,4 +18,4 @@ public record UpdateTaskCommand(
     Complexity? EstimatedComplexity,
     string? Prompt,
     string? CompletionPromise,
-    int? MaxIterations) : ICommand<Result<TaskDto>>;
+    int? MaxIterations) : IRequest<Result<TaskDto>>;

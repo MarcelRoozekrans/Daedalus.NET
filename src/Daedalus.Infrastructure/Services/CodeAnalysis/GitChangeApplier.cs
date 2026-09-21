@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -108,13 +108,13 @@ public sealed partial class GitChangeApplier(ILogger<GitChangeApplier> logger) :
 
             logger.LogInformation("Extracted {Count} code modifications", modifications.Count);
             return Task.FromResult(
-                Result.Success((IReadOnlyList<CodeModification>)modifications.AsReadOnly()));
+                Result<IReadOnlyList<CodeModification>>.Success((IReadOnlyList<CodeModification>)modifications.AsReadOnly()));
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error extracting modifications from AI response");
             return Task.FromResult(
-                Result.Failure<IReadOnlyList<CodeModification>>($"Error extracting changes: {ex.Message}"));
+                Result<IReadOnlyList<CodeModification>>.Failure($"Error extracting changes: {ex.Message}"));
         }
     }
 
@@ -177,7 +177,7 @@ public sealed partial class GitChangeApplier(ILogger<GitChangeApplier> logger) :
     {
         // Patch generation delegated to GitRepositoryManager.GetDiffsAsync for real implementations
         logger.LogInformation("Generating patch from {Path} against {BaseBranch}", workTreePath, baseBranch);
-        return Task.FromResult(Result.Success(string.Empty));
+        return Task.FromResult(Result<string>.Success(string.Empty));
     }
 
     public Task<Result> RevertChangesAsync(

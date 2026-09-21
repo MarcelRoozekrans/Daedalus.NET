@@ -82,8 +82,25 @@ public class UIInteractionTests : ApiTestBase
     [Description("Delete operation returns success")]
     public async Task UIInteraction_DeleteResource_ReturnsNoContent()
     {
-        // Act — repositories delete is a placeholder that always returns 204
-        var deleteResponse = await DeleteApiAsync($"/api/repositories/{Guid.NewGuid()}").ConfigureAwait(false);
+        // Arrange — create a disposable repository of our own rather than deleting
+        // a random guid: the real controller correctly 404s for an id that does not
+        // exist, so this test has to exercise the actual success path (an id that
+        // does exist) to genuinely verify a 204 response.
+        var createResponse = await PostApiAsync("/api/repositories",
+            new
+            {
+                name = $"Delete Me {Guid.NewGuid().ToString()[..8]}",
+                url = "https://github.com/test/delete-me",
+                platform = "GitHub",
+                defaultBranch = "main",
+                description = "Created only to be deleted"
+            }).ConfigureAwait(false);
+        createResponse.Status.Should().Be(201, "Arrange step should create the resource to delete");
+        var createdBody = await createResponse.TextAsync().ConfigureAwait(false);
+        var created = JsonSerializer.Deserialize<RepositoryConfigurationDto>(createdBody, ApiJsonOptions);
+
+        // Act
+        var deleteResponse = await DeleteApiAsync($"/api/repositories/{created!.Id}").ConfigureAwait(false);
 
         // Assert
         deleteResponse.Status.Should().Be(204, "Delete should return 204 No Content");

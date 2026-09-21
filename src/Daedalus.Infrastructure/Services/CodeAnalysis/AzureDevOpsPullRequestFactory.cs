@@ -5,7 +5,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -33,7 +33,7 @@ public sealed class AzureDevOpsPullRequestFactory(
             var token = await authProvider.GetAuthTokenAsync(RepositoryPlatform.AzureDevOps, ct).ConfigureAwait(false);
             if (token.IsFailure)
             {
-                return Result.Failure<PullRequestResult>(token.Error);
+                return Result<PullRequestResult>.Failure(token.Error);
             }
 
             // Parse org/project/repo from URL
@@ -42,7 +42,7 @@ public sealed class AzureDevOpsPullRequestFactory(
 
             if (segments.Length < 4 || !string.Equals(segments[2], "_git", StringComparison.Ordinal))
             {
-                return Result.Failure<PullRequestResult>("Invalid Azure DevOps URL format");
+                return Result<PullRequestResult>.Failure("Invalid Azure DevOps URL format");
             }
 
             var org = segments[0];
@@ -73,7 +73,7 @@ public sealed class AzureDevOpsPullRequestFactory(
             {
                 var errorContent = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 logger.LogError("Azure DevOps API error: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                return Result.Failure<PullRequestResult>($"Azure DevOps API error: {response.StatusCode}");
+                return Result<PullRequestResult>.Failure($"Azure DevOps API error: {response.StatusCode}");
             }
 
             var jsonString = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -94,12 +94,12 @@ public sealed class AzureDevOpsPullRequestFactory(
                 logger.LogInformation("Created Azure DevOps PR: {PrUrl}", prResult.WebUrl);
             }
 
-            return Result.Success(prResult);
+            return Result<PullRequestResult>.Success(prResult);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating Azure DevOps pull request");
-            return Result.Failure<PullRequestResult>($"Error creating PR: {ex.Message}");
+            return Result<PullRequestResult>.Failure($"Error creating PR: {ex.Message}");
         }
     }
 }

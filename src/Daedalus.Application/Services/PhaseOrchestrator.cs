@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 using ZLinq;
@@ -24,7 +24,7 @@ public sealed partial class PhaseOrchestrator(
     {
         if (completedTask.Status != TaskStatus.Completed)
         {
-            return Result.Failure<IReadOnlyList<string>>(
+            return Result<IReadOnlyList<string>>.Failure(
                 $"Task {completedTask.TaskId} is not completed (status: {completedTask.Status})");
         }
 
@@ -37,7 +37,7 @@ public sealed partial class PhaseOrchestrator(
         if (siblingResult.IsFailure)
         {
             LogErrorLoadingSiblingTasks(logger, completedTask.ProjectId, siblingResult.Error);
-            return Result.Failure<IReadOnlyList<string>>(
+            return Result<IReadOnlyList<string>>.Failure(
                 $"Failed to load project tasks: {siblingResult.Error}");
         }
 
@@ -98,7 +98,7 @@ public sealed partial class PhaseOrchestrator(
             LogNoDependentsUnblocked(logger, completedTask.TaskId);
         }
 
-        return Result.Success<IReadOnlyList<string>>(unblockedTaskIds.AsReadOnly());
+        return Result<IReadOnlyList<string>>.Success(unblockedTaskIds.AsReadOnly());
     }
 
     // ============== Logging Methods ==============

@@ -223,7 +223,7 @@ public class PhaseOrchestratorTests : UnitTestBase
 
         _mockTaskRepository
             .GetByProjectIdAsync(taskA.ProjectId, _cancellationToken)
-            .Returns(Result.Failure<IReadOnlyList<DomainTask>>("Database error"));
+            .Returns(Result<IReadOnlyList<DomainTask>>.Failure("Database error"));
 
         // Act
         var result = await _orchestrator.OnTaskCompletedAsync(taskA, _cancellationToken);
@@ -366,7 +366,7 @@ public class PhaseOrchestratorTests : UnitTestBase
     {
         _mockTaskRepository
             .GetByProjectIdAsync(_projectId, _cancellationToken)
-            .Returns(Result.Success<IReadOnlyList<DomainTask>>(tasks.ToList().AsReadOnly()));
+            .Returns(Result<IReadOnlyList<DomainTask>>.Success(tasks.ToList().AsReadOnly()));
     }
 
     #endregion

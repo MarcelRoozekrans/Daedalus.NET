@@ -48,9 +48,10 @@ public sealed class LoopbackResult
         else
         {
             sb.AppendLine("BUILD: FAILED");
-            foreach (var error in CompilationErrors.Take(10))
+            var errorLimit = Math.Min(CompilationErrors.Count, 10);
+            for (var i = 0; i < errorLimit; i++)
             {
-                sb.Append("  ERROR: ").AppendLine(error);
+                sb.Append("  ERROR: ").AppendLine(CompilationErrors[i]);
             }
 
             if (CompilationErrors.Count > 10)
@@ -69,9 +70,10 @@ public sealed class LoopbackResult
             sb.Append("TESTS: FAILED (").Append(TestsPassed_Count)
                 .Append(" passed, ").Append(TestsFailed_Count)
                 .Append(" failed, ").Append(TestsSkipped_Count).AppendLine(" skipped)");
-            foreach (var failure in TestFailures.Take(5))
+            var failureLimit = Math.Min(TestFailures.Count, 5);
+            for (var i = 0; i < failureLimit; i++)
             {
-                sb.Append("  FAILURE: ").AppendLine(failure);
+                sb.Append("  FAILURE: ").AppendLine(TestFailures[i]);
             }
 
             if (TestFailures.Count > 5)

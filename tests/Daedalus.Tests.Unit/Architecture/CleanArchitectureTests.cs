@@ -594,15 +594,95 @@ public sealed class CleanArchitectureTests
     }
 
     /// <summary>
+    ///     Phase 1.7 replaced FluentValidation with ZeroAlloc.Validation. Belongs here, not in
+    ///     <c>Daedalus.Tests.Integration</c>, precisely because it is a pure file-system scan with no database
+    ///     dependency: this project's suite is the one that runs on every ordinary task-verification pass, whereas
+    ///     the container-bound Integration suite runs only at batch boundaries. A ban sitting only in Integration
+    ///     would not catch a reintroduced FluentValidation reference until much later than it should.
+    /// </summary>
+    [Fact]
+    public void FluentValidation_is_absent_from_every_project_and_from_central_package_management()
+    {
+        var offenders = FindCsprojFilesOutsideWorktrees()
+            .Append(Path.Combine(FindRepositoryRoot(), "Directory.Packages.props"))
+            .Where(f => File.ReadAllText(f).Contains("FluentValidation", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(offenders.Count == 0,
+            $"FluentValidation was reintroduced in: {string.Join(", ", offenders)}");
+    }
+
+    /// <summary>
+    ///     Phase 1.7's whole point: CSharpFunctionalExtensions is now unused everywhere in the solution (tasks 9
+    ///     through 14 migrated every caller), and this is the rule that makes its return impossible rather than
+    ///     merely undocumented. Belongs here, not in <c>Daedalus.Tests.Integration</c>, for the same reason as
+    ///     <see cref="FluentValidation_is_absent_from_every_project_and_from_central_package_management"/>: this
+    ///     project's suite runs on every ordinary task-verification pass, whereas the container-bound Integration
+    ///     suite runs only at batch boundaries.
+    /// </summary>
+    [Fact]
+    public void CSharpFunctionalExtensions_is_absent_from_every_project_and_from_central_package_management()
+    {
+        var offenders = FindCsprojFilesReferencing("CSharpFunctionalExtensions");
+
+        var packagesPropsPath = Path.Combine(FindRepositoryRoot(), "Directory.Packages.props");
+        if (File.ReadAllText(packagesPropsPath).Contains("CSharpFunctionalExtensions", StringComparison.Ordinal))
+        {
+            offenders.Add(packagesPropsPath);
+        }
+
+        Assert.True(offenders.Count == 0,
+            $"CSharpFunctionalExtensions was reintroduced in: {string.Join(", ", offenders)}");
+    }
+
+    /// <summary>
     ///     Finds every <c>.csproj</c> under <see cref="FindRepositoryRoot"/> whose text contains
     ///     <paramref name="packageName"/>. A text scan, not an ArchUnitNET rule, because the whole point of the two
     ///     callers above is to catch a reference that would make ArchUnitNET's own namespace-based rules vacuous.
     /// </summary>
     private static List<string> FindCsprojFilesReferencing(string packageName) =>
-        Directory
-            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
+        FindCsprojFilesOutsideWorktrees()
             .Where(p => File.ReadAllText(p).Contains(packageName, StringComparison.OrdinalIgnoreCase))
             .ToList();
+
+    /// <summary>
+    ///     Enumerates every <c>.csproj</c> under <see cref="FindRepositoryRoot"/>, excluding worktree checkouts
+    ///     via <see cref="IsOutsideWorktrees"/>, and asserts a plausible floor on how many were found. Every ban
+    ///     test in this class — <c>ZeroAlloc.Saga</c>, <c>ZeroAlloc.Scheduling</c>, <c>FluentValidation</c>, and
+    ///     <c>CSharpFunctionalExtensions</c> — is built on this scan. If <see cref="IsOutsideWorktrees"/> ever
+    ///     filtered out every <c>.csproj</c> in the repository (for example, if this repository were ever cloned
+    ///     into a directory literally named <c>worktrees</c>), each of those bans would pass having scanned
+    ///     nothing, silently stop guarding against the dependency they ban being reintroduced. This solution has
+    ///     19 <c>.csproj</c> files today; 15 is a safe floor that will not false-positive on ordinary project
+    ///     churn while still catching a scan that came back empty or near-empty.
+    /// </summary>
+    private static List<string> FindCsprojFilesOutsideWorktrees()
+    {
+        var files = Directory
+            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
+            .Where(IsOutsideWorktrees)
+            .ToList();
+
+        files.Count.Should().BeGreaterThanOrEqualTo(15,
+            "IsOutsideWorktrees must not filter out (nearly) every .csproj in the repository — if it does, " +
+            "every ban test built on this scan passes having scanned nothing");
+
+        return files;
+    }
+
+    /// <summary>
+    ///     Excludes <c>.claude/worktrees/...</c> — a second git worktree checkout of this same repository,
+    ///     potentially on a different branch with different package references — from a repository-wide file
+    ///     scan. Without this, a stale or in-progress worktree checkout can make a "must not be referenced"
+    ///     assertion false-positive on a reference that exists only in that other checkout, not in the branch
+    ///     actually under test. This was a latent gap in <see cref="FindCsprojFilesReferencing"/> before phase
+    ///     1.7 task 6 — it happened not to be tripped because no worktree csproj referenced ZeroAlloc.Saga or
+    ///     ZeroAlloc.Scheduling, but a worktree checkout's <c>Directory.Packages.props</c> did already contain
+    ///     the literal string "FluentValidation", which is what surfaced the gap.
+    /// </summary>
+    private static bool IsOutsideWorktrees(string path) =>
+        !path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
+            .Any(segment => segment is ".claude" or "worktrees");
 
     /// <summary>Walks up from <see cref="AppContext.BaseDirectory"/> to the directory containing <c>Daedalus.sln</c>.</summary>
     /// <exception cref="InvalidOperationException">No ancestor directory contains <c>Daedalus.sln</c>.</exception>

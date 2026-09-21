@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 
 namespace Daedalus.Infrastructure.Services.NoOp;
@@ -19,12 +19,12 @@ public sealed class NoOpLoopbackEvaluator : ILoopbackEvaluator
 
     public Task<Result<LoopbackResult>> EvaluateAsync(
         string workspacePath, string llmResponse, CancellationToken ct)
-        => Task.FromResult(Result.Success(Success));
+        => Task.FromResult(Result<LoopbackResult>.Success(Success));
 
     public Task<Result<CommandExecutionResult>> RunCommandAsync(
         string workspacePath, string command, string arguments, int timeoutSeconds = 120,
         CancellationToken ct = default)
-        => Task.FromResult(Result.Success(new CommandExecutionResult
+        => Task.FromResult(Result<CommandExecutionResult>.Success(new CommandExecutionResult
         {
             ExitCode = 0,
             StandardOutput = string.Empty,

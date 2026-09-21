@@ -127,18 +127,17 @@
             _loading = true;
             _errorMessage = "";
             var result = await Api.GetTasksAsync(1, 200, _cts?.Token ?? CancellationToken.None);
-            result.Match(
-                tasks =>
-                {
-                    _tasks = tasks.Items;
-                    _totalCount = tasks.Total;
-                },
-                error =>
-                {
-                    _errorMessage = error;
-                    _tasks = null;
-                    _totalCount = 0;
-                });
+            if (result.IsSuccess)
+            {
+                _tasks = result.Value.Items;
+                _totalCount = result.Value.Total;
+            }
+            else
+            {
+                _errorMessage = result.Error;
+                _tasks = null;
+                _totalCount = 0;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -187,9 +186,14 @@
         if (confirmed is true)
         {
             var result = await Api.AbandonTaskAsync(task.Id, new AbandonTaskDto("Abandoned from dashboard"));
-            result.Match(
-                _ => NotificationService.Notify(NotificationSeverity.Success, "Task Abandoned"),
-                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "Task Abandoned");
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            }
             await LoadTasks();
         }
     }
@@ -197,9 +201,14 @@
     private async Task ResumeTask(TaskDto task)
     {
         var result = await Api.ResumeTaskAsync(task.Id, new ResumeTaskDto(null));
-        result.Match(
-            _ => NotificationService.Notify(NotificationSeverity.Success, "Task Resumed"),
-            error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+        if (result.IsSuccess)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "Task Resumed");
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+        }
         await LoadTasks();
     }
 
@@ -213,9 +222,14 @@
         if (confirmed is true)
         {
             var result = await Api.DeleteTaskAsync(task.Id);
-            result.Match(
-                () => NotificationService.Notify(NotificationSeverity.Success, "Task Deleted"),
-                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "Task Deleted");
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            }
             await LoadTasks();
         }
     }

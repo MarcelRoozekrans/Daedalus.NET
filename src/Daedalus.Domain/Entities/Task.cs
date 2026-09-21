@@ -1,7 +1,7 @@
 #pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
 #pragma warning disable S1144 // EF Core sets RowVersion via reflection (unused private setter is required)
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -107,75 +107,75 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(taskId))
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Task ID cannot be empty");
+            return ZeroAlloc.Results.Result<Task>.Failure("Task ID cannot be empty");
         }
 
         if (taskId.Length > 50)
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Task ID cannot exceed 50 characters");
+            return ZeroAlloc.Results.Result<Task>.Failure("Task ID cannot exceed 50 characters");
         }
 
         if (string.IsNullOrWhiteSpace(title))
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Title cannot be empty");
+            return ZeroAlloc.Results.Result<Task>.Failure("Title cannot be empty");
         }
 
         if (title.Length > 500)
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Title cannot exceed 500 characters");
+            return ZeroAlloc.Results.Result<Task>.Failure("Title cannot exceed 500 characters");
         }
 
         if (string.IsNullOrWhiteSpace(description))
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Description cannot be empty");
+            return ZeroAlloc.Results.Result<Task>.Failure("Description cannot be empty");
         }
 
         if (description.Length > 2000)
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Description cannot exceed 2000 characters");
+            return ZeroAlloc.Results.Result<Task>.Failure("Description cannot exceed 2000 characters");
         }
 
         if (string.IsNullOrWhiteSpace(phase))
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Phase cannot be empty");
+            return ZeroAlloc.Results.Result<Task>.Failure("Phase cannot be empty");
         }
 
         if (phase.Length > 100)
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Phase cannot exceed 100 characters");
+            return ZeroAlloc.Results.Result<Task>.Failure("Phase cannot exceed 100 characters");
         }
 
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Prompt cannot be empty");
+            return ZeroAlloc.Results.Result<Task>.Failure("Prompt cannot be empty");
         }
 
         if (prompt.Length > 8000)
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Prompt cannot exceed 8000 characters");
+            return ZeroAlloc.Results.Result<Task>.Failure("Prompt cannot exceed 8000 characters");
         }
 
         if (string.IsNullOrWhiteSpace(completionPromise))
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Completion promise cannot be empty");
+            return ZeroAlloc.Results.Result<Task>.Failure("Completion promise cannot be empty");
         }
 
         if (completionPromise.Length > 1000)
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Completion promise cannot exceed 1000 characters");
+            return ZeroAlloc.Results.Result<Task>.Failure("Completion promise cannot exceed 1000 characters");
         }
 
         if (maxIterations < 1 || maxIterations > 1000)
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Max iterations must be between 1 and 1000");
+            return ZeroAlloc.Results.Result<Task>.Failure("Max iterations must be between 1 and 1000");
         }
 
         if (parallelGroup < 1)
         {
-            return CSharpFunctionalExtensions.Result.Failure<Task>("Parallel group must be at least 1");
+            return ZeroAlloc.Results.Result<Task>.Failure("Parallel group must be at least 1");
         }
 
-        return CSharpFunctionalExtensions.Result.Success(new Task
+        return ZeroAlloc.Results.Result<Task>.Success(new Task
         {
             Id = id,
             ProjectId = projectId,
@@ -200,21 +200,21 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(dependsOnTaskId))
         {
-            return CSharpFunctionalExtensions.Result.Failure("Dependency task ID cannot be empty");
+            return ZeroAlloc.Results.Result.Failure("Dependency task ID cannot be empty");
         }
 
         if (string.Equals(dependsOnTaskId, TaskId, StringComparison.Ordinal))
         {
-            return CSharpFunctionalExtensions.Result.Failure("A task cannot depend on itself");
+            return ZeroAlloc.Results.Result.Failure("A task cannot depend on itself");
         }
 
         if (_dependencies.Contains(dependsOnTaskId, StringComparer.Ordinal))
         {
-            return CSharpFunctionalExtensions.Result.Failure($"Task already depends on {dependsOnTaskId}");
+            return ZeroAlloc.Results.Result.Failure($"Task already depends on {dependsOnTaskId}");
         }
 
         _dependencies.Add(dependsOnTaskId);
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -224,16 +224,16 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(dependsOnTaskId))
         {
-            return CSharpFunctionalExtensions.Result.Failure("Dependency task ID cannot be empty");
+            return ZeroAlloc.Results.Result.Failure("Dependency task ID cannot be empty");
         }
 
         if (!_dependencies.Contains(dependsOnTaskId, StringComparer.Ordinal))
         {
-            return CSharpFunctionalExtensions.Result.Failure($"Task does not depend on {dependsOnTaskId}");
+            return ZeroAlloc.Results.Result.Failure($"Task does not depend on {dependsOnTaskId}");
         }
 
         _dependencies.Remove(dependsOnTaskId);
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -243,16 +243,16 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(filePath))
         {
-            return CSharpFunctionalExtensions.Result.Failure("File path cannot be empty");
+            return ZeroAlloc.Results.Result.Failure("File path cannot be empty");
         }
 
         if (_filesToModify.Contains(filePath, StringComparer.Ordinal))
         {
-            return CSharpFunctionalExtensions.Result.Failure($"File {filePath} already added");
+            return ZeroAlloc.Results.Result.Failure($"File {filePath} already added");
         }
 
         _filesToModify.Add(filePath.Trim());
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -262,16 +262,16 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(filePath))
         {
-            return CSharpFunctionalExtensions.Result.Failure("File path cannot be empty");
+            return ZeroAlloc.Results.Result.Failure("File path cannot be empty");
         }
 
         if (!_filesToModify.Contains(filePath, StringComparer.Ordinal))
         {
-            return CSharpFunctionalExtensions.Result.Failure($"File {filePath} not found");
+            return ZeroAlloc.Results.Result.Failure($"File {filePath} not found");
         }
 
         _filesToModify.Remove(filePath);
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -286,32 +286,32 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(title))
         {
-            return CSharpFunctionalExtensions.Result.Failure("Title cannot be empty");
+            return ZeroAlloc.Results.Result.Failure("Title cannot be empty");
         }
 
         if (title.Length > 500)
         {
-            return CSharpFunctionalExtensions.Result.Failure("Title cannot exceed 500 characters");
+            return ZeroAlloc.Results.Result.Failure("Title cannot exceed 500 characters");
         }
 
         if (string.IsNullOrWhiteSpace(description))
         {
-            return CSharpFunctionalExtensions.Result.Failure("Description cannot be empty");
+            return ZeroAlloc.Results.Result.Failure("Description cannot be empty");
         }
 
         if (description.Length > 2000)
         {
-            return CSharpFunctionalExtensions.Result.Failure("Description cannot exceed 2000 characters");
+            return ZeroAlloc.Results.Result.Failure("Description cannot exceed 2000 characters");
         }
 
         if (string.IsNullOrWhiteSpace(phase))
         {
-            return CSharpFunctionalExtensions.Result.Failure("Phase cannot be empty");
+            return ZeroAlloc.Results.Result.Failure("Phase cannot be empty");
         }
 
         if (phase.Length > 100)
         {
-            return CSharpFunctionalExtensions.Result.Failure("Phase cannot exceed 100 characters");
+            return ZeroAlloc.Results.Result.Failure("Phase cannot exceed 100 characters");
         }
 
         Title = title.Trim();
@@ -319,7 +319,7 @@ public sealed class Task : AggregateRoot<Guid>
         Priority = priority;
         Phase = phase.Trim();
         EstimatedComplexity = complexity;
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -335,7 +335,7 @@ public sealed class Task : AggregateRoot<Guid>
         {
             if (parallelGroup.Value < 1)
             {
-                return CSharpFunctionalExtensions.Result.Failure("Parallel group must be at least 1");
+                return ZeroAlloc.Results.Result.Failure("Parallel group must be at least 1");
             }
 
             ParallelGroup = parallelGroup.Value;
@@ -345,12 +345,12 @@ public sealed class Task : AggregateRoot<Guid>
         {
             if (string.IsNullOrWhiteSpace(prompt))
             {
-                return CSharpFunctionalExtensions.Result.Failure("Prompt cannot be empty");
+                return ZeroAlloc.Results.Result.Failure("Prompt cannot be empty");
             }
 
             if (prompt.Length > 8000)
             {
-                return CSharpFunctionalExtensions.Result.Failure("Prompt cannot exceed 8000 characters");
+                return ZeroAlloc.Results.Result.Failure("Prompt cannot exceed 8000 characters");
             }
 
             Prompt = prompt.Trim();
@@ -360,12 +360,12 @@ public sealed class Task : AggregateRoot<Guid>
         {
             if (string.IsNullOrWhiteSpace(completionPromise))
             {
-                return CSharpFunctionalExtensions.Result.Failure("Completion promise cannot be empty");
+                return ZeroAlloc.Results.Result.Failure("Completion promise cannot be empty");
             }
 
             if (completionPromise.Length > 1000)
             {
-                return CSharpFunctionalExtensions.Result.Failure("Completion promise cannot exceed 1000 characters");
+                return ZeroAlloc.Results.Result.Failure("Completion promise cannot exceed 1000 characters");
             }
 
             CompletionPromise = completionPromise.Trim();
@@ -375,13 +375,13 @@ public sealed class Task : AggregateRoot<Guid>
         {
             if (maxIterations.Value < 1 || maxIterations.Value > 1000)
             {
-                return CSharpFunctionalExtensions.Result.Failure("Max iterations must be between 1 and 1000");
+                return ZeroAlloc.Results.Result.Failure("Max iterations must be between 1 and 1000");
             }
 
             MaxIterations = maxIterations.Value;
         }
 
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -391,24 +391,24 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (Status != TaskStatus.Pending)
         {
-            return CSharpFunctionalExtensions.Result.Failure($"Cannot claim task with status {Status}");
+            return ZeroAlloc.Results.Result.Failure($"Cannot claim task with status {Status}");
         }
 
         CurrentSessionId = sessionId;
         Status = TaskStatus.InProgress;
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     public Result RecordExecution(TaskExecution execution, DateTime? completedAt = null)
     {
         if (Status != TaskStatus.InProgress)
         {
-            return CSharpFunctionalExtensions.Result.Failure("Task is not in progress");
+            return ZeroAlloc.Results.Result.Failure("Task is not in progress");
         }
 
         if (execution.IterationNumber != IterationCount + 1)
         {
-            return CSharpFunctionalExtensions.Result.Failure("Execution iteration number is out of sequence");
+            return ZeroAlloc.Results.Result.Failure("Execution iteration number is out of sequence");
         }
 
         _executions.Add(execution);
@@ -426,7 +426,7 @@ public sealed class Task : AggregateRoot<Guid>
             CompletedAt = completedAt ?? DateTime.UtcNow;
         }
 
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -436,12 +436,12 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (Status != TaskStatus.InProgress)
         {
-            return CSharpFunctionalExtensions.Result.Failure("Only in-progress tasks can be abandoned");
+            return ZeroAlloc.Results.Result.Failure("Only in-progress tasks can be abandoned");
         }
 
         Status = TaskStatus.Abandoned;
         CurrentSessionId = null;
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -452,7 +452,7 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (Status != TaskStatus.Abandoned)
         {
-            return CSharpFunctionalExtensions.Result.Failure("Only abandoned tasks can be resumed");
+            return ZeroAlloc.Results.Result.Failure("Only abandoned tasks can be resumed");
         }
 
         // Reset to Pending so it can be executed
@@ -461,7 +461,7 @@ public sealed class Task : AggregateRoot<Guid>
         // Always leave unclaimed - any available session can claim it
         CurrentSessionId = null;
 
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 
     /// <summary>
@@ -472,12 +472,12 @@ public sealed class Task : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(newLearnings))
         {
-            return CSharpFunctionalExtensions.Result.Failure("Learnings cannot be empty");
+            return ZeroAlloc.Results.Result.Failure("Learnings cannot be empty");
         }
 
         Learnings = newLearnings.Trim();
         LearningsUpdatedAt = learningsUpdatedAt ?? DateTime.UtcNow;
-        return CSharpFunctionalExtensions.Result.Success();
+        return ZeroAlloc.Results.Result.Success();
     }
 }
 #pragma warning restore S1144

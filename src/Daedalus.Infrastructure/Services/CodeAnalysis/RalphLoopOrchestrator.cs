@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -63,7 +63,7 @@ public sealed class RalphLoopOrchestrator(
             if (createResult.IsFailure)
             {
                 logger.LogError("Failed to create analysis request: {Error}", createResult.Error);
-                return Result.Failure<Guid>(createResult.Error);
+                return Result<Guid>.Failure(createResult.Error);
             }
 
             var request = createResult.Value;
@@ -71,7 +71,7 @@ public sealed class RalphLoopOrchestrator(
 
             if (persistResult.IsFailure)
             {
-                return Result.Failure<Guid>(persistResult.Error);
+                return Result<Guid>.Failure(persistResult.Error);
             }
 
             var requestId = request.Id;
@@ -99,12 +99,12 @@ public sealed class RalphLoopOrchestrator(
                 }
             }, CancellationToken.None); // Use default cancellation token for background task
 
-            return Result.Success(requestId);
+            return Result<Guid>.Success(requestId);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error submitting analysis");
-            return Result.Failure<Guid>($"Error submitting analysis: {ex.Message}");
+            return Result<Guid>.Failure($"Error submitting analysis: {ex.Message}");
         }
     }
 
@@ -116,7 +116,7 @@ public sealed class RalphLoopOrchestrator(
 
         if (requestResult.IsFailure)
         {
-            return Result.Failure<string>(requestResult.Error);
+            return Result<string>.Failure(requestResult.Error);
         }
 
         var request = requestResult.Value;
@@ -124,7 +124,7 @@ public sealed class RalphLoopOrchestrator(
         // If we already have a prompt cached, return it
         if (!string.IsNullOrEmpty(request.LastPromptSent))
         {
-            return Result.Success(request.LastPromptSent);
+            return Result<string>.Success(request.LastPromptSent);
         }
 
         // Use stored work tree path from request, or construct default if needed
@@ -140,7 +140,7 @@ public sealed class RalphLoopOrchestrator(
         if (contextResult.IsFailure)
         {
             logger.LogWarning("Failed to build analysis context: {Error}", contextResult.Error);
-            return Result.Failure<string>(contextResult.Error);
+            return Result<string>.Failure(contextResult.Error);
         }
 
         var promptResult = await promptBuilder.BuildPromptAsync(
@@ -151,7 +151,7 @@ public sealed class RalphLoopOrchestrator(
         if (promptResult.IsFailure)
         {
             logger.LogError("Failed to build analysis prompt: {Error}", promptResult.Error);
-            return Result.Failure<string>(promptResult.Error);
+            return Result<string>.Failure(promptResult.Error);
         }
 
         // Persist the generated prompt for future reference
@@ -170,7 +170,7 @@ public sealed class RalphLoopOrchestrator(
             // Still return the prompt even if caching failed
         }
 
-        return Result.Success(promptResult.Value);
+        return Result<string>.Success(promptResult.Value);
     }
 
     public async Task<Result> ProcessIterationAsync(
@@ -298,7 +298,7 @@ public sealed class RalphLoopOrchestrator(
         if (requestResult.IsFailure)
         {
             logger.LogError("Failed to retrieve request {RequestId}: {Error}", requestId, requestResult.Error);
-            return Result.Failure<string?>(requestResult.Error);
+            return Result<string?>.Failure(requestResult.Error);
         }
 
         var request = requestResult.Value;
@@ -312,7 +312,7 @@ public sealed class RalphLoopOrchestrator(
         if (statusResult.IsFailure)
         {
             logger.LogError("Failed to update status: {Error}", statusResult.Error);
-            return Result.Failure<string?>(statusResult.Error);
+            return Result<string?>.Failure(statusResult.Error);
         }
 
         if (!createPullRequest)
@@ -322,7 +322,7 @@ public sealed class RalphLoopOrchestrator(
                 logger.LogInformation("Analysis {RequestId} finalized without creating PR", requestId);
             }
 
-            return Result.Success<string?>(null);
+            return Result<string?>.Success(null);
         }
 
         // Create pull request
@@ -337,7 +337,7 @@ public sealed class RalphLoopOrchestrator(
         if (prResult.IsFailure)
         {
             logger.LogWarning("Failed to create PR for request {RequestId}: {Error}", requestId, prResult.Error);
-            return Result.Failure<string?>(prResult.Error);
+            return Result<string?>.Failure(prResult.Error);
         }
 
         // Record completion with PR URL
@@ -350,7 +350,7 @@ public sealed class RalphLoopOrchestrator(
         if (completeResult.IsFailure)
         {
             logger.LogError("Failed to complete request {RequestId}: {Error}", requestId, completeResult.Error);
-            return Result.Failure<string?>(completeResult.Error);
+            return Result<string?>.Failure(completeResult.Error);
         }
 
         if (logger.IsEnabled(LogLevel.Information))
@@ -361,7 +361,7 @@ public sealed class RalphLoopOrchestrator(
                 prResult.Value.WebUrl);
         }
 
-        return Result.Success<string?>(prResult.Value.WebUrl);
+        return Result<string?>.Success(prResult.Value.WebUrl);
     }
 
     public async Task<Result<CodeAnalysisRequest?>> GetNextPendingAsync(CancellationToken ct = default)
@@ -371,12 +371,12 @@ public sealed class RalphLoopOrchestrator(
         if (result.IsFailure)
         {
             logger.LogError("Failed to get pending requests: {Error}", result.Error);
-            return Result.Failure<CodeAnalysisRequest?>(result.Error);
+            return Result<CodeAnalysisRequest?>.Failure(result.Error);
         }
 
         if (result.Value.Count == 0)
         {
-            return Result.Success<CodeAnalysisRequest?>(null);
+            return Result<CodeAnalysisRequest?>.Success(null);
         }
 
         if (logger.IsEnabled(LogLevel.Information))
@@ -384,7 +384,7 @@ public sealed class RalphLoopOrchestrator(
             logger.LogInformation("Retrieved pending request: {RequestId}", result.Value[0].Id);
         }
 
-        return Result.Success<CodeAnalysisRequest?>(result.Value[0]);
+        return Result<CodeAnalysisRequest?>.Success(result.Value[0]);
     }
 
     public async Task<Result<bool>> IsCompleteAsync(Guid requestId, CancellationToken ct = default)
@@ -395,12 +395,12 @@ public sealed class RalphLoopOrchestrator(
         {
             logger.LogWarning("Failed to check completion status for request {RequestId}: {Error}",
                 requestId, result.Error);
-            return Result.Failure<bool>(result.Error);
+            return Result<bool>.Failure(result.Error);
         }
 
         var isComplete = result.Value.Status == AnalysisStatus.Completed ||
                          result.Value.Status == AnalysisStatus.Failed;
-        return Result.Success(isComplete);
+        return Result<bool>.Success(isComplete);
     }
 
     public async Task<Result<CodeAnalysisRequest>> GetStatusAsync(Guid requestId, CancellationToken ct = default)
@@ -411,10 +411,10 @@ public sealed class RalphLoopOrchestrator(
         {
             logger.LogWarning("Failed to get status for request {RequestId}: {Error}",
                 requestId, result.Error);
-            return Result.Failure<CodeAnalysisRequest>(result.Error);
+            return Result<CodeAnalysisRequest>.Failure(result.Error);
         }
 
-        return Result.Success(result.Value);
+        return Result<CodeAnalysisRequest>.Success(result.Value);
     }
 
     public async Task<Result> InitializeRepositoryAsync(Guid requestId, CancellationToken ct = default)

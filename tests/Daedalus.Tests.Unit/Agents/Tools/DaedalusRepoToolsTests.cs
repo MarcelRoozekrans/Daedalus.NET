@@ -92,7 +92,7 @@ public class DaedalusRepoToolsTests
     {
         var writer = Substitute.For<IGitHubWriter>();
         writer.CommentAsync(Arg.Any<RepoRef>(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<string>("422 Validation Failed"));
+            .Returns(Result<string>.Failure("422 Validation Failed"));
 
         var output = await new DaedalusRepoActionTools(writer).CommentOnIssue("owner/repo", 7, "a note");
 

@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -27,13 +27,13 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
                 .ConfigureAwait(false);
 
             return task is not null
-                ? Result.Success(task)
-                : Result.Failure<Task>($"Task {id} not found");
+                ? Result<Task>.Success(task)
+                : Result<Task>.Failure($"Task {id} not found");
         }
         catch (Exception ex)
         {
             LogErrorRetrievingTask(logger, ex, id);
-            return Result.Failure<Task>($"Error retrieving task: {ex.Message}");
+            return Result<Task>.Failure($"Error retrieving task: {ex.Message}");
         }
     }
 
@@ -48,12 +48,12 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<Task>)tasks);
+            return Result<IReadOnlyList<Task>>.Success((IReadOnlyList<Task>)tasks);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingPendingTasks(logger, ex);
-            return Result.Failure<IReadOnlyList<Task>>($"Error retrieving tasks: {ex.Message}");
+            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving tasks: {ex.Message}");
         }
     }
 
@@ -75,12 +75,12 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<Task>)tasks);
+            return Result<IReadOnlyList<Task>>.Success((IReadOnlyList<Task>)tasks);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingPendingTasks(logger, ex);
-            return Result.Failure<IReadOnlyList<Task>>($"Error retrieving paginated tasks: {ex.Message}");
+            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving paginated tasks: {ex.Message}");
         }
     }
 
@@ -97,12 +97,12 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
                 .CountAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success(count);
+            return Result<int>.Success(count);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingPendingTasks(logger, ex);
-            return Result.Failure<int>($"Error counting pending tasks: {ex.Message}");
+            return Result<int>.Failure($"Error counting pending tasks: {ex.Message}");
         }
     }
 
@@ -147,7 +147,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
                 if (claimResult.IsFailure)
                 {
                     await transaction.RollbackAsync(ct).ConfigureAwait(false);
-                    return Result.Failure<Task?>(claimResult.Error);
+                    return Result<Task?>.Failure(claimResult.Error);
                 }
 
                 dbContext.Tasks.Update(task);
@@ -157,12 +157,12 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
                 LogTaskClaimed(logger, sessionId, task.Id);
             }
 
-            return Result.Success(task);
+            return Result<Task?>.Success(task);
         }
         catch (Exception ex)
         {
             LogErrorClaimingTask(logger, ex, sessionId);
-            return Result.Failure<Task?>($"Error claiming task: {ex.Message}");
+            return Result<Task?>.Failure($"Error claiming task: {ex.Message}");
         }
     }
 
@@ -172,13 +172,13 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         {
             dbContext.Tasks.Add(task);
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success(task);
+            return Result<Task>.Success(task);
         }
         catch (Exception ex)
         {
             LogErrorAddingTask(logger, ex, task.Id);
             var exceptionDetails = BuildExceptionDetails(ex);
-            return Result.Failure<Task>($"Error adding task: {exceptionDetails}");
+            return Result<Task>.Failure($"Error adding task: {exceptionDetails}");
         }
     }
 
@@ -249,12 +249,12 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<Task>)staleTasks);
+            return Result<IReadOnlyList<Task>>.Success((IReadOnlyList<Task>)staleTasks);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingStale(logger, ex);
-            return Result.Failure<IReadOnlyList<Task>>($"Error retrieving stale tasks: {ex.Message}");
+            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving stale tasks: {ex.Message}");
         }
     }
 
@@ -272,12 +272,12 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success((IReadOnlyList<Task>)tasks);
+            return Result<IReadOnlyList<Task>>.Success((IReadOnlyList<Task>)tasks);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingProjectTasks(logger, ex, projectId);
-            return Result.Failure<IReadOnlyList<Task>>($"Error retrieving project tasks: {ex.Message}");
+            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving project tasks: {ex.Message}");
         }
     }
 

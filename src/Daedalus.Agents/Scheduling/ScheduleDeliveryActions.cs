@@ -1,7 +1,7 @@
 using Daedalus.Agents.Channels;
 using Daedalus.Application.Abstractions;
 using Daedalus.Infrastructure.Persistence;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

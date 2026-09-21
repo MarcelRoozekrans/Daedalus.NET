@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
@@ -35,18 +35,18 @@ public sealed partial class RalphPromptTemplateBuilder(
     {
         if (string.IsNullOrWhiteSpace(options.TaskPrompt))
         {
-            return Task.FromResult(Result.Failure<string>("Task prompt cannot be empty"));
+            return Task.FromResult(Result<string>.Failure("Task prompt cannot be empty"));
         }
 
         if (string.IsNullOrWhiteSpace(options.CompletionPromise))
         {
-            return Task.FromResult(Result.Failure<string>("Completion promise cannot be empty"));
+            return Task.FromResult(Result<string>.Failure("Completion promise cannot be empty"));
         }
 
         var sectionsResult = GetDefaultSections(options);
         if (sectionsResult.IsFailure)
         {
-            return Task.FromResult(Result.Failure<string>(sectionsResult.Error));
+            return Task.FromResult(Result<string>.Failure(sectionsResult.Error));
         }
 
         var sections = sectionsResult.Value;
@@ -54,7 +54,7 @@ public sealed partial class RalphPromptTemplateBuilder(
 
         LogPromptAssembled(logger, sections.Count, prompt.Length);
 
-        return Task.FromResult(Result.Success(prompt));
+        return Task.FromResult(Result<string>.Success(prompt));
     }
 
     public Result<IReadOnlyList<PromptSection>> GetDefaultSections(RalphPromptTemplateOptions options)
@@ -145,7 +145,7 @@ public sealed partial class RalphPromptTemplateBuilder(
             .OrderBy(s => s.Priority)
             .ToList();
 
-        return Result.Success<IReadOnlyList<PromptSection>>(filtered.AsReadOnly());
+        return Result<IReadOnlyList<PromptSection>>.Success(filtered.AsReadOnly());
     }
 
     /// <summary>

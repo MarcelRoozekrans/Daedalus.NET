@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.DTOs;
 
 namespace Daedalus.Application.Abstractions;

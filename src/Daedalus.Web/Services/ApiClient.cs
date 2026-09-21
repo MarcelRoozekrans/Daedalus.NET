@@ -1,4 +1,4 @@
-global using CSharpFunctionalExtensions;
+global using ZeroAlloc.Results;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Daedalus.Application.DTOs.Scheduling;
 using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
@@ -25,25 +25,25 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             var result = await httpClient.GetFromJsonAsync<T>(url, ct);
             return result is not null
-                ? Result.Success(result)
-                : Result.Failure<T>("No data returned from server");
+                ? Result<T>.Success(result)
+                : Result<T>.Failure("No data returned from server");
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result.Failure<T>("Please log in to access this data.");
+            return Result<T>.Failure("Please log in to access this data.");
         }
         catch (HttpRequestException ex)
         {
-            return Result.Failure<T>($"API error: {ex.Message}");
+            return Result<T>.Failure($"API error: {ex.Message}");
         }
         catch (OperationCanceledException)
         {
-            return Result.Failure<T>("Request was cancelled");
+            return Result<T>.Failure("Request was cancelled");
         }
         catch (Exception ex)
         {
             var message = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
-            return Result.Failure<T>($"Unexpected error: {message}");
+            return Result<T>.Failure($"Unexpected error: {message}");
         }
     }
 
@@ -137,16 +137,16 @@ public sealed class ApiClient(HttpClient httpClient)
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<T>(ct);
             return result is not null
-                ? Result.Success(result)
-                : Result.Failure<T>("No data returned from server");
+                ? Result<T>.Success(result)
+                : Result<T>.Failure("No data returned from server");
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result.Failure<T>("Please log in to perform this action.");
+            return Result<T>.Failure("Please log in to perform this action.");
         }
         catch (HttpRequestException ex)
         {
-            return Result.Failure<T>($"API error: {ex.Message}");
+            return Result<T>.Failure($"API error: {ex.Message}");
         }
     }
 
@@ -177,16 +177,16 @@ public sealed class ApiClient(HttpClient httpClient)
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<T>(ct);
             return result is not null
-                ? Result.Success(result)
-                : Result.Failure<T>("No data returned from server");
+                ? Result<T>.Success(result)
+                : Result<T>.Failure("No data returned from server");
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result.Failure<T>("Please log in to perform this action.");
+            return Result<T>.Failure("Please log in to perform this action.");
         }
         catch (HttpRequestException ex)
         {
-            return Result.Failure<T>($"API error: {ex.Message}");
+            return Result<T>.Failure($"API error: {ex.Message}");
         }
     }
 

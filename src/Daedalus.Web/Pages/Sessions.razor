@@ -85,18 +85,17 @@
                 ? await Api.GetActiveSessionsAsync(1, 200, ct)
                 : await Api.GetSessionsAsync(1, 200, ct);
 
-            result.Match(
-                sessions =>
-                {
-                    _sessions = sessions.Items;
-                    _totalCount = sessions.Total;
-                },
-                error =>
-                {
-                    _errorMessage = error;
-                    _sessions = null;
-                    _totalCount = 0;
-                });
+            if (result.IsSuccess)
+            {
+                _sessions = result.Value.Items;
+                _totalCount = result.Value.Total;
+            }
+            else
+            {
+                _errorMessage = result.Error;
+                _sessions = null;
+                _totalCount = 0;
+            }
         }
         catch (OperationCanceledException)
         {

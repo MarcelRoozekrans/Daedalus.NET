@@ -23,18 +23,18 @@ public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient)
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                return Result.Failure<ProjectDto>($"Failed to create project: {error}");
+                return Result<ProjectDto>.Failure($"Failed to create project: {error}");
             }
 
             var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var result = JsonSerializer.Deserialize<ProjectDto>(json);
             return result is not null
-                ? Result.Success(result)
-                : Result.Failure<ProjectDto>("Failed to deserialize response");
+                ? Result<ProjectDto>.Success(result)
+                : Result<ProjectDto>.Failure("Failed to deserialize response");
         }
         catch (Exception ex)
         {
-            return Result.Failure<ProjectDto>($"Error creating project: {ex.Message}");
+            return Result<ProjectDto>.Failure($"Error creating project: {ex.Message}");
         }
     }
 
@@ -47,18 +47,18 @@ public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient)
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                return Result.Failure<ProjectDto>($"Failed to update project: {error}");
+                return Result<ProjectDto>.Failure($"Failed to update project: {error}");
             }
 
             var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var result = JsonSerializer.Deserialize<ProjectDto>(json);
             return result is not null
-                ? Result.Success(result)
-                : Result.Failure<ProjectDto>("Failed to deserialize response");
+                ? Result<ProjectDto>.Success(result)
+                : Result<ProjectDto>.Failure("Failed to deserialize response");
         }
         catch (Exception ex)
         {
-            return Result.Failure<ProjectDto>($"Error updating project: {ex.Message}");
+            return Result<ProjectDto>.Failure($"Error updating project: {ex.Message}");
         }
     }
 
@@ -71,14 +71,14 @@ public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient)
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                return Result.Failure<bool>($"Failed to delete project: {error}");
+                return Result<bool>.Failure($"Failed to delete project: {error}");
             }
 
-            return Result.Success(true);
+            return Result<bool>.Success(true);
         }
         catch (Exception ex)
         {
-            return Result.Failure<bool>($"Error deleting project: {ex.Message}");
+            return Result<bool>.Failure($"Error deleting project: {ex.Message}");
         }
     }
 }

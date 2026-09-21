@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.CodeAnalysis;
 
@@ -50,25 +50,25 @@ public sealed class AnalysisIteration : Entities.Entity<Guid>
         // Validation
         if (codeAnalysisRequestId == Guid.Empty)
         {
-            return Result.Failure<AnalysisIteration>("CodeAnalysisRequestId cannot be empty");
+            return Result<AnalysisIteration>.Failure("CodeAnalysisRequestId cannot be empty");
         }
 
         if (iterationNumber < 1)
         {
-            return Result.Failure<AnalysisIteration>("Iteration number must be at least 1");
+            return Result<AnalysisIteration>.Failure("Iteration number must be at least 1");
         }
 
         if (string.IsNullOrWhiteSpace(promptSent))
         {
-            return Result.Failure<AnalysisIteration>("Prompt cannot be empty");
+            return Result<AnalysisIteration>.Failure("Prompt cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(aiResponse))
         {
-            return Result.Failure<AnalysisIteration>("AI response cannot be empty");
+            return Result<AnalysisIteration>.Failure("AI response cannot be empty");
         }
 
-        return Result.Success(new AnalysisIteration
+        return Result<AnalysisIteration>.Success(new AnalysisIteration
         {
             Id = id,
             CodeAnalysisRequestId = codeAnalysisRequestId,

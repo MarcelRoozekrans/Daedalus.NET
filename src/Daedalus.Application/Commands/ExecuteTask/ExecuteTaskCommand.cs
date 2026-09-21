@@ -1,5 +1,5 @@
-using CSharpFunctionalExtensions;
-using Daedalus.Application.Abstractions;
+using ZeroAlloc.Results;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.ExecuteTask;
 
@@ -7,7 +7,7 @@ namespace Daedalus.Application.Commands.ExecuteTask;
 ///     Command to execute a task by finding it, checking the completion promise, and updating its status.
 ///     Extracted from RalphLoopService to follow Command pattern for use cases.
 /// </summary>
-public record ExecuteTaskCommand(
+public readonly record struct ExecuteTaskCommand(
     Guid TaskId,
     Guid SessionId,
-    string WorkerName) : ICommand<Result<ExecuteTaskResult>>;
+    string WorkerName) : IRequest<Result<ExecuteTaskResult>>;

@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.ValueObjects;
 
 namespace Daedalus.Domain.CodeAnalysis;
 
@@ -8,12 +8,25 @@ namespace Daedalus.Domain.CodeAnalysis;
 /// </summary>
 #pragma warning disable CA1054 // Uri parameters should not be strings
 #pragma warning disable CA1056 // Uri properties should not be strings
-public sealed class AnalysisOutcome : ValueObject
+[ValueObject]
+public sealed partial class AnalysisOutcome
 {
     public string? PullRequestUrl { get; private set; }
     public string? CommitShaFinal { get; private set; }
     public string? ValidationResult { get; private set; }
     public bool HasFailedValidation { get; private set; }
+
+    // Equality-only members, in the same order as the former GetEqualityComponents():
+    // PullRequestUrl, CommitShaFinal, ValidationResult, HasFailedValidation. The first three used
+    // to coalesce a null string to string.Empty before comparing; these reproduce that exact
+    // behaviour for ZeroAlloc's member-based equality. MUST be public: ZeroAlloc.ValueObjects 2.0.7
+    // silently ignores [EqualityMember] on non-public members (verified empirically — see
+    // task-9-report.md) rather than erroring, so a private/internal member here would silently drop
+    // out of equality instead of narrowing it loudly.
+    [EqualityMember] public string PullRequestUrlForEquality => PullRequestUrl ?? string.Empty;
+    [EqualityMember] public string CommitShaFinalForEquality => CommitShaFinal ?? string.Empty;
+    [EqualityMember] public string ValidationResultForEquality => ValidationResult ?? string.Empty;
+    [EqualityMember] public bool HasFailedValidationForEquality => HasFailedValidation;
 
     // Required by EF Core for owned type materialization
     private AnalysisOutcome() { }
@@ -40,13 +53,5 @@ public sealed class AnalysisOutcome : ValueObject
             ValidationResult = ValidationResult,
             HasFailedValidation = HasFailedValidation
         };
-    }
-
-    protected override IEnumerable<IComparable> GetEqualityComponents()
-    {
-        yield return PullRequestUrl ?? string.Empty;
-        yield return CommitShaFinal ?? string.Empty;
-        yield return ValidationResult ?? string.Empty;
-        yield return HasFailedValidation;
     }
 }

@@ -1,5 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Services;
 

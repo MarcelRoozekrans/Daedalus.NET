@@ -5,7 +5,25 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-        <NoWarn>$(NoWarn);CS1591</NoWarn>
+        <!-- ZeroAlloc.Analyzers rule triage (task 21, phase 1.7 close-out):
+             - ZA0601 (LINQ method inside a loop): most flagged call sites were genuine and were
+               fixed in place (manual loops replacing Select/Where/Any/Take/FirstOrDefault/Count).
+               The remaining ~10 occurrences are EF Core IQueryable filters composed inside a loop
+               (PostgresMemoryStore.Apply, PostgresSkillStore.GetAsync) — each iteration adds one
+               .Where() to an expression tree that is translated to SQL once, not an in-memory
+               allocation hot path, so the rule's premise does not hold there. Rewriting dynamic
+               EF Core query composition to avoid the rule would make every filterable repository
+               method materially harder to read for no runtime benefit.
+             - ZA0501 (value type boxed to object? inside a loop): the one occurrence found
+               (ScheduleDeliveryActions.RequeueAsync) is a standard ILogger.LogWarning(...) call
+               with Guid arguments inside a foreach — boxing inherent to classic ILogger structured
+               logging (object[] args), present throughout this codebase's non-source-generated log
+               calls. Eliminating it repo-wide means converting every such call site to
+               [LoggerMessage] source-generated delegates, a much larger change than this task.
+             Follow-up: evaluate a repo-wide switch to [LoggerMessage] logging (would also clear
+             ZA0501) and re-review whether ZA0601 can be scoped to exclude IQueryable in a later
+             analyzer release, in a dedicated follow-up task rather than expanding this phase. -->
+        <NoWarn>$(NoWarn);CS1591;ZA0601;ZA0501</NoWarn>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <EnableNETAnalyzers>true</EnableNETAnalyzers>
         <AnalysisLevel>latest-all</AnalysisLevel>
@@ -41,5 +59,6 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+        <PackageReference Include="ZeroAlloc.Analyzers" PrivateAssets="all" />
     </ItemGroup>
 </Project>

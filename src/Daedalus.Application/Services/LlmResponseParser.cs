@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -63,7 +63,7 @@ public sealed partial class LlmResponseParser(
     {
         if (string.IsNullOrWhiteSpace(llmResponse))
         {
-            return Result.Success(CreateEmptyLearnings(iteration));
+            return Result<ParsedIterationLearnings>.Success(CreateEmptyLearnings(iteration));
         }
 
         var responseSpan = llmResponse.AsSpan();
@@ -92,7 +92,7 @@ public sealed partial class LlmResponseParser(
             LogLearningsParsed(logger, iteration, errors.Count, approaches.Count, modifiedAreas.Count);
         }
 
-        return Result.Success(learnings);
+        return Result<ParsedIterationLearnings>.Success(learnings);
     }
 
     /// <summary>

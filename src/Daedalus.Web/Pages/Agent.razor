@@ -290,13 +290,15 @@
     protected override async Task OnInitializedAsync()
     {
         var agents = await Api.GetAgentsAsync(_pageCts.Token);
-        agents.Match(
-            list =>
-            {
-                _agents = list;
-                _selectedAgentId ??= list.FirstOrDefault()?.Id;
-            },
-            NotifyError);
+        if (agents.IsSuccess)
+        {
+            _agents = agents.Value;
+            _selectedAgentId ??= agents.Value.FirstOrDefault()?.Id;
+        }
+        else
+        {
+            NotifyError(agents.Error);
+        }
 
         await RefreshSessionsAsync();
     }
@@ -323,14 +325,16 @@
         }
 
         var detail = await Api.GetSessionAsync(SessionId, _pageCts.Token);
-        detail.Match(
-            d =>
-            {
-                _detail = d;
-                _selectedAgentId = d.Session.AgentId;
-                _messages.AddRange(d.Messages.Select(ChatMessage.FromDto));
-            },
-            NotifyError);
+        if (detail.IsSuccess)
+        {
+            _detail = detail.Value;
+            _selectedAgentId = detail.Value.Session.AgentId;
+            _messages.AddRange(detail.Value.Messages.Select(ChatMessage.FromDto));
+        }
+        else
+        {
+            NotifyError(detail.Error);
+        }
 
         if (_memoriesOpen)
         {
@@ -342,7 +346,14 @@
     private async Task RefreshSessionsAsync()
     {
         var sessions = await Api.ListSessionsAsync(ct: _pageCts.Token);
-        sessions.Match(list => _sessions = list, NotifyError);
+        if (sessions.IsSuccess)
+        {
+            _sessions = sessions.Value;
+        }
+        else
+        {
+            NotifyError(sessions.Error);
+        }
     }
 
     private async Task CreateSessionAsync()
@@ -404,17 +415,19 @@
         // The session's agent is the caller's agent context: it adds that agent's pinned memories to the visible set.
         var result = await Api.ListMemoriesAsync(
             kind: _kindFilter, agentId: _detail?.Session.AgentId, page: page, pageSize: MemoriesPageSize, ct: _pageCts.Token);
-        result.Match(
-            p =>
-            {
-                _memories.Clear();
-                _memories.AddRange(p.Items);
-                // Total counts store rows before the visibility filter, so it only answers "is there another store page",
-                // never "how many can I see".
-                _memoriesTotal = p.Total;
-                _memoriesPage = p.Page;
-            },
-            NotifyError);
+        if (result.IsSuccess)
+        {
+            _memories.Clear();
+            _memories.AddRange(result.Value.Items);
+            // Total counts store rows before the visibility filter, so it only answers "is there another store page",
+            // never "how many can I see".
+            _memoriesTotal = result.Value.Total;
+            _memoriesPage = result.Value.Page;
+        }
+        else
+        {
+            NotifyError(result.Error);
+        }
     }
 
     /// <summary>Archives a memory (recoverable) and drops it from both lists without a round trip.</summary>

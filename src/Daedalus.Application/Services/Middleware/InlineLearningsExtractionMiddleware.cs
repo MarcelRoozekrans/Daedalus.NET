@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -103,8 +103,10 @@ public sealed partial class InlineLearningsExtractionMiddleware(
         if (parsed.ErrorPatterns.Count > 0)
         {
             sb.AppendLine("  Errors detected:");
-            foreach (var error in parsed.ErrorPatterns.Take(3))
+            var errorLimit = Math.Min(parsed.ErrorPatterns.Count, 3);
+            for (var i = 0; i < errorLimit; i++)
             {
+                var error = parsed.ErrorPatterns[i];
                 sb.Append("    - ");
                 sb.AppendLine(error.Length > 150 ? error[..150] + "..." : error);
             }
@@ -113,8 +115,10 @@ public sealed partial class InlineLearningsExtractionMiddleware(
         if (parsed.ApproachSignals.Count > 0)
         {
             sb.AppendLine("  Approach taken:");
-            foreach (var approach in parsed.ApproachSignals.Take(2))
+            var approachLimit = Math.Min(parsed.ApproachSignals.Count, 2);
+            for (var i = 0; i < approachLimit; i++)
             {
+                var approach = parsed.ApproachSignals[i];
                 sb.Append("    - ");
                 sb.AppendLine(approach.Length > 150 ? approach[..150] + "..." : approach);
             }

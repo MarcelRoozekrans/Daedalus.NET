@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -26,12 +26,12 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
     {
         if (agent == null)
         {
-            return Result.Failure<AgentExecutionContext>("Agent cannot be null");
+            return Result<AgentExecutionContext>.Failure("Agent cannot be null");
         }
 
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            return Result.Failure<AgentExecutionContext>("Prompt cannot be empty");
+            return Result<AgentExecutionContext>.Failure("Prompt cannot be empty");
         }
 
         var stopwatch = Stopwatch.StartNew();
@@ -79,14 +79,14 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
             _executionHistory.Add(context);
             LogAgentExecutionSuccess(logger, agent.Name, stopwatch.ElapsedMilliseconds);
 
-            return Result.Success(context);
+            return Result<AgentExecutionContext>.Success(context);
         }
         catch (OperationCanceledException)
         {
             stopwatch.Stop();
             LogAgentExecutionCancelled(logger, agent.Id, stopwatch.ElapsedMilliseconds);
 
-            return Result.Failure<AgentExecutionContext>(
+            return Result<AgentExecutionContext>.Failure(
                 $"Execution cancelled after {stopwatch.Elapsed.TotalSeconds:F2}s");
         }
         catch (Exception ex)
@@ -94,7 +94,7 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
             stopwatch.Stop();
             LogAgentExecutionError(logger, ex, agent.Id, agent.Name);
 
-            return Result.Failure<AgentExecutionContext>($"Agent execution failed: {ex.Message}");
+            return Result<AgentExecutionContext>.Failure($"Agent execution failed: {ex.Message}");
         }
     }
 
@@ -105,12 +105,12 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
     {
         if (agents == null || agents.Count == 0)
         {
-            return Result.Failure<AgentExecutionChain>("At least one agent is required");
+            return Result<AgentExecutionChain>.Failure("At least one agent is required");
         }
 
         if (string.IsNullOrWhiteSpace(initialPrompt))
         {
-            return Result.Failure<AgentExecutionChain>("Initial prompt cannot be empty");
+            return Result<AgentExecutionChain>.Failure("Initial prompt cannot be empty");
         }
 
         var chainStopwatch = Stopwatch.StartNew();
@@ -147,7 +147,7 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
                     chainStopwatch.Stop();
                     chain.TotalDuration = chainStopwatch.Elapsed;
 
-                    return Result.Failure<AgentExecutionChain>(
+                    return Result<AgentExecutionChain>.Failure(
                         $"Agent execution failed at step {i + 1}: {executionResult.Error}");
                 }
 
@@ -167,7 +167,7 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
 
             LogChainCompleted(logger, chainStopwatch.ElapsedMilliseconds, agents.Count);
 
-            return Result.Success(chain);
+            return Result<AgentExecutionChain>.Success(chain);
         }
         catch (Exception ex)
         {
@@ -177,7 +177,7 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
             chain.IsCompleted = false;
             chain.TotalDuration = chainStopwatch.Elapsed;
 
-            return Result.Failure<AgentExecutionChain>($"Chain execution failed: {ex.Message}");
+            return Result<AgentExecutionChain>.Failure($"Chain execution failed: {ex.Message}");
         }
     }
 
@@ -187,7 +187,7 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
     {
         if (string.IsNullOrWhiteSpace(agentId))
         {
-            return Task.FromResult(Result.Failure<IReadOnlyList<AgentExecutionContext>>("Agent ID cannot be empty"));
+            return Task.FromResult(Result<IReadOnlyList<AgentExecutionContext>>.Failure("Agent ID cannot be empty"));
         }
 
         var history = _executionHistory
@@ -197,7 +197,7 @@ public sealed partial class AgentExecutor(ILogger<AgentExecutor> logger) : IAgen
 
         LogHistoryRetrieved(logger, history.Count, agentId);
 
-        return Task.FromResult(Result.Success<IReadOnlyList<AgentExecutionContext>>(history));
+        return Task.FromResult(Result<IReadOnlyList<AgentExecutionContext>>.Success(history));
     }
 
     /// <summary>

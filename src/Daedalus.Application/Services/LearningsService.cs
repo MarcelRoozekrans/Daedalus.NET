@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
@@ -61,7 +61,7 @@ public sealed partial class LearningsService(
     {
         if (string.IsNullOrWhiteSpace(rawLearnings))
         {
-            return Result.Success(0);
+            return Result<int>.Success(0);
         }
 
         var entries = ParseRawLearnings(rawLearnings);
@@ -81,7 +81,7 @@ public sealed partial class LearningsService(
         }
 
         LogLearningsParsed(logger, persistedCount, entries.Count, sourceTaskId);
-        return Result.Success(persistedCount);
+        return Result<int>.Success(persistedCount);
     }
 
     public async Task<Result<string>> GetEnrichmentContextAsync(
@@ -151,10 +151,10 @@ public sealed partial class LearningsService(
 
         if (!hasContent)
         {
-            return Result.Success(string.Empty);
+            return Result<string>.Success(string.Empty);
         }
 
-        return Result.Success(sb.ToString());
+        return Result<string>.Success(sb.ToString());
     }
 
     /// <summary>

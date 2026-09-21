@@ -37,7 +37,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
 
         _taskRepository
             .GetStaleInProgressAsync(Arg.Any<TimeSpan>(), _cancellationToken)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)new List<DomainTask> { staleTask }));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)new List<DomainTask> { staleTask }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), _cancellationToken)
@@ -45,7 +45,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
 
         _taskRepository
             .ClaimNextAsync(newSessionId, _cancellationToken)
-            .Returns(Result.Success((DomainTask?)staleTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task?>.Success((DomainTask?)staleTask));
 
         // Act - Reclaim stale tasks
         var reclaimResult = await _service.ReclaimStaleTasksAsync(_cancellationToken);
@@ -76,7 +76,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
             maxIterations: 10);
         _taskRepository
             .ClaimNextAsync(_sessionId, _cancellationToken)
-            .Returns(Result.Success((DomainTask?)task));
+            .Returns(Result<Daedalus.Domain.Entities.Task?>.Success((DomainTask?)task));
 
         // Act
         var result = await _service.GetNextAvailableTaskAsync(_sessionId, _cancellationToken);
@@ -96,7 +96,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
         // Arrange
         _taskRepository
             .ClaimNextAsync(_sessionId, _cancellationToken)
-            .Returns(Result.Success((DomainTask?)null));
+            .Returns(Result<Daedalus.Domain.Entities.Task?>.Success((DomainTask?)null));
 
         // Act
         var result = await _service.GetNextAvailableTaskAsync(_sessionId, _cancellationToken);
@@ -116,7 +116,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
 
         _taskRepository
             .ClaimNextAsync(session1, _cancellationToken)
-            .Returns(Result.Success((DomainTask?)task));
+            .Returns(Result<Daedalus.Domain.Entities.Task?>.Success((DomainTask?)task));
 
         // Act
         var result1 = await _service.GetNextAvailableTaskAsync(session1, _cancellationToken);
@@ -139,7 +139,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
         const string errorMessage = "Database connection failed";
         _taskRepository
             .ClaimNextAsync(_sessionId, _cancellationToken)
-            .Returns(Result.Failure<DomainTask?>(errorMessage));
+            .Returns(Result<DomainTask?>.Failure(errorMessage));
 
         // Act
         var result = await _service.GetNextAvailableTaskAsync(_sessionId, _cancellationToken);
@@ -158,7 +158,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
 
         _taskRepository
             .ClaimNextAsync(_sessionId, _cancellationToken)
-            .Returns(Result.Success((DomainTask?)task1), Result.Success((DomainTask?)task2));
+            .Returns(Result<Daedalus.Domain.Entities.Task?>.Success((DomainTask?)task1), Result<Daedalus.Domain.Entities.Task?>.Success((DomainTask?)task2));
 
         // Act
         var result1 = await _service.GetNextAvailableTaskAsync(_sessionId, _cancellationToken);
@@ -181,7 +181,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
         // Arrange
         _taskRepository
             .GetStaleInProgressAsync(Arg.Any<TimeSpan>(), _cancellationToken)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)new List<DomainTask>()));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)new List<DomainTask>()));
 
         // Act
         var result = await _service.ReclaimStaleTasksAsync(_cancellationToken);
@@ -208,7 +208,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
 
         _taskRepository
             .GetStaleInProgressAsync(Arg.Any<TimeSpan>(), _cancellationToken)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)staleTasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)staleTasks));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), _cancellationToken)
@@ -237,7 +237,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
 
         _taskRepository
             .GetStaleInProgressAsync(Arg.Any<TimeSpan>(), _cancellationToken)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)staleTasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)staleTasks));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), _cancellationToken)
@@ -263,7 +263,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
         const string errorMessage = "Failed to query stale tasks";
         _taskRepository
             .GetStaleInProgressAsync(Arg.Any<TimeSpan>(), _cancellationToken)
-            .Returns(Result.Failure<IReadOnlyList<DomainTask>>(errorMessage));
+            .Returns(Result<IReadOnlyList<DomainTask>>.Failure(errorMessage));
 
         // Act
         var result = await _service.ReclaimStaleTasksAsync(_cancellationToken);
@@ -292,7 +292,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
 
         _taskRepository
             .GetStaleInProgressAsync(Arg.Any<TimeSpan>(), _cancellationToken)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)staleTasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)staleTasks));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), _cancellationToken)
@@ -327,7 +327,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
 
         _taskRepository
             .GetStaleInProgressAsync(Arg.Any<TimeSpan>(), _cancellationToken)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)staleTasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)staleTasks));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), _cancellationToken)
@@ -353,7 +353,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
         _taskRepository
             .GetStaleInProgressAsync(Arg.Is<TimeSpan>(t => t == TimeSpan.FromMinutes(5)),
                 _cancellationToken)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)new List<DomainTask>()));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)new List<DomainTask>()));
 
         // Act
         var result = await _service.ReclaimStaleTasksAsync(_cancellationToken);

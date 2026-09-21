@@ -89,3 +89,6 @@ temp/
 *.nupkg
 *.snupkg
 
+
+# Agent worktrees — transient checkouts, never committed
+.claude/worktrees/

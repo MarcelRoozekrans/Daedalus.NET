@@ -1,5 +1,5 @@
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -38,12 +38,12 @@ public sealed partial class FileSystemWorkspaceContextProvider(
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Result.Failure<WorkspaceContext>("Workspace path cannot be empty");
+            return Result<WorkspaceContext>.Failure("Workspace path cannot be empty");
         }
 
         if (!Directory.Exists(workspacePath))
         {
-            return Result.Failure<WorkspaceContext>($"Workspace directory not found: {workspacePath}");
+            return Result<WorkspaceContext>.Failure($"Workspace directory not found: {workspacePath}");
         }
 
         var context = new WorkspaceContext { WorkspacePath = workspacePath, LoadedAt = DateTime.UtcNow };
@@ -131,7 +131,7 @@ public sealed partial class FileSystemWorkspaceContextProvider(
 
         LogWorkspaceContextLoaded(logger, workspacePath, totalBytesLoaded, context.TotalCharactersLoaded);
 
-        return Result.Success(context);
+        return Result<WorkspaceContext>.Success(context);
     }
 
     /// <summary>
@@ -152,7 +152,7 @@ public sealed partial class FileSystemWorkspaceContextProvider(
 
             if (!Directory.Exists(specsDir))
             {
-                return Result.Success<IReadOnlyDictionary<string, string>>(
+                return Result<IReadOnlyDictionary<string, string>>.Success(
                     new Dictionary<string, string>(StringComparer.Ordinal));
             }
 
@@ -190,12 +190,12 @@ public sealed partial class FileSystemWorkspaceContextProvider(
                 totalBytes += Encoding.UTF8.GetByteCount(content);
             }
 
-            return Result.Success<IReadOnlyDictionary<string, string>>(specs);
+            return Result<IReadOnlyDictionary<string, string>>.Success(specs);
         }
         catch (Exception ex)
         {
             LogSpecsLoadError(logger, ex, specsGlob);
-            return Result.Failure<IReadOnlyDictionary<string, string>>($"Failed to load specs: {ex.Message}");
+            return Result<IReadOnlyDictionary<string, string>>.Failure($"Failed to load specs: {ex.Message}");
         }
     }
 
@@ -243,11 +243,11 @@ public sealed partial class FileSystemWorkspaceContextProvider(
             var result = await LoadFileAsync(workspacePath, relativePath, ct).ConfigureAwait(false);
             if (result.IsSuccess)
             {
-                return Result.Success((relativePath, result.Value));
+                return Result<(string matchedPath, string content)>.Success((relativePath, result.Value));
             }
         }
 
-        return Result.Failure<(string, string)>("No matching file found in any of the candidate paths");
+        return Result<(string, string)>.Failure("No matching file found in any of the candidate paths");
     }
 
     /// <summary>
@@ -262,17 +262,17 @@ public sealed partial class FileSystemWorkspaceContextProvider(
 
         if (!File.Exists(fullPath))
         {
-            return Result.Failure<string>($"File not found: {fileName}");
+            return Result<string>.Failure($"File not found: {fileName}");
         }
 
         var fileInfo = new FileInfo(fullPath);
         if (fileInfo.Length > _maxFileSizeBytes)
         {
-            return Result.Failure<string>($"File too large ({fileInfo.Length} bytes): {fileName}");
+            return Result<string>.Failure($"File too large ({fileInfo.Length} bytes): {fileName}");
         }
 
         var content = await File.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
-        return Result.Success(content);
+        return Result<string>.Success(content);
     }
 
     // ============== Logging Methods ==============

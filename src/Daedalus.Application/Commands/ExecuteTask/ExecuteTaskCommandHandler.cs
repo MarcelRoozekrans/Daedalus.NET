@@ -1,7 +1,8 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Mappers;
 using Daedalus.Domain.Entities;
+using ZeroAlloc.Mediator;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.ExecuteTask;
@@ -12,34 +13,34 @@ namespace Daedalus.Application.Commands.ExecuteTask;
 /// </summary>
 public sealed class ExecuteTaskCommandHandler(
     ITaskRepository taskRepository,
-    IRalphAgentFactory agentFactory) : ICommandHandler<ExecuteTaskCommand, Result<ExecuteTaskResult>>
+    IRalphAgentFactory agentFactory) : IRequestHandler<ExecuteTaskCommand, Result<ExecuteTaskResult>>
 {
     /// <summary>
     ///     Executes a task: fetches it, runs the LLM, checks for completion, and updates state.
     /// </summary>
-    public async Task<Result<ExecuteTaskResult>> Handle(ExecuteTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ExecuteTaskResult>> Handle(ExecuteTaskCommand command, CancellationToken ct)
     {
         // Validate command
         if (command.TaskId == Guid.Empty)
         {
-            return Result.Failure<ExecuteTaskResult>("TaskId cannot be empty");
+            return Result<ExecuteTaskResult>.Failure("TaskId cannot be empty");
         }
 
         if (command.SessionId == Guid.Empty)
         {
-            return Result.Failure<ExecuteTaskResult>("SessionId cannot be empty");
+            return Result<ExecuteTaskResult>.Failure("SessionId cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(command.WorkerName))
         {
-            return Result.Failure<ExecuteTaskResult>("WorkerName cannot be empty");
+            return Result<ExecuteTaskResult>.Failure("WorkerName cannot be empty");
         }
 
         // Fetch the task
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
-            return Result.Failure<ExecuteTaskResult>($"Task not found: {taskResult.Error}");
+            return Result<ExecuteTaskResult>.Failure($"Task not found: {taskResult.Error}");
         }
 
         var task = taskResult.Value;
@@ -47,12 +48,12 @@ public sealed class ExecuteTaskCommandHandler(
         // Validate task can be executed
         if (task.Status != TaskStatus.Pending && task.Status != TaskStatus.InProgress)
         {
-            return Result.Failure<ExecuteTaskResult>($"Task cannot be executed: current status is {task.Status}");
+            return Result<ExecuteTaskResult>.Failure($"Task cannot be executed: current status is {task.Status}");
         }
 
         if (task.IterationCount >= task.MaxIterations)
         {
-            return Result.Failure<ExecuteTaskResult>("Task has reached maximum iterations");
+            return Result<ExecuteTaskResult>.Failure("Task has reached maximum iterations");
         }
 
         // Claim the task if not already claimed
@@ -61,17 +62,17 @@ public sealed class ExecuteTaskCommandHandler(
             var claimResult = task.Claim(command.SessionId);
             if (claimResult.IsFailure)
             {
-                return Result.Failure<ExecuteTaskResult>($"Failed to claim task: {claimResult.Error}");
+                return Result<ExecuteTaskResult>.Failure($"Failed to claim task: {claimResult.Error}");
             }
         }
 
         try
         {
             // Execute via LLM
-            var llmResult = await agentFactory.InvokeAsync(task.Prompt, cancellationToken);
+            var llmResult = await agentFactory.InvokeAsync(task.Prompt, ct);
             if (llmResult.IsFailure)
             {
-                return Result.Failure<ExecuteTaskResult>($"LLM invocation failed: {llmResult.Error}");
+                return Result<ExecuteTaskResult>.Failure($"LLM invocation failed: {llmResult.Error}");
             }
 
             var llmResponse = llmResult.Value.Response;
@@ -102,14 +103,14 @@ public sealed class ExecuteTaskCommandHandler(
             var recordResult = task.RecordExecution(execution);
             if (recordResult.IsFailure)
             {
-                return Result.Failure<ExecuteTaskResult>($"Failed to record execution: {recordResult.Error}");
+                return Result<ExecuteTaskResult>.Failure($"Failed to record execution: {recordResult.Error}");
             }
 
             // Persist updates
-            var updateResult = await taskRepository.UpdateAsync(task, cancellationToken);
+            var updateResult = await taskRepository.UpdateAsync(task, ct);
             if (updateResult.IsFailure)
             {
-                return Result.Failure<ExecuteTaskResult>($"Failed to update task: {updateResult.Error}");
+                return Result<ExecuteTaskResult>.Failure($"Failed to update task: {updateResult.Error}");
             }
 
             // Map results to DTO and result record
@@ -125,11 +126,11 @@ public sealed class ExecuteTaskCommandHandler(
                     ? $"Task completed! Completion promise '{task.CompletionPromise}' found."
                     : $"Task execution #{task.IterationCount} complete. {task.MaxIterations - task.IterationCount} iterations remaining.");
 
-            return Result.Success(result);
+            return Result<ExecuteTaskResult>.Success(result);
         }
         catch (OperationCanceledException)
         {
-            return Result.Failure<ExecuteTaskResult>("Task execution was cancelled");
+            return Result<ExecuteTaskResult>.Failure("Task execution was cancelled");
         }
         catch (Exception ex)
         {
@@ -137,10 +138,10 @@ public sealed class ExecuteTaskCommandHandler(
             var abandonResult = task.Abandon();
             if (abandonResult.IsSuccess)
             {
-                await taskRepository.UpdateAsync(task, cancellationToken);
+                await taskRepository.UpdateAsync(task, ct);
             }
 
-            return Result.Failure<ExecuteTaskResult>($"Task execution failed: {ex.Message}");
+            return Result<ExecuteTaskResult>.Failure($"Task execution failed: {ex.Message}");
         }
     }
 }

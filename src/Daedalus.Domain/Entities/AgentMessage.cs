@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -56,18 +56,18 @@ public sealed class AgentMessage : Entity<Guid>
         DateTime utcNow)
     {
         if (sessionId == Guid.Empty)
-            return Result.Failure<AgentMessage>("Session id is required.");
+            return Result<AgentMessage>.Failure("Session id is required.");
 
         if (sequence < 0)
-            return Result.Failure<AgentMessage>("Sequence must be non-negative.");
+            return Result<AgentMessage>.Failure("Sequence must be non-negative.");
 
         if (string.IsNullOrWhiteSpace(role))
-            return Result.Failure<AgentMessage>("Role is required.");
+            return Result<AgentMessage>.Failure("Role is required.");
 
         if (string.IsNullOrWhiteSpace(contentJson))
-            return Result.Failure<AgentMessage>("Content is required.");
+            return Result<AgentMessage>.Failure("Content is required.");
 
-        return Result.Success(new AgentMessage
+        return Result<AgentMessage>.Success(new AgentMessage
         {
             Id = Guid.NewGuid(),
             SessionId = sessionId,

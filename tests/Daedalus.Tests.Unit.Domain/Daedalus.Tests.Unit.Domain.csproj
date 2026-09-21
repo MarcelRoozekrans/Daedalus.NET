@@ -7,7 +7,10 @@
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-        <NoWarn>CA1707;CA2225;MA0052;MA0176;CS1591</NoWarn>
+        <!-- S1215/S3241: ZeroAlloc.TestHelpers' AllocationGate.cs content file compiles into every
+             referencing project; it calls GC.Collect intentionally (allocation-budget measurement)
+             and ignores a GC query's return value by design. Vendor file, cannot be edited here. -->
+        <NoWarn>CA1707;CA2225;MA0052;MA0176;CS1591;S1215;S3241</NoWarn>
         <!-- Disable trimming for tests -->
         <TrimMode>none</TrimMode>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
@@ -30,8 +33,17 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="CSharpFunctionalExtensions"/>
+        <PackageReference Include="ZeroAlloc.Results"/>
         <PackageReference Include="Bogus"/>
+        <PackageReference Include="ZeroAlloc.TestHelpers"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- ZeroAlloc.TestHelpers ships GeneratorSnapshot.cs (source-generator snapshot testing,
+             needs Microsoft.CodeAnalysis) unconditionally alongside AllocationGate.cs. This repo
+             does not test generator output directly, so exclude the file we don't use rather than
+             add an unused Roslyn dependency. -->
+        <Compile Remove="$(NuGetPackageRoot)zeroalloc.testhelpers/**/GeneratorSnapshot.cs"/>
     </ItemGroup>
 
     <ItemGroup>

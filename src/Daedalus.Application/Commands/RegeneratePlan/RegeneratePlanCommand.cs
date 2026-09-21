@@ -1,5 +1,5 @@
-using CSharpFunctionalExtensions;
-using Daedalus.Application.Abstractions;
+using ZeroAlloc.Results;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.RegeneratePlan;
 
@@ -8,9 +8,9 @@ namespace Daedalus.Application.Commands.RegeneratePlan;
 ///     The article: "Eventually, Ralph will run out of things to do in the task list.
 ///     Or, it goes completely off track." This command forces a fresh plan.
 /// </summary>
-public record RegeneratePlanCommand(
+public readonly record struct RegeneratePlanCommand(
     Guid TaskId,
-    string? WorkspacePath) : ICommand<Result<RegeneratePlanResult>>
+    string? WorkspacePath) : IRequest<Result<RegeneratePlanResult>>
 {
     /// <summary>
     ///     Validates the command input. Returns Result.Failure with the first validation error, or Result.Success.

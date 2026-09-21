@@ -1,7 +1,8 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Queries.GetAllTasks;
 
@@ -9,30 +10,30 @@ namespace Daedalus.Application.Queries.GetAllTasks;
 ///     Handles GetAllTasksQuery by retrieving all tasks from the repository with pagination support.
 /// </summary>
 public sealed class GetAllTasksQueryHandler(ITaskRepository taskRepository)
-    : IQueryHandler<GetAllTasksQuery, Result<PagedResultDto<TaskDto>>>
+    : IRequestHandler<GetAllTasksQuery, Result<PagedResultDto<TaskDto>>>
 {
     /// <summary>
     ///     Retrieves all tasks with optional pagination and returns them as DTO list.
     /// </summary>
-    public async Task<Result<PagedResultDto<TaskDto>>> Handle(GetAllTasksQuery query,
-        CancellationToken cancellationToken)
+    public async ValueTask<Result<PagedResultDto<TaskDto>>> Handle(GetAllTasksQuery query,
+        CancellationToken ct)
     {
         // Validate query
         if (query.Page < 1)
         {
-            return Result.Failure<PagedResultDto<TaskDto>>("Page must be greater than 0");
+            return Result<PagedResultDto<TaskDto>>.Failure("Page must be greater than 0");
         }
 
         if (query.PageSize < 1 || query.PageSize > 100)
         {
-            return Result.Failure<PagedResultDto<TaskDto>>("PageSize must be between 1 and 100");
+            return Result<PagedResultDto<TaskDto>>.Failure("PageSize must be between 1 and 100");
         }
 
         // Get total count of pending tasks (optimized query - count only, no entities loaded)
-        var countResult = await taskRepository.GetPendingCountAsync(cancellationToken);
+        var countResult = await taskRepository.GetPendingCountAsync(ct);
         if (countResult.IsFailure)
         {
-            return Result.Failure<PagedResultDto<TaskDto>>(countResult.Error);
+            return Result<PagedResultDto<TaskDto>>.Failure(countResult.Error);
         }
 
         var totalCount = countResult.Value;
@@ -42,11 +43,11 @@ public sealed class GetAllTasksQueryHandler(ITaskRepository taskRepository)
         var paginatedTasksResult = await taskRepository.GetPendingAsync(
             skip,
             query.PageSize,
-            cancellationToken);
+            ct);
 
         if (paginatedTasksResult.IsFailure)
         {
-            return Result.Failure<PagedResultDto<TaskDto>>(paginatedTasksResult.Error);
+            return Result<PagedResultDto<TaskDto>>.Failure(paginatedTasksResult.Error);
         }
 
         var paginatedTasks = paginatedTasksResult.Value;
@@ -63,6 +64,6 @@ public sealed class GetAllTasksQueryHandler(ITaskRepository taskRepository)
             query.Page,
             query.PageSize);
 
-        return Result.Success(pagedResult);
+        return Result<PagedResultDto<TaskDto>>.Success(pagedResult);
     }
 }

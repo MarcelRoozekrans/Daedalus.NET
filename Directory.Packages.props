@@ -3,6 +3,7 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <ZeroAllocValidationVersion>1.7.3</ZeroAllocValidationVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -39,6 +40,7 @@
     <PackageVersion Include="Meziantou.Analyzer" Version="2.0.296" />
     <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.102" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
+    <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.3" />
 
     <!-- Thalos.NET (nuget.org) -->
     <PackageVersion Include="Thalos.NET" Version="0.5.1" />
@@ -53,11 +55,16 @@
     <PackageVersion Include="Thalos.NET.Channels" Version="0.5.1" />
     <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.5.1" />
     <PackageVersion Include="ZeroAlloc.Results" Version="1.2.2" />
+    <PackageVersion Include="ZeroAlloc.ValueObjects" Version="2.0.7" />
+    <PackageVersion Include="ZeroAlloc.Serialisation" Version="2.4.2" />
     <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.0" />
-    <PackageVersion Include="ZeroAlloc.Validation" Version="1.7.1" />
-    <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="1.5.6" />
-    <PackageVersion Include="ZeroAlloc.Validation.AspNetCore" Version="1.5.6" />
+    <PackageVersion Include="ZeroAlloc.Validation" Version="$(ZeroAllocValidationVersion)" />
+    <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="$(ZeroAllocValidationVersion)" />
+    <PackageVersion Include="ZeroAlloc.Validation.Testing" Version="$(ZeroAllocValidationVersion)" />
     <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.1" />
+    <PackageVersion Include="ZeroAlloc.Mediator" Version="5.1.1" />
+    <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="5.1.1" />
+    <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.2.2" />
     <PackageVersion Include="ZeroAlloc.Outbox" Version="2.5.2" />
     <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="2.5.2" />
 
@@ -99,9 +106,6 @@
 
     <!-- Libraries -->
     <PackageVersion Include="Cronos" Version="0.13.0" />
-    <PackageVersion Include="CSharpFunctionalExtensions" Version="3.6.0" />
-    <PackageVersion Include="FluentValidation" Version="11.11.0" />
-    <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="11.11.0" />
     <PackageVersion Include="LibGit2Sharp" Version="0.31.0" />
     <PackageVersion Include="OllamaSharp" Version="5.4.12" /> <!-- floor set by CommunityToolkit.Aspire.Hosting.Ollama 13.4.1 -->
     <PackageVersion Include="ZLinq" Version="1.5.4" />
@@ -121,6 +125,7 @@
     <PackageVersion Include="Respawn" Version="7.0.0" />
     <PackageVersion Include="Spectre.Console.Testing" Version="0.54.0" />
     <PackageVersion Include="TngTech.ArchUnitNET.xUnit" Version="0.13.2" />
+    <PackageVersion Include="ZeroAlloc.TestHelpers" Version="1.3.2" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>

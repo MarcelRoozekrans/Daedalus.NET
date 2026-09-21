@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 
@@ -10,27 +10,27 @@ internal class StubRalphLoopOrchestrator : IRalphLoopOrchestrator
         string description, IReadOnlyList<string> requirements, string? targetBranch = null,
         string? targetCommit = null,
         int maxIterations = 15, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<Guid>("Ralph Loop not available in test environment"));
+        Task.FromResult(Result<Guid>.Failure("Ralph Loop not available in test environment"));
 
     public Task<Result<CodeAnalysisRequest?>> GetNextPendingAsync(CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<CodeAnalysisRequest?>(null));
+        Task.FromResult(Result<CodeAnalysisRequest?>.Success(null));
 
     public Task<Result> InitializeRepositoryAsync(Guid requestId, CancellationToken ct = default) =>
         Task.FromResult(Result.Failure("Ralph Loop not available in test environment"));
 
     public Task<Result<string>> GetAnalysisPromptAsync(Guid requestId, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<string>("Ralph Loop not available in test environment"));
+        Task.FromResult(Result<string>.Failure("Ralph Loop not available in test environment"));
 
     public Task<Result> ProcessIterationAsync(Guid requestId, string aiResponse, CancellationToken ct = default) =>
         Task.FromResult(Result.Failure("Ralph Loop not available in test environment"));
 
     public Task<Result<bool>> IsCompleteAsync(Guid requestId, CancellationToken ct = default) =>
-        Task.FromResult(Result.Success(true));
+        Task.FromResult(Result<bool>.Success(true));
 
     public Task<Result<string?>> FinalizeAsync(Guid requestId, bool createPullRequest = true,
         CancellationToken ct = default) =>
-        Task.FromResult(Result.Success<string?>(null));
+        Task.FromResult(Result<string?>.Success(null));
 
     public Task<Result<CodeAnalysisRequest>> GetStatusAsync(Guid requestId, CancellationToken ct = default) =>
-        Task.FromResult(Result.Failure<CodeAnalysisRequest>("Ralph Loop not available in test environment"));
+        Task.FromResult(Result<CodeAnalysisRequest>.Failure("Ralph Loop not available in test environment"));
 }

@@ -1,7 +1,7 @@
 #pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
 #pragma warning disable S1144 // EF Core sets TasksCompleted and RowVersion via reflection (unused private setters are required)
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -39,11 +39,11 @@ public sealed class ExecutionSession : AggregateRoot<Guid>
     {
         if (string.IsNullOrWhiteSpace(workerName))
         {
-            return Result.Failure<ExecutionSession>("Worker name cannot be empty");
+            return Result<ExecutionSession>.Failure("Worker name cannot be empty");
         }
 
         var now = startedAt ?? DateTime.UtcNow;
-        return Result.Success(new ExecutionSession
+        return Result<ExecutionSession>.Success(new ExecutionSession
         {
             Id = id,
             WorkerName = workerName.Trim(),

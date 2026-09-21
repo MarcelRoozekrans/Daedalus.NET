@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Api.Controllers;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.CreateProject;
@@ -23,7 +23,7 @@ namespace Daedalus.Tests.Integration.Controllers;
 [Collection(DatabaseCollection.Name)]
 public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private readonly ICommandHandlerFactory _commandFactoryMock = Substitute.For<ICommandHandlerFactory>();
+    private readonly IApplicationCommands _commandsMock = Substitute.For<IApplicationCommands>();
     private readonly ILogger<ProjectsController> _loggerMock = Substitute.For<ILogger<ProjectsController>>();
     private ProjectsController _controller = null!;
     private ApplicationDbContext _dbContext = null!;
@@ -38,7 +38,7 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         _dbContext = new ApplicationDbContext(options);
 
         _projectQueryService = new ProjectQueryService(_dbContext);
-        _controller = new ProjectsController(_projectQueryService, _commandFactoryMock, _loggerMock);
+        _controller = new ProjectsController(_projectQueryService, _commandsMock, _loggerMock);
     }
 
     public async Task DisposeAsync()
@@ -283,12 +283,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             Guid.NewGuid(), "New Project", "A new project", "1.0", "", "main",
             DateTime.UtcNow, null, new List<TaskDto>().AsReadOnly());
 
-        var handler = Substitute.For<ICommandHandler<CreateProjectCommand, Result<ProjectDto>>>();
-        handler.Handle(Arg.Any<CreateProjectCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(expectedDto));
-        _commandFactoryMock
-            .GetHandler<CreateProjectCommand, Result<ProjectDto>>(Arg.Any<CreateProjectCommand>())
-            .Returns(handler);
+        _commandsMock
+            .CreateProjectAsync(Arg.Any<CreateProjectCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ProjectDto>.Success(expectedDto));
 
         // Act
         var result = await _controller.CreateProject(request);
@@ -307,12 +304,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         // Arrange
         var request = new CreateProjectDto("", "Invalid", "1.0");
 
-        var handler = Substitute.For<ICommandHandler<CreateProjectCommand, Result<ProjectDto>>>();
-        handler.Handle(Arg.Any<CreateProjectCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<ProjectDto>("Project name is required"));
-        _commandFactoryMock
-            .GetHandler<CreateProjectCommand, Result<ProjectDto>>(Arg.Any<CreateProjectCommand>())
-            .Returns(handler);
+        _commandsMock
+            .CreateProjectAsync(Arg.Any<CreateProjectCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ProjectDto>.Failure("Project name is required"));
 
         // Act
         var result = await _controller.CreateProject(request);
@@ -332,12 +326,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             "https://github.com/org/repo", "develop",
             DateTime.UtcNow, null, new List<TaskDto>().AsReadOnly());
 
-        var handler = Substitute.For<ICommandHandler<CreateProjectCommand, Result<ProjectDto>>>();
-        handler.Handle(Arg.Any<CreateProjectCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(expectedDto));
-        _commandFactoryMock
-            .GetHandler<CreateProjectCommand, Result<ProjectDto>>(Arg.Any<CreateProjectCommand>())
-            .Returns(handler);
+        _commandsMock
+            .CreateProjectAsync(Arg.Any<CreateProjectCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ProjectDto>.Success(expectedDto));
 
         // Act
         var result = await _controller.CreateProject(request);
@@ -363,12 +354,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             projectId, "Updated Name", "Updated description", "2.0", "", "main",
             DateTime.UtcNow, DateTime.UtcNow, new List<TaskDto>().AsReadOnly());
 
-        var handler = Substitute.For<ICommandHandler<UpdateProjectCommand, Result<ProjectDto>>>();
-        handler.Handle(Arg.Any<UpdateProjectCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(expectedDto));
-        _commandFactoryMock
-            .GetHandler<UpdateProjectCommand, Result<ProjectDto>>(Arg.Any<UpdateProjectCommand>())
-            .Returns(handler);
+        _commandsMock
+            .UpdateProjectAsync(Arg.Any<UpdateProjectCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ProjectDto>.Success(expectedDto));
 
         // Act
         var result = await _controller.UpdateProject(projectId, request);
@@ -387,12 +375,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         var projectId = Guid.NewGuid();
         var request = new UpdateProjectDto("Updated", "Desc", "1.0");
 
-        var handler = Substitute.For<ICommandHandler<UpdateProjectCommand, Result<ProjectDto>>>();
-        handler.Handle(Arg.Any<UpdateProjectCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<ProjectDto>($"Project with ID {projectId} not found"));
-        _commandFactoryMock
-            .GetHandler<UpdateProjectCommand, Result<ProjectDto>>(Arg.Any<UpdateProjectCommand>())
-            .Returns(handler);
+        _commandsMock
+            .UpdateProjectAsync(Arg.Any<UpdateProjectCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ProjectDto>.Failure($"Project with ID {projectId} not found"));
 
         // Act
         var result = await _controller.UpdateProject(projectId, request);
@@ -408,12 +393,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         var projectId = Guid.NewGuid();
         var request = new UpdateProjectDto("", "Desc", "1.0");
 
-        var handler = Substitute.For<ICommandHandler<UpdateProjectCommand, Result<ProjectDto>>>();
-        handler.Handle(Arg.Any<UpdateProjectCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<ProjectDto>("Project name is required"));
-        _commandFactoryMock
-            .GetHandler<UpdateProjectCommand, Result<ProjectDto>>(Arg.Any<UpdateProjectCommand>())
-            .Returns(handler);
+        _commandsMock
+            .UpdateProjectAsync(Arg.Any<UpdateProjectCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ProjectDto>.Failure("Project name is required"));
 
         // Act
         var result = await _controller.UpdateProject(projectId, request);
@@ -432,12 +414,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         // Arrange
         var projectId = Guid.NewGuid();
 
-        var handler = Substitute.For<ICommandHandler<DeleteProjectCommand, Result>>();
-        handler.Handle(Arg.Any<DeleteProjectCommand>(), Arg.Any<CancellationToken>())
+        _commandsMock
+            .DeleteProjectAsync(Arg.Any<DeleteProjectCommand>(), Arg.Any<CancellationToken>())
             .Returns(Result.Success());
-        _commandFactoryMock
-            .GetHandler<DeleteProjectCommand, Result>(Arg.Any<DeleteProjectCommand>())
-            .Returns(handler);
 
         // Act
         var result = await _controller.DeleteProject(projectId);
@@ -452,12 +431,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         // Arrange
         var projectId = Guid.NewGuid();
 
-        var handler = Substitute.For<ICommandHandler<DeleteProjectCommand, Result>>();
-        handler.Handle(Arg.Any<DeleteProjectCommand>(), Arg.Any<CancellationToken>())
+        _commandsMock
+            .DeleteProjectAsync(Arg.Any<DeleteProjectCommand>(), Arg.Any<CancellationToken>())
             .Returns(Result.Failure($"Project with ID {projectId} not found"));
-        _commandFactoryMock
-            .GetHandler<DeleteProjectCommand, Result>(Arg.Any<DeleteProjectCommand>())
-            .Returns(handler);
 
         // Act
         var result = await _controller.DeleteProject(projectId);
@@ -472,12 +448,9 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         // Arrange
         var projectId = Guid.NewGuid();
 
-        var handler = Substitute.For<ICommandHandler<DeleteProjectCommand, Result>>();
-        handler.Handle(Arg.Any<DeleteProjectCommand>(), Arg.Any<CancellationToken>())
+        _commandsMock
+            .DeleteProjectAsync(Arg.Any<DeleteProjectCommand>(), Arg.Any<CancellationToken>())
             .Returns(Result.Failure("Cannot delete project with active tasks"));
-        _commandFactoryMock
-            .GetHandler<DeleteProjectCommand, Result>(Arg.Any<DeleteProjectCommand>())
-            .Returns(handler);
 
         // Act
         var result = await _controller.DeleteProject(projectId);

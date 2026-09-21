@@ -1,5 +1,5 @@
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging;
@@ -49,12 +49,12 @@ public sealed partial class DefaultPromptBuilder(
     {
         if (string.IsNullOrWhiteSpace(originalPrompt))
         {
-            return Task.FromResult(Result.Failure<PromptContext>("Original prompt cannot be empty"));
+            return Task.FromResult(Result<PromptContext>.Failure("Original prompt cannot be empty"));
         }
 
         if (string.IsNullOrWhiteSpace(completionPromise))
         {
-            return Task.FromResult(Result.Failure<PromptContext>("Completion promise cannot be empty"));
+            return Task.FromResult(Result<PromptContext>.Failure("Completion promise cannot be empty"));
         }
 
         var context = new PromptContext
@@ -95,7 +95,7 @@ public sealed partial class DefaultPromptBuilder(
         var hasLearnings = !string.IsNullOrEmpty(learnings);
         LogContextInitialized(logger, taskId, sessionId, completionPromise.Length, hasLearnings);
 
-        return Task.FromResult(Result.Success(context));
+        return Task.FromResult(Result<PromptContext>.Success(context));
     }
 
     public async Task<Result<string>> BuildIterationPromptAsync(
@@ -104,7 +104,7 @@ public sealed partial class DefaultPromptBuilder(
     {
         if (context == null)
         {
-            return Result.Failure<string>("Prompt context cannot be null");
+            return Result<string>.Failure("Prompt context cannot be null");
         }
 
         context.Iteration++;
@@ -119,7 +119,7 @@ public sealed partial class DefaultPromptBuilder(
 
             var prompt = templatePrompt ?? context.OriginalPrompt;
 
-            return Result.Success(prompt);
+            return Result<string>.Success(prompt);
         }
 
         // Subsequent iterations: enhance the structured template with history context
@@ -129,7 +129,7 @@ public sealed partial class DefaultPromptBuilder(
         LogBuiltEnhancedPrompt(logger, context.Iteration, context.TaskId, context.History.Count, enhancedPrompt.Length,
             hasTemplate);
 
-        return Result.Success(enhancedPrompt);
+        return Result<string>.Success(enhancedPrompt);
     }
 
     public Task<Result> RecordIterationResultAsync(

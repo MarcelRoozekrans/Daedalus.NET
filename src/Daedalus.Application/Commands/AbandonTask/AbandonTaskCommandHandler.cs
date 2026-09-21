@@ -1,7 +1,8 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using ZeroAlloc.Mediator;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.AbandonTask;
@@ -10,29 +11,29 @@ namespace Daedalus.Application.Commands.AbandonTask;
 ///     Handles AbandonTaskCommand by marking a task as abandoned and setting its result reason.
 /// </summary>
 public sealed class AbandonTaskCommandHandler(ITaskRepository taskRepository)
-    : ICommandHandler<AbandonTaskCommand, Result<TaskDto>>
+    : IRequestHandler<AbandonTaskCommand, Result<TaskDto>>
 {
     /// <summary>
     ///     Abandons a task and returns its updated DTO representation.
     /// </summary>
-    public async Task<Result<TaskDto>> Handle(AbandonTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(AbandonTaskCommand command, CancellationToken ct)
     {
         // Validate command
         if (command.TaskId == Guid.Empty)
         {
-            return Result.Failure<TaskDto>("TaskId cannot be empty");
+            return Result<TaskDto>.Failure("TaskId cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(command.Reason))
         {
-            return Result.Failure<TaskDto>("Reason cannot be empty");
+            return Result<TaskDto>.Failure("Reason cannot be empty");
         }
 
         // Fetch the task
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
-            return Result.Failure<TaskDto>($"Task not found: {taskResult.Error}");
+            return Result<TaskDto>.Failure($"Task not found: {taskResult.Error}");
         }
 
         var task = taskResult.Value;
@@ -40,25 +41,25 @@ public sealed class AbandonTaskCommandHandler(ITaskRepository taskRepository)
         // Validate task can be abandoned
         if (task.Status == TaskStatus.Completed || task.Status == TaskStatus.Abandoned)
         {
-            return Result.Failure<TaskDto>($"Task cannot be abandoned: current status is {task.Status}");
+            return Result<TaskDto>.Failure($"Task cannot be abandoned: current status is {task.Status}");
         }
 
         // Update task status - use the domain method
         var abandonResult = task.Abandon();
         if (abandonResult.IsFailure)
         {
-            return Result.Failure<TaskDto>(abandonResult.Error);
+            return Result<TaskDto>.Failure(abandonResult.Error);
         }
 
         // Persist changes
-        var updateResult = await taskRepository.UpdateAsync(task, cancellationToken);
+        var updateResult = await taskRepository.UpdateAsync(task, ct);
         if (updateResult.IsFailure)
         {
-            return Result.Failure<TaskDto>($"Failed to update task: {updateResult.Error}");
+            return Result<TaskDto>.Failure($"Failed to update task: {updateResult.Error}");
         }
 
         // Map to DTO and return
         var taskDto = TaskDtoMapper.ToDto(task);
-        return Result.Success(taskDto);
+        return Result<TaskDto>.Success(taskDto);
     }
 }

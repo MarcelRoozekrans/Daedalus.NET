@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using LibGit2Sharp;
 using Microsoft.Extensions.Logging;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -29,7 +29,7 @@ public sealed partial class GitConnectionTester(ILogger<GitConnectionTester> log
     {
         if (string.IsNullOrWhiteSpace(repositoryUrl))
         {
-            return Result.Failure<GitConnectionResult>("Repository URL cannot be empty");
+            return Result<GitConnectionResult>.Failure("Repository URL cannot be empty");
         }
 
         LogTestingConnection(logger, repositoryUrl);
@@ -75,7 +75,7 @@ public sealed partial class GitConnectionTester(ILogger<GitConnectionTester> log
                 Timestamp = DateTime.UtcNow
             };
 
-            return Result.Success(result);
+            return Result<GitConnectionResult>.Success(result);
         }
         catch (LibGit2SharpException ex) when (
             ex.Message.Contains("403", StringComparison.OrdinalIgnoreCase) ||
@@ -84,7 +84,7 @@ public sealed partial class GitConnectionTester(ILogger<GitConnectionTester> log
             ex.Message.Contains("Authentication", StringComparison.OrdinalIgnoreCase))
         {
             LogAuthenticationFailed(logger, repositoryUrl);
-            return Result.Failure<GitConnectionResult>(
+            return Result<GitConnectionResult>.Failure(
                 "Authentication failed: Invalid credentials or insufficient permissions");
         }
         catch (LibGit2SharpException ex) when (
@@ -93,17 +93,17 @@ public sealed partial class GitConnectionTester(ILogger<GitConnectionTester> log
             ex.Message.Contains("Repository not found", StringComparison.OrdinalIgnoreCase))
         {
             LogRepositoryNotFound(logger, repositoryUrl);
-            return Result.Failure<GitConnectionResult>("Repository not found at the specified URL");
+            return Result<GitConnectionResult>.Failure("Repository not found at the specified URL");
         }
         catch (LibGit2SharpException ex)
         {
             LogConnectionFailed(logger, repositoryUrl, ex.Message);
-            return Result.Failure<GitConnectionResult>($"Git connection failed: {ex.Message}");
+            return Result<GitConnectionResult>.Failure($"Git connection failed: {ex.Message}");
         }
         catch (Exception ex)
         {
             LogUnexpectedError(logger, ex, repositoryUrl);
-            return Result.Failure<GitConnectionResult>($"Unexpected error: {ex.Message}");
+            return Result<GitConnectionResult>.Failure($"Unexpected error: {ex.Message}");
         }
         finally
         {
@@ -138,7 +138,7 @@ public sealed partial class GitConnectionTester(ILogger<GitConnectionTester> log
     {
         if (string.IsNullOrWhiteSpace(sshKeyPath) || !File.Exists(sshKeyPath))
         {
-            return Result.Failure<GitConnectionResult>("SSH key file not found");
+            return Result<GitConnectionResult>.Failure("SSH key file not found");
         }
 
         LogTestingSshConnection(logger, repositoryUrl, sshKeyPath);
@@ -165,17 +165,17 @@ public sealed partial class GitConnectionTester(ILogger<GitConnectionTester> log
                 Timestamp = DateTime.UtcNow
             };
 
-            return Result.Success(result);
+            return Result<GitConnectionResult>.Success(result);
         }
         catch (LibGit2SharpException ex)
         {
             LogSshConnectionFailed(logger, repositoryUrl, ex.Message);
-            return Result.Failure<GitConnectionResult>($"SSH authentication failed: {ex.Message}");
+            return Result<GitConnectionResult>.Failure($"SSH authentication failed: {ex.Message}");
         }
         catch (Exception ex)
         {
             LogUnexpectedSshError(logger, ex, repositoryUrl);
-            return Result.Failure<GitConnectionResult>($"Unexpected error: {ex.Message}");
+            return Result<GitConnectionResult>.Failure($"Unexpected error: {ex.Message}");
         }
         finally
         {

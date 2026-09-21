@@ -1,7 +1,7 @@
 #pragma warning disable CA1819 // EF Core concurrency token standard pattern
 #pragma warning disable S1144 // EF Core sets RowVersion via reflection
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
 
@@ -55,9 +55,9 @@ public sealed class BrainstormSession : AggregateRoot<Guid>
     public static Result<BrainstormSession> Create(Guid projectId)
     {
         if (projectId == Guid.Empty)
-            return Result.Failure<BrainstormSession>("Project ID is required.");
+            return Result<BrainstormSession>.Failure("Project ID is required.");
 
-        return Result.Success(new BrainstormSession
+        return Result<BrainstormSession>.Success(new BrainstormSession
         {
             Id = Guid.NewGuid(),
             ProjectId = projectId,

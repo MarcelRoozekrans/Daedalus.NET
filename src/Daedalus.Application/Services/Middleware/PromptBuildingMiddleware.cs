@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 
@@ -26,7 +26,7 @@ public sealed partial class PromptBuildingMiddleware(
             if (promptResult.IsFailure)
             {
                 logger.LogError("Failed to build iteration prompt: {Error}", promptResult.Error);
-                return promptResult;
+                return Result.Failure(promptResult.Error);
             }
 
             context.IterationPrompt = promptResult.Value;

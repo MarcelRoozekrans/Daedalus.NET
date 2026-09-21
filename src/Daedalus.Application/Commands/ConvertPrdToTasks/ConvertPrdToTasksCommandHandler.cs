@@ -1,9 +1,10 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Application.Commands.ConvertPrdToTasks;
@@ -13,14 +14,14 @@ namespace Daedalus.Application.Commands.ConvertPrdToTasks;
 /// </summary>
 public sealed partial class ConvertPrdToTasksCommandHandler(
     ITaskRepository taskRepository,
-    ILogger<ConvertPrdToTasksCommandHandler> logger) : ICommandHandler<ConvertPrdToTasksCommand, Result<List<TaskDto>>>
+    ILogger<ConvertPrdToTasksCommandHandler> logger) : IRequestHandler<ConvertPrdToTasksCommand, Result<List<TaskDto>>>
 {
-    public async Task<Result<List<TaskDto>>> Handle(ConvertPrdToTasksCommand command,
-        CancellationToken cancellationToken)
+    public async ValueTask<Result<List<TaskDto>>> Handle(ConvertPrdToTasksCommand command,
+        CancellationToken ct)
     {
         if (command.PrdItems.Count == 0)
         {
-            return Result.Failure<List<TaskDto>>("No PRD items to convert");
+            return Result<List<TaskDto>>.Failure("No PRD items to convert");
         }
 
         try
@@ -52,7 +53,7 @@ public sealed partial class ConvertPrdToTasksCommandHandler(
                 if (taskResult.IsFailure)
                 {
                     logger.LogError("Failed to create task {TaskId}: {Error}", taskId, taskResult.Error);
-                    return Result.Failure<List<TaskDto>>(taskResult.Error);
+                    return Result<List<TaskDto>>.Failure(taskResult.Error);
                 }
 
                 var task = taskResult.Value;
@@ -67,11 +68,11 @@ public sealed partial class ConvertPrdToTasksCommandHandler(
                 }
 
                 // Persist the task
-                var persistResult = await taskRepository.AddAsync(task, cancellationToken);
+                var persistResult = await taskRepository.AddAsync(task, ct);
                 if (persistResult.IsFailure)
                 {
                     logger.LogError("Failed to persist task {TaskId}: {Error}", taskId, persistResult.Error);
-                    return Result.Failure<List<TaskDto>>(persistResult.Error);
+                    return Result<List<TaskDto>>.Failure(persistResult.Error);
                 }
 
                 createdTasks.Add(TaskDtoMapper.ToDto(persistResult.Value));
@@ -80,12 +81,12 @@ public sealed partial class ConvertPrdToTasksCommandHandler(
 
             var taskCount = createdTasks.Count;
             LogConversionCompleted(logger, taskCount);
-            return Result.Success(createdTasks);
+            return Result<List<TaskDto>>.Success(createdTasks);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error converting PRD items to tasks for project {ProjectId}", command.ProjectId);
-            return Result.Failure<List<TaskDto>>($"Error converting PRD items: {ex.Message}");
+            return Result<List<TaskDto>>.Failure($"Error converting PRD items: {ex.Message}");
         }
     }
 

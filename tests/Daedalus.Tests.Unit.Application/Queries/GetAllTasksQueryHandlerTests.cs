@@ -21,7 +21,7 @@ public class GetAllTasksQueryHandlerTests
     public async Task Handle_WithValidQuery_ShouldReturnPaginatedTasks()
     {
         // Arrange
-        var query = new GetAllTasksQuery();
+        var query = new GetAllTasksQuery(1, 10);
         var tasks = new List<DomainTask>
         {
             ApplicationTestFactory.CreateTask(title: "Task 1"),
@@ -35,7 +35,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)tasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)tasks));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -52,7 +52,7 @@ public class GetAllTasksQueryHandlerTests
     public async Task Handle_WithEmptyTaskList_ShouldReturnEmptyResult()
     {
         // Arrange
-        var query = new GetAllTasksQuery();
+        var query = new GetAllTasksQuery(1, 10);
         var emptyList = new List<DomainTask>();
 
         _taskRepository
@@ -61,7 +61,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)emptyList));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)emptyList));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -158,7 +158,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(5, 5, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)pageItems));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)pageItems));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -187,7 +187,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(10, 5, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)pageItems));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)pageItems));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -202,7 +202,7 @@ public class GetAllTasksQueryHandlerTests
     public async Task Handle_WithRepositoryFailure_ShouldReturnFailure()
     {
         // Arrange
-        var query = new GetAllTasksQuery();
+        var query = new GetAllTasksQuery(1, 10);
 
         _taskRepository
             .GetPendingCountAsync(Arg.Any<CancellationToken>())
@@ -210,7 +210,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<IReadOnlyList<DomainTask>>("Database error"));
+            .Returns(Result<IReadOnlyList<DomainTask>>.Failure("Database error"));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -224,7 +224,7 @@ public class GetAllTasksQueryHandlerTests
     public async Task Handle_PassesCancellationTokenToRepository()
     {
         // Arrange
-        var query = new GetAllTasksQuery();
+        var query = new GetAllTasksQuery(1, 10);
         var tasks = new List<DomainTask> { ApplicationTestFactory.CreateTask() };
         var cts = new CancellationTokenSource();
 
@@ -234,7 +234,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, cts.Token)
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)tasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)tasks));
 
         // Act
         var result = await _handler.Handle(query, cts.Token);
@@ -249,7 +249,7 @@ public class GetAllTasksQueryHandlerTests
     public async Task Handle_MapsTasks_ToTaskDtos()
     {
         // Arrange
-        var query = new GetAllTasksQuery();
+        var query = new GetAllTasksQuery(1, 10);
         var tasks = new List<DomainTask>
         {
             ApplicationTestFactory.CreateTask(title: "Feature 1", description: "Build feature 1"),
@@ -262,7 +262,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 10, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)tasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)tasks));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -289,7 +289,7 @@ public class GetAllTasksQueryHandlerTests
 
         _taskRepository
             .GetPendingAsync(0, 50, Arg.Any<CancellationToken>())
-            .Returns(Result.Success((IReadOnlyList<DomainTask>)tasks));
+            .Returns(Result<IReadOnlyList<Daedalus.Domain.Entities.Task>>.Success((IReadOnlyList<DomainTask>)tasks));
 
         // Act
         var result = await _handler.Handle(query, CancellationToken.None);
@@ -306,7 +306,7 @@ public class GetAllTasksQueryHandlerTests
     public async Task Handle_WithRepositoryException_ShouldThrow()
     {
         // Arrange
-        var query = new GetAllTasksQuery();
+        var query = new GetAllTasksQuery(1, 10);
 
         _taskRepository
             .GetPendingCountAsync(Arg.Any<CancellationToken>())

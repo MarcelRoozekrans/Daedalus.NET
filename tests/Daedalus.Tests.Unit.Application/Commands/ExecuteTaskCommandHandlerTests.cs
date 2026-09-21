@@ -32,11 +32,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult { Response = "LLM response without completion promise" }));
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "LLM response without completion promise" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -103,7 +103,7 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<DomainTask>("Task not found"));
+            .Returns(Result<DomainTask>.Failure("Task not found"));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -140,7 +140,7 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -178,7 +178,7 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -199,11 +199,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<LlmInvocationResult>("LLM service unavailable"));
+            .Returns(Result<LlmInvocationResult>.Failure("LLM service unavailable"));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -224,11 +224,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult { Response = "Work done. TASK_COMPLETE" }));
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "Work done. TASK_COMPLETE" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -254,11 +254,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult { Response = "Work done. complete" })); // lowercase
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "Work done. complete" })); // lowercase
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -283,11 +283,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult { Response = "response" }));
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "response" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -313,11 +313,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult { Response = "response" }));
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "response" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -343,11 +343,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, cts.Token)
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync(task.Prompt, cts.Token)
-            .Returns(Result.Success(new LlmInvocationResult { Response = "response" }));
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "response" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), cts.Token)
@@ -372,11 +372,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync("Generate", Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult { Response = "Output: DONE" }));
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "Output: DONE" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -419,11 +419,11 @@ public class ExecuteTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _agentFactory
             .InvokeAsync(task.Prompt, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new LlmInvocationResult { Response = "Second attempt" }));
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "Second attempt" }));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())

@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -39,16 +39,16 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
     {
         var token = _tokens.GetToken();
         if (token.IsFailure)
-            return Result.Failure<string>(token.Error);
+            return Result<string>.Failure(token.Error);
 
         try
         {
             var branch = await FetchDefaultBranchAsync(repo, token.Value, ct).ConfigureAwait(false);
-            return Result.Success(branch);
+            return Result<string>.Success(branch);
         }
         catch (GitHubRequestException ex)
         {
-            return Result.Failure<string>(ex.Message);
+            return Result<string>.Failure(ex.Message);
         }
     }
 
@@ -56,7 +56,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
     {
         var token = _tokens.GetToken();
         if (token.IsFailure)
-            return Result.Failure<string>(token.Error);
+            return Result<string>.Failure(token.Error);
 
         var payload = JsonSerializer.Serialize(new { body });
         return await SendWriteAsync(
@@ -68,7 +68,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
     {
         var token = _tokens.GetToken();
         if (token.IsFailure)
-            return Result.Failure<string>(token.Error);
+            return Result<string>.Failure(token.Error);
 
         var payload = JsonSerializer.Serialize(new { labels = new[] { label } });
         return await SendWriteAsync(
@@ -80,7 +80,7 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
     {
         var token = _tokens.GetToken();
         if (token.IsFailure)
-            return Result.Failure<string>(token.Error);
+            return Result<string>.Failure(token.Error);
 
         var payload = JsonSerializer.Serialize(new { state = "closed" });
         return await SendWriteAsync(
@@ -108,8 +108,8 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
         return response.IsSuccessStatusCode
-            ? Result.Success(successMessage)
-            : Result.Failure<string>(MapError(response, body));
+            ? Result<string>.Success(successMessage)
+            : Result<string>.Failure(MapError(response, body));
     }
 
     public async Task<RepoActivity> GetActivityAsync(RepoRef repo, DateTime sinceUtc, CancellationToken ct = default)

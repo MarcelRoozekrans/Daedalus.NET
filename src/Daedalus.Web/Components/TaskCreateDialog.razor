@@ -147,13 +147,15 @@
                 files);
 
             var result = await Api.CreateTaskAsync(dto);
-            result.Match(
-                _ =>
-                {
-                    NotificationService.Notify(NotificationSeverity.Success, "Success", "Task created");
-                    DialogService.Close(true);
-                },
-                error => NotificationService.Notify(NotificationSeverity.Error, "Error", error));
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "Success", "Task created");
+                DialogService.Close(true);
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            }
         }
         finally
         {

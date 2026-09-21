@@ -10,7 +10,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="CSharpFunctionalExtensions"/>
+        <PackageReference Include="ZeroAlloc.Results"/>
+        <PackageReference Include="ZeroAlloc.ValueObjects"/>
+        <PackageReference Include="ZeroAlloc.Serialisation"/>
     </ItemGroup>
 
 </Project>

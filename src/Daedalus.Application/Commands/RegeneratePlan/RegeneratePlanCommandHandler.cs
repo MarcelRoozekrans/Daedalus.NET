@@ -1,8 +1,9 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.RegeneratePlan;
 
@@ -16,7 +17,7 @@ public sealed partial class RegeneratePlanCommandHandler(
     IRalphAgentFactory agentFactory,
     IOptions<RalphLoopConfiguration> configurationOptions,
     ILogger<RegeneratePlanCommandHandler> logger)
-    : ICommandHandler<RegeneratePlanCommand, Result<RegeneratePlanResult>>
+    : IRequestHandler<RegeneratePlanCommand, Result<RegeneratePlanResult>>
 {
     private const string PlanFileName = "fix_plan.md";
     private const string BackupSuffix = ".bak";
@@ -37,27 +38,27 @@ public sealed partial class RegeneratePlanCommandHandler(
         Message = "Failed to regenerate plan for task {TaskId}: {Error}")]
     private static partial void LogPlanRegenerationFailed(ILogger logger, Guid taskId, string error);
 
-    public async Task<Result<RegeneratePlanResult>> Handle(
+    public async ValueTask<Result<RegeneratePlanResult>> Handle(
         RegeneratePlanCommand command,
-        CancellationToken cancellationToken)
+        CancellationToken ct)
     {
         // Validate command
         var validation = command.Validate();
         if (validation.IsFailure)
-            return Result.Failure<RegeneratePlanResult>(validation.Error);
+            return Result<RegeneratePlanResult>.Failure(validation.Error);
 
         // Resolve workspace path
         var workspacePath = command.WorkspacePath ?? configurationOptions.Value.WorkspacePath;
         if (string.IsNullOrEmpty(workspacePath))
-            return Result.Failure<RegeneratePlanResult>(
+            return Result<RegeneratePlanResult>.Failure(
                 "WorkspacePath must be provided either in the command or via RalphLoop configuration");
 
         LogRegeneratingPlan(logger, command.TaskId, workspacePath);
 
         // Fetch task for context
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
-            return Result.Failure<RegeneratePlanResult>($"Task not found: {taskResult.Error}");
+            return Result<RegeneratePlanResult>.Failure($"Task not found: {taskResult.Error}");
 
         var task = taskResult.Value;
 
@@ -77,21 +78,21 @@ public sealed partial class RegeneratePlanCommandHandler(
         var planPrompt = BuildPlanGenerationPrompt(task);
 
         // Invoke LLM to generate new plan
-        var llmResult = await agentFactory.InvokeAsync(planPrompt, cancellationToken);
+        var llmResult = await agentFactory.InvokeAsync(planPrompt, ct);
         if (llmResult.IsFailure)
         {
             LogPlanRegenerationFailed(logger, command.TaskId, llmResult.Error);
-            return Result.Failure<RegeneratePlanResult>($"LLM plan generation failed: {llmResult.Error}");
+            return Result<RegeneratePlanResult>.Failure($"LLM plan generation failed: {llmResult.Error}");
         }
 
         var planContent = llmResult.Value.Response;
 
         // Write new plan to fix_plan.md
-        await File.WriteAllTextAsync(planFilePath, planContent, cancellationToken);
+        await File.WriteAllTextAsync(planFilePath, planContent, ct);
 
         LogPlanRegenerated(logger, command.TaskId, planContent.Length);
 
-        return Result.Success(new RegeneratePlanResult(
+        return Result<RegeneratePlanResult>.Success(new RegeneratePlanResult(
             planFilePath,
             planContent,
             previousPlanBackedUp));

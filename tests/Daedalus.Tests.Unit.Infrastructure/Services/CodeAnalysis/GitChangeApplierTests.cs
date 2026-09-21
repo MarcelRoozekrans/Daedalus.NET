@@ -1,5 +1,5 @@
 using AwesomeAssertions;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using NSubstitute;

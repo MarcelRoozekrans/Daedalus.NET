@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Anthropic;
 using Anthropic.Core;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Microsoft.Extensions.AI;
@@ -60,12 +60,12 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
     {
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            return Result.Failure<LlmInvocationResult>("Prompt cannot be empty");
+            return Result<LlmInvocationResult>.Failure("Prompt cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
-            return Result.Failure<LlmInvocationResult>("Anthropic API key is not configured");
+            return Result<LlmInvocationResult>.Failure("Anthropic API key is not configured");
         }
 
         try
@@ -97,12 +97,12 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
             if (string.IsNullOrEmpty(text))
             {
                 LogEmptyResponse(_logger);
-                return Result.Failure<LlmInvocationResult>("Claude returned empty response");
+                return Result<LlmInvocationResult>.Failure("Claude returned empty response");
             }
 
             var (inputTokens, outputTokens) = ExtractTokenUsage(response);
             LogInvocationCompleted(_logger, text.Length);
-            return Result.Success(new LlmInvocationResult
+            return Result<LlmInvocationResult>.Success(new LlmInvocationResult
             {
                 Response = text,
                 InputTokens = inputTokens,
@@ -113,12 +113,12 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
         catch (OperationCanceledException)
         {
             LogInvocationCancelled(_logger);
-            return Result.Failure<LlmInvocationResult>("Operation cancelled");
+            return Result<LlmInvocationResult>.Failure("Operation cancelled");
         }
         catch (Exception ex)
         {
             LogErrorInvoking(_logger, ex, ex.Message);
-            return Result.Failure<LlmInvocationResult>($"Error invoking Claude: {ex.Message}");
+            return Result<LlmInvocationResult>.Failure($"Error invoking Claude: {ex.Message}");
         }
     }
 
@@ -130,12 +130,12 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
     {
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            return Result.Failure<SubagentResult>("Subagent prompt cannot be empty");
+            return Result<SubagentResult>.Failure("Subagent prompt cannot be empty");
         }
 
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
-            return Result.Failure<SubagentResult>("Anthropic API key is not configured");
+            return Result<SubagentResult>.Failure("Anthropic API key is not configured");
         }
 
         var label = options.Label ?? "unnamed";
@@ -178,7 +178,7 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
             if (string.IsNullOrEmpty(text))
             {
                 LogSubagentEmptyResponse(_logger, label);
-                return Result.Failure<SubagentResult>($"Subagent '{label}' returned empty response");
+                return Result<SubagentResult>.Failure($"Subagent '{label}' returned empty response");
             }
 
             // Extract token usage from response
@@ -196,17 +196,17 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
             };
 
             LogSubagentCompleted(_logger, label, stopwatch.Elapsed.TotalMilliseconds, inputTokens, outputTokens);
-            return Result.Success(result);
+            return Result<SubagentResult>.Success(result);
         }
         catch (OperationCanceledException)
         {
             LogSubagentCancelled(_logger, label);
-            return Result.Failure<SubagentResult>($"Subagent '{label}' was cancelled");
+            return Result<SubagentResult>.Failure($"Subagent '{label}' was cancelled");
         }
         catch (Exception ex)
         {
             LogSubagentError(_logger, ex, label, ex.Message);
-            return Result.Failure<SubagentResult>($"Subagent '{label}' failed: {ex.Message}");
+            return Result<SubagentResult>.Failure($"Subagent '{label}' failed: {ex.Message}");
         }
     }
 
@@ -219,7 +219,7 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
     {
         if (prompts.Count == 0)
         {
-            return Result.Success<IReadOnlyList<SubagentResult>>(Array.Empty<SubagentResult>());
+            return Result<IReadOnlyList<SubagentResult>>.Success(Array.Empty<SubagentResult>());
         }
 
         LogParallelSubagentsStarting(_logger, prompts.Count, maxParallelism);
@@ -272,7 +272,7 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
             if (failures.Count > 0 && successResults.Count == 0)
             {
                 LogParallelSubagentsAllFailed(_logger, failures.Count);
-                return Result.Failure<IReadOnlyList<SubagentResult>>(
+                return Result<IReadOnlyList<SubagentResult>>.Failure(
                     $"All {failures.Count} subagents failed: {string.Join("; ", failures)}");
             }
 
@@ -284,7 +284,7 @@ public sealed partial class RalphAgentFactory : IRalphAgentFactory
             LogParallelSubagentsCompleted(_logger, successResults.Count, prompts.Count,
                 stopwatch.Elapsed.TotalMilliseconds);
 
-            return Result.Success<IReadOnlyList<SubagentResult>>(successResults);
+            return Result<IReadOnlyList<SubagentResult>>.Success(successResults);
         }
         finally
         {

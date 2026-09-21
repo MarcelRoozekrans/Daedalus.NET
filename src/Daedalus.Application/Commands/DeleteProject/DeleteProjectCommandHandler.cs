@@ -1,6 +1,7 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.DeleteProject;
 
@@ -9,13 +10,13 @@ namespace Daedalus.Application.Commands.DeleteProject;
 /// </summary>
 public sealed partial class DeleteProjectCommandHandler(
     IProjectRepository projectRepository,
-    ILogger<DeleteProjectCommandHandler> logger) : ICommandHandler<DeleteProjectCommand, Result>
+    ILogger<DeleteProjectCommandHandler> logger) : IRequestHandler<DeleteProjectCommand, Result>
 {
-    public async Task<Result> Handle(DeleteProjectCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result> Handle(DeleteProjectCommand command, CancellationToken ct)
     {
         try
         {
-            var projectResult = await projectRepository.GetByIdAsync(command.Id, cancellationToken)
+            var projectResult = await projectRepository.GetByIdAsync(command.Id, ct)
                 .ConfigureAwait(false);
 
             if (projectResult.IsFailure)
@@ -23,7 +24,7 @@ public sealed partial class DeleteProjectCommandHandler(
                 return Result.Failure($"Project {command.Id} not found");
             }
 
-            var deleteResult = await projectRepository.DeleteAsync(command.Id, cancellationToken)
+            var deleteResult = await projectRepository.DeleteAsync(command.Id, ct)
                 .ConfigureAwait(false);
 
             if (deleteResult.IsFailure)

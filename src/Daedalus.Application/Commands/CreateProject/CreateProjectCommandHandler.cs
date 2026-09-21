@@ -1,8 +1,9 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.CreateProject;
 
@@ -11,9 +12,9 @@ namespace Daedalus.Application.Commands.CreateProject;
 /// </summary>
 public sealed partial class CreateProjectCommandHandler(
     IProjectRepository projectRepository,
-    ILogger<CreateProjectCommandHandler> logger) : ICommandHandler<CreateProjectCommand, Result<ProjectDto>>
+    ILogger<CreateProjectCommandHandler> logger) : IRequestHandler<CreateProjectCommand, Result<ProjectDto>>
 {
-    public async Task<Result<ProjectDto>> Handle(CreateProjectCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ProjectDto>> Handle(CreateProjectCommand command, CancellationToken ct)
     {
         try
         {
@@ -28,17 +29,17 @@ public sealed partial class CreateProjectCommandHandler(
 
             if (createResult.IsFailure)
             {
-                return Result.Failure<ProjectDto>(createResult.Error);
+                return Result<ProjectDto>.Failure(createResult.Error);
             }
 
             var project = createResult.Value;
-            var addResult = await projectRepository.AddAsync(project, cancellationToken)
+            var addResult = await projectRepository.AddAsync(project, ct)
                 .ConfigureAwait(false);
 
             if (addResult.IsFailure)
             {
                 LogCreateProjectFailed(logger, addResult.Error);
-                return Result.Failure<ProjectDto>(addResult.Error);
+                return Result<ProjectDto>.Failure(addResult.Error);
             }
 
             var dto = new ProjectDto(
@@ -53,12 +54,12 @@ public sealed partial class CreateProjectCommandHandler(
                 new List<TaskDto>());
 
             LogProjectCreated(logger, project.Id);
-            return Result.Success(dto);
+            return Result<ProjectDto>.Success(dto);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Unexpected error creating project");
-            return Result.Failure<ProjectDto>($"Error creating project: {ex.Message}");
+            return Result<ProjectDto>.Failure($"Error creating project: {ex.Message}");
         }
     }
 

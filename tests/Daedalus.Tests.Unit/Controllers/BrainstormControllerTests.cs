@@ -24,7 +24,7 @@ public class BrainstormControllerTests
         var projectId = Guid.NewGuid();
         var session = BrainstormSession.Create(projectId).Value;
         _service.CreateSessionAsync(projectId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         var result = await _controller.CreateSession(
             new Application.DTOs.CreateBrainstormSessionDto(projectId));
@@ -36,7 +36,7 @@ public class BrainstormControllerTests
     public async Task CreateSession_WhenServiceFails_Returns400()
     {
         _service.CreateSessionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<BrainstormSession>("Project not found"));
+            .Returns(Result<BrainstormSession>.Failure("Project not found"));
 
         var result = await _controller.CreateSession(
             new Application.DTOs.CreateBrainstormSessionDto(Guid.NewGuid()));
@@ -49,7 +49,7 @@ public class BrainstormControllerTests
     {
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
         _service.GetSessionAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         var result = await _controller.GetSession(session.Id);
 
@@ -62,7 +62,7 @@ public class BrainstormControllerTests
         var sessionId = Guid.NewGuid();
         var message = BrainstormMessage.Create(sessionId, MessageRole.Assistant, "Response", BrainstormPhase.Clarification).Value;
         _service.SendMessageAsync(sessionId, "Hello", Arg.Any<CancellationToken>())
-            .Returns(Result.Success(message));
+            .Returns(Result<BrainstormMessage>.Success(message));
 
         var result = await _controller.SendMessage(
             sessionId,
@@ -76,7 +76,7 @@ public class BrainstormControllerTests
     {
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
         _service.AdvancePhaseAsync(session.Id, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(session));
+            .Returns(Result<BrainstormSession>.Success(session));
 
         var result = await _controller.AdvancePhase(session.Id);
 

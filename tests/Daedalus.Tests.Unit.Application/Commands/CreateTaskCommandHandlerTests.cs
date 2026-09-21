@@ -45,7 +45,7 @@ public class CreateTaskCommandHandlerTests
             completionPromise: "IMPLEMENTATION_COMPLETE");
         _taskRepository
             .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(createdTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(createdTask));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -83,7 +83,7 @@ public class CreateTaskCommandHandlerTests
         );
         _taskRepository
             .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(createdTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(createdTask));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -120,7 +120,7 @@ public class CreateTaskCommandHandlerTests
 
         _taskRepository
             .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(createdTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(createdTask));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -303,7 +303,7 @@ public class CreateTaskCommandHandlerTests
         var createdTask = ApplicationTestFactory.CreateTask(maxIterations: 100);
         _taskRepository
             .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(createdTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(createdTask));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -328,7 +328,7 @@ public class CreateTaskCommandHandlerTests
 
         _taskRepository
             .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<DomainTask>("Database connection failed"));
+            .Returns(Result<DomainTask>.Failure("Database connection failed"));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -353,7 +353,7 @@ public class CreateTaskCommandHandlerTests
             .ThrowsAsync(new InvalidOperationException("Repository error"));
 
         // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.Handle(command, CancellationToken.None)
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await _handler.Handle(command, CancellationToken.None)
         );
     }
 
@@ -375,7 +375,7 @@ public class CreateTaskCommandHandlerTests
         var createdTask = ApplicationTestFactory.CreateTask();
         _taskRepository
             .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(createdTask));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(createdTask));
 
         // Act
         var result = await _handler.Handle(command, cts.Token);
@@ -401,7 +401,7 @@ public class CreateTaskCommandHandlerTests
             .ThrowsAsync(new InvalidOperationException("Repository error"));
 
         // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.Handle(command, CancellationToken.None)
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await _handler.Handle(command, CancellationToken.None)
         );
     }
 
@@ -422,7 +422,7 @@ public class CreateTaskCommandHandlerTests
         DomainTask? capturedTask = null;
         _taskRepository
             .AddAsync(Arg.Do<DomainTask>(t => capturedTask = t), Arg.Any<CancellationToken>())
-            .Returns(callInfo => Result.Success(capturedTask!));
+            .Returns(callInfo => Result<Daedalus.Domain.Entities.Task>.Success(capturedTask!));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -445,7 +445,7 @@ public class CreateTaskCommandHandlerTests
         DomainTask? capturedTask = null;
         _taskRepository
             .AddAsync(Arg.Do<DomainTask>(t => capturedTask = t), Arg.Any<CancellationToken>())
-            .Returns(callInfo => Result.Success(capturedTask!));
+            .Returns(callInfo => Result<Daedalus.Domain.Entities.Task>.Success(capturedTask!));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);

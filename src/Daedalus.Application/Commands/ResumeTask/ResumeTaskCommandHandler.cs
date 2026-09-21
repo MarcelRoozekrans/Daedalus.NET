@@ -1,7 +1,8 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.ResumeTask;
 
@@ -9,19 +10,19 @@ namespace Daedalus.Application.Commands.ResumeTask;
 ///     Handles ResumeTaskCommand by marking an abandoned task as pending again.
 /// </summary>
 public sealed class ResumeTaskCommandHandler(ITaskRepository taskRepository)
-    : ICommandHandler<ResumeTaskCommand, Result<TaskDto>>
+    : IRequestHandler<ResumeTaskCommand, Result<TaskDto>>
 {
-    public async Task<Result<TaskDto>> Handle(ResumeTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(ResumeTaskCommand command, CancellationToken ct)
     {
         if (command.TaskId == Guid.Empty)
         {
-            return Result.Failure<TaskDto>("TaskId cannot be empty");
+            return Result<TaskDto>.Failure("TaskId cannot be empty");
         }
 
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
-            return Result.Failure<TaskDto>($"Task not found: {taskResult.Error}");
+            return Result<TaskDto>.Failure($"Task not found: {taskResult.Error}");
         }
 
         var task = taskResult.Value;
@@ -29,15 +30,15 @@ public sealed class ResumeTaskCommandHandler(ITaskRepository taskRepository)
         var resumeResult = task.Resume(command.NewSessionId ?? Guid.NewGuid());
         if (resumeResult.IsFailure)
         {
-            return Result.Failure<TaskDto>(resumeResult.Error);
+            return Result<TaskDto>.Failure(resumeResult.Error);
         }
 
-        var updateResult = await taskRepository.UpdateAsync(task, cancellationToken);
+        var updateResult = await taskRepository.UpdateAsync(task, ct);
         if (updateResult.IsFailure)
         {
-            return Result.Failure<TaskDto>($"Failed to update task: {updateResult.Error}");
+            return Result<TaskDto>.Failure($"Failed to update task: {updateResult.Error}");
         }
 
-        return Result.Success(TaskDtoMapper.ToDto(task));
+        return Result<TaskDto>.Success(TaskDtoMapper.ToDto(task));
     }
 }

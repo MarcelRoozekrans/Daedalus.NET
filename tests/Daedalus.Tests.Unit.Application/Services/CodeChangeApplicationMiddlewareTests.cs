@@ -131,7 +131,7 @@ public class CodeChangeApplicationMiddlewareTests : UnitTestBase
             new() { FilePath = "src/File.cs", ModifiedCode = "console.log('hi');" }
         };
         _changeApplier.ExtractChangesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeModification>>(changes.AsReadOnly()));
+            .Returns(Result<IReadOnlyList<CodeModification>>.Success(changes.AsReadOnly()));
         _changeApplier.ApplyChangesAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<CodeModification>>(),
                 Arg.Any<CancellationToken>())
             .Returns(Result.Success());
@@ -159,7 +159,7 @@ public class CodeChangeApplicationMiddlewareTests : UnitTestBase
             new() { FilePath = "src/Other.cs", ModifiedCode = "more code" }
         };
         _changeApplier.ExtractChangesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeModification>>(changes.AsReadOnly()));
+            .Returns(Result<IReadOnlyList<CodeModification>>.Success(changes.AsReadOnly()));
         _changeApplier.ApplyChangesAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<CodeModification>>(),
                 Arg.Any<CancellationToken>())
             .Returns(Result.Success());
@@ -185,7 +185,7 @@ public class CodeChangeApplicationMiddlewareTests : UnitTestBase
         var context = CreateContext(llmSucceeded: true, workspacePath: "/workspace",
             llmResponse: "No code blocks here");
         _changeApplier.ExtractChangesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeModification>>(
+            .Returns(Result<IReadOnlyList<CodeModification>>.Success(
                 new List<CodeModification>().AsReadOnly()));
         var continuationCalled = false;
 
@@ -214,7 +214,7 @@ public class CodeChangeApplicationMiddlewareTests : UnitTestBase
         var context = CreateContext(llmSucceeded: true, workspacePath: "/workspace",
             llmResponse: "some response");
         _changeApplier.ExtractChangesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<IReadOnlyList<CodeModification>>("Extraction error"));
+            .Returns(Result<IReadOnlyList<CodeModification>>.Failure("Extraction error"));
         var continuationCalled = false;
 
         // Act
@@ -240,7 +240,7 @@ public class CodeChangeApplicationMiddlewareTests : UnitTestBase
             new() { FilePath = "src/File.cs", ModifiedCode = "code" }
         };
         _changeApplier.ExtractChangesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeModification>>(changes.AsReadOnly()));
+            .Returns(Result<IReadOnlyList<CodeModification>>.Success(changes.AsReadOnly()));
         _changeApplier.ApplyChangesAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<CodeModification>>(),
                 Arg.Any<CancellationToken>())
             .Returns(Result.Failure("Apply error"));
@@ -296,7 +296,7 @@ public class CodeChangeApplicationMiddlewareTests : UnitTestBase
             new() { FilePath = "src/File.cs", ModifiedCode = "code" }
         };
         _changeApplier.ExtractChangesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success<IReadOnlyList<CodeModification>>(changes.AsReadOnly()));
+            .Returns(Result<IReadOnlyList<CodeModification>>.Success(changes.AsReadOnly()));
         _changeApplier.ApplyChangesAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<CodeModification>>(),
                 Arg.Any<CancellationToken>())
             .Returns(Result.Success());

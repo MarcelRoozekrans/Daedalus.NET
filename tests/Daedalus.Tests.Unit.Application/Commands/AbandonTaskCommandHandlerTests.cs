@@ -32,7 +32,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -113,7 +113,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<DomainTask>("Task not found"));
+            .Returns(Result<DomainTask>.Failure("Task not found"));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -149,7 +149,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -172,7 +172,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -194,7 +194,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -221,7 +221,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -248,7 +248,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, cts.Token)
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), cts.Token)
@@ -279,7 +279,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -308,7 +308,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
@@ -349,7 +349,7 @@ public class AbandonTaskCommandHandlerTests
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(task));
+            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(task));
 
         _taskRepository
             .UpdateAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())

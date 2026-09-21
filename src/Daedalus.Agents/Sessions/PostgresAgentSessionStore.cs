@@ -134,7 +134,16 @@ public sealed class PostgresAgentSessionStore(IDbContextFactory<ApplicationDbCon
         foreach (var message in messages)
         {
             next++;
-            var usage = message.Contents.OfType<UsageContent>().FirstOrDefault()?.Details;
+            UsageDetails? usage = null;
+            foreach (var content in message.Contents)
+            {
+                if (content is UsageContent usageContent)
+                {
+                    usage = usageContent.Details;
+                    break;
+                }
+            }
+
             var entity = AgentMessage.Create(
                 id.Value,
                 next,

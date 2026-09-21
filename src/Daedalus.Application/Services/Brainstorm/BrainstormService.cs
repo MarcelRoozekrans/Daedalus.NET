@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
@@ -36,7 +36,7 @@ public sealed partial class BrainstormService(
     {
         var projectResult = await projectRepository.GetByIdAsync(projectId, ct).ConfigureAwait(false);
         if (projectResult.IsFailure)
-            return Result.Failure<BrainstormSession>($"Project not found: {projectResult.Error}");
+            return Result<BrainstormSession>.Failure($"Project not found: {projectResult.Error}");
 
         var sessionResult = BrainstormSession.Create(projectId);
         if (sessionResult.IsFailure)
@@ -55,13 +55,13 @@ public sealed partial class BrainstormService(
 
         var llmResult = await agentFactory.InvokeAsync(contextPrompt, ct).ConfigureAwait(false);
         if (llmResult.IsFailure)
-            return Result.Failure<BrainstormSession>($"LLM invocation failed: {llmResult.Error}");
+            return Result<BrainstormSession>.Failure($"LLM invocation failed: {llmResult.Error}");
 
         session.AddMessage(MessageRole.Assistant, llmResult.Value.Response);
         await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         LogSessionCreated(logger, session.Id, projectId);
-        return Result.Success(session);
+        return Result<BrainstormSession>.Success(session);
     }
 
     /// <inheritdoc />
@@ -83,23 +83,23 @@ public sealed partial class BrainstormService(
     {
         var sessionResult = await repository.GetByIdAsync(sessionId, ct).ConfigureAwait(false);
         if (sessionResult.IsFailure)
-            return Result.Failure<BrainstormMessage>(sessionResult.Error);
+            return Result<BrainstormMessage>.Failure(sessionResult.Error);
 
         var session = sessionResult.Value;
         var addResult = session.AddMessage(MessageRole.User, userMessage);
         if (addResult.IsFailure)
-            return Result.Failure<BrainstormMessage>(addResult.Error);
+            return Result<BrainstormMessage>.Failure(addResult.Error);
 
         var prompt = BuildConversationPrompt(session);
         var llmResult = await agentFactory.InvokeAsync(prompt, ct).ConfigureAwait(false);
         if (llmResult.IsFailure)
-            return Result.Failure<BrainstormMessage>($"LLM invocation failed: {llmResult.Error}");
+            return Result<BrainstormMessage>.Failure($"LLM invocation failed: {llmResult.Error}");
 
         session.AddMessage(MessageRole.Assistant, llmResult.Value.Response);
         await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         var lastMessage = session.Messages[^1];
-        return Result.Success(lastMessage);
+        return Result<BrainstormMessage>.Success(lastMessage);
     }
 
     /// <inheritdoc />
@@ -112,7 +112,7 @@ public sealed partial class BrainstormService(
         var session = sessionResult.Value;
         var advanceResult = session.AdvancePhase();
         if (advanceResult.IsFailure)
-            return Result.Failure<BrainstormSession>(advanceResult.Error);
+            return Result<BrainstormSession>.Failure(advanceResult.Error);
 
         var systemPrompt = BrainstormPromptTemplates.GetSystemPrompt(session.Phase);
         if (!string.IsNullOrEmpty(systemPrompt))
@@ -128,7 +128,7 @@ public sealed partial class BrainstormService(
         await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         LogPhaseAdvanced(logger, sessionId, session.Phase);
-        return Result.Success(session);
+        return Result<BrainstormSession>.Success(session);
     }
 
     /// <inheritdoc />
@@ -154,16 +154,16 @@ public sealed partial class BrainstormService(
     {
         var sessionResult = await repository.GetByIdAsync(sessionId, ct).ConfigureAwait(false);
         if (sessionResult.IsFailure)
-            return Result.Failure<List<TaskDto>>(sessionResult.Error);
+            return Result<List<TaskDto>>.Failure(sessionResult.Error);
 
         var session = sessionResult.Value;
 
         if (session.Phase != BrainstormPhase.TaskCreation)
-            return Result.Failure<List<TaskDto>>(
+            return Result<List<TaskDto>>.Failure(
                 $"Session must be in TaskCreation phase to generate tasks. Current phase: {session.Phase}");
 
         if (string.IsNullOrWhiteSpace(session.ImplementationPlan))
-            return Result.Failure<List<TaskDto>>("Session has no implementation plan to convert to tasks.");
+            return Result<List<TaskDto>>.Failure("Session has no implementation plan to convert to tasks.");
 
         var parsePrompt = string.Format(
             CultureInfo.InvariantCulture,
@@ -188,7 +188,7 @@ public sealed partial class BrainstormService(
 
         var llmResult = await agentFactory.InvokeAsync(parsePrompt, ct).ConfigureAwait(false);
         if (llmResult.IsFailure)
-            return Result.Failure<List<TaskDto>>($"LLM invocation failed: {llmResult.Error}");
+            return Result<List<TaskDto>>.Failure($"LLM invocation failed: {llmResult.Error}");
 
         List<PrdItemForConversionDto> items;
         try
@@ -198,35 +198,35 @@ public sealed partial class BrainstormService(
                     ?? [];
 
             if (items.Count == 0)
-                return Result.Failure<List<TaskDto>>("LLM returned an empty task list.");
+                return Result<List<TaskDto>>.Failure("LLM returned an empty task list.");
         }
         catch (JsonException ex)
         {
-            return Result.Failure<List<TaskDto>>($"Failed to parse LLM response as task items: {ex.Message}");
+            return Result<List<TaskDto>>.Failure($"Failed to parse LLM response as task items: {ex.Message}");
         }
 
         var tasksResult = await prdService.ConvertToTasksAsync(session.ProjectId, items, ct).ConfigureAwait(false);
         if (tasksResult.IsFailure)
-            return Result.Failure<List<TaskDto>>($"Task conversion failed: {tasksResult.Error}");
+            return Result<List<TaskDto>>.Failure($"Task conversion failed: {tasksResult.Error}");
 
         var systemMsgResult = session.AddMessage(MessageRole.System,
             string.Format(CultureInfo.InvariantCulture,
                 "Generated {0} tasks from implementation plan.", tasksResult.Value.Count));
         if (systemMsgResult.IsFailure)
-            return Result.Failure<List<TaskDto>>(systemMsgResult.Error);
+            return Result<List<TaskDto>>.Failure(systemMsgResult.Error);
 
         var completeMsgResult = session.AddMessage(MessageRole.Assistant, "Task generation complete. [PHASE_COMPLETE]");
         if (completeMsgResult.IsFailure)
-            return Result.Failure<List<TaskDto>>(completeMsgResult.Error);
+            return Result<List<TaskDto>>.Failure(completeMsgResult.Error);
 
         var advanceResult = session.AdvancePhase();
         if (advanceResult.IsFailure)
-            return Result.Failure<List<TaskDto>>(advanceResult.Error);
+            return Result<List<TaskDto>>.Failure(advanceResult.Error);
 
         await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         LogTasksGenerated(logger, sessionId, tasksResult.Value.Count);
-        return Result.Success(tasksResult.Value);
+        return Result<List<TaskDto>>.Success(tasksResult.Value);
     }
 
     private static string BuildConversationPrompt(BrainstormSession session)

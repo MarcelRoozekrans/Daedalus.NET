@@ -19,7 +19,7 @@ namespace Daedalus.Tests.Integration.Controllers;
 [Collection(DatabaseCollection.Name)]
 public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private readonly ICommandHandlerFactory _commandFactoryMock = Substitute.For<ICommandHandlerFactory>();
+    private readonly IApplicationCommands _commandsMock = Substitute.For<IApplicationCommands>();
     private readonly ILogger<TasksController> _loggerMock = Substitute.For<ILogger<TasksController>>();
     private TasksController _controller = null!;
     private ApplicationDbContext _dbContext = null!;
@@ -39,7 +39,7 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         await _dbContext.SaveChangesAsync();
 
         _taskQueryService = new TaskQueryService(_dbContext);
-        _controller = new TasksController(_taskQueryService, _commandFactoryMock, _loggerMock);
+        _controller = new TasksController(_taskQueryService, _commandsMock, _loggerMock);
     }
 
     public async Task DisposeAsync()

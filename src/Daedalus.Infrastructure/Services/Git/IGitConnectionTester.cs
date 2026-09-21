@@ -1,6 +1,6 @@
 #pragma warning disable CA1054 // URI-like parameters should not be strings
 
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.Git;
 

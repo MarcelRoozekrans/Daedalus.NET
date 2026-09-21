@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
@@ -48,7 +48,7 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
             if (!result.Succeeded)
             {
                 LogGitOperationFailed(logger, "clone", result.StandardError);
-                return Result.Failure<GitOperationContext>($"Failed to clone repository: {result.StandardError}");
+                return Result<GitOperationContext>.Failure($"Failed to clone repository: {result.StandardError}");
             }
 
             var context = new GitOperationContext
@@ -60,12 +60,12 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
             };
 
             LogCloneCompleted(logger, repoPath);
-            return Result.Success(context);
+            return Result<GitOperationContext>.Success(context);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error cloning repository");
-            return Result.Failure<GitOperationContext>($"Error cloning repository: {ex.Message}");
+            return Result<GitOperationContext>.Failure($"Error cloning repository: {ex.Message}");
         }
     }
 
@@ -81,7 +81,7 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
             if (!result.Succeeded)
             {
                 LogGitOperationFailed(logger, "fetch", result.StandardError);
-                return Result.Failure<GitOperationContext>($"Failed to fetch: {result.StandardError}");
+                return Result<GitOperationContext>.Failure($"Failed to fetch: {result.StandardError}");
             }
 
             // Get current branch name
@@ -95,12 +95,12 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
                 CurrentBranch = currentBranch
             };
 
-            return Result.Success(context);
+            return Result<GitOperationContext>.Success(context);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error fetching latest");
-            return Result.Failure<GitOperationContext>($"Error fetching latest: {ex.Message}");
+            return Result<GitOperationContext>.Failure($"Error fetching latest: {ex.Message}");
         }
     }
 
@@ -122,15 +122,15 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
             if (!result.Succeeded)
             {
                 LogGitOperationFailed(logger, "checkout -b", result.StandardError);
-                return Result.Failure<string>($"Failed to create feature branch: {result.StandardError}");
+                return Result<string>.Failure($"Failed to create feature branch: {result.StandardError}");
             }
 
-            return Result.Success(branchName);
+            return Result<string>.Success(branchName);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating feature branch");
-            return Result.Failure<string>($"Error creating feature branch: {ex.Message}");
+            return Result<string>.Failure($"Error creating feature branch: {ex.Message}");
         }
     }
 
@@ -204,15 +204,15 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
             if (!result.Succeeded)
             {
                 LogGitOperationFailed(logger, "worktree add", result.StandardError);
-                return Result.Failure<string>($"Failed to create worktree: {result.StandardError}");
+                return Result<string>.Failure($"Failed to create worktree: {result.StandardError}");
             }
 
-            return Result.Success(worktreePath);
+            return Result<string>.Success(worktreePath);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating worktree");
-            return Result.Failure<string>($"Error creating worktree: {ex.Message}");
+            return Result<string>.Failure($"Error creating worktree: {ex.Message}");
         }
     }
 
@@ -259,7 +259,7 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
             if (!result.Succeeded)
             {
                 LogGitOperationFailed(logger, "diff", result.StandardError);
-                return Result.Failure<IReadOnlyList<GitDiff>>($"Failed to get diffs: {result.StandardError}");
+                return Result<IReadOnlyList<GitDiff>>.Failure($"Failed to get diffs: {result.StandardError}");
             }
 
             var diffs = new List<GitDiff>();
@@ -275,12 +275,12 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
                 }
             }
 
-            return Result.Success((IReadOnlyList<GitDiff>)diffs);
+            return Result<IReadOnlyList<GitDiff>>.Success((IReadOnlyList<GitDiff>)diffs);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting diffs");
-            return Result.Failure<IReadOnlyList<GitDiff>>($"Error getting diffs: {ex.Message}");
+            return Result<IReadOnlyList<GitDiff>>.Failure($"Error getting diffs: {ex.Message}");
         }
     }
 

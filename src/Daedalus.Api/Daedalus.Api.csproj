@@ -7,7 +7,7 @@
         <LangVersion>13</LangVersion>
         <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
         <!-- Native AOT disabled, like Daedalus.Console: MVC controllers, EF Core (ApplyConfigurationsFromAssembly),
-             Aspire, FluentValidation, the Anthropic SDK and AI.Sentinel all need reflection/dynamic code — a
+             Aspire, the Anthropic SDK and AI.Sentinel all need reflection/dynamic code — a
              Release publish with PublishAot=true fails on IL2026/IL2104 (this is what kept the API container image
              from ever building). Reflection-based System.Text.Json stays enabled in every configuration for the
              same reason: MVC and the agent session store serialize without source-generated contexts. -->
@@ -27,13 +27,14 @@
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
         <PackageReference Include="OllamaSharp" />
-        <PackageReference Include="CSharpFunctionalExtensions" />
+        <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="OpenTelemetry" />
         <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
         <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
         <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
         <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
         <PackageReference Include="Scalar.AspNetCore" />
+        <PackageReference Include="ZeroAlloc.Validation" />
     </ItemGroup>
 
     <ItemGroup>

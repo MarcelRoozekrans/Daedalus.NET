@@ -12,10 +12,10 @@ public abstract class UnitTestBase
     /// <summary>
     ///     Creates a successful result for testing.
     /// </summary>
-    protected static Result<T> Success<T>(T value) => Result.Success(value);
+    protected static Result<T> Success<T>(T value) => Result<T>.Success(value);
 
     /// <summary>
     ///     Creates a failure result for testing.
     /// </summary>
-    protected static Result<T> Failure<T>(string error) => Result.Failure<T>(error);
+    protected static Result<T> Failure<T>(string error) => Result<T>.Failure(error);
 }

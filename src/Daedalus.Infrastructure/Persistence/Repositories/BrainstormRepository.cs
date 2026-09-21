@@ -1,4 +1,4 @@
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -20,12 +20,12 @@ public sealed partial class BrainstormRepository(
         {
             dbContext.BrainstormSessions.Add(session);
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success(session);
+            return Result<BrainstormSession>.Success(session);
         }
         catch (Exception ex)
         {
             LogErrorAddingSession(logger, ex, session.Id);
-            return Result.Failure<BrainstormSession>(
+            return Result<BrainstormSession>.Failure(
                 $"Failed to add brainstorm session: {ex.Message}");
         }
     }
@@ -40,14 +40,14 @@ public sealed partial class BrainstormRepository(
                 .ConfigureAwait(false);
 
             return session is not null
-                ? Result.Success(session)
-                : Result.Failure<BrainstormSession>(
+                ? Result<BrainstormSession>.Success(session)
+                : Result<BrainstormSession>.Failure(
                     $"Brainstorm session {id} not found.");
         }
         catch (Exception ex)
         {
             LogErrorRetrievingSession(logger, ex, id);
-            return Result.Failure<BrainstormSession>(
+            return Result<BrainstormSession>.Failure(
                 $"Error retrieving brainstorm session: {ex.Message}");
         }
     }
@@ -63,12 +63,12 @@ public sealed partial class BrainstormRepository(
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
-            return Result.Success<IReadOnlyList<BrainstormSession>>(sessions);
+            return Result<IReadOnlyList<BrainstormSession>>.Success(sessions);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingSessionsByProject(logger, ex, projectId);
-            return Result.Failure<IReadOnlyList<BrainstormSession>>(
+            return Result<IReadOnlyList<BrainstormSession>>.Failure(
                 $"Error retrieving brainstorm sessions for project: {ex.Message}");
         }
     }

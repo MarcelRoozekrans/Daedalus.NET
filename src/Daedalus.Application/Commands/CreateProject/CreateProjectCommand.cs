@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
-using CSharpFunctionalExtensions;
-using Daedalus.Application.Abstractions;
+using ZeroAlloc.Results;
 using Daedalus.Application.DTOs;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.CreateProject;
 
@@ -10,9 +10,9 @@ namespace Daedalus.Application.Commands.CreateProject;
 /// </summary>
 [SuppressMessage("Design", "CA1054", Justification = "Command uses string for JSON deserialization")]
 [SuppressMessage("Design", "CA1056", Justification = "Command uses string for JSON deserialization")]
-public record CreateProjectCommand(
+public readonly record struct CreateProjectCommand(
     string ProjectName,
     string Description,
     string Version,
     string? RepositoryUrl = null,
-    string? DefaultBranch = null) : ICommand<Result<ProjectDto>>;
+    string? DefaultBranch = null) : IRequest<Result<ProjectDto>>;

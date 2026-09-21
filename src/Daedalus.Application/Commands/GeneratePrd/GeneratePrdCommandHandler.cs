@@ -1,10 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
-using CSharpFunctionalExtensions;
+using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Commands.GeneratePrd;
 
@@ -13,7 +14,7 @@ namespace Daedalus.Application.Commands.GeneratePrd;
 /// </summary>
 public sealed partial class GeneratePrdCommandHandler(
     IRalphAgentFactory agentFactory,
-    ILogger<GeneratePrdCommandHandler> logger) : ICommandHandler<GeneratePrdCommand, Result<PrdResponseDto>>
+    ILogger<GeneratePrdCommandHandler> logger) : IRequestHandler<GeneratePrdCommand, Result<PrdResponseDto>>
 {
     private const string _prdAgentPrompt = """
                                            You are a Product Requirements Document (PRD) Agent. Your task is to analyze user requirements and generate a structured PRD.
@@ -52,11 +53,11 @@ public sealed partial class GeneratePrdCommandHandler(
                                            Return ONLY valid JSON, no markdown, no code blocks, no explanations.
                                            """;
 
-    public async Task<Result<PrdResponseDto>> Handle(GeneratePrdCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<PrdResponseDto>> Handle(GeneratePrdCommand command, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(command.UserRequirements))
         {
-            return Result.Failure<PrdResponseDto>("User requirements cannot be empty");
+            return Result<PrdResponseDto>.Failure("User requirements cannot be empty");
         }
 
         try
@@ -65,28 +66,28 @@ public sealed partial class GeneratePrdCommandHandler(
             LogGeneratingPrd(logger, command.ProjectId);
 
             // Single invocation path — MCP tools are pre-attached by the agent factory
-            var llmResult = await agentFactory.InvokeAsync(prompt, cancellationToken);
+            var llmResult = await agentFactory.InvokeAsync(prompt, ct);
 
             if (llmResult.IsFailure)
             {
-                return Result.Failure<PrdResponseDto>($"LLM invocation failed: {llmResult.Error}");
+                return Result<PrdResponseDto>.Failure($"LLM invocation failed: {llmResult.Error}");
             }
 
             var prdResult = ParsePrdResponse(llmResult.Value.Response, command.ProjectId, logger);
             if (prdResult.IsFailure)
             {
-                return Result.Failure<PrdResponseDto>(prdResult.Error);
+                return Result<PrdResponseDto>.Failure(prdResult.Error);
             }
 
             var itemCount = prdResult.Value.AllItems.Count;
             LogPrdGeneratedSuccessfully(logger, itemCount);
 
-            return Result.Success(prdResult.Value);
+            return Result<PrdResponseDto>.Success(prdResult.Value);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error generating PRD for project {ProjectId}", command.ProjectId);
-            return Result.Failure<PrdResponseDto>($"Error generating PRD: {ex.Message}");
+            return Result<PrdResponseDto>.Failure($"Error generating PRD: {ex.Message}");
         }
     }
 
@@ -124,7 +125,7 @@ public sealed partial class GeneratePrdCommandHandler(
             var features = ParsePrdItems(root.GetProperty("features"));
             var tasks = ParsePrdItems(root.GetProperty("tasks"));
 
-            return Result.Success(new PrdResponseDto(
+            return Result<PrdResponseDto>.Success(new PrdResponseDto(
                 Guid.NewGuid().ToString(),
                 projectId,
                 productOverview,
@@ -138,7 +139,7 @@ public sealed partial class GeneratePrdCommandHandler(
         catch (JsonException ex)
         {
             logger.LogError(ex, "Failed to parse PRD JSON response");
-            return Result.Failure<PrdResponseDto>("Invalid PRD JSON format from LLM");
+            return Result<PrdResponseDto>.Failure("Invalid PRD JSON format from LLM");
         }
     }
 
@@ -151,8 +152,7 @@ public sealed partial class GeneratePrdCommandHandler(
             var priority = ParsePriority(item, "priority");
             var complexity = ParseComplexity(item, "estimatedComplexity");
             var dependencies = item.TryGetProperty("dependencies", out var depsElement)
-                ? new ReadOnlyCollection<string>(
-                    depsElement.EnumerateArray().Select(d => d.GetString() ?? string.Empty).ToList())
+                ? ParseDependencies(depsElement)
                 : new ReadOnlyCollection<string>([]);
 
             var prdItem = new PrdItemDto(
@@ -174,6 +174,17 @@ public sealed partial class GeneratePrdCommandHandler(
         }
 
         return items;
+    }
+
+    private static ReadOnlyCollection<string> ParseDependencies(JsonElement depsElement)
+    {
+        var dependencies = new List<string>();
+        foreach (var dep in depsElement.EnumerateArray())
+        {
+            dependencies.Add(dep.GetString() ?? string.Empty);
+        }
+
+        return new ReadOnlyCollection<string>(dependencies);
     }
 
     private static Priority ParsePriority(JsonElement element, string propertyName)
