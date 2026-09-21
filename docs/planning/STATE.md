@@ -2,6 +2,11 @@
 
 **Last session:** 2026-09-19
 **Current milestone:** 1 — Hermes-Style Agent Framework (**8 of 9 phases complete**; only 1.8 remains)
+
+**Next:** phase 1.8 — Thalos.NET **0.6.0**, docs and architecture diagrams. The 1.0 tag is deliberately
+held back until Milestone 2 settles the agent contracts, since 2.2's workflow engine and 2.3's squad
+roster will likely want changes to `ISubagentRunner`. Decision recorded 2026-09-21 on ROADMAP 1.8 and
+issue #233.
 **Current phase:** 1.7 — Daedalus ZeroAlloc migration. **Complete and merged** via [#257](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/257).
 
 `CSharpFunctionalExtensions` and both `FluentValidation` packages are gone from the solution and guarded
