@@ -78,28 +78,41 @@ public class RepositoryConfigurationE2ETests : ApiTestBase
     [Description("User can get a repository by ID")]
     public async Task Repositories_GetById_ReturnsRepository()
     {
-        // Act — controller is a placeholder that always returns a stubbed repo for any GUID
-        var response = await GetApiResponseAsync($"/api/repositories/{Guid.NewGuid()}")
+        // Arrange — create a repo to fetch
+        var createResponse = await PostApiAsync("/api/repositories",
+            new
+            {
+                name = "GetById Test Repo",
+                url = "https://github.com/test/get-by-id",
+                platform = "GitHub",
+                defaultBranch = "main"
+            }).ConfigureAwait(false);
+        var createBody = await createResponse.TextAsync().ConfigureAwait(false);
+        var created = JsonSerializer.Deserialize<RepositoryConfigurationDto>(createBody, ApiJsonOptions);
+
+        // Act
+        var response = await GetApiResponseAsync($"/api/repositories/{created!.Id}")
             .ConfigureAwait(false);
 
         // Assert
-        response.Ok.Should().BeTrue("Placeholder controller returns 200 for any ID");
+        response.Ok.Should().BeTrue("an existing repository should be retrievable by ID");
         var body = await response.TextAsync().ConfigureAwait(false);
         var repo = JsonSerializer.Deserialize<RepositoryConfigurationDto>(body, ApiJsonOptions);
         repo.Should().NotBeNull();
-        repo!.Name.Should().NotBeNullOrEmpty();
+        repo!.Id.Should().Be(created.Id);
+        repo.Name.Should().Be("GetById Test Repo");
     }
 
     [Test]
-    [Description("Get by ID returns 200 for any GUID (placeholder controller)")]
-    public async Task Repositories_GetById_ReturnsOkForAnyId()
+    [Description("Get by ID returns 404 for a GUID that does not correspond to any repository")]
+    public async Task Repositories_GetById_ReturnsNotFoundForUnknownId()
     {
-        // Act — placeholder controller always returns OK with stubbed data
+        // Act
         var response = await GetApiResponseAsync($"/api/repositories/{Guid.NewGuid()}")
             .ConfigureAwait(false);
 
         // Assert
-        response.Ok.Should().BeTrue("Placeholder controller returns 200 for any ID");
+        response.Status.Should().Be(404, "unknown IDs should not resolve to a repository");
     }
 
     [Test]
@@ -135,10 +148,10 @@ public class RepositoryConfigurationE2ETests : ApiTestBase
     }
 
     [Test]
-    [Description("Update returns 204 for any GUID (placeholder controller)")]
-    public async Task Repositories_Update_Returns204ForAnyId()
+    [Description("Update returns 404 for a GUID that does not correspond to any repository")]
+    public async Task Repositories_Update_ReturnsNotFoundForUnknownId()
     {
-        // Act — placeholder controller always returns NoContent
+        // Act
         var response = await PutApiAsync($"/api/repositories/{Guid.NewGuid()}",
                 new
                 {
@@ -150,43 +163,70 @@ public class RepositoryConfigurationE2ETests : ApiTestBase
             .ConfigureAwait(false);
 
         // Assert
-        response.Status.Should().Be(204, "Placeholder controller always returns NoContent");
+        response.Status.Should().Be(404, "updating a non-existent repository should fail with Not Found");
     }
 
     [Test]
-    [Description("User can delete a repository configuration (placeholder always returns 204)")]
+    [Description("User can delete a repository configuration and it is actually removed")]
     public async Task Repositories_Delete_SuccessfullyDeleted()
     {
-        // Act — placeholder controller always returns 204 for any ID
-        var deleteResponse = await DeleteApiAsync($"/api/repositories/{Guid.NewGuid()}").ConfigureAwait(false);
+        // Arrange — create a repo to delete
+        var createResponse = await PostApiAsync("/api/repositories",
+            new
+            {
+                name = "Delete Test Repo",
+                url = "https://github.com/test/delete-me",
+                platform = "GitHub",
+                defaultBranch = "main"
+            }).ConfigureAwait(false);
+        var createBody = await createResponse.TextAsync().ConfigureAwait(false);
+        var created = JsonSerializer.Deserialize<RepositoryConfigurationDto>(createBody, ApiJsonOptions);
+
+        // Act
+        var deleteResponse = await DeleteApiAsync($"/api/repositories/{created!.Id}").ConfigureAwait(false);
 
         // Assert
         deleteResponse.Status.Should().Be(204, "Delete should return 204 No Content");
+        var getResponse = await GetApiResponseAsync($"/api/repositories/{created.Id}").ConfigureAwait(false);
+        getResponse.Status.Should().Be(404, "the deleted repository should no longer be retrievable");
     }
 
     [Test]
-    [Description("Delete returns 204 for any GUID (placeholder controller)")]
-    public async Task Repositories_Delete_Returns204ForAnyId()
+    [Description("Delete returns 404 for a GUID that does not correspond to any repository")]
+    public async Task Repositories_Delete_ReturnsNotFoundForUnknownId()
     {
-        // Act — placeholder controller always returns NoContent
+        // Act
         var response = await DeleteApiAsync($"/api/repositories/{Guid.NewGuid()}").ConfigureAwait(false);
 
         // Assert
-        response.Status.Should().Be(204, "Placeholder controller always returns NoContent");
+        response.Status.Should().Be(404, "deleting a non-existent repository should fail with Not Found");
     }
 
     [Test]
-    [Description("Repository list always returns hardcoded data (placeholder controller)")]
-    public async Task Repositories_List_ReturnsHardcodedData()
+    [Description("Repository list reflects data actually persisted, not hardcoded stub data")]
+    public async Task Repositories_List_ReflectsPersistedRepository()
     {
-        // Act — placeholder controller always returns hardcoded sample data
+        // Arrange — create a repo with a distinctive name
+        var uniqueName = $"List Reflect Repo {Guid.NewGuid().ToString()[..8]}";
+        var createResponse = await PostApiAsync("/api/repositories",
+            new
+            {
+                name = uniqueName,
+                url = "https://github.com/test/list-reflect",
+                platform = "GitHub",
+                defaultBranch = "main"
+            }).ConfigureAwait(false);
+        createResponse.Status.Should().Be(201);
+
+        // Act
         var response = await GetApiResponseAsync("/api/repositories").ConfigureAwait(false);
         var body = await response.TextAsync().ConfigureAwait(false);
         var repos = JsonSerializer.Deserialize<List<RepositoryConfigurationDto>>(body, ApiJsonOptions);
 
         // Assert
-        repos.Should().NotBeEmpty("Placeholder controller returns at least one sample repository");
-        repos![0].Name.Should().Be("Sample Repository");
+        response.Ok.Should().BeTrue();
+        repos.Should().Contain(r => r.Name == uniqueName,
+            "the list should reflect actually persisted repositories, not hardcoded sample data");
     }
 
     [Test]

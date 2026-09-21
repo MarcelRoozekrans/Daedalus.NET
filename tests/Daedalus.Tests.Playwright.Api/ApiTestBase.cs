@@ -56,9 +56,17 @@ public abstract class ApiTestBase
         {
             DbConnectionString = E2EServerFixture.ConnectionString;
         }
-
-        // Wait for server to be ready before running tests (quick check)
-        await WaitForServerReadyAsync(5, 500).ConfigureAwait(false);
+        else
+        {
+            // Only poll over the real network when talking to an externally-hosted server
+            // (E2E_BASE_URL path). The E2EServerFixture path uses WebApplicationFactory's
+            // in-memory TestServer, which never binds ServerUrl to a real socket, so a real
+            // HTTP GET against it always fails with "connection actively refused" and this
+            // retry loop burns ~22 seconds (5 attempts x ~4s) on every single test for nothing.
+            // Readiness for that path is already verified once in E2EServerFixture's
+            // OneTimeSetUp via the in-memory client.
+            await WaitForServerReadyAsync(5, 500).ConfigureAwait(false);
+        }
 
         // Initialize PostgreSQL container if needed (for integration tests)
         await InitializeDatabaseAsync().ConfigureAwait(false);

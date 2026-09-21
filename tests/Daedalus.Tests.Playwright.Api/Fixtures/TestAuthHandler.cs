@@ -20,10 +20,16 @@ internal sealed class TestAuthHandler(
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        // Grant every role used by the API's authorization policies (see Program.cs AddAuthorization).
+        // Without these, endpoints behind role-based policies -- Admin, TaskManagement,
+        // ProjectManagement, CodeAnalysis -- return 403 Forbidden for every E2E test, since an
+        // authenticated principal with no role claims still fails RequireRole(...) checks.
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, "e2e-test-user-id"), new Claim(ClaimTypes.Name, "E2E Test User"),
-            new Claim(ClaimTypes.Email, "e2e@daedalus.test")
+            new Claim(ClaimTypes.Email, "e2e@daedalus.test"), new Claim(ClaimTypes.Role, "admin"),
+            new Claim(ClaimTypes.Role, "task-manager"), new Claim(ClaimTypes.Role, "project-manager"),
+            new Claim(ClaimTypes.Role, "analyst")
         };
 
         var identity = new ClaimsIdentity(claims, SchemeName);
