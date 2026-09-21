@@ -31,7 +31,7 @@ See [`.github/context7-auto-usage.md`](context7-auto-usage.md) for detailed trig
 
 - **Language**: C# 13.0
 - **Framework**: .NET 10
-- **Pattern Library**: CSharpFunctionalExtensions (Railway-Oriented Programming)
+- **Pattern Library**: ZeroAlloc.Results for Result types, ZeroAlloc.ValueObjects for value equality
 - **Zero-Allocation LINQ**: ZLinq (1.5.4)
 - **Database**: PostgreSQL (via Npgsql/EF Core)
 - **Testing**: xUnit, NUnit, Playwright (E2E)
@@ -224,7 +224,7 @@ Always write code that is performant with minimal allocations:
 - **Combine `as` with pattern matching** for elegant null-aware type checking
 - **Returns null gracefully** instead of throwing exceptions when type doesn't match
 
-### 3. Railway-Oriented Programming (CSharpFunctionalExtensions)
+### 3. Railway-Oriented Programming (ZeroAlloc.Results)
 
 continue
 Always use Result types instead of exceptions for expected failures:
@@ -237,14 +237,21 @@ public async Task<Result<Customer>> GetCustomerAsync(Guid id, CancellationToken 
         .AsNoTracking()
         .FirstOrDefaultAsync(c => c.Id == id, ct);
 
+    // NOTE: ZeroAlloc.Results has NO Result.Success<T>(value) or Result.Failure<T>(error).
+    // Qualify on the generic type instead. There are also implicit conversions from T and
+    // from string, so `return customer;` works - but prefer the explicit form, and ALWAYS
+    // use it when T is itself string, where both conversions apply and the intent is ambiguous.
     return customer is not null
-        ? Result.Success(customer)
-        : Result.Failure<Customer>($"Customer with ID {id} not found");
+        ? Result<Customer>.Success(customer)
+        : Result<Customer>.Failure($"Customer with ID {id} not found");
 }
 
 // ✅ GOOD - Chain operations with Bind/Map
 public async Task<Result<OrderConfirmation>> PlaceOrderAsync(OrderRequest request, CancellationToken ct)
 {
+    // Bind, Map, Match, Combine, Tap, TapError and MapError are extension methods in
+    // ZeroAlloc.Results.Extensions, not instance members - add that using.
+    // Ensure has no overload for single-generic Result<T>; write the check explicitly.
     return await ValidateRequest(request)
         .Bind(r => GetCustomerAsync(r.CustomerId, ct))
         .Bind(c => CheckInventoryAsync(request.Items, ct))

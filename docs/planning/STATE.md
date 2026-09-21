@@ -1,8 +1,22 @@
 # Session State
 
 **Last session:** 2026-09-19
-**Current milestone:** 1 — Hermes-Style Agent Framework (**7 of 9 phases complete**; 1.7 and 1.8 remain)
-**Current phase:** 1.9 — Scout repository tooling. **Complete and merged.**
+**Current milestone:** 1 — Hermes-Style Agent Framework (**8 of 9 phases complete**; only 1.8 remains)
+**Current phase:** 1.7 — Daedalus ZeroAlloc migration. **Complete and merged** via [#257](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/257).
+
+`CSharpFunctionalExtensions` and both `FluentValidation` packages are gone from the solution and guarded
+by architecture tests; the hand-rolled CQRS layer is now `ZeroAlloc.Mediator` 5.1.1. All suites green:
+unit 1078, Integration 505, Playwright.Api 126, Playwright.Browser 99.
+
+Three test suites were also repaired along the way, in [#255](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/255)
+and [#256](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/256). `Playwright.Api` had been providing
+**zero coverage** — 0 of 126 passing, dying at fixture setup in 11 seconds — and now runs 126/126 in about
+25 seconds. Nobody had noticed because CI excludes both Playwright projects and the Keycloak tests by name.
+
+[#258](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/258) then lifted the `ZeroAlloc.Saga` ban and
+re-justified `ZeroAlloc.Scheduling`'s, after re-measuring the upstream fixes rather than trusting issue
+status. Saga is now a candidate for phase 2.2's workflow engine, and Milestone 3's premise is half retired
+because `Saga.Orm` and `Outbox.Orm` ship with zero EF Core.
 **Branch state:** `main` at `5058fa6`, synced with `origin/main`. Clean tree apart from the two
 deliberately-untracked pre-pivot regression files.
 
