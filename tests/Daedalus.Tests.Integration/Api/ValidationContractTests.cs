@@ -1,3 +1,5 @@
+using Daedalus.Application.DTOs;
+using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Mvc;
 using Thalos;
@@ -64,6 +66,48 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
     }
 
     /// <summary>
+    ///     Guards <c>UpdateTaskDto</c>'s port from FluentValidation's <c>.When(x => x.Priority.HasValue)</c> to
+    ///     ZeroAlloc.Validation's <c>When = nameof(PriorityHasValue)</c>-style guard methods on
+    ///     <c>Priority</c>, <c>ParallelGroup</c>, <c>EstimatedComplexity</c>, and <c>MaxIterations</c>. If any one
+    ///     of those guards were dropped, an omitted (<c>null</c>) field would coerce to <c>0</c> before its range
+    ///     check runs — <c>0</c> fails <c>GreaterThanOrEqualTo(1)</c> and <c>InclusiveBetween(1, 1000)</c> — and a
+    ///     partial <c>PUT</c> that only touches <c>Title</c> would wrongly 400.
+    /// </summary>
+    [Fact]
+    public async Task Partial_update_touching_only_title_succeeds()
+    {
+        var projectId = Guid.NewGuid();
+        await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(fixture.ConnectionString)))
+        {
+            db.Projects.Add(IntegrationTestFactory.CreateProject(projectId));
+            await db.SaveChangesAsync();
+        }
+
+        var create = await Send(new
+        {
+            projectId,
+            title = "Original title",
+            description = "d",
+            prompt = "p",
+            completionPromise = "c",
+            maxIterations = 5,
+            parallelGroup = 1,
+            priority = 0,
+            estimatedComplexity = 0
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.Created, await create.Content.ReadAsStringAsync());
+        var created = await create.Content.ReadFromJsonAsync<TaskDto>();
+
+        var response = await SendPut(created!.Id, new { title = "Updated title" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var updated = await response.Content.ReadFromJsonAsync<TaskDto>();
+        updated!.Title.Should().Be("Updated title");
+        updated.MaxIterations.Should().Be(5, "an omitted MaxIterations must not be coerced to 0 and re-validated");
+        updated.ParallelGroup.Should().Be(1, "an omitted ParallelGroup must not be coerced to 0 and re-validated");
+    }
+
+    /// <summary>
     ///     <c>CreateTask</c> sits behind both the class-level authenticated-user check and the
     ///     <c>TaskManagement</c> policy (role <c>task-manager</c> or <c>admin</c>) — without the roles header this
     ///     would 403 before the ZeroAlloc.Validation action filter ever runs, masking the contract under test.
@@ -71,6 +115,15 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
     private async Task<HttpResponseMessage> Send(object body)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/api/tasks", UriKind.Relative));
+        request.Headers.Add(HeaderTestAuthHandler.UserHeader, "alice");
+        request.Headers.Add(HeaderTestAuthHandler.RolesHeader, "task-manager");
+        request.Content = JsonContent.Create(body);
+        return await _client.SendAsync(request);
+    }
+
+    private async Task<HttpResponseMessage> SendPut(Guid id, object body)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, new Uri($"/api/tasks/{id}", UriKind.Relative));
         request.Headers.Add(HeaderTestAuthHandler.UserHeader, "alice");
         request.Headers.Add(HeaderTestAuthHandler.RolesHeader, "task-manager");
         request.Content = JsonContent.Create(body);
