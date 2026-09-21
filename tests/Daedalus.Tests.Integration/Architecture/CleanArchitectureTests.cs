@@ -68,6 +68,14 @@ public sealed class CleanArchitectureTests(PostgresFixture fixture) : IAsyncLife
             .Where(t => Attribute.IsDefined(t, typeof(ValidateAttribute), inherit: false))
             .ToList();
 
+        // If the reflection scan above ever comes back empty — e.g. a typo'd assembly reference, or the
+        // attribute type resolving to a different assembly-loaded copy — the loop below has nothing to check
+        // and this test passes having validated nothing. That is the exact failure mode this guard exists to
+        // catch, just one level up. There are 8 [Validate] DTOs in Daedalus.Application.DTOs today.
+        validated.Should().NotBeEmpty(
+            "the reflection scan for [Validate] DTOs must find at least one type, otherwise this test " +
+            "passes vacuously and silently stops guarding validator registration drift");
+
         var registered = _serviceProvider.GetServices<IValidationAdapter>()
             .Select(a => a.TargetType)
             .ToHashSet();
