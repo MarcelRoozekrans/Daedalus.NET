@@ -136,9 +136,25 @@ public static class InfrastructureServiceExtensions
         // Register Git change applier
         services.AddScoped<IGitChangeApplier, GitChangeApplier>();
 
+        // Register repository authentication provider (used by AzureDevOpsPullRequestFactory). Pre-existing gap,
+        // not introduced by this change: IRepositoryAuthenticationProvider and its only implementation have
+        // existed since before this branch, but nothing ever registered the mapping, so PullRequestFactory could
+        // never construct AzureDevOpsPullRequestFactory in the real composition root. It was masked because
+        // PullRequestFactory's constructor resolves GitHubPullRequestFactory (its first parameter) before
+        // AzureDevOpsPullRequestFactory (its second), so the container always failed on the GitHub side first --
+        // fixing that side alone surfaced this one underneath it.
+        services.AddScoped<IRepositoryAuthenticationProvider, RepositoryAuthenticationProvider>();
+
         // Register the single GitHub HTTP client (GitHubApi) that GitHubPullRequestFactory now delegates to,
         // with the same resilience pipeline its own HttpClient used to carry directly.
         services.AddGitHubApi(configuration);
+
+        // GitHubPullRequestFactory itself still needs a registration: AddHttpClient<GitHubPullRequestFactory>()
+        // used to register the concrete type as a side effect of giving it an HttpClient. Now that it takes
+        // GitHubApi instead, that side effect is gone, so it is registered explicitly here -- otherwise
+        // PullRequestFactory (which takes it as a constructor parameter, not behind an interface) fails to
+        // resolve, and IPullRequestFactory/IWorkspaceOrchestrator/IRalphLoopOrchestrator all fail with it.
+        services.AddTransient<GitHubPullRequestFactory>();
 
         // Register resilient HTTP client for Azure DevOps API calls
         // Uses Microsoft.Extensions.Http.Resilience (Polly v8) standard resilience pipeline:
