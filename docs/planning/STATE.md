@@ -1,15 +1,38 @@
 # Session State
 
-**Last session:** 2026-09-19
-**Current milestone:** 1 — Hermes-Style Agent Framework (**8 of 9 phases complete**; only 1.8 remains)
+**Last session:** 2026-09-21
+**Milestone 1 — Hermes-Style Agent Framework: CLOSED (2026-09-21).** All 9 phases complete. See
+`docs/planning/MILESTONE.md` for the definition-of-done checklist and its honest scoping, and
+`docs/planning/ROADMAP.md` for the "Carried forward from Milestone 1" list of 7 known, deliberately
+unfixed items.
 
-**Next:** phase 1.8 — Thalos.NET **0.6.0**, docs and architecture diagrams.
+**Current milestone:** 2 — Software Manufacturing (**not started**)
 
-**Parked ideas:** `docs/planning/parked-ideas.md` — currently one, a customer chatbot product on Rag.NET, deferred as a separate application rather than a Daedalus milestone. The 1.0 tag is deliberately
-held back until Milestone 2 settles the agent contracts, since 2.2's workflow engine and 2.3's squad
-roster will likely want changes to `ISubagentRunner`. Decision recorded 2026-09-21 on ROADMAP 1.8 and
-issue #233.
-**Current phase:** 1.7 — Daedalus ZeroAlloc migration. **Complete and merged** via [#257](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/257).
+**Next:** phase 2.1 — git write tooling (branch, commit, push, pull request), gated behind the
+`developer` policy exactly as `repoaction__*` is. It builds directly on the authorization boundary
+phase 1.9 established: phase 1.9 built the GitHub *read* surface, and 2.1 is the write half that
+boundary was built for. See `docs/planning/ROADMAP.md` Milestone 2 phase table.
+
+**Parked ideas:** `docs/planning/parked-ideas.md` — currently one, a customer chatbot product on Rag.NET, deferred as a separate application rather than a Daedalus milestone. The 1.0 tag on Thalos.NET is
+deliberately held back until Milestone 2 settles the agent contracts, since 2.2's workflow engine and
+2.3's squad roster will likely want changes to `ISubagentRunner`. Decision recorded 2026-09-21 on
+ROADMAP 1.8 and issue #233.
+
+**Phase 1.8 — closed 2026-09-21, docs and architecture-diagrams rewrite, no release.** The plan for
+this phase called for shipping Thalos.NET 0.6.0; that call was wrong and is cancelled. Thalos.NET
+releases via release-please from conventional commits, and since 0.5.1 there are 18 commits — 17
+`chore`, 1 `docs`, zero `feat`, zero `fix` — none releasable without forcing a `Release-As` override.
+Confirmed with the user: no override, because nothing in the code changed and a minor version would
+signal features that do not exist, undercutting the version-as-signal reasoning that deferred 1.0 in
+this same phase. `docs/architecture-diagrams.md` was restructured around the system that exists — 21
+sections, 26 mermaid blocks, all verified to render — with fabricated content removed (wrong
+`IGitRepositoryManager`/`IRepositoryCodeExtractor` signatures, OpenAI/Copilot named as the LLM backend
+where it is Anthropic Claude via Thalos.NET, non-persisted ER entities, symbols that do not exist).
+Thalos.NET's 11 packages are documented in that repo's README via
+[Thalos.NET#138](https://github.com/MarcelRoozekrans/Thalos.NET/pull/138); the docs are on Thalos.NET
+`main` and reach the NuGet package page whenever the next real change ships.
+
+**Phase 1.7 — Daedalus ZeroAlloc migration. Complete and merged** via [#257](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/257).
 
 `CSharpFunctionalExtensions` and both `FluentValidation` packages are gone from the solution and guarded
 by architecture tests; the hand-rolled CQRS layer is now `ZeroAlloc.Mediator` 5.1.1. All suites green:
@@ -19,12 +42,13 @@ Three test suites were also repaired along the way, in [#255](https://github.com
 and [#256](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/256). `Playwright.Api` had been providing
 **zero coverage** — 0 of 126 passing, dying at fixture setup in 11 seconds — and now runs 126/126 in about
 25 seconds. Nobody had noticed because CI excludes both Playwright projects and the Keycloak tests by name.
+**That CI exclusion is still in place** — carried forward, not fixed; see ROADMAP's carried-forward list.
 
 [#258](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/258) then lifted the `ZeroAlloc.Saga` ban and
 re-justified `ZeroAlloc.Scheduling`'s, after re-measuring the upstream fixes rather than trusting issue
 status. Saga is now a candidate for phase 2.2's workflow engine, and Milestone 3's premise is half retired
 because `Saga.Orm` and `Outbox.Orm` ship with zero EF Core.
-**Branch state:** `main` at `5058fa6`, synced with `origin/main`. Clean tree apart from the two
+**Branch state:** `docs/phase-1.8-design`, ahead of `main`. Clean tree apart from the two
 deliberately-untracked pre-pivot regression files.
 
 ## Current Position
@@ -182,7 +206,17 @@ unreadable. Fixed in #250.
 
 ## Recommended Next Step
 
-**Phase 1.7 — Ralph retirement + ZeroAlloc migration** is next in the roadmap, and nothing now
+**Superseded 2026-09-21 — Milestone 1 is closed; phases 1.7, 1.8 and 1.9 are all complete.** The
+paragraphs below describing 1.7 as next are historical and left in place rather than deleted; they
+record why 1.7 was unblocked at the time. See the top of this file for the current pointer.
+
+**Phase 2.1 — git write tooling** is next, opening Milestone 2. It is not blocked: phase 1.9 already
+built the authorization boundary (`repoaction__*` bound to the `developer` policy, denied to a
+scheduled run regardless of its tool list) that 2.1 extends to git writes.
+
+---
+
+*(Historical, from phase 1.7's close)* **Phase 1.7 — Ralph retirement + ZeroAlloc migration** is next in the roadmap, and nothing now
 blocks it.
 
 **That gap is now closed.** A real digest reached a real chat on 2026-09-20, which is the first
