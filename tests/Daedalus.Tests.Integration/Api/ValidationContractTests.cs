@@ -66,12 +66,17 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
     }
 
     /// <summary>
-    ///     Guards <c>UpdateTaskDto</c>'s port from FluentValidation's <c>.When(x => x.Priority.HasValue)</c> to
-    ///     ZeroAlloc.Validation's <c>When = nameof(PriorityHasValue)</c>-style guard methods on
-    ///     <c>Priority</c>, <c>ParallelGroup</c>, <c>EstimatedComplexity</c>, and <c>MaxIterations</c>. If any one
-    ///     of those guards were dropped, an omitted (<c>null</c>) field would coerce to <c>0</c> before its range
-    ///     check runs — <c>0</c> fails <c>GreaterThanOrEqualTo(1)</c> and <c>InclusiveBetween(1, 1000)</c> — and a
-    ///     partial <c>PUT</c> that only touches <c>Title</c> would wrongly 400.
+    ///     Guards two of <c>UpdateTaskDto</c>'s four <c>When = nameof(...)HasValue</c> guards —
+    ///     <see cref="Daedalus.Application.DTOs.UpdateTaskDto.MaxIterations"/> (<c>InclusiveBetween(1, 1000)</c>)
+    ///     and <see cref="Daedalus.Application.DTOs.UpdateTaskDto.ParallelGroup"/>
+    ///     (<c>GreaterThanOrEqualTo(1)</c>) — because dropping either guard is behaviourally observable: an
+    ///     omitted (<c>null</c>) field coerces to <c>0</c> before its range check runs, and <c>0</c> is outside
+    ///     both ranges, so the partial <c>PUT</c> would wrongly 400.
+    ///     It CANNOT guard <c>Priority</c> or <c>EstimatedComplexity</c> — both are <c>InclusiveBetween(0, n)</c>,
+    ///     so a coerced <c>0</c> is a valid value (0 = Critical priority, 0 = Simple complexity) and produces the
+    ///     same 200 whether the guard is present or not; no status-code assertion can tell the two cases apart.
+    ///     <c>Daedalus.Tests.Unit.Application.Validators.UpdateTaskDtoWhenGuardTests</c> closes that gap
+    ///     structurally, by reflecting on the attributes instead of asserting on behaviour.
     /// </summary>
     [Fact]
     public async Task Partial_update_touching_only_title_succeeds()
