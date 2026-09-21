@@ -1,112 +1,195 @@
 # Daedalus Solution Architecture Diagrams
 
-## 1. High-Level System Architecture
+## 1. System Context
 
-This diagram shows how the different services interact in the Daedalus system:
+Daedalus is a .NET agent framework for software work (tasks, projects, executions, scheduled runs,
+repositories). It is the first consumer of **Thalos.NET**, a separate nuget.org package that supplies the
+agent runtime, sessions, memory and skills machinery. Thalos.NET in turn integrates two other in-house
+packages: **AI.Sentinel** (security monitoring and approval workflows at the model boundary) and a small
+slice of **Rag.NET** (a ~75-project retrieval-augmented-generation suite) for the agent memory vector
+store. The LLM backend is **Anthropic Claude**, reached through `Thalos.NET.Anthropic` — there is no
+OpenAI or GitHub Copilot integration anywhere in this codebase.
 
-**Key Architectural Pattern:**
-
-- **Web Application** → REST API → Database (presentation layer)
-- **Console (Ralph Loop Worker)** → Direct Database Access (background worker layer)
-- **Keycloak** → OIDC Identity Provider for authentication & authorization across all layers
-- Both layers share the same **Application Layer** (services, repositories) and **Infrastructure Layer** (EF Core, PostgreSQL)
-- This separation allows low-latency polling and direct data manipulation for the background worker without HTTP overhead
+**What Daedalus actually uses from Rag.NET:** exactly 2 of its ~75 projects — `Rag.NET.Abstractions` and
+`Rag.NET.VectorStores.PgVector` — pulled in transitively through `Thalos.NET.Memory.RagNet`. That is the
+vector store for agent memory and nothing else; Rag.NET's data providers, parsers, chunking, reranking,
+evaluation and hosting projects are not referenced. See `docs/planning/parked-ideas.md` for the fuller
+inventory and why a broader Rag.NET-based product is deliberately out of scope here.
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
-        Web["🌐 Web Application<br/>(Blazor)"]
-        Console["📟 Console<br/>(Ralph Loop Worker)"]
+    subgraph "Daedalus (this repository)"
+        Web["Web<br/>(Blazor)"]
+        Api["Api<br/>(ASP.NET Core REST API)"]
+        Console["Console<br/>(background worker host)"]
+        Cli["Cli"]
+        Agents["Agents<br/>(channels, scheduling, skills,<br/>GitHub tooling, sessions, memory, tools)"]
+        AppHost["AppHost<br/>(.NET Aspire orchestrator)"]
     end
 
-    subgraph "API Layer"
-        Api["🔌 REST API<br/>(ASP.NET Core)"]
+    subgraph "Thalos.NET (nuget.org package, separate repo)"
+        Runtime["Agent runtime<br/>(sessions, skills, memory)"]
+        ThalosAnthropic["Thalos.NET.Anthropic"]
+        ThalosSentinel["Thalos.NET.Sentinel"]
+        ThalosMemoryRagNet["Thalos.NET.Memory.RagNet"]
+        ThalosTelegram["Thalos.NET.Channels.Telegram"]
     end
 
-    subgraph "Orchestration"
-        AppHost["☁️ .NET Aspire<br/>(Orchestrator)"]
+    Sentinel["AI.Sentinel<br/>(prompt-injection detection,<br/>approval workflows at the model boundary)"]
+
+    subgraph "Rag.NET (~75 projects; Daedalus touches 2)"
+        RagAbstractions["Rag.NET.Abstractions"]
+        RagPgVector["Rag.NET.VectorStores.PgVector"]
     end
 
-    subgraph "Infrastructure"
-        DB[("🗄️ PostgreSQL<br/>(EF Core)")]
-        KC["🔐 Keycloak<br/>(OIDC Identity Provider)"]
-        MCP["🤖 MCP Server<br/>(Copilot Integration)"]
-    end
-
-    subgraph "Git Integration"
-        GitRepo["🔀 Git Repository Manager<br/>(Clone, Branch, Commit, Push)"]
-        LocalRepo["📁 Local Git Worktrees<br/>(Temp File System)"]
-        RemoteRepo["☁️ Remote Git Repository<br/>(GitHub/GitLab)"]
-    end
+    AnthropicApi[("Anthropic API<br/>(Claude models)")]
+    Postgres[("PostgreSQL<br/>(EF Core)")]
+    Keycloak["Keycloak<br/>(OIDC identity provider)"]
+    Ollama["Ollama<br/>(local embedding generation)"]
+    GitHub["GitHub<br/>(repositories)"]
+    Telegram["Telegram"]
 
     Web -->|HTTP| Api
-    Web -->|OIDC Login<br/>Token Auth| KC
-    Api -->|Query/Command| DB
-    Api -->|Validate Tokens<br/>JWT Bearer| KC
-    Console -->|Direct Access<br/>via Repositories| DB
-    Console -->|Service Account<br/>Token Auth| KC
-    AppHost -->|Manages| Console
-    AppHost -->|Manages| Api
-    AppHost -->|Manages| DB
-    AppHost -->|Manages| KC
-    AppHost -->|Manages| MCP
+    Web -->|OIDC login, token auth| Keycloak
+    Api -->|EF Core| Postgres
+    Api -->|validate JWT| Keycloak
+    Console -->|EF Core, direct| Postgres
+    Api --> Agents
+    Console --> Agents
+    Cli --> Agents
 
-    Console -->|Clone/Fetch/Push| GitRepo
-    GitRepo -->|Create/Delete<br/>Worktrees| LocalRepo
-    GitRepo -->|Commit/Push<br/>Changes| RemoteRepo
-    Console -->|Repository<br/>Operations| GitRepo
+    AppHost -->|manages| Web
+    AppHost -->|manages| Api
+    AppHost -->|manages| Console
+    AppHost -->|manages| Postgres
+    AppHost -->|manages| Keycloak
+    AppHost -->|manages| Ollama
+
+    Agents --> Runtime
+    Agents -->|clone, read, write PRs| GitHub
+    Agents --> ThalosTelegram
+    Runtime --> ThalosAnthropic
+    Runtime --> ThalosSentinel
+    Runtime --> ThalosMemoryRagNet
+
+    ThalosAnthropic --> AnthropicApi
+    ThalosSentinel --> Sentinel
+    ThalosMemoryRagNet --> RagAbstractions
+    ThalosMemoryRagNet --> RagPgVector
+    ThalosMemoryRagNet -->|embeddings| Ollama
+    RagPgVector --> Postgres
+    ThalosTelegram --> Telegram
 ```
-
-### Data Access Architecture
-
-**Web Application (Blazor) → API → Database:**
-
-- User interacts with Blazor UI
-- Requests routed through ASP.NET Core REST API
-- API layer calls Application Services and Command/Query handlers
-- Infrastructure layer handles database persistence via EF Core
-- Each request is isolated within its HTTP context
-
-**Console Application (Ralph Loop Worker) → Direct Database Access:**
-
-- Console app doesn't go through the REST API
-- Uses the same **Application Layer** (services, repositories) as the API
-- Directly accesses PostgreSQL via EF Core DbContext
-- Enables high-performance polling (5-second intervals) without HTTP overhead
-- Uses `ITaskRepository` and `IExecutionSessionRepository` for data access
-- Optimized for long-running background operations with minimal latency
-
-**Shared Infrastructure:**
-Both presentation layers (Web + Console) share:
-
-- Common **Application Layer**: CQRS commands/queries, services, DTOs
-- Common **Domain Layer**: Entities, value objects, business logic
-- Common **Infrastructure Layer**: EF Core, PostgreSQL, repositories
-- Service registration via dependency injection (primary constructors)
-
-This design maximizes code reuse while allowing each presentation layer to optimize for its use case.
 
 ---
 
-## 2. Domain Model (Entity Relationship)
+## 2. Solution Layout
 
-Complete domain entities and their relationships, including git operations:
+All 11 projects under `src/`, enumerated directly rather than carried forward from any earlier diagram.
+`Daedalus.Agents` is the one most likely to be missed: it holds channels (`Channels/`), scheduling
+(`Scheduling/`), skills (`Skills/`), GitHub tooling (`GitHub/`), sessions (`Sessions/`), memory (`Memory/`)
+and tools (`Tools/`), and every host project (`Api`, `Console`, `Cli`) depends on it directly.
+
+```mermaid
+graph TB
+    subgraph "Foundation"
+        Domain["Daedalus.Domain"]
+    end
+
+    subgraph "Core"
+        Application["Daedalus.Application"]
+        Infrastructure["Daedalus.Infrastructure"]
+    end
+
+    subgraph "Shared, cross-cutting"
+        Agents["Daedalus.Agents<br/>(channels, scheduling, skills,<br/>GitHub tooling, sessions, memory, tools)"]
+        ServiceDefaults["Daedalus.ServiceDefaults"]
+    end
+
+    subgraph "Hosts"
+        Api["Daedalus.Api"]
+        Console["Daedalus.Console"]
+        Cli["Daedalus.Cli"]
+        Migrations["Daedalus.Migrations"]
+        Web["Daedalus.Web"]
+    end
+
+    subgraph "Orchestration"
+        AppHost["Daedalus.AppHost"]
+    end
+
+    Application --> Domain
+    Infrastructure --> Domain
+    Infrastructure --> Application
+    Agents --> Domain
+    Agents --> Application
+    Agents --> Infrastructure
+    ServiceDefaults --> Infrastructure
+
+    Api --> Domain
+    Api --> Application
+    Api --> Infrastructure
+    Api --> Agents
+    Api --> ServiceDefaults
+
+    Console --> Domain
+    Console --> Application
+    Console --> Infrastructure
+    Console --> Agents
+    Console --> ServiceDefaults
+
+    Cli --> Domain
+    Cli --> Application
+    Cli --> Infrastructure
+    Cli --> Agents
+    Cli --> ServiceDefaults
+
+    Migrations --> Domain
+    Migrations --> Infrastructure
+    Migrations --> ServiceDefaults
+
+    Web --> Application
+
+    AppHost --> Api
+    AppHost --> Web
+```
+
+`Daedalus.Web` depends only on `Daedalus.Application` (it talks to the API over HTTP, not to the database
+directly). `Daedalus.AppHost` is the .NET Aspire orchestrator: it launches `Api`, `Web`, `Console` and
+`Migrations` as managed processes (via `AddProject`, not a compile-time `ProjectReference`), alongside the
+PostgreSQL, Keycloak and Ollama containers — that relationship is orchestration, shown here for
+completeness, not a project dependency.
+
+---
+
+## 3. Domain Model (Entity Relationship)
+
+Enumerated directly from `src/Daedalus.Domain/Entities/`, cross-checked against the EF Core configurations
+in `src/Daedalus.Infrastructure/Persistence/Configurations/` rather than inferred from property names.
+Fourteen persisted entities exist today (excluding enums, the `Entity`/`AggregateRoot` base classes, and
+the `PromptSection` value object, none of which are separate tables).
+
+**Dropped from the previous diagram:** `GitOperation`, `GitDiff` and `GitBranch`. They are not persisted
+domain entities — `GitDiff` and `GitOperationContext` exist only as transient DTOs under
+`Daedalus.Domain/CodeAnalysis/` with no EF mapping, and no `GitBranch` type exists anywhere in `src/`. The
+old diagram's `TASK ||--o| GIT_OPERATION` relationship and `EXECUTION_SESSION ||--o{ TASK : claims` /
+`PROJECT ||--o{ EXECUTION_SESSION : tracks` relationships do not exist as database foreign keys either —
+see the note below the diagram.
 
 ```mermaid
 erDiagram
     PROJECT ||--o{ TASK : contains
     TASK ||--o{ TASK_EXECUTION : has
-    TASK ||--o| GIT_OPERATION : contains
-    EXECUTION_SESSION ||--o{ TASK : claims
-    PROJECT ||--o{ EXECUTION_SESSION : tracks
-    GIT_OPERATION ||--o{ GIT_DIFF : generates
-    GIT_OPERATION ||--o| GIT_BRANCH : uses
+    AGENT_SESSION ||--o{ AGENT_MESSAGE : contains
+    BRAINSTORM_SESSION ||--o{ BRAINSTORM_MESSAGE : contains
 
     PROJECT {
         guid id PK
         string project_name
         string description
         string version
+        string repository_url
+        string default_branch
         datetime created_at
         datetime modified_at
     }
@@ -118,18 +201,18 @@ erDiagram
         string title
         string description
         enum priority
+        enum status
         string phase
         int parallel_group
-        enum status
-        enum complexity
+        enum estimated_complexity
         string prompt
         string completion_promise
         int max_iterations
-        guid current_session_id FK
+        guid current_session_id "not FK-enforced"
         string result
         int iteration_count
         string learnings
-        string repository_url
+        datetime learnings_updated_at
         datetime created_at
         datetime completed_at
     }
@@ -137,10 +220,16 @@ erDiagram
     TASK_EXECUTION {
         guid id PK
         guid task_id FK
+        guid session_id
         int iteration_number
+        string prompt
         string llm_response
-        string output
+        bool completion_promise_found
         datetime executed_at
+        string error
+        int input_tokens
+        int output_tokens
+        string model_id
     }
 
     EXECUTION_SESSION {
@@ -152,39 +241,159 @@ erDiagram
         int tasks_completed
     }
 
-    GIT_OPERATION {
+    SCHEDULED_RUN {
         guid id PK
-        guid task_id FK
-        string local_worktree_path
-        string feature_branch_name
-        string base_branch
-        datetime started_at
-        datetime completed_at
+        string name
+        string cron
+        string trigger
+        string channel_id
+        string conversation_id
+        string principal_id
+        string roles "array"
+        string repository
+        enum origin
+        datetime next_run_at
+        datetime last_run_at
+        bool enabled
+        int missed_occurrences
     }
 
-    GIT_DIFF {
+    SCHEDULED_RUN_EXECUTION {
         guid id PK
-        guid operation_id FK
-        int iteration_number
-        string file_path
-        string original_content
-        string modified_content
+        guid schedule_id "not FK-enforced"
+        datetime occurrence_at
+        enum step
+        enum failed_at_step
+        string findings
+        string digest
+        string channel_id
+        string conversation_id
+        string principal_id
+        string roles "array"
+        int attempts
+        string last_error
+        datetime created_at
+        datetime updated_at
+    }
+
+    AGENT_SESSION {
+        guid id PK
+        guid agent_id "external Thalos identity"
+        string owner_id
+        enum state
+        datetime created_at
+        datetime last_activity_at
+        int turn_count
+        long total_input_tokens
+        long total_output_tokens
+    }
+
+    AGENT_MESSAGE {
+        guid id PK
+        guid session_id FK
+        int sequence
+        string role
+        string content_json
+        int input_tokens
+        int output_tokens
+        string model_id
         datetime created_at
     }
 
-    GIT_BRANCH {
+    AGENT_MEMORY {
+        guid id PK
+        string owner_id
+        guid agent_id "external Thalos identity, nullable"
+        string kind
+        string text
+        string tags "array"
+        string source
+        double importance
+        datetime created_at
+        datetime updated_at
+        datetime last_recalled_at
+        int recall_count
+        bool is_archived
+        bool index_pending
+    }
+
+    CHANNEL_CONVERSATION {
+        guid id PK
+        string channel_id
+        string conversation_id
+        guid session_id "external Thalos identity"
+        guid agent_id "external Thalos identity"
+        datetime created_at
+        datetime last_activity_at
+    }
+
+    SKILL {
+        string id PK "the skill name"
+        string description
+        string body
+        string tags "array"
+        string source_path
+        string content_hash
+        bool is_active
+        datetime updated_at
+    }
+
+    REPOSITORY_CONFIGURATION {
         guid id PK
         string name
-        string base_ref
-        string remote_name
-        string pr_url
-        string commit_sha
+        string url
+        string platform
+        string default_branch
+        string authentication_method
+        string credential_identifier
+        bool is_active
+        string description
+        datetime created_at
+        datetime modified_at
+        datetime last_used_at
+    }
+
+    BRAINSTORM_SESSION {
+        guid id PK
+        guid project_id "not FK-enforced"
+        enum phase
+        string design_document
+        string implementation_plan
+        bool phase_complete_signaled
+        datetime created_at
+        datetime completed_at
+    }
+
+    BRAINSTORM_MESSAGE {
+        guid id PK
+        guid brainstorm_session_id FK
+        enum role
+        string content
+        enum phase
+        datetime created_at
     }
 ```
 
+**Only four relationships are enforced as database foreign keys** (verified against
+`ApplicationDbContextModelSnapshot.cs`, all `OnDelete(DeleteBehavior.Cascade)`): `Project → Task`,
+`Task → TaskExecution`, `AgentSession → AgentMessage`, and `BrainstormSession → BrainstormMessage`. Several
+other Guid-typed properties look like foreign keys by name but are not configured as one anywhere — the
+same trap the previous diagram fell into with `GitOperation`. Marked `"not FK-enforced"` above:
+`Task.CurrentSessionId` (no relationship to `ExecutionSession`), `ScheduledRunExecution.ScheduleId` (only a
+unique index on `(ScheduleId, OccurrenceAt)`, no `HasOne`/`HasForeignKey`), and `BrainstormSession.ProjectId`
+(indexed, but never wired to `Project` the way `Task.ProjectId` is). `AgentMemory.AgentId` and
+`ChannelConversation.SessionId`/`AgentId` are marked `"external Thalos identity"` because they hold the
+`Guid` backing a Thalos.NET typed id (an agent definition or session living in Thalos's own runtime, not a
+row in any table in this diagram) — there is nothing local for them to be a foreign key to.
+
+Two projects outside `src/Daedalus.Domain/Entities/` are out of this diagram's scope by the same
+enumeration rule that dropped `GitOperation`/`GitDiff`: `AnalysisIteration` and `CodeAnalysisRequest` live
+under `Daedalus.Domain/CodeAnalysis/` and have their own EF configurations, but they are not part of the
+`Entities/` folder this section enumerates.
+
 ---
 
-## 3. Application Layer - Command/Query Architecture
+## 4. Application Layer - Command/Query Architecture
 
 The solution uses CQRS pattern with Railway-Oriented Programming:
 
@@ -227,7 +436,7 @@ graph LR
 
 ---
 
-## 4. Git Repository Workflow - LLM-Driven Changes
+## 5. Git Repository Workflow - LLM-Driven Changes
 
 Complete workflow showing how the LLM makes changes to git repositories:
 
@@ -278,7 +487,7 @@ graph TD
 
 ---
 
-## 4A. Git Service Architecture
+## 5A. Git Service Architecture
 
 Detailed breakdown of git operations and services:
 
@@ -354,7 +563,7 @@ graph TB
 
 ---
 
-## 4B. Code Extraction & LLM Context
+## 5B. Code Extraction & LLM Context
 
 How code is extracted and provided to LLM for analysis:
 
@@ -418,7 +627,7 @@ graph TB
 
 ---
 
-## 5. Ralph Loop Worker - Task Processing Pipeline
+## 6. Ralph Loop Worker - Task Processing Pipeline
 
 The console application implements a distributed Ralph Loop worker:
 
@@ -481,7 +690,7 @@ graph TD
 
 ---
 
-## 6. Project Layered Architecture
+## 7. Project Layered Architecture
 
 Clean architecture with clear separation of concerns:
 
@@ -534,7 +743,7 @@ graph TB
 
 ---
 
-## 7. Complete Data Flow - Git-Based Task Execution
+## 8. Complete Data Flow - Git-Based Task Execution
 
 How data flows from creation through git operations to completion:
 
@@ -588,7 +797,7 @@ graph LR
 
 ---
 
-## 7A. Data Flow - Task Execution
+## 8A. Data Flow - Task Execution
 
 How data flows from creation to completion using direct database access:
 
@@ -635,7 +844,7 @@ graph LR
 
 ---
 
-## 8. Multi-Instance Worker Coordination
+## 9. Multi-Instance Worker Coordination
 
 How multiple workers coordinate on the same task queue:
 
@@ -678,7 +887,7 @@ graph TB
 
 ---
 
-## 9. Dependency Injection & Service Resolution
+## 10. Dependency Injection & Service Resolution
 
 How services are wired together:
 
@@ -734,7 +943,7 @@ graph TB
 
 ---
 
-## 10. API Controllers & Endpoints
+## 11. API Controllers & Endpoints
 
 REST API surface and routing:
 
@@ -781,7 +990,7 @@ graph TB
 
 ---
 
-## 11. Technology Stack & Integration Points
+## 12. Technology Stack & Integration Points
 
 Complete tech stack overview:
 
@@ -893,7 +1102,7 @@ graph TB
 
 ---
 
-## 12. Request-Response Lifecycle
+## 13. Request-Response Lifecycle
 
 Complete request flow from client to database and back:
 
@@ -965,7 +1174,7 @@ sequenceDiagram
 
 ---
 
-## 13. Performance Optimization Strategy
+## 14. Performance Optimization Strategy
 
 Key performance optimizations across the stack:
 
@@ -1023,7 +1232,7 @@ graph TB
 
 ---
 
-## 14. Agent turn (Thalos)
+## 15. Agent turn (Thalos)
 
 Phase 1.1 adds a second, general-purpose agent stack next to the Ralph Loop: **Thalos.NET** (Microsoft Agent Framework
 1.17 underneath, AI.Sentinel at the model boundary, MCP + local tools with authorization at the function boundary). The
