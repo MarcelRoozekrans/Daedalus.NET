@@ -3,17 +3,19 @@ using System.Reflection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
-using Daedalus.Agents.GitHub;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Sessions;
 using Daedalus.Agents.Skills;
+using Daedalus.Agents.Git;
 using Daedalus.Agents.Tools;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Infrastructure.Agents.Tools;
+using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +23,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Anthropic;
+using Thalos.Git;
+using Thalos.Git.LibGit2Sharp;
 using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
@@ -56,6 +60,20 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     </para>
     /// </remarks>
     public const string RepoActionToolSourceName = "repoaction";
+
+    /// <summary>
+    ///     The Thalos tool-source name of <see cref="GitActionTools"/>; tools appear as <c>git__{tool}</c>
+    ///     (<c>git__create_branch</c>, <c>git__commit</c>, <c>git__push</c>, <c>git__open_pull_request</c>).
+    /// </summary>
+    /// <remarks>
+    ///     <b>Same boundary as <see cref="RepoActionToolSourceName"/>, owned by Thalos instead of Daedalus.</b>
+    ///     <see cref="GitActionTools"/> is defined in <c>Thalos.NET.Git</c> — Daedalus only registers it and binds
+    ///     <c>git__*</c> to <see cref="DeveloperPolicy"/> in <c>Thalos:ToolPolicies</c>, exactly as it does for
+    ///     <c>repoaction__*</c>. The property that makes either binding safe is the same one: a scheduled run
+    ///     authenticates as <c>schedule:daedalus</c> with roles <c>["reader"]</c>, so <c>DefaultToolAuthorizer</c>
+    ///     denies every <c>git__*</c> tool whatever an agent's tool list contains.
+    /// </remarks>
+    public const string GitToolSourceName = "git";
 
     /// <summary>Name of the application database connection string (<c>ConnectionStrings:daedalus</c>), shared with the Rag.NET memory index.</summary>
     public const string DatabaseConnectionName = "daedalus";
@@ -129,6 +147,13 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         AddGitHub(services, configuration);
 
+        // Thalos's pull-request publisher abstraction, implemented over Daedalus's existing pull-request-factory
+        // dispatcher, so the future git pull-request tool inherits GitHub and Azure DevOps routing for free. The
+        // factory it delegates to is registered by AddCodeAnalysisServices in Daedalus.Infrastructure, not here — a
+        // host calling this method alone resolves the publisher fine but only fails, at first use, if it never
+        // called that one too. That mirrors how the factory itself already gets consumed across composition roots.
+        services.AddScoped<IPullRequestPublisher, ThalosPullRequestPublisher>();
+
         ValidateMemoryConfig(options.Memory);
         services.TryAddSingleton(options.Memory);
         services.TryAddSingleton(options.Memory.RalphRecall);
@@ -157,6 +182,12 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 // daedalus__* glob cannot name. See RepoActionToolSourceName for why the split is not the boundary.
                 .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools))
                 .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
+                // Thalos's own local-git write capability (branch, commit, push, open pull request). UseLibGit2SharpGit
+                // registers the IGitWriteService implementation GitActionTools needs alongside IPullRequestPublisher
+                // (registered above, in AddDaedalusAgents proper). Same write boundary as repoaction__*, just owned by
+                // Thalos: see GitToolSourceName for why the git__* -> developer binding is what actually holds it.
+                .UseLibGit2SharpGit()
+                .AddLocalTools(GitToolSourceName, typeof(GitActionTools))
                 .AddMcpServersFromFile(ResolveMcpConfigPath(options.McpConfigPath, environment))
                 .AddPolicy<DeveloperPolicy>();
 
@@ -241,7 +272,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
-    ///     Registers the GitHub seam behind <see cref="DaedalusRepoTools"/> and <see cref="DaedalusRepoActionTools"/>:
+    ///     Registers the GitHub seam behind <see cref="DaedalusRepoTools"/> and <see cref="DaedalusRepoActionTools"/>
+    ///     by delegating to <c>Daedalus.Infrastructure.Extensions.InfrastructureServiceExtensions.AddGitHubApi</c>:
     ///     <see cref="GitHubOptions"/> from <see cref="GitHubOptions.SectionName"/>, the token source, and one
     ///     <see cref="GitHubApi"/> exposed as both halves of the read/write split.
     /// </summary>
@@ -254,11 +286,6 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///         not bind it.
     ///     </para>
     ///     <para>
-    ///         <b>Why <c>AddHttpClient</c>.</b> It hands <see cref="GitHubApi"/> a client over the pooled,
-    ///         rotated handler instead of a hand-newed one, which is what keeps sockets from being exhausted and
-    ///         DNS from going stale on a long-running host.
-    ///     </para>
-    ///     <para>
     ///         Both interfaces resolve the same concrete type, but each tool class can only reach its own half:
     ///         <see cref="DaedalusRepoTools"/> injects <see cref="IGitHubReader"/> and
     ///         <see cref="DaedalusRepoActionTools"/> injects <see cref="IGitHubWriter"/>, so a read-only tool has
@@ -267,20 +294,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     private static void AddGitHub(IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<GitHubOptions>(configuration.GetSection(GitHubOptions.SectionName));
-
-        // Explicit factory rather than type registration: GitHubTokenSource has a second constructor taking the
-        // environment lookup as a delegate (so tests need not mutate process state), and nothing should depend on
-        // which one the container's constructor selection happens to pick.
-        services.TryAddSingleton<IGitHubTokenSource>(_ => new GitHubTokenSource());
-
-        // GitHubApi takes TimeProvider outright. AddDaedalusScheduling also TryAdds it; whichever runs first wins
-        // and both mean TimeProvider.System, but AddDaedalusAgents must not depend on being called second.
-        services.TryAddSingleton(TimeProvider.System);
-
-        services.AddHttpClient<GitHubApi>();
-        services.AddScoped<IGitHubReader>(sp => sp.GetRequiredService<GitHubApi>());
-        services.AddScoped<IGitHubWriter>(sp => sp.GetRequiredService<GitHubApi>());
+        // GitHubApi now lives in Daedalus.Infrastructure (Agents already references Infrastructure, and this is
+        // what lets Daedalus.Infrastructure.Services.CodeAnalysis.GitHubPullRequestFactory delegate to it directly
+        // without a circular project reference). AddGitHubApi is idempotent, so a host that also calls
+        // AddCodeAnalysisServices (which registers the same client for PR creation) does not double-register it.
+        services.AddGitHubApi(configuration);
     }
 
     private static string ResolveConnectionString(IConfiguration configuration) =>

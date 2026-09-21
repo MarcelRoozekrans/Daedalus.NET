@@ -26,6 +26,8 @@
 
     <ItemGroup>
         <PackageReference Include="Thalos.NET" />
+        <PackageReference Include="Thalos.NET.Git" />
+        <PackageReference Include="Thalos.NET.Git.LibGit2Sharp" />
         <PackageReference Include="Thalos.NET.Channels" />
         <PackageReference Include="Thalos.NET.Channels.Telegram" />
         <PackageReference Include="Thalos.NET.Mcp" />
@@ -39,12 +41,11 @@
         <PackageReference Include="ZeroAlloc.Outbox" />
         <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
         <PackageReference Include="Cronos" />
+        <PackageReference Include="LibGit2Sharp" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />
         <PackageReference Include="Microsoft.Extensions.AI" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
-        <!-- AddHttpClient<GitHubApi>: a pooled, rotated handler instead of a hand-newed HttpClient. -->
-        <PackageReference Include="Microsoft.Extensions.Http" />
         <PackageReference Include="Microsoft.Extensions.Options" />
     </ItemGroup>
 

@@ -1,4 +1,4 @@
-using Daedalus.Agents.GitHub;
+using Daedalus.Infrastructure.Services.GitHub;
 
 namespace Daedalus.Tests.Unit.Agents.GitHub;
 

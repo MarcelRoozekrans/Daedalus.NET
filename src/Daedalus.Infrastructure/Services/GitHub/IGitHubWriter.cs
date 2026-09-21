@@ -1,6 +1,6 @@
 using ZeroAlloc.Results;
 
-namespace Daedalus.Agents.GitHub;
+namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>
 ///     Acts on a GitHub repository — for interactive agents only. There is no retry anywhere in this path: a

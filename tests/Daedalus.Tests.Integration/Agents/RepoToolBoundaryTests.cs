@@ -39,6 +39,12 @@ namespace Daedalus.Tests.Integration.Agents;
 ///         </item>
 ///     </list>
 ///     <para>
+///         <b>Phase 2.1 added a second write source under the same boundary:</b> <c>git__*</c>
+///         (Thalos's own <c>GitActionTools</c> - branch, commit, push, open pull request) is bound to
+///         <see cref="DeveloperPolicy"/> the same way, and only layer 3 is checked for it here - layers 1 and 2
+///         are <c>repoaction__*</c>-specific naming/allow-list decisions this tool source does not repeat.
+///     </para>
+///     <para>
 ///         <b>The matcher is Thalos's own.</b> <see cref="Glob"/> is the public matcher
 ///         <c>ToolCatalog</c> uses to filter <see cref="AgentDefinition.Tools"/> and that
 ///         <see cref="ToolPolicyBinding.Matches"/> uses to bind a policy to a tool. Reimplementing a wildcard match
@@ -113,6 +119,32 @@ public sealed class RepoToolBoundaryTests(PostgresFixture fixture) : IAsyncLifet
         writeTools.Should().NotBeEmpty("otherwise this test passes vacuously");
 
         foreach (var tool in writeTools)
+        {
+            policies.Any(b => GlobMatches(b.ToolPattern, tool) && string.Equals(b.PolicyName, DeveloperPolicy.PolicyName, StringComparison.Ordinal))
+                .Should().BeTrue($"{tool} must be denied at the authorizer, not only by a tool list");
+        }
+    }
+
+    /// <summary>
+    ///     Phase 2.1's own boundary: <c>git__*</c> is Thalos's <c>GitActionTools</c> (branch, commit, push, open pull
+    ///     request), registered by Daedalus and bound to <see cref="DeveloperPolicy"/> exactly like
+    ///     <c>repoaction__*</c> above. Same reasoning, different tool source.
+    /// </summary>
+    [Fact]
+    public void The_git_tools_are_exposed_under_their_own_source()
+    {
+        ToolNames().Should().Contain("git__open_pull_request");
+    }
+
+    [Fact]
+    public void Every_git_tool_is_bound_to_the_developer_policy()
+    {
+        var policies = ToolPolicyBindings();
+        var gitTools = ToolNames().Where(n => n.StartsWith("git__", StringComparison.Ordinal)).ToList();
+
+        gitTools.Should().NotBeEmpty("otherwise this test passes vacuously");
+
+        foreach (var tool in gitTools)
         {
             policies.Any(b => GlobMatches(b.ToolPattern, tool) && string.Equals(b.PolicyName, DeveloperPolicy.PolicyName, StringComparison.Ordinal))
                 .Should().BeTrue($"{tool} must be denied at the authorizer, not only by a tool list");

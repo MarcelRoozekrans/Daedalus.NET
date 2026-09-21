@@ -6,12 +6,65 @@
 `docs/planning/ROADMAP.md` for the "Carried forward from Milestone 1" list of 7 known, deliberately
 unfixed items.
 
-**Current milestone:** 2 — Software Manufacturing (**not started**)
+**Current milestone:** 2 — Software Manufacturing (**phase 2.1 complete, phase 2.2 next**)
 
-**Next:** phase 2.1 — git write tooling (branch, commit, push, pull request), gated behind the
-`developer` policy exactly as `repoaction__*` is. It builds directly on the authorization boundary
-phase 1.9 established: phase 1.9 built the GitHub *read* surface, and 2.1 is the write half that
-boundary was built for. See `docs/planning/ROADMAP.md` Milestone 2 phase table.
+**Phase 2.1 — git write tooling: complete (2026-09-21).** Branch `feat/phase-2.1-git-tooling`, 6
+commits, PR opened against `main`. The roadmap described this phase as building branch, commit, push
+and pull-request tools from nothing; most of that already existed. What actually happened: the
+capability split across the reusable-framework line recorded on 2026-09-21 — generic git write
+actions (`Thalos.Git.GitActionTools`: `git__create_branch`, `git__commit`, `git__push`,
+`git__open_pull_request`) shipped in **Thalos.NET 0.6.0**; hosting glue stayed in Daedalus
+(`ThalosPullRequestPublisher` implementing Thalos's `IPullRequestPublisher` over the existing
+dispatcher, `git` local-tool-source registration, `developer` policy binding in both
+`Daedalus.Api/appsettings.json` and `Daedalus.Cli/appsettings.json`). The other real work was
+consolidating Daedalus's own GitHub client onto one `GitHubApi` in
+`Daedalus.Infrastructure.Services.GitHub`, removing a circular-reference hazard between Agents and
+Infrastructure along the way.
+
+**Suites, all green, no pre-existing failure changed:** Domain 338/338, Unit 212/212, Application
+409/409, Infrastructure 133/133 — unit total 1092/1092 — Integration 508/508 on the first run (no
+crash this time), Playwright.Api 126/126. `Playwright.Browser` was not run — about 17 minutes and
+this branch does not touch its fixtures, per standing guidance.
+
+**Phase goal confirmed live, not asserted:** all four `git__*` tools enumerated straight from the
+shipped `Thalos.NET.Git` 0.6.0 XML doc comments; both `Daedalus.Api` and `Daedalus.Cli`
+`appsettings.json` bind `{ "Pattern": "git__*", "Policy": "developer" }`; and
+`RepoToolBoundaryTests` run against the real composed `Daedalus.Api` host (9/9 passing) proves
+`git__*` is exposed under its own tool source, every `git__*` tool resolves to the `developer`
+policy, and the configured detached-run principal (`DetachedRuns:Roles = ["reader"]`) fails that
+policy — a scheduled run cannot branch, commit, push, or open a pull request no matter what its
+agent definition lists.
+
+**Not proved end to end against a live remote, by design.** Creating a branch, pushing, and opening
+a real pull request is outward-facing and irreversible — it needs a human decision about which
+repository and what artefacts are acceptable to leave there. Phase 1.9 proved its *read* path
+against live GitHub safely, because reading leaves nothing behind. The write proof is ready and
+waiting on that decision.
+
+**Carried forward from phase 2.1:**
+1. `IRepositoryAuthenticationProvider` was never registered anywhere on `main`, so Azure DevOps
+   pull-request creation could never have worked, on any host, ever. It hid behind resolution
+   order — `PullRequestFactory` resolves `GitHubPullRequestFactory` first, so it always failed on
+   the GitHub parameter before reaching Azure DevOps. Fixed in this phase's task 5.
+2. `Daedalus.Console`'s `RalphLoopWorker` does not call the Agents composition root
+   (`AddDaedalusAgents`), so agent-registered services — including all `git__*` tools — are absent
+   on that host. Console only calls `AddDaedalusMemory`.
+3. The Integration suite test-host-crashed twice during this phase under Docker resource
+   contention, with zero failures reported both times. A third and this task's own run were clean.
+   Resource contention on this machine, not code.
+4. Thalos's `scripts/pack-local.ps1` hard-codes `0.3.0-<suffix>` and never calls GitVersion, so
+   local dev feeds carry the wrong version. Real releases are unaffected — GitVersion wins in CI.
+
+**Next: phase 2.2 — the durable workflow engine.** Branching, loops, and human approval gates,
+resumable across process restarts; `RunStep` is already a hand-written state machine, so the
+pattern is not speculative. `ZeroAlloc.Saga` is now unblocked (the 2026-09-16 spike's blocking
+defect is fixed upstream and re-verified, not just re-read) and is a live candidate alongside
+`ZeroAlloc.StateMachine` and `ZeroAlloc.EventSourcing` — a design question for 2.2's brainstorm, not
+a foregone conclusion. Per the 2026-09-21 direction that Thalos.NET is the reusable framework, most
+of 2.2 likely belongs in Thalos if the manufacturing pipeline is meant to be reusable — that
+placement question should be settled consciously during 2.2's design rather than discovered partway
+through, the same way 2.1 nearly drifted into putting generic git tooling in `Daedalus.Agents`
+before being caught.
 
 **Parked ideas:** `docs/planning/parked-ideas.md` — currently one, a customer chatbot product on Rag.NET, deferred as a separate application rather than a Daedalus milestone. The 1.0 tag on Thalos.NET is
 deliberately held back until Milestone 2 settles the agent contracts, since 2.2's workflow engine and
@@ -209,6 +262,10 @@ unreadable. Fixed in #250.
 **Superseded 2026-09-21 — Milestone 1 is closed; phases 1.7, 1.8 and 1.9 are all complete.** The
 paragraphs below describing 1.7 as next are historical and left in place rather than deleted; they
 record why 1.7 was unblocked at the time. See the top of this file for the current pointer.
+
+**Superseded 2026-09-21 (later the same day) — phase 2.1 is also complete.** The paragraph below
+describing it as next is historical and left in place for the same reason. See the top of this file
+for the current pointer, now phase 2.2.
 
 **Phase 2.1 — git write tooling** is next, opening Milestone 2. It is not blocked: phase 1.9 already
 built the authorization boundary (`repoaction__*` bound to the `developer` policy, denied to a

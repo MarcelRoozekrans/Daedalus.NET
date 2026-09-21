@@ -1,5 +1,6 @@
 using System.Net;
-using Daedalus.Agents.GitHub;
+using Daedalus.Domain.CodeAnalysis;
+using Daedalus.Infrastructure.Services.GitHub;
 using static Daedalus.Tests.Unit.Agents.GitHub.GitHubApiTestSupport;
 
 namespace Daedalus.Tests.Unit.Agents.GitHub;
@@ -61,6 +62,53 @@ public class GitHubApiWriteTests
         var handler = new StubHandler();
 
         var result = await Build(handler, token: null).CommentAsync(RepoRef.Parse("owner/repo").Value, 7, "a note");
+
+        result.IsFailure.Should().BeTrue();
+        handler.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Creating_a_pull_request_posts_to_the_pulls_endpoint_and_parses_the_response()
+    {
+        var handler = new StubHandler().Route("/pulls", HttpStatusCode.Created,
+            """{"number":42,"url":"https://api.github.com/repos/owner/repo/pulls/42","html_url":"https://github.com/owner/repo/pull/42"}""");
+
+        var result = await Build(handler).CreatePullRequestAsync(
+            RepoRef.Parse("owner/repo").Value, "feature", "main", "a title", "a description");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.PullRequestId.Should().Be("42");
+        result.Value.PullRequestUrl.Should().Be("https://api.github.com/repos/owner/repo/pulls/42");
+        result.Value.WebUrl.Should().Be("https://github.com/owner/repo/pull/42");
+        result.Value.Status.Should().Be(PullRequestStatus.Open);
+
+        var sent = handler.Requests.Should().ContainSingle().Subject;
+        sent.Method.Should().Be(HttpMethod.Post);
+        sent.RequestUri!.AbsolutePath.Should().Be("/repos/owner/repo/pulls");
+        var body = await sent.Content!.ReadAsStringAsync();
+        body.Should().Contain("\"head\":\"feature\"").And.Contain("\"base\":\"main\"").And.Contain("\"title\":\"a title\"");
+    }
+
+    [Fact]
+    public async Task A_failed_pull_request_creation_surfaces_and_is_not_retried()
+    {
+        var handler = new StubHandler().Route("/pulls", HttpStatusCode.UnprocessableEntity,
+            """{"message":"Validation Failed"}""");
+
+        var result = await Build(handler).CreatePullRequestAsync(
+            RepoRef.Parse("owner/repo").Value, "feature", "main", "a title", "a description");
+
+        result.IsFailure.Should().BeTrue();
+        handler.Requests.Should().ContainSingle("a retried pull request create would open a duplicate");
+    }
+
+    [Fact]
+    public async Task Creating_a_pull_request_with_no_token_sends_nothing()
+    {
+        var handler = new StubHandler();
+
+        var result = await Build(handler, token: null).CreatePullRequestAsync(
+            RepoRef.Parse("owner/repo").Value, "feature", "main", "a title", "a description");
 
         result.IsFailure.Should().BeTrue();
         handler.Requests.Should().BeEmpty();

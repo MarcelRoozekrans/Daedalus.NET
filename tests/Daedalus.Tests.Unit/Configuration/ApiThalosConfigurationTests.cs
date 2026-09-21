@@ -77,7 +77,8 @@ public sealed class ApiThalosConfigurationTests
         policies.Select(p => (p.ToolPattern, p.PolicyName)).Should().Equal(
             ("roslyn__apply_*", "developer"),
             ("roslyn__rename_*", "developer"),
-            ("repoaction__*", "developer"));
+            ("repoaction__*", "developer"),
+            ("git__*", "developer"));
 
         var sentinel = sp.GetRequiredService<SentinelOptions>();
         sentinel.OnCritical.Should().Be(SentinelAction.Quarantine);

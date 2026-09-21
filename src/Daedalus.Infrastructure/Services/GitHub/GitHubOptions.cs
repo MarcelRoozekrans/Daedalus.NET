@@ -1,4 +1,4 @@
-namespace Daedalus.Agents.GitHub;
+namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>Bindable options for the GitHub reader and writer, under <see cref="SectionName"/>.</summary>
 public sealed class GitHubOptions

@@ -1,6 +1,6 @@
 using ZeroAlloc.Results;
 
-namespace Daedalus.Agents.GitHub;
+namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>Reads repository activity from GitHub for the digest.</summary>
 public interface IGitHubReader

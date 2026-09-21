@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using Daedalus.Agents.GitHub;
+using Daedalus.Infrastructure.Services.GitHub;
 using Thalos;
 
 namespace Daedalus.Agents.Tools;
