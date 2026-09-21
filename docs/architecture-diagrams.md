@@ -393,46 +393,105 @@ under `Daedalus.Domain/CodeAnalysis/` and have their own EF configurations, but 
 
 ---
 
-## 4. Application Layer - Command/Query Architecture
+## 4. Application Layer - Mediator Dispatch and the Public Facade
 
-The solution uses CQRS pattern with Railway-Oriented Programming:
+Phase 1.7 deleted the hand-rolled `ICommandHandlerFactory` layer this section used to describe. Dispatch today
+goes through **ZeroAlloc.Mediator**'s source generator, and the single most surprising fact about it is a
+visibility boundary that every newcomer trips over at least once:
+
+**The generated `IMediator` and its registration method `AddMediator()` are `internal` to `Daedalus.Application`.**
+`IMediator` cannot appear in a public method signature anywhere else — the compiler refuses it with CS0051
+(inconsistent accessibility) — and `AddMediator()` cannot be called from `Program.cs` in `Daedalus.Api` or
+`Daedalus.Console`, which is what every upstream ZeroAlloc.Mediator example shows, because `Program.cs` is
+compiled into a different assembly. `Daedalus.Api` has 14 public MVC controllers, and they must be public to be
+discovered by ASP.NET Core's controller convention — so the assembly boundary is real, not incidental.
+
+The bridge is `IApplicationCommands` (`Daedalus.Application/Abstractions/IApplicationCommands.cs`), a small
+public interface with an `internal sealed class ApplicationCommands(IMediator mediator)` implementation. Its own
+XML doc comment states the trade-off plainly and this document repeats it rather than overselling the design:
+
+> The public dispatch surface for callers outside this assembly. The generated ZeroAlloc.Mediator `IMediator` is
+> internal to `Daedalus.Application` and cannot appear in a public signature (CS0051), so the two MVC controllers
+> that dispatch commands depend on this instead. This is a thinner version of the deleted
+> `ICommandHandlerFactory` - it buys compile-time dispatch and build-time diagnostics for these 8 commands, not
+> less abstraction overall.
+
+**Confirmed by reading the interface: `IApplicationCommands` has exactly 8 members**, each forwarding straight
+to `mediator.Send(command, cancellationToken)`:
+
+| Method | Command | Returns |
+|---|---|---|
+| `CreateProjectAsync` | `CreateProjectCommand` | `ValueTask<Result<ProjectDto>>` |
+| `UpdateProjectAsync` | `UpdateProjectCommand` | `ValueTask<Result<ProjectDto>>` |
+| `DeleteProjectAsync` | `DeleteProjectCommand` | `ValueTask<Result>` |
+| `CreateTaskAsync` | `CreateTaskCommand` | `ValueTask<Result<TaskDto>>` |
+| `UpdateTaskAsync` | `UpdateTaskCommand` | `ValueTask<Result<TaskDto>>` |
+| `DeleteTaskAsync` | `DeleteTaskCommand` | `ValueTask<Result>` |
+| `AbandonTaskAsync` | `AbandonTaskCommand` | `ValueTask<Result<TaskDto>>` |
+| `ResumeTaskAsync` | `ResumeTaskCommand` | `ValueTask<Result<TaskDto>>` |
+
+**Confirmed by grepping `src/Daedalus.Api/Controllers`: exactly 2 of the 14 public controllers reference
+`IApplicationCommands`** — `ProjectsController` and `TasksController`. The other 12 (`AgentsController`,
+`AgentSessionsController`, `AgentMemoriesController`, `BrainstormController`, `CodeAnalysisController`,
+`CostAnalyticsController`, `ExecutionSessionsController`, `PrdController`, `RalphConfigController`,
+`RepositoriesController`, `SchedulesController`, `TaskExecutionsController`) never dispatch a command through
+this path at all.
+
+`Daedalus.Application` has 12 command types in total (`Commands/*`), not 8 — `ConvertPrdToTasksCommand`,
+`ExecuteTaskCommand`, `GeneratePrdCommand` and `RegeneratePlanCommand` are the other 4. They are never added to
+`IApplicationCommands`, because nothing outside the assembly needs to send them: `PrdService` and
+`McpConfigurationParser` are themselves compiled into `Daedalus.Application`, so they call `mediator.Send(...)`
+on the internal `IMediator` directly. The facade exists only for the assembly-crossing case, and it is sized to
+exactly the commands that cross.
+
+**Requests are `readonly record struct`, not classes.** The ZeroAlloc.Mediator generator enforces this with its
+own diagnostic — `ZAM003`, "Request type is a class; use 'readonly record struct' for zero-allocation dispatch" —
+confirmed by inspecting the generator assembly's diagnostic strings directly. Every command and query in the
+codebase follows this:
+
+```csharp
+public readonly record struct CreateTaskCommand(
+    Guid ProjectId, string TaskId, string Title, /* … */ int MaxIterations)
+    : IRequest<Result<TaskDto>>;
+```
+
+**Handlers return `ValueTask<T>`, not `Task<T>`.** For example, `CreateTaskCommandHandler` implements
+`IRequestHandler<CreateTaskCommand, Result<TaskDto>>` with `public async ValueTask<Result<TaskDto>> Handle(CreateTaskCommand command, CancellationToken ct)`.
+`Result<T>` and the non-generic `Result` are from **ZeroAlloc.Results** (`Result<T>.Success(x)` /
+`Result<T>.Failure(msg)` / `Result.Success()` / `Result.Failure(msg)`) — **not** CSharpFunctionalExtensions,
+which is not referenced anywhere in this solution.
 
 ```mermaid
-graph LR
-    subgraph "Commands (Write)"
-        C1["CreateTask"]
-        C2["ExecuteTask"]
-        C3["ConvertPrdToTasks"]
-        C4["GeneratePrd"]
-        C5["AbandonTask"]
+graph TB
+    subgraph API["Daedalus.Api — public assembly"]
+        Ctrl1["ProjectsController"]
+        Ctrl2["TasksController"]
+        CtrlOther["12 other public controllers<br/>(no command dispatch)"]
     end
 
-    subgraph "Queries (Read)"
-        Q1["GetAllTasks"]
-        Q2["GetTaskById"]
+    subgraph APP["Daedalus.Application — internal boundary"]
+        Facade["IApplicationCommands (public interface)<br/>ApplicationCommands (internal impl)<br/>exactly 8 methods"]
+        Mediator["IMediator — generated, internal<br/>ZeroAlloc.Mediator, AddMediator() also internal"]
+        H8["8 facade-reachable handlers<br/>readonly record struct requests<br/>ValueTask&lt;Result&gt; / ValueTask&lt;Result&lt;T&gt;&gt;"]
+        Internal["PrdService · McpConfigurationParser<br/>(same-assembly callers)"]
+        H4["4 internal-only handlers<br/>ConvertPrdToTasks · ExecuteTask<br/>GeneratePrd · RegeneratePlan"]
     end
 
-    subgraph "Result Type<br/>Railway-Oriented"
-        Success["Result.Success<T>"]
-        Failure["Result.Failure<T>"]
-    end
+    Ctrl1 -->|"public call"| Facade
+    Ctrl2 -->|"public call"| Facade
+    Facade -.->|"mediator.Send() — same assembly"| Mediator
+    Mediator --> H8
+    Internal -.->|"mediator.Send() — same assembly"| Mediator
+    Mediator --> H4
 
-    C1 -->|Returns| Success
-    C1 -->|Returns| Failure
-    C2 -->|Returns| Success
-    C2 -->|Returns| Failure
-    C3 -->|Returns| Success
-    C3 -->|Returns| Failure
-    C4 -->|Returns| Success
-    C4 -->|Returns| Failure
-    C5 -->|Returns| Success
-    C5 -->|Returns| Failure
-
-    Q1 -->|Returns| Success
-    Q1 -->|Returns| Failure
-    Q2 -->|Returns| Success
-    Q2 -->|Returns| Failure
+    CtrlOther -.->|"no dispatch"| Facade
 ```
+
+A gap worth being honest about: `GetAllTasksQuery` and `GetTaskByIdQuery` still exist under
+`Daedalus.Application/Queries/`, implement `IRequest<Result<T>>`, and have registered handlers — but nothing in
+the codebase calls `mediator.Send` for either one today. `TasksController`'s read endpoints go through
+`ITaskQueryService` (`Daedalus.Api.Services.TaskQueryService`) instead, which queries `ApplicationDbContext`
+directly with EF Core. The CQRS write side is wired through the mediator; the read side, in practice, is not.
 
 ---
 
@@ -1474,6 +1533,131 @@ graph LR
     Recovery --> DbCtx
     Ralph --> DbCtx
     DbCtx --> PG
+```
+
+---
+
+## 16. Agent Runtime — Sessions, Memory, Skills, and Subagents
+
+Section 15 walks one live HTTP turn end to end. This section covers the runtime surface that turn sits on top
+of — `IAgentRuntime` as a whole, session lifecycle, and one piece section 15 does not touch at all: **detached
+subagent runs** via `ISubagentRunner`.
+
+### The front door: `IAgentRuntime`
+
+`IAgentRuntime` (`Thalos.IAgentRuntime`, `Thalos.NET.Abstractions` — external to this repo, not declared under
+`src/`) is documented in its own package as "Front door of the framework. Channels (HTTP, CLI, Telegram…) only
+ever talk to this." It exposes four members, confirmed against the package XML docs at the pinned version
+(`Thalos.NET.Abstractions` 0.5.1):
+
+| Member | Behavior |
+|---|---|
+| `CreateSessionAsync(AgentId, ISecurityContext, CancellationToken)` | Creates an `Idle` session owned by the caller. Unknown agent → `AgentErrorCode.AgentNotFound`; store failure → `StoreError`. |
+| `RunTurnAsync(AgentTurnRequest, CancellationToken)` | Runs one turn, returns the buffered result. |
+| `RunTurnStreamingAsync(AgentTurnRequest, CancellationToken)` | Runs one turn, streaming `AgentEvent`s — this is what section 15's sequence diagram follows. |
+| `CloseSessionAsync(SessionId, ISecurityContext, CancellationToken)` | Terminal close. Only the owner or an admin may close a session; running → `SessionBusy`; already closed → `SessionClosed`. |
+
+Daedalus does not implement `IAgentRuntime` itself — the implementation lives inside the `Thalos.NET` package —
+but it does mirror the session state machine locally, for real: `Daedalus.Domain.Entities.AgentSessionState`
+(`src/Daedalus.Domain/Entities/AgentSessionState.cs`) is an enum whose doc comment says it is "kept in Domain so
+Domain stays framework-free; integer values must match one-to-one" with `Thalos.SessionState`, verified by an
+integration test:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: CreateSessionAsync
+    Idle --> Running: RunTurnAsync / RunTurnStreamingAsync
+    Running --> Idle: turn completes
+    Running --> AwaitingApproval: tool call needs human approval
+    AwaitingApproval --> Running: Approve
+    AwaitingApproval --> Idle: Deny
+    Idle --> Closed: CloseSessionAsync
+    Running --> Closed: CloseSessionAsync (SessionBusy if attempted while Running)
+    Closed --> [*]
+```
+
+Honesty check: `AwaitingApproval` is a real state in both the Thalos enum and its Domain mirror, but grepping
+`AgentSessionsController` turns up no `Approve`/`Deny` action — the approval-gate flow the state exists for is
+not wired up anywhere in this repo yet.
+
+### Memory and skills
+
+Both are covered in depth in section 15 and are not repeated here: memory recall/remember/forget backed by
+`PostgresMemoryStore` (`AgentMemories` table) with vector search over `rag_chunks` (pgvector, `nomic-embed-text`
+768-dim via Ollama), and skills backed by `PostgresSkillStore` (`Skills` table) with an in-process
+`ISkillIndex` cosine search — no pgvector involvement on the skills side today. Both are best-effort within a
+turn: an unreachable store degrades the turn rather than failing it (see section 15's notes for the exact event
+names).
+
+### Subagents: `ISubagentRunner` and the one type in Daedalus allowed to see it
+
+`ISubagentRunner` (`Thalos.ISubagentRunner`, `Thalos.NET.Abstractions`, confirmed in the package XML docs) is
+the runtime's second front door, for turns with **no live caller** — nothing is holding a socket open for the
+answer. Its own doc comment: "Used by hosts for scheduled runs and for orchestrated subagent steps; both are
+the same thing triggered differently." Unlike a streamed turn, a detached run never streams — it returns a
+buffered `AgentTurnResult` and the host decides how to deliver it (in Daedalus, that "how" is the scheduling
+subsystem's step dispatchers — see that section for the delivery path; it is out of scope here).
+
+`ISubagentRunner.RunAsync(SubagentRunRequest, CancellationToken)` creates a fresh session for the requested
+agent, runs exactly one turn, and always closes the session — including on failure. A request carries:
+
+| `SubagentRunRequest` member | Meaning (from the package XML docs) |
+|---|---|
+| `AgentId` | The agent to run, resolved through `IAgentCatalog`. |
+| `Task` | The instruction, sent as the single user message of a single turn. |
+| `Caller` | The identity the run executes as — never inferred, because a detached run has no inbound request to derive one from. |
+| `Budget` | A `SubagentBudget` (`MaxTotalTokens`, `Deadline`); `null` defers to the host's configured default (50,000 tokens / 10 minutes when nothing else is configured). |
+| `Depth` | Nesting depth; 0 for a host-started run. The package doc comment notes nothing in Thalos increments this today — "sagas are compile-time, so there is no recursion to prevent yet." |
+| `ParentSessionId` | Telemetry lineage only, never authorization. |
+
+Two failure modes are enforced independently, per the package docs: **"A deadline stops work; a budget settles
+it."** The deadline cancels a linked token once wall-clock time runs out; the token budget is checked only
+after the turn returns, against tokens already spent. A run that races past its deadline but still completes
+successfully is reported as a *success* (with a logged warning) rather than a failure — the two checks do not
+always agree by design. Failure surfaces as one of three dedicated `AgentErrorCode` values:
+`SubagentBudgetExceeded`, `SubagentDeadlineExceeded`, `SubagentDepthExceeded` (plus the general `AgentNotFound`
+for an unresolvable `AgentId`).
+
+**Daedalus does not call `ISubagentRunner` from more than one place.** `SubagentRunExecutor`
+(`src/Daedalus.Agents/Scheduling/SubagentRunExecutor.cs`), implementing `ISubagentRunExecutor`
+(`src/Daedalus.Agents/Scheduling/ISubagentRunExecutor.cs`), says so in its own doc comment: "the only type in
+Daedalus that touches `ISubagentRunner`." It resolves an agent name against `IAgentCatalog`, builds a
+`SubagentRunRequest` with `Depth = 0` and `ParentSessionId = null` (no parent turn — the depth guard exists for
+a future in-turn delegation tool, not for this caller), runs it as a `DetachedPrincipal`
+(`src/Daedalus.Agents/Scheduling/DetachedPrincipal.cs` — an `ISecurityContext` built from configured
+`PrincipalId`/`Roles`, deliberately never borrowed from an ambient `ClaimsPrincipal`, because a scheduled run
+has no human behind it to borrow from), and converts every outcome — success or `AgentError` — into a
+`Result<string, AgentError>` rather than a thrown exception:
+
+```csharp
+public interface ISubagentRunExecutor
+{
+    ValueTask<Result<string, AgentError>> RunAsync(
+        string agentName, string task, string principalId, IReadOnlyList<string> roles, CancellationToken ct);
+}
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Sched as Scheduling step dispatcher<br/>(see the Scheduling section)
+    participant Exec as SubagentRunExecutor<br/>(Daedalus.Agents.Scheduling)
+    participant Cat as IAgentCatalog
+    participant Runner as Thalos ISubagentRunner
+    participant RT as IAgentRuntime<br/>(fresh session, no live caller)
+
+    Sched->>Exec: RunAsync(agentName, task, principalId, roles, ct)
+    Exec->>Cat: Resolve agentName (case-insensitive scan)
+    alt Unknown agent
+        Exec-->>Sched: Result.Failure(AgentError.Validation)
+    else Resolved
+        Exec->>Runner: RunAsync(SubagentRunRequest {<br/>AgentId, Task, Caller: DetachedPrincipal,<br/>Budget, Depth: 0, ParentSessionId: null })
+        Runner->>RT: CreateSessionAsync + RunTurnAsync (buffered, never streamed)
+        RT-->>Runner: AgentTurnResult or AgentError
+        Runner-->>Runner: Deadline stops work; budget settles it<br/>(checked independently, may disagree)
+        Runner-->>Exec: Result&lt;AgentTurnResult, AgentError&gt;
+        Exec-->>Sched: Result&lt;string, AgentError&gt; (Text on success)
+    end
 ```
 
 ---
