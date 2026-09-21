@@ -495,200 +495,211 @@ directly with EF Core. The CQRS write side is wired through the mediator; the re
 
 ---
 
-## 5. Git Repository Workflow - LLM-Driven Changes
+## 5. Legacy: Git-Driven Task Execution (Ralph Loop)
 
-Complete workflow showing how the LLM makes changes to git repositories:
+> **Status: legacy, not deleted.** Sections 5, 5A, 5B and 6 describe the original git-integrated
+> execution path, built before Thalos.NET (sections 15-20) existed. Nothing below is wrong — it was
+> verified directly against current source — it is marked legacy because Milestone 2 plans to redesign
+> it as **phase 2.5** (see `docs/planning/ROADMAP.md`), not because it is broken. It stays switched on
+> until that redesign demonstrably does the job. `RalphLoopWorker` is a real, currently-running
+> `BackgroundService` in `Daedalus.Console`, so a reader who finds it in the codebase still needs this
+> section.
+
+Two independent features share the git plumbing (`IGitRepositoryManager`, section 5A) but are otherwise
+unconnected — conflating them was the previous diagram's core error:
+
+1. **Per-task execution** (this section and section 6): `RalphLoopWorker` polls for pending `Task` rows,
+   optionally prepares a git workspace, and runs the task's prompt through an LLM iteration loop.
+2. **Code analysis** (section 5A/5B): `RalphLoopOrchestrator` (`IRalphLoopOrchestrator`), driven by
+   `CodeAnalysisController`, runs a single-file review-and-patch workflow against an existing
+   branch/commit. It is a separate request type (`CodeAnalysisRequest`, under
+   `Daedalus.Domain/CodeAnalysis/` — outside section 3's entity enumeration, see its note on scope) and
+   is never invoked by `RalphLoopWorker`.
+
+Verified end to end by reading `RalphLoopWorker.cs` and `WorkspaceOrchestrator.cs` directly:
 
 ```mermaid
 graph TD
-    A["🟢 Task Starts<br/>Git Operations Required"] -->|Initialize| B["Clone Repository<br/>from Remote URL"]
-
-    B -->|Download Code| C["Repository Downloaded<br/>to Temp Directory"]
-
-    C -->|Create Isolated| D["Create Git Worktree<br/>for Feature Branch"]
-
-    D -->|Branch Created| E["Switch to Feature Branch<br/>Ready for Changes"]
-
-    E -->|Start Loop| F["Ralph Loop Iteration<br/>n=1..max"]
-
-    F -->|Send Prompt| G["LLM Analyzes Codebase<br/>with File Context"]
-
-    G -->|Generates| H["LLM Returns Changes<br/>in Patch/Diff Format"]
-
-    H -->|Apply Changes| I["Apply Patch to<br/>Worktree Files"]
-
-    I -->|Verify Changes| J{"Check for<br/>CompletionPromise"}
-
-    J -->|Not Found| K["Accumulate Learnings<br/>Add File Context"]
-
-    K -->|Enhance Prompt| L["Update Prompt with<br/>Previous Diffs & Output"]
-
-    L -->|Loop Back| F
-
-    J -->|Found| M["✅ Changes Complete<br/>Verification Success"]
-
-    M -->|Stage Files| N["Git Add - Stage<br/>Modified Files"]
-
-    N -->|Commit| O["Git Commit with<br/>Auto-Generated Message"]
-
-    O -->|Push| P["Git Push to<br/>Feature Branch"]
-
-    P -->|Create PR| Q["Create Pull Request<br/>on Remote Repository"]
-
-    Q -->|Review| R["PR Ready for<br/>Code Review"]
-
-    R -->|Cleanup| S["Delete Worktree<br/>Clean Local Temp"]
-
-    S -->|Record Result| T["Update Task DB<br/>with PR URL & SHA"]
-
-    T -->|End| U["🔴 Task Complete<br/>Changes Merged/Pending"]
+    A["RalphLoopWorker polls<br/>ITaskAssignmentService (5s)"] -->|Task claimed| B{"task.ProjectId set?"}
+    B -->|Yes| C["IWorkspaceOrchestrator.PrepareWorkspaceAsync<br/>(WorkspaceOrchestrator)"]
+    C -->|"IGitRepositoryManager:<br/>CloneRepositoryAsync, CreateWorktreeAsync,<br/>CreateFeatureBranchAsync"| D["Workspace ready<br/>(clone + feature branch)"]
+    C -->|Failure| E["Non-fatal: continue<br/>text-only, no workspace"]
+    B -->|No| E
+    D --> F["IRalphLoopService.ExecuteAsync<br/>(RalphLoopPipelineService, section 6)"]
+    E --> F
+    F --> G{"Loop finished"}
+    G -->|"workspace present"| H["IWorkspaceOrchestrator.FinalizeWorkspaceAsync"]
+    H -->|pushOnCompletion| I["gitManager.CommitChangesAsync<br/>+ PushBranchAsync"]
+    I --> J["CreatePullRequestAsync<br/>(IPullRequestFactory)"]
+    H --> K["gitManager.CleanupAsync<br/>(always runs)"]
+    G -->|"no workspace"| L["Mark task complete/failed"]
+    J --> L
+    K --> L
 ```
+
+`WorkspaceOrchestrator` (`Daedalus.Infrastructure.Services`) is the only place `RalphLoopWorker` touches
+git, and even there it delegates every operation to `IGitRepositoryManager` (section 5A). There is no
+`RalphLoopService` class — that god-object was deleted; `RalphLoopPipelineService` (section 6) replaced
+it — and there is no `McpEnhancedPromptBuilder` anywhere in `src/`.
 
 ---
 
 ## 5A. Git Service Architecture
 
-Detailed breakdown of git operations and services:
+`IGitRepositoryManager` (`Daedalus.Application/Services/CodeAnalysis/IGitRepositoryManager.cs`,
+implemented by `GitRepositoryManager` in `Daedalus.Infrastructure` over LibGit2Sharp) has **12 members**,
+read directly from the interface rather than carried forward from the previous diagram's fictional set:
+
+```csharp
+public interface IGitRepositoryManager
+{
+    Task<Result<GitOperationContext>> CloneRepositoryAsync(
+        string repoUrl, string? branch = null, string? targetPath = null, CancellationToken ct = default);
+    Task<Result<GitOperationContext>> FetchLatestAsync(string workTreePath, CancellationToken ct = default);
+
+    Task<Result<string>> CreateFeatureBranchAsync(
+        string workTreePath, string branchName, string? fromBranch = null, CancellationToken ct = default);
+    Task<Result> SwitchBranchAsync(string workTreePath, string branchName, CancellationToken ct = default);
+    Task<Result> DeleteBranchAsync(
+        string workTreePath, string branchName, bool force = false, CancellationToken ct = default);
+
+    Task<Result<string>> CreateWorktreeAsync(
+        string baseRepoPath, string worktreeName, string branchName, CancellationToken ct = default);
+    Task<Result> DeleteWorktreeAsync(string worktreePath, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<GitDiff>>> GetDiffsAsync(
+        string workTreePath, string baseBranch, CancellationToken ct = default);
+    Task<Result> ApplyPatchAsync(string workTreePath, string patchContent, CancellationToken ct = default);
+    Task<Result> CommitChangesAsync(
+        string workTreePath, string message, string? author = null, CancellationToken ct = default);
+    Task<Result> PushBranchAsync(
+        string workTreePath, string branchName, bool force = false, CancellationToken ct = default);
+
+    Task<Result> CleanupAsync(string workTreePath, CancellationToken ct = default);
+}
+```
+
+Two unrelated callers, both real:
+
+| Caller | Uses it for |
+|---|---|
+| `WorkspaceOrchestrator` (section 5) | Clone + feature branch + worktree before a task runs; commit/push/cleanup after |
+| `RalphLoopOrchestrator` (`IRalphLoopOrchestrator`, driven by `CodeAnalysisController`) | The same clone/branch/diff/patch/commit primitives, for the unrelated code-analysis workflow |
 
 ```mermaid
 graph TB
-    subgraph "Ralph Loop Service"
-        RL["RalphLoopService<br/>Orchestrates Execution"]
+    subgraph Consumers["Two unrelated consumers"]
+        WO["WorkspaceOrchestrator<br/>(per-task workspace prep, section 5)"]
+        RLO["RalphLoopOrchestrator<br/>(code analysis, section 5B)"]
     end
 
-    subgraph "Git Management Layer"
-        GM["IGitRepositoryManager<br/>Interface"]
-
-        subgraph "Repository Operations"
-            GR1["Clone Repository"]
-            GR2["Fetch Latest"]
-            GR3["GetDiffs"]
-        end
-
-        subgraph "Branch Operations"
-            GB1["Create Feature Branch"]
-            GB2["Switch Branch"]
-            GB3["Delete Branch"]
-        end
-
-        subgraph "Worktree Operations"
-            GW1["Create Worktree"]
-            GW2["Delete Worktree"]
-        end
-
-        subgraph "Change Operations"
-            GC1["Apply Patch"]
-            GC2["Commit Changes"]
-            GC3["Push Branch"]
-        end
+    subgraph App["Daedalus.Application.Services.CodeAnalysis"]
+        GM["IGitRepositoryManager<br/>12 members"]
     end
 
-    subgraph "File System & Local Git"
-        TMP["📁 Temp Directory<br/>Multiple Worktrees"]
-        WC["Git Worktree<br/>Working Copy"]
-        INDEX["Git Index<br/>Staging Area"]
-        ODB["Git Object Database<br/>Commits, Trees, Blobs"]
+    subgraph Infra["Daedalus.Infrastructure (LibGit2Sharp)"]
+        IMPL["GitRepositoryManager"]
     end
 
-    subgraph "Remote Repository"
-        REMOTE["☁️ GitHub/GitLab<br/>Feature Branch +<br/>Pull Request"]
-    end
-
-    RL -->|Use| GM
-
-    GM --> GR1
-    GM --> GR2
-    GM --> GR3
-    GM --> GB1
-    GM --> GB2
-    GM --> GB3
-    GM --> GW1
-    GM --> GW2
-    GM --> GC1
-    GM --> GC2
-    GM --> GC3
-
-    GR1 -->|Create| TMP
-    GW1 -->|Create| WC
-    GC1 -->|Modify| WC
-    GC2 -->|Stage & Commit| INDEX
-    INDEX -->|Persist| ODB
-    GC3 -->|Upload| REMOTE
-
-    TMP -->|Contains| WC
-    WC -->|Manages| INDEX
-    INDEX -->|Populates| ODB
+    WO --> GM
+    RLO --> GM
+    GM -.implemented by.-> IMPL
 ```
 
 ---
 
 ## 5B. Code Extraction & LLM Context
 
-How code is extracted and provided to LLM for analysis:
+`IRepositoryCodeExtractor` (`Daedalus.Application/Services/CodeAnalysis/IRepositoryCodeExtractor.cs`,
+implemented by `RepositoryCodeExtractor`) has **5 members** — an entirely different method set from the
+previous diagram, which named `GetFileContentsAsync`/`GetFilesAsync`/`GetDirectoryStructureAsync`/
+`SearchFilesAsync`; none of those exist:
+
+```csharp
+public interface IRepositoryCodeExtractor
+{
+    Task<Result<RepositoryFile>> GetFileAsync(
+        string repoUrl, string filePath, string? branch = null, string? commitSha = null,
+        CancellationToken ct = default);
+
+    Task<Result<string>> GetCodeSnippetAsync(
+        string workTreePath, string filePath, int? startLine = null, int? endLine = null,
+        CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<string>>> FindRelatedFilesAsync(
+        string workTreePath, string filePath, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<GitCommitInfo>>> GetFileHistoryAsync(
+        string workTreePath, string filePath, int? maxCommits = null, CancellationToken ct = default);
+
+    Task<Result<AnalysisContext>> BuildAnalysisContextAsync(
+        CodeAnalysisRequest request, string workTreePath, CancellationToken ct = default);
+}
+```
+
+It is consumed only by the code-analysis feature (`IAnalysisPromptBuilder` / `RalphLoopOrchestrator`,
+section 5A) — the per-task pipeline (section 6) builds its prompt through `IPromptBuilder` instead and
+never calls this interface.
+
+**The LLM is Anthropic Claude, not OpenAI or GitHub Copilot, in both features.** The per-task pipeline's
+`LlmInvocationMiddleware` calls `IRalphAgentFactory.InvokeAsync` (implemented by `RalphAgentFactory` in
+`Daedalus.Infrastructure`, wrapping `Thalos.NET.Anthropic`); the code-analysis feature's orchestrator
+calls the model through the same `IRalphAgentFactory` seam. Neither path has ever gone through OpenAI or
+GitHub Copilot — no such integration exists anywhere in `src/`. `McpEnhancedPromptBuilder`, named in the
+previous diagram, does not exist under any name.
 
 ```mermaid
 graph TB
-    subgraph "Repository Context"
-        RC["IRepositoryCodeExtractor<br/>Interface"]
-
-        subgraph "Code Retrieval Methods"
-            RF["Get File by Path"]
-            RM["Get Multiple Files"]
-            RD["Get Directory Tree"]
-            RS["Search by Pattern"]
-        end
+    subgraph Ctx["Code Analysis Context Building"]
+        RC["IRepositoryCodeExtractor<br/>5 members"]
+        PB["IAnalysisPromptBuilder"]
+        RLO["RalphLoopOrchestrator"]
     end
 
-    subgraph "File System"
-        WT["📁 Worktree<br/>Complete Code"]
-        FS["File System<br/>Read Operations"]
+    subgraph FileSystem["File System"]
+        WT["Worktree<br/>(prepared by IGitRepositoryManager)"]
     end
 
-    subgraph "LLM Context Building"
-        PM["Prompt Builder<br/>McpEnhancedPromptBuilder"]
-
-        subgraph "Context Assembly"
-            CF["Collect Relevant Files"]
-            CT["Build Full Context<br/>with Line Numbers"]
-            CL["Add Learnings from<br/>Previous Iterations"]
-        end
+    subgraph Llm["LLM"]
+        Factory["IRalphAgentFactory<br/>(RalphAgentFactory)"]
+        Claude[("Anthropic API<br/>Thalos.NET.Anthropic")]
     end
 
-    subgraph "LLM API"
-        LLM["LLM Service<br/>OpenAI/GitHub Models"]
-        PROMPT["Final Prompt<br/>with Complete Context"]
-    end
-
-    RC --> RF
-    RC --> RM
-    RC --> RD
-    RC --> RS
-
-    RF -->|Read Files| FS
-    RM -->|Read Files| FS
-    RD -->|Traverse| FS
-    RS -->|Search| FS
-
-    FS -->|Source Code| WT
-
-    PM --> CF
-    PM --> CT
-    PM --> CL
-
-    CF -->|Request| RC
-    CT -->|Use| RC
-
-    CT -->|Create| PROMPT
-    PROMPT -->|Send| LLM
-
-    CL -->|Add Context| PROMPT
+    RLO --> RC
+    RLO --> PB
+    RC -->|reads| WT
+    PB -->|uses| RC
+    PB -->|final prompt| Factory
+    Factory --> Claude
 ```
 
 ---
 
-## 6. Ralph Loop Worker - Task Processing Pipeline
+## 6. Legacy: Ralph Loop Worker - Task Processing Pipeline
 
-The console application implements a distributed Ralph Loop worker:
+> **Status: legacy, not deleted — see the note in section 5.** Verified accurate against
+> `RalphLoopWorker.cs`: the polling/heartbeat/reclaim intervals below match the source exactly.
+
+The console application implements a distributed Ralph Loop worker. Each iteration runs through a fixed
+`IRalphLoopMiddleware` pipeline (`Daedalus.Application/Services/Middleware/`), ordered by each
+middleware's own `Order` property:
+
+| Order | Middleware | Does |
+|---|---|---|
+| 90 | `LearningsEnrichmentMiddleware` | Injects prior-iteration learnings into context |
+| 100 | `PromptBuildingMiddleware` | Builds the iteration prompt via `IPromptBuilder` |
+| 200 | `LlmInvocationMiddleware` | Calls `IRalphAgentFactory.InvokeAsync` — Anthropic Claude, MCP tools pre-attached |
+| 250 | `CodeChangeApplicationMiddleware` | Applies the model's changes to the workspace |
+| 300 | `CompletionDetectionMiddleware` | Checks for the task's `CompletionPromise` string |
+| 350 | `InlineLearningsExtractionMiddleware` | Extracts new learnings from this iteration |
+| 400 | `LoopbackEvaluationMiddleware` | Runs build/tests, records `BuildSucceeded`/`TestsPassed` |
+| 500 | `GitCheckpointMiddleware` | Commits via `IGitWorkflowService.CommitAfterSuccessAsync` only when loopback passed |
+
+`IGitWorkflowService` is a separate, lighter interface from `IGitRepositoryManager` (section 5A) — five
+members (`CommitAfterSuccessAsync`, `TagOnCompletionAsync`, `ResetToLastGoodAsync`, `PushAsync`,
+`GetLatestTagAsync`) built for the "commit on green, `git reset --hard` on rails-off" checkpoint pattern,
+not for cloning or worktrees. `RalphLoopPipelineService` (`IRalphLoopService`) is what `RalphLoopWorker`
+actually resolves and runs; there is no `RalphLoopService` class today.
 
 ```mermaid
 graph TD
@@ -858,7 +869,8 @@ graph LR
 
 ## 8A. Data Flow - Task Execution
 
-How data flows from creation to completion using direct database access:
+How data flows from creation to completion using direct database access. This is the same legacy Ralph
+Loop pipeline detailed in sections 5-6; see those for the verified middleware order and interfaces.
 
 ```mermaid
 graph LR
@@ -875,7 +887,7 @@ graph LR
     end
 
     subgraph "Task Execution"
-        G["Send Prompt to<br/>GitHub Copilot LLM"]
+        G["Send Prompt to<br/>Anthropic Claude<br/>(IRalphAgentFactory)"]
         H["LLM Processes<br/>Analyzes Code"]
         I["LLM Returns<br/>Response"]
         J["Check for<br/>CompletionPromise"]
@@ -1004,160 +1016,218 @@ graph TB
 
 ## 11. API Controllers & Endpoints
 
-REST API surface and routing:
+Enumerated directly from `src/Daedalus.Api/Controllers/` — **14 controllers**, not the 4 the previous
+diagram showed (there is no `DataControllers`; that was a made-up umbrella label). Every controller
+carries `[ApiVersion("1.0")]`, and `Asp.Versioning.Mvc` is referenced and configured
+(`AddApiVersioning` in `Program.cs`, with `UrlSegmentApiVersionReader` among its readers) — but **no
+route in this API contains a version segment**. `UrlSegmentApiVersionReader` is registered but nothing
+routes through it, since every `[Route]` template below is version-free; the attribute and the reader
+exist for a versioning scheme that has not been switched on yet.
+
+| Controller | Route | Notes |
+|---|---|---|
+| `TasksController` | `/api/[controller]` → `/api/tasks` | CRUD + abandon/resume; reads via `ITaskQueryService`, writes via `IApplicationCommands` (section 4) |
+| `ProjectsController` | `/api/[controller]` → `/api/projects` | CRUD, `+with-tasks` |
+| `AgentsController` | `/api/agents` | Lists the agent catalogue |
+| `AgentSessionsController` | `/api/agents` | Sessions, turns (buffered + SSE stream), see section 15 |
+| `AgentMemoriesController` | `/api/agent-memories` | List/get/forget, see section 16 |
+| `BrainstormController` | `/api/[controller]` → `/api/brainstorm` | Sessions, messages, phase advance, task generation |
+| `CodeAnalysisController` | `/api/[controller]` → `/api/codeanalysis` | The code-analysis feature from section 5A/5B |
+| `CostAnalyticsController` | `/api/cost-analytics` | Summaries, per-project/session, pricing |
+| `ExecutionSessionsController` | `/api/[controller]` → `/api/executionsessions` | Worker session listing |
+| `PrdController` | `/api/[controller]` → `/api/prd` | Generate PRD, convert to tasks |
+| `RalphConfigController` | `/api/ralph-config` | Get/update Ralph loop configuration |
+| `RepositoriesController` | `/api/[controller]` → `/api/repositories` | Repository configuration CRUD + test-connection |
+| `SchedulesController` | `/api/schedules` | Overview, run history, resend — see section 19 |
+| `TaskExecutionsController` | `/api/[controller]` → `/api/taskexecutions` | Execution history by task/session |
 
 ```mermaid
 graph TB
-    subgraph "API Endpoints"
-        A["📌 DataControllers<br/>/api/data/*"]
-        B["📌 CodeAnalysisController<br/>/api/codeanalysis/*"]
-        C["📌 RepositoriesController<br/>/api/repositories/*"]
-        D["📌 PrdController<br/>/api/prd/*"]
+    subgraph Tasks["Task & Project management"]
+        Ta["TasksController<br/>/api/tasks"]
+        Pr["ProjectsController<br/>/api/projects"]
+        TE["TaskExecutionsController<br/>/api/taskexecutions"]
+        ES["ExecutionSessionsController<br/>/api/executionsessions"]
     end
 
-    subgraph "Controllers Implementation"
-        A1["Tasks CRUD<br/>GET/POST/PUT/DELETE"]
-        A2["Projects CRUD<br/>GET/POST/PUT/DELETE"]
-        B1["Code Quality Analysis<br/>Violations, Metrics"]
-        C1["Repository Info<br/>Files, Structure"]
-        D1["PRD Generation<br/>Auto-generate Specs"]
+    subgraph Agent["Thalos agent surface"]
+        Ag["AgentsController<br/>/api/agents"]
+        AS["AgentSessionsController<br/>/api/agents"]
+        AM["AgentMemoriesController<br/>/api/agent-memories"]
     end
 
-    subgraph "Response Format"
-        R1["200 OK<br/>With DTO Payload"]
-        R2["404 Not Found<br/>Error Message"]
-        R3["400 Bad Request<br/>Validation Error"]
-        R4["500 Internal Error<br/>Failure Message"]
+    subgraph Automation["Ralph / legacy automation"]
+        Ca["CodeAnalysisController<br/>/api/codeanalysis"]
+        Rc["RalphConfigController<br/>/api/ralph-config"]
+        Pd["PrdController<br/>/api/prd"]
+        Br["BrainstormController<br/>/api/brainstorm"]
     end
 
-    A --> A1
-    A --> A2
-    B --> B1
-    C --> C1
-    D --> D1
+    subgraph Ops["Repositories, schedules, cost"]
+        Re["RepositoriesController<br/>/api/repositories"]
+        Sc["SchedulesController<br/>/api/schedules"]
+        Co["CostAnalyticsController<br/>/api/cost-analytics"]
+    end
 
-    A1 --> R1
-    A2 --> R1
-    B1 --> R1
-    C1 --> R1
-    D1 --> R1
-
-    A1 -.->|Validation| R3
-    A1 -.->|Not Found| R2
-    A1 -.->|Exception| R4
+    Ta -->|IApplicationCommands / ITaskQueryService| Domain1[("PostgreSQL")]
+    Pr -->|IApplicationCommands| Domain1
+    AS -->|IAgentRuntime| Domain1
+    AM -->|IMemoryService| Domain1
+    Sc -->|IScheduleDiagnostics| Domain1
+    Ca -->|RalphLoopOrchestrator| Domain1
 ```
 
 ---
 
 ## 12. Technology Stack & Integration Points
 
-Complete tech stack overview:
+Rewritten directly from `Directory.Packages.props` (central package management — every version is pinned
+there; `.csproj` files carry no `Version` attribute) rather than carried forward from the previous list,
+which named a package (`CSharpFunctionalExtensions`) that is not referenced anywhere in the solution and
+omitted the packages that actually run CQRS dispatch and the AI stack.
 
 ```mermaid
 graph TB
-    subgraph "Frontend"
-        BLAZOR["Blazor WebAssembly<br/>Interactive UI"]
-        JS["JavaScript<br/>Browser Runtime"]
+    subgraph Frontend["Frontend"]
+        BLAZOR["Blazor WebAssembly 10<br/>+ Radzen.Blazor"]
     end
 
-    subgraph "Backend Services"
+    subgraph Hosts["Hosts"]
         API["ASP.NET Core 10<br/>REST API"]
-        WORKER["Console App<br/>Background Worker"]
-        ASPIRE["🚀 .NET Aspire<br/>Orchestration"]
+        WORKER["Console<br/>Ralph Loop worker"]
+        ASPIRE["🚀 .NET Aspire 13.4<br/>Orchestration"]
     end
 
-    subgraph "Identity & Security"
-        KEYCLOAK["🔐 Keycloak 26<br/>OIDC Identity Provider"]
-        JWT["JWT Bearer<br/>Token Validation"]
-        OIDC["OpenID Connect<br/>Authorization Code Flow"]
+    subgraph Identity["Identity & Security"]
+        KEYCLOAK["🔐 Keycloak (OIDC)<br/>Aspire.Hosting.Keycloak"]
+        JWT["Microsoft.AspNetCore.Authentication.JwtBearer"]
     end
 
-    subgraph "Language & Framework"
-        CSharp["C# 13.0<br/>Latest Language Features"]
-        DotNET["🟦 .NET 10<br/>High Performance"]
+    subgraph Runtime["Language & Runtime"]
+        DotNET["🟦 .NET 10"]
+        ZLINQ["ZLinq 1.5.4<br/>Zero-alloc LINQ"]
     end
 
-    subgraph "Patterns & Libraries"
-        ROP["Railway-Oriented<br/>Programming"]
-        CFE["CSharpFunctional<br/>Extensions"]
-        ZLINQ["ZLinq<br/>Zero-Allocation LINQ"]
+    subgraph Cqrs["CQRS & Results"]
+        MEDIATOR["ZeroAlloc.Mediator 5.1.1<br/>+ Generator (internal IMediator)"]
+        RESULTS["ZeroAlloc.Results 1.2.2<br/>Result&lt;T&gt; / Result"]
+        OUTBOX["ZeroAlloc.Outbox 2.5.2<br/>+ .EfCore"]
     end
 
-    subgraph "Data & Persistence"
-        EFC["Entity Framework<br/>Core 10"]
-        NPGSQL["Npgsql<br/>PostgreSQL Driver"]
-        POSTGRES["🐘 PostgreSQL 16<br/>Relational Database"]
+    subgraph Ai["AI stack"]
+        THALOS["Thalos.NET family 0.5.1<br/>(Abstractions, Anthropic, Sentinel,<br/>Memory, Memory.RagNet, Skills,<br/>Channels, Channels.Telegram)"]
+        ANTHROPIC["Anthropic SDK 12.49.0<br/>+ Microsoft.Extensions.AI 10.10"]
+        MCP["ModelContextProtocol 2.2.0"]
     end
 
-    subgraph "Git & File Operations"
-        GRM["GitRepositoryManager<br/>Clone, Branch, Commit"]
-        RCE["RepositoryCodeExtractor<br/>File Reading"]
-        FS["System.IO<br/>File System Operations"]
-        GIT["🔀 Git CLI/API<br/>Version Control"]
+    subgraph Data["Data & Persistence"]
+        EFC["Entity Framework Core 10.0.2"]
+        NPGSQL["Npgsql 10.0.3<br/>+ Npgsql.EntityFrameworkCore.PostgreSQL"]
+        POSTGRES["🐘 PostgreSQL<br/>(pgvector/pgvector:pg16)"]
     end
 
-    subgraph "Testing"
-        XUNIT["xUnit<br/>Unit Testing"]
-        CONTAINERS["TestContainers<br/>Integration Tests"]
-        PLAYWRIGHT["Playwright<br/>E2E Testing"]
+    subgraph Resilience["HTTP & Resilience"]
+        HTTPRES["Microsoft.Extensions.Http.Resilience 10.3<br/>AddStandardResilienceHandler"]
     end
 
-    subgraph "Code Quality"
-        SONAR["SonarAnalyzer<br/>Code Quality"]
-        MEZIANTOU["Meziantou.Analyzer<br/>Performance Analysis"]
-        NETANALYZERS["NetAnalyzers<br/>Best Practices"]
+    subgraph GitLibs["Git & scheduling libraries"]
+        LIBGIT["LibGit2Sharp 0.31.0<br/>(IGitRepositoryManager impl)"]
+        CRONOS["Cronos 0.13.0<br/>(ScheduledRun cron parsing)"]
     end
 
-    subgraph "Observability"
-        OTEL["OpenTelemetry<br/>Distributed Tracing"]
-        LOGGING["ILogger<br/>Structured Logging"]
+    subgraph Testing["Testing"]
+        NUNIT["NUnit 4.4.0<br/>(Playwright suites)"]
+        XUNIT["xUnit 2.9.3<br/>(unit/integration)"]
+        CONTAINERS["TestContainers<br/>Postgres + Keycloak"]
+        PLAYWRIGHT["Microsoft.Playwright 1.58"]
+    end
+
+    subgraph Quality["Code Quality"]
+        SONAR["SonarAnalyzer.CSharp"]
+        MEZIANTOU["Meziantou.Analyzer"]
+        NETANALYZERS["Microsoft.CodeAnalysis.NetAnalyzers"]
+        ZAANALYZERS["ZeroAlloc.Analyzers"]
+    end
+
+    subgraph Observability["Observability"]
+        OTEL["OpenTelemetry 1.17"]
     end
 
     BLAZOR --> API
-    BLAZOR -->|OIDC Login| KEYCLOAK
-    API --> ROP
-    API -->|Validate Tokens| JWT
-    WORKER --> ROP
-    WORKER --> EFC
-    WORKER -->|Service Account| KEYCLOAK
+    BLAZOR -->|OIDC login| KEYCLOAK
+    API -->|validate JWT| JWT
+    API --> MEDIATOR
     API --> EFC
+    WORKER --> EFC
+    API --> THALOS
+    WORKER --> THALOS
+    THALOS --> ANTHROPIC
+    THALOS --> MCP
 
-    KEYCLOAK --> OIDC
-    KEYCLOAK --> JWT
-    KEYCLOAK --> POSTGRES
-
-    ROP --> CFE
-    API --> ZLINQ
+    MEDIATOR --> RESULTS
+    THALOS --> OUTBOX
 
     EFC --> NPGSQL
     NPGSQL --> POSTGRES
+    KEYCLOAK --> POSTGRES
 
-    ASPIRE -->|Coordinates| API
-    ASPIRE -->|Coordinates| WORKER
-    ASPIRE -->|Coordinates| POSTGRES
-    ASPIRE -->|Coordinates| KEYCLOAK
+    ASPIRE -->|manages| API
+    ASPIRE -->|manages| WORKER
+    ASPIRE -->|manages| POSTGRES
+    ASPIRE -->|manages| KEYCLOAK
 
-    WORKER -->|Clone/Commit/Push| GRM
-    GRM -->|Manage| RCE
-    RCE -->|Read Files| FS
-    FS -->|Execute| GIT
+    API --> HTTPRES
+    WORKER --> LIBGIT
+    WORKER --> CRONOS
 
-    CSharp --> DotNET
-    CFE --> DotNET
+    API --> ZLINQ
+    DotNET --> ZLINQ
 
     API --> XUNIT
     WORKER --> CONTAINERS
     BLAZOR --> PLAYWRIGHT
+    PLAYWRIGHT --> NUNIT
 
     API --> SONAR
     API --> MEZIANTOU
     API --> NETANALYZERS
+    API --> ZAANALYZERS
 
     API --> OTEL
-    API --> LOGGING
-    WORKER --> LOGGING
-    GRM --> LOGGING
+    WORKER --> OTEL
 ```
+
+### Not in this codebase
+
+Mirroring the equivalent note in `CLAUDE.md` — absence cannot be discovered by reading code, so it only
+survives if it is written down:
+
+- **No `Polly` package dependency.** Resilient HTTP clients (GitHub/Azure DevOps pull-request factories)
+  use `Microsoft.Extensions.Http.Resilience`'s `AddStandardResilienceHandler(...)`
+  (`Daedalus.Infrastructure/Extensions/InfrastructureServiceExtensions.cs`, and
+  `Daedalus.Web/Program.cs`). `Polly` types appear in `using` directives only because
+  `Microsoft.Extensions.Http.Resilience` re-exposes them for configuring the pipeline — there is no
+  direct `PackageReference` to `Polly` anywhere in `src/`.
+- **No `ZeroAlloc.Specification` package and no `Specification<T>` pattern** anywhere in the solution.
+- **No generic `IRepository<T>`.** Repositories are one interface per aggregate in
+  `Daedalus.Application/Abstractions/` (`ITaskRepository`, `IProjectRepository`,
+  `IExecutionSessionRepository`, `IBrainstormRepository`, `IRepositoryConfigurationRepository`) plus a
+  few more under `Services/CodeAnalysis/` for the code-analysis feature (`ICodeAnalysisRepository`,
+  `IGitRepositoryManager`, `IRepositoryCodeExtractor`, `IRepositoryAuthenticationProvider`,
+  `IRepositoryPlatformDetector`).
+- **No `CSharpFunctionalExtensions`.** Replaced by **ZeroAlloc.Results** in phase 1.7; zero references
+  remain in any `.csproj`.
+- **No `ZeroAlloc.Saga` or `ZeroAlloc.Scheduling` — and they are not in the same status.**
+  `ZeroAlloc.Saga`'s architecture ban was **lifted** in [#258](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/258)
+  once its upstream `Publish`/DI bug was fixed — Saga is now **allowed but unused**, a live candidate for
+  phase 2.2's workflow engine, not something a project is forbidden from referencing.
+  `ZeroAlloc.Scheduling` remains **excluded by design**, re-justified in the same PR: `ScheduledRun.NextRunAt`
+  is the sweep's only source of truth and `ClaimAndEnqueueDueAsync` is idempotent (section 18), so a
+  durable job store buys nothing over the plain `BackgroundService` sweeper already in place. Both
+  absences are still enforced by the same architecture test class
+  (`tests/Daedalus.Tests.Unit/Architecture/CleanArchitectureTests.cs`,
+  `No_project_references_ZeroAlloc_Scheduling`), but for two different reasons — one is a lifted ban, the
+  other a standing design decision.
 
 ---
 
@@ -1219,7 +1289,7 @@ sequenceDiagram
 
     Service->>Service: Business Logic<br/>Map to DTO
 
-    Service-->>Handler: Result.Success(DTO)
+    Service-->>Handler: Result&lt;T&gt;.Success(DTO)<br/>(ZeroAlloc.Results, section 4)
     deactivate Service
 
     Handler-->>Controller: Result Object<br/>Success or Failure
@@ -1437,11 +1507,16 @@ Notes:
 
 ### Strangler layout: Ralph and Thalos side by side
 
-Until phase 1.6 both stacks are wired in the API and share Infrastructure (DbContext) — and, since phase 1.2, the agent
+**Both stacks are still wired in today**, sharing Infrastructure (DbContext) — and, since phase 1.2, the agent
 memory: Ralph's learnings are written and recalled through the Application port `ILearningsMemory` (shared owner
-`daedalus`), so `StructuredLearnings` and the hand-rolled embedding service are gone. The Ralph worker runs in
-`Daedalus.Console`, which registers `AddDaedalusMemory` (memory only, no agents, no skills, creates no Rag.NET
-schema — it runs no Thalos agents, so there is no catalogue to build):
+`daedalus`), so `StructuredLearnings` and the hand-rolled embedding service are gone. Ralph's retirement was
+originally slated for phase 1.6, then explicitly rescoped on 2026-09-20 (`docs/planning/ROADMAP.md`): the loop
+is the seed of the Milestone 2 software-manufacturing design, not dead weight, so it is **redesigned as phase
+2.5** rather than deleted, and switched off only once that redesign demonstrably does the job — see the legacy
+note in section 5. The Ralph worker runs in `Daedalus.Console` as `RalphLoopWorker`, resolving `IRalphLoopService`
+(`RalphLoopPipelineService`, section 6) — not the `RalphLoopOrchestrator` class, which belongs to the unrelated
+code-analysis feature (section 5A). `Daedalus.Console` registers `AddDaedalusMemory` (memory only, no agents, no
+skills, creates no Rag.NET schema — it runs no Thalos agents, so there is no catalogue to build):
 
 ```mermaid
 graph LR
@@ -1455,9 +1530,9 @@ graph LR
         AgentCtrl["AgentsController<br/>AgentSessionsController (SSE)<br/>AgentMemoriesController"]
     end
 
-    subgraph "Ralph stack (legacy, retired in 1.6)"
-        Ralph["RalphLoopOrchestrator<br/>Daedalus.Console worker"]
-        RalphLlm["ILlmService<br/>Copilot / Claude"]
+    subgraph "Ralph stack (legacy — phase 2.5 redesign pending, see section 5)"
+        Ralph["RalphLoopWorker → RalphLoopPipelineService<br/>Daedalus.Console worker"]
+        RalphLlm["IRalphAgentFactory<br/>Anthropic Claude"]
         LearnPort["ILearningsMemory (Application port)<br/>LearningsService · enrichment middleware<br/>search_learnings MCP tool"]
         ConsoleComposition["AddDaedalusMemory<br/>(memory only, no schema)"]
     end
@@ -2054,6 +2129,85 @@ graph TD
 
 ---
 
+## 21. Data Access — EF Core, Concurrency, and Migrations
+
+Source: `src/Daedalus.Infrastructure/Persistence/` (`ApplicationDbContext`, `Configurations/`) and
+`src/Daedalus.Infrastructure/Migrations/` (17 migrations, `AddMissingTaskColumns` (2026-02-09, the
+earliest by its `[Migration]` timestamp) through `AddScheduledRunRepository` (2026-09-19)).
+`Daedalus.Migrations` is a small standalone console host
+(`src/Daedalus.Migrations/Program.cs`) whose entire job is `await dbContext.Database.MigrateAsync()` on
+startup; `Daedalus.AppHost` runs it as a managed Aspire project (`AddProject`, not a compile-time
+reference — same pattern as section 2) so the schema is current before `Api`, `Web` or `Console` accept
+traffic.
+
+`ApplicationDbContext` exposes **17** `DbSet<T>` properties: the 14 entities from the section 3 ERD, plus
+`CodeAnalysisRequests` and `AnalysisIterations` (real DbSets, but outside section 3's `Entities/`-folder
+scope — see its note), plus `OutboxMessages` (`ZeroAlloc.Outbox.EfCore`, section 17/18's delivery and
+scheduling messages). `AsNoTracking()` is the convention for read-only queries (section 14).
+
+### Two concurrency-token generations — not one, despite both being called "the concurrency token"
+
+**This is a verify-the-member finding, not a design opinion.** Seven of the nine concurrency-checked
+entities carry a client-side `byte[]? RowVersion` property, mapped with plain `.IsRowVersion()` onto a
+`bytea` column literally named `RowVersion` (`Task`, `Project`, `ExecutionSession`, `AgentSession`,
+`BrainstormSession`, `CodeAnalysisRequest`, `RepositoryConfiguration`). **On Npgsql this column is
+inert** — Postgres has no built-in auto-updating binary rowversion the way SQL Server does, and nothing
+in this codebase writes a new value into it on every update. The design record for `AgentSession` says so
+directly (`docs/plans/2026-08-16-thalos-net-plan-b.md`): *"`AgentSession.RowVersion` is inert on Npgsql
+(byte[] rowversion is never populated) — the store relies on atomic `ExecuteUpdateAsync` statements
+instead."* `PostgresAgentSessionStore.RecordTurnAsync` has the same fact as a code comment at the call
+site: *"a read-modify-write would [race], because the bytea RowVersion is not DB-generated on
+PostgreSQL."* Its concurrency-critical paths (`RecordTurnAsync`, `TryTransitionAsync`) bypass
+`SaveChangesAsync` entirely in favor of single atomic `UPDATE ... WHERE` statements via
+`ExecuteUpdateAsync`; only the lower-stakes `UpdateStateAsync` still calls `SaveChangesAsync` inside a
+`try`/`catch (DbUpdateConcurrencyException)`, a catch block that in practice can only fire if some other
+write path changes the row's `RowVersion` value — which nothing currently does.
+
+The two newest aggregates — `ScheduledRun` and `ScheduledRunExecution` (added in phase 1.5, section 18) —
+use the **real** mechanism instead: a shadow `uint` property mapped straight onto Postgres's own system
+column, exactly as the brief for this phase describes:
+
+```csharp
+// ScheduledRunConfiguration.cs / ScheduledRunExecutionConfiguration.cs
+builder.Property<uint>("xmin").IsRowVersion().HasColumnName("xmin");
+```
+
+`xmin` is populated by Postgres itself on every row version — no application code ever sets it — so two
+sweepers racing the same due row (section 18) genuinely get a `DbUpdateConcurrencyException` from a stale
+`xmin`, not a check that can never fail. This is the pattern any new concurrency-sensitive entity should
+follow; the `byte[] RowVersion` columns on the older seven entities are a carried-forward historical
+artifact, not a template to copy.
+
+```mermaid
+graph TB
+    subgraph Inert["Inert byte[] RowVersion (7 entities)"]
+        Old["Task, Project, ExecutionSession,<br/>AgentSession, BrainstormSession,<br/>CodeAnalysisRequest, RepositoryConfiguration"]
+        Bytea[("bytea column<br/>never DB-generated")]
+        Old -->|"IsRowVersion()"| Bytea
+        Old -.->|"concurrency-critical paths<br/>bypass this via ExecuteUpdateAsync"| Bypass["Atomic UPDATE ... WHERE"]
+    end
+
+    subgraph Real["Real xmin (2 entities, phase 1.5+)"]
+        New["ScheduledRun,<br/>ScheduledRunExecution"]
+        Xmin[("Postgres xmin<br/>system column<br/>DB-generated on every write")]
+        New -->|"Property&lt;uint&gt;(\"xmin\").IsRowVersion()"| Xmin
+        Xmin -->|"stale xmin on UPDATE"| Conflict["DbUpdateConcurrencyException<br/>(genuinely thrown)"]
+    end
+```
+
+### Migrations
+
+17 migrations, applied in order by `Daedalus.Migrations` at Aspire startup. The two concurrency
+generations above map to two migration eras: `AddRowVersionConcurrencyTokens` added the inert `bytea`
+columns; `AddScheduledRuns`/`AddScheduledRunExecutions` (2026-09-17) are the first to declare `xmin`
+directly (`type: "xid", rowVersion: true`), followed by `AddFailedAtStep` and
+`AddScheduledRunRepository` extending the same two tables. Repository patterns for the newer aggregates
+(`ScheduledRunStore`, `ScheduledRunExecutionStore`) lean on the genuine `xmin` conflict to implement
+"loser backs off, winner proceeds" claim semantics (section 18) — a pattern the inert-`RowVersion`
+entities cannot support without `ExecuteUpdateAsync`'s where-clause trick instead.
+
+---
+
 ## Key Architectural Principles
 
 ### 🏗️ **Layered Architecture**
@@ -2077,33 +2231,29 @@ graph TD
 - No exception throwing for flow control
 - Clear success/failure paths
 
-### 🔄 **Distributed Task Processing**
+### 🔄 **Distributed Task Processing (legacy — see section 5/6)**
 
-- Ralph Loop worker pattern for iterative LLM execution
+- Ralph Loop worker pattern for iterative LLM execution against Anthropic Claude, via `IRalphAgentFactory`
 - Optimistic locking with `CurrentSessionId` for task claiming
 - Heartbeat monitoring for worker health
 - Automatic stale task reclamation
+- Superseded in direction by the Thalos agent runtime (sections 15-20); kept running until phase 2.5's
+  redesign replaces it
 
-### 📊 **Automatic Code Generation & Git Integration** ✨
+### 📊 **Automatic Code Generation & Git Integration (legacy — see section 5A/5B)** ✨
 
-- **Git Repository Manager** (`IGitRepositoryManager`):
-    - Clone repositories from remote URLs with authentication support
-    - Create isolated feature branches per task for safe operations
-    - Automatic git worktree management for parallel execution
-    - Atomic commit/push operations with PR creation
-    - Full diff tracking for learning accumulation
-- **Code Context Extraction** (`IRepositoryCodeExtractor`):
-    - Extract complete file contents with line numbers for LLM analysis
-    - Build rich semantic context from repository structure
-    - Support for pattern-based file searches
-    - Accumulate learnings from previous iterations in prompt
-    - Directory tree extraction for navigation context
-- **Fully Automated Workflow**:
-    - LLM makes code changes directly to isolated worktrees
-    - Diffs are automatically captured and included in learnings
-    - Changes are automatically staged, committed, and pushed
-    - Pull requests created with auto-generated descriptive messages
-    - Cleanup and validation ensure zero orphaned resources
+- **`IGitRepositoryManager`** (12 members, section 5A) — clone, fetch, feature branches, worktrees, diff,
+  patch, commit, push, cleanup. Two independent consumers: `WorkspaceOrchestrator` (per-task execution)
+  and `RalphLoopOrchestrator` (the separate code-analysis feature).
+- **`IRepositoryCodeExtractor`** (5 members, section 5B) — single file, code snippet by line range,
+  related-file discovery, file history, and building the code-analysis feature's LLM context. Consumed
+  only by the code-analysis feature, not by the per-task pipeline.
+- **Fully automated workflow (per-task pipeline)**:
+    - The LLM makes changes directly in an isolated worktree via the middleware pipeline (section 6)
+    - Successful iterations are checkpointed via `IGitWorkflowService.CommitAfterSuccessAsync`
+    - On completion, `WorkspaceOrchestrator.FinalizeWorkspaceAsync` pushes the branch and opens a PR via
+      `IPullRequestFactory`
+    - The workspace is always cleaned up, success or failure
 
 ### 📊 **Data-Driven Development**
 
@@ -2123,119 +2273,73 @@ graph TD
 
 ## Git Integration Service APIs
 
-### IGitRepositoryManager Interface
+Quick reference only — full narrative and consumer breakdown is in sections 5A and 5B. Both interfaces
+below are read directly from `src/Daedalus.Application/Services/CodeAnalysis/`, not carried forward from
+an earlier version of this document.
 
-Core abstraction for all git operations:
+### IGitRepositoryManager Interface (12 members)
 
 ```csharp
-// Repository Initialization
 Task<Result<GitOperationContext>> CloneRepositoryAsync(
-    string repoUrl,
-    string? branch = null,
-    string? targetPath = null,
-    CancellationToken ct = default);
+    string repoUrl, string? branch = null, string? targetPath = null, CancellationToken ct = default);
+Task<Result<GitOperationContext>> FetchLatestAsync(string workTreePath, CancellationToken ct = default);
 
-// Branch Management
 Task<Result<string>> CreateFeatureBranchAsync(
-    string workTreePath,
-    string branchName,
-    string? fromBranch = null,
-    CancellationToken ct = default);
+    string workTreePath, string branchName, string? fromBranch = null, CancellationToken ct = default);
+Task<Result> SwitchBranchAsync(string workTreePath, string branchName, CancellationToken ct = default);
+Task<Result> DeleteBranchAsync(
+    string workTreePath, string branchName, bool force = false, CancellationToken ct = default);
 
-// Worktree Operations (for parallel execution)
 Task<Result<string>> CreateWorktreeAsync(
-    string baseRepoPath,
-    string worktreeName,
-    string branchName,
-    CancellationToken ct = default);
+    string baseRepoPath, string worktreeName, string branchName, CancellationToken ct = default);
+Task<Result> DeleteWorktreeAsync(string worktreePath, CancellationToken ct = default);
 
-Task<Result> DeleteWorktreeAsync(
-    string worktreePath,
-    CancellationToken ct = default);
-
-// Change Tracking
 Task<Result<IReadOnlyList<GitDiff>>> GetDiffsAsync(
-    string workTreePath,
-    string baseBranch,
-    CancellationToken ct = default);
-
-Task<Result> ApplyPatchAsync(
-    string workTreePath,
-    string patchContent,
-    CancellationToken ct = default);
-
-// Commit & Push
+    string workTreePath, string baseBranch, CancellationToken ct = default);
+Task<Result> ApplyPatchAsync(string workTreePath, string patchContent, CancellationToken ct = default);
 Task<Result> CommitChangesAsync(
-    string workTreePath,
-    string message,
-    string? author = null,
-    CancellationToken ct = default);
-
+    string workTreePath, string message, string? author = null, CancellationToken ct = default);
 Task<Result> PushBranchAsync(
-    string workTreePath,
-    string branchName,
-    bool force = false,
-    CancellationToken ct = default);
+    string workTreePath, string branchName, bool force = false, CancellationToken ct = default);
+
+Task<Result> CleanupAsync(string workTreePath, CancellationToken ct = default);
 ```
 
-### IRepositoryCodeExtractor Interface
-
-Code analysis and context building:
+### IRepositoryCodeExtractor Interface (5 members)
 
 ```csharp
-// Single file operations
-Task<Result<string>> GetFileContentsAsync(
-    string repositoryPath,
-    string filePath,
+Task<Result<RepositoryFile>> GetFileAsync(
+    string repoUrl, string filePath, string? branch = null, string? commitSha = null,
     CancellationToken ct = default);
 
-// Batch file operations
-Task<Result<IReadOnlyDictionary<string, string>>> GetFilesAsync(
-    string repositoryPath,
-    IEnumerable<string> filePaths,
+Task<Result<string>> GetCodeSnippetAsync(
+    string workTreePath, string filePath, int? startLine = null, int? endLine = null,
     CancellationToken ct = default);
 
-// Directory navigation
-Task<Result<RepositoryStructure>> GetDirectoryStructureAsync(
-    string repositoryPath,
-    string? directoryPath = null,
-    CancellationToken ct = default);
+Task<Result<IReadOnlyList<string>>> FindRelatedFilesAsync(
+    string workTreePath, string filePath, CancellationToken ct = default);
 
-// Pattern-based search
-Task<Result<IReadOnlyList<string>>> SearchFilesAsync(
-    string repositoryPath,
-    string pattern,
-    CancellationToken ct = default);
+Task<Result<IReadOnlyList<GitCommitInfo>>> GetFileHistoryAsync(
+    string workTreePath, string filePath, int? maxCommits = null, CancellationToken ct = default);
+
+Task<Result<AnalysisContext>> BuildAnalysisContextAsync(
+    CodeAnalysisRequest request, string workTreePath, CancellationToken ct = default);
 ```
 
 ---
 
 ## Git Integration Workflow Summary
 
-| Phase            | Operation                           | Outcome                          |
-| ---------------- | ----------------------------------- | -------------------------------- |
-| **Setup**        | Clone repository → Create worktree  | Isolated working directory ready |
-| **Analysis**     | Extract code → Build context        | Full codebase sent to LLM        |
-| **Iteration**    | Apply changes → Generate diffs      | Changes tracked for learnings    |
-| **Verification** | Check completion promise            | Success/failure decision         |
-| **Completion**   | Commit → Push → Create PR           | Changes available for review     |
-| **Cleanup**      | Delete worktree → Release resources | Temp files cleaned up            |
+Two independent flows share these interfaces (section 5); neither is a single unbroken pipeline the way
+this table might suggest in isolation:
 
-This architecture enables **fully autonomous code generation** where the LLM iteratively refines code changes until completion criteria are met, with all changes tracked in git and presented as pull requests for human review.
+| Phase            | Per-task execution (section 5/6)                 | Code analysis (section 5A/5B)         |
+| ---------------- | ------------------------------------------------- | -------------------------------------- |
+| **Setup**        | `WorkspaceOrchestrator` clones + creates worktree  | `RalphLoopOrchestrator` clones/checks out |
+| **Analysis**     | `IPromptBuilder` builds the iteration prompt       | `IRepositoryCodeExtractor` + `IAnalysisPromptBuilder` build context |
+| **Iteration**    | Middleware pipeline applies changes (section 6)    | LLM proposes a patch, `IGitChangeApplier` applies it |
+| **Verification** | `LoopbackEvaluationMiddleware` build/test check    | Iteration loop with its own completion check |
+| **Completion**   | `GitCheckpointMiddleware` commits each green step; `WorkspaceOrchestrator.FinalizeWorkspaceAsync` pushes + opens the PR | `IPullRequestFactory` opens the PR |
+| **Cleanup**      | `gitManager.CleanupAsync`, always runs             | Same `IGitRepositoryManager.CleanupAsync` |
 
-- Heartbeat monitoring for worker health
-- Automatic stale task reclamation
-
-### 📊 **Data-Driven Development**
-
-- Railway-Oriented patterns eliminate null checks
-- Primary constructors reduce boilerplate
-- Strong typing via Value Objects (Priority, Status, Complexity)
-- Immutable entities with `readonly struct`
-
-### ✅ **Quality Assurance**
-
-- Static analysis: SonarAnalyzer, Meziantou, NetAnalyzers
-- Comprehensive test coverage (Unit, Integration, E2E)
-- Compile-time logging with `[LoggerMessage]`
-- Structured logging throughout application
+Both flows are **legacy** (section 5) — accurate today, not the direction new work should follow.
