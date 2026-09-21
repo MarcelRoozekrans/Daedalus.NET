@@ -86,7 +86,7 @@ See [Ralph Wiggum Technique Documentation](docs/ralph-wiggum-technique.md) for d
 | Orchestration        | .NET Aspire 13.1.0                                                                  |
 | Database             | PostgreSQL 16 with pgvector (`pgvector/pgvector:pg16`)                              |
 | ORM                  | Entity Framework Core 10 (Npgsql 10.0.3)                                            |
-| Pattern Library      | CSharpFunctionalExtensions (Railway-Oriented Programming)                           |
+| Pattern Library      | ZeroAlloc.Results for Result types, ZeroAlloc.ValueObjects for value equality       |
 | ZeroAlloc            | ZeroAlloc.Results 1.2.0, ZeroAlloc.Authorization 2.1.0, ZeroAlloc.Validation 1.5.6, ZeroAlloc.Mapping 1.6.1 (via Thalos.NET) |
 | Durable delivery     | ZeroAlloc.Outbox 2.5.2 + ZeroAlloc.Outbox.EfCore 2.5.2 (channel outbound messages)  |
 | Zero-Allocation LINQ | ZLinq 1.5.4                                                                         |
