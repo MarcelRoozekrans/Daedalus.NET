@@ -5,11 +5,31 @@ from scratch. Nothing here is committed work.
 
 ---
 
-## Chatbot product built on Rag.NET
+## Ariadne.NET — chatbot product built on Rag.NET
 
 **Raised:** 2026-09-21. **Status:** parked — revisit as a NEW APPLICATION, not a Daedalus milestone.
 
 The idea: build and deploy chatbots for customers, using Rag.NET.
+
+### The name
+
+**Ariadne.NET.** Verified free on nuget.org on 2026-09-21; bare `ariadne` is taken, with 3 versions at
+0.1.4, but the `.NET` suffix is both unclaimed and the house convention — `Thalos.NET`, `Rag.NET`,
+`Ariadne.NET`.
+
+The myth carries the product. Daedalus built the Labyrinth; Ariadne's thread is how you find your way
+through it. A retrieval-augmented chatbot is exactly that — a thread through a body of knowledge to the
+one answer someone needs. It is the only candidate considered where the name explains the product to
+anyone who knows the story, and it ties to Daedalus specifically rather than being generically Greek.
+
+Sub-packages would read naturally in the established shape: `Ariadne.NET.Ingestion`,
+`Ariadne.NET.Channels`, `Ariadne.NET.Tenancy`.
+
+Rejected: `Pythia` and `Mentor` are free but belong to different myths and carry no tie to Daedalus;
+`Iris` is taken; `Oracle` is unusable.
+
+**Worth reserving now.** NuGet IDs are first-come, and a placeholder 0.0.1 costs nothing. That is how
+bare `ariadne` was lost. Not done yet — publishing is outward-facing and is the user's call.
 
 ### Why it is not a Daedalus milestone
 
