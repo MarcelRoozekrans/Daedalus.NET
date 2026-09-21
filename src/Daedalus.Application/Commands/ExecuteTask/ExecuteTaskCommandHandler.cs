@@ -18,7 +18,7 @@ public sealed class ExecuteTaskCommandHandler(
     /// <summary>
     ///     Executes a task: fetches it, runs the LLM, checks for completion, and updates state.
     /// </summary>
-    public async ValueTask<Result<ExecuteTaskResult>> Handle(ExecuteTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ExecuteTaskResult>> Handle(ExecuteTaskCommand command, CancellationToken ct)
     {
         // Validate command
         if (command.TaskId == Guid.Empty)
@@ -37,7 +37,7 @@ public sealed class ExecuteTaskCommandHandler(
         }
 
         // Fetch the task
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
             return Result<ExecuteTaskResult>.Failure($"Task not found: {taskResult.Error}");
@@ -69,7 +69,7 @@ public sealed class ExecuteTaskCommandHandler(
         try
         {
             // Execute via LLM
-            var llmResult = await agentFactory.InvokeAsync(task.Prompt, cancellationToken);
+            var llmResult = await agentFactory.InvokeAsync(task.Prompt, ct);
             if (llmResult.IsFailure)
             {
                 return Result<ExecuteTaskResult>.Failure($"LLM invocation failed: {llmResult.Error}");
@@ -107,7 +107,7 @@ public sealed class ExecuteTaskCommandHandler(
             }
 
             // Persist updates
-            var updateResult = await taskRepository.UpdateAsync(task, cancellationToken);
+            var updateResult = await taskRepository.UpdateAsync(task, ct);
             if (updateResult.IsFailure)
             {
                 return Result<ExecuteTaskResult>.Failure($"Failed to update task: {updateResult.Error}");
@@ -138,7 +138,7 @@ public sealed class ExecuteTaskCommandHandler(
             var abandonResult = task.Abandon();
             if (abandonResult.IsSuccess)
             {
-                await taskRepository.UpdateAsync(task, cancellationToken);
+                await taskRepository.UpdateAsync(task, ct);
             }
 
             return Result<ExecuteTaskResult>.Failure($"Task execution failed: {ex.Message}");

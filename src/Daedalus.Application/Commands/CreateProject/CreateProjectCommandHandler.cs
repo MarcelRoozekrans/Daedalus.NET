@@ -14,7 +14,7 @@ public sealed partial class CreateProjectCommandHandler(
     IProjectRepository projectRepository,
     ILogger<CreateProjectCommandHandler> logger) : IRequestHandler<CreateProjectCommand, Result<ProjectDto>>
 {
-    public async ValueTask<Result<ProjectDto>> Handle(CreateProjectCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ProjectDto>> Handle(CreateProjectCommand command, CancellationToken ct)
     {
         try
         {
@@ -33,7 +33,7 @@ public sealed partial class CreateProjectCommandHandler(
             }
 
             var project = createResult.Value;
-            var addResult = await projectRepository.AddAsync(project, cancellationToken)
+            var addResult = await projectRepository.AddAsync(project, ct)
                 .ConfigureAwait(false);
 
             if (addResult.IsFailure)

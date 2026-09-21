@@ -40,7 +40,7 @@ public sealed partial class RegeneratePlanCommandHandler(
 
     public async ValueTask<Result<RegeneratePlanResult>> Handle(
         RegeneratePlanCommand command,
-        CancellationToken cancellationToken)
+        CancellationToken ct)
     {
         // Validate command
         var validation = command.Validate();
@@ -56,7 +56,7 @@ public sealed partial class RegeneratePlanCommandHandler(
         LogRegeneratingPlan(logger, command.TaskId, workspacePath);
 
         // Fetch task for context
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
             return Result<RegeneratePlanResult>.Failure($"Task not found: {taskResult.Error}");
 
@@ -78,7 +78,7 @@ public sealed partial class RegeneratePlanCommandHandler(
         var planPrompt = BuildPlanGenerationPrompt(task);
 
         // Invoke LLM to generate new plan
-        var llmResult = await agentFactory.InvokeAsync(planPrompt, cancellationToken);
+        var llmResult = await agentFactory.InvokeAsync(planPrompt, ct);
         if (llmResult.IsFailure)
         {
             LogPlanRegenerationFailed(logger, command.TaskId, llmResult.Error);
@@ -88,7 +88,7 @@ public sealed partial class RegeneratePlanCommandHandler(
         var planContent = llmResult.Value.Response;
 
         // Write new plan to fix_plan.md
-        await File.WriteAllTextAsync(planFilePath, planContent, cancellationToken);
+        await File.WriteAllTextAsync(planFilePath, planContent, ct);
 
         LogPlanRegenerated(logger, command.TaskId, planContent.Length);
 

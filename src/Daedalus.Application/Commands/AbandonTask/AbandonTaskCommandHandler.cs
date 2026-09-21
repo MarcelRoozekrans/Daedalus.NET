@@ -16,7 +16,7 @@ public sealed class AbandonTaskCommandHandler(ITaskRepository taskRepository)
     /// <summary>
     ///     Abandons a task and returns its updated DTO representation.
     /// </summary>
-    public async ValueTask<Result<TaskDto>> Handle(AbandonTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(AbandonTaskCommand command, CancellationToken ct)
     {
         // Validate command
         if (command.TaskId == Guid.Empty)
@@ -30,7 +30,7 @@ public sealed class AbandonTaskCommandHandler(ITaskRepository taskRepository)
         }
 
         // Fetch the task
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
             return Result<TaskDto>.Failure($"Task not found: {taskResult.Error}");
@@ -52,7 +52,7 @@ public sealed class AbandonTaskCommandHandler(ITaskRepository taskRepository)
         }
 
         // Persist changes
-        var updateResult = await taskRepository.UpdateAsync(task, cancellationToken);
+        var updateResult = await taskRepository.UpdateAsync(task, ct);
         if (updateResult.IsFailure)
         {
             return Result<TaskDto>.Failure($"Failed to update task: {updateResult.Error}");

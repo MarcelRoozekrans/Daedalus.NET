@@ -3,15 +3,16 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.ConvertPrdToTasks;
 using Daedalus.Application.Commands.GeneratePrd;
 using Daedalus.Application.DTOs;
+using ZeroAlloc.Mediator;
 
 namespace Daedalus.Application.Services;
 
 /// <summary>
-///     Implementation of PRD service coordinating generation and task conversion.
+///     Implementation of PRD service coordinating generation and task conversion. Internal because it
+///     takes the internal IMediator in its constructor - callers outside this assembly depend on the
+///     public IPrdService interface, never on this concrete type.
 /// </summary>
-public sealed class PrdService(
-    ICommandHandler<GeneratePrdCommand, Result<PrdResponseDto>> generatePrdHandler,
-    ICommandHandler<ConvertPrdToTasksCommand, Result<List<TaskDto>>> convertToTasksHandler) : IPrdService
+internal sealed class PrdService(IMediator mediator) : IPrdService
 {
     public async Task<Result<PrdResponseDto>> GeneratePrdAsync(
         Guid projectId,
@@ -24,7 +25,7 @@ public sealed class PrdService(
             userRequirements,
             context);
 
-        return await generatePrdHandler.Handle(command, cancellationToken);
+        return await mediator.Send(command, cancellationToken);
     }
 
     public async Task<Result<List<TaskDto>>> ConvertToTasksAsync(
@@ -36,6 +37,6 @@ public sealed class PrdService(
             projectId,
             selectedItems);
 
-        return await convertToTasksHandler.Handle(command, cancellationToken);
+        return await mediator.Send(command, cancellationToken);
     }
 }

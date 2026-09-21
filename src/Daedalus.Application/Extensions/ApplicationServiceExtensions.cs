@@ -4,6 +4,7 @@ using Daedalus.Application.DTOs;
 using Daedalus.Application.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using ZeroAlloc.Mediator;
 using ZeroAlloc.Validation;
 
 namespace Daedalus.Application.Extensions;
@@ -23,14 +24,11 @@ public static class ApplicationServiceExtensions
         // Note: RalphLoopConfiguration is registered in the API/Infrastructure layer
         // where full dependency injection setup is available
 
-        // Auto-register all command and query handlers in the Application assembly
-        // AOT-compatible: Uses pre-computed handler types instead of runtime reflection
+        // Auto-register all Mediator request handlers in the Application assembly by their own
+        // concrete type. The generated MediatorService resolves each handler with
+        // GetRequiredService<TConcreteHandler>() (not by an ICommandHandler/IQueryHandler-style
+        // interface), so that is what must be registered here.
         RegisterHandlersAot(services);
-
-        // Register command and query handler factory (AOT-compatible)
-        // The factory resolves handlers without using reflection at runtime
-        services.AddScoped<ICommandHandlerFactory>(sp => new CommandQueryHandlerFactory(sp));
-        services.AddScoped<IQueryHandlerFactory>(sp => new CommandQueryHandlerFactory(sp));
 
         // Register the generated IMediator (internal to this assembly - AddMediator() is itself
         // internal, so it can only be called from code compiled into Daedalus.Application) and the
@@ -94,17 +92,17 @@ public static class ApplicationServiceExtensions
     }
 
     /// <summary>
-    ///     Registers command and query handlers using AOT-compatible approach.
+    ///     Registers Mediator request handlers using an AOT-compatible approach.
     ///     This method discovers handlers without expensive runtime reflection scanning.
     /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026",
         Justification =
-            "Assembly.GetTypes() is required for handler discovery. Trimming should preserve handler types via ICommandHandler and IQueryHandler.")]
+            "Assembly.GetTypes() is required for handler discovery. Trimming should preserve handler types via IRequestHandler.")]
     [UnconditionalSuppressMessage("Trimming", "IL2075",
         Justification =
             "GetInterfaces() is used to find handler interfaces. Trimmer will preserve these interface implementations.")]
     [UnconditionalSuppressMessage("Trimming", "IL2072",
-        Justification = "Handlers are registered via their interface types which are preserved by the trimmer.")]
+        Justification = "Handlers are registered by their own concrete type, which is preserved by the trimmer.")]
     private static void RegisterHandlersAot(IServiceCollection services)
     {
         // Get all types from the Application assembly
@@ -113,35 +111,19 @@ public static class ApplicationServiceExtensions
             .Where(t => t.IsClass && !t.IsAbstract)
             .ToList();
 
-        // Register ICommandHandler<,> implementations
-        var commandHandlerType = typeof(ICommandHandler<,>);
+        // Register IRequestHandler<,> implementations by their own concrete type. The generated
+        // MediatorService resolves a handler with GetRequiredService<TConcreteHandler>(), not by
+        // the IRequestHandler interface, so registering by interface here would leave every
+        // handler unresolvable at runtime.
+        var requestHandlerType = typeof(IRequestHandler<,>);
         foreach (var handler in handlers)
         {
-            var interfaces = handler.GetInterfaces();
-            foreach (var iface in interfaces)
-            {
-                if (iface.IsGenericType &&
-                    iface.GetGenericTypeDefinition() == commandHandlerType)
-                {
-                    // Register the handler for the specific command handler interface
-                    services.AddScoped(iface, handler);
-                }
-            }
-        }
+            var isRequestHandler = handler.GetInterfaces()
+                .Any(iface => iface.IsGenericType && iface.GetGenericTypeDefinition() == requestHandlerType);
 
-        // Register IQueryHandler<,> implementations
-        var queryHandlerType = typeof(IQueryHandler<,>);
-        foreach (var handler in handlers)
-        {
-            var interfaces = handler.GetInterfaces();
-            foreach (var iface in interfaces)
+            if (isRequestHandler)
             {
-                if (iface.IsGenericType &&
-                    iface.GetGenericTypeDefinition() == queryHandlerType)
-                {
-                    // Register the handler for the specific query handler interface
-                    services.AddScoped(iface, handler);
-                }
+                services.AddScoped(handler);
             }
         }
     }

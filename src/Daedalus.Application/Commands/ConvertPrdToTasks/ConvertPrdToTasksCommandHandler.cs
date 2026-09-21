@@ -17,7 +17,7 @@ public sealed partial class ConvertPrdToTasksCommandHandler(
     ILogger<ConvertPrdToTasksCommandHandler> logger) : IRequestHandler<ConvertPrdToTasksCommand, Result<List<TaskDto>>>
 {
     public async ValueTask<Result<List<TaskDto>>> Handle(ConvertPrdToTasksCommand command,
-        CancellationToken cancellationToken)
+        CancellationToken ct)
     {
         if (command.PrdItems.Count == 0)
         {
@@ -68,7 +68,7 @@ public sealed partial class ConvertPrdToTasksCommandHandler(
                 }
 
                 // Persist the task
-                var persistResult = await taskRepository.AddAsync(task, cancellationToken);
+                var persistResult = await taskRepository.AddAsync(task, ct);
                 if (persistResult.IsFailure)
                 {
                     logger.LogError("Failed to persist task {TaskId}: {Error}", taskId, persistResult.Error);

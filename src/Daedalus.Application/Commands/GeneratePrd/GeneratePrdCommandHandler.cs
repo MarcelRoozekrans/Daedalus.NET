@@ -53,7 +53,7 @@ public sealed partial class GeneratePrdCommandHandler(
                                            Return ONLY valid JSON, no markdown, no code blocks, no explanations.
                                            """;
 
-    public async ValueTask<Result<PrdResponseDto>> Handle(GeneratePrdCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<PrdResponseDto>> Handle(GeneratePrdCommand command, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(command.UserRequirements))
         {
@@ -66,7 +66,7 @@ public sealed partial class GeneratePrdCommandHandler(
             LogGeneratingPrd(logger, command.ProjectId);
 
             // Single invocation path — MCP tools are pre-attached by the agent factory
-            var llmResult = await agentFactory.InvokeAsync(prompt, cancellationToken);
+            var llmResult = await agentFactory.InvokeAsync(prompt, ct);
 
             if (llmResult.IsFailure)
             {

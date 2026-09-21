@@ -13,11 +13,11 @@ public sealed partial class UpdateProjectCommandHandler(
     IProjectRepository projectRepository,
     ILogger<UpdateProjectCommandHandler> logger) : IRequestHandler<UpdateProjectCommand, Result<ProjectDto>>
 {
-    public async ValueTask<Result<ProjectDto>> Handle(UpdateProjectCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<ProjectDto>> Handle(UpdateProjectCommand command, CancellationToken ct)
     {
         try
         {
-            var projectResult = await projectRepository.GetByIdAsync(command.Id, cancellationToken)
+            var projectResult = await projectRepository.GetByIdAsync(command.Id, ct)
                 .ConfigureAwait(false);
 
             if (projectResult.IsFailure)
@@ -52,7 +52,7 @@ public sealed partial class UpdateProjectCommandHandler(
                 }
             }
 
-            var updateResult = await projectRepository.UpdateAsync(project, cancellationToken)
+            var updateResult = await projectRepository.UpdateAsync(project, ct)
                 .ConfigureAwait(false);
 
             if (updateResult.IsFailure)

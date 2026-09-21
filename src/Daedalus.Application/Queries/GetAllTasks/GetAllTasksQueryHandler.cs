@@ -16,7 +16,7 @@ public sealed class GetAllTasksQueryHandler(ITaskRepository taskRepository)
     ///     Retrieves all tasks with optional pagination and returns them as DTO list.
     /// </summary>
     public async ValueTask<Result<PagedResultDto<TaskDto>>> Handle(GetAllTasksQuery query,
-        CancellationToken cancellationToken)
+        CancellationToken ct)
     {
         // Validate query
         if (query.Page < 1)
@@ -30,7 +30,7 @@ public sealed class GetAllTasksQueryHandler(ITaskRepository taskRepository)
         }
 
         // Get total count of pending tasks (optimized query - count only, no entities loaded)
-        var countResult = await taskRepository.GetPendingCountAsync(cancellationToken);
+        var countResult = await taskRepository.GetPendingCountAsync(ct);
         if (countResult.IsFailure)
         {
             return Result<PagedResultDto<TaskDto>>.Failure(countResult.Error);
@@ -43,7 +43,7 @@ public sealed class GetAllTasksQueryHandler(ITaskRepository taskRepository)
         var paginatedTasksResult = await taskRepository.GetPendingAsync(
             skip,
             query.PageSize,
-            cancellationToken);
+            ct);
 
         if (paginatedTasksResult.IsFailure)
         {

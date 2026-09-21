@@ -12,14 +12,14 @@ namespace Daedalus.Application.Commands.DeleteTask;
 public sealed class DeleteTaskCommandHandler(ITaskRepository taskRepository)
     : IRequestHandler<DeleteTaskCommand, Result>
 {
-    public async ValueTask<Result> Handle(DeleteTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result> Handle(DeleteTaskCommand command, CancellationToken ct)
     {
         if (command.TaskId == Guid.Empty)
         {
             return Result.Failure("TaskId cannot be empty");
         }
 
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
             return Result.Failure($"Task not found: {taskResult.Error}");
@@ -32,6 +32,6 @@ public sealed class DeleteTaskCommandHandler(ITaskRepository taskRepository)
             return Result.Failure("Cannot delete an in-progress task. Abandon it first.");
         }
 
-        return await taskRepository.DeleteAsync(task.Id, cancellationToken);
+        return await taskRepository.DeleteAsync(task.Id, ct);
     }
 }

@@ -17,7 +17,7 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
     /// <summary>
     ///     Creates a new task and returns its DTO representation.
     /// </summary>
-    public async ValueTask<Result<TaskDto>> Handle(CreateTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(CreateTaskCommand command, CancellationToken ct)
     {
         // Validate and normalize command input using optimized zero-allocation validation
         var promptValidation = PerformanceOptimizations.ValidateAndTrimString(command.Prompt, out var promptError);
@@ -61,7 +61,7 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
         var task = createResult.Value;
 
         // Persist the task
-        var addResult = await taskRepository.AddAsync(task, cancellationToken);
+        var addResult = await taskRepository.AddAsync(task, ct);
 
         // Return failure if persistence failed
         if (addResult.IsFailure)

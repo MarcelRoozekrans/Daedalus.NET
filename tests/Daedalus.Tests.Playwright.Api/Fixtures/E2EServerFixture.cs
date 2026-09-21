@@ -87,6 +87,24 @@ public class E2EServerFixture
             Port = GetAvailablePort();
             ServerUrl = new Uri($"http://localhost:{Port}");
 
+            // Create the database schema and seed data BEFORE the WebApplicationFactory host ever starts.
+            // WebApplicationFactory starts the whole host - including hosted services such as Thalos's
+            // SkillSyncService, which queries the Skills table - the first time _factory.Services (or
+            // CreateClient()) is touched below. Doing schema setup afterwards raced that startup and
+            // failed with "relation Skills does not exist" because the host's hosted services ran against
+            // an empty database. Building a standalone ApplicationDbContext here, before the factory
+            // exists at all, guarantees the schema is in place first.
+            var schemaOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseNpgsql(ConnectionString)
+                .Options;
+            await using (var schemaContext = new ApplicationDbContext(schemaOptions))
+            {
+                // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
+                await schemaContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
+                await schemaContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
+                await SeedTestDataAsync(schemaContext).ConfigureAwait(false);
+            }
+
             // Create and configure the WebApplicationFactory (uses in-memory TestServer)
             _factory = new WebApplicationFactory<ApiProgram>()
                 .WithWebHostBuilder(builder =>
@@ -142,9 +160,13 @@ public class E2EServerFixture
                         services.AddScoped<IPullRequestFactory, StubPullRequestFactory>();
                         services.AddScoped<IRalphLoopOrchestrator, StubRalphLoopOrchestrator>();
 
-                        // Register stub factories for CQRS handler resolution
-                        services.AddScoped<ICommandHandlerFactory, StubCommandHandlerFactory>();
-                        services.AddScoped<IQueryHandlerFactory, StubQueryHandlerFactory>();
+                        // Commands and queries are NOT stubbed here: the 8 commands reachable through
+                        // IApplicationCommands only touch ITaskRepository/IProjectRepository (both real,
+                        // against the seeded Postgres container), so the real handlers run and behave
+                        // exactly like production - including returning "not found" for a missing id.
+                        // The commands that do call out to an LLM (GeneratePrd, ExecuteTask,
+                        // ConvertPrdToTasks, RegeneratePlan) are safe too: they go through
+                        // IRalphAgentFactory, which is stubbed above.
 
                         // Add HttpClient for any services that still need it
                         services.AddHttpClient();
@@ -173,16 +195,6 @@ public class E2EServerFixture
                         services.AddHealthChecks();
                     });
                 });
-
-            // Create database schema from model
-            using var scope = _factory.Services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
-            await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
-            await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
-
-            // Seed some initial data for testing
-            await SeedTestDataAsync(dbContext).ConfigureAwait(false);
 
             // Verify the server is responding via in-memory TestServer
             using var client = _factory.CreateClient();

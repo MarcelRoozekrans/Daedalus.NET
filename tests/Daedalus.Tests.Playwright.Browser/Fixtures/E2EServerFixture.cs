@@ -142,12 +142,16 @@ public class E2EServerFixture
             builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
             builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
 
-            // Override external services with stubs
+            // Override external services with stubs. Commands and queries are NOT stubbed here: the
+            // 8 commands reachable through IApplicationCommands only touch ITaskRepository/
+            // IProjectRepository (both real, against the seeded Postgres container below), so the real
+            // handlers run and behave exactly like production - including returning "not found" for a
+            // missing id. The commands that do call out to an LLM (GeneratePrd, ExecuteTask,
+            // ConvertPrdToTasks, RegeneratePlan) are safe too: they go through IRalphAgentFactory, which
+            // is stubbed here.
             RemoveAndReplace<IRalphAgentFactory, StubRalphAgentFactory>(builder.Services);
             RemoveAndReplace<IPullRequestFactory, StubPullRequestFactory>(builder.Services);
             RemoveAndReplace<IRalphLoopOrchestrator, StubRalphLoopOrchestrator>(builder.Services);
-            RemoveAndReplace<ICommandHandlerFactory, StubCommandHandlerFactory>(builder.Services);
-            RemoveAndReplace<IQueryHandlerFactory, StubQueryHandlerFactory>(builder.Services);
 
             // Thalos agents: the real composition root (agent catalog from the API's appsettings.json — linked into this
             // test's output as Daedalus.Api.appsettings.json because Web ships an appsettings.json too; Postgres session

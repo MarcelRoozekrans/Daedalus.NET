@@ -14,14 +14,14 @@ namespace Daedalus.Application.Commands.UpdateTask;
 public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
     : IRequestHandler<UpdateTaskCommand, Result<TaskDto>>
 {
-    public async ValueTask<Result<TaskDto>> Handle(UpdateTaskCommand command, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(UpdateTaskCommand command, CancellationToken ct)
     {
         if (command.TaskId == Guid.Empty)
         {
             return Result<TaskDto>.Failure("TaskId cannot be empty");
         }
 
-        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, cancellationToken);
+        var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
             return Result<TaskDto>.Failure($"Task not found: {taskResult.Error}");
@@ -70,7 +70,7 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
             }
         }
 
-        var updateDbResult = await taskRepository.UpdateAsync(task, cancellationToken);
+        var updateDbResult = await taskRepository.UpdateAsync(task, ct);
         if (updateDbResult.IsFailure)
         {
             return Result<TaskDto>.Failure($"Failed to update task: {updateDbResult.Error}");

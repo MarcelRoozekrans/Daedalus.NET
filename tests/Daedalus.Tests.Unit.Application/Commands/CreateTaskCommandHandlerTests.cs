@@ -353,7 +353,7 @@ public class CreateTaskCommandHandlerTests
             .ThrowsAsync(new InvalidOperationException("Repository error"));
 
         // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.Handle(command, CancellationToken.None)
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await _handler.Handle(command, CancellationToken.None)
         );
     }
 
@@ -401,7 +401,7 @@ public class CreateTaskCommandHandlerTests
             .ThrowsAsync(new InvalidOperationException("Repository error"));
 
         // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _handler.Handle(command, CancellationToken.None)
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await _handler.Handle(command, CancellationToken.None)
         );
     }
 

@@ -15,7 +15,7 @@ public sealed class GetTaskByIdQueryHandler(ITaskRepository taskRepository)
     /// <summary>
     ///     Retrieves a task by ID and returns its DTO representation.
     /// </summary>
-    public async ValueTask<Result<TaskDto>> Handle(GetTaskByIdQuery query, CancellationToken cancellationToken)
+    public async ValueTask<Result<TaskDto>> Handle(GetTaskByIdQuery query, CancellationToken ct)
     {
         // Validate query
         if (query.TaskId == Guid.Empty)
@@ -24,7 +24,7 @@ public sealed class GetTaskByIdQueryHandler(ITaskRepository taskRepository)
         }
 
         // Fetch the task
-        var result = await taskRepository.GetByIdAsync(query.TaskId, cancellationToken);
+        var result = await taskRepository.GetByIdAsync(query.TaskId, ct);
 
         // Return failure if not found
         if (result.IsFailure)
