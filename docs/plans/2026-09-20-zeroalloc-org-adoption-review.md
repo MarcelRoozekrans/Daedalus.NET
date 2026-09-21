@@ -169,3 +169,31 @@ Two exclusions in the tiering above were too quick and are corrected here:
 | `Notify` | `INotifyPropertyChanged`: 0 files. Blazor does not use INPC. Revisit only if an MVVM or desktop surface ever appears |
 
 **23 of 27 have a home. 2 are blocked on upstream bugs, 1 is not a package, 1 has no hook.**
+
+
+## Correction (2026-09-21): Saga and Scheduling re-measured
+
+The "cannot be adopted" verdicts above for `Saga` and `Scheduling` rested on upstream defects found by the
+phase 1.5 spike. All three of those issues — [Saga#127](https://github.com/ZeroAlloc-Net/ZeroAlloc.Saga/issues/127),
+[Saga#128](https://github.com/ZeroAlloc-Net/ZeroAlloc.Saga/issues/128) and
+[Outbox#144](https://github.com/ZeroAlloc-Net/ZeroAlloc.Outbox/issues/144) — are now closed as completed,
+and each was verified by re-running the original experiment. A closed issue is a claim, not a measurement.
+
+| Library | Recorded verdict | Re-measured 2026-09-21 |
+|---|---|---|
+| `Saga` | banned: saga never receives its trigger event | **Fixed.** 3.0.0 with Mediator 5.1.4 on .NET 10 — trigger received via `IMediator.Publish`, `[Step]` ran, command dispatched. **Ban lifted** |
+| `Scheduling` | banned: EF job store ships no migrations, cannot boot | **Bootstrap objection void.** 1.2.56 ships `.InMemory` with zero-setup `WithInMemoryStore`; `SchedulingDbContext` is public and migratable. `AddScheduling` alone still registers no `IJobStore`. **Still excluded, on design grounds only** |
+| `Saga.Orm` / `Outbox.Orm` | did not exist | **Both shipped**, 3.0.0 and 2.6.0, with **zero EF Core** in their dependency trees. Real saga wired through `WithOrmStore` against SQLite via ZeroAlloc.ORM's `MigrationRunner` |
+
+**Revised count: 25 of 27 have a home**, not 23. The two genuine exclusions are `Templates`, which is a
+`dotnet new` template rather than a package reference, and `Notify`, which targets `INotifyPropertyChanged`
+and has no hook in a Blazor codebase.
+
+`Scheduling` remains excluded by choice rather than by defect: `ScheduledRuns.NextRunAt` is the source of
+truth and the sweep is idempotent, so durable job state buys nothing. That argument stands on its own and
+does not depend on any upstream bug.
+
+**Lesson worth keeping.** Both exclusions were recorded as facts with evidence, and both went stale within
+days because the evidence had a shelf life. The original entries were not wrong when written — they were
+correct measurements that expired. Anything recorded as "cannot be adopted because upstream is broken"
+should carry a re-check date, because it is a statement about someone else's codebase, not ours.
