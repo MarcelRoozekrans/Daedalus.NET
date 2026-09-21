@@ -1,5 +1,16 @@
 # Copilot Instructions - Daedalus .NET Development
 
+> **Superseded.** `CLAUDE.md` (repo root) and `docs/development-guide.md` are
+> now the maintained sources of truth for this codebase's conventions, and
+> both were verified line-by-line against `src/` as of phase 1.7. This file
+> predates the phase 1.7 ZeroAlloc migration and documents patterns the
+> codebase no longer uses in places — for example it names
+> `CSharpFunctionalExtensions` as the Result-type library (replaced by
+> `ZeroAlloc.Results`) and documents a Polly-based resilience section and a
+> Specification pattern, neither of which this codebase has ever had a
+> dependency on. Treat the rest of this file as historical context, not
+> instruction, until someone rewrites it in full.
+
 ## Quick Architecture Overview
 
 **Daedalus** is a high-performance .NET 10 application using Railway-Oriented Programming for task execution with AI/LLM iteration loops. It has **dual presentation layers** sharing one **Application + Infrastructure stack**:
