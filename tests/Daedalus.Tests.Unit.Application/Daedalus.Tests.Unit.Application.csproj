@@ -48,7 +48,7 @@
              needs Microsoft.CodeAnalysis) unconditionally alongside AllocationGate.cs. This repo
              does not test generator output directly, so exclude the file we don't use rather than
              add an unused Roslyn dependency. -->
-        <Compile Remove="$(NuGetPackageRoot)zeroalloc.testhelpers\**\GeneratorSnapshot.cs"/>
+        <Compile Remove="$(NuGetPackageRoot)zeroalloc.testhelpers/**/GeneratorSnapshot.cs"/>
     </ItemGroup>
 
     <ItemGroup>
