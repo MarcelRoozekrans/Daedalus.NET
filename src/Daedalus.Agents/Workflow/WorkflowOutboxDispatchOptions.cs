@@ -7,6 +7,18 @@ namespace Daedalus.Agents.Workflow;
 ///     configuring it a second time here would also rewrite the scheduling/channel outbox's polling interval,
 ///     batch size and retry budget out from under it.
 /// </summary>
+/// <remarks>
+///     <b>Nothing configures this.</b> <c>DaedalusAgentsServiceCollectionExtensions.AddDaedalusWorkflow</c>
+///     registers it as a bare <c>AddSingleton&lt;WorkflowOutboxDispatchOptions&gt;()</c> — no
+///     <c>IConfiguration</c> section is bound to it and no callback mutates it, so every value below is the
+///     initializer on its property and nothing in any <c>appsettings.json</c> can change one. That is deliberate
+///     for <see cref="BatchSize"/>, whose immovability is the point and whose reasoning is on the property
+///     itself. It is merely the consequence of the same registration for <see cref="PollingInterval"/>,
+///     <see cref="MaxAttempts"/> and <see cref="RetryBaseDelay"/>: they are settable properties with no setter,
+///     and changing one means editing this file. Binding a configuration section here would make
+///     <see cref="BatchSize"/> settable too and reopen a ruling that was closed on purpose, so the gap is
+///     recorded rather than closed.
+/// </remarks>
 internal sealed class WorkflowOutboxDispatchOptions
 {
     /// <summary>How often <see cref="WorkflowOutboxDispatchService"/> polls the workflow outbox table.</summary>

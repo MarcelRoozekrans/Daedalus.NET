@@ -44,6 +44,20 @@ namespace Daedalus.Agents.Workflow;
 ///     expects an outbox table to behave.
 ///     </para>
 ///     <para>
+///     <b>It dead-letters every row it does not recognise, and that is only safe while it is the sole
+///     consumer.</b> <see cref="ProcessBatchAsync"/> dead-letters any entry whose <c>TypeName</c> is not
+///     <see cref="WorkflowDispatchOutboxDispatcher.TypeName"/>, rather than leaving it for someone else, because
+///     the workflow store is currently the only writer of the <c>outboxmessages</c> table in this database.
+///     The channel/scheduling pipeline is not a second writer of it: EF Core's migrations create a
+///     <em>quoted</em>, mixed-case <c>"OutboxMessages"</c> and <c>ZeroAlloc.Outbox.Orm</c>'s create an unquoted
+///     <c>OutboxMessages</c> that PostgreSQL folds to <c>outboxmessages</c>, so the two are distinct tables —
+///     asserted by <c>WorkflowOrmMigrationTests.The_EF_and_ORM_outbox_tables_coexist_as_distinct_tables</c>.
+///     The moment Milestone 3
+///     moves any other producer onto <c>ZeroAlloc.Outbox.Orm</c>, this poller will silently eat its messages.
+///     Whoever makes that move has to give this loop a dispatcher registry keyed by <c>TypeName</c>, or scope
+///     its fetch to rows it owns, before the second producer ships.
+///     </para>
+///     <para>
 ///     <b>A tick must never let an exception escape</b> — the same rule
 ///     <see cref="Daedalus.Agents.Scheduling.ScheduleSweeperService"/> documents: doing so would stop this
 ///     <see cref="BackgroundService"/>'s loop and end every future poll, not just the failing one.

@@ -9,9 +9,11 @@ tags: [workflow, manufacture]
 By the time this node runs, a human has already resumed the run's approval gate — that is what let
 the run reach this node at all. This step's job is to write down what was approved, not to publish
 it. This node runs as the same unattended identity as `implement` and `review` — it must not attempt
-`git__*` or `repoaction__*`. Both are bound to the `developer` policy and denied to a workflow run by
-design (see `manufacture-implement`'s remarks); the tools being present in this agent's configured
-toolset does not change that.
+`git__*` or `repoaction__*`, and the two are held back by different mechanisms. `git__*` is **not in
+`Daedalus Architect`'s configured `Tools` list**, so it is never offered to this turn at all.
+`repoaction__*` **is** in that list, and is denied by its `developer` binding in
+`Thalos:ToolPolicies`, because a workflow run carries the single role `workflow`. See
+`manufacture-implement` for the same split and for what a denied call actually costs.
 
 **Budget is tight — at most two tool calls before you report: one recall, one remember. Do not loop.**
 

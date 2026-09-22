@@ -22,8 +22,9 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     <list type="number">
 ///         <item>
 ///             Resume/cancel are REST endpoints (<c>WorkflowRunsController</c>), never a Thalos tool — see
-///             <see cref="Resume_is_not_exposed_as_a_tool_on_any_registered_source"/>. This is the structural
-///             half: it holds even if the authorization policy below were ever misconfigured.
+///             <see cref="ResumeToolBoundaryTests.Neither_resume_nor_cancel_is_exposed_as_a_tool_on_any_registered_source"/>.
+///             This is the structural half: it holds even if the authorization policy below were ever
+///             misconfigured.
 ///         </item>
 ///         <item>
 ///             Both endpoints require the <c>WorkflowResume</c> ASP.NET Core policy (<c>developer</c> or
@@ -52,16 +53,23 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
 
     /// <summary>
     ///     The structural half of the boundary: no local tool source — the only kind an agent's <c>Tools</c> list
-    ///     can ever resolve to — exposes anything resume-capable. If an agent could resume its own approval gate,
-    ///     every gate in the engine would be decorative regardless of what any authorization policy says.
+    ///     can ever resolve to — exposes anything resume-capable or cancel-capable. If an agent could resume its
+    ///     own approval gate, every gate in the engine would be decorative regardless of what any authorization
+    ///     policy says; if it could cancel, it could destroy a run in flight to escape one.
     /// </summary>
+    /// <remarks>
+    ///     Both words are tested, because the boundary this file documents covers both endpoints. Testing
+    ///     <c>resume</c> alone would let a <c>workflow__cancel_run</c> tool pass every test in this class while
+    ///     the because-string still claimed cancelling was covered. No tool in the current surface contains
+    ///     either word, so this is green today and a real guard the moment one is added.
+    /// </remarks>
     [Fact]
-    public async Task Resume_is_not_exposed_as_a_tool_on_any_registered_source()
+    public async Task Neither_resume_nor_cancel_is_exposed_as_a_tool_on_any_registered_source()
     {
         var toolNames = await ReadToolNamesAsync();
 
         toolNames.Should().NotBeEmpty("otherwise this test passes vacuously");
-        toolNames.Should().NotContain(n => n.Contains("resume", StringComparison.OrdinalIgnoreCase),
+        toolNames.Should().NotContain(n => IsResumeOrCancelCapable(n),
             "resuming or cancelling a run must only be reachable through the authorized " +
             "POST /api/workflow-runs/{id}/resume|cancel endpoints, never as an agent-callable tool");
     }
@@ -77,12 +85,13 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
     }
 
     /// <summary>
-    ///     Belt and suspenders on top of <see cref="Resume_is_not_exposed_as_a_tool_on_any_registered_source"/>:
-    ///     even a configured agent whose <c>Tools</c> glob is broad enough to match everything else still cannot
-    ///     resolve a resume-capable tool, because none exists to match.
+    ///     Belt and suspenders on top of
+    ///     <see cref="Neither_resume_nor_cancel_is_exposed_as_a_tool_on_any_registered_source"/>: even a
+    ///     configured agent whose <c>Tools</c> glob is broad enough to match everything else still cannot resolve
+    ///     a resume- or cancel-capable tool, because none exists to match.
     /// </summary>
     [Fact]
-    public async Task No_configured_agents_tool_pattern_resolves_a_resume_capable_tool()
+    public async Task No_configured_agents_tool_pattern_resolves_a_resume_or_cancel_capable_tool()
     {
         var toolNames = await ReadToolNamesAsync();
         var agents = _factory.Services.GetRequiredService<IAgentCatalog>().Agents;
@@ -94,11 +103,20 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
             foreach (var pattern in agent.Tools)
             {
                 toolNames.Where(t => Glob.IsMatch(pattern, t))
-                    .Should().NotContain(t => t.Contains("resume", StringComparison.OrdinalIgnoreCase),
-                        $"agent '{agent.Name}' pattern '{pattern}' must not resolve a resume-capable tool");
+                    .Should().NotContain(t => IsResumeOrCancelCapable(t),
+                        $"agent '{agent.Name}' pattern '{pattern}' must not resolve a resume- or cancel-capable tool");
             }
         }
     }
+
+    /// <summary>
+    ///     Both halves of the boundary in one predicate, so the two tests above cannot drift apart. Matched on
+    ///     the tool name rather than on an allow-list of known tools: a tool that does not exist yet is exactly
+    ///     what this guard is for.
+    /// </summary>
+    private static bool IsResumeOrCancelCapable(string toolName) =>
+        toolName.Contains("resume", StringComparison.OrdinalIgnoreCase)
+        || toolName.Contains("cancel", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     ///     Reads the in-process tool sources registered on the host, qualified the way the runtime does. MCP
@@ -215,6 +233,13 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
         // always disables the workflow engine (see that class's own remarks) - so a request the policy lets
         // through fails DI resolution deterministically, and 500 is the one status that is only reachable
         // once authorization has already passed.
+        //
+        // The trade-off, stated rather than hidden: this pins a broken host as the expected state. Registering
+        // WorkflowRunGateway unconditionally - a reasonable future change, and the obvious way to stop every
+        // Integration host disabling the workflow engine - turns this red while the property it guards is
+        // still perfectly intact. If that happens, the fix is to re-pin this to whatever status a resolvable
+        // controller returns for a run id that does not exist (404), NOT to relax the assertion to
+        // NotBe(401).And.NotBe(403), which would pass on a renamed route and prove nothing.
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
     }
 }

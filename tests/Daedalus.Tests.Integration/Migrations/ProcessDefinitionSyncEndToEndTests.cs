@@ -35,7 +35,7 @@ namespace Daedalus.Tests.Integration.Migrations;
 public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
 {
     [Fact]
-    public async Task Host_start_with_the_workflow_engine_enabled_syncs_and_activates_manufacture_v1()
+    public async Task Host_start_with_the_workflow_engine_enabled_syncs_and_activates_manufacture_v2()
     {
         var dbName = $"process_sync_e2e_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
