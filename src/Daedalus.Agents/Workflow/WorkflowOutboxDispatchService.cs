@@ -20,19 +20,22 @@ namespace Daedalus.Agents.Workflow;
 ///     host already runs one outbox pipeline — <c>AddChannelOutbox</c>/<c>AddDaedalusScheduling</c> wire
 ///     <c>AddOutbox().WithEfCore&lt;ApplicationDbContext&gt;()</c> for channel delivery and the RepoDigest
 ///     scheduling chain, and both of those methods' own remarks warn that a second <c>AddOutbox()</c> call would
-///     register a second <c>OutboxWorkerService</c> racing the same table. Decompiling ZeroAlloc.Outbox 2.7.1
-///     confirms why that warning is not overcautious: <c>AddOutbox()</c> registers <c>OutboxOptions</c> and
-///     <c>IOutboxStore</c> as ordinary <c>Add</c> (not <c>TryAdd</c>) singletons, and <c>OutboxWorkerService</c>
-///     resolves <c>IOutboxStore</c> as a single <c>GetRequiredService</c> — the last registration wins for
-///     <em>every</em> <c>OutboxWorkerService</c> instance in the container. A second
-///     <c>AddOutbox().WithOrm()</c> call here would therefore silently replace the EfCore-backed store both the
-///     existing poller and this one resolve, stopping the live RepoDigest chain while double-polling the
-///     workflow table. <c>docs/workflow.md</c>'s Step 4 snippet assumes a host with no outbox pipeline yet;
-///     Daedalus already has one, so this is a small, self-contained poller instead — the same reasoning
-///     <see cref="Daedalus.Agents.Scheduling.ScheduleSweeperService"/> gives for hand-rolling its own timer
-///     rather than forcing <c>ZeroAlloc.Scheduling</c> into a shape it does not fit. It shares no DI registration
-///     with the existing pipeline: <see cref="OrmOutboxStore"/> is constructed directly here, per batch, never
-///     added to this container's <c>IOutboxStore</c> slot.
+///     register a second <c>OutboxWorkerService</c> racing the same table. Decompiling ZeroAlloc.Outbox 2.7.1,
+///     ZeroAlloc.Outbox.EfCore 2.7.1 and ZeroAlloc.Outbox.Orm 2.6.0 confirms why that warning is not overcautious:
+///     <c>AddOutbox()</c> itself registers <c>OutboxOptions</c> and <c>AddHostedService&lt;OutboxWorkerService&gt;()</c>
+///     as ordinary <c>Add</c> calls; it is <c>WithEfCore&lt;T&gt;()</c>/<c>WithOrm()</c> — called next, on the
+///     builder <c>AddOutbox()</c> returns — that each register <c>IOutboxStore</c> as an ordinary <c>AddScoped</c>,
+///     not <c>TryAddScoped</c>. <c>OutboxWorkerService</c> then resolves <c>IOutboxStore</c> as a single
+///     <c>GetRequiredService</c> per batch — the last <c>AddScoped</c> registration wins for <em>every</em>
+///     <c>OutboxWorkerService</c> instance in the container, regardless of which one that particular worker was
+///     built to poll. A second <c>AddOutbox().WithOrm()</c> call here would therefore silently replace the
+///     EfCore-backed store both the existing poller and this one resolve, stopping the live RepoDigest chain
+///     while double-polling the workflow table. <c>docs/workflow.md</c>'s Step 4 snippet assumes a host with no
+///     outbox pipeline yet; Daedalus already has one, so this is a small, self-contained poller instead — the
+///     same reasoning <see cref="Daedalus.Agents.Scheduling.ScheduleSweeperService"/> gives for hand-rolling its
+///     own timer rather than forcing <c>ZeroAlloc.Scheduling</c> into a shape it does not fit. It shares no DI
+///     registration with the existing pipeline: <see cref="OrmOutboxStore"/> is constructed directly here, per
+///     batch, never added to this container's <c>IOutboxStore</c> slot.
 ///     </para>
 ///     <para>
 ///     Mirrors <c>OutboxWorkerService</c>'s own retry/backoff/dead-letter shape (exponential backoff off
@@ -71,7 +74,13 @@ internal sealed partial class WorkflowOutboxDispatchService(
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false));
     }
 
-    private async Task ProcessBatchAsync(CancellationToken ct)
+    /// <summary>
+    ///     Runs exactly one poll-fetch-dispatch-mark cycle. Internal, not private — the same test seam
+    ///     <see cref="Daedalus.Agents.Scheduling.ScheduleSweeperService"/> exposes for driving a sweep on demand
+    ///     instead of waiting on the real <see cref="WorkflowOutboxDispatchOptions.PollingInterval"/> — an
+    ///     integration test drives this directly against a real Postgres outbox table.
+    /// </summary>
+    internal async Task ProcessBatchAsync(CancellationToken ct)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
         var store = new OrmOutboxStore(connection.AsAsync());

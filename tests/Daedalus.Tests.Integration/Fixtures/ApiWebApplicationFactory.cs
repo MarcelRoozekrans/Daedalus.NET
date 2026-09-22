@@ -40,6 +40,15 @@ internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRu
         // too late for builder.Configuration.GetConnectionString(...) in the minimal-hosting entry point).
         builder.UseSetting("ConnectionStrings:daedalus", connectionString);
 
+        // PostgresFixture builds this database with EF Core's EnsureCreatedAsync, which creates only the EF model
+        // (including ApplicationDbContext's own outbox table). It never runs Thalos.NET.Workflow.Orm's raw-SQL
+        // migrations, so workflow_run/workflow_run_event/process_definition and the ORM outbox table do not exist
+        // here. Left enabled, WorkflowOutboxDispatchService, WorkflowStrandedRunSweepService and
+        // ProcessDefinitionSyncHostedService would each tick against those missing tables and fail every cycle
+        // with Postgres 42P01 — caught and logged, so silently, for the life of every test that uses this factory.
+        // See WorkflowConfig.Enabled's own remarks.
+        builder.UseSetting("Thalos:Workflow:Enabled", "false");
+
         if (keycloak is not null)
         {
             // Same "too late" reasoning as ConnectionStrings above: Program.cs reads these synchronously while

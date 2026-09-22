@@ -37,6 +37,17 @@ try
     // applying it ahead of a rolling deploy would break process syncing with 23502 on every instance not yet
     // replaced. Running it here — the one place schema changes and this deploy happen as a single step —
     // avoids leaving that race to whichever host instance's EnsureSchemaOnStartup wins at boot.
+
+    // Two outbox tables now live in this one database, written and polled by this one process: EF Core's
+    // "OutboxMessages" (quoted identifier, mixed case, created by ApplicationDbContext's own migrations above —
+    // AddOutboxMessages()/OutboxMessageEntity) for the RepoDigest/channel pipeline, and ZeroAlloc.Outbox.Orm's
+    // OutboxMessages (unquoted in its own CREATE TABLE, so PostgreSQL folds it to lower case: outboxmessages) for
+    // the workflow engine below. They differ only in identifier case and quoting, never collide — PostgreSQL
+    // treats "OutboxMessages" and outboxmessages as distinct tables — and each is read by its own poller
+    // (ZeroAlloc.Outbox's OutboxWorkerService for the quoted one, Daedalus.Agents.Workflow.WorkflowOutboxDispatchService
+    // for the unquoted one). See tests/Daedalus.Tests.Integration/Migrations/WorkflowOrmMigrationTests.cs, which
+    // applies both EF Core's migrations and this file's raw-SQL ones to the same throwaway database and asserts
+    // both tables exist side by side, rather than leaving this coexistence claim reasoned about instead of tested.
     var connectionString = builder.Configuration.GetConnectionString("daedalus") ?? DatabaseSettings.GetDefaultConnectionString();
     logger.LogInformation("Starting workflow engine migration");
     await using (var workflowConnection = new NpgsqlConnection(connectionString))

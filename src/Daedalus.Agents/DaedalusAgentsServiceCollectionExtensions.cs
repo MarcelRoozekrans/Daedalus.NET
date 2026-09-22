@@ -167,15 +167,22 @@ public static class DaedalusAgentsServiceCollectionExtensions
         ValidateSkillsConfig(options.Skills, skillRoots);
         services.TryAddSingleton(options.Skills);
 
-        // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource. Deliberately not ApplicationDbContext's
-        // connection — the whole point of Thalos.NET.Workflow.Orm is that it is EF-free (EF Core is Milestone 3's
-        // AOT blocker) — and deliberately its own PackageReference-backed pool rather than a raw `new
-        // NpgsqlConnection` per call, so the workflow store's connections are visible to the same pooling/health
-        // surface as everything else built on Npgsql. Same physical "daedalus" database as ApplicationDbContext —
-        // the AppHost declares only one Postgres resource — reached through a completely separate ADO.NET path.
-        // Factory registration (not AddSingleton(instance)) so the host's container disposes it on shutdown.
-        var processesRoot = ResolveContentRoot(configuration["Thalos:Workflow:ProcessesRoot"] ?? "processes", environment);
-        services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
+
+        // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
+        // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
+        // per call (Thalos.NET.Workflow.Orm gives it no seam to accept a shared data source instead). Registered
+        // here anyway so the poller's connections are visible to the same pooling/health surface as everything
+        // else built on Npgsql, deliberately not ApplicationDbContext's connection — the whole point of
+        // Thalos.NET.Workflow.Orm is that it is EF-free (EF Core is Milestone 3's AOT blocker). Same physical
+        // "daedalus" database as ApplicationDbContext — the AppHost declares only one Postgres resource — reached
+        // through a completely separate ADO.NET path. Factory registration (not AddSingleton(instance)) so the
+        // host's container disposes it on shutdown. Gated on Workflow.Enabled — see that option's own remarks
+        // for why a host whose database has none of these tables must not wire any of this at all.
+        var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
+        if (options.Workflow.Enabled)
+        {
+            services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
+        }
 
         // The memory index embeds with the DI generator; a host that only hands the instance to this call (for Sentinel) still gets a working index.
         if (embeddingGenerator is not null)
@@ -190,18 +197,24 @@ public static class DaedalusAgentsServiceCollectionExtensions
             // Skills are API-host only: the Ralph console runs no Thalos agents (see AddDaedalusMemory).
             ConfigureSkills(thalos, configuration.GetSection(SkillsConfig.SectionName), options.Skills, skillRoots);
 
-            // Phase 2.2 Part B: the workflow store and process-definition store, over the NpgsqlDataSource
-            // registered above — same connection string, opened through Npgsql directly rather than EF Core.
-            // EnsureSchemaOnStartup is deliberately false: migration 1004 (process_definition.content_hash,
-            // NOT NULL, no default) is not backward compatible with pre-1004 code, so applying it ahead of a
-            // rolling deploy would break process syncing with 23502 on every instance not yet replaced.
-            // Daedalus.Migrations applies WorkflowOrmMigrations explicitly, as the same pre-boot deploy step it
-            // already runs ApplicationDbContext's EF Core migrations as — see that project's Program.cs.
-            thalos.AddWorkflowOrm(o =>
+
+            if (options.Workflow.Enabled)
             {
-                o.ConnectionString = connectionString;
-                o.EnsureSchemaOnStartup = false;
-            });
+                // Phase 2.2 Part B: the workflow store and process-definition store. OrmWorkflowStore opens its
+                // own connection per call from this same connection string directly — it does not use the
+                // NpgsqlDataSource registered above, which exists for the outbox poller instead (see that
+                // registration's remarks). EnsureSchemaOnStartup is deliberately false: migration 1004
+                // (process_definition.content_hash, NOT NULL, no default) is not backward compatible with
+                // pre-1004 code, so applying it ahead of a rolling deploy would break process syncing with
+                // 23502 on every instance not yet replaced. Daedalus.Migrations applies WorkflowOrmMigrations
+                // explicitly, as the same pre-boot deploy step it already runs ApplicationDbContext's EF Core
+                // migrations as — see that project's Program.cs.
+                thalos.AddWorkflowOrm(o =>
+                {
+                    o.ConnectionString = connectionString;
+                    o.EnsureSchemaOnStartup = false;
+                });
+            }
 
             thalos.UseAnthropic(configuration)
                 .UseSessionStore<PostgresAgentSessionStore>()
@@ -242,7 +255,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
             services.AddHostedService<ReindexPendingMemoriesHostedService>();
         }
 
-        AddDaedalusWorkflow(services, processesRoot);
+
+        if (options.Workflow.Enabled)
+        {
+            AddDaedalusWorkflow(services, processesRoot);
+        }
 
         return services;
     }
@@ -267,8 +284,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // composition-root class off CleanArchitectureTests' single-seam rule.
         services.AddSingleton(WorkflowNodeDispatcherFactory.Create);
 
-        // The only part of definition handling that is host policy — see GitProcessDefinitionSource's remarks.
-        services.AddSingleton<IProcessDefinitionSource>(_ => new GitProcessDefinitionSource(processesRoot));
+        // The only part of definition handling that is host policy — see FileSystemProcessDefinitionSource's remarks.
+        services.AddSingleton<IProcessDefinitionSource>(_ => new FileSystemProcessDefinitionSource(processesRoot));
         services.AddSingleton<ProcessDefinitionSync>();
         services.AddHostedService<ProcessDefinitionSyncHostedService>();
 

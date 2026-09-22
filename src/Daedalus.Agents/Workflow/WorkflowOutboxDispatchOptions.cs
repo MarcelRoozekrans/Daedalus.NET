@@ -12,13 +12,22 @@ internal sealed class WorkflowOutboxDispatchOptions
     /// <summary>How often <see cref="WorkflowOutboxDispatchService"/> polls the workflow outbox table.</summary>
     public TimeSpan PollingInterval { get; set; } = TimeSpan.FromSeconds(5);
 
-    /// <summary>The maximum number of pending rows fetched per poll.</summary>
-    public int BatchSize { get; set; } = 20;
+    /// <summary>
+    ///     The maximum number of pending rows fetched per poll. <b>Fixed at 1, not the 20
+    ///     <c>docs/workflow.md</c>'s own example batches</b>: <see cref="WorkflowOutboxDispatchService.ProcessBatchAsync"/>
+    ///     dispatches its batch serially, and each entry here is a full agent turn costing minutes, not a cheap
+    ///     message worth amortising a round trip over. Batching 20 of these means the twentieth run in the batch
+    ///     has its <c>updated_at</c> frozen for the time every run ahead of it takes to complete — nineteen
+    ///     multi-minute turns comfortably exceeds a threshold sized only against one turn's length, so
+    ///     <see cref="WorkflowStrandedRunSweepService"/> would fail healthy work still waiting its turn in the
+    ///     queue. See that type's remarks for the threshold math this value is one term of.
+    /// </summary>
+    public int BatchSize { get; set; } = 1;
 
     /// <summary>
     ///     Attempts (including the first) before a message is dead-lettered. Matches <c>docs/workflow.md</c>'s own
     ///     worked example, whose backoff math the 30-minute stranded-run threshold in
-    ///     <c>WorkflowStrandedRunSweepService</c> is sized against — changing this without revisiting that
+    ///     <see cref="WorkflowStrandedRunSweepService"/> is sized against — changing this without revisiting that
     ///     threshold would reopen the gap <see cref="Thalos.Workflow.WorkflowRunReconciler.SweepAsync"/>'s own XML
     ///     doc warns about.
     /// </summary>

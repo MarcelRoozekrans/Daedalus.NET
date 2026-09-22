@@ -7,7 +7,7 @@ namespace Daedalus.Agents.Workflow;
 /// <summary>
 ///     Runs <see cref="ProcessDefinitionSync.SyncAsync"/> once at boot, before the host accepts work — per
 ///     <c>docs/workflow.md</c>, "Call <c>SyncAsync</c> at startup, before anything starts a run". A process is
-///     only runnable once its YAML is in <c>process_definition</c>; without this, <see cref="GitProcessDefinitionSource"/>
+///     only runnable once its YAML is in <c>process_definition</c>; without this, <see cref="FileSystemProcessDefinitionSource"/>
 ///     is registered but never read.
 /// </summary>
 /// <remarks>
