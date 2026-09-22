@@ -97,16 +97,29 @@ caught a comment crediting the *wrong* mechanism (the `WorkflowResume` policy, w
 proof this phase exists to produce.** `processes/manufacture.yaml` transcribes
 `subagent-driven-development`'s control flow (implement → review, `maxVisits: 5` /
 `onExceeded: adjudicate`, a `human_approval` gate, publish) using agents and skills that
-actually exist. `Daedalus Architect` runs all three task nodes — it is the only configured
-agent with `skills__*` in its toolset at all, so it is the only one that can actually load a
-pinned skill's body; `writer` was tried for `publish` first and quietly did not work, because
-`BuildTaskText` only ever names the skill, never its content, and nothing loads the content on
-`writer`'s behalf without `skills__*`. Three new skills —
-`manufacture-implement/-review/-publish` — were authored for this process, since the design
-doc's aspirational skill-corpus port has not happened yet. `publish` also declares its own
-`outcomes: [published]`, reported through the same structural tool-call mechanism `review`
-uses, so completing it requires an explicit call rather than accepting any turn output at all.
-Started via a throwaway console harness calling `Thalos.Workflow.Orm.OrmWorkflowStore.StartAsync`
+actually exist. Three new skills — `manufacture-implement/-review/-publish` — were authored
+for this process, since the design doc's aspirational skill-corpus port has not happened yet.
+
+**Which version the proof ran, stated before anything is claimed for it.** The live runs below
+executed **process version 1**, in which `publish` named the `writer` agent and declared no
+`outcomes`. That is what the restart proof and the cap/loop-back demonstration exercised: a
+`publish` turn running on `writer`'s own configured instructions alone, completing on whatever
+that turn produced, with no outcome tool call required. `writer` could not load the
+`manufacture-publish` skill's body, because `BuildTaskText` only ever names the skill and
+nothing loads its content without `skills__*`, which `writer`'s `Tools` list does not carry.
+That defect was found after the runs — commit order shows it: `f62514f` is the restart proof,
+`2ecbea7` found the skill-loading failure, `473e16f` bumped the file to **version 2**, which is
+what is merged. In v2 all three task nodes run as `Daedalus Architect`, the only configured
+agent with `skills__*` at all, and `publish` declares `outcomes: [published]`, reported through
+the same structural tool-call mechanism `review` uses, so completing it requires an explicit
+call rather than accepting any turn output. **v2 has never been executed by a live run.** It is
+proven to load, validate and activate by `ProcessDefinitionSyncEndToEndTests`, which boots a
+real host against the merged file — that is the whole of the evidence for v2. The engine
+mechanics the runs demonstrate — sequence, branch, gate, kill, restart, resume, loop-back and
+cap — do not depend on which agent one node names or whether it declares outcomes, so those
+claims stand as written.
+
+**The run.** Started via a throwaway console harness calling `Thalos.Workflow.Orm.OrmWorkflowStore.StartAsync`
 directly (no "start a run" surface exists in Daedalus yet — see carried-forward below), the run
 was driven to the gate, the **whole AppHost process tree was killed**, the parked run was confirmed to
 survive as a bare Postgres row with the host completely down (no process, no thread, no timer),
@@ -120,8 +133,10 @@ YAML file's own comment rather than left implicit. The resume boundary's deny
 paths were reconfirmed live on the restarted host too: no bearer token → 401; an authenticated
 token with no `developer`/`admin` role → 403.
 
-**Honest limit, observed rather than argued.** Reaching `Succeeded` proves each node called the
-outcome tool its schema demanded; it does not prove the work was real, and this run demonstrates
+**Honest limit, observed rather than argued.** Reaching `Succeeded` proves that every node
+*declaring* `outcomes` called the outcome tool its schema demanded — in version 1 that is
+`review`, not `publish`, which declared none and so completed on turn output alone. It does not
+prove the work was real, and this run demonstrates
 that gap rather than hiding it: in the successful run, `review`'s `approved` outcome almost
 certainly came from the skill's documented fallback ("no prior note visible → approve") rather
 than an actual reading of `implement`'s output, because every `AgentMemories` row observed in this
@@ -129,9 +144,15 @@ environment — including days-old digest memories — stayed `IndexPending = tr
 had nothing indexed to search within the run's own lifetime. This is Task 10's
 "`Succeeded`-without-the-work" finding, observed directly rather than theorised.
 
-**Constraint upheld, not routed around.** The run's `publish` node never attempts `git__*` or
-`repoaction__*` — both are denied to the `workflow` role by design, and the skill says so rather
-than trying and failing. No branch was pushed and no pull request was opened against a real
+**Constraint upheld, not routed around — and name which mechanism upholds which half.** The
+policy half is real and verified independently of any run: `appsettings.json`'s `ToolPolicies`
+binds `git__*` and `repoaction__*` to `developer`, asserted by
+`ApiThalosConfigurationTests.Appsettings_binds_anthropic_defaults_tool_policies_and_sentinel_actions`,
+and a workflow turn's `WorkflowCaller` carries the single role `workflow`, which `DeveloperPolicy`
+rejects. In the run that actually happened, `publish` executed as `writer`, whose `Tools` list is
+`memory__*` alone — so that turn had no such tool to attempt in the first place, and its never
+attempting them is tool absence before it is policy denial. The skills say so rather than trying
+and failing, which is prompt guidance, not a control. No branch was pushed and no pull request was opened against a real
 repository for the workflow's own (test) content; that stays a deliberate, human-triggered step,
 exactly as phase 2.1 left its own live-remote proof "ready and waiting."
 
