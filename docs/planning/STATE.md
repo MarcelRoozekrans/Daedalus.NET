@@ -1,12 +1,12 @@
 # Session State
 
-**Last session:** 2026-09-21
+**Last session:** 2026-09-22
 **Milestone 1 — Hermes-Style Agent Framework: CLOSED (2026-09-21).** All 9 phases complete. See
 `docs/planning/MILESTONE.md` for the definition-of-done checklist and its honest scoping, and
 `docs/planning/ROADMAP.md` for the "Carried forward from Milestone 1" list of 7 known, deliberately
 unfixed items.
 
-**Current milestone:** 2 — Software Manufacturing (**phase 2.1 complete; phase 2.2 designed 2026-09-22, ready to plan**)
+**Current milestone:** 2 — Software Manufacturing (**phases 2.1 and 2.2 complete; 2.3 next**)
 
 **Phase 2.1 — git write tooling: complete (2026-09-21).** Branch `feat/phase-2.1-git-tooling`, 6
 commits, PR opened against `main`. The roadmap described this phase as building branch, commit, push
@@ -55,8 +55,10 @@ waiting on that decision.
 4. Thalos's `scripts/pack-local.ps1` hard-codes `0.3.0-<suffix>` and never calls GitVersion, so
    local dev feeds carry the wrong version. Real releases are unaffected — GitVersion wins in CI.
 
-**Next: phase 2.2 — the durable workflow engine. Designed 2026-09-22; ready to plan.**
-Design: `docs/plans/2026-09-22-phase-2.2-workflow-engine-design.md`.
+**Phase 2.2 — durable workflow engine: complete (2026-09-22).** Branch
+`feat/phase-2.2-daedalus-wiring`, 11 tasks across two repos, PR opened against `main`. Design:
+`docs/plans/2026-09-22-phase-2.2-workflow-engine-design.md`. Full task-by-task ledger, every
+ruling and every deferred item: `.superpowers/sdd/2026-09-22-phase-2.2-workflow-engine-plan/progress.md`.
 
 A spike measured the roadmap's named substrate and **all three candidates failed**:
 `ZeroAlloc.StateMachine`'s runtime assembly is seven attribute types and zero non-attribute types,
@@ -66,14 +68,117 @@ loops nor branching. The Saga ban was lifted on defect grounds and the exclusion
 architectural grounds instead. `RunStep` was cited as precedent but advances strictly forward, so
 it is precedent for the linear shape, not for branching.
 
-The engine is therefore written here, as `Thalos.NET.Workflow` plus `Thalos.NET.Workflow.Orm`, on
-**`ZeroAlloc.ORM` and `ZeroAlloc.Outbox.Orm` rather than EF Core** — which makes 2.2 the pilot for
-Milestone 3's data-layer migration and keeps the engine EF-free so it can live in Thalos at all.
-Placement settled: Thalos owns the graph, gates and abstractions; Daedalus owns process files,
-hosting and the resume endpoint's policy binding.
+The engine was therefore written from scratch, as `Thalos.NET.Workflow` plus
+`Thalos.NET.Workflow.Orm`, on **`ZeroAlloc.ORM` and `ZeroAlloc.Outbox.Orm` rather than EF Core** —
+which makes 2.2 the pilot for Milestone 3's data-layer migration and keeps the engine EF-free so it
+can live in Thalos at all. **Part A** (Tasks 1–8) shipped that engine and released it as
+**Thalos.NET 0.7.0**: graph model, loader, validator (every rule fails the *file*, never a paid
+run — unknown references, unreachable nodes, a cap with no exit, a gate that also declares
+`branch`), the `IWorkflowStore`/`IWorkflowDispatcher`/`IWorkflowReferenceResolver` abstractions,
+transactional-outbox dispatch with `xmin` concurrency, a stranded-run reconciler, and hot-reload
+with content-hash-enforced immutability (a version's shape cannot change once synced). The
+whole-branch review before merge found one Critical of its own kind — `StartAsync` never enqueued
+the start node's own dispatch, so a run created through the shipped public API sat at `Running`
+forever — fixed before the merge, the third instance this phase of "a carrier built correctly with
+nothing consuming it." **Part B** (Tasks 9–11) wired it into Daedalus: `WorkflowCaller`, a
+single-role (`"workflow"`) `ISecurityContext` a run's agent turns execute as; the resume/cancel REST
+boundary (`WorkflowRunGateway`, the `WorkflowResume` policy — `developer`/`admin` only, and a
+workflow-run agent cannot reach it because it is never registered as a tool, not because a policy
+denies it); a `BudgetedSubagentRunner` decorator closing a per-turn spend gap the factory pattern
+left open; and `processes/manufacture.yaml`, the first real process file.
 
-**The security property of the phase:** an agent must not be able to resume its own approval gate.
-Resume is bound to `developer` and is deliberately not registered as an agent tool.
+**The security property of the phase, demonstrated failing then fixed, same as `git__*` in 2.1:**
+an agent must not be able to resume its own approval gate. Resume is bound to `developer`/`admin`
+and is deliberately not registered as an agent tool — Task 10's review traced this precisely and
+caught a comment crediting the *wrong* mechanism (the `WorkflowResume` policy, which a Thalos
+`ISecurityContext` never even reaches) for a guarantee the *tool-source absence* actually provides.
+
+**Task 11 proved the whole thing end to end against the real `AppHost`, restart included — the
+proof this phase exists to produce.** `processes/manufacture.yaml` transcribes
+`subagent-driven-development`'s control flow (implement → review, `maxVisits: 5` /
+`onExceeded: adjudicate`, a `human_approval` gate, publish) using agents and skills that actually
+exist (`Daedalus Architect`, `writer`; three new skills — `manufacture-implement/-review/-publish`
+— authored for it, since the design doc's aspirational skill-corpus port has not happened yet).
+Started via a throwaway console harness calling `Thalos.Workflow.Orm.OrmWorkflowStore.StartAsync`
+directly (no "start a run" surface exists in Daedalus yet — see carried-forward below), the run was
+driven to the gate, the **whole AppHost process tree was killed**, the parked run was confirmed to
+survive as a bare Postgres row with the host completely down (no process, no thread, no timer),
+the host was restarted, and the run was resumed through the real `POST
+/api/workflow-runs/{id}/resume` against a real Keycloak-issued `admin` token — completing to
+`Succeeded`. A separate run independently exercised the loop-back/cap/`onExceeded` primitive live:
+five real `rejected` outcomes, then a real redirect to `adjudicate`. The resume boundary's deny
+paths were reconfirmed live on the restarted host too: no bearer token → 401; an authenticated
+token with no `developer`/`admin` role → 403.
+
+**Honest limit, observed rather than argued.** Reaching `Succeeded` proves each node called the
+outcome tool its schema demanded; it does not prove the work was real, and this run demonstrates
+that gap rather than hiding it: in the successful run, `review`'s `approved` outcome almost
+certainly came from the skill's documented fallback ("no prior note visible → approve") rather
+than an actual reading of `implement`'s output, because every `AgentMemories` row observed in this
+environment — including days-old digest memories — stayed `IndexPending = true`. Semantic recall
+had nothing indexed to search within the run's own lifetime. This is Task 10's
+"`Succeeded`-without-the-work" finding, observed directly rather than theorised.
+
+**Constraint upheld, not routed around.** The run's `publish` node never attempts `git__*` or
+`repoaction__*` — both are denied to the `workflow` role by design, and the skill says so rather
+than trying and failing. No branch was pushed and no pull request was opened against a real
+repository for the workflow's own (test) content; that stays a deliberate, human-triggered step,
+exactly as phase 2.1 left its own live-remote proof "ready and waiting."
+
+**Carried forward from phase 2.2** (fuller detail and rulings in `progress.md`, linked above):
+1. **The `AGENTS.md` self-improvement loop must move before phase 2.5 deletes it.**
+   `RalphPromptTemplateBuilder` instructs agents to "update or create `AGENT.md` … only build/run/test
+   instructions" — the standing-instructions loop the Copilot port identifies as compounding, and it
+   lives only in Ralph today. Phase 2.5 deletes Ralph. This has to land in the workflow engine (or a
+   skill it runs) before that happens, or the capability is lost, not retired.
+2. **No "start a workflow run" surface exists in Daedalus.** Tasks 9/10 built resume and cancel only;
+   Task 11's own proof had to call `Thalos.Workflow.Orm.OrmWorkflowStore.StartAsync` directly from a
+   throwaway console harness because nothing else does. Phase 2.4 (or a dedicated endpoint) needs to
+   supply a real trigger.
+3. **Cross-node memory handoff does not work at a live run's latency.** `manufacture-implement` and
+   `manufacture-review` were designed to hand off through `memory__remember`/`memory__recall`, scoped
+   correctly by the run's own `WorkflowCaller.Id` — but every memory row observed in this environment
+   stayed `IndexPending = true` well past the run's own lifetime, so semantic recall found nothing to
+   search. A process wanting reliable node-to-node handoff needs a different channel; `NodeResult.Variables`
+   exists in the store but nothing currently wires it into a later node's task text (a gap Task 5's
+   ledger already named and this phase did not close).
+4. **`SubagentBudgetExceeded` is easy to hit with a tool-heavy agent.** `Daedalus Architect`'s full
+   toolset (`roslyn__*`, `daedalus__*`, `memory__*`, `skills__*`, `context7__*`, `repoaction__*`) plus
+   open-ended exploration instructions exhausted the 150,000-token detached-run budget on the very
+   first attempt at `manufacture-implement`. Fixed for this process by hard-capping each skill to one
+   or two tool calls; the underlying mismatch between that budget and an Architect-class agent's
+   toolset remains for any future process node that is less disciplined about it.
+5. **Multi-instance duplicate dispatch remains open.** `FetchPendingAsync` has no
+   `FOR UPDATE SKIP LOCKED`, so two hosts polling the same outbox table both fetch and both dispatch
+   the same row — the `xmin` check means only one transition commits, but both agent turns run and
+   both spend. `Daedalus.Cli` was disabled as a workflow host in Task 9 specifically to avoid this;
+   the gap reopens the moment the API host itself is scaled past one replica.
+6. **The publish node cannot open a real pull request, by design, for now.** `git__*` and
+   `repoaction__*` are bound to the `developer` policy and denied to the `workflow` role — deliberate,
+   not a gap to close casually. Task 10 recorded **Option C** (host code calls `IPullRequestPublisher`
+   directly, after the graph and a human have already decided, removing the model from the trust path
+   entirely) as the preferred fix for a later phase; it also closes the `Succeeded`-without-the-work
+   gap, since host code would return a real result the graph could branch on. Not built now — it needs
+   a new node kind in Thalos, a bigger change than this phase's scope.
+7. **Three test hosts silently depended on the `processes/` folder staying empty.** Adding a real
+   `processes/manufacture.yaml` exposed that `SkillsStartupTests`, `AgentNameValidationTests`
+   (Integration) and `E2EServerFixture` (Playwright.Api, and pre-emptively Playwright.Browser) each
+   build a full `Daedalus.Api` host with `Thalos:Workflow` left at its default `Enabled=true`, against
+   a Postgres schema built only from the EF Core model. `ProcessDefinitionSyncHostedService.StartAsync`
+   throws (not the graceful per-document degrade the class documents) when there is something to sync
+   and the raw workflow tables do not exist — previously silent because there was never a file to sync.
+   Fixed by disabling `Thalos:Workflow:Enabled` in all four hosts, matching `ApiWebApplicationFactory`'s
+   existing, documented pattern.
+8. **`Daedalus.Api.csproj` had a `processes/` folder wired to nothing.** `Thalos:Workflow:ProcessesRoot`
+   could never have resolved a real file, on any host, ever, until this task added the same
+   `CopyToOutputDirectory` `Content` item `skills/**/*.SKILL.md` already had. Same shape as phase 2.1's
+   `IRepositoryAuthenticationProvider` finding: declared, configured, never actually wired.
+9. Still open from the design doc's own carried-forward list, untouched by this phase: `AGENTS.md`
+   (the cross-tool convention, distinct from item 1 above) is never probed by
+   `FileSystemWorkspaceContextProvider`; 8 of 14 base skills are multi-file against a single-body
+   `Skill` model; `Thalos.NET.Anthropic` is the only chat provider, so `models`/`quorum` on a node
+   parse but do nothing; and the squad roster (phase 2.3) still needs the same git-to-Postgres sync
+   skills already have.
 
 **Parked ideas:** `docs/planning/parked-ideas.md` — currently one, a customer chatbot product on Rag.NET, deferred as a separate application rather than a Daedalus milestone. The 1.0 tag on Thalos.NET is
 deliberately held back until Milestone 2 settles the agent contracts, since 2.2's workflow engine and
@@ -275,7 +380,11 @@ record why 1.7 was unblocked at the time. See the top of this file for the curre
 
 **Superseded 2026-09-21 (later the same day) — phase 2.1 is also complete.** The paragraph below
 describing it as next is historical and left in place for the same reason. See the top of this file
-for the current pointer, now phase 2.2.
+for the current pointer.
+
+**Superseded 2026-09-22 — phase 2.2 is also complete.** The paragraph below describing it as
+"designed, ready to plan" is historical and left in place for the same reason. See the top of this
+file for the current pointer, now phase 2.3.
 
 **Phase 2.1 — git write tooling** is next, opening Milestone 2. It is not blocked: phase 1.9 already
 built the authorization boundary (`repoaction__*` bound to the `developer` policy, denied to a
