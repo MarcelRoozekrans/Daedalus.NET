@@ -36,10 +36,21 @@
         <PackageReference Include="Thalos.NET.Memory" />
         <PackageReference Include="Thalos.NET.Memory.RagNet" />
         <PackageReference Include="Thalos.NET.Skills" />
+        <!-- Phase 2.2 Part B: the durable workflow engine (Task 9). -->
+        <PackageReference Include="Thalos.NET.Workflow" />
+        <PackageReference Include="Thalos.NET.Workflow.Orm" />
         <PackageReference Include="ZeroAlloc.Mapping" />
         <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="ZeroAlloc.Outbox" />
         <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
+        <!-- ZeroAlloc.Outbox.Orm/ZeroAlloc.ORM/AdoNet.Async.Adapters: the workflow store's own outbox table,
+             polled by WorkflowOutboxDispatchService — a hand-rolled poller, not ZeroAlloc.Outbox's AddOutbox(),
+             because this project already runs one OutboxWorkerService against ApplicationDbContext (see that
+             type's remarks for why a second AddOutbox() call would silently break it). -->
+        <PackageReference Include="ZeroAlloc.Outbox.Orm" />
+        <PackageReference Include="ZeroAlloc.ORM" />
+        <PackageReference Include="AdoNet.Async.Adapters" />
+        <PackageReference Include="Npgsql" />
         <PackageReference Include="Cronos" />
         <PackageReference Include="LibGit2Sharp" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />

@@ -53,4 +53,28 @@ public sealed class ScheduledRunsConfigurationDriftTests
             $"{sectionKey} drifted from the Api's would silently disable or corrupt config-origin schedules " +
             "the Api created");
     }
+
+    /// <summary>
+    ///     Pins <c>Daedalus.Cli/appsettings.json</c>'s <c>Thalos:Workflow:Enabled</c> to <see langword="false"/> —
+    ///     deliberately the one setting in this file that must <em>not</em> match the Api's. <c>Daedalus.Cli</c>
+    ///     is not orchestrated by the AppHost and has no <c>WaitForCompletion(migrations)</c> step, and even
+    ///     where the workflow tables do exist, a second poller against the same outbox table as
+    ///     <c>Daedalus.Api</c> only buys duplicate paid agent turns — <c>FetchPendingAsync</c> has no
+    ///     <c>FOR UPDATE SKIP LOCKED</c>, so both hosts can fetch and dispatch the same row and both pay for the
+    ///     turn. See <c>WorkflowConfig.Enabled</c>'s own remarks. Without this test, deleting or flipping that
+    ///     one line in the real file is invisible to every other test in this solution:
+    ///     <c>CliHostSchedulingWiringTests</c> deliberately builds its own minimal configuration that never sets
+    ///     this key (to exercise <c>WorkflowConfig.Enabled</c>'s compiled-in default), so it never reads this
+    ///     file at all.
+    /// </summary>
+    [Fact]
+    public void Cli_disables_the_workflow_engine()
+    {
+        var workflow = Flatten(Load("Daedalus.Cli.appsettings.json"), "Thalos:Workflow");
+
+        workflow.Should().ContainKey("Enabled", "Daedalus.Cli/appsettings.json must set Thalos:Workflow:Enabled explicitly");
+        bool.Parse(workflow["Enabled"]!).Should().BeFalse(
+            "a second poller against the same outbox table as Daedalus.Api only buys duplicate paid agent " +
+            "turns, and Daedalus.Cli has no WaitForCompletion(migrations) guarantee the tables even exist");
+    }
 }

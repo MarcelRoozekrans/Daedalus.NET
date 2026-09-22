@@ -4,6 +4,7 @@ using Daedalus.Agents;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Skills;
+using Daedalus.Agents.Workflow;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -148,6 +149,26 @@ public sealed class DaedalusAgentsRegistrationTests
         bindings.Should().ContainSingle().Which.Should().BeEquivalentTo(new { ToolPattern = "roslyn__apply_*", PolicyName = "developer" });
         sp.GetServices<IAuthorizationPolicy>().Should().ContainSingle(p => p is DeveloperPolicy);
     }
+
+    /// <summary>
+    ///     Closes a gap the resume-boundary integration tests could not: those run against
+    ///     <c>ApiWebApplicationFactory</c>, which always sets <c>Thalos:Workflow:Enabled</c> to <see langword="false"/>
+    ///     (see that class's remarks), so <c>WorkflowRunGateway</c> is never actually registered on that host and
+    ///     none of those tests could notice its registration going missing. <see cref="Config"/> leaves
+    ///     <c>Thalos:Workflow:Enabled</c> unset, so this exercises <see cref="WorkflowConfig.Enabled"/>'s real
+    ///     default (<see langword="true"/>) - the same default <c>Daedalus.Api</c> ships with - through the real
+    ///     <c>AddDaedalusAgents</c> composition root, not a hand-assembled container.
+    /// </summary>
+    [Fact]
+    public void WorkflowRunGateway_is_registered_when_the_workflow_engine_is_enabled()
+    {
+        using var sp = Build(Config());
+
+        sp.GetService<WorkflowRunGateway>().Should().NotBeNull(
+            "WorkflowRunsController's resume/cancel actions depend on this and would fail to resolve, not to " +
+            "authorize, if this registration were ever removed");
+    }
+
 
     [Fact]
     public void Sentinel_is_configured_from_options_and_gets_the_embedding_generator()

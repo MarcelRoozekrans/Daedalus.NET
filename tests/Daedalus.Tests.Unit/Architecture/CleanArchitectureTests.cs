@@ -3,6 +3,7 @@ using ArchUnitNET.Loader;
 using ArchUnitNET.xUnit;
 using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
+using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
 using Daedalus.Infrastructure.Persistence;
 using Rag.NET.Abstractions;
@@ -321,11 +322,26 @@ public sealed class CleanArchitectureTests
         // never through Thalos' concrete ISubagentRunner directly. Enforced here rather than left as a comment.
         // Scoped to DaedalusOwnTypes: Thalos' own SubagentRunner (the default implementation) and its own DI
         // registration both legitimately depend on the interface they define, and are not offenders.
+        //
+        // WorkflowNodeDispatcherFactory and BudgetedSubagentRunner (phase 2.2 Part B) are the two deliberate
+        // further exceptions: ISubagentRunExecutor resolves an agent by name and returns plain text, which
+        // cannot express what Thalos' own WorkflowNodeDispatcher needs — an already-resolved AgentId and a
+        // RequiredOutcome tool schema constraining the turn. WorkflowNodeDispatcher is Thalos' constrained-outcome
+        // dispatcher, built the same way SubagentRunExecutor is: directly over ISubagentRunner.
+        // BudgetedSubagentRunner is what keeps this exception from being a loophole rather than a seam:
+        // WorkflowNodeDispatcher never sets SubagentRunRequest.Budget itself, so this decorator stamps it from
+        // the exact same DetachedRunOptions configuration SubagentRunExecutor reads before delegating — the
+        // workflow path applies the same budget policy the detached-run path does, from one configuration
+        // source, instead of skipping it. See WorkflowNodeDispatcherFactory's and BudgetedSubagentRunner's own
+        // remarks.
         var rule = Types().That().Are(DaedalusOwnTypes).And().DependOnAny(SubagentRunnerType)
             .And().DoNotHaveFullName(typeof(SubagentRunExecutor).FullName!)
+            .And().DoNotHaveFullName(typeof(WorkflowNodeDispatcherFactory).FullName!)
+            .And().DoNotHaveFullName(typeof(BudgetedSubagentRunner).FullName!)
             .Should().NotExist()
-            .Because("SubagentRunExecutor is the only Daedalus type permitted to depend on Thalos' " +
-                      "ISubagentRunner; every other caller must go through ISubagentRunExecutor instead");
+            .Because("SubagentRunExecutor, WorkflowNodeDispatcherFactory and BudgetedSubagentRunner are the " +
+                      "only Daedalus types permitted to depend on Thalos' ISubagentRunner; every other caller " +
+                      "must go through ISubagentRunExecutor instead");
 
         rule.Check(Architecture);
     }

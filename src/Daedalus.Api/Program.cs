@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
+using Daedalus.Agents.Security;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
@@ -215,6 +216,18 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("CodeAnalysisRead", policy => policy.RequireAuthenticatedUser());
     options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
     options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser()); // Thalos agents: any signed-in user; tool policies gate the rest
+
+    // WorkflowRunsController's resume/cancel endpoints. Same criterion Thalos:ToolPolicies binds git__* and
+    // repoaction__* to (see DeveloperPolicy), reused here by name so the two role literals cannot drift apart -
+    // enforced by ASP.NET Core's own role check, not DefaultToolAuthorizer, because these are REST endpoints,
+    // never Thalos tool calls. This policy's job is narrower than it sounds: it keeps a human, or a scheduled
+    // run's HTTP caller, without the developer or admin role from resuming or cancelling a run - it says
+    // nothing about an agent. WorkflowCaller is a Thalos ISecurityContext, never a ClaimsPrincipal, so this
+    // policy is never evaluated against one and could not deny it. What actually stops an agent from resuming
+    // its own gate is the structural absence of a resume tool (see WorkflowRunsController's own remarks) - a
+    // gap this policy does not, and is not needed to, cover.
+    options.AddPolicy("WorkflowResume",
+        policy => policy.RequireRole(DeveloperPolicy.DeveloperRole, DeveloperPolicy.AdminRole));
 });
 
 // Add rate limiting — protects write and LLM endpoints from abuse

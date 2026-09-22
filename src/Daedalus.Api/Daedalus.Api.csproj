@@ -54,6 +54,16 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Process definitions (Thalos:Workflow:ProcessesRoot) - same authoring story as skills above: authored
+             at the repo root so git is the source of truth, copied next to the API so ResolveContentRoot's
+             assembly-directory fallback finds them under `dotnet run`/Aspire, where the content root is the
+             project directory rather than the repo root (see ResolveContentRoot's remarks). Task 11 is this
+             folder's first real consumer - a bare ItemGroup existed already (processes/.gitkeep) with nothing
+             wiring it to the build. -->
+        <Content Include="..\..\processes\**\*.yaml" Link="processes\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="../Daedalus.Domain/Daedalus.Domain.csproj" />
         <ProjectReference Include="../Daedalus.Application/Daedalus.Application.csproj" />
         <ProjectReference Include="../Daedalus.Infrastructure/Daedalus.Infrastructure.csproj" />

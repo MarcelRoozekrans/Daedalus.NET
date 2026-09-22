@@ -163,7 +163,17 @@ public class E2EServerFixture
             // AddDaedalusAgents resolves the memory connection string from configuration (Rag.NET keeps its own pool and
             // creates rag_chunks on start); without this it would fall back to the developer's local Postgres.
             builder.Configuration.AddInMemoryCollection(
-                new Dictionary<string, string?>(StringComparer.Ordinal) { ["ConnectionStrings:daedalus"] = ConnectionString });
+                new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    ["ConnectionStrings:daedalus"] = ConnectionString,
+                    // Same reason ApiWebApplicationFactory (Daedalus.Tests.Integration) sets this: this fixture's
+                    // schema is EF Core's model only, never Thalos.NET.Workflow.Orm's raw-SQL tables.
+                    // processes/manufacture.yaml (Task 11) is a real file on Thalos:Workflow's ProcessesRoot now,
+                    // and flows into this host's output the same way skills/*.SKILL.md does - left enabled,
+                    // ProcessDefinitionSyncHostedService.StartAsync has something to sync and fails the whole host
+                    // on 42P01 against a schema with no process_definition table.
+                    ["Thalos:Workflow:Enabled"] = "false",
+                });
             builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
             foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IAgentRuntime)).ToList())
             {

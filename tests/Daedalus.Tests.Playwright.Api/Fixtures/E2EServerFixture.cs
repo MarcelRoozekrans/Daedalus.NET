@@ -122,6 +122,17 @@ public class E2EServerFixture
                         });
                     });
 
+                    // UseSetting, not ConfigureAppConfiguration, for this one - AddDaedalusAgents reads
+                    // Workflow.Enabled synchronously while Program.cs registers services (same "too late" timing
+                    // ApiWebApplicationFactory's ConnectionStrings:daedalus comment describes), so a
+                    // ConfigureAppConfiguration value here would not exist yet when the gate is evaluated.
+                    // EnsureCreatedAsync above builds only the EF Core model, never Thalos.NET.Workflow.Orm's
+                    // raw-SQL tables. processes/manufacture.yaml (Task 11) is a real file on Thalos:Workflow's
+                    // ProcessesRoot now, and flows into this host's output the same way skills/*.SKILL.md does -
+                    // left enabled, ProcessDefinitionSyncHostedService.StartAsync has something to sync and fails
+                    // the whole host on 42P01 against a schema with no process_definition table.
+                    builder.UseSetting("Thalos:Workflow:Enabled", "false");
+
                     builder.ConfigureServices(services =>
                     {
                         // Remove ALL existing DbContext registrations to avoid conflicts

@@ -1,0 +1,43 @@
+using Daedalus.Agents.Scheduling;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Thalos;
+using Thalos.Workflow;
+
+namespace Daedalus.Agents.Workflow;
+
+/// <summary>
+///     Constructs <see cref="WorkflowNodeDispatcher"/> — one of two places besides
+///     <see cref="Daedalus.Agents.Scheduling.SubagentRunExecutor"/> permitted to touch Thalos's raw
+///     <see cref="ISubagentRunner"/>, per <c>CleanArchitectureTests.OnlySubagentRunExecutor_DependsOn_ISubagentRunner</c>
+///     — the other is <see cref="BudgetedSubagentRunner"/>, wrapped in here.
+/// </summary>
+/// <remarks>
+///     <see cref="Daedalus.Agents.Scheduling.ISubagentRunExecutor"/> is not a substitute here: it resolves an agent by <em>name</em> and
+///     returns plain text, which is exactly right for a scheduling step but cannot express what
+///     <see cref="WorkflowNodeDispatcher"/> needs — an already-resolved <see cref="AgentId"/> (from
+///     <see cref="IWorkflowReferenceResolver"/>) and a <c>RequiredOutcome</c> tool schema constraining the turn's
+///     result. <see cref="WorkflowNodeDispatcher"/> is Thalos's own constrained-outcome dispatcher, built the
+///     same way <see cref="Daedalus.Agents.Scheduling.SubagentRunExecutor"/> is: directly over
+///     <see cref="ISubagentRunner"/>. Isolating the construction call here, rather than inline in the composition
+///     root, is what keeps <c>DaedalusAgentsServiceCollectionExtensions</c> itself off the single-seam rule's
+///     offender list — the rule flags at the referencing <em>type</em>, not the call site within it.
+///     <para>
+///     <b>The runner is wrapped in <see cref="BudgetedSubagentRunner"/>, not passed through raw.</b>
+///     <see cref="WorkflowNodeDispatcher"/> never sets <c>SubagentRunRequest.Budget</c> itself, so an unwrapped
+///     <see cref="ISubagentRunner"/> here would leave every workflow-run turn on Thalos's global default budget
+///     instead of Daedalus's configured one — see <see cref="BudgetedSubagentRunner"/>'s own remarks for the
+///     full reasoning. This is what makes the exception on the single-seam rule true rather than a loophole:
+///     the workflow path now applies the same budget policy <see cref="Daedalus.Agents.Scheduling.SubagentRunExecutor"/>
+///     applies to detached runs, from the same configuration, rather than skipping it.
+///     </para>
+/// </remarks>
+internal static class WorkflowNodeDispatcherFactory
+{
+    public static WorkflowNodeDispatcher Create(IServiceProvider sp) => new(
+        sp.GetRequiredService<IWorkflowStore>(),
+        new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+        sp.GetRequiredService<IWorkflowReferenceResolver>(),
+        sp.GetRequiredService<IProcessDefinitionStore>(),
+        resolveCaller: run => new WorkflowCaller(run));
+}

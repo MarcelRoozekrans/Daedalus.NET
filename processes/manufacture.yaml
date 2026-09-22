@@ -1,0 +1,65 @@
+# The first real manufacturing process (phase 2.2, Task 11). A transcription of
+# subagent-driven-development's control flow — implement, review with a bounded fix loop, a
+# human approval gate, then publish — expressed as data the engine interprets rather than as a
+# skill's prose.
+#
+# Two constraints shaped this file, both carried forward from Tasks 9 and 10 and recorded in
+# docs/plans/2026-09-22-phase-2.2-workflow-engine-design.md:
+#
+#   1. A run executes as WorkflowCaller, whose only role is "workflow". `git__*` and
+#      `repoaction__*` are bound to the `developer` policy, so a workflow-run node cannot open a
+#      pull request or comment on one — that boundary is intentional, not a bug this file works
+#      around. `publish` below therefore never attempts a git or repo-action tool call — it must
+#      write a memory__remember record, then report `published` through this node's own outcome
+#      tool before the run can complete. That call is the only thing enforced structurally; it does
+#      not prove the record's content is real, or that a human ever reads it. Opening the actual
+#      pull request against a real repository stays a deliberately unautomated, human-triggered
+#      step (see Task 11's report).
+#
+#   2. Reaching `succeeded` proves the graph walked implement -> review -> gate -> publish -> done
+#      and that each task node's agent called the outcome tool the schema demanded. It does not
+#      prove the agent's analysis was correct, or that a human who approved the gate read anything
+#      real. Nothing in the engine (or this file) closes that gap.
+process: manufacture
+# version bumped 1 -> 2 (this task): content-hash immutability correctly refused re-syncing v1 with
+# different content once publish stopped pointing at writer and gained outcomes - the rule working as
+# designed, not a bug. A same-version content change must mint a new version; it is not a case to
+# route around by relaxing the check.
+version: 2
+
+nodes:
+  implement:
+    agent: Daedalus Architect
+    skill: manufacture-implement
+    next: review
+
+  review:
+    agent: Daedalus Architect
+    skill: manufacture-review
+    outcomes: [approved, rejected]
+    branch:
+      approved: gate
+      rejected: implement
+    maxVisits: 5
+    onExceeded: adjudicate
+
+  # A terminal, not a human escalation. subagent-driven-development's own breaker sends a
+  # tripped loop to a human; this node just ends the run as failed instead. A faithful
+  # transcription would make this a second `human_approval`-style gate, which this phase does
+  # not build — naming the gap here rather than calling a dead end "adjudication."
+  adjudicate:
+    terminal: failed
+
+  gate:
+    await: human_approval
+    next: publish
+
+  publish:
+    agent: Daedalus Architect
+    skill: manufacture-publish
+    outcomes: [published]
+    branch:
+      published: done
+
+  done:
+    terminal: succeeded
