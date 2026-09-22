@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
+using Daedalus.Agents.Security;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
@@ -215,6 +216,14 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("CodeAnalysisRead", policy => policy.RequireAuthenticatedUser());
     options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
     options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser()); // Thalos agents: any signed-in user; tool policies gate the rest
+
+    // WorkflowRunsController's resume/cancel endpoints. Same criterion Thalos:ToolPolicies binds git__* and
+    // repoaction__* to (see DeveloperPolicy), reused here by name so the two role literals cannot drift apart —
+    // enforced by ASP.NET Core's own role check, not DefaultToolAuthorizer, because these are REST endpoints,
+    // never Thalos tool calls. A caller must be resolving this policy for a reason: an agent running as
+    // WorkflowCaller (role "workflow") fails it the same way a scheduled run's DetachedRuns:Roles do.
+    options.AddPolicy("WorkflowResume",
+        policy => policy.RequireRole(DeveloperPolicy.DeveloperRole, DeveloperPolicy.AdminRole));
 });
 
 // Add rate limiting — protects write and LLM endpoints from abuse

@@ -278,6 +278,12 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // IAgentCatalog and ISkillStore both come from AddThalos above.
         services.AddSingleton<IWorkflowReferenceResolver, WorkflowReferenceResolver>();
 
+        // The resume/cancel REST boundary's only path to IWorkflowStore (from AddWorkflowOrm above). Never an
+        // agent, never a Thalos tool — see WorkflowRunGateway's own remarks for why, and for what actually
+        // authorizes a call to it (ASP.NET Core's WorkflowResume policy in Daedalus.Api/Program.cs, not
+        // Thalos:ToolPolicies, which DefaultToolAuthorizer only ever evaluates against a tool call).
+        services.AddSingleton<WorkflowRunGateway>();
+
         // ISubagentRunner comes from AddThalos; IWorkflowStore/IProcessDefinitionStore from AddWorkflowOrm above.
         // Built via WorkflowNodeDispatcherFactory, not inline here — see that type's remarks for why this needs
         // the raw ISubagentRunner instead of ISubagentRunExecutor, and why isolating the call there keeps this
