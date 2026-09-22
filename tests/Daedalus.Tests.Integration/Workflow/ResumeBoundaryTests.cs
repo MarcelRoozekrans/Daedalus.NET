@@ -1,7 +1,9 @@
 using System.Data.Async.Adapters;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
+using Daedalus.Api.Controllers;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -16,7 +18,7 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>
-///     Task 10: the resume boundary. Three layers, only the last two of which hold on their own:
+///     Task 10: the resume boundary. Three layers:
 ///     <list type="number">
 ///         <item>
 ///             Resume/cancel are REST endpoints (<c>WorkflowRunsController</c>), never a Thalos tool — see
@@ -207,11 +209,13 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
         var response = await client.PostAsJsonAsync(
             $"/api/workflow-runs/{Guid.NewGuid()}/resume", new { signal = "human_approval", payload = (string?)null });
 
-        // Never Forbidden/Unauthorized: the policy let the request through to the controller, which then fails
-        // trying to resolve WorkflowRunGateway because this fixture always disables the workflow engine (see
-        // ApiWebApplicationFactory's own remarks) - a 500 here, not a 403, is what proves the policy passed.
-        response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
-        response.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        // Pinned to exactly 500, not merely "not 401/403": NotBe on both would also pass on a 404 from a
+        // missing or renamed route, which proves nothing about this policy. The controller's constructor
+        // requires WorkflowRunGateway, never registered on this fixture because ApiWebApplicationFactory
+        // always disables the workflow engine (see that class's own remarks) - so a request the policy lets
+        // through fails DI resolution deterministically, and 500 is the one status that is only reachable
+        // once authorization has already passed.
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
     }
 }
 
@@ -289,6 +293,41 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             // is responsible for.
             run!.Status.Should().Be(WorkflowStatus.Running, "the gate's 'next' edge was resolved, but the terminal node it points to has not been dispatched yet");
             run.CurrentNode.Should().Be("finish");
+        });
+    }
+
+    /// <summary>
+    ///     Resume and cancel agree on 404 for a run that does not exist. Exercised through the real controller,
+    ///     not just <see cref="WorkflowRunGateway"/> - <see cref="WorkflowRunGateway.ResumeAsync"/>'s own "not
+    ///     found" failure alone maps to 409, which is why <see cref="WorkflowRunsController.Resume"/> checks
+    ///     existence itself before delegating, the same way <see cref="WorkflowRunsController.Cancel"/> already
+    ///     did.
+    /// </summary>
+    [Fact]
+    public async Task The_controller_returns_not_found_for_resume_of_a_nonexistent_run()
+    {
+        await WithScratchDatabaseAsync(async store =>
+        {
+            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store));
+
+            var result = await controller.Resume(
+                Guid.NewGuid(), new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
+
+            result.Should().BeOfType<NotFoundResult>();
+        });
+    }
+
+    /// <summary>Same 404, the other endpoint - see <see cref="The_controller_returns_not_found_for_resume_of_a_nonexistent_run"/>.</summary>
+    [Fact]
+    public async Task The_controller_returns_not_found_for_cancel_of_a_nonexistent_run()
+    {
+        await WithScratchDatabaseAsync(async store =>
+        {
+            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store));
+
+            var result = await controller.Cancel(Guid.NewGuid(), new CancelWorkflowRunRequest("test"), CancellationToken.None);
+
+            result.Should().BeOfType<NotFoundResult>();
         });
     }
 
