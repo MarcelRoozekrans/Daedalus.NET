@@ -58,8 +58,14 @@
              at the repo root so git is the source of truth, copied next to the API so ResolveContentRoot's
              assembly-directory fallback finds them under `dotnet run`/Aspire, where the content root is the
              project directory rather than the repo root (see ResolveContentRoot's remarks). Task 11 is this
-             folder's first real consumer - a bare ItemGroup existed already (processes/.gitkeep) with nothing
-             wiring it to the build. -->
+             folder's first real consumer: f3f7fca created processes/ with only a .gitkeep in it and no build
+             item of any kind here, so Thalos:Workflow:ProcessesRoot could never have resolved a real file on
+             any host. manufacture.yaml replaced the .gitkeep, and this Content Include is what deploys it.
+
+             This glob is recursive and preserves %(RecursiveDir), and FileSystemProcessDefinitionSource
+             enumerates with SearchOption.AllDirectories to match. The two must stay in agreement - a file this
+             copies but that source does not read deploys correctly and never loads, with nothing logged. See
+             that type's remarks for why recursion is the side the agreement was settled on. -->
         <Content Include="..\..\processes\**\*.yaml" Link="processes\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
