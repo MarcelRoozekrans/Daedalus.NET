@@ -3,6 +3,7 @@ using ArchUnitNET.Loader;
 using ArchUnitNET.xUnit;
 using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
+using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
 using Daedalus.Infrastructure.Persistence;
 using Rag.NET.Abstractions;
@@ -321,11 +322,19 @@ public sealed class CleanArchitectureTests
         // never through Thalos' concrete ISubagentRunner directly. Enforced here rather than left as a comment.
         // Scoped to DaedalusOwnTypes: Thalos' own SubagentRunner (the default implementation) and its own DI
         // registration both legitimately depend on the interface they define, and are not offenders.
+        //
+        // WorkflowNodeDispatcherFactory (phase 2.2 Part B) is the one deliberate second exception:
+        // ISubagentRunExecutor resolves an agent by name and returns plain text, which cannot express what
+        // Thalos' own WorkflowNodeDispatcher needs — an already-resolved AgentId and a RequiredOutcome tool
+        // schema constraining the turn. WorkflowNodeDispatcher is Thalos' constrained-outcome dispatcher, built
+        // the same way SubagentRunExecutor is: directly over ISubagentRunner. See that factory's own remarks.
         var rule = Types().That().Are(DaedalusOwnTypes).And().DependOnAny(SubagentRunnerType)
             .And().DoNotHaveFullName(typeof(SubagentRunExecutor).FullName!)
+            .And().DoNotHaveFullName(typeof(WorkflowNodeDispatcherFactory).FullName!)
             .Should().NotExist()
-            .Because("SubagentRunExecutor is the only Daedalus type permitted to depend on Thalos' " +
-                      "ISubagentRunner; every other caller must go through ISubagentRunExecutor instead");
+            .Because("SubagentRunExecutor and WorkflowNodeDispatcherFactory are the only Daedalus types " +
+                      "permitted to depend on Thalos' ISubagentRunner; every other caller must go through " +
+                      "ISubagentRunExecutor instead");
 
         rule.Check(Architecture);
     }

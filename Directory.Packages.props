@@ -43,21 +43,32 @@
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.3" />
 
-    <!-- Thalos.NET (nuget.org) -->
-    <PackageVersion Include="Thalos.NET" Version="0.6.0" />
-    <PackageVersion Include="Thalos.NET.Git" Version="0.6.0" />
-    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.6.0" />
-    <!-- 0.5.1 → 0.6.0: floor set by Thalos.NET 0.6.0 -->
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.6.0" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.5.1" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.5.1" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.5.1" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.5.1" />
-    <PackageVersion Include="Thalos.NET.Memory" Version="0.5.1" />
-    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.5.1" />
-    <PackageVersion Include="Thalos.NET.Skills" Version="0.5.1" />
-    <PackageVersion Include="Thalos.NET.Channels" Version="0.5.1" />
-    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.5.1" />
+    <!-- Thalos.NET (nuget.org). 0.6.0 → 0.7.0 across the whole family: Thalos.NET.Workflow/.Orm 0.7.0 pin
+         Thalos.NET and Thalos.NET.Skills at exactly 0.7.0, and every other Thalos.NET.* package released
+         0.7.0 together with them (see Thalos.NET/docs/release.md, "The next release ships fifteen packages"). -->
+    <PackageVersion Include="Thalos.NET" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Git" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Skills" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Channels" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.7.0" />
+    <!-- Phase 2.2 Part B: consume the durable workflow engine Part A shipped. -->
+    <PackageVersion Include="Thalos.NET.Workflow" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.7.0" />
+    <!-- ZeroAlloc.ORM: floor set by Thalos.NET.Workflow.Orm 0.7.0 (raw-SQL migrations/store, no EF Core). -->
+    <PackageVersion Include="ZeroAlloc.ORM" Version="1.7.1" />
+    <!-- AdoNet.Async.Adapters: floor set by Thalos.NET.Workflow.Orm 0.7.0's own nuspec (1.4.1) — NOT the
+         1.4.0 ZeroAlloc.Outbox.Orm 2.6.0 itself declares; Workflow.Orm's direct pin is the higher one and
+         wins under CentralPackageTransitivePinningEnabled, so this must be pinned at 1.4.1 or NU1109 fires
+         the moment Thalos.NET.Workflow.Orm is referenced. -->
+    <PackageVersion Include="AdoNet.Async.Adapters" Version="1.4.1" />
     <!-- 1.2.2 → 1.2.3: floor set by Thalos.NET.Abstractions 0.6.0 -->
     <PackageVersion Include="ZeroAlloc.Results" Version="1.2.3" />
     <!-- 2.0.7 → 2.0.9: floor set by Thalos.NET.Abstractions 0.6.0 -->
@@ -73,8 +84,15 @@
     <PackageVersion Include="ZeroAlloc.Mediator" Version="5.1.5" />
     <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="5.1.5" />
     <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.2.2" />
-    <PackageVersion Include="ZeroAlloc.Outbox" Version="2.5.2" />
-    <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="2.5.2" />
+    <!-- 2.5.2 → 2.7.1: floor set by Thalos.NET.Workflow.Orm 0.7.0's direct ZeroAlloc.Outbox pin. The live
+         RepoDigest scheduling chain runs on ZeroAlloc.Outbox.EfCore — see task-9-report.md for the
+         pre/post-bump scheduling test evidence gating this change. -->
+    <PackageVersion Include="ZeroAlloc.Outbox" Version="2.7.1" />
+    <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="2.7.1" />
+    <!-- ZeroAlloc.Outbox.Orm 2.6.0 itself declares a hard ZeroAlloc.Outbox 2.6.0 dependency — one minor
+         behind the 2.7.1 above. Transitive pinning resolves the skew up to 2.7.1; this is expected (Thalos
+         0.7.0 ships and CI-validates that exact skew), not something to "fix" by pinning Outbox back down. -->
+    <PackageVersion Include="ZeroAlloc.Outbox.Orm" Version="2.6.0" />
 
     <!-- ASP.NET Core / Blazor -->
     <PackageVersion Include="Asp.Versioning.Mvc" Version="8.1.0" />
@@ -120,7 +138,8 @@
     <PackageVersion Include="ZLinq" Version="1.5.4" />
 
     <!-- Testing -->
-    <PackageVersion Include="AwesomeAssertions" Version="9.5.0" />
+    <!-- 9.5.0 → 9.6.0: floor set by Thalos.NET.Testing 0.7.0 (Daedalus.Tests.Integration references it). -->
+    <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.0" />
     <PackageVersion Include="Bogus" Version="35.6.5" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />

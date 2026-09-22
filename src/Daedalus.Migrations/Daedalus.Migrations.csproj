@@ -27,6 +27,15 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+        <!-- Phase 2.2 Part B: applies the workflow engine's raw-SQL migrations (WorkflowOrmMigrations,
+             OutboxOrmMigrations) as the same explicit, pre-boot deploy step this tool already runs EF Core's
+             migrations as — see Program.cs. AddWorkflowOrm's EnsureSchemaOnStartup is left off for exactly this
+             reason: migration 1004 is not backward compatible with pre-1004 code (see task-9-report.md). -->
+        <PackageReference Include="Thalos.NET.Workflow.Orm" />
+        <PackageReference Include="ZeroAlloc.Outbox.Orm" />
+        <PackageReference Include="ZeroAlloc.ORM" />
+        <PackageReference Include="AdoNet.Async.Adapters" />
+        <PackageReference Include="Npgsql" />
     </ItemGroup>
 
 </Project>

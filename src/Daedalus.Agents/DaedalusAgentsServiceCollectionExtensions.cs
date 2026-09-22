@@ -3,13 +3,14 @@ using System.Reflection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
+using Daedalus.Agents.Git;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Sessions;
 using Daedalus.Agents.Skills;
-using Daedalus.Agents.Git;
 using Daedalus.Agents.Tools;
+using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Infrastructure.Agents.Tools;
@@ -21,6 +22,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using Thalos;
 using Thalos.Anthropic;
 using Thalos.Git;
@@ -30,6 +32,8 @@ using Thalos.Memory;
 using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
 using Thalos.Skills;
+using Thalos.Workflow;
+using Thalos.Workflow.Orm;
 
 namespace Daedalus.Agents;
 
@@ -163,6 +167,16 @@ public static class DaedalusAgentsServiceCollectionExtensions
         ValidateSkillsConfig(options.Skills, skillRoots);
         services.TryAddSingleton(options.Skills);
 
+        // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource. Deliberately not ApplicationDbContext's
+        // connection — the whole point of Thalos.NET.Workflow.Orm is that it is EF-free (EF Core is Milestone 3's
+        // AOT blocker) — and deliberately its own PackageReference-backed pool rather than a raw `new
+        // NpgsqlConnection` per call, so the workflow store's connections are visible to the same pooling/health
+        // surface as everything else built on Npgsql. Same physical "daedalus" database as ApplicationDbContext —
+        // the AppHost declares only one Postgres resource — reached through a completely separate ADO.NET path.
+        // Factory registration (not AddSingleton(instance)) so the host's container disposes it on shutdown.
+        var processesRoot = ResolveContentRoot(configuration["Thalos:Workflow:ProcessesRoot"] ?? "processes", environment);
+        services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
+
         // The memory index embeds with the DI generator; a host that only hands the instance to this call (for Sentinel) still gets a working index.
         if (embeddingGenerator is not null)
         {
@@ -175,6 +189,19 @@ public static class DaedalusAgentsServiceCollectionExtensions
             ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: true);
             // Skills are API-host only: the Ralph console runs no Thalos agents (see AddDaedalusMemory).
             ConfigureSkills(thalos, configuration.GetSection(SkillsConfig.SectionName), options.Skills, skillRoots);
+
+            // Phase 2.2 Part B: the workflow store and process-definition store, over the NpgsqlDataSource
+            // registered above — same connection string, opened through Npgsql directly rather than EF Core.
+            // EnsureSchemaOnStartup is deliberately false: migration 1004 (process_definition.content_hash,
+            // NOT NULL, no default) is not backward compatible with pre-1004 code, so applying it ahead of a
+            // rolling deploy would break process syncing with 23502 on every instance not yet replaced.
+            // Daedalus.Migrations applies WorkflowOrmMigrations explicitly, as the same pre-boot deploy step it
+            // already runs ApplicationDbContext's EF Core migrations as — see that project's Program.cs.
+            thalos.AddWorkflowOrm(o =>
+            {
+                o.ConnectionString = connectionString;
+                o.EnsureSchemaOnStartup = false;
+            });
 
             thalos.UseAnthropic(configuration)
                 .UseSessionStore<PostgresAgentSessionStore>()
@@ -215,7 +242,45 @@ public static class DaedalusAgentsServiceCollectionExtensions
             services.AddHostedService<ReindexPendingMemoriesHostedService>();
         }
 
+        AddDaedalusWorkflow(services, processesRoot);
+
         return services;
+    }
+
+    /// <summary>
+    ///     Registers the five pieces <c>AddWorkflowOrm</c> (called above, inside <c>AddThalos</c>) does not:
+    ///     <see cref="IWorkflowReferenceResolver"/>, <see cref="WorkflowNodeDispatcher"/>, the outbox consumer for
+    ///     <see cref="Thalos.Workflow.WorkflowDispatch.TypeName"/>, <see cref="WorkflowRunReconciler"/> on a
+    ///     one-minute sweep, and <see cref="IProcessDefinitionSource"/> feeding <see cref="ProcessDefinitionSync"/>
+    ///     at boot. Split out from <see cref="AddDaedalusAgents"/> only for readability — every registration here
+    ///     depends on <c>IWorkflowStore</c>/<c>IProcessDefinitionStore</c>, which only exist once <c>AddThalos</c>
+    ///     has run, so this is called after it, never on its own.
+    /// </summary>
+    private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot)
+    {
+        // IAgentCatalog and ISkillStore both come from AddThalos above.
+        services.AddSingleton<IWorkflowReferenceResolver, WorkflowReferenceResolver>();
+
+        // ISubagentRunner comes from AddThalos; IWorkflowStore/IProcessDefinitionStore from AddWorkflowOrm above.
+        // Built via WorkflowNodeDispatcherFactory, not inline here — see that type's remarks for why this needs
+        // the raw ISubagentRunner instead of ISubagentRunExecutor, and why isolating the call there keeps this
+        // composition-root class off CleanArchitectureTests' single-seam rule.
+        services.AddSingleton(WorkflowNodeDispatcherFactory.Create);
+
+        // The only part of definition handling that is host policy — see GitProcessDefinitionSource's remarks.
+        services.AddSingleton<IProcessDefinitionSource>(_ => new GitProcessDefinitionSource(processesRoot));
+        services.AddSingleton<ProcessDefinitionSync>();
+        services.AddHostedService<ProcessDefinitionSyncHostedService>();
+
+        // The outbox consumer: see WorkflowOutboxDispatchService's remarks for why this is a hand-rolled poller
+        // rather than a second ZeroAlloc.Outbox AddOutbox() call.
+        services.AddSingleton<WorkflowDispatchOutboxDispatcher>();
+        services.AddSingleton<WorkflowOutboxDispatchOptions>();
+        services.AddHostedService<WorkflowOutboxDispatchService>();
+
+        // The stranded-run sweep: Thalos ships WorkflowRunReconciler with no timer of its own, deliberately.
+        services.AddSingleton<WorkflowRunReconciler>();
+        services.AddHostedService<WorkflowStrandedRunSweepService>();
     }
 
     /// <summary>
@@ -481,9 +546,16 @@ public static class DaedalusAgentsServiceCollectionExtensions
     private static IReadOnlyList<string> ResolveSkillRoots(SkillsConfig config, IHostEnvironment environment) =>
         [.. config.Roots
             .Where(r => !string.IsNullOrWhiteSpace(r))
-            .Select(r => ResolveSkillRoot(r, environment))];
+            .Select(r => ResolveContentRoot(r, environment))];
 
-    private static string ResolveSkillRoot(string configured, IHostEnvironment environment)
+    /// <summary>
+    ///     Resolves a single configured, repo-root-authored content folder — reused for
+    ///     <c>Thalos:Skills:Roots</c> (via <see cref="ResolveSkillRoots"/>) and for
+    ///     <c>Thalos:Workflow:ProcessesRoot</c>: both are directories of flat files checked into git next to the
+    ///     source, not generated, so both need the same content-root/assembly-directory fallback. See
+    ///     <see cref="ResolveSkillRoots"/>'s remarks for why the fallback is load-bearing rather than defensive.
+    /// </summary>
+    private static string ResolveContentRoot(string configured, IHostEnvironment environment)
     {
         if (Path.IsPathRooted(configured))
         {
