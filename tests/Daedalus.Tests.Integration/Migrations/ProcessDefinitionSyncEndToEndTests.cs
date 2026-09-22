@@ -82,7 +82,7 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 var definitions = host.Services.GetRequiredService<IProcessDefinitionStore>();
 
                 var activeVersion = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
-                activeVersion.Should().Be(1, "processes/manufacture.yaml declares version: 1 and must activate on a clean sync");
+                activeVersion.Should().Be(2, "processes/manufacture.yaml declares version: 2 (bumped from 1 when publish was fixed - content-hash immutability refuses a same-version content change) and must activate on a clean sync");
 
                 var definition = await definitions.GetAsync("manufacture", activeVersion!.Value, CancellationToken.None);
                 definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);

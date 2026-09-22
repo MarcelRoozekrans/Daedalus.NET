@@ -21,7 +21,11 @@
 #      prove the agent's analysis was correct, or that a human who approved the gate read anything
 #      real. Nothing in the engine (or this file) closes that gap.
 process: manufacture
-version: 1
+# version bumped 1 -> 2 (this task): content-hash immutability correctly refused re-syncing v1 with
+# different content once publish stopped pointing at writer and gained outcomes - the rule working as
+# designed, not a bug. A same-version content change must mint a new version; it is not a case to
+# route around by relaxing the check.
+version: 2
 
 nodes:
   implement:
