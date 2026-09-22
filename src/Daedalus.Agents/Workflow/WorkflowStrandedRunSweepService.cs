@@ -16,10 +16,10 @@ namespace Daedalus.Agents.Workflow;
 ///     <see cref="WorkflowRunReconciler.SweepAsync"/>'s own XML doc, the threshold must comfortably exceed both
 ///     the longest a healthy node's agent turn runs and the outbox's own retry-and-backoff window, during which
 ///     a run's <c>updated_at</c> does not advance. There is a third term easy to miss the first time: this
-///     sweep's own <c>maxVisits</c>-style limit is on <em>turn length</em>, not on how many turns
-///     <see cref="WorkflowOutboxDispatchService"/> dispatches before one gets a turn — a run queued behind others
-///     in the same poll batch has its <c>updated_at</c> frozen for the whole queue ahead of it, not just its own
-///     turn. The threshold must therefore exceed
+///     sweep has no cap of its own on how many turns wait behind each other in one poll batch — that is
+///     <see cref="WorkflowOutboxDispatchOptions.BatchSize"/>'s job, not this type's — and a run queued behind
+///     others in the same batch has its <c>updated_at</c> frozen for the whole queue ahead of it, not just its
+///     own turn. The threshold must therefore exceed
 ///     <c>WorkflowOutboxDispatchOptions.BatchSize * longest turn + retry-and-backoff window</c>, not just the
 ///     last two terms alone — sizing it only against a single turn and the backoff window, as an earlier version
 ///     of this comment did, silently assumed a batch size of 1 without saying so, and would have started failing

@@ -1,6 +1,7 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Sessions;
+using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -50,6 +51,24 @@ public sealed class ApiHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
         hosted.Count(h => h is ScheduleReconcilerHostedService).Should().Be(1,
             "AddDaedalusAgents already registers it; AddDaedalusScheduling must not register a second one");
         hosted.Count(h => h is AgentSessionCrashRecovery).Should().Be(1);
+    }
+
+    [Fact]
+    public void The_test_host_does_not_register_the_workflow_engines_hosted_services()
+    {
+        // ApiWebApplicationFactory sets Thalos:Workflow:Enabled=false because PostgresFixture's EnsureCreatedAsync
+        // schema (the EF Core model only) never creates workflow_run/process_definition/the ORM outbox table —
+        // left enabled here, every one of these would tick against a table that does not exist and fail with
+        // Postgres 42P01 on every poll. This is the other half of that guard: if the override in
+        // ApiWebApplicationFactory stopped taking effect (a typo in the setting name, a removed UseSetting call),
+        // nothing else would fail loudly — the 42P01 noise would simply come back, silently, exactly the
+        // regression this test exists to catch. CliHostSchedulingWiringTests asserts the opposite polarity: that
+        // the *default* (Enabled=true, unset here) wires these services on a host that does not override it.
+        var hosted = _factory.Services.GetServices<IHostedService>().ToList();
+
+        hosted.Should().NotContain(h => h is WorkflowOutboxDispatchService);
+        hosted.Should().NotContain(h => h is WorkflowStrandedRunSweepService);
+        hosted.Should().NotContain(h => h is ProcessDefinitionSyncHostedService);
     }
 
     [Fact]

@@ -22,11 +22,14 @@ namespace Daedalus.Agents.Workflow;
 ///     <para>
 ///     Requires <see cref="DaedalusSchedulingServiceCollectionExtensions.AddDaedalusScheduling"/> to have been
 ///     called on the same host — that is what binds <see cref="DetachedRunOptions"/> from the
-///     <c>DetachedRuns</c> configuration section. Today every host that calls
-///     <see cref="Daedalus.Agents.DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents"/> (only
-///     <c>Daedalus.Api</c>) also calls <c>AddDaedalusScheduling</c>, so this resolves the exact same
-///     <see cref="IOptions{TOptions}"/> registration <see cref="SubagentRunExecutor"/> does, not a second
-///     binding of the same section that could disagree with it.
+///     <c>DetachedRuns</c> configuration section. Both hosts that call
+///     <see cref="Daedalus.Agents.DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents"/> —
+///     <c>Daedalus.Api</c> and <c>Daedalus.Cli</c> — also call <c>AddDaedalusScheduling</c>, so this resolves
+///     the exact same <see cref="IOptions{TOptions}"/> registration <see cref="SubagentRunExecutor"/> does, not
+///     a second binding of the same section that could disagree with it. This type is only ever actually
+///     constructed where the workflow engine itself is enabled (<c>Thalos:Workflow:Enabled</c>, false on
+///     <c>Daedalus.Cli</c> — see <see cref="Daedalus.Agents.WorkflowConfig.Enabled"/>'s own remarks for why),
+///     but the configuration coupling holds on either host regardless.
 ///     </para>
 ///     <para>
 ///     Only stamps a budget when the request left one unset (<see langword="null"/>) — the same rule

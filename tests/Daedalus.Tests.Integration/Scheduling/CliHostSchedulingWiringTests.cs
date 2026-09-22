@@ -1,6 +1,7 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Sessions;
+using Daedalus.Agents.Workflow;
 using Daedalus.Cli;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.Configuration;
@@ -46,6 +47,26 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
         hosted.Count(h => h is ScheduleReconcilerHostedService).Should().Be(1,
             "AddDaedalusAgents already registers it; AddDaedalusScheduling must not register a second one");
         hosted.Count(h => h is AgentSessionCrashRecovery).Should().Be(1);
+    }
+
+    [Fact]
+    public void The_workflow_engine_is_wired_when_Thalos_Workflow_Enabled_is_not_overridden()
+    {
+        // BuildConfiguration below deliberately does not set Thalos:Workflow:Enabled, so this exercises
+        // WorkflowConfig.Enabled's own default (true) — not src/Daedalus.Cli/appsettings.json's real value,
+        // which is deliberately false there (see that file's own comment: a second poller against the same
+        // outbox table as the Api host only buys duplicate paid agent turns). This is the "present by default"
+        // half of the guard ApiHostSchedulingWiringTests' NotContain assertions are the other half of: if this
+        // default silently flipped to false, a real host that never overrides it (as Daedalus.Api does not, for
+        // configuration reasons — the only override in this solution is Daedalus.Cli/appsettings.json's explicit
+        // opt-out) would silently stop running the workflow engine at all.
+        using var provider = BuildProvider();
+
+        var hosted = provider.GetServices<IHostedService>().ToList();
+
+        hosted.Count(h => h is WorkflowOutboxDispatchService).Should().Be(1);
+        hosted.Count(h => h is WorkflowStrandedRunSweepService).Should().Be(1);
+        hosted.Count(h => h is ProcessDefinitionSyncHostedService).Should().Be(1);
     }
 
     [Fact]
