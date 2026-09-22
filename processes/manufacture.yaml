@@ -9,9 +9,12 @@
 #   1. A run executes as WorkflowCaller, whose only role is "workflow". `git__*` and
 #      `repoaction__*` are bound to the `developer` policy, so a workflow-run node cannot open a
 #      pull request or comment on one — that boundary is intentional, not a bug this file works
-#      around. `publish` below therefore never attempts a git or repo-action tool call; it writes
-#      a real approval record and stops. Opening the actual pull request against a real repository
-#      stays a deliberately unautomated, human-triggered step (see Task 11's report).
+#      around. `publish` below therefore never attempts a git or repo-action tool call — it must
+#      write a memory__remember record, then report `published` through this node's own outcome
+#      tool before the run can complete. That call is the only thing enforced structurally; it does
+#      not prove the record's content is real, or that a human ever reads it. Opening the actual
+#      pull request against a real repository stays a deliberately unautomated, human-triggered
+#      step (see Task 11's report).
 #
 #   2. Reaching `succeeded` proves the graph walked implement -> review -> gate -> publish -> done
 #      and that each task node's agent called the outcome tool the schema demanded. It does not
@@ -36,6 +39,10 @@ nodes:
     maxVisits: 5
     onExceeded: adjudicate
 
+  # A terminal, not a human escalation. subagent-driven-development's own breaker sends a
+  # tripped loop to a human; this node just ends the run as failed instead. A faithful
+  # transcription would make this a second `human_approval`-style gate, which this phase does
+  # not build — naming the gap here rather than calling a dead end "adjudication."
   adjudicate:
     terminal: failed
 
@@ -44,9 +51,11 @@ nodes:
     next: publish
 
   publish:
-    agent: writer
+    agent: Daedalus Architect
     skill: manufacture-publish
-    next: done
+    outcomes: [published]
+    branch:
+      published: done
 
   done:
     terminal: succeeded

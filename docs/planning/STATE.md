@@ -96,17 +96,27 @@ caught a comment crediting the *wrong* mechanism (the `WorkflowResume` policy, w
 **Task 11 proved the whole thing end to end against the real `AppHost`, restart included — the
 proof this phase exists to produce.** `processes/manufacture.yaml` transcribes
 `subagent-driven-development`'s control flow (implement → review, `maxVisits: 5` /
-`onExceeded: adjudicate`, a `human_approval` gate, publish) using agents and skills that actually
-exist (`Daedalus Architect`, `writer`; three new skills — `manufacture-implement/-review/-publish`
-— authored for it, since the design doc's aspirational skill-corpus port has not happened yet).
+`onExceeded: adjudicate`, a `human_approval` gate, publish) using agents and skills that
+actually exist. `Daedalus Architect` runs all three task nodes — it is the only configured
+agent with `skills__*` in its toolset at all, so it is the only one that can actually load a
+pinned skill's body; `writer` was tried for `publish` first and quietly did not work, because
+`BuildTaskText` only ever names the skill, never its content, and nothing loads the content on
+`writer`'s behalf without `skills__*`. Three new skills —
+`manufacture-implement/-review/-publish` — were authored for this process, since the design
+doc's aspirational skill-corpus port has not happened yet. `publish` also declares its own
+`outcomes: [published]`, reported through the same structural tool-call mechanism `review`
+uses, so completing it requires an explicit call rather than accepting any turn output at all.
 Started via a throwaway console harness calling `Thalos.Workflow.Orm.OrmWorkflowStore.StartAsync`
-directly (no "start a run" surface exists in Daedalus yet — see carried-forward below), the run was
-driven to the gate, the **whole AppHost process tree was killed**, the parked run was confirmed to
+directly (no "start a run" surface exists in Daedalus yet — see carried-forward below), the run
+was driven to the gate, the **whole AppHost process tree was killed**, the parked run was confirmed to
 survive as a bare Postgres row with the host completely down (no process, no thread, no timer),
 the host was restarted, and the run was resumed through the real `POST
 /api/workflow-runs/{id}/resume` against a real Keycloak-issued `admin` token — completing to
 `Succeeded`. A separate run independently exercised the loop-back/cap/`onExceeded` primitive live:
-five real `rejected` outcomes, then a real redirect to `adjudicate`. The resume boundary's deny
+five real `rejected` outcomes, then a real redirect to `adjudicate` — a plain `terminal:
+failed`, not a human escalation. A faithful transcription of `subagent-driven-development`'s
+own breaker would make this a second gate, which this phase does not build — named in the
+YAML file's own comment rather than left implicit. The resume boundary's deny
 paths were reconfirmed live on the restarted host too: no bearer token → 401; an authenticated
 token with no `developer`/`admin` role → 403.
 
@@ -160,19 +170,33 @@ exactly as phase 2.1 left its own live-remote proof "ready and waiting."
    entirely) as the preferred fix for a later phase; it also closes the `Succeeded`-without-the-work
    gap, since host code would return a real result the graph could branch on. Not built now — it needs
    a new node kind in Thalos, a bigger change than this phase's scope.
-7. **Three test hosts silently depended on the `processes/` folder staying empty.** Adding a real
-   `processes/manufacture.yaml` exposed that `SkillsStartupTests`, `AgentNameValidationTests`
-   (Integration) and `E2EServerFixture` (Playwright.Api, and pre-emptively Playwright.Browser) each
-   build a full `Daedalus.Api` host with `Thalos:Workflow` left at its default `Enabled=true`, against
-   a Postgres schema built only from the EF Core model. `ProcessDefinitionSyncHostedService.StartAsync`
-   throws (not the graceful per-document degrade the class documents) when there is something to sync
-   and the raw workflow tables do not exist — previously silent because there was never a file to sync.
-   Fixed by disabling `Thalos:Workflow:Enabled` in all four hosts, matching `ApiWebApplicationFactory`'s
-   existing, documented pattern.
+7. **A real, unfixed Thalos.NET defect: `ProcessDefinitionSync` has no resilience to the *store*
+   failing, only to a *bad document*.** `ProcessDefinitionSync.SyncAsync` does degrade gracefully
+   per document exactly as its own remarks describe — a document that fails to load or validate is
+   reported and skipped, and the previously-active version keeps serving. What it does not handle is
+   `IProcessDefinitionStore.UpsertAndActivateAsync` itself throwing: `OrmProcessDefinitionStore` has
+   no `catch` anywhere, so a raw `NpgsqlException` — a missing table, or in production a transient
+   connection blip at exactly the wrong moment — escapes `SyncAsync`'s `Result` contract entirely and
+   propagates out of `ProcessDefinitionSyncHostedService.StartAsync`, which nothing else catches
+   either. Unlike node dispatch, which gets the outbox's retry-with-backoff for exactly this class of
+   fault, this call runs once at host boot with no retry of its own — so a transient Postgres problem
+   at exactly the wrong second takes the whole host down instead of degrading. This task exposed the
+   failure mode (see the phase 2.2 row above) but the fix that actually matters is in Thalos, not in
+   Daedalus's tests: `SyncAsync` should catch a per-document store exception the same way it already
+   catches a per-document validation failure, and let dispatch's own retry machinery handle a store
+   that is down entirely. Worked around here, for the four hosts this task's own change newly
+   exposed to it, by disabling `Thalos:Workflow:Enabled` — matching `ApiWebApplicationFactory`'s
+   existing, documented pattern — which sidesteps the defect rather than fixing it.
 8. **`Daedalus.Api.csproj` had a `processes/` folder wired to nothing.** `Thalos:Workflow:ProcessesRoot`
    could never have resolved a real file, on any host, ever, until this task added the same
    `CopyToOutputDirectory` `Content` item `skills/**/*.SKILL.md` already had. Same shape as phase 2.1's
    `IRepositoryAuthenticationProvider` finding: declared, configured, never actually wired.
+   Fixing it with no guard would have been the fourth time in Part B a correct fix shipped
+   with nothing to catch a regression, so `ProcessDefinitionSyncEndToEndTests` (Integration)
+   now runs the real migrations against a throwaway database, boots a real host with the
+   workflow engine left **enabled**, and asserts `manufacture` v1 activates in
+   `process_definition` — the one test in the suite that exercises this path end to end,
+   the same role `SkillsStartupTests` already plays for `skills/`.
 9. Still open from the design doc's own carried-forward list, untouched by this phase: `AGENTS.md`
    (the cross-tool convention, distinct from item 1 above) is never probed by
    `FileSystemWorkspaceContextProvider`; 8 of 14 base skills are multi-file against a single-body
