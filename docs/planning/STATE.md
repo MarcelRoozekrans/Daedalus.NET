@@ -6,7 +6,7 @@
 `docs/planning/ROADMAP.md` for the "Carried forward from Milestone 1" list of 7 known, deliberately
 unfixed items.
 
-**Current milestone:** 2 — Software Manufacturing (**phase 2.1 complete, phase 2.2 next**)
+**Current milestone:** 2 — Software Manufacturing (**phase 2.1 complete; phase 2.2 designed 2026-09-22, ready to plan**)
 
 **Phase 2.1 — git write tooling: complete (2026-09-21).** Branch `feat/phase-2.1-git-tooling`, 6
 commits, PR opened against `main`. The roadmap described this phase as building branch, commit, push
@@ -55,16 +55,25 @@ waiting on that decision.
 4. Thalos's `scripts/pack-local.ps1` hard-codes `0.3.0-<suffix>` and never calls GitVersion, so
    local dev feeds carry the wrong version. Real releases are unaffected — GitVersion wins in CI.
 
-**Next: phase 2.2 — the durable workflow engine.** Branching, loops, and human approval gates,
-resumable across process restarts; `RunStep` is already a hand-written state machine, so the
-pattern is not speculative. `ZeroAlloc.Saga` is now unblocked (the 2026-09-16 spike's blocking
-defect is fixed upstream and re-verified, not just re-read) and is a live candidate alongside
-`ZeroAlloc.StateMachine` and `ZeroAlloc.EventSourcing` — a design question for 2.2's brainstorm, not
-a foregone conclusion. Per the 2026-09-21 direction that Thalos.NET is the reusable framework, most
-of 2.2 likely belongs in Thalos if the manufacturing pipeline is meant to be reusable — that
-placement question should be settled consciously during 2.2's design rather than discovered partway
-through, the same way 2.1 nearly drifted into putting generic git tooling in `Daedalus.Agents`
-before being caught.
+**Next: phase 2.2 — the durable workflow engine. Designed 2026-09-22; ready to plan.**
+Design: `docs/plans/2026-09-22-phase-2.2-workflow-engine-design.md`.
+
+A spike measured the roadmap's named substrate and **all three candidates failed**:
+`ZeroAlloc.StateMachine`'s runtime assembly is seven attribute types and zero non-attribute types,
+so a process shape can never come from data; `ZeroAlloc.EventSourcing` has no step or branch
+vocabulary at all; `ZeroAlloc.Saga` enforces a contiguous linear step order and supports neither
+loops nor branching. The Saga ban was lifted on defect grounds and the exclusion now stands on
+architectural grounds instead. `RunStep` was cited as precedent but advances strictly forward, so
+it is precedent for the linear shape, not for branching.
+
+The engine is therefore written here, as `Thalos.NET.Workflow` plus `Thalos.NET.Workflow.Orm`, on
+**`ZeroAlloc.ORM` and `ZeroAlloc.Outbox.Orm` rather than EF Core** — which makes 2.2 the pilot for
+Milestone 3's data-layer migration and keeps the engine EF-free so it can live in Thalos at all.
+Placement settled: Thalos owns the graph, gates and abstractions; Daedalus owns process files,
+hosting and the resume endpoint's policy binding.
+
+**The security property of the phase:** an agent must not be able to resume its own approval gate.
+Resume is bound to `developer` and is deliberately not registered as an agent tool.
 
 **Parked ideas:** `docs/planning/parked-ideas.md` — currently one, a customer chatbot product on Rag.NET, deferred as a separate application rather than a Daedalus milestone. The 1.0 tag on Thalos.NET is
 deliberately held back until Milestone 2 settles the agent contracts, since 2.2's workflow engine and
@@ -99,8 +108,9 @@ and [#256](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/256). `Playwrig
 
 [#258](https://github.com/MarcelRoozekrans/Daedalus.NET/pull/258) then lifted the `ZeroAlloc.Saga` ban and
 re-justified `ZeroAlloc.Scheduling`'s, after re-measuring the upstream fixes rather than trusting issue
-status. Saga is now a candidate for phase 2.2's workflow engine, and Milestone 3's premise is half retired
-because `Saga.Orm` and `Outbox.Orm` ship with zero EF Core.
+status. Saga was briefly a candidate for phase 2.2's workflow engine; the 2026-09-22 spike ruled it out on
+architecture rather than defects. Milestone 3's premise is half retired because `Saga.Orm` and
+`Outbox.Orm` ship with zero EF Core — and 2.2 now pilots that ORM path on greenfield tables.
 **Branch state:** `docs/phase-1.8-design`, ahead of `main`. Clean tree apart from the two
 deliberately-untracked pre-pivot regression files.
 
