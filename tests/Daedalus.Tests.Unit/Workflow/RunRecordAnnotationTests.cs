@@ -131,6 +131,32 @@ public sealed class RunRecordAnnotationTests
         written.Variables.Should().NotContainKey(WorkflowRunModeStore.RecallTierKey);
     }
 
+    /// <summary>
+    ///     The tier is <em>taken</em> from the log, not peeked at. Without that, a node whose turn made no
+    ///     recall silently reports the tier of the previous node's turn as its own — the exact failure the tier
+    ///     exists to make visible, reappearing one level up, and invisible because the key is still present.
+    /// </summary>
+    [Fact]
+    public async Task A_second_transition_of_the_same_run_does_not_reuse_the_first_transitions_tier()
+    {
+        var runId = Guid.NewGuid();
+        var log = new WorkflowRecallTierLog();
+        var caller = new WorkflowCaller(Run(runId));
+        var memory = new RecallTierRecordingMemoryService(ServiceAnswering(MemoryRecallTier.Semantic), log, () => caller);
+        await memory.RecallAsync("anything", new MemoryScope(caller.MemoryOwnerId, Reviewer, "daedalus"), new RecallOptions(), CancellationToken.None);
+
+        var store = new CapturingStore();
+        var decorated = new WorkflowRunModeStore(store, new SquadOptions { Enabled = true, FallbackAgentName = "x" }, log);
+        var empty = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        await decorated.CompleteNodeAsync(runId, 1, AnyTransition(), new NodeResult("changed", empty), CancellationToken.None);
+        store.Written!.Variables.Should().ContainKey(WorkflowRunModeStore.RecallTierKey, "the first transition follows a real recall");
+
+        await decorated.CompleteNodeAsync(runId, 2, AnyTransition(), new NodeResult("approved", empty), CancellationToken.None);
+        store.Written!.Variables.Should().NotContainKey(WorkflowRunModeStore.RecallTierKey,
+            "no turn recalled between the two transitions, so the second must claim nothing");
+    }
+
     /// <summary>A node must not inherit the tier of a recall some other run made.</summary>
     [Fact]
     public async Task A_tier_recorded_for_one_run_is_not_written_onto_another_runs_transition()
