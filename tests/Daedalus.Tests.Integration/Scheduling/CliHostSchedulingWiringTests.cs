@@ -106,6 +106,13 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
             ["ConnectionStrings:daedalus"] = fixture.ConnectionString,
             ["Thalos:Anthropic:DefaultModel"] = "claude-sonnet-5",
             ["Thalos:Channels:DefaultAgent"] = "daedalus-assistant",
+            // Required since AddDaedalusAgents started rejecting a blank Thalos:Squad:FallbackAgentName at
+            // startup: a blank name throws ArgumentException out of Thalos' agent resolution rather than
+            // answering "no such agent", so it is never a valid configuration in either squad mode. This
+            // configuration declares no Thalos:Agents at all, which the check does not look at - it is the
+            // shipped appsettings.json that has to name a real roster entry, and SquadConfigurationDriftTests
+            // is what holds that.
+            ["Thalos:Squad:FallbackAgentName"] = "daedalus-assistant",
             ["DetachedRuns:PrincipalId"] = "schedule:daedalus",
             ["DetachedRuns:Roles:0"] = "reader",
             ["DetachedRuns:MaxTotalTokens"] = "50000",
