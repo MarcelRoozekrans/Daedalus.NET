@@ -82,7 +82,7 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 var definitions = host.Services.GetRequiredService<IProcessDefinitionStore>();
 
                 var activeVersion = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
-                activeVersion.Should().Be(3, "processes/manufacture.yaml declares version: 3 - bumped from 2 in phase 2.3 task B4, which moved implement and review onto the squad roles, gave implement an outcome set and gave review its lenses, all in one bump because content-hash immutability refuses a same-version content change - and it must activate on a clean sync");
+                activeVersion.Should().Be(4, "processes/manufacture.yaml declares version: 4 - version 3 moved implement and review onto the squad roles, gave implement an outcome set and gave review its lenses, and version 4 rewrote the file's own description of what roslyn__apply_code_action can write, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
 
                 var definition = await definitions.GetAsync("manufacture", activeVersion!.Value, CancellationToken.None);
                 definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);

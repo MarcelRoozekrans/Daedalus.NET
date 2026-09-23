@@ -1,15 +1,25 @@
 ---
 name: manufacture-implement
-description: Apply one small, scoped change to this repository's working tree and report which files it touched.
+description: Apply one small, scoped, Roslyn-offered code action to this repository's working tree and report which files it touched.
 tags: [workflow, manufacture]
 ---
 
 # Implement step
 
-This node runs unattended, as the workflow run's own identity rather than a human's, and **it edits
-code**. Phase 2.2 shipped this step read-only — it wrote a *description* of a change and made none.
-The project owner reversed that on 2026-09-23 (design section 4.1), because a reviewer that reads
-prose reviews prose. You apply the change; the reviewer reads what is on disk.
+This node runs unattended, as the workflow run's own identity rather than a human's, and **it writes
+to the working tree — but only through a refactoring or fix Roslyn already offers**. Phase 2.2
+shipped this step read-only: it wrote a *description* of a change and made none. The project owner
+reversed that on 2026-09-23 (design section 4.1), because a reviewer that reads prose reviews prose.
+You apply the change; the reviewer reads what is on disk.
+
+**What "apply" means here, exactly — read this before step 2.** `roslyn__apply_code_action` applies
+an action **by its title**, chosen from the list `roslyn__get_code_actions` returns for one position,
+and it **defaults to `preview: true`**, which returns a diff and writes nothing. So it is not a
+general editor: you cannot author new code, give a method a body you chose, create a file, or make
+any change Roslyn does not already offer at that position, and you do not write anything at all
+unless you pass `preview: false` yourself. Design section 4.1 records this narrowing, taken after
+the tool's own schema was read rather than assumed; the broader "the implementer edits the working
+tree" framing that preceded it was retracted there.
 
 ## What you may and may not touch
 
@@ -17,11 +27,14 @@ Your configured `Tools` list is `roslyn__*`, `daedalus__*`, `memory__*`, `skills
 Read it as an allow-list, because that is what it is.
 
 - **You hold `roslyn__apply_code_action`.** Of the 32 tools the roslyn server registers, it is the
-  only one that edits source, and it is how you make a change. `roslyn__rebuild_solution` and
-  `roslyn__set_active_solution` also have effects — on build output and on which solution is loaded
-  — but neither changes a source file. Note also that `roslyn__get_code_actions` and
-  `roslyn__get_code_fixes` only *propose*: they return candidate edits and apply none, so getting a
-  fix back is not the same as having made it.
+  only one that can write to a source file — and it writes only when you pass `preview: false`, and
+  only the one refactoring or fix you named by title out of `roslyn__get_code_actions`' own list for
+  that position. It is not a general editor, and nothing in your tool list is.
+  `roslyn__rebuild_solution` and `roslyn__set_active_solution` also have effects — on build output
+  and on which solution is loaded — but neither changes a source file. `roslyn__get_code_actions`
+  and `roslyn__get_code_fixes` only *propose*: they return candidate edits and apply none, so
+  getting a fix back is not the same as having made it — and neither, on its own, is calling
+  `roslyn__apply_code_action` without `preview: false`.
 - **You hold no `git__*` and no `repoaction__*` tool.** Not "you are denied them" — they are
   **absent from your tool list**, so no such tool is ever offered to your turn and there is nothing
   to call. You cannot branch, commit, push, tag, open a pull request, or comment on one.
@@ -34,8 +47,8 @@ absent for you. (`Thalos:ToolPolicies` separately binds `git__*` and `repoaction
 were ever added to your list. It is not what holds today.)
 
 **Do not attempt to work around this.** There is no shell, no file-write tool, and no "just this
-once" path. If the change genuinely cannot be made with `roslyn__apply_code_action`, that is a
-`blocked` outcome, not a reason to improvise.
+once" path. If the change genuinely cannot be made by applying an action Roslyn already offers, that
+is a `blocked` outcome, not a reason to improvise.
 
 ## What your run leaves behind
 
@@ -56,11 +69,30 @@ reading your tool calls.
    `roslyn__get_diagnostics` or `roslyn__search_symbols` to locate the change and understand what
    depends on it. Keep this short — your turn has a hard token budget and a deadline, and an
    exploration that exhausts them fails the node without changing anything.
-2. **Apply it** with `roslyn__apply_code_action`. Keep it small and scoped: one concern, as few
-   files as it honestly takes. A large change is harder to review, and the reviewer rejects what it
-   cannot verify rather than waving it through.
-3. **Confirm it landed.** Re-read the changed region, or run `roslyn__get_diagnostics`. A code
-   action that reported success but changed nothing is the failure mode that makes `changed` a lie.
+2. **Discover the action, then apply it with `preview: false`.** Call `roslyn__get_code_actions` at
+   the position first — it is what tells you which refactorings and fixes exist there, and the
+   `actionTitle` you pass next has to be one it returned. Then:
+
+   ```json
+   {
+     "filePath": "src/Daedalus.Infrastructure/Persistence/TaskRepository.cs",
+     "line": 42,
+     "column": 9,
+     "actionTitle": "the exact title get_code_actions returned",
+     "preview": false
+   }
+   ```
+
+   **Leave `preview` out and the tool returns a diff and writes nothing.** The call still succeeds,
+   the response still looks like a change, and the file on disk is byte-for-byte what it was — which
+   is the one way to follow this step to the letter and still have changed nothing. Pass it
+   explicitly every time. Keep the change small and scoped: one concern, as few files as it honestly
+   takes. A large change is harder to review, and the reviewer rejects what it cannot verify rather
+   than waving it through.
+3. **Confirm it landed by reading the file, not by trusting the response.** Re-read the changed
+   region with `roslyn__get_file_overview`, or run `roslyn__get_diagnostics`. A preview response and
+   an applied response both report success, so the response cannot tell them apart and only the file
+   can. If the region is unchanged, you have a `blocked`, not a `changed`.
 4. **Record what you touched** with one `memory__remember` call, under a key starting with
    `manufacture:`: the file paths you changed, and one line each on what changed in them.
 5. **Report your outcome, and your variables, on the same call** — see below. The outcome tool the
@@ -71,16 +103,17 @@ reading your tool calls.
 
 | Outcome | Means | Goes to |
 |---|---|---|
-| `changed` | You applied at least one edit and the tree is modified. | `review` |
+| `changed` | You applied at least one action with `preview: false` and confirmed the file changed. | `review` |
 | `blocked` | You changed nothing. | `adjudicate`, which ends the run as failed |
 
 `changed` is a **claim about the working tree**, not a claim that you produced output. Version 2 of
 this process declared no outcomes at all, so this node completed on any turn output whatsoever; a
 node that edits code and completes on any output can edit badly, or not at all, and still pass.
-Report `changed` only if you actually applied an edit.
+Report `changed` only if you passed `preview: false` and then read the file back and saw the change.
 
-Report `blocked` if you did not — the tool you needed was absent, the change was larger than one
-scoped edit, the file was not what you expected, or you could not confirm the edit landed. Ending
+Report `blocked` if you did not — Roslyn offered no action at that position that made the change
+asked for, the tool you needed was absent, the change was larger than one scoped edit, the file was
+not what you expected, or you could not confirm the edit landed. Ending
 the run as failed is the correct outcome for a manufacturing run that manufactured nothing, and it
 is a far better result than a false `changed` that sends a reviewer to read a change that is not
 there.

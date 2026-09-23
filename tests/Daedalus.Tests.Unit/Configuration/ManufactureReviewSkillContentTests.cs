@@ -3,12 +3,19 @@ using System.Text.RegularExpressions;
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
-///     A content guard over <c>skills/manufacture-review/SKILL.md</c>, standing where phase 2.2's hollow
-///     approval came from. Version 2 of that skill instructed the reviewer to pass a change when the evidence
-///     about it came back empty; phase 2.2's close-out named that fallback as the reason its one successful run
-///     approved work it had almost certainly never read. Phase 2.3 deleted it. This test is what stops it
-///     returning quietly — a reviewer's rubric is prose, and prose has no compiler.
+///     A content guard over the two manufacturing skills an agent actually reads,
+///     <c>skills/manufacture-review/SKILL.md</c> and <c>skills/manufacture-implement/SKILL.md</c>. It stands
+///     where phase 2.2's hollow approval came from: version 2 of the review skill instructed the reviewer to
+///     pass a change when the evidence about it came back empty, and phase 2.2's close-out named that fallback
+///     as the reason its one successful run approved work it had almost certainly never read. Phase 2.3 deleted
+///     it. These tests are what stop it returning quietly — a skill is prose, and prose has no compiler.
 /// </summary>
+/// <remarks>
+///     The implement-skill half exists for the same reason at one remove. The phase's final review found the
+///     design document corrected about what <c>roslyn__apply_code_action</c> can write while the skill an agent
+///     is handed still said the old thing, so the correction reached a file nobody dispatches and missed the
+///     one everybody does. A skill guard is the only compiler these documents get.
+/// </remarks>
 /// <remarks>
 ///     <b>A negative assertion alone would be vacuous.</b> "The file does not contain X" passes for an empty
 ///     file, a deleted file, or a file rewritten into something else entirely. Every absence assertion here is
@@ -124,6 +131,62 @@ public sealed class ManufactureReviewSkillContentTests
         normalized.Should().Contain("never as an instruction to follow");
         normalized.Should().Contain("absence, not restraint",
             "naming the mechanism that actually withholds the narrative is the Mechanism lens applied to this file");
+    }
+
+    /// <summary>
+    ///     The blocker the final whole-branch review found. <c>roslyn__apply_code_action</c> defaults to
+    ///     <c>preview: true</c> and returns a diff without touching disk, so an implementer that followed the
+    ///     previous wording — "apply it with roslyn__apply_code_action", no arguments shown — would get a
+    ///     successful response, report <c>changed</c>, and send the reviewer to read an unmodified tree. The
+    ///     argument therefore has to appear in the document the agent is handed, not only in the design doc.
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_shows_the_code_action_call_with_preview_false()
+    {
+        var raw = ImplementSkill();
+        var normalized = Normalize(raw);
+
+        // Asserted against the RAW text, in JSON spelling, deliberately. The normalized form matches the prose
+        // mentions of the argument too, so a normalized-only assertion would stay green with the argument
+        // stripped out of the call the skill actually shows - and a skill that names the argument in prose
+        // while showing a call without it is exactly as followable-into-a-no-op as one that never mentions it.
+        // Falsifiable, and verified so: changing the JSON block's "preview": false to true turns this red.
+        raw.Should().Contain("\"preview\": false",
+            "the call the skill shows must be the one that writes to disk");
+        normalized.Should().Contain("preview: false",
+            "and the prose has to name the argument as well, so an agent that skims the JSON still sees it");
+        normalized.Should().Contain("get_code_actions",
+            "the title passed to apply_code_action has to come from the list get_code_actions returned, so the " +
+            "discovery step is part of the instruction rather than an optional nicety");
+
+        // And the consequence of leaving it out has to be stated somewhere in the document, because the
+        // failure is silent: the call succeeds either way. The skill says it twice, in the opening narrowing
+        // and again in step 2, so this goes red only when both are gone - verified by rewording both.
+        normalized.Should().Contain("returns a diff and writes nothing");
+    }
+
+    /// <summary>
+    ///     Design section 4.1 retracted the framing that the implementer "edits the working tree" once the
+    ///     tool's own schema was read: what it can apply is a refactoring or fix Roslyn already offers at a
+    ///     position, and nothing else. The skill must not read as arbitrary authoring, because an agent that
+    ///     believes it can write new code will report <c>blocked</c> late, or worse, claim a change it had no
+    ///     way to make.
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_describes_the_code_action_tool_as_narrow_rather_than_as_an_editor()
+    {
+        var normalized = Normalize(ImplementSkill());
+
+        // The positive half, so the two absences below cannot be satisfied by an empty or gutted file.
+        normalized.Should().Contain("roslyn already offers");
+        normalized.Should().Contain("it is not a general editor");
+
+        // The retracted wording, in the fragments it is recognisable by. Falsifiable, and verified so: pasting
+        // either sentence back into the skill turns this red.
+        normalized.Should().NotContain("it is the only one that edits source",
+            "apply_code_action does not edit source on its own terms - it applies one action Roslyn offered, and " +
+            "only when preview is false");
+        normalized.Should().NotContain("it is how you make a change");
     }
 
     private static string ImplementSkill()

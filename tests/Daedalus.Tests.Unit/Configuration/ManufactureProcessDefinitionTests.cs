@@ -7,7 +7,7 @@ using Thalos.Workflow;
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
-///     Pins the shape phase 2.3 gave <c>processes/manufacture.yaml</c>: version 3, both manufacturing nodes on
+///     Pins the shape phase 2.3 gave <c>processes/manufacture.yaml</c>: version 4, both manufacturing nodes on
 ///     their squad roles, <c>implement</c> carrying an outcome set it did not have at version 2, and
 ///     <c>review</c> declaring the three lenses <see cref="ReviewLens"/> knows how to run. Reads the real,
 ///     deployed file through the same <see cref="ProcessLoader"/> production uses, and validates it through the
@@ -44,17 +44,19 @@ public sealed class ManufactureProcessDefinitionTests
     }
 
     [Fact]
-    public void The_process_is_at_version_three()
+    public void The_process_is_at_version_four()
     {
         var definition = LoadManufactureProcess();
 
         definition.Name.Should().Be("manufacture");
 
-        // Falsifiable: setting `version:` back to 2 in processes/manufacture.yaml turns this red. The number is
+        // Falsifiable: setting `version:` back to 3 in processes/manufacture.yaml turns this red. The number is
         // load-bearing rather than cosmetic - phase 2.2's content-hash immutability refuses a same-version
-        // content change, so a v3 body still labelled v2 is not a cosmetic slip, it is a file the store will
-        // refuse to activate while an older v2 keeps running.
-        definition.Version.Should().Be(3);
+        // content change, so a v4 body still labelled v3 is not a cosmetic slip, it is a file the store will
+        // refuse to activate while an older v3 keeps running. Version 4 carries no graph change at all: it
+        // exists because the final review's finding 1 rewrote the constraint-1 comment that described
+        // roslyn__apply_code_action as plain editing, and a comment is part of the hashed content.
+        definition.Version.Should().Be(4);
     }
 
     [Fact]
