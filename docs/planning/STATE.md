@@ -225,6 +225,28 @@ exactly as phase 2.1 left its own live-remote proof "ready and waiting."
    parse but do nothing; and the squad roster (phase 2.3) still needs the same git-to-Postgres sync
    skills already have.
 
+**Phase 2.3 — the manufacturing squad: in progress** on branch
+`feat/phase-2.3-manufacturing-squad`. Design:
+`docs/plans/2026-09-23-phase-2.3-manufacturing-squad-design.md`. Two known limits are recorded here
+because they are the ones a later phase has to act on, and because a reader of the branch should not
+have to reconstruct them:
+
+1. **`DetachedRuns:MaxTotalTokens` is not sized for a manufacturing implement turn.** It is `150000`
+   on both hosts, and one measured `implement` turn used **358703 input tokens**. Design §8 lists the
+   budget decorator as a cost control; on that measurement it is not one for this node, it is a
+   guaranteed `SubagentBudgetExceeded` on the first turn. The number is deliberately left alone —
+   raising it to fit one observation would be picking a value, not sizing one — and the comment above
+   the key in `appsettings.json` now says so instead of explaining only the scout's sizing. This is
+   the same mismatch phase 2.2 carried forward as item 4, now measured rather than anticipated.
+2. **`work_intent` has no producer, so the reviewer gets one of its two declared inputs.** Nothing in
+   `src` starts a workflow run — the only `StartAsync` reference is `DelegatingWorkflowStore`'s
+   pass-through — which is phase 2.2 carried-forward item 2. Design §4 says `work_intent` comes from
+   the run's opening variables and `skills/manufacture-review/SKILL.md` told the reviewer it receives
+   it; in production a review dispatch can only carry `files_touched`. The skill now says to expect
+   that and that it changes nothing about never approving on absence. `SquadHandoffEndToEndTests`
+   seeds the key by calling `StartAsync` itself, which is why the contract is testable and still has
+   no production path.
+
 **Parked ideas:** `docs/planning/parked-ideas.md` — currently one, a customer chatbot product on Rag.NET, deferred as a separate application rather than a Daedalus milestone. The 1.0 tag on Thalos.NET is
 deliberately held back until Milestone 2 settles the agent contracts, since 2.2's workflow engine and
 2.3's squad roster will likely want changes to `ISubagentRunner`. Decision recorded 2026-09-21 on
