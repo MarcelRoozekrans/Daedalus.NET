@@ -1,4 +1,4 @@
-using System.Data.Async.Adapters;
+﻿using System.Data.Async.Adapters;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -81,7 +81,7 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
                 dataSource, outboxDispatcher, pollerOptions, NullLogger<WorkflowOutboxDispatchService>.Instance);
 
             var runId = await store.StartAsync(
-                "e2e-smoke-test", 1, $"e2e-test:{Guid.NewGuid()}", "start", CancellationToken.None);
+                "e2e-smoke-test", 1, $"e2e-test:{Guid.NewGuid()}", "start", initialVariables: null, CancellationToken.None);
 
             // First tick: dispatches "start" (a real agent turn through the substituted ISubagentRunner) and
             // transitions the run to "finish" — which OrmWorkflowStore.CompleteNodeAsync enqueues its own

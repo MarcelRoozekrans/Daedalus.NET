@@ -94,6 +94,7 @@ public sealed partial class CostAnalyticsController(
     [Authorize(Policy = "TaskRead")]
     [HttpGet("estimate")]
     [ProducesResponseType(typeof(CostEstimateDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> EstimateCost(
         [FromQuery] string modelId,
         [FromQuery] int maxIterations = 10,
@@ -103,7 +104,18 @@ public sealed partial class CostAnalyticsController(
         try
         {
             var result = await costService.EstimateCostAsync(modelId, maxIterations, estimatedPromptTokens, ct);
-            return Ok(result);
+
+            if (result.IsFailure)
+            {
+                return NotFound(new ProblemDetails
+                {
+                    Title = "Not Found",
+                    Detail = result.Error,
+                    Status = StatusCodes.Status404NotFound
+                });
+            }
+
+            return Ok(result.Value);
         }
         catch (Exception ex)
         {

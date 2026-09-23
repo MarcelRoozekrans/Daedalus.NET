@@ -34,6 +34,11 @@ public sealed class DaedalusAgentsRegistrationTests
             ["Thalos:Agents:0:Name"] = "Daedalus Assistant",
             ["Thalos:Agents:0:Description"] = "Knows the codebase",
             ["Thalos:Agents:0:Instructions"] = "You are helpful.",
+            // Required by AddDaedalusAgents' ValidateSquadConfig, which rejects a blank fallback in both squad
+            // modes: a blank name does not resolve to "no agent", it throws ArgumentException out of Thalos'
+            // own reference resolver. Set to the one agent this configuration declares so every other case in
+            // this class exercises what it is actually about.
+            ["Thalos:Squad:FallbackAgentName"] = "Daedalus Assistant",
         };
         foreach (var (key, value) in extra)
         {
@@ -345,6 +350,61 @@ public sealed class DaedalusAgentsRegistrationTests
 
         act.Should().Throw<InvalidOperationException>().WithMessage($"*{expectedInMessage}*");
     }
+
+    /// <summary>
+    ///     The blocker the final whole-branch review found. <c>SquadOptions</c> defaults are
+    ///     <c>Enabled=false</c> and <c>FallbackAgentName=""</c>, so deleting the whole <c>"Squad"</c> block —
+    ///     the natural rollback, rather than flipping one boolean — leaves the fallback blank.
+    ///     <c>SquadAgentResolver.Resolve</c> returns that blank name unchecked and Thalos'
+    ///     <c>WorkflowReferenceResolver.ResolveAgentIdAsync</c> opens with <c>ThrowIfNullOrWhiteSpace</c>, so
+    ///     resolution throws <see cref="ArgumentException"/> instead of answering "no such agent". At boot that
+    ///     throw comes out of <c>ProcessDefinitionSync</c> and takes the host down; past boot it escapes
+    ///     <c>WorkflowNodeDispatcher.ResolveAgentAsync</c>, which deliberately does not catch, and the dispatch
+    ///     message retries out of the outbox instead of failing the run cleanly.
+    /// </summary>
+    /// <remarks>
+    ///     Rejected with the squad <em>enabled</em> as well, where <c>Resolve</c> never reads the value. A host
+    ///     that boots clean on <c>Enabled=true</c> with no fallback has the same trap one boolean away, and the
+    ///     operator who flips that boolean is exactly the person who cannot afford to find it then.
+    /// </remarks>
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "false")]
+    [InlineData("   ", "true")]
+    public void Blank_squad_fallback_agent_name_fails_fast(string? fallbackName, string? enabled)
+    {
+        var overrides = new List<(string, string)>();
+        if (fallbackName is not null)
+        {
+            overrides.Add(("Thalos:Squad:FallbackAgentName", fallbackName));
+        }
+
+        if (enabled is not null)
+        {
+            overrides.Add(("Thalos:Squad:Enabled", enabled));
+        }
+
+        // Config() supplies a fallback name, so the null case has to clear it back out: that is the "the whole
+        // Thalos:Squad block was deleted" shape, which is the one an operator actually reaches.
+        var configuration = fallbackName is null
+            ? new ConfigurationBuilder().AddInMemoryCollection(BaseValuesWithoutSquad()).Build()
+            : Config([.. overrides]);
+
+        var act = () => new ServiceCollection().AddDaedalusAgents(configuration, Environment());
+
+        // The message has to name the key, not the parameter: the failure an operator sees today names neither.
+        // Falsifiable: deleting the ValidateSquadConfig call in AddDaedalusAgents turns every case red.
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Squad:FallbackAgentName*");
+    }
+
+    private static Dictionary<string, string?> BaseValuesWithoutSquad() => new(StringComparer.Ordinal)
+    {
+        ["Thalos:Anthropic:DefaultModel"] = "claude-sonnet-5",
+        ["Thalos:Agents:0:Id"] = Ulid,
+        ["Thalos:Agents:0:Name"] = "Daedalus Assistant",
+        ["Thalos:Agents:0:Description"] = "Knows the codebase",
+        ["Thalos:Agents:0:Instructions"] = "You are helpful.",
+    };
 
     [Fact]
     public void Unknown_sentinel_action_or_detector_fails_fast()

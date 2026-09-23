@@ -1,4 +1,3 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Services;
@@ -6,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Memory;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Memory;
 
@@ -91,7 +91,7 @@ public sealed partial class ThalosLearningsMemory(
             return Result<IReadOnlyList<RecalledLearning>>.Failure($"{result.Error.Code}: {result.Error.Message}");
         }
 
-        IReadOnlyList<RecalledLearning> learnings = [.. result.Value
+        IReadOnlyList<RecalledLearning> learnings = [.. result.Value.Memories
             .Select(h => new RecalledLearning(h.Record.Id.ToString(), h.Record.Text, h.Record.Tags, h.Score, h.Record.CreatedAt))];
         return Result<IReadOnlyList<RecalledLearning>>.Success(learnings);
     }

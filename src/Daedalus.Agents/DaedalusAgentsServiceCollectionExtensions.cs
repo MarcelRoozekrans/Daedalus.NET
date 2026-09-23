@@ -22,6 +22,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using Thalos;
 using Thalos.Anthropic;
@@ -109,7 +110,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// <exception cref="InvalidOperationException">
     ///     An agent id is neither a ULID nor a GUID, a Sentinel action or detector name is unknown, a <c>Thalos:Memory</c>
     ///     value is out of range, a <c>Thalos:Skills</c> value is out of range or a configured <c>Thalos:Skills:Roots</c>
-    ///     entry does not exist, or memory is already registered on this collection (see <see cref="AddDaedalusMemory"/>).
+    ///     entry does not exist, <c>Thalos:Squad:FallbackAgentName</c> is blank, or memory is already registered on this
+    ///     collection (see <see cref="AddDaedalusMemory"/>).
     /// </exception>
     public static IServiceCollection AddDaedalusAgents(
         this IServiceCollection services,
@@ -167,6 +169,12 @@ public static class DaedalusAgentsServiceCollectionExtensions
         ValidateSkillsConfig(options.Skills, skillRoots);
         services.TryAddSingleton(options.Skills);
 
+        // The role→agent split for the manufacturing squad. Registered unconditionally (unlike the Workflow
+        // block below): SquadAgentResolver has no database or hosted-service dependency, and a host that never
+        // dispatches a squad-staffed process node simply never calls Resolve.
+        ValidateSquadConfig(options.Squad);
+        services.TryAddSingleton(options.Squad);
+        services.TryAddSingleton<SquadAgentResolver>();
 
         // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
         // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
@@ -220,7 +228,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 .UseSessionStore<PostgresAgentSessionStore>()
                 // Reads join the existing source the scout already allows; writes go in their own, which its
                 // daedalus__* glob cannot name. See RepoActionToolSourceName for why the split is not the boundary.
-                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools))
+                // DaedalusReviewTools joins this source rather than getting its own: report_review_outcome is a
+                // pure validator with no side effect on anything outside its own turn, so it needs no separate
+                // write boundary, and the reviewer's daedalus__* grant already names it.
+                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools), typeof(DaedalusReviewTools))
                 .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
                 // Thalos's own local-git write capability (branch, commit, push, open pull request). UseLibGit2SharpGit
                 // registers the IGitWriteService implementation GitActionTools needs alongside IPullRequestPublisher
@@ -275,8 +286,23 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </summary>
     private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot)
     {
-        // IAgentCatalog and ISkillStore both come from AddThalos above.
-        services.AddSingleton<IWorkflowReferenceResolver, WorkflowReferenceResolver>();
+        // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
+        // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
+        // first - which is what makes Thalos:Squad:Enabled=false actually collapse implementer and reviewer
+        // onto the fallback agent. Wrapped here, at the single registration, rather than inside
+        // WorkflowNodeDispatcherFactory: this resolver is deliberately the one lookup shared by
+        // ProcessValidator at load time and WorkflowNodeDispatcher at dispatch time, and decorating only one
+        // of them would let a process validate against one set of agent names and then run against another.
+        services.AddSingleton<IWorkflowReferenceResolver>(sp => new SquadWorkflowReferenceResolver(
+            new WorkflowReferenceResolver(sp.GetRequiredService<IAgentCatalog>(), sp.GetRequiredService<ISkillStore>()),
+            sp.GetRequiredService<SquadAgentResolver>(),
+            sp.GetRequiredService<ILogger<SquadWorkflowReferenceResolver>>()));
+
+        // Where a workflow turn's recall tier is parked between the recall that produced it and the transition
+        // that records it. Registered here rather than beside SquadAgentResolver because nothing outside a
+        // workflow run ever writes to it: RecallTierRecordingMemoryService only records for a WorkflowCaller.
+        services.AddSingleton<WorkflowRecallTierLog>();
+        DecorateMemoryServiceWithRecallTierRecording(services);
 
         // The resume/cancel REST boundary's only path to IWorkflowStore (from AddWorkflowOrm above). Never an
         // agent, never a Thalos tool — see WorkflowRunGateway's own remarks for why, and for what actually
@@ -304,6 +330,43 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // The stranded-run sweep: Thalos ships WorkflowRunReconciler with no timer of its own, deliberately.
         services.AddSingleton<WorkflowRunReconciler>();
         services.AddHostedService<WorkflowStrandedRunSweepService>();
+    }
+
+    /// <summary>
+    ///     Replaces the registered <see cref="IMemoryService"/> with
+    ///     <see cref="RecallTierRecordingMemoryService"/> wrapped around it, so every recall a workflow-run turn
+    ///     makes leaves its <c>MemoryRecallTier</c> where the run's next transition can record it.
+    /// </summary>
+    /// <remarks>
+    ///     Done by rewriting the descriptor rather than by registering a second <see cref="IMemoryService"/>,
+    ///     because Thalos resolves the service by interface in two places -
+    ///     <c>MemoryContextProviderSource</c> for auto-recall and <c>MemoryToolSource</c> for the
+    ///     <c>memory__*</c> tools - and a last-registration-wins override would leave the inner instance still
+    ///     constructible and still resolvable by anything that asked for the concrete type. The inner descriptor
+    ///     is rebuilt from whichever form <c>AddThalosMemoryServices</c> used, so this does not silently become
+    ///     a no-op if that generator switches between a type, a factory or an instance registration.
+    /// </remarks>
+    private static void DecorateMemoryServiceWithRecallTierRecording(IServiceCollection services)
+    {
+        var existing = services.LastOrDefault(d => d.ServiceType == typeof(IMemoryService));
+        if (existing is null)
+        {
+            // Memory disabled for this host: nothing to wrap, and no tier to record either.
+            return;
+        }
+
+        services.Remove(existing);
+        services.Add(ServiceDescriptor.Describe(
+            typeof(IMemoryService),
+            sp => new RecallTierRecordingMemoryService(
+                (IMemoryService)CreateInner(sp, existing),
+                sp.GetRequiredService<WorkflowRecallTierLog>()),
+            existing.Lifetime));
+
+        static object CreateInner(IServiceProvider sp, ServiceDescriptor descriptor) =>
+            descriptor.ImplementationInstance
+            ?? descriptor.ImplementationFactory?.Invoke(sp)
+            ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!);
     }
 
     /// <summary>
@@ -391,6 +454,45 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
     private static string ResolveConnectionString(IConfiguration configuration) =>
         configuration.GetConnectionString(DatabaseConnectionName) ?? DatabaseSettings.GetDefaultConnectionString();
+
+    /// <summary>
+    ///     Fails fast on <c>Thalos:Squad</c>. A blank <see cref="SquadOptions.FallbackAgentName"/> is rejected in
+    ///     <em>both</em> modes, because it is the value the rollback needs and a rollback that cannot be taken is
+    ///     not a rollback.
+    /// </summary>
+    /// <remarks>
+    ///     <b>What a blank value actually does, which is why this is a boot failure rather than a warning.</b>
+    ///     <see cref="SquadAgentResolver.Resolve"/> guards its input and then returns
+    ///     <see cref="SquadOptions.FallbackAgentName"/> unchecked, and Thalos'
+    ///     <c>WorkflowReferenceResolver.ResolveAgentIdAsync</c> opens with <c>ThrowIfNullOrWhiteSpace</c>. So a
+    ///     blank name does not resolve to "no agent" — it throws <see cref="ArgumentException"/>. At host start
+    ///     that throw comes out of <c>ProcessDefinitionSync</c> validating <c>manufacture.yaml</c>, escapes
+    ///     <c>ProcessDefinitionSyncHostedService.StartAsync</c>, and takes the whole host down with a message
+    ///     naming a parameter rather than a configuration key. Past load it escapes
+    ///     <c>WorkflowNodeDispatcher.ResolveAgentAsync</c>, which deliberately does not catch, so the dispatch
+    ///     message returns to the outbox and retries — the opposite of the clean <c>FailAsync</c> every other
+    ///     unresolvable agent name gets.
+    ///     <para>
+    ///     The reachable path is not a typo but the natural rollback: an operator deletes the <c>"Squad"</c>
+    ///     block instead of flipping one boolean. <see cref="SquadOptions.Enabled"/> then defaults to
+    ///     <see langword="false"/> and <see cref="SquadOptions.FallbackAgentName"/> to <c>""</c>, which is
+    ///     exactly the combination that throws. Validating only when the squad is off would leave the same trap
+    ///     one step away — a host running with the squad on and no fallback boots clean and breaks the moment
+    ///     anyone rolls it back — so the value is required in both modes.
+    ///     </para>
+    /// </remarks>
+    private static void ValidateSquadConfig(SquadOptions config)
+    {
+        if (string.IsNullOrWhiteSpace(config.FallbackAgentName))
+        {
+            throw new InvalidOperationException(
+                $"{SquadOptions.SectionName}:FallbackAgentName must name a real Thalos:Agents entry and must not be blank. " +
+                "Every workflow role collapses onto it when Thalos:Squad:Enabled is false, and a blank name throws " +
+                "ArgumentException out of agent resolution rather than failing the run cleanly - at host start that takes " +
+                "the host down, and past start it dead-letters the dispatch. Deleting the whole Thalos:Squad block leaves " +
+                "this blank, so roll the squad back by setting Enabled to false and keeping the fallback name.");
+        }
+    }
 
     /// <summary>
     ///     Fails fast on the Daedalus-only <c>Thalos:Memory</c> keys (Thalos validates its own <c>MemoryOptions</c> on start).
