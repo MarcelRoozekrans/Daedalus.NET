@@ -51,6 +51,16 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
     private const string WorkIntent = "Make ClaimNextAsync skip cancelled tasks";
 
+    /// <summary>
+    ///     An opening variable that is <em>outside</em> the review contract's read keys. Without one, every
+    ///     assertion about the projection would be satisfied by a projection that does nothing on the implement
+    ///     node: its bag holds only <c>work_intent</c>, which the review contract admits anyway. This key is
+    ///     what makes "the implement node gets the whole bag" and "the review node gets an allow-list" two
+    ///     different statements. Found by a falsifying edit that made every node a review node and turned no
+    ///     test red.
+    /// </summary>
+    private const string OffContractSentinel = "OFF-CONTRACT-KEY-THE-REVIEWER-MUST-NOT-SEE";
+
     // Three distinct synthetic ids. They stand in for the real Thalos:Agents entries, which this suite has no
     // booted host to read - what the assertions need is only that the three are told apart, and that the id the
     // dispatcher used came back from the resolver rather than from the process file's name.
@@ -143,6 +153,26 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         result.ImplementTasks.Should().NotBeEmpty();
         result.ImplementTasks[0].Should().Contain(WorkIntent,
             "the opening variables reach the first node through Thalos' own rendering of the bag");
+        result.ImplementTasks[0].Should().Contain(OffContractSentinel,
+            "a node that declares no lenses is not narrowed at all, including for keys the review contract does not name");
+    }
+
+    /// <summary>
+    ///     The projection is an allow-list, not a deny-list of the two narrative keys. A key nobody has thought
+    ///     of yet - one a later phase adds to the opening variables - must be excluded by default rather than
+    ///     admitted silently.
+    /// </summary>
+    [Fact]
+    public async Task The_reviewer_is_given_nothing_the_review_contract_does_not_name()
+    {
+        var result = await RunAsync(squadEnabled: true);
+
+        result.ReviewTasks.Should().NotBeEmpty();
+        foreach (var task in result.ReviewTasks)
+        {
+            task.Should().NotContain(OffContractSentinel,
+                "a deny-list admits every field a later phase adds, and the leak is invisible until someone re-reads the filter");
+        }
     }
 
     [Fact]
@@ -232,7 +262,11 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
             var runId = await store.StartAsync(
                 ProcessName, 1, $"b5-handoff:{Guid.NewGuid()}", "implement",
-                new Dictionary<string, object?>(StringComparer.Ordinal) { [ReviewHandoff.WorkIntentKey] = WorkIntent },
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [ReviewHandoff.WorkIntentKey] = WorkIntent,
+                    ["issue_url"] = OffContractSentinel,
+                },
                 CancellationToken.None);
 
             // implement -> review -> done is three dispatches; a couple of spare ticks so a terminal node that

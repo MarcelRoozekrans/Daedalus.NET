@@ -184,6 +184,11 @@ public sealed class RunRecordAnnotationTests
 
         await memory.RecallAsync("anything", new MemoryScope("someone", Reviewer, "daedalus"), new RecallOptions(), CancellationToken.None);
 
+        // Asserted on the log itself, not only on a node completion: a recording keyed on some default run id
+        // would leave any particular run's completion clean while still having recorded something. Found by a
+        // falsifying edit that did exactly that and turned no test red.
+        log.IsEmpty.Should().BeTrue("a recall outside a workflow run has no run to attribute a tier to");
+
         var store = new CapturingStore();
         var decorated = new WorkflowRunModeStore(store, new SquadOptions { Enabled = true, FallbackAgentName = "x" }, log);
         await decorated.CompleteNodeAsync(Guid.NewGuid(), 4, AnyTransition(), new NodeResult("approved", new Dictionary<string, object?>(StringComparer.Ordinal)), CancellationToken.None);
@@ -208,6 +213,7 @@ public sealed class RunRecordAnnotationTests
 
         result.IsFailure.Should().BeTrue("the decorator must pass the failure through, not swallow it");
         log.Take(runId).Should().BeNull();
+        log.IsEmpty.Should().BeTrue("nothing at all was recorded, under this run's id or any other");
     }
 
     [Fact]

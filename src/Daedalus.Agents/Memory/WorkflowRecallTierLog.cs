@@ -35,6 +35,13 @@ internal sealed class WorkflowRecallTierLog
 {
     private readonly ConcurrentDictionary<Guid, MemoryRecallTier> _tiers = new();
 
+    /// <summary>
+    ///     Whether nothing at all is currently recorded. Exists so "this recall was attributed to no run" is
+    ///     directly assertable: probing <see cref="Take"/> with a run id can only show that one id is absent,
+    ///     which a recording keyed on some other default id would satisfy just as well.
+    /// </summary>
+    public bool IsEmpty => _tiers.IsEmpty;
+
     /// <summary>Records that <paramref name="tier"/> answered a recall made by a turn of run <paramref name="runId"/>.</summary>
     public void Record(Guid runId, MemoryRecallTier tier) => _tiers[runId] = tier;
 
