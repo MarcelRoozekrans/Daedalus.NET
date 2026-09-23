@@ -1,4 +1,4 @@
-using System.Data.Async.Adapters;
+﻿using System.Data.Async.Adapters;
 using System.Globalization;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
@@ -92,7 +92,7 @@ public sealed class WorkflowOrmMigrationTests(PostgresFixture fixture)
             activeVersion.Should().Be(1);
 
             var runId = await store.StartAsync(
-                "migration-smoke-test", activeVersion!.Value, $"migration-test:{Guid.NewGuid()}", "finish", CancellationToken.None);
+                "migration-smoke-test", activeVersion!.Value, $"migration-test:{Guid.NewGuid()}", "finish", initialVariables: null, CancellationToken.None);
 
             var run = await store.FindAsync(runId, CancellationToken.None);
             run.Should().NotBeNull();

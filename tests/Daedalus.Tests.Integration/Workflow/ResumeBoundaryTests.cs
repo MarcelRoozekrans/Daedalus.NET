@@ -1,4 +1,4 @@
-using System.Data.Async.Adapters;
+﻿using System.Data.Async.Adapters;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
@@ -359,7 +359,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     /// <summary>Starts a run at the gate node and dispatches it once, parking it at <c>Awaiting</c>.</summary>
     private static async Task<Guid> ParkedAtGateAsync(ScratchStore store, string correlationKey)
     {
-        var runId = await store.Store.StartAsync(ProcessName, 1, $"{correlationKey}:{Guid.NewGuid()}", "gate", CancellationToken.None);
+        var runId = await store.Store.StartAsync(ProcessName, 1, $"{correlationKey}:{Guid.NewGuid()}", "gate", initialVariables: null, CancellationToken.None);
 
         var run = await store.Store.FindAsync(runId, CancellationToken.None);
         var dispatcher = new WorkflowNodeDispatcher(
