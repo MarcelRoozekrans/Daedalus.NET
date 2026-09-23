@@ -245,16 +245,31 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         result.Excluded.UnattributedExecutionCount.Should().Be(0);
     }
 
+    /// <summary>
+    ///     The <c>Scope</c> string is a mechanism claim shipped on every cost DTO, so it is guarded like one.
+    ///     It used to say agent turns "are not persisted", which is false - <c>PostgresAgentSessionStore</c>
+    ///     records per-session token totals and <c>AgentMessages</c> records per-message ones. The old guard
+    ///     asserted only that the string was non-empty and held two substrings, so it could not catch that.
+    /// </summary>
     [Fact]
-    public async Task GetSummaryAsync_StatesWhatItCovers()
+    public async Task GetSummaryAsync_StatesWhatItCoversAndWhereTheRestIsRecorded()
     {
-        // Falsifiability: clearing CostAnalyticsService.Scope (or never assigning it onto the DTO) turns this red.
+        // Falsifiability: clearing CostAnalyticsService.Scope (or never assigning it onto the DTO) turns the
+        // first assertion red; putting the "not persisted" claim back turns the last one red.
         var sut = new CostAnalyticsService(_dbContext, PricingWithOneModel());
 
         var result = await sut.GetSummaryAsync();
 
         result.Scope.Should().NotBeNullOrWhiteSpace();
-        result.Scope.Should().Contain("TaskExecution").And.Contain("Daedalus.Agents");
+        result.Scope.Should().Contain("TaskExecution", "the reason these figures are narrow is the table they read");
+
+        // Where agent-turn usage actually lives, named rather than waved at. This is the half that makes the
+        // statement useful: a reader who wants that spend is told which tables to go to.
+        result.Scope.Should().Contain("AgentSessions").And.Contain("AgentMessages");
+
+        result.Scope.Should().NotContain("not persisted",
+            "agent turns are persisted; these endpoints just do not read those tables");
+        result.Scope.Should().NotContain("never persisted");
     }
 
     #endregion

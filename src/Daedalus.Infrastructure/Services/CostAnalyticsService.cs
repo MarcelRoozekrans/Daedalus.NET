@@ -17,14 +17,24 @@ public sealed class CostAnalyticsService(
 {
     /// <summary>
     ///     What every cost figure below covers: only Ralph loop iterations persisted as <c>TaskExecution</c> rows
-    ///     (written by <c>ExecuteTaskCommandHandler</c> and <c>RalphLoopPipelineService</c>). Agent turns run
-    ///     through <c>Daedalus.Agents</c> carry usage as <c>TurnUsageDto</c> on events and DTOs but are never
-    ///     persisted anywhere, so that spend is not reflected in any figure this service returns.
+    ///     (written by <c>ExecuteTaskCommandHandler</c> and <c>RalphLoopPipelineService</c>), because every query
+    ///     in this service reads <c>TaskExecutions</c> and nothing else.
     /// </summary>
+    /// <remarks>
+    ///     <b>This string used to credit the wrong reason, and the correction is worth stating.</b> It said agent
+    ///     turns run through <c>Daedalus.Agents</c> "are never persisted anywhere". They are:
+    ///     <c>PostgresAgentSessionStore.RecordTurnAsync</c> atomically increments <c>AgentSessions.TurnCount</c>,
+    ///     <c>TotalInputTokens</c> and <c>TotalOutputTokens</c>, and <c>AgentMessages</c> rows carry per-message
+    ///     token counts. The conclusion held for a different reason — this service simply never reads those
+    ///     tables — and saying so is the more useful statement, because it names where the data already is for
+    ///     anyone who wants to aggregate it.
+    /// </remarks>
     private const string Scope =
         "Covers only Ralph loop iterations recorded as TaskExecution rows (written by ExecuteTaskCommandHandler " +
-        "and RalphLoopPipelineService). Agent turns run through Daedalus.Agents are not persisted and are not " +
-        "reflected in this figure.";
+        "and RalphLoopPipelineService): every query behind these figures reads TaskExecutions and nothing else. " +
+        "Agent turns run through Daedalus.Agents are recorded separately - AgentSessions carries TurnCount, " +
+        "TotalInputTokens and TotalOutputTokens per session and AgentMessages carries per-message token counts - " +
+        "and none of that is aggregated here.";
 
     private readonly ModelPricingConfiguration _pricing = pricingOptions.Value;
 
