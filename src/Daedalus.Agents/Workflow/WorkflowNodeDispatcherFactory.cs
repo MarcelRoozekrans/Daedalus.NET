@@ -35,13 +35,19 @@ namespace Daedalus.Agents.Workflow;
 internal static class WorkflowNodeDispatcherFactory
 {
     public static WorkflowNodeDispatcher Create(IServiceProvider sp) => new(
-        // The store the DISPATCHER sees, not the one everything else does. Two decorators, on two different
-        // members, so their order changes nothing functionally: WorkflowRunModeStore overrides
-        // CompleteNodeAsync to stamp the squad mode and the turn's recall tier onto every transition it
-        // records, and ReviewHandoffWorkflowStore overrides FindAsync to cut the implementer's narrative out
-        // of the bag before a review node's task text is built from it. Only the dispatcher's copy is wrapped
-        // deliberately: WorkflowRunGateway, WorkflowRunReconciler and the sweeper all keep the undecorated
-        // store, so a human reading a run still sees everything it holds.
+        // The store the DISPATCHER sees, not the one everything else does. WorkflowRunModeStore stamps the
+        // squad mode and the turn's recall tier onto every transition it records; ReviewHandoffWorkflowStore
+        // cuts the implementer's narrative out of the bag before a review node's task text is built from it,
+        // and re-checks that node's report against the bag the run really holds, because the cut takes
+        // Thalos' own key-cap check out of the loop on exactly that node. Only the dispatcher's copy is
+        // wrapped deliberately: WorkflowRunGateway, WorkflowRunReconciler and the sweeper all keep the
+        // undecorated store, so a human reading a run still sees everything it holds.
+        //
+        // ORDER IS LOAD-BEARING on CompleteNodeAsync, and it was not before the re-check existed. With
+        // ReviewHandoffWorkflowStore outermost, the report it counts is the node's own; reversing the two
+        // would hand it a report WorkflowRunModeStore had already added squad_mode and recall_tier to, and a
+        // node would be failed for two keys it never reported. Those two keys are deliberately outside the
+        // cap - see WorkflowRunModeStore's own remarks.
         new ReviewHandoffWorkflowStore(
             new WorkflowRunModeStore(
                 sp.GetRequiredService<IWorkflowStore>(),

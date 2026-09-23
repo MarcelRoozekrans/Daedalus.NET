@@ -33,18 +33,55 @@ namespace Daedalus.Agents.Workflow;
 ///     which node is under review. A node with no lenses is untouched and receives the whole bag.
 ///     </para>
 ///     <para>
-///     <b>This narrows what a node is told, never what the run stores.</b> <c>CompleteNodeAsync</c> is
-///     not overridden, and <c>OrmWorkflowStore</c> re-reads the row inside its own transaction before merging,
-///     so the persisted bag still holds <c>summary</c> and <c>rationale</c> for humans and for
-///     <c>adjudicate</c>. Two consequences worth naming rather than discovering: a human reading a run through
-///     <see cref="WorkflowRunGateway"/> sees the full bag, because only the dispatcher's copy of the store is
-///     decorated; and <c>WorkflowNodeDispatcher</c>'s sixteen-key cap check counts the projected bag on a
-///     review node, so it undercounts there by exactly the keys withheld.
+///     <b>This narrows what a node is told, never what the run stores.</b> <c>OrmWorkflowStore</c> re-reads
+///     the row inside its own transaction before merging, so the persisted bag still holds <c>summary</c> and
+///     <c>rationale</c> for humans and for <c>adjudicate</c>, and a human reading a run through
+///     <see cref="WorkflowRunGateway"/> sees the full bag because only the dispatcher's copy of the store is
+///     decorated.
+///     </para>
+///     <para>
+///     <b>Why <see cref="CompleteNodeAsync"/> is overridden as well: the projection takes Thalos' key cap out
+///     of the loop on exactly the node it applies to.</b> <c>WorkflowNodeDispatcher.BuildNodeResult</c> checks
+///     a node's report against <c>WorkflowRun.Variables</c>, and on a review node that is the projected
+///     two-key bag rather than the real one. The consequence is not an undercount of a few keys, it is that the
+///     cap stops binding there at all: <c>review</c> may report the per-turn maximum of eight fresh keys on
+///     each of its five permitted visits, and every time the dispatcher computes two plus eight and accepts
+///     while the real persisted bag climbs past forty. Thalos derives
+///     <c>WorkflowVariableBlock.MaxOmittedKeyListLength</c> from "a bag holds at most
+///     <see cref="MaxVariableKeys"/> keys", and says in the same place that the list's own cut "is a backstop
+///     that cannot fire while this derivation holds" — so breaking the premise makes that cut reachable, and a
+///     reachable cut means <c>implement</c>'s next task text silently omits keys the omission notice does not
+///     name. That is the completeness guarantee the cap exists to provide.
+///     </para>
+///     <para>
+///     So the cap is enforced here instead, on the write path, against the bag the run really holds:
+///     <see cref="DelegatingWorkflowStore.Inner"/>'s own <c>FindAsync</c> rather than this type's projecting
+///     one. A breach fails the run through <c>FailAsync</c> rather than throwing, which is the same choice
+///     Thalos makes for a report it
+///     rejects and for the same reason — a failed run carries a message a process author can read back out of
+///     <c>WorkflowRun.LastError</c>, and a throw here would escape the dispatcher and dead-letter the dispatch
+///     instead. What this check does <em>not</em> count is the two keys <see cref="WorkflowRunModeStore"/>
+///     adds below it; see that type for why they sit above the cap permanently, exactly as
+///     <c>IWorkflowStore.ResumeAsync</c>'s engine-minted payload key already does in Thalos' own derivation.
 ///     </para>
 /// </remarks>
 internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessDefinitionStore definitions)
     : DelegatingWorkflowStore(inner)
 {
+    /// <summary>
+    ///     The most distinct keys a run's variable bag may hold, mirroring
+    ///     <c>Thalos.Workflow.WorkflowVariableBlock.MaxVariableKeys</c>.
+    /// </summary>
+    /// <remarks>
+    ///     Restated rather than referenced because that type is <see langword="internal"/> to
+    ///     <c>Thalos.NET.Workflow</c> and no <c>InternalsVisibleTo</c> reaches this assembly. A restated
+    ///     constant is a claim about another package's value, so it is guarded like one:
+    ///     <c>ReviewHandoffKeyLimitTests</c> reads the real field back out of the loaded assembly by reflection
+    ///     and fails if the two ever disagree. Enforcing a <em>different</em> number here would be worse than
+    ///     not enforcing one at all — it is the shared bound that makes the omitted-key list provably complete.
+    /// </remarks>
+    internal const int MaxVariableKeys = 16;
+
     private readonly IProcessDefinitionStore _definitions = definitions ?? throw new ArgumentNullException(nameof(definitions));
 
     /// <inheritdoc />
@@ -59,6 +96,62 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         return await IsReviewNodeAsync(run, ct).ConfigureAwait(false)
             ? run with { Variables = ReviewHandoff.ProjectForReviewNode(run.Variables) }
             : run;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    ///     Only a review node is re-checked. Every other node was already counted by the dispatcher against
+    ///     the same bag this would read, so a second check there would be a second place for the same rule to
+    ///     live — and a round trip on every transition to learn nothing.
+    /// </remarks>
+    public override async ValueTask CompleteNodeAsync(
+        Guid runId, long seq, WorkflowTransition transition, NodeResult result, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        var run = await Inner.FindAsync(runId, ct).ConfigureAwait(false);
+        if (run is not null && await IsReviewNodeAsync(run, ct).ConfigureAwait(false))
+        {
+            var breach = DescribeKeyLimitBreach(run, result.Variables);
+            if (breach is not null)
+            {
+                await Inner.FailAsync(runId, breach, ct).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        await Inner.CompleteNodeAsync(runId, seq, transition, result, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The failure message for a report that would take the run's real bag past
+    ///     <see cref="MaxVariableKeys"/> distinct keys, or <see langword="null"/> when it would not.
+    /// </summary>
+    /// <remarks>
+    ///     Distinct keys after the merge, so overwriting a key the run already holds never moves the count and
+    ///     a capped loop can overwrite the same few keys lap after lap — the same rule Thalos applies, stated
+    ///     the same way, because a review node that obeyed a different one would be a worse surprise than one
+    ///     that obeyed none.
+    /// </remarks>
+    private static string? DescribeKeyLimitBreach(WorkflowRun run, IReadOnlyDictionary<string, object?> reported)
+    {
+        if (reported.Count == 0)
+        {
+            return null;
+        }
+
+        var merged = new HashSet<string>(run.Variables.Keys, StringComparer.Ordinal);
+        merged.UnionWith(reported.Keys);
+        if (merged.Count <= MaxVariableKeys)
+        {
+            return null;
+        }
+
+        return $"Node '{run.CurrentNode}' reported {reported.Count} variable(s), which would take the run's variable bag to " +
+            $"{merged.Count} distinct keys, past the limit of {MaxVariableKeys}. Counted against the run's real bag of " +
+            $"{run.Variables.Count} key(s): this node runs review lenses, so the bag the dispatcher was given is narrowed " +
+            "to the review contract's read keys and is not what the run actually holds. Overwrite an existing key instead " +
+            "of minting a new one, or report fewer, larger-grained variables.";
     }
 
     /// <summary>

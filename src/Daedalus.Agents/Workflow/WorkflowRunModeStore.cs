@@ -34,11 +34,17 @@ namespace Daedalus.Agents.Workflow;
 ///     nothing to add and no turn to describe. The transition that follows the gate carries the mode again.
 ///     </para>
 ///     <para>
-///     <b>The two keys cost budget.</b> Thalos caps a run's bag at sixteen distinct keys, and these are two of
-///     them — permanently, since both are overwritten rather than accumulated. They are added <em>after</em>
-///     <c>WorkflowNodeDispatcher</c> has already checked the node's own report against that cap, so a node
-///     cannot be failed for a key this type added; the practical effect is that the real bag can hold two keys
-///     more than the dispatcher counted.
+///     <b>The two keys sit above the cap, not inside it.</b> Both are added <em>after</em> every check of a
+///     node's report against Thalos' sixteen-key limit — the dispatcher's own, and
+///     <see cref="ReviewHandoffWorkflowStore"/>'s re-check on a review node — so a node can never be failed
+///     for a key this type added, and the persisted bag can hold sixteen reported keys plus these two. That is
+///     the same shape as <c>IWorkflowStore.ResumeAsync</c>'s payload key, which Thalos' own derivation of
+///     <c>WorkflowVariableBlock.MaxOmittedKeyListLength</c> already carries as "plus one for the engine-minted
+///     payload"; these are two more of exactly that kind, and the derivation's slack does not account for
+///     them. The consequence is bounded and permanent rather than growing, because both keys are overwritten
+///     rather than accumulated: the omitted-key list can fall two names short of naming every key a rendered
+///     block left out, and no further. Growing past that was a separate defect, in the projection rather than
+///     here, and is fixed in <see cref="ReviewHandoffWorkflowStore"/>.
 ///     </para>
 /// </remarks>
 internal sealed class WorkflowRunModeStore(IWorkflowStore inner, SquadOptions squad, WorkflowRecallTierLog tiers)
