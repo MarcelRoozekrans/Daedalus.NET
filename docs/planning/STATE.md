@@ -1,12 +1,59 @@
 # Session State
 
-**Last session:** 2026-09-22
+**Last session:** 2026-09-23
 **Milestone 1 — Hermes-Style Agent Framework: CLOSED (2026-09-21).** All 9 phases complete. See
 `docs/planning/MILESTONE.md` for the definition-of-done checklist and its honest scoping, and
 `docs/planning/ROADMAP.md` for the "Carried forward from Milestone 1" list of 7 known, deliberately
 unfixed items.
 
-**Current milestone:** 2 — Software Manufacturing (**phases 2.1 and 2.2 complete; 2.3 next**)
+**Current milestone:** 2 — Software Manufacturing (**phases 2.1, 2.2 and 2.3 complete; 2.4 next**)
+
+**Phase 2.3 — the manufacturing squad: complete (2026-09-23).** PR #274, 31 commits, plus Thalos.NET
+**0.8.0** and **0.9.0** built inside the phase. Unit 328, Integration 540. Full rulings with
+cost-if-wrong: `docs/plans/2026-09-23-phase-2.3-rulings.md`.
+
+Two roles: `implementer` on Sonnet 5 and `reviewer` on **Opus 5** — a different model line, not a
+different vendor, and the config says so rather than claiming an independence it cannot deliver with
+one provider configured. The reviewer holds **no write tool at all**; that rests on absence from its
+tool list, not on a policy denial. Per-role memory partitions survive across runs. Review outcomes
+must carry evidence: rejecting needs file, line and a failure scenario, approving needs a non-empty
+`checked[]`. Three lenses — correctness, falsifiability, mechanism — run sequentially and
+short-circuit on the first rejection.
+
+**The central claim was false twice, and neither time was it the design that caught it.** First, the
+implementer's memory was retrieved in the reviewer's recall **at similarity 1.00**, because
+`WorkflowCaller.Id` carried the run id so both roles shared an owner, and `RememberAsync`'s `shared`
+parameter defaults to true. Second, `The_reviewer_is_never_given_the_implementers_summary_or_rationale`
+was green from the day it was written **because nothing travelled** — Thalos renders the whole
+variable bag and the projection sat downstream of it. Fixed by moving the projection between the
+store and the dispatcher, so the renderer receives a bag that never held those keys: absence, not
+filtering. The final review verified it by removing the decorator and watching two tests go red.
+
+**Not proved end to end.** Anthropic API credits ran out after one node completed a real turn —
+process v3, `implement` as `implementer` on `claude-sonnet-5`, reporting `blocked` honestly, carrying
+`squad_mode` and `recall_tier` into `workflow_run_event`. **Never observed live:** any reviewer turn,
+any lens pass, any `checked[]`, `files_touched` reaching a reviewer, the gate, or squad-disabled mode
+in the event log. **Process version 4 has never been executed at all.**
+
+**Carried forward from 2.3:**
+
+1. `work_intent` has no producer — nothing in `src` calls `StartAsync`. It is one of only two things
+   the reviewer is ever given, so in production it can receive only the other.
+2. `DetachedRuns:MaxTotalTokens` is 150000 in both hosts; one measured implement turn used **358703
+   input tokens**. Deliberately not raised: the sizing is unresolved and raising it without
+   understanding the bloat raises the ceiling on waste. The 32 roslyn tool schemas, the skill
+   catalogue and the variable block all land in that prompt.
+3. `roslyn__apply_code_action` applies a refactoring Roslyn already offers at a position and defaults
+   to preview. It is not arbitrary editing, and the §4.1 decision was taken on a broader description
+   than the tool supports.
+4. Agent turn usage is recorded in `AgentSessions`/`AgentMessages` but never aggregated into cost
+   analytics, which reads `TaskExecutions` only — and phase 2.5 deletes Ralph, the only writer of
+   those rows. Parked as a phase.
+5. A second chat provider would make the different-family reviewer literally true. Parked, with the
+   open design question recorded: `IChatClientProvider` resolves one provider per host, not per agent.
+6. Commit hygiene checks here cover nested parens and session URLs but **not subject length**; one
+   116-character subject failed commitlint on this phase's own PR. `.commitlintrc.yml` caps headers
+   at 100.
 
 **Phase 2.1 — git write tooling: complete (2026-09-21).** Branch `feat/phase-2.1-git-tooling`, 6
 commits, PR opened against `main`. The roadmap described this phase as building branch, commit, push
