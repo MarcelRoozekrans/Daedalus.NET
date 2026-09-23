@@ -1,40 +1,69 @@
-# The first real manufacturing process (phase 2.2, Task 11). A transcription of
-# subagent-driven-development's control flow — implement, review with a bounded fix loop, a
-# human approval gate, then publish — expressed as data the engine interprets rather than as a
-# skill's prose.
+# The first real manufacturing process. A transcription of subagent-driven-development's control
+# flow — implement, review with a bounded fix loop, a human approval gate, then publish — expressed
+# as data the engine interprets rather than as a skill's prose.
 #
-# Two constraints shaped this file, both carried forward from Tasks 9 and 10 and recorded in
-# docs/plans/2026-09-22-phase-2.2-workflow-engine-design.md:
+# Three constraints shape this file:
 #
-#   1. A run executes as WorkflowCaller, whose only role is "workflow". `git__*` and
-#      `repoaction__*` are bound to the `developer` policy, so a workflow-run node cannot open a
-#      pull request or comment on one — that boundary is intentional, not a bug this file works
-#      around. `publish` below therefore never attempts a git or repo-action tool call — it must
-#      write a memory__remember record, then report `published` through this node's own outcome
-#      tool before the run can complete. That call is the only thing enforced structurally; it does
-#      not prove the record's content is real, or that a human ever reads it. Opening the actual
-#      pull request against a real repository stays a deliberately unautomated, human-triggered
-#      step (see Task 11's report).
+#   1. `implement` edits the working tree. Phase 2.2 shipped this node read-only: its skill produced
+#      a *description* of a change and made none, so the pipeline could reach `succeeded` with zero
+#      code changed and `review` had only prose to read. The project owner reversed that on
+#      2026-09-23 - see docs/plans/2026-09-23-phase-2.3-manufacturing-squad-design.md section 4.1.
+#      The implementer applies changes through `roslyn__apply_code_action`.
 #
-#   2. Reaching `succeeded` proves the graph walked implement -> review -> gate -> publish -> done
-#      and that each task node's agent called the outcome tool the schema demanded. It does not
-#      prove the agent's analysis was correct, or that a human who approved the gate read anything
-#      real. Nothing in the engine (or this file) closes that gap.
+#      The write envelope did NOT widen with it. The `implementer` agent's configured `Tools` list
+#      names `roslyn__*`, `daedalus__*`, `memory__*`, `skills__*` and `context7__*` and nothing else:
+#      no `git__*` and no `repoaction__*` entry appears in it, so neither family is ever offered to
+#      one of its turns. It edits files; it cannot branch, commit, push, or open a pull request.
+#      That is tool ABSENCE, not a policy denial - the `git__*` -> developer binding in
+#      Thalos:ToolPolicies is a second, independent line that would also deny the call, but it is
+#      never reached, because the tool is not in the list to be called.
+#
+#      Consequence, stated plainly because nothing in this file undoes it: a run LEAVES UNCOMMITTED
+#      CHANGES BEHIND. A rejected review, a `maxVisits` redirect to `adjudicate`, a failed run and a
+#      stranded run all leave the tree modified, and with `maxVisits: 5` up to five rounds of edits
+#      can pile up on each other. Deciding what to do with them is a human step.
+#
+#   2. `publish` still cannot open a pull request, and this is unchanged from phase 2.2. A run
+#      executes as WorkflowCaller, whose only role is "workflow"; `git__*` and `repoaction__*` are
+#      bound to the `developer` policy, which that role fails. So `publish` never attempts a git or
+#      repo-action tool call - it writes a memory__remember record and reports `published` through
+#      its own outcome tool. That call is the only thing enforced structurally; it does not prove
+#      the record's content is real, or that a human ever reads it. Opening the actual pull request
+#      stays a deliberately unautomated, human-triggered step.
+#
+#   3. Reaching `succeeded` proves the graph walked implement -> review -> gate -> publish -> done
+#      and that each task node's agent called the outcome tool its schema demanded. Phase 2.3
+#      narrows what that leaves unproven - `implement` must now assert `changed` rather than
+#      complete on any output at all, and `review` must survive three lenses and produce evidence -
+#      but it does not close the gap. See section 12 of the design document for the honest limits.
 process: manufacture
-# version bumped 1 -> 2 (this task): content-hash immutability correctly refused re-syncing v1 with
-# different content once publish stopped pointing at writer and gained outcomes - the rule working as
-# designed, not a bug. A same-version content change must mint a new version; it is not a case to
-# route around by relaxing the check.
-version: 2
+# version bumped 2 -> 3 (phase 2.3, task B4): implement and review move onto the squad roles, implement
+# gains an outcome set, and review declares its lenses. Content-hash immutability refuses a same-version
+# content change, so all three ride one bump - a second bump inside one change would be refused.
+version: 3
 
 nodes:
+  # `outcomes` is new in version 3. Version 2 declared none, so this node completed on any turn output
+  # at all - tolerable while it only wrote a description, not tolerable now it modifies a working tree.
+  # `changed` is an explicit claim that the tree was edited, and it is the ONLY edge into `review`: the
+  # reviewer is never dispatched except behind an assertion that there is something to read. `blocked`
+  # exists so that claim costs something - with `changed` as the only way out of the node, an agent that
+  # edited nothing would still assert it to escape, and the claim would mean nothing. A run that changed
+  # no code did not manufacture anything, so `blocked` ends it rather than advancing it.
   implement:
-    agent: Daedalus Architect
+    agent: implementer
     skill: manufacture-implement
-    next: review
+    outcomes: [changed, blocked]
+    branch:
+      changed: review
+      blocked: adjudicate
 
+  # `lenses` was parsed and left inert by phase 2.2's loader. Daedalus' ReviewLensRunner reads it: the
+  # node runs one agent turn per lens, in this order, and stops at the first rejection - so a rejection
+  # costs one pass and an approval costs three. This is a host-side dispatch concern, not an engine
+  # change; the engine's invariant is one TRANSITION per transaction, not one turn per node.
   review:
-    agent: Daedalus Architect
+    agent: reviewer
     skill: manufacture-review
     outcomes: [approved, rejected]
     branch:
@@ -42,6 +71,7 @@ nodes:
       rejected: implement
     maxVisits: 5
     onExceeded: adjudicate
+    lenses: [correctness, falsifiability, mechanism]
 
   # A terminal, not a human escalation. subagent-driven-development's own breaker sends a
   # tripped loop to a human; this node just ends the run as failed instead. A faithful
