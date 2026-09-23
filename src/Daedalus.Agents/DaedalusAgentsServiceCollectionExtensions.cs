@@ -283,8 +283,22 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </summary>
     private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot)
     {
-        // IAgentCatalog and ISkillStore both come from AddThalos above.
-        services.AddSingleton<IWorkflowReferenceResolver, WorkflowReferenceResolver>();
+        // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
+        // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
+        // first - which is what makes Thalos:Squad:Enabled=false actually collapse implementer and reviewer
+        // onto the fallback agent. Wrapped here, at the single registration, rather than inside
+        // WorkflowNodeDispatcherFactory: this resolver is deliberately the one lookup shared by
+        // ProcessValidator at load time and WorkflowNodeDispatcher at dispatch time, and decorating only one
+        // of them would let a process validate against one set of agent names and then run against another.
+        services.AddSingleton<IWorkflowReferenceResolver>(sp => new SquadWorkflowReferenceResolver(
+            new WorkflowReferenceResolver(sp.GetRequiredService<IAgentCatalog>(), sp.GetRequiredService<ISkillStore>()),
+            sp.GetRequiredService<SquadAgentResolver>()));
+
+        // Where a workflow turn's recall tier is parked between the recall that produced it and the transition
+        // that records it. Registered here rather than beside SquadAgentResolver because nothing outside a
+        // workflow run ever writes to it: RecallTierRecordingMemoryService only records for a WorkflowCaller.
+        services.AddSingleton<WorkflowRecallTierLog>();
+        DecorateMemoryServiceWithRecallTierRecording(services);
 
         // The resume/cancel REST boundary's only path to IWorkflowStore (from AddWorkflowOrm above). Never an
         // agent, never a Thalos tool — see WorkflowRunGateway's own remarks for why, and for what actually
@@ -312,6 +326,43 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // The stranded-run sweep: Thalos ships WorkflowRunReconciler with no timer of its own, deliberately.
         services.AddSingleton<WorkflowRunReconciler>();
         services.AddHostedService<WorkflowStrandedRunSweepService>();
+    }
+
+    /// <summary>
+    ///     Replaces the registered <see cref="IMemoryService"/> with
+    ///     <see cref="RecallTierRecordingMemoryService"/> wrapped around it, so every recall a workflow-run turn
+    ///     makes leaves its <c>MemoryRecallTier</c> where the run's next transition can record it.
+    /// </summary>
+    /// <remarks>
+    ///     Done by rewriting the descriptor rather than by registering a second <see cref="IMemoryService"/>,
+    ///     because Thalos resolves the service by interface in two places -
+    ///     <c>MemoryContextProviderSource</c> for auto-recall and <c>MemoryToolSource</c> for the
+    ///     <c>memory__*</c> tools - and a last-registration-wins override would leave the inner instance still
+    ///     constructible and still resolvable by anything that asked for the concrete type. The inner descriptor
+    ///     is rebuilt from whichever form <c>AddThalosMemoryServices</c> used, so this does not silently become
+    ///     a no-op if that generator switches between a type, a factory or an instance registration.
+    /// </remarks>
+    private static void DecorateMemoryServiceWithRecallTierRecording(IServiceCollection services)
+    {
+        var existing = services.LastOrDefault(d => d.ServiceType == typeof(IMemoryService));
+        if (existing is null)
+        {
+            // Memory disabled for this host: nothing to wrap, and no tier to record either.
+            return;
+        }
+
+        services.Remove(existing);
+        services.Add(ServiceDescriptor.Describe(
+            typeof(IMemoryService),
+            sp => new RecallTierRecordingMemoryService(
+                (IMemoryService)CreateInner(sp, existing),
+                sp.GetRequiredService<WorkflowRecallTierLog>()),
+            existing.Lifetime));
+
+        static object CreateInner(IServiceProvider sp, ServiceDescriptor descriptor) =>
+            descriptor.ImplementationInstance
+            ?? descriptor.ImplementationFactory?.Invoke(sp)
+            ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!);
     }
 
     /// <summary>

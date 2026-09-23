@@ -172,8 +172,16 @@ public sealed class ReviewLensRunnerTests
         result.Value.Text.Should().Be("falsifiability: rejected");
     }
 
+    /// <summary>
+    ///     Each pass names the keys it was given and restates none of their values. Task B5 moved the
+    ///     withholding itself upstream into <see cref="ReviewHandoffWorkflowStore"/> - see that type and
+    ///     <c>SquadHandoffEndToEndTests</c>, where the same claim is asserted against the task text a real
+    ///     dispatcher built. What is left here is the property that keeps this decorator from reopening the
+    ///     leak from below: it must not copy implementer-written values out of the engine's escaped, framed
+    ///     variables block and into a section of its own.
+    /// </summary>
     [Fact]
-    public async Task Each_pass_is_given_the_work_intent_and_the_files_touched_and_neither_narrative_field()
+    public async Task Each_pass_names_the_keys_it_was_given_and_restates_none_of_their_values()
     {
         var inner = new RecordingRunner(i => Approves(new[] { "correctness", "falsifiability", "mechanism" }[i]));
         var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"));
@@ -183,10 +191,11 @@ public sealed class ReviewLensRunnerTests
         inner.Tasks.Should().HaveCount(3);
         foreach (var task in inner.Tasks)
         {
-            // Falsifiable: passing run.Variables straight into the task text instead of projecting it turns the
-            // two NotContain assertions red. Verified by doing exactly that - the marker strings appear.
-            task.Should().Contain("work_intent: Make ClaimNextAsync skip cancelled tasks");
-            task.Should().Contain("files_touched: src/Daedalus.Infrastructure/Persistence/TaskRepository.cs");
+            task.Should().Contain("work_intent").And.Contain("files_touched",
+                "the reviewer has to be told which keys this run carried, or an absent one reads like an absent section");
+            task.Should().NotContain("Make ClaimNextAsync skip cancelled tasks",
+                "a value restated here is a second, unframed copy of text another agent wrote");
+            task.Should().NotContain("src/Daedalus.Infrastructure/Persistence/TaskRepository.cs");
             task.Should().NotContain("SUMMARY-MUST-NOT-REACH-THE-REVIEWER");
             task.Should().NotContain("RATIONALE-MUST-NOT-REACH-THE-REVIEWER");
         }

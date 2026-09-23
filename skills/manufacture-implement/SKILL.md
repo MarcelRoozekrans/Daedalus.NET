@@ -63,8 +63,9 @@ reading your tool calls.
    action that reported success but changed nothing is the failure mode that makes `changed` a lie.
 4. **Record what you touched** with one `memory__remember` call, under a key starting with
    `manufacture:`: the file paths you changed, and one line each on what changed in them.
-5. **Report your outcome** through the outcome tool the engine gave you for this turn, using the
-   exact value it names.
+5. **Report your outcome, and your variables, on the same call** — see below. The outcome tool the
+   engine gave you for this turn is the only channel out of this node; nothing else you write is
+   carried forward.
 
 ## The outcome you report
 
@@ -86,7 +87,35 @@ there.
 
 ## What you write down, and what the reviewer gets
 
-Your step's declared output is `summary`, `files_touched` and `rationale`.
+Your step's declared output is `summary`, `files_touched` and `rationale`, and you report all three
+as the `variables` argument of the **same outcome-tool call** that carries your outcome:
+
+```json
+{
+  "outcome": "changed",
+  "variables": {
+    "summary": "one or two sentences a human can act on",
+    "files_touched": ["src/Daedalus.Infrastructure/Persistence/TaskRepository.cs"],
+    "rationale": "why this change and not another"
+  }
+}
+```
+
+That single call is the only read path the engine has. A variable written in your prose, in a
+memory, or on a second tool call is not carried forward — the dispatcher reads variables strictly
+from the outcome call, the same way it reads the outcome itself, and for the same reason.
+
+**Report `files_touched` as a JSON array of paths, not as one long string.** This is not a style
+preference, it is about what happens when it does not fit. Each value the next node is shown is
+capped at 512 characters. An oversized *array* is shortened by dropping whole elements, leaving
+every path that remains intact and followable, with an engine-written notice saying how many were
+left out. An oversized *string* is cut at 512 characters, which can leave the reviewer a path
+ending halfway through a directory name. Either way the run record keeps your full value; the cap
+applies to what the next node is told.
+
+**Two more limits worth knowing rather than discovering.** A single turn may report at most eight
+variables, and a run's bag holds at most sixteen distinct keys; breaching either fails the node
+with a message naming the cap. Three keys is well inside both.
 
 The reviewer receives **`work_intent` and `files_touched` only**. It does not receive your `summary`
 or your `rationale`, deliberately: a reviewer reading your account of the change evaluates your
@@ -94,9 +123,8 @@ argument instead of the artifact. Those two stay in the run record, for humans a
 `adjudicate`. Write them for that audience — do not write them *at* the reviewer, which will never
 see them.
 
-> **Known gap, stated rather than papered over.** Thalos 0.8.0's `WorkflowNodeDispatcher` builds
-> every `NodeResult` with an empty variable bag, so no shipped code path carries a node's output
-> into `WorkflowRun.Variables`. Your `files_touched` therefore does **not** reach the reviewer
-> through the run's variables today; the reviewer locates the change by reading the repository.
-> Wiring that handoff is later work, and this note exists so nobody reads the contract above as
-> already-working plumbing.
+**What actually withholds them.** Not your discretion, and not a filter applied to the reviewer's
+prompt afterwards: the review node's dispatch is built from a variable bag those two keys have
+already been removed from, so the component that renders variables into a prompt never holds them.
+Writing `summary` is therefore safe in the only sense that matters — there is no wording of it that
+reaches the reviewer.

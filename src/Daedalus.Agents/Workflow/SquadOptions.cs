@@ -9,13 +9,16 @@ namespace Daedalus.Agents.Workflow;
 ///     <c>AddDaedalusAgents</c>, not a second, independent bind.
 /// </summary>
 /// <remarks>
-///     This type does not touch <c>processes/manufacture.yaml</c>, and what it guarantees is narrower than an
-///     earlier version of this comment claimed. <see cref="SquadAgentResolver.Resolve"/> returns
-///     <see cref="FallbackAgentName"/> for every role when <see cref="Enabled"/> is off — but nothing on the
-///     dispatch path calls it, so flipping this flag off does <b>not</b> currently route anything back. Since
-///     task B4 the process file names <c>implementer</c> and <c>reviewer</c> directly, so a disabled squad runs
-///     the two roles regardless. See <see cref="SquadAgentResolver"/>'s own remarks for why closing that gap is
-///     held back to the task that also records the run's mode, rather than done here in half.
+///     This type does not touch <c>processes/manufacture.yaml</c>: the process file names roles, and this flag
+///     decides what those names resolve to. Turning it off routes every node to <see cref="FallbackAgentName"/>
+///     through <see cref="SquadWorkflowReferenceResolver"/>, which wraps the single agent-name lookup both
+///     <c>ProcessValidator</c> and <c>WorkflowNodeDispatcher</c> use — so a rollback needs no edit to the
+///     process file and cannot leave validation and dispatch disagreeing about which agents a run uses.
+///     <para>
+///     <b>A disabled squad is a genuinely weaker configuration, and the run says so.</b> One agent implements
+///     and reviews its own work, and <see cref="WorkflowRunModeStore"/> writes that onto every transition the
+///     run records. Turning this off is a rollback, not a free switch.
+///     </para>
 /// </remarks>
 public sealed class SquadOptions
 {

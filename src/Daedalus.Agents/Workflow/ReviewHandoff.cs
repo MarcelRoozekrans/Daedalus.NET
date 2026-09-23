@@ -26,14 +26,15 @@ namespace Daedalus.Agents.Workflow;
 ///     one.
 ///     </para>
 ///     <para>
-///     <b>Known gap — nothing populates the source bag yet.</b> Thalos 0.8.0's <c>WorkflowNodeDispatcher</c>
-///     builds every <c>NodeResult</c> with an empty variable dictionary and reads only the turn's outcome, so no
-///     shipped code path carries a node's output into <c>WorkflowRun.Variables</c>. The only writer today is
-///     <c>IWorkflowStore.ResumeAsync</c>'s payload, under the literal key <c>"payload"</c>. This projection is
-///     therefore correct and currently projects whatever the run was started with — in practice
-///     <c>work_intent</c> if the opening variables carried it, and nothing from <c>implement</c>. Wiring the
-///     implementer's output into the bag is later work; this note exists so the contract above is not mistaken
-///     for plumbing that already runs.
+///     <b>The gap this type carried until task B5 is closed, and the mechanism moved.</b> Against Thalos 0.8.0
+///     nothing populated <c>WorkflowRun.Variables</c> at all, so the contract above described plumbing that did
+///     not run. Thalos 0.9.0 carries a node's reported variables into the bag, and <c>implement</c>'s skill now
+///     reports all three of <see cref="ImplementWrites"/> through its outcome tool's <c>variables</c> argument.
+///     With that, <b>where the projection is applied became load-bearing</b>: 0.9.0's
+///     <c>WorkflowNodeDispatcher.BuildTaskText</c> renders the <em>whole</em> bag into every node's task text,
+///     so a projection applied after dispatch withholds nothing. <see cref="ProjectForReviewNode"/> is
+///     therefore applied by <see cref="ReviewHandoffWorkflowStore"/>, between the store and the dispatcher, so
+///     the withheld keys never reach the component that renders them. See that type for the full reasoning.
 ///     </para>
 /// </remarks>
 public static class ReviewHandoff
@@ -90,6 +91,28 @@ public static class ReviewHandoff
         {
             if (variables.TryGetValue(key, out var value) && value is not null)
                 projected[key] = Render(value);
+        }
+
+        return projected;
+    }
+
+    /// <summary>
+    ///     Projects a run's variables down to <see cref="ReviewReads"/>, keeping each value as it stands rather
+    ///     than rendering it. Used by <see cref="ReviewHandoffWorkflowStore"/> to narrow the bag a
+    ///     <c>review</c> dispatch is built from, where the values go on to be rendered by Thalos' own
+    ///     <c>WorkflowVariableBlock</c> - which escapes and bounds them - so flattening them to strings here
+    ///     would throw away type information for nothing.
+    /// </summary>
+    /// <param name="variables">The run's accumulated variables.</param>
+    public static IReadOnlyDictionary<string, object?> ProjectForReviewNode(IReadOnlyDictionary<string, object?> variables)
+    {
+        ArgumentNullException.ThrowIfNull(variables);
+
+        var projected = new Dictionary<string, object?>(ReviewReads.Count, StringComparer.Ordinal);
+        foreach (var key in ReviewReads)
+        {
+            if (variables.TryGetValue(key, out var value))
+                projected[key] = value;
         }
 
         return projected;

@@ -35,7 +35,19 @@ namespace Daedalus.Agents.Workflow;
 internal static class WorkflowNodeDispatcherFactory
 {
     public static WorkflowNodeDispatcher Create(IServiceProvider sp) => new(
-        sp.GetRequiredService<IWorkflowStore>(),
+        // The store the DISPATCHER sees, not the one everything else does. Two decorators, on two different
+        // members, so their order changes nothing functionally: WorkflowRunModeStore overrides
+        // CompleteNodeAsync to stamp the squad mode and the turn's recall tier onto every transition it
+        // records, and ReviewHandoffWorkflowStore overrides FindAsync to cut the implementer's narrative out
+        // of the bag before a review node's task text is built from it. Only the dispatcher's copy is wrapped
+        // deliberately: WorkflowRunGateway, WorkflowRunReconciler and the sweeper all keep the undecorated
+        // store, so a human reading a run still sees everything it holds.
+        new ReviewHandoffWorkflowStore(
+            new WorkflowRunModeStore(
+                sp.GetRequiredService<IWorkflowStore>(),
+                sp.GetRequiredService<SquadOptions>(),
+                sp.GetRequiredService<Daedalus.Agents.Memory.WorkflowRecallTierLog>()),
+            sp.GetRequiredService<IProcessDefinitionStore>()),
         // Order matters. ReviewLensRunner is the OUTER decorator and BudgetedSubagentRunner the inner one, so a
         // node that runs three lens passes runs three separately budgeted turns rather than three passes sharing
         // one turn's ceiling. Reversing the two would let a two-lens review exhaust the budget and fail the node

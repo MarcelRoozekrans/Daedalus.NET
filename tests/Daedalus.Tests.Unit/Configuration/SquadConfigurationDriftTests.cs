@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Thalos;
+using Thalos.Workflow;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
@@ -30,17 +31,105 @@ public sealed class SquadConfigurationDriftTests
             .AddJsonFile(fileName, optional: false)
             .Build();
 
-    private static ServiceProvider BuildWithApiConfiguration()
+    private static ServiceProvider BuildWithApiConfiguration(bool? squadEnabledOverride = null)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(AppContext.BaseDirectory);
         environment.EnvironmentName.Returns("Development");
 
+        var builder = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile(ApiAppSettingsFileName, optional: false);
+        if (squadEnabledOverride is { } enabled)
+        {
+            builder.AddInMemoryCollection(new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["Thalos:Squad:Enabled"] = enabled ? "true" : "false",
+            });
+        }
+
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        services.AddDaedalusAgents(Load(ApiAppSettingsFileName), environment);
+        services.AddDaedalusAgents(builder.Build(), environment);
         return services.BuildServiceProvider();
+    }
+
+    private static async Task<AgentId?> ResolveThroughRealCompositionAsync(bool squadEnabled, string roleName)
+    {
+        using var sp = BuildWithApiConfiguration(squadEnabled);
+        var resolver = sp.GetRequiredService<IWorkflowReferenceResolver>();
+        return await resolver.ResolveAgentIdAsync(roleName, CancellationToken.None);
+    }
+
+    private static AgentId AgentNamed(string name)
+    {
+        using var sp = BuildWithApiConfiguration();
+        return sp.GetRequiredService<IAgentCatalog>().Agents.Single(a => string.Equals(a.Name, name, StringComparison.Ordinal)).Id;
+    }
+
+    /// <summary>
+    ///     The half task B4 left undone and this configuration's comments used to promise: with the squad off,
+    ///     the agent a process node's role actually dispatches as is the fallback, resolved through the real
+    ///     <see cref="IWorkflowReferenceResolver"/> the composition root registers — not through a
+    ///     hand-constructed <see cref="SquadAgentResolver"/>. <c>processes/manufacture.yaml</c> names
+    ///     <c>implementer</c> and <c>reviewer</c> directly, so nothing else would roll it back.
+    /// </summary>
+    [Theory]
+    [InlineData("implementer")]
+    [InlineData("reviewer")]
+    public async Task With_the_squad_off_the_real_resolver_maps_every_role_to_the_fallback_agent(string roleName)
+    {
+        var resolved = await ResolveThroughRealCompositionAsync(squadEnabled: false, roleName);
+
+        resolved.Should().Be(AgentNamed("Daedalus Architect"),
+            "a disabled squad must keep the pipeline runnable on the configuration phase 2.2 proved, without editing the process file");
+        resolved.Should().NotBe(AgentNamed(roleName));
+    }
+
+    [Theory]
+    [InlineData("implementer")]
+    [InlineData("reviewer")]
+    public async Task With_the_squad_on_the_real_resolver_maps_a_role_to_its_own_agent(string roleName)
+    {
+        var resolved = await ResolveThroughRealCompositionAsync(squadEnabled: true, roleName);
+
+        resolved.Should().Be(AgentNamed(roleName),
+            "otherwise the flag is stuck on the fallback and the squad never runs at all");
+    }
+
+    /// <summary>
+    ///     The rollback is only real if the fallback agent can load <em>every</em> skill the process pins,
+    ///     because with the squad off it runs every node. <see cref="ProcessNodeSkillAllowlistTests"/> checks
+    ///     each node against the agent the process <em>names</em>; nothing checked the agent every node
+    ///     collapses onto, so a role-only skill would have left <c>Thalos:Squad:Enabled=false</c> failing at the
+    ///     node rather than rolling back.
+    /// </summary>
+    [Fact]
+    public void The_fallback_agent_can_load_every_skill_the_manufacture_process_pins()
+    {
+        var options = new DaedalusAgentsOptions();
+        Load(ApiAppSettingsFileName).GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+
+        var path = Path.Combine(AppContext.BaseDirectory, "processes", "manufacture.yaml");
+        var definition = ProcessLoader.Load(File.ReadAllText(path));
+        definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);
+
+        var pinnedSkills = definition.Value.Nodes.Values
+            .Where(n => n.Agent is not null && n.Skill is not null)
+            .Select(n => n.Skill!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        pinnedSkills.Should().NotBeEmpty("an assertion over no pinned skills would prove nothing");
+
+        var fallback = options.Agents.Should().ContainSingle(a => a.Name == options.Squad.FallbackAgentName).Subject;
+        foreach (var skill in pinnedSkills)
+        {
+            var canLoad = fallback.Skills.Contains("*", StringComparer.Ordinal)
+                || fallback.Skills.Contains(skill, StringComparer.Ordinal);
+            canLoad.Should().BeTrue(
+                $"with the squad off, agent '{fallback.Name}' runs every node, so it must be able to load '{skill}'");
+        }
     }
 
     [Fact]

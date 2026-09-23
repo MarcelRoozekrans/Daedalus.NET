@@ -7,23 +7,24 @@ namespace Daedalus.Agents.Workflow;
 ///     process file, is what decides whether a role gets its own agent or all roles collapse onto one.
 /// </summary>
 /// <remarks>
-///     <b>Still not wired into dispatch, and the consequence changed in task B4.</b> Nothing calls
-///     <see cref="Resolve"/> on the dispatch path: <c>WorkflowNodeDispatcher</c> resolves a node's <c>agent:</c>
-///     name straight through <c>IWorkflowReferenceResolver</c>. B2's note here named task B4 as the one that
-///     would change that; B4 deliberately did not.
+///     <b>Wired into dispatch since task B5, together with the half that makes it honest.</b>
+///     <see cref="SquadWorkflowReferenceResolver"/> puts every process-node <c>agent:</c> name through
+///     <see cref="Resolve"/> before the agent catalog is consulted, so this type is what
+///     <c>Thalos:Squad:Enabled</c> actually changes. Task B2 built it unwired; task B4 rewired
+///     <c>processes/manufacture.yaml</c> onto the role names and <em>deliberately</em> still did not wire this,
+///     leaving a window in which a disabled flag rolled nothing back.
 ///     <para>
-///     What did change in B4 is that <c>processes/manufacture.yaml</c> now names <c>implementer</c> and
-///     <c>reviewer</c> where it used to name <c>Daedalus Architect</c> on every node. So until something calls
-///     this type, <b><c>Thalos:Squad:Enabled = false</c> no longer rolls the pipeline back</b> — the process file
-///     names the roles directly and a disabled flag changes nothing about which agents run.
-///     </para>
-///     <para>
-///     Wiring resolution here alone would be worse than leaving it, which is why B4 left it. Design section 7
-///     requires the squad-off fallback to be <em>loud</em>: with one agent implementing and reviewing its own
+///     B4's reasoning for waiting, which is still the reason both halves are one change: design section 7
+///     requires the squad-off fallback to be <em>loud</em>. With one agent implementing and reviewing its own
 ///     work, the run record has to say so, or a <c>Succeeded</c> run under a disabled squad is indistinguishable
 ///     from one with genuine independent review — the exact false assurance this phase exists to remove.
-///     Collapsing the roles without writing that event would manufacture that condition rather than fix it. Both
-///     halves belong to the task that records the run's mode.
+///     <see cref="WorkflowRunModeStore"/> is that half: it writes the mode onto every transition the run
+///     records, in <c>workflow_run_event</c> rather than only in a log.
+///     </para>
+///     <para>
+///     This type validates nothing about the name it returns. A role that resolves to an agent no host declares
+///     fails at <c>ProcessValidator</c>, at load, because <see cref="SquadWorkflowReferenceResolver"/> wraps the
+///     one lookup both validation and dispatch share — never per node on a live, paying run.
 ///     </para>
 /// </remarks>
 public sealed class SquadAgentResolver(SquadOptions options)
