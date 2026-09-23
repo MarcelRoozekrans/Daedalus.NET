@@ -36,9 +36,11 @@ public sealed class CostAnalyticsPricingDriftTests
     /// <summary>
     ///     Effective model id per agent declared under <c>Thalos:Agents</c> — <see cref="AgentConfig.Model"/>
     ///     resolved against <c>Thalos:Anthropic:DefaultModel</c> for agents that omit it, exactly as the runtime
-    ///     resolves which model a call actually goes to. A raw <c>null</c> is never returned here: leaving nulls in
-    ///     the sequence would let an agent with no <c>Model</c> silently skip the pricing check entirely, rather
-    ///     than being checked against the default model it actually inherits.
+    ///     resolves which model a call actually goes to. A raw <c>null</c> is never returned here: if this used
+    ///     <c>a.Model</c> unresolved instead, an agent with no <c>Model</c> would put a <see langword="null"/> into
+    ///     the sequence, and <c>pricing.Models.ContainsKey(null)</c> throws — the test would error rather than
+    ///     check the model that agent actually calls. Resolving against <c>defaultModel</c> here is what lets the
+    ///     guard test the right thing instead of merely avoiding that exception.
     /// </summary>
     private static IEnumerable<string> RealAppsettingsAgentModels()
     {
