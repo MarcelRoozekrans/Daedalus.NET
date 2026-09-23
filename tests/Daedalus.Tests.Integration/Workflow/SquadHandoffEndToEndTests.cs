@@ -316,7 +316,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton(squad);
         services.AddSingleton<SquadAgentResolver>();
         services.AddSingleton<WorkflowRecallTierLog>();
-        services.AddSingleton<IWorkflowReferenceResolver>(sp => new SquadWorkflowReferenceResolver(names, sp.GetRequiredService<SquadAgentResolver>()));
+        services.AddSingleton<IWorkflowReferenceResolver>(sp => new SquadWorkflowReferenceResolver(names, sp.GetRequiredService<SquadAgentResolver>(), NullLogger<SquadWorkflowReferenceResolver>.Instance));
         services.AddSingleton(runner);
         services.AddSingleton(Options.Create(new DetachedRunOptions
         {

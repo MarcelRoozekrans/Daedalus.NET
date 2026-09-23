@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Thalos;
 using Thalos.Workflow;
 
@@ -34,11 +35,14 @@ namespace Daedalus.Agents.Workflow;
 ///     <c>ProcessNodeSkillAllowlistTests</c> checks against the shipped configuration.
 ///     </para>
 /// </remarks>
-internal sealed class SquadWorkflowReferenceResolver(IWorkflowReferenceResolver inner, SquadAgentResolver squad)
-    : IWorkflowReferenceResolver
+internal sealed partial class SquadWorkflowReferenceResolver(
+    IWorkflowReferenceResolver inner,
+    SquadAgentResolver squad,
+    ILogger<SquadWorkflowReferenceResolver> logger) : IWorkflowReferenceResolver
 {
     private readonly IWorkflowReferenceResolver _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     private readonly SquadAgentResolver _squad = squad ?? throw new ArgumentNullException(nameof(squad));
+    private readonly ILogger<SquadWorkflowReferenceResolver> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
     /// <remarks>
@@ -46,10 +50,39 @@ internal sealed class SquadWorkflowReferenceResolver(IWorkflowReferenceResolver 
     ///     about <c>implementer</c> or <c>reviewer</c> at all. <see cref="SquadAgentResolver.Resolve"/> is
     ///     idempotent — it maps the fallback name to itself in both modes — so a node that already names the
     ///     fallback agent, as <c>publish</c> does, resolves identically either way.
+    ///     <para>
+    ///     <b>A miss is logged with the name that was actually looked up.</b> Everything downstream of this
+    ///     method only ever sees the <em>declared</em> role: <c>ProcessValidator</c> reports the name it read
+    ///     out of the process file, and <c>WorkflowNodeDispatcher.ResolveAgentAsync</c> fails the run naming
+    ///     <c>ProcessNode.Agent</c>. When the squad has remapped the name, both of those point a reader at
+    ///     <c>processes/manufacture.yaml</c> for a fault that lives in <c>Thalos:Squad:FallbackAgentName</c> —
+    ///     and the file they are sent to is correct, so the search ends nowhere. This is the only place that
+    ///     holds both names at once, so it is the only place that can say which one missed.
+    ///     </para>
     /// </remarks>
-    public ValueTask<AgentId?> ResolveAgentIdAsync(string name, CancellationToken ct) =>
-        _inner.ResolveAgentIdAsync(_squad.Resolve(name), ct);
+    public async ValueTask<AgentId?> ResolveAgentIdAsync(string name, CancellationToken ct)
+    {
+        var resolved = _squad.Resolve(name);
+        var id = await _inner.ResolveAgentIdAsync(resolved, ct).ConfigureAwait(false);
+
+        // Only when the squad actually remapped the name. An unmapped miss is already reported accurately by
+        // the caller, and logging it again here would be noise that says nothing the run's own error does not.
+        if (id is null && !string.Equals(resolved, name, StringComparison.Ordinal))
+        {
+            LogFallbackAgentMissing(_logger, name, resolved);
+        }
+
+        return id;
+    }
 
     /// <inheritdoc />
     public ValueTask<bool> SkillExistsAsync(string name, CancellationToken ct) => _inner.SkillExistsAsync(name, ct);
+
+    [LoggerMessage(
+        EventId = 2310,
+        Level = LogLevel.Error,
+        Message = "Workflow role '{DeclaredRole}' was mapped to agent '{ResolvedAgent}' by Thalos:Squad, and no agent of that name exists. " +
+                  "The failure reported against this run names the declared role, not the agent that was looked up: check " +
+                  "Thalos:Squad:FallbackAgentName against Thalos:Agents, not the process file.")]
+    private static partial void LogFallbackAgentMissing(ILogger logger, string declaredRole, string resolvedAgent);
 }

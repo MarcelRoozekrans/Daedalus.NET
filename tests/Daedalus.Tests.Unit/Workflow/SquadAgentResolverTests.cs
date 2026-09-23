@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using Daedalus.Agents.Workflow;
+using Microsoft.Extensions.Logging;
 using Thalos;
 using Thalos.Workflow;
 
@@ -66,7 +68,7 @@ public sealed class SquadAgentResolverTests
         inner.ResolveAgentIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<AgentId?>((AgentId?)null));
 
         var resolver = new SquadWorkflowReferenceResolver(
-            inner, new SquadAgentResolver(new SquadOptions { Enabled = squadEnabled, FallbackAgentName = "Daedalus Architect" }));
+            inner, new SquadAgentResolver(new SquadOptions { Enabled = squadEnabled, FallbackAgentName = "Daedalus Architect" }), new CapturingLogger());
 
         await resolver.ResolveAgentIdAsync(roleName, CancellationToken.None);
 
@@ -91,10 +93,74 @@ public sealed class SquadAgentResolverTests
         inner.SkillExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<bool>(true));
 
         var resolver = new SquadWorkflowReferenceResolver(
-            inner, new SquadAgentResolver(new SquadOptions { Enabled = squadEnabled, FallbackAgentName = "Daedalus Architect" }));
+            inner, new SquadAgentResolver(new SquadOptions { Enabled = squadEnabled, FallbackAgentName = "Daedalus Architect" }), new CapturingLogger());
 
         await resolver.SkillExistsAsync("manufacture-review", CancellationToken.None);
 
         await inner.Received(1).SkillExistsAsync("manufacture-review", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     The diagnosability half of the final review's finding 2. Nothing downstream of this resolver knows
+    ///     the squad remapped the name: <c>ProcessValidator</c> reports the name it read out of the process
+    ///     file, and <c>WorkflowNodeDispatcher.ResolveAgentAsync</c> fails the run naming
+    ///     <c>ProcessNode.Agent</c>. With the squad off, both send a reader to
+    ///     <c>processes/manufacture.yaml</c> — which is correct and therefore a dead end — for a fault that
+    ///     lives in <c>Thalos:Squad:FallbackAgentName</c>. This resolver is the only place holding both names.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_fallback_agent_is_reported_under_the_name_that_was_looked_up()
+    {
+        var inner = Substitute.For<IWorkflowReferenceResolver>();
+        inner.ResolveAgentIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<AgentId?>((AgentId?)null));
+        var logger = new CapturingLogger();
+
+        var resolver = new SquadWorkflowReferenceResolver(
+            inner, new SquadAgentResolver(new SquadOptions { Enabled = false, FallbackAgentName = "Renamed Architect" }), logger);
+
+        var id = await resolver.ResolveAgentIdAsync("implementer", CancellationToken.None);
+
+        id.Should().BeNull("the decorator reports the miss, it does not invent an agent");
+
+        // Both names, and the key to look at. Falsifiable per clause: dropping either placeholder from the
+        // LoggerMessage template, or logging the declared role in the resolved slot, turns one of these red.
+        var entry = logger.Entries.Should().ContainSingle().Subject;
+        entry.Level.Should().Be(LogLevel.Error);
+        entry.Message.Should().Contain("Renamed Architect", "the name actually looked up is the one nothing else reports");
+        entry.Message.Should().Contain("implementer", "and the declared role is what ties the message back to the process file");
+        entry.Message.Should().Contain("Thalos:Squad:FallbackAgentName", "the message has to name the key that is wrong");
+    }
+
+    /// <summary>
+    ///     With the squad on, a role resolves to itself, so the run's own error already names the right thing
+    ///     and a second message here would be noise that adds nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_role_that_was_not_remapped_is_left_to_the_callers_own_error()
+    {
+        var inner = Substitute.For<IWorkflowReferenceResolver>();
+        inner.ResolveAgentIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<AgentId?>((AgentId?)null));
+        var logger = new CapturingLogger();
+
+        var resolver = new SquadWorkflowReferenceResolver(
+            inner, new SquadAgentResolver(new SquadOptions { Enabled = true, FallbackAgentName = "Daedalus Architect" }), logger);
+
+        await resolver.ResolveAgentIdAsync("implementer", CancellationToken.None);
+
+        logger.Entries.Should().BeEmpty();
+    }
+
+    /// <summary>Records what was logged, so the two names in the message can be asserted apart.</summary>
+    private sealed class CapturingLogger : ILogger<SquadWorkflowReferenceResolver>
+    {
+        public ConcurrentBag<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
     }
 }

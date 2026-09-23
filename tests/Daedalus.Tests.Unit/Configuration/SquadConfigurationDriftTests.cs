@@ -132,6 +132,36 @@ public sealed class SquadConfigurationDriftTests
         }
     }
 
+    /// <summary>
+    ///     The value the rollback needs, pinned on both hosts. Only <c>Enabled</c> was pinned before, so the
+    ///     natural rollback — deleting the whole <c>"Squad"</c> block rather than flipping one boolean — was
+    ///     caught for one key and not the other, and a blank <c>FallbackAgentName</c> is worse than a wrong one:
+    ///     Thalos' <c>WorkflowReferenceResolver.ResolveAgentIdAsync</c> opens with <c>ThrowIfNullOrWhiteSpace</c>,
+    ///     so it throws rather than failing the run cleanly.
+    /// </summary>
+    [Theory]
+    [InlineData(ApiAppSettingsFileName)]
+    [InlineData(CliAppSettingsFileName)]
+    public void Both_hosts_declare_a_fallback_agent_that_exists_in_their_own_roster(string fileName)
+    {
+        var configuration = Load(fileName);
+
+        // The key existing is asserted separately from its value, for the same reason Enabled is below: the
+        // code default is "", which is blank, so a value-only assertion would have to be "not blank" and would
+        // then be satisfied by any typo. Falsifiable: deleting the key, blanking it, or pointing it at an agent
+        // no longer in this host's Thalos:Agents each turn one of these red.
+        configuration.GetSection("Thalos:Squad:FallbackAgentName").Exists().Should()
+            .BeTrue($"{fileName} must declare Thalos:Squad:FallbackAgentName explicitly, not rely on the blank default");
+
+        var options = new DaedalusAgentsOptions();
+        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+
+        options.Squad.FallbackAgentName.Should().Be("Daedalus Architect",
+            "every workflow role collapses onto this agent when the squad is off, and both hosts must agree on which");
+        options.Agents.Should().Contain(a => a.Name == options.Squad.FallbackAgentName,
+            $"{fileName} must declare the fallback agent it names, or a squad-off run resolves to nothing");
+    }
+
     [Fact]
     public void Api_appsettings_declares_thalos_squad_enabled()
     {

@@ -37,9 +37,16 @@ public sealed class SquadOptions
 
     /// <summary>
     ///     Agent name every role resolves to when <see cref="Enabled"/> is <see langword="false"/>. Must name a
-    ///     real <c>Thalos:Agents</c> entry on the same host — <see cref="SquadAgentResolver"/> does not validate
-    ///     that itself, the same way <c>Thalos:Channels:DefaultAgent</c> is pinned only by
-    ///     <c>DefaultAgentConfigurationTests</c> rather than by a startup check.
+    ///     real <c>Thalos:Agents</c> entry on the same host.
     /// </summary>
+    /// <remarks>
+    ///     <b>Blank is rejected at startup, in both modes.</b> <c>AddDaedalusAgents</c>' <c>ValidateSquadConfig</c>
+    ///     throws on a blank value beside the <c>Thalos:Memory</c> and <c>Thalos:Skills</c> checks — see that
+    ///     method for why a blank name is an <see cref="ArgumentException"/> out of Thalos' own resolver rather
+    ///     than a clean "no such agent", and why deleting this whole section is the realistic way to reach it.
+    ///     <see cref="SquadAgentResolver"/> still does not validate the name it returns: that the name exists is
+    ///     checked by <c>ProcessValidator</c> at load through <see cref="SquadWorkflowReferenceResolver"/>, which
+    ///     is the one lookup validation and dispatch share.
+    /// </remarks>
     public string FallbackAgentName { get; set; } = "";
 }
