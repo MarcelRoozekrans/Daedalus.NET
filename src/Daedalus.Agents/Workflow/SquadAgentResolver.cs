@@ -7,9 +7,24 @@ namespace Daedalus.Agents.Workflow;
 ///     process file, is what decides whether a role gets its own agent or all roles collapse onto one.
 /// </summary>
 /// <remarks>
-///     <b>Not wired into dispatch yet.</b> This task only creates the resolver and its flag; a later task
-///     (B4) is what makes <c>WorkflowNodeDispatcher</c> call <see cref="Resolve"/> for a node's agent reference
-///     instead of using the role name directly.
+///     <b>Still not wired into dispatch, and the consequence changed in task B4.</b> Nothing calls
+///     <see cref="Resolve"/> on the dispatch path: <c>WorkflowNodeDispatcher</c> resolves a node's <c>agent:</c>
+///     name straight through <c>IWorkflowReferenceResolver</c>. B2's note here named task B4 as the one that
+///     would change that; B4 deliberately did not.
+///     <para>
+///     What did change in B4 is that <c>processes/manufacture.yaml</c> now names <c>implementer</c> and
+///     <c>reviewer</c> where it used to name <c>Daedalus Architect</c> on every node. So until something calls
+///     this type, <b><c>Thalos:Squad:Enabled = false</c> no longer rolls the pipeline back</b> — the process file
+///     names the roles directly and a disabled flag changes nothing about which agents run.
+///     </para>
+///     <para>
+///     Wiring resolution here alone would be worse than leaving it, which is why B4 left it. Design section 7
+///     requires the squad-off fallback to be <em>loud</em>: with one agent implementing and reviewing its own
+///     work, the run record has to say so, or a <c>Succeeded</c> run under a disabled squad is indistinguishable
+///     from one with genuine independent review — the exact false assurance this phase exists to remove.
+///     Collapsing the roles without writing that event would manufacture that condition rather than fix it. Both
+///     halves belong to the task that records the run's mode.
+///     </para>
 /// </remarks>
 public sealed class SquadAgentResolver(SquadOptions options)
 {
