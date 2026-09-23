@@ -1,3 +1,4 @@
+using Daedalus.Agents.Workflow;
 using Daedalus.Application.Configuration;
 
 namespace Daedalus.Agents;
@@ -32,6 +33,9 @@ public sealed class DaedalusAgentsOptions
 
     /// <summary>Workflow-engine settings (<c>Thalos:Workflow</c>): whether the engine is wired at all, and where process files live.</summary>
     public WorkflowConfig Workflow { get; } = new();
+
+    /// <summary>Manufacturing squad settings (<c>Thalos:Squad</c>): whether roles resolve to their own agents or all collapse onto one fallback.</summary>
+    public SquadOptions Squad { get; } = new();
 }
 
 /// <summary>One agent definition as declared in configuration.</summary>

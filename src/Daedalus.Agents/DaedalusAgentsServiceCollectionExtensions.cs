@@ -167,6 +167,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
         ValidateSkillsConfig(options.Skills, skillRoots);
         services.TryAddSingleton(options.Skills);
 
+        // The role→agent split for the manufacturing squad. Registered unconditionally (unlike the Workflow
+        // block below): SquadAgentResolver has no database or hosted-service dependency, and a host that never
+        // dispatches a squad-staffed process node simply never calls Resolve.
+        services.TryAddSingleton(options.Squad);
+        services.TryAddSingleton<SquadAgentResolver>();
 
         // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
         // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
