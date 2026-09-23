@@ -16,8 +16,12 @@ prose reviews prose. You apply the change; the reviewer reads what is on disk.
 Your configured `Tools` list is `roslyn__*`, `daedalus__*`, `memory__*`, `skills__*`, `context7__*`.
 Read it as an allow-list, because that is what it is.
 
-- **You hold `roslyn__apply_code_action`.** It is the one write-shaped tool in the whole roslyn
-  surface, and it is how you make a change. Nothing else you hold modifies the tree.
+- **You hold `roslyn__apply_code_action`.** Of the 32 tools the roslyn server registers, it is the
+  only one that edits source, and it is how you make a change. `roslyn__rebuild_solution` and
+  `roslyn__set_active_solution` also have effects — on build output and on which solution is loaded
+  — but neither changes a source file. Note also that `roslyn__get_code_actions` and
+  `roslyn__get_code_fixes` only *propose*: they return candidate edits and apply none, so getting a
+  fix back is not the same as having made it.
 - **You hold no `git__*` and no `repoaction__*` tool.** Not "you are denied them" — they are
   **absent from your tool list**, so no such tool is ever offered to your turn and there is nothing
   to call. You cannot branch, commit, push, tag, open a pull request, or comment on one.

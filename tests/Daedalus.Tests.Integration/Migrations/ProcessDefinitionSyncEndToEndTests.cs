@@ -35,7 +35,7 @@ namespace Daedalus.Tests.Integration.Migrations;
 public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
 {
     [Fact]
-    public async Task Host_start_with_the_workflow_engine_enabled_syncs_and_activates_manufacture_v2()
+    public async Task Host_start_with_the_workflow_engine_enabled_syncs_and_activates_manufacture_v3()
     {
         var dbName = $"process_sync_e2e_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
@@ -82,12 +82,24 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 var definitions = host.Services.GetRequiredService<IProcessDefinitionStore>();
 
                 var activeVersion = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
-                activeVersion.Should().Be(2, "processes/manufacture.yaml declares version: 2 (bumped from 1 when publish was fixed - content-hash immutability refuses a same-version content change) and must activate on a clean sync");
+                activeVersion.Should().Be(3, "processes/manufacture.yaml declares version: 3 - bumped from 2 in phase 2.3 task B4, which moved implement and review onto the squad roles, gave implement an outcome set and gave review its lenses, all in one bump because content-hash immutability refuses a same-version content change - and it must activate on a clean sync");
 
                 var definition = await definitions.GetAsync("manufacture", activeVersion!.Value, CancellationToken.None);
                 definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);
                 definition.Value.StartNode.Should().Be("implement", "'implement' is the first key under 'nodes' in the real file");
                 definition.Value.Nodes.Keys.Should().Contain(["implement", "review", "adjudicate", "gate", "publish", "done"]);
+
+                // Activation is the load-bearing part of the three assertions below, not the equality. A
+                // definition only reaches this store after ProcessValidator.ValidateAsync has accepted it against
+                // this host's real IWorkflowReferenceResolver, which resolves every `agent:` over the live
+                // IAgentCatalog and every `skill:` over the live ISkillStore. So a v3 that is active at all is a
+                // v3 whose 'implementer' and 'reviewer' both exist here - which is the one thing the unit-level
+                // guards over the YAML text cannot show, because they read a configuration file rather than a
+                // booted host. Falsifiable: renaming either agent in Thalos:Agents leaves version 2 active and
+                // the assertion above red.
+                definition.Value.Nodes["implement"].Agent.Should().Be("implementer");
+                definition.Value.Nodes["review"].Agent.Should().Be("reviewer");
+                definition.Value.Nodes["review"].Lenses.Should().Equal("correctness", "falsifiability", "mechanism");
             }
             finally
             {
