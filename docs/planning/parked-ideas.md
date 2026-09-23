@@ -78,3 +78,48 @@ and where does customer knowledge come from.
 Rag.NET itself was not inspected beyond its project list. Whether those 75 projects are mature,
 published and usable as-is is unverified — the same "a name is not a contract" trap that cost four
 corrections during phase 1.7. Check before planning around them.
+
+---
+
+## Shared configuration repository — skills, processes and role charters
+
+**Raised:** 2026-09-23, during the phase 2.3 brainstorm. **Status:** parked — revisit **after phase
+2.4**, as its own phase in Milestone 2 or a Milestone 3 entry.
+
+The idea: move `skills/`, `processes/` and eventually role definitions out of this repo into a
+separate one, so configuration can be shared between consumers instead of being copied.
+
+### Why it is cheap later rather than urgent now
+
+The extension points already exist and each has exactly one implementation:
+
+- `IProcessDefinitionSource` — phase 2.2. The single implementation is
+  `FileSystemProcessDefinitionSource`, renamed from `GitProcessDefinitionSource` during Task 11
+  precisely because it read a directory and the old name promised git. The name is free for this.
+- `ISkillStore` — phase 1.3, markdown procedure documents.
+
+So this is a second implementation behind two existing ports, not a restructuring.
+
+### Why after 2.4 specifically
+
+Phase 2.4 turns the manufacturing steps into skills rather than code. That phase decides what a
+process and a role *are* as content. Moving the content to a shared repo before its shape settles
+means migrating it twice.
+
+### The part that must be designed, not discovered
+
+A shared config repo turns process definitions into a **supply chain**. Today an unattended agent
+executes a process file that can only land via a reviewed pull request to this repository. Pull from
+a second repo and a change there alters what an unattended agent does — which is the exact class of
+risk `git__*` and `repoaction__*` sit behind the `developer` policy to prevent.
+
+Phase 2.2 already built half the answer: content-hash immutability plus version pinning mean a
+running workflow cannot have its graph swapped mid-flight, and a same-version content change is
+refused outright. The missing half is **provenance** — which repository, which commit, and who was
+permitted to push it. A shared repo without that is a way for an unreviewed change to reach an agent
+that holds write tools.
+
+### Related
+
+Phase 2.3's roster decision keeps agents in `appsettings.json` rather than markdown charters for
+exactly the adjacent reason: charter-as-markdown belongs to 2.4, and a shared repo belongs after it.

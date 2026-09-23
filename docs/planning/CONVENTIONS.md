@@ -7,7 +7,7 @@
 ## Stack
 
 **Language / runtime:** .NET 10 (net10.0), C# 13
-**Package manager:** NuGet (central package management not enabled — versions pinned per-csproj)
+**Package manager:** NuGet, central package management enabled — `Directory.Packages.props` sets `ManagePackageVersionsCentrally=true` and no `PackageReference` in `src/` carries a `Version` attribute
 **Framework:** ASP.NET Core, Blazor WASM, .NET Aspire 13.1
 **Datastore:** PostgreSQL 16 + pgvector
 
@@ -22,7 +22,7 @@
 
 **Model:** trunk
 **PR required:** no
-**Protected branches:** none
+**Protected branches:** main — active branch ruleset named `Main` on `~DEFAULT_BRANCH`, rules: deletion, non_fast_forward, required_status_checks
 
 ## Versioning & Release
 
