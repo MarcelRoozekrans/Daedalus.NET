@@ -58,6 +58,22 @@ public sealed class SquadConfigurationDriftTests
     }
 
     [Fact]
+    public void Api_appsettings_declares_thalos_workflow_enabled_explicitly()
+    {
+        var configuration = Load(ApiAppSettingsFileName);
+
+        // The key existing is the whole point, not its value. Daedalus.Tests.Integration references Api, Cli and
+        // Console, each shipping a generically-named appsettings.json; MSBuild copies all three toward the test
+        // output and only one survives. Daedalus.Cli's sets Thalos:Workflow:Enabled to false, so when its copy
+        // wins that collision a host adding Daedalus.Api.appsettings.json afterwards has nothing to override
+        // with - the engine silently stays off. Relying on the code default of true is what made that reachable.
+        configuration.GetSection("Thalos:Workflow:Enabled").Exists().Should()
+            .BeTrue($"{ApiAppSettingsFileName} must declare Thalos:Workflow:Enabled explicitly so a stray appsettings.json from another project cannot disable the engine");
+        configuration.GetValue<bool>("Thalos:Workflow:Enabled").Should()
+            .BeTrue("the API is the host that runs the workflow engine");
+    }
+
+    [Fact]
     public void Cli_appsettings_declares_thalos_squad_disabled()
     {
         var configuration = Load(CliAppSettingsFileName);
