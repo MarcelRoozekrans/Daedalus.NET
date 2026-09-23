@@ -79,8 +79,8 @@ public sealed class ThalosLearningsMemoryTests
         MemoryScope scope = default;
         RecallOptions? options = null;
         _service.RecallAsync("npgsql timeout", Arg.Do<MemoryScope>(s => scope = s), Arg.Do<RecallOptions>(o => options = o), Arg.Any<CancellationToken>())
-            .Returns(ZeroAlloc.Results.Result<IReadOnlyList<RecalledMemory>, AgentError>.Success(
-                [new RecalledMemory(Record("Timeouts: raise CommandTimeout", "errorpattern"), 0.87)]));
+            .Returns(ZeroAlloc.Results.Result<MemoryRecallResult, AgentError>.Success(
+                new MemoryRecallResult([new RecalledMemory(Record("Timeouts: raise CommandTimeout", "errorpattern"), 0.87)], MemoryRecallTier.Semantic)));
 
         var result = await Sut().RecallAsync("npgsql timeout", 3, CancellationToken.None);
 
@@ -96,7 +96,7 @@ public sealed class ThalosLearningsMemoryTests
     public async Task Recall_maps_thalos_errors_to_a_failure()
     {
         _service.RecallAsync(Arg.Any<string>(), Arg.Any<MemoryScope>(), Arg.Any<RecallOptions>(), Arg.Any<CancellationToken>())
-            .Returns(ZeroAlloc.Results.Result<IReadOnlyList<RecalledMemory>, AgentError>.Failure(AgentError.MemoryIndexUnavailable("no generator")));
+            .Returns(ZeroAlloc.Results.Result<MemoryRecallResult, AgentError>.Failure(AgentError.MemoryIndexUnavailable("no generator")));
 
         var result = await Sut().RecallAsync("anything", 5, CancellationToken.None);
 

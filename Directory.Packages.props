@@ -31,7 +31,8 @@
     <PackageVersion Include="Testcontainers.Keycloak" Version="4.14.0" />
 
     <!-- AI stack aligned with Thalos.NET -->
-    <PackageVersion Include="Anthropic" Version="12.49.0" />
+    <!-- 12.49.0 → 12.50.0: floor set by Thalos.NET.Anthropic 0.8.0 -->
+    <PackageVersion Include="Anthropic" Version="12.50.0" />
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.0" />
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
@@ -43,25 +44,26 @@
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.3" />
 
-    <!-- Thalos.NET (nuget.org). 0.6.0 → 0.7.0 across the whole family: Thalos.NET.Workflow/.Orm 0.7.0 pin
+    <!-- Thalos.NET (nuget.org). 0.7.0 → 0.8.0 across the whole family: Thalos.NET.Workflow/.Orm 0.7.0 pin
          Thalos.NET and Thalos.NET.Skills at exactly 0.7.0, and every other Thalos.NET.* package released
-         0.7.0 together with them (see Thalos.NET/docs/release.md, "The next release ships fifteen packages"). -->
-    <PackageVersion Include="Thalos.NET" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Git" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Memory" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Skills" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Channels" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.7.0" />
+         0.7.0 together with them (see Thalos.NET/docs/release.md, "The next release ships fifteen packages").
+         0.8.0 adds Thalos.Memory.IMemoryOwner, consumed by WorkflowCaller for phase 2.3 task B3. -->
+    <PackageVersion Include="Thalos.NET" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Git" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Skills" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Channels" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.8.0" />
     <!-- Phase 2.2 Part B: consume the durable workflow engine Part A shipped. -->
-    <PackageVersion Include="Thalos.NET.Workflow" Version="0.7.0" />
-    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.7.0" />
+    <PackageVersion Include="Thalos.NET.Workflow" Version="0.8.0" />
+    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.8.0" />
     <!-- ZeroAlloc.ORM: floor set by Thalos.NET.Workflow.Orm 0.7.0 (raw-SQL migrations/store, no EF Core). -->
     <PackageVersion Include="ZeroAlloc.ORM" Version="1.7.1" />
     <!-- AdoNet.Async.Adapters: floor set by Thalos.NET.Workflow.Orm 0.7.0's own nuspec (1.4.1) — NOT the
