@@ -87,6 +87,41 @@ public sealed class SquadConfigurationDriftTests
         reviewer.Tools.Should().NotContain(t => t.StartsWith("roslyn__rename_", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    ///     The positive half of the enumeration: a reviewer that cannot search symbols or list solutions cannot
+    ///     review code it did not write. Both are read-only tools in the real <c>RoslynCodeLens.Mcp</c> surface,
+    ///     outside the four <c>find_*</c>/<c>get_*</c>/<c>analyze_*</c>/<c>go_to_definition</c> prefixes, so
+    ///     admitting them by name does not weaken the isolation - that rests on <c>apply_code_action</c> being
+    ///     absent, not on the list being short.
+    /// </summary>
+    [Fact]
+    public void Reviewer_tool_list_includes_the_two_read_tools_outside_the_four_prefixes()
+    {
+        var options = new DaedalusAgentsOptions();
+        Load(ApiAppSettingsFileName).GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+
+        var reviewer = options.Agents.Should().ContainSingle(a => a.Name == "reviewer").Subject;
+
+        reviewer.Tools.Should().Contain("roslyn__list_solutions").And.Contain("roslyn__search_symbols");
+    }
+
+    /// <summary>
+    ///     The exact defect phase 2.2's Task 11 hit: the <c>writer</c> agent's <c>Skills</c> was <c>[]</c>, so
+    ///     the <c>publish</c> node it was pinned to could never load its skill. <see cref="ProcessNodeSkillAllowlistTests"/>
+    ///     covers this generically for every node in <c>processes/manufacture.yaml</c>; this pins the specific
+    ///     value directly, since manufacture.yaml does not point a node at <c>implementer</c> yet.
+    /// </summary>
+    [Fact]
+    public void Implementer_can_load_the_manufacture_implement_skill()
+    {
+        var options = new DaedalusAgentsOptions();
+        Load(ApiAppSettingsFileName).GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+
+        var implementer = options.Agents.Should().ContainSingle(a => a.Name == "implementer").Subject;
+
+        implementer.Skills.Should().Contain("manufacture-implement");
+    }
+
     [Fact]
     public void Reviewer_is_priced_on_a_different_model_line_from_the_default()
     {
