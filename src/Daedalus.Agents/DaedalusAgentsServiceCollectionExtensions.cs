@@ -225,7 +225,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 .UseSessionStore<PostgresAgentSessionStore>()
                 // Reads join the existing source the scout already allows; writes go in their own, which its
                 // daedalus__* glob cannot name. See RepoActionToolSourceName for why the split is not the boundary.
-                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools))
+                // DaedalusReviewTools joins this source rather than getting its own: report_review_outcome is a
+                // pure validator with no side effect on anything outside its own turn, so it needs no separate
+                // write boundary, and the reviewer's daedalus__* grant already names it.
+                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools), typeof(DaedalusReviewTools))
                 .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
                 // Thalos's own local-git write capability (branch, commit, push, open pull request). UseLibGit2SharpGit
                 // registers the IGitWriteService implementation GitActionTools needs alongside IPullRequestPublisher

@@ -39,6 +39,15 @@ namespace Daedalus.Agents.Workflow;
 /// </remarks>
 internal sealed class WorkflowCaller(WorkflowRun run) : ISecurityContext, IMemoryOwner
 {
+    /// <summary>
+    ///     The run these turns belong to. Carried so a decorator on the runner side — <see cref="ReviewLensRunner"/>
+    ///     — can tell a workflow-run turn from a scheduled or chat turn, and can read the run's current node and
+    ///     variables. <c>WorkflowNodeDispatcher</c> forwards this object into <c>SubagentRunRequest.Caller</c>
+    ///     without inspecting it, so it is the only channel from a dispatch to a runner decorator that does not
+    ///     require parsing a formatted string back apart.
+    /// </summary>
+    public WorkflowRun Run { get; } = run ?? throw new ArgumentNullException(nameof(run));
+
     /// <inheritdoc />
     public string Id { get; } = $"workflow:{run.Process}:{run.Id}";
 

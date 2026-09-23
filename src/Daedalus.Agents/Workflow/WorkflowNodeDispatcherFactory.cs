@@ -36,7 +36,13 @@ internal static class WorkflowNodeDispatcherFactory
 {
     public static WorkflowNodeDispatcher Create(IServiceProvider sp) => new(
         sp.GetRequiredService<IWorkflowStore>(),
-        new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+        // Order matters. ReviewLensRunner is the OUTER decorator and BudgetedSubagentRunner the inner one, so a
+        // node that runs three lens passes runs three separately budgeted turns rather than three passes sharing
+        // one turn's ceiling. Reversing the two would let a two-lens review exhaust the budget and fail the node
+        // on the third, which is a cost control silently becoming a correctness bug.
+        new ReviewLensRunner(
+            new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+            sp.GetRequiredService<IProcessDefinitionStore>()),
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
         resolveCaller: run => new WorkflowCaller(run));

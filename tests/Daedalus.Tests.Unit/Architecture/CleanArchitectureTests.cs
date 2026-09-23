@@ -334,14 +334,24 @@ public sealed class CleanArchitectureTests
         // workflow path applies the same budget policy the detached-run path does, from one configuration
         // source, instead of skipping it. See WorkflowNodeDispatcherFactory's and BudgetedSubagentRunner's own
         // remarks.
+        //
+        // ReviewLensRunner (phase 2.3 task B4) is the third, and is the same shape as BudgetedSubagentRunner:
+        // a decorator on the runner Thalos' WorkflowNodeDispatcher takes as a dependency, not a second route to
+        // an LLM. It exists there because a review node runs one turn per declared lens and the dispatcher runs
+        // exactly one turn per call — phase 2.2's durability invariant is one TRANSITION per transaction, not
+        // one turn per node — so the multi-turn behaviour has to sit on this side of that seam. It reaches no
+        // model itself; it calls the runner it wraps. Admitting it to this list is a deliberate widening of a
+        // rule that exists to be narrow, and it is justified by the decorator shape, not by convenience: a type
+        // here that USED ISubagentRunner to dispatch work of its own would still be an offender.
         var rule = Types().That().Are(DaedalusOwnTypes).And().DependOnAny(SubagentRunnerType)
             .And().DoNotHaveFullName(typeof(SubagentRunExecutor).FullName!)
             .And().DoNotHaveFullName(typeof(WorkflowNodeDispatcherFactory).FullName!)
             .And().DoNotHaveFullName(typeof(BudgetedSubagentRunner).FullName!)
+            .And().DoNotHaveFullName(typeof(ReviewLensRunner).FullName!)
             .Should().NotExist()
-            .Because("SubagentRunExecutor, WorkflowNodeDispatcherFactory and BudgetedSubagentRunner are the " +
-                      "only Daedalus types permitted to depend on Thalos' ISubagentRunner; every other caller " +
-                      "must go through ISubagentRunExecutor instead");
+            .Because("SubagentRunExecutor, WorkflowNodeDispatcherFactory, BudgetedSubagentRunner and " +
+                      "ReviewLensRunner are the only Daedalus types permitted to depend on Thalos' " +
+                      "ISubagentRunner; every other caller must go through ISubagentRunExecutor instead");
 
         rule.Check(Architecture);
     }
