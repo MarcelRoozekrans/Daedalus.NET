@@ -123,3 +123,62 @@ that holds write tools.
 
 Phase 2.3's roster decision keeps agents in `appsettings.json` rather than markdown charters for
 exactly the adjacent reason: charter-as-markdown belongs to 2.4, and a shared repo belongs after it.
+
+---
+
+## A second chat provider — Microsoft.Extensions.AI is already the abstraction
+
+**Raised:** 2026-09-23, during phase 2.3 execution. **Status:** parked — revisit **after phase 2.4**,
+as its own phase.
+
+The idea as raised: Thalos has a direct Anthropic implementation, and the preference is
+Microsoft-first, matching the other AI packages in this estate.
+
+### The premise is already satisfied, which is why this is cheap rather than large
+
+Verified in the Thalos repo rather than assumed:
+
+- `Microsoft.Extensions.AI` 10.10.0 is a **direct dependency of `Thalos.NET` core**, and
+  `IChatClient` is the abstraction the framework runs on.
+- `IChatClientProvider` is one method — `IChatClient CreateChatClient(AgentDefinition agent)` — and
+  its own XML doc already names the intent: *"Anthropic, OpenAI, a fake…"*.
+- `Thalos.NET.Anthropic` is **three files**. Its `AnthropicChatClientProvider` calls
+  `.AsIChatClient(...)` and hands back the standard interface.
+- The `Anthropic` SDK package is referenced **only** by `Thalos.NET.Anthropic`. Core never sees it.
+
+So this is not a re-architecture away from a direct Anthropic dependency. The architecture is
+already provider-agnostic; there is currently one provider. Adding a second is a new small package
+implementing one method.
+
+### Why it matters beyond tidiness
+
+Phase 2.3's decision D12 puts the reviewer on a peer-strength model from a **different family**, so
+it does not share the implementer's blind spots and therefore does not reproduce the same reasoning
+errors when judging them.
+
+Today both roles resolve through the Anthropic provider, so "different family" can only mean a
+different Anthropic model — same lineage, and therefore some shared blind spots. A second provider
+is what makes D12 literally true rather than approximately true.
+
+### Why after 2.4 rather than inside 2.3
+
+Phase 2.3's value is the isolation: the reviewer cannot read the implementer's reasoning and cannot
+edit the code it judges. That holds regardless of which provider serves either role. Adding a
+provider mid-phase widens the diff, introduces a second credential path, and adds a second failure
+mode to an end-to-end proof that is already the phase's most expensive step — without making the
+isolation any stronger.
+
+### What the work would have to cover
+
+- A provider package implementing `IChatClientProvider`, plus its options and builder extension,
+  mirroring `Thalos.NET.Anthropic`'s three-file shape.
+- Credential handling for the new backend, and what happens when only one provider is configured.
+- **Pricing entries for the new provider's models.** Phase 2.3's `Every_model_configured_on_an_agent_has_a_price`
+  drift guard already enforces this: configure an agent on a model with no price and the test goes
+  red. That guard was written for the squad's second model and will do this job unchanged.
+- Whether `AgentDefinition` needs to name a provider, or whether the model id alone is enough to
+  route — the current `IChatClientProvider` resolves one provider per host, not per agent, so
+  per-agent provider selection is the real design question hiding in this idea.
+
+That last point is the only genuinely open question here, and it is the reason this deserves a phase
+rather than a patch.
