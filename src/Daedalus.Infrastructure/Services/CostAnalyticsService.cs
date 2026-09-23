@@ -4,6 +4,7 @@ using Daedalus.Application.DTOs;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services;
 
@@ -115,7 +116,7 @@ public sealed class CostAnalyticsService(
             .ToList();
     }
 
-    public async Task<CostEstimateDto> EstimateCostAsync(
+    public async Task<Result<CostEstimateDto>> EstimateCostAsync(
         string modelId, int maxIterations, int estimatedPromptTokens, CancellationToken ct = default)
     {
         var avgOutputTokens = await dbContext.TaskExecutions
@@ -126,14 +127,8 @@ public sealed class CostAnalyticsService(
 
         if (!_pricing.Models.TryGetValue(modelId, out var pricing))
         {
-            var first = _pricing.Models.FirstOrDefault();
-            modelId = first.Key ?? modelId;
-            pricing = first.Value ?? new ModelPricing
-            {
-                DisplayName = modelId,
-                InputTokenPricePerMillion = 3.0m,
-                OutputTokenPricePerMillion = 15.0m
-            };
+            return Result<CostEstimateDto>.Failure(
+                $"No pricing is configured for model '{modelId}'. Add it to ModelPricing:Models before estimating its cost.");
         }
 
         var inputCostPerIteration = estimatedPromptTokens * pricing.InputTokenPricePerMillion / 1_000_000m;
@@ -144,14 +139,14 @@ public sealed class CostAnalyticsService(
         var estimatedMinCost = Math.Round(costPerIteration * minIterations, 4);
         var estimatedMaxCost = Math.Round(costPerIteration * maxIterations, 4);
 
-        return new CostEstimateDto(
+        return Result<CostEstimateDto>.Success(new CostEstimateDto(
             modelId,
             pricing.DisplayName,
             maxIterations,
             estimatedPromptTokens,
             estimatedResponseTokens,
             estimatedMinCost,
-            estimatedMaxCost);
+            estimatedMaxCost));
     }
 
     public Task<IReadOnlyList<ModelPricingDto>> GetPricingAsync(CancellationToken ct = default)

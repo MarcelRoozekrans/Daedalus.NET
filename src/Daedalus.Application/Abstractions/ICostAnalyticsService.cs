@@ -1,4 +1,5 @@
 using Daedalus.Application.DTOs;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Abstractions;
 
@@ -19,8 +20,11 @@ public interface ICostAnalyticsService
     /// <summary>Get per-task cost breakdown for a specific session.</summary>
     Task<IReadOnlyList<TaskCostDto>> GetCostsBySessionIdAsync(Guid sessionId, CancellationToken ct = default);
 
-    /// <summary>Estimate cost for a planned Ralph run.</summary>
-    Task<CostEstimateDto> EstimateCostAsync(string modelId, int maxIterations, int estimatedPromptTokens, CancellationToken ct = default);
+    /// <summary>
+    ///     Estimate cost for a planned Ralph run. Fails when <paramref name="modelId"/> has no configured pricing —
+    ///     never relabels the estimate under a different, priced model.
+    /// </summary>
+    Task<Result<CostEstimateDto>> EstimateCostAsync(string modelId, int maxIterations, int estimatedPromptTokens, CancellationToken ct = default);
 
     /// <summary>Get all configured model pricing.</summary>
     Task<IReadOnlyList<ModelPricingDto>> GetPricingAsync(CancellationToken ct = default);
