@@ -14,11 +14,18 @@ namespace Daedalus.Tests.Unit.Configuration;
 ///     agent's <c>Skills</c> allow-list.
 /// </summary>
 /// <remarks>
-///     Today every node in <c>processes/manufacture.yaml</c> names <c>Daedalus Architect</c>, whose
-///     <c>Skills</c> is <c>["*"]</c>, so this passes trivially - that is the point. The moment a later task
-///     rewires a node to <c>implementer</c> or <c>reviewer</c>, this goes red unless that agent's <c>Skills</c>
-///     already grants the pinned skill, rather than the gap surfacing only when that node's turn produces no
-///     usable output at runtime.
+///     <b>This is no longer the trivial pass it was written as.</b> The original remark said every node named
+///     <c>Daedalus Architect</c>, whose <c>Skills</c> is <c>["*"]</c>, and that the guard would start doing
+///     work "the moment a later task rewires a node to <c>implementer</c> or <c>reviewer</c>". That moment was
+///     commit <c>73ee27b</c>. <c>implement</c> names <c>implementer</c> with <c>Skills</c>
+///     <c>["manufacture-implement"]</c> and <c>review</c> names <c>reviewer</c> with
+///     <c>["manufacture-review"]</c>, so two of the three pins are now checked against a narrow allow-list
+///     rather than a wildcard, and dropping either skill from either agent turns this red.
+///     <para>
+///     <c>SquadConfigurationDriftTests.The_fallback_agent_can_load_every_skill_the_manufacture_process_pins</c>
+///     is the neighbouring guard for the other mode: this one checks each node against the agent the process
+///     <em>names</em>, that one checks the single agent every node collapses onto when the squad is off.
+///     </para>
 /// </remarks>
 public sealed class ProcessNodeSkillAllowlistTests
 {

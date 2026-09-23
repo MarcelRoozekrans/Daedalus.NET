@@ -5,12 +5,24 @@ using Microsoft.Extensions.Configuration;
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
-///     Guards <c>CostAnalyticsService.EstimateCostAsync</c> against pricing an unpriced model as another model's
-///     rate. Loads the real <c>Daedalus.Api/appsettings.json</c> (linked as <c>Daedalus.Api.appsettings.json</c> —
-///     see <see cref="ApiThalosConfigurationTests"/>'s remarks) rather than a constructed configuration, so the test
-///     goes red the moment someone adds an agent on a model, or changes <c>Thalos:Anthropic:DefaultModel</c>, that
-///     has no <c>ModelPricing:Models</c> entry.
+///     Guards the shipped model configuration against the one gap the pricing fix left open: a model that is
+///     <em>configured</em> but not <em>priced</em>. Loads the real <c>Daedalus.Api/appsettings.json</c> (linked
+///     as <c>Daedalus.Api.appsettings.json</c> — see <see cref="ApiThalosConfigurationTests"/>'s remarks) rather
+///     than a constructed configuration, so it goes red the moment someone adds an agent on a model, or changes
+///     <c>Thalos:Anthropic:DefaultModel</c>, that has no <c>ModelPricing:Models</c> entry.
 /// </summary>
+/// <remarks>
+///     <b>What this guards is not what it was written to guard.</b> The original summary said it guarded
+///     <c>CostAnalyticsService.EstimateCostAsync</c> "against pricing an unpriced model as another model's
+///     rate" — the silent first-dictionary-entry substitution — and commit <c>bffa4c9</c>, in this same phase,
+///     deleted that substitution. An unpriced model now fails loudly: <c>EstimateCostAsync</c> returns a
+///     <c>Failure</c> naming the model, and <c>PriceGroups</c> folds its tokens into <c>ExcludedCostDto</c>
+///     instead of pricing them. So mispricing is no longer reachable, and the test's subject moved with the
+///     fix: the remaining risk is that a model this host actually calls is absent from the pricing table, in
+///     which case its spend is silently <em>excluded</em> from every total rather than silently relabelled.
+///     Quietly missing from a cost figure is a smaller defect than quietly wrong, and this is what keeps it
+///     from happening at all.
+/// </remarks>
 public sealed class CostAnalyticsPricingDriftTests
 {
     private const string ApiAppSettingsFileName = "Daedalus.Api.appsettings.json";
@@ -64,6 +76,7 @@ public sealed class CostAnalyticsPricingDriftTests
         configured.Should().NotBeEmpty("the real appsettings.json must declare at least the default model");
 
         configured.Should().OnlyContain(m => pricing.Models.ContainsKey(m),
-            "otherwise adding an agent on a new model silently reports its cost as another model's");
+            "otherwise adding an agent on a new model leaves its spend folded into ExcludedCostDto and missing " +
+            "from every total, which is quiet in a different way than the relabelling bffa4c9 removed");
     }
 }

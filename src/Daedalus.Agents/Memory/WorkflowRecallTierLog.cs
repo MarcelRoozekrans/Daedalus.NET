@@ -24,11 +24,20 @@ namespace Daedalus.Agents.Memory;
 ///     was answered by tier N", and <c>WorkflowRunModeStore</c> writes it under a key that says so.
 ///     </para>
 ///     <para>
-///     <b>Entries are removed when read, never expired on a timer.</b> A run that fails mid-turn, or a host
-///     that restarts, leaves an entry behind; it is bounded by the number of live runs on one host, and a stale
-///     entry can only be read by the same run's own next transition, which is the transition it belongs to
-///     anyway. Removing on read is what stops a node that made no recall from silently inheriting the previous
-///     node's tier — the failure this whole mechanism exists to make visible, reappearing one level up.
+///     <b>Entries are removed when read, never expired on a timer.</b> Removing on read is what stops a node
+///     that made no recall from silently inheriting the previous node's tier — the failure this whole
+///     mechanism exists to make visible, reappearing one level up.
+///     </para>
+///     <para>
+///     <b>What that actually bounds, corrected.</b> This was described as "bounded by the number of live runs
+///     on one host", which would be true if every entry were eventually read. <see cref="Take"/> is called
+///     from <c>WorkflowRunModeStore.CompleteNodeAsync</c> and nowhere else, and <c>FailAsync</c> is not
+///     decorated — so a run whose turn recalled and then failed the node leaves its entry behind permanently,
+///     as does a run stranded by a dead-lettered dispatch. The real bound is the number of runs that have
+///     failed or stranded mid-node since this process started, and the reclaim is a host restart. That is
+///     acceptable at the size of the value — one enum per failed run — and it is not what the earlier wording
+///     claimed. A stale entry is still harmless to correctness: it is keyed by run id, so only that run's own
+///     next transition could read it, and a failed run has none.
 ///     </para>
 /// </remarks>
 internal sealed class WorkflowRecallTierLog

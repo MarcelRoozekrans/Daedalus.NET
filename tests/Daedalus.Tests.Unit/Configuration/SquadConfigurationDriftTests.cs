@@ -242,10 +242,17 @@ public sealed class SquadConfigurationDriftTests
 
     /// <summary>
     ///     The exact defect phase 2.2's Task 11 hit: the <c>writer</c> agent's <c>Skills</c> was <c>[]</c>, so
-    ///     the <c>publish</c> node it was pinned to could never load its skill. <see cref="ProcessNodeSkillAllowlistTests"/>
-    ///     covers this generically for every node in <c>processes/manufacture.yaml</c>; this pins the specific
-    ///     value directly, since manufacture.yaml does not point a node at <c>implementer</c> yet.
+    ///     the <c>publish</c> node it was pinned to could never load its skill.
+    ///     <see cref="ProcessNodeSkillAllowlistTests"/> covers this generically for every node in
+    ///     <c>processes/manufacture.yaml</c>, and since commit <c>73ee27b</c> that file does point
+    ///     <c>implement</c> at <c>implementer</c>, so the generic guard covers this pin too.
     /// </summary>
+    /// <remarks>
+    ///     Kept rather than deleted as redundant, and the reason is not belt-and-braces. The generic guard
+    ///     reads the pin out of the process file, so it follows the file: a change that moved <c>implement</c>
+    ///     onto some other agent would keep that guard green while this one goes red. This asserts the roster
+    ///     entry itself, which is what a rollback or a later phase is most likely to disturb.
+    /// </remarks>
     [Fact]
     public void Implementer_can_load_the_manufacture_implement_skill()
     {

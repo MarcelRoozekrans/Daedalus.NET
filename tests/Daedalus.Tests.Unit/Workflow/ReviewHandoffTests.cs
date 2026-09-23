@@ -78,18 +78,30 @@ public sealed class ReviewHandoffTests
         projected.Should().ContainSingle();
     }
 
+    /// <summary>
+    ///     The one declared key set left, and the only one that was ever load-bearing:
+    ///     <see cref="ReviewHandoff.ProjectForReviewNode"/> walks it, so widening it widens what a review
+    ///     dispatch is given.
+    /// </summary>
+    /// <remarks>
+    ///     <c>ImplementWrites</c>, <c>ReviewWrites</c> and the three verdict key constants were deleted in the
+    ///     final review's finding 7: no production code read them, and the assertion that used to live here
+    ///     compared each one to the literal it had just been declared with. That is a test of the assignment
+    ///     operator, not of a contract. The write sides are enforced where they are declared — the implement
+    ///     skill's outcome-tool contract, and <c>ReviewEvidence.Validate</c> with
+    ///     <c>DaedalusReviewTools.ReportReviewOutcome</c>'s argument names — and <c>ReviewEvidenceTests</c>
+    ///     covers those against behaviour rather than against a restatement.
+    /// </remarks>
     [Fact]
-    public void The_declared_contract_is_the_one_the_design_states()
+    public void The_reviewers_read_contract_is_the_one_the_design_states()
     {
-        // The three key sets, pinned. Falsifiable: adding a key to any of them turns this red, which is the
-        // point - the contract is meant to be changed deliberately and visibly, not by a passing edit.
-        ReviewHandoff.ImplementWrites.Should().BeEquivalentTo(["summary", "files_touched", "rationale"]);
+        // Falsifiable: adding a key turns this red, which is the point - the set decides what the reviewer is
+        // given, and it is meant to change deliberately and visibly rather than by a passing edit.
         ReviewHandoff.ReviewReads.Should().BeEquivalentTo(["work_intent", "files_touched"]);
-        ReviewHandoff.ReviewWrites.Should().BeEquivalentTo(["verdict", "findings", "checked"]);
 
         // files_touched is the only thing the implementer writes that the reviewer reads. Stated as an assertion
         // because it is the whole shape of the handoff: a pointer travels, an account does not.
-        ReviewHandoff.ImplementWrites.Intersect(ReviewHandoff.ReviewReads, StringComparer.Ordinal)
-            .Should().BeEquivalentTo(["files_touched"]);
+        ReviewHandoff.ReviewReads.Should().NotContain(ReviewHandoff.SummaryKey);
+        ReviewHandoff.ReviewReads.Should().NotContain(ReviewHandoff.RationaleKey);
     }
 }

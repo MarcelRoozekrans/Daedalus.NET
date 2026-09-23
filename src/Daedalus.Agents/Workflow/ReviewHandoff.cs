@@ -26,11 +26,21 @@ namespace Daedalus.Agents.Workflow;
 ///     one.
 ///     </para>
 ///     <para>
+///     <b>Only <see cref="ReviewReads"/> is a declared set here, and that is deliberate.</b> The
+///     <c>implement</c> and <c>review</c> write sides are declared where they are enforced — the implement
+///     skill's outcome-tool contract, and <see cref="ReviewEvidence"/>'s validator plus
+///     <c>DaedalusReviewTools.ReportReviewOutcome</c>'s own argument names. Restating them here as key sets
+///     would give the same contract two homes and no way to tell which one is in force; the ones that were
+///     here were read by no production code and pinned only by a test asserting each equalled the literal it
+///     was declared with, which is a test of the assignment operator. <see cref="ReviewReads"/> earns its
+///     place because <see cref="ProjectForReviewNode"/> walks it.
+///     </para>
+///     <para>
 ///     <b>The gap this type carried until task B5 is closed, and the mechanism moved.</b> Against Thalos 0.8.0
 ///     nothing populated <c>WorkflowRun.Variables</c> at all, so the contract above described plumbing that did
 ///     not run. Thalos 0.9.0 carries a node's reported variables into the bag, and <c>implement</c>'s skill now
-///     reports all three of <see cref="ImplementWrites"/> through its outcome tool's <c>variables</c> argument.
-///     With that, <b>where the projection is applied became load-bearing</b>: 0.9.0's
+///     reports <c>summary</c>, <c>files_touched</c> and <c>rationale</c> through its outcome tool's
+///     <c>variables</c> argument. With that, <b>where the projection is applied became load-bearing</b>: 0.9.0's
 ///     <c>WorkflowNodeDispatcher.BuildTaskText</c> renders the <em>whole</em> bag into every node's task text,
 ///     so a projection applied after dispatch withholds nothing. <see cref="ProjectForReviewNode"/> is
 ///     therefore applied by <see cref="ReviewHandoffWorkflowStore"/>, between the store and the dispatcher, so
@@ -51,29 +61,12 @@ public static class ReviewHandoff
     /// <summary>The implementer's reasoning for its change. Withheld from the reviewer.</summary>
     public const string RationaleKey = "rationale";
 
-    /// <summary>The reviewer's verdict.</summary>
-    public const string VerdictKey = "verdict";
-
-    /// <summary>The reviewer's findings, required to reject.</summary>
-    public const string FindingsKey = "findings";
-
-    /// <summary>What the reviewer examined and found sound, required to approve.</summary>
-    public const string CheckedKey = "checked";
-
-    /// <summary>What the <c>implement</c> node declares it writes.</summary>
-    public static readonly FrozenSet<string> ImplementWrites =
-        new[] { SummaryKey, FilesTouchedKey, RationaleKey }.ToFrozenSet(StringComparer.Ordinal);
-
     /// <summary>
-    ///     The only keys a <c>review</c> dispatch is given. Note that <see cref="FilesTouchedKey"/> is the sole
-    ///     member of <see cref="ImplementWrites"/> that appears here.
+    ///     The only keys a <c>review</c> dispatch is given. <see cref="FilesTouchedKey"/> is the sole thing the
+    ///     implementer writes that appears here: a pointer travels, an account does not.
     /// </summary>
     public static readonly FrozenSet<string> ReviewReads =
         new[] { WorkIntentKey, FilesTouchedKey }.ToFrozenSet(StringComparer.Ordinal);
-
-    /// <summary>What the <c>review</c> node declares it writes.</summary>
-    public static readonly FrozenSet<string> ReviewWrites =
-        new[] { VerdictKey, FindingsKey, CheckedKey }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>
     ///     Projects a run's variables down to <see cref="ReviewReads"/>. Keys outside that set are not copied;
