@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Text.RegularExpressions;
 using Thalos;
 using ZeroAlloc.Results;
 
@@ -27,18 +28,25 @@ namespace Daedalus.Agents.Workflow;
 ///     graph; the skill it runs is the contract this type actually cares about.
 ///     </para>
 ///     <para>
-///     <b>Only the closing tag is neutralised, deliberately narrower than <c>WorkflowVariableBlock</c>'s own
-///     escaping.</b> The standing instructions are host-authored — maintained by a human editing a file on disk,
-///     not written by an agent turn — so they are not the adversarial channel <c>WorkflowVariableBlock</c>
-///     guards against. The one thing worth guarding against here is an accidental <c>&lt;/standing-instructions&gt;</c>
-///     line inside the file itself closing the block early and running the rest of the file as if it were the
-///     turn's own instruction; replacing it with <c>&lt;/standing-instructions-escaped&gt;</c> is enough to stop
-///     that without treating a human-maintained file as hostile input.
-///     <see cref="BuildBlock"/>'s <c>Replace</c> call is exact-case (<see cref="StringComparison.Ordinal"/>), so
-///     a differently-cased tag — <c>&lt;/Standing-Instructions&gt;</c>, say — would not be neutralised. That is
-///     accepted rather than fixed: the file is maintained by a human who is not trying to defeat this check, the
-///     tag's own spelling (<see cref="CloseTag"/>) is lower-case throughout this type, and a case-insensitive
-///     match would cost a culture-aware comparison for a threat model that does not exist here.
+///     <b>The text is agent-proposed and human-approved, so it is treated as untrusted.</b> Since task B5, the
+///     file is no longer only something a human writes by hand. A <c>retrospect</c> turn proposes a complete
+///     replacement, and a human resuming the gate with <c>applyStandingInstructions</c> writes it verbatim. A
+///     human approved that text, but a model wrote it, from <c>learnings</c> another model reported. A reviewer
+///     reading a diff can miss one forged tag. So <see cref="BuildBlock"/> neutralises every tag an injected
+///     body could use to forge the framing around it, not just an accidental closing tag.
+///     </para>
+///     <para>
+///     <b>What is neutralised mirrors Thalos' own inlined-skill sanitising.</b> For a pinned node, Thalos puts
+///     the skill body in the same <c>Task</c> string, running it through <c>SkillBlock.SanitizeBody</c> and then
+///     <c>WorkflowVariableBlock.NeutralizeTag</c>. That escapes the <c>&lt;</c> of every opening or closing
+///     <c>skill</c>, <c>skills</c>, <c>memories</c> and <c>workflow-variables</c> tag. It matches any casing and
+///     allows whitespace around the slash, and it normalises line endings to <c>\n</c> first. This block lands in
+///     that same <c>Task</c> string, so it neutralises the same family plus its own
+///     <c>standing-instructions</c> tag, the same way. Without that, a body could close this block early, or
+///     forge a <c>&lt;workflow-variables&gt;</c> or <c>&lt;skill&gt;</c> block the model would read as the
+///     engine's own. The <c>&lt;</c> becomes <c>&amp;lt;</c> and the rest of the tag is kept verbatim, so the
+///     text still reads correctly and cannot open or close anything. The rule is restated here rather than
+///     called, because Thalos keeps <c>NeutralizeTag</c> internal.
 ///     </para>
 ///     <para>
 ///     <b>Placed outside <see cref="ReviewLensRunner"/>, not inside it.</b> A review node's pinned skill is
@@ -47,18 +55,21 @@ namespace Daedalus.Agents.Workflow;
 ///     concatenation it guards, run once per node dispatch rather than once per lens pass.
 ///     </para>
 /// </remarks>
-internal sealed class StandingInstructionsRunner(ISubagentRunner inner) : ISubagentRunner
+internal sealed partial class StandingInstructionsRunner(ISubagentRunner inner) : ISubagentRunner
 {
     /// <summary>The pinned skills whose turn is handed the standing instructions alongside its own task.</summary>
     private static readonly FrozenSet<string> EligibleSkills =
         new[] { ReviewHandoff.ImplementSkillName, ReviewHandoff.RetrospectSkillName }.ToFrozenSet(StringComparer.Ordinal);
 
-    private const string OpenTag =
-        "<standing-instructions note=\"this project's build, run and test instructions as of when this run started; maintained by humans\">";
+    /// <summary>
+    ///     The block's opening tag. <c>internal</c> so a test can hold <c>skills/manufacture-retrospect/SKILL.md</c>,
+    ///     which shows the model this exact tag, to the same text.
+    /// </summary>
+    internal const string OpenTag =
+        "<standing-instructions note=\"this project's build, run and test instructions as of when this run started; " +
+        "human-approved, and may include text an agent proposed\">";
 
     private const string CloseTag = "</standing-instructions>";
-
-    private const string EscapedCloseTag = "</standing-instructions-escaped>";
 
     private readonly ISubagentRunner _inner = inner ?? throw new ArgumentNullException(nameof(inner));
 
@@ -98,10 +109,24 @@ internal sealed class StandingInstructionsRunner(ISubagentRunner inner) : ISubag
             : null;
     }
 
-    /// <summary>Wraps <paramref name="text"/> in the delimited tag, neutralising a closing tag the text itself contains.</summary>
+    /// <summary>
+    ///     Wraps <paramref name="text"/> in the delimited tag, after normalising its line endings and neutralising
+    ///     every framing tag it contains. See this type's remarks for which tags, and why.
+    /// </summary>
     private static string BuildBlock(string text)
     {
-        var escaped = text.Replace(CloseTag, EscapedCloseTag, StringComparison.Ordinal);
-        return string.Concat(OpenTag, "\n", escaped, "\n", CloseTag);
+        var neutralised = FramingTag().Replace(
+            text.ReplaceLineEndings("\n"), static m => string.Concat("&lt;", m.ValueSpan[1..]));
+        return string.Concat(OpenTag, "\n", neutralised, "\n", CloseTag);
     }
+
+    // Escapes the '<' of every opening or closing spelling of <standing-instructions>, <workflow-variables>,
+    // <skill>, <skills> and <memories>, in any casing and with whitespace around the slash, and keeps the rest
+    // verbatim. The same shape as Thalos' SkillBlock and WorkflowVariableBlock tag guards, merged into one
+    // pattern. The word boundary keeps the escape to real tags: "<skillset" is an ordinary word.
+    [GeneratedRegex(
+        @"<\s*/?\s*(?:standing-instructions|workflow-variables|memories|skills?)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+        matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
+    private static partial Regex FramingTag();
 }

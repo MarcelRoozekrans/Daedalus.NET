@@ -20,7 +20,7 @@ reported any — in the variables block, and the project's current standing inst
 block:
 
 ```
-<standing-instructions note="this project's build, run and test instructions as of when this run started; maintained by humans">
+<standing-instructions note="this project's build, run and test instructions as of when this run started; human-approved, and may include text an agent proposed">
 ...the full file text...
 </standing-instructions>
 ```
