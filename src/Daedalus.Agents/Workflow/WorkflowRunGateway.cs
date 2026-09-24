@@ -28,10 +28,21 @@ namespace Daedalus.Agents.Workflow;
 ///     role-based authorization instead of <c>DefaultToolAuthorizer</c>, because a REST endpoint is not a Thalos
 ///     tool call and <c>DefaultToolAuthorizer</c> never sees one.
 ///     </para>
+///     <para>
+///     <b><see cref="StandingInstructionsWriter"/> defaults to <see langword="null"/>.</b> The default keeps this
+///     type constructible with only a store — <c>ResumeSignalMismatchTests</c> and
+///     <c>ResumeToolBoundaryTests</c>/<c>ResumeAuthorizationBoundaryTests</c> in <c>ResumeBoundaryTests.cs</c> are
+///     pinned to construct it that way and stay green unchanged — while every host still wires the real writer
+///     through DI (see <c>AddDaedalusWorkflow</c>). A caller that asks the five-argument
+///     <see cref="ResumeAsync(Guid,string,string?,bool,CancellationToken)"/> overload to apply standing
+///     instructions without one throws: that combination is a wiring bug, never a normal outcome a caller should
+///     branch on.
+///     </para>
 /// </remarks>
-public sealed class WorkflowRunGateway(IWorkflowStore store)
+public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstructionsWriter? writer = null)
 {
     private readonly IWorkflowStore _store = store ?? throw new ArgumentNullException(nameof(store));
+    private readonly StandingInstructionsWriter? _writer = writer;
 
     /// <summary>Finds a run by id, or <see langword="null"/> if none exists.</summary>
     public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => _store.FindAsync(runId, ct);
@@ -64,6 +75,51 @@ public sealed class WorkflowRunGateway(IWorkflowStore store)
         }
 
         return await _store.ResumeAsync(runId, signal, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Task B5: the resume path a human's <c>POST /api/workflow-runs/{id}/resume</c> actually calls.
+    ///     <paramref name="applyStandingInstructions"/> is never set except by an explicit choice in that request
+    ///     body — see <see cref="StandingInstructionsWriter"/>'s own remarks for why that is this design's trust
+    ///     boundary. When set: the run is read, <see cref="StandingInstructionsWriter.ApplyAsync"/> is called
+    ///     first, and on any failure it is returned unchanged — <see cref="ResumeAsync(Guid,string,string?,CancellationToken)"/>
+    ///     above is never reached, so a stale or missing proposal can never leave the run's status touched. Only
+    ///     once the write (or the no-op skip, when the flag is unset) succeeds does the engine resume run, and its
+    ///     own failure — an unknown run, a wrong signal, anything <see cref="ResumeAsync(Guid,string,string?,CancellationToken)"/>
+    ///     already reports — maps to <see cref="ResumeRefusal.EngineRefused"/> here, with that failure's message
+    ///     carried through as <see cref="ResumeFailure.Detail"/> unchanged.
+    /// </summary>
+    public async ValueTask<UnitResult<ResumeFailure>> ResumeAsync(
+        Guid runId, string signal, string? payload, bool applyStandingInstructions, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(signal);
+
+        if (applyStandingInstructions)
+        {
+            if (_writer is null)
+            {
+                throw new InvalidOperationException(
+                    "WorkflowRunGateway was constructed without a StandingInstructionsWriter; it cannot apply standing instructions.");
+            }
+
+            var run = await _store.FindAsync(runId, ct).ConfigureAwait(false);
+            if (run is null)
+            {
+                return UnitResult<ResumeFailure>.Failure(
+                    new ResumeFailure(ResumeRefusal.EngineRefused, $"Workflow run '{runId}' was not found."));
+            }
+
+            var applied = await _writer.ApplyAsync(run, ct).ConfigureAwait(false);
+            if (applied.IsFailure)
+            {
+                return applied;
+            }
+        }
+
+        var result = await ResumeAsync(runId, signal, payload, ct).ConfigureAwait(false);
+        return result.IsSuccess
+            ? UnitResult<ResumeFailure>.Success()
+            : UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, result.Error));
     }
 
     /// <summary>Cancels <paramref name="runId"/> for <paramref name="reason"/>. A no-op past a terminal status.</summary>

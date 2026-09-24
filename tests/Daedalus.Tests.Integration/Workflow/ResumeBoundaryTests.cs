@@ -324,7 +324,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
 
     /// <summary>
     ///     Resume and cancel agree on 404 for a run that does not exist. Exercised through the real controller,
-    ///     not just <see cref="WorkflowRunGateway"/> - <see cref="WorkflowRunGateway.ResumeAsync"/>'s own "not
+    ///     not just <see cref="WorkflowRunGateway"/> - <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,CancellationToken)"/>'s own "not
     ///     found" failure alone maps to 409, which is why <see cref="WorkflowRunsController.Resume"/> checks
     ///     existence itself before delegating, the same way <see cref="WorkflowRunsController.Cancel"/> already
     ///     did.

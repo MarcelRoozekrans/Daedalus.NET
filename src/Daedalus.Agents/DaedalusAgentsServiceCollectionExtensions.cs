@@ -232,6 +232,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // for why a host whose database has none of these tables must not wire any of this at all.
         var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
         var standingInstructionsPath = ResolveStandingInstructionsPath(options.Workflow.StandingInstructionsPath, environment);
+        // Registered unconditionally, the same as options.Memory/options.Skills/options.Squad above: task B5's
+        // StandingInstructionsWriter resolves its own path from this instance via DI (see AddDaedalusWorkflow),
+        // and only AddDaedalusWorkflow — gated on Enabled below — ever constructs one.
+        services.TryAddSingleton(options.Workflow);
         if (options.Workflow.Enabled)
         {
             services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
@@ -386,6 +390,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // workflow run ever writes to it: RecallTierRecordingMemoryService only records for a WorkflowCaller.
         services.AddSingleton<WorkflowRecallTierLog>();
         DecorateMemoryServiceWithRecallTierRecording(services);
+
+        // Task B5: the one type that ever writes Thalos:Workflow:StandingInstructionsPath, and only from
+        // WorkflowRunGateway's five-argument ResumeAsync overload, on a human's explicit applyStandingInstructions.
+        // Registered here, workflow-enabled hosts only, alongside the gateway it is injected into below.
+        services.AddSingleton<StandingInstructionsWriter>();
 
         // The resume/cancel REST boundary's only path to IWorkflowStore (from AddWorkflowOrm above). Never an
         // agent, never a Thalos tool — see WorkflowRunGateway's own remarks for why, and for what actually
@@ -870,7 +879,13 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     back to: a missing file is not this method's problem to solve, see
     ///     <see cref="Workflow.ManufactureRunStarter.StartAsync"/>.
     /// </summary>
-    private static string ResolveStandingInstructionsPath(string configured, IHostEnvironment environment) =>
+    /// <remarks>
+    ///     <c>internal</c>, not <c>private</c>: <see cref="Workflow.StandingInstructionsWriter"/> reuses this same
+    ///     resolution rule for its own path rather than restating it, per task B5. Two independently-maintained
+    ///     copies of "how a configured, possibly-relative path resolves against the content root" is exactly the
+    ///     kind of drift this method's own doc comment already warns against for <see cref="ResolveContentRoot"/>.
+    /// </remarks>
+    internal static string ResolveStandingInstructionsPath(string configured, IHostEnvironment environment) =>
         Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
 
     private static AgentDefinition ToDefinition(AgentConfig agent) => new()

@@ -31,7 +31,18 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     migrations (see <c>StartRunEndpointTests</c>), never against the shared <c>PostgresFixture</c> database,
 ///     which is built with EF Core's <c>EnsureCreatedAsync</c> and has none of those tables.
 /// </param>
-internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false)
+/// <param name="standingInstructionsPath">
+///     Task B5. When supplied, overrides <c>Thalos:Workflow:StandingInstructionsPath</c> so
+///     <c>StandingInstructionsWriter</c> reads and writes there instead of the default <c>AGENT.md</c> resolved
+///     against this factory's content root — <c>src/Daedalus.Api</c>, per this class's own remarks above, a real
+///     project directory that a test must never touch. Pass a rooted path under a <c>TempDirectory</c>;
+///     <c>ResolveStandingInstructionsPath</c> returns a rooted path unchanged, ignoring the content root
+///     entirely. <see langword="null"/> (the default) leaves the shipped configuration in place, for hosts that
+///     never touch the standing-instructions file at all.
+/// </param>
+internal sealed class ApiWebApplicationFactory(
+    string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,
+    string? standingInstructionsPath = null)
     : WebApplicationFactory<Daedalus.Api.Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -59,6 +70,11 @@ internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRu
         // See WorkflowConfig.Enabled's own remarks, and this constructor's own parameter doc, for the one caller
         // that opts into the engine against a database it migrated itself.
         builder.UseSetting("Thalos:Workflow:Enabled", workflowEnabled ? "true" : "false");
+
+        if (standingInstructionsPath is not null)
+        {
+            builder.UseSetting("Thalos:Workflow:StandingInstructionsPath", standingInstructionsPath);
+        }
 
         if (keycloak is not null)
         {

@@ -99,7 +99,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         run.AwaitingSignal,
         run.LastError,
         run.Manifest?.Nodes,
-        StandingInstructionsDiff: null);
+        StandingInstructionsDiff: StandingInstructionsWriter.Diff(run));
 
     /// <summary>
     ///     Resumes <paramref name="id"/> if — and only if — it is parked awaiting exactly
@@ -107,12 +107,16 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     ///     exist — the same status <see cref="Cancel"/> uses for the same case, so a caller does not have to
     ///     learn two conventions for "no such run" on one controller. A mismatched or absent signal fails with
     ///     409 and a message naming what the run is actually awaiting; it never silently no-ops the run's status.
+    ///     <see cref="ResumeWorkflowRunRequest.ApplyStandingInstructions"/>, task B5's own addition, maps
+    ///     <see cref="ResumeRefusal.WriteFailed"/> to 500 — a filesystem fault, not a bad request — and every
+    ///     other <see cref="ResumeRefusal"/> to the same 409 an engine-level mismatch already used.
     /// </summary>
     [HttpPost("{id:guid}/resume")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Resume(Guid id, [FromBody] ResumeWorkflowRunRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request?.Signal))
@@ -125,10 +129,16 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             return NotFound();
         }
 
-        var result = await runs.ResumeAsync(id, request.Signal, request.Payload, ct);
-        return result.IsSuccess
-            ? NoContent()
-            : Problem(detail: result.Error, statusCode: StatusCodes.Status409Conflict);
+        var result = await runs.ResumeAsync(id, request.Signal, request.Payload, request.ApplyStandingInstructions, ct);
+        if (result.IsSuccess)
+        {
+            return NoContent();
+        }
+
+        var statusCode = result.Error.Kind == ResumeRefusal.WriteFailed
+            ? StatusCodes.Status500InternalServerError
+            : StatusCodes.Status409Conflict;
+        return Problem(detail: result.Error.Detail, statusCode: statusCode);
     }
 
     /// <summary>
@@ -170,7 +180,12 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 /// <summary>Request body for <see cref="WorkflowRunsController.Resume"/>.</summary>
 /// <param name="Signal">The signal the caller believes the run is parked awaiting.</param>
 /// <param name="Payload">Carried into <see cref="WorkflowRun.Variables"/>["payload"] by <see cref="Thalos.Workflow.IWorkflowStore.ResumeAsync"/>.</param>
-public sealed record ResumeWorkflowRunRequest(string Signal, string? Payload);
+/// <param name="ApplyStandingInstructions">
+///     Task B5. Defaults to <see langword="false"/>, so every existing caller of this endpoint is unaffected.
+///     Set <see langword="true"/> only when a human operator has decided to accept the run's proposed standing
+///     instructions — this is the one flag that makes <see cref="WorkflowRunGateway"/> write to disk at all.
+/// </param>
+public sealed record ResumeWorkflowRunRequest(string Signal, string? Payload, bool ApplyStandingInstructions = false);
 
 /// <summary>Request body for <see cref="WorkflowRunsController.Cancel"/>.</summary>
 /// <param name="Reason">A human-readable reason recorded against the run; defaults when omitted.</param>
@@ -197,8 +212,10 @@ public sealed record StartWorkflowRunResponse(Guid RunId);
 ///     before manifests existed or through the legacy positional <c>StartAsync</c> overload.
 /// </param>
 /// <param name="StandingInstructionsDiff">
-///     Always <see langword="null"/> in this task — filled in by phase 2.4 task B5, which diffs the run's pinned
-///     standing instructions against the current file on disk.
+///     A unified-style line diff of the run's pinned standing instructions against its <c>retrospect</c>
+///     proposal (see <see cref="Daedalus.Agents.Workflow.StandingInstructionsWriter.Diff"/>), or
+///     <see langword="null"/> when the run carries no proposal — including every run started before phase 2.4
+///     task B4 added the <c>retrospect</c> node at all.
 /// </param>
 public sealed record WorkflowRunView(
     Guid Id,
