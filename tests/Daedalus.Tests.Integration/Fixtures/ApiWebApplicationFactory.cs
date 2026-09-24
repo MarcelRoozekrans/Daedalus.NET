@@ -35,10 +35,10 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     Task B5. When supplied, overrides <c>Thalos:Workflow:StandingInstructionsPath</c> so
 ///     <c>StandingInstructionsWriter</c> reads and writes there instead of the default <c>AGENT.md</c> resolved
 ///     against this factory's content root — <c>src/Daedalus.Api</c>, per this class's own remarks above, a real
-///     project directory that a test must never touch. Pass a rooted path under a <c>TempDirectory</c>;
-///     <c>ResolveStandingInstructionsPath</c> returns a rooted path unchanged, ignoring the content root
-///     entirely. <see langword="null"/> (the default) leaves the shipped configuration in place, for hosts that
-///     never touch the standing-instructions file at all.
+///     project directory whose tracked files a test must never touch. <c>AddDaedalusAgents</c> refuses a path
+///     outside the content root, so pass a path relative to it from <c>TempDirectory.NewContentRootRelative</c>,
+///     which lands under the project's git-ignored <c>obj</c> folder. <see langword="null"/> (the default) leaves
+///     the shipped configuration in place, for hosts that never touch the standing-instructions file at all.
 /// </param>
 internal sealed class ApiWebApplicationFactory(
     string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,

@@ -5,6 +5,7 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Thalos;
 using Thalos.Skills;
@@ -270,7 +271,8 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
     /// <summary>
     ///     Creates a throwaway database, migrates it (EF Core's model plus Thalos.NET.Workflow.Orm's raw-SQL
     ///     outbox/workflow tables), boots a real <see cref="ApiWebApplicationFactory"/> with the workflow engine
-    ///     enabled and <c>Thalos:Workflow:StandingInstructionsPath</c> pointed at a fresh <see cref="TempDirectory"/>,
+    ///     enabled and <c>Thalos:Workflow:StandingInstructionsPath</c> pointed at a fresh <see cref="TempDirectory"/> under
+    ///     the host's content root, which is where <c>AddDaedalusAgents</c> requires the file to be,
     ///     runs <paramref name="body"/>, and tears both down afterward. Mirrors <c>StartRunEndpointTests.WithRunningHostAsync</c>.
     /// </summary>
     private async Task WithHostAsync(Func<ApiWebApplicationFactory, string, TempDirectory, Task> body)
@@ -279,7 +281,7 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
         var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = dbName }.ConnectionString;
 
-        using var dir = new TempDirectory();
+        var relative = TempDirectory.NewContentRootRelative();
         ApiWebApplicationFactory? factory = null;
         try
         {
@@ -300,11 +302,13 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
 
             factory = new ApiWebApplicationFactory(
                 connectionString, Substitute.For<IAgentRuntime>(), workflowEnabled: true,
-                standingInstructionsPath: dir.Path("AGENT.md"));
+                standingInstructionsPath: Path.Combine(relative, "AGENT.md"));
 
             // Force the host to build and start now — see StartRunEndpointTests.WithRunningHostAsync's own remarks.
             _ = factory.Services;
 
+            var contentRoot = factory.Services.GetRequiredService<IHostEnvironment>().ContentRootPath;
+            using var dir = new TempDirectory(Path.Combine(contentRoot, relative));
             await body(factory, connectionString, dir);
         }
         finally

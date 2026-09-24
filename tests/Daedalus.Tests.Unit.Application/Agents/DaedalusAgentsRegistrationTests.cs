@@ -181,6 +181,74 @@ public sealed class DaedalusAgentsRegistrationTests
             "authorize, if this registration were ever removed");
     }
 
+    /// <summary>
+    ///     Final review finding I3. The standing-instructions file is overwritten with approved model text, so a
+    ///     path that climbs out of the content root, whether rooted elsewhere or through <c>..</c>, must take the
+    ///     host down at registration. The sibling case is a directory that shares the content root's name as a
+    ///     prefix, which a string prefix check would wrongly accept.
+    /// </summary>
+    [Theory]
+    [InlineData("../AGENT.md")]
+    [InlineData("nested/../../AGENT.md")]
+    [InlineData("SIBLING")]
+    [InlineData("ROOTED")]
+    public void A_standing_instructions_path_outside_the_content_root_fails_fast(string configured)
+    {
+        var contentRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+        var path = configured switch
+        {
+            "SIBLING" => Path.Combine("..", Path.GetFileName(contentRoot) + "-sibling", "AGENT.md"),
+            "ROOTED" => Path.Combine(Path.GetDirectoryName(contentRoot)!, "AGENT.md"),
+            _ => configured,
+        };
+
+        var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", path)));
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Thalos:Workflow:StandingInstructionsPath*outside the content root*");
+    }
+
+    [Theory]
+    [InlineData("appsettings.json")]
+    [InlineData("AGENT")]
+    [InlineData("Program.cs")]
+    public void A_standing_instructions_path_that_is_not_markdown_fails_fast(string configured)
+    {
+        var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", configured)));
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Thalos:Workflow:StandingInstructionsPath*not a .md file*");
+    }
+
+    /// <summary>
+    ///     The mirror cases, without which the two tests above would be satisfied by a check that refused every
+    ///     path. A rooted path is accepted when it is under the content root.
+    /// </summary>
+    [Theory]
+    [InlineData("AGENT.md")]
+    [InlineData("docs/STANDING.MD")]
+    [InlineData("docs/../AGENT.md")]
+    [InlineData("ROOTED")]
+    public void A_markdown_standing_instructions_path_under_the_content_root_is_accepted(string configured)
+    {
+        var path = string.Equals(configured, "ROOTED", StringComparison.Ordinal) ? Path.Combine(Path.GetTempPath(), "AGENT.md") : configured;
+
+        var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", path)));
+
+        act.Should().NotThrow();
+    }
+
+    /// <summary>With the engine off no writer is registered, so a host that never writes the file is not refused over it.</summary>
+    [Fact]
+    public void A_bad_standing_instructions_path_is_not_checked_while_the_workflow_engine_is_off()
+    {
+        var act = () => Build(Config(
+            ("Thalos:Workflow:Enabled", "false"),
+            ("Thalos:Workflow:StandingInstructionsPath", "appsettings.json")));
+
+        act.Should().NotThrow();
+    }
+
 
     [Fact]
     public void Sentinel_is_configured_from_options_and_gets_the_embedding_generator()

@@ -234,6 +234,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // for why a host whose database has none of these tables must not wire any of this at all.
         var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
         var standingInstructionsPath = ResolveStandingInstructionsPath(options.Workflow.StandingInstructionsPath, environment);
+        if (options.Workflow.Enabled)
+        {
+            ValidateStandingInstructionsPath(standingInstructionsPath, environment);
+        }
+
         // Registered unconditionally, the same as options.Memory/options.Skills/options.Squad above: task B5's
         // StandingInstructionsWriter resolves its own path from this instance via DI (see AddDaedalusWorkflow),
         // and only AddDaedalusWorkflow — gated on Enabled below — ever constructs one.
@@ -965,6 +970,47 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     internal static string ResolveStandingInstructionsPath(string configured, IHostEnvironment environment) =>
         Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
+
+    /// <summary>
+    ///     Fails fast unless the resolved <c>Thalos:Workflow:StandingInstructionsPath</c> is a <c>.md</c> file
+    ///     under the content root.
+    /// </summary>
+    /// <remarks>
+    ///     <see cref="Workflow.StandingInstructionsWriter"/> overwrites this file with model-authored text that a
+    ///     human approved at the gate. Resolution accepts a rooted path and a <c>..</c> segment as given, so without
+    ///     this check a misconfigured value such as <c>appsettings.json</c> or <c>../other-host/appsettings.json</c>
+    ///     would let an approved proposal replace the host's own configuration. The comparison runs on full,
+    ///     normalised paths and asks whether the path relative to the content root climbs out of it, so a sibling
+    ///     directory that merely shares the root's name as a prefix is outside too. Only checked when the workflow
+    ///     engine is enabled, the only case in which a writer is registered at all.
+    /// </remarks>
+    internal static void ValidateStandingInstructionsPath(string resolvedPath, IHostEnvironment environment)
+    {
+        var contentRoot = Path.GetFullPath(environment.ContentRootPath);
+        var fullPath = Path.GetFullPath(resolvedPath);
+        var relative = Path.GetRelativePath(contentRoot, fullPath);
+
+        var outside = Path.IsPathRooted(relative)
+            || string.Equals(relative, ".", StringComparison.Ordinal)
+            || string.Equals(relative, "..", StringComparison.Ordinal)
+            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+        if (outside)
+        {
+            throw new InvalidOperationException(
+                $"{WorkflowConfig.SectionName}:StandingInstructionsPath resolves to '{fullPath}', which is outside the " +
+                $"content root '{contentRoot}'. The standing-instructions file is overwritten with approved model text, " +
+                "so it must live under the content root.");
+        }
+
+        if (!string.Equals(Path.GetExtension(fullPath), ".md", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{WorkflowConfig.SectionName}:StandingInstructionsPath resolves to '{fullPath}', which is not a .md file. " +
+                "The standing-instructions file is overwritten with approved model text, so it must be a markdown file " +
+                "and never a configuration or code file.");
+        }
+    }
 
     private static AgentDefinition ToDefinition(AgentConfig agent) => new()
     {
