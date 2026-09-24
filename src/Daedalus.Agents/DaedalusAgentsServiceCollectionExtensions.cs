@@ -3,6 +3,7 @@ using System.Reflection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
+using Daedalus.Agents.Charters;
 using Daedalus.Agents.Git;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
@@ -33,6 +34,7 @@ using Thalos.Memory;
 using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
 using Thalos.Skills;
+using Thalos.Skills.Charters;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 
@@ -122,10 +124,34 @@ public static class DaedalusAgentsServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(environment);
-        ThrowIfMemoryAlreadyRegistered(services, nameof(AddDaedalusAgents));
 
         var options = new DaedalusAgentsOptions();
         configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+        return services.AddDaedalusAgents(options, configuration, environment, embeddingGenerator);
+    }
+
+    /// <summary>
+    ///     Test seam: same as <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/>,
+    ///     but takes an already-bound <see cref="DaedalusAgentsOptions"/> instead of binding <paramref name="configuration"/>
+    ///     itself. <paramref name="configuration"/> is still read for the connection string and for the
+    ///     sub-builders (<c>UseAnthropic</c>, memory, workflow) that bind their own sections directly. Lets a test
+    ///     mutate one field of an otherwise shipped configuration — for example, clearing a chartered agent's
+    ///     <c>Tools</c> — without fighting configuration-override syntax for arrays; see
+    ///     <c>SquadConfigurationDriftTests</c> and <c>CharteredRoleCompositionTests</c>.
+    /// </summary>
+    internal static IServiceCollection AddDaedalusAgents(
+        this IServiceCollection services,
+        DaedalusAgentsOptions options,
+        IConfiguration configuration,
+        IHostEnvironment environment,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(environment);
+        ThrowIfMemoryAlreadyRegistered(services, nameof(AddDaedalusAgents));
+
         var connectionString = ResolveConnectionString(configuration);
 
         // The Ralph MCP failure-patterns tool class doubles as the implementation behind DaedalusKnowledgeTools (fresh
@@ -168,6 +194,9 @@ public static class DaedalusAgentsServiceCollectionExtensions
         var skillRoots = ResolveSkillRoots(options.Skills, environment);
         ValidateSkillsConfig(options.Skills, skillRoots);
         services.TryAddSingleton(options.Skills);
+
+        var charterRoots = ResolveCharterRoots(options.CharterRoots, environment);
+        ValidateCharterConfig(options);
 
         // The role→agent split for the manufacturing squad. Registered unconditionally (unlike the Workflow
         // block below): SquadAgentResolver has no database or hosted-service dependency, and a host that never
@@ -249,8 +278,33 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
             foreach (var agent in options.Agents)
             {
+                if (agent.Chartered)
+                {
+                    // Registered as an AgentEnvelope below instead: prose, model and skills come from its role
+                    // charter, not this entry.
+                    continue;
+                }
+
                 thalos.AddAgent(ToDefinition(agent));
             }
+
+            // Chartered agents: the tool envelope (identity + Tools + memory) is built here, from configuration,
+            // exactly like every other agent - only the prose/model/skills half moves to roles/*.md. Called
+            // unconditionally (Envelopes may be empty, as on Daedalus.Cli, which declares no chartered agent) so
+            // every host that calls AddDaedalusAgents gets the same CharteredAgentCatalog/CharterSyncService
+            // wiring rather than two different IAgentCatalog shapes depending on whether any role is chartered.
+            thalos.UseRoleCharters(o =>
+                {
+                    o.Roots = [.. charterRoots];
+                    foreach (var agent in options.Agents)
+                    {
+                        if (agent.Chartered)
+                        {
+                            o.Envelopes.Add(ToEnvelope(agent));
+                        }
+                    }
+                })
+                .UseRoleCharterStore<PostgresRoleCharterStore>();
 
             if (options.Sentinel.Enabled)
             {
@@ -280,7 +334,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     <see cref="IWorkflowReferenceResolver"/>, <see cref="WorkflowNodeDispatcher"/>, the outbox consumer for
     ///     <see cref="Thalos.Workflow.WorkflowDispatch.TypeName"/>, <see cref="WorkflowRunReconciler"/> on a
     ///     one-minute sweep, and <see cref="IProcessDefinitionSource"/> feeding <see cref="ProcessDefinitionSync"/>
-    ///     at boot. Split out from <see cref="AddDaedalusAgents"/> only for readability — every registration here
+    ///     at boot. Split out from <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> only for readability — every registration here
     ///     depends on <c>IWorkflowStore</c>/<c>IProcessDefinitionStore</c>, which only exist once <c>AddThalos</c>
     ///     has run, so this is called after it, never on its own.
     /// </summary>
@@ -371,14 +425,14 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
     /// <summary>
     ///     Memory-only registration for hosts that run Ralph but <b>no</b> Thalos agents — the console worker. Registers the
-    ///     same <c>IMemoryService</c>, Postgres store and Rag.NET index as <see cref="AddDaedalusAgents"/>, plus the Ralph
+    ///     same <c>IMemoryService</c>, Postgres store and Rag.NET index as <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/>, plus the Ralph
     ///     port <c>ILearningsMemory</c>. No agents, tools, Sentinel or reindex service (the API host runs that one).
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">Host configuration; <c>Thalos:Memory</c> and <c>ConnectionStrings:daedalus</c> are read.</param>
     /// <remarks>
     ///     <para>
-    ///         Mutually exclusive with <see cref="AddDaedalusAgents"/>, and checked: calling both throws. The Daedalus
+    ///         Mutually exclusive with <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/>, and checked: calling both throws. The Daedalus
     ///         registrations are <c>TryAdd</c>-based, but <c>UseRagNetMemory</c> is last-call-wins, so a later
     ///         <see cref="AddDaedalusMemory"/> would flip <c>EnsureSchemaOnStartup</c> back to <c>false</c> on the API host
     ///         — nobody would create <c>rag_chunks</c>, every memory would stay <c>index_pending</c>, and nothing would fail
@@ -401,7 +455,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     ///     A <c>Thalos:Memory</c> value is out of range, or memory is already registered on this collection — this method
-    ///     and <see cref="AddDaedalusAgents"/> are mutually exclusive.
+    ///     and <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> are mutually exclusive.
     /// </exception>
     public static IServiceCollection AddDaedalusMemory(this IServiceCollection services, IConfiguration configuration)
     {
@@ -495,6 +549,65 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     Fails fast when a chartered agent is still defined in both places at once. A chartered agent's
+    ///     <see cref="AgentConfig.Instructions"/> must be blank — its prose now comes from
+    ///     <c>roles/&lt;Name&gt;.md</c> — and its <see cref="AgentConfig.Tools"/> must not be empty. Unlike an
+    ///     unchartered agent (<see cref="ToDefinition"/>), a chartered one gets no <c>["*"]</c> fallback for an
+    ///     empty <c>Tools</c> list: the tool list is this role's whole security envelope, and the reviewer's
+    ///     independence rests on that envelope never silently widening to everything.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A chartered agent still has non-blank <c>Instructions</c>, or an empty <c>Tools</c> list.</exception>
+    private static void ValidateCharterConfig(DaedalusAgentsOptions options)
+    {
+        foreach (var agent in options.Agents)
+        {
+            if (!agent.Chartered)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(agent.Instructions))
+            {
+                throw new InvalidOperationException(
+                    $"Thalos:Agents: chartered agent '{agent.Name}' still has non-blank Instructions. " +
+                    "A chartered agent's prose comes from its role charter (roles/<Name>.md) now - delete " +
+                    "Instructions from this entry.");
+            }
+
+            if (agent.Tools.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Thalos:Agents: chartered agent '{agent.Name}' has an empty Tools list. " +
+                    "A chartered agent's Tools is its whole security envelope and has no wildcard default - set it explicitly.");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Resolves <c>Thalos:CharterRoots</c> against the content root, the same way <see cref="ResolveSkillRoots"/>
+    ///     resolves <c>Thalos:Skills:Roots</c> — see <see cref="ResolveContentRoot"/>'s remarks for why the
+    ///     assembly-directory fallback is load-bearing under <c>dotnet run</c>/Aspire.
+    /// </summary>
+    private static IReadOnlyList<string> ResolveCharterRoots(IList<string> roots, IHostEnvironment environment) =>
+        [.. roots
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => ResolveContentRoot(r, environment))];
+
+    /// <summary>
+    ///     The config-owned half of a chartered agent: identity, tools, output cap and memory. Everything else
+    ///     (<see cref="AgentEnvelope"/> has no <c>Description</c>/<c>Instructions</c>/<c>Model</c>/<c>Skills</c>)
+    ///     comes from the role's active charter instead — see <c>CharteredAgentCatalog.Compose</c>.
+    /// </summary>
+    private static AgentEnvelope ToEnvelope(AgentConfig agent) => new()
+    {
+        Id = ParseAgentId(agent.Id, agent.Name),
+        Name = agent.Name,
+        Tools = [.. agent.Tools],
+        MaxOutputTokens = agent.MaxOutputTokens,
+        Memory = agent.Memory is null ? null : new AgentMemorySettings { Enabled = agent.Memory.Enabled, TopK = agent.Memory.TopK },
+    };
+
+    /// <summary>
     ///     Fails fast on the Daedalus-only <c>Thalos:Memory</c> keys (Thalos validates its own <c>MemoryOptions</c> on start).
     ///     A bad value here would otherwise surface much later as a rejected memory or a mis-sized vector column.
     /// </summary>
@@ -539,7 +652,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
     /// <summary>
     ///     Refuses a second memory registration. <c>UseRagNetMemory</c> is last-call-wins, so calling
-    ///     <see cref="AddDaedalusAgents"/> and <see cref="AddDaedalusMemory"/> on one host would silently leave
+    ///     <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> and <see cref="AddDaedalusMemory"/> on one host would silently leave
     ///     <c>EnsureSchemaOnStartup</c> at whatever the later call passed — on the API host that means nobody creates
     ///     <c>rag_chunks</c> and every memory stays <c>index_pending</c> with nothing failing. Fail loudly instead.
     /// </summary>

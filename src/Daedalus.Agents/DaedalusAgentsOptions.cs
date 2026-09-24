@@ -4,7 +4,7 @@ using Daedalus.Application.Configuration;
 namespace Daedalus.Agents;
 
 /// <summary>
-///     Bound from the <c>Thalos</c> configuration section by <see cref="DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents"/>.
+///     Bound from the <c>Thalos</c> configuration section by <see cref="Daedalus.Agents.DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents(Microsoft.Extensions.DependencyInjection.IServiceCollection, Microsoft.Extensions.Configuration.IConfiguration, Microsoft.Extensions.Hosting.IHostEnvironment, Microsoft.Extensions.AI.IEmbeddingGenerator{string, Microsoft.Extensions.AI.Embedding{float}}?)"/>.
 ///     Agent definitions are declared in configuration so no redeploy is needed to add one; the Anthropic provider reads
 ///     its own <c>Thalos:Anthropic</c> subsection (see <c>Thalos.Anthropic.AnthropicOptions</c>).
 /// </summary>
@@ -30,6 +30,15 @@ public sealed class DaedalusAgentsOptions
 
     /// <summary>Skill settings (<c>Thalos:Skills</c>): Thalos <c>SkillOptions</c> keys plus the Daedalus root resolution.</summary>
     public SkillsConfig Skills { get; } = new();
+
+    /// <summary>
+    ///     Folders holding <c>&lt;role&gt;.md</c>/<c>&lt;role&gt;/CHARTER.md</c> documents for every
+    ///     <see cref="AgentConfig.Chartered"/> agent (<c>Thalos:CharterRoots</c>). Relative paths resolve against
+    ///     the host content root, the same as <see cref="SkillsConfig.Roots"/>. Defaults to <c>["roles"]</c> —
+    ///     unlike <see cref="SkillsConfig.Roots"/>, an empty default here would leave every chartered agent with
+    ///     no root to sync its charter from, so this one is deliberately not empty.
+    /// </summary>
+    public IList<string> CharterRoots { get; } = ["roles"];
 
     /// <summary>Workflow-engine settings (<c>Thalos:Workflow</c>): whether the engine is wired at all, and where process files live.</summary>
     public WorkflowConfig Workflow { get; } = new();
@@ -73,6 +82,17 @@ public sealed class AgentConfig
 
     /// <summary>Per-agent memory overrides (<c>Thalos:Agents:N:Memory</c>); <see langword="null"/> → inherit <c>Thalos:Memory</c>.</summary>
     public AgentMemoryConfig? Memory { get; set; }
+
+    /// <summary>
+    ///     Whether <see cref="Description"/>, <see cref="Instructions"/>, <see cref="Model"/> and <see cref="Skills"/>
+    ///     come from a versioned role charter (<c>roles/&lt;Name&gt;.md</c>, synced by Thalos'
+    ///     <c>CharterSyncService</c>) instead of this entry. When true, <see cref="Instructions"/> must be blank
+    ///     and <see cref="Tools"/> must not be empty — see
+    ///     <c>DaedalusAgentsServiceCollectionExtensions.ValidateCharterConfig</c>. Only <see cref="Id"/>,
+    ///     <see cref="Name"/>, <see cref="Tools"/> and <see cref="Memory"/> remain this entry's own; the other four
+    ///     fields are ignored here even if populated — see Thalos' <c>AgentEnvelope</c>.
+    /// </summary>
+    public bool Chartered { get; set; }
 }
 
 /// <summary>
@@ -210,7 +230,7 @@ public sealed class SkillSearchConfig
 
 
 /// <summary>
-///     <c>Thalos:Workflow</c>: whether <see cref="DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents"/>
+///     <c>Thalos:Workflow</c>: whether <see cref="Daedalus.Agents.DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents(Microsoft.Extensions.DependencyInjection.IServiceCollection, Microsoft.Extensions.Configuration.IConfiguration, Microsoft.Extensions.Hosting.IHostEnvironment, Microsoft.Extensions.AI.IEmbeddingGenerator{string, Microsoft.Extensions.AI.Embedding{float}}?)"/>
 ///     wires the durable workflow engine (the store, the outbox poller, the stranded-run sweep, and the
 ///     process-definition sync) at all, and where its process files live on disk.
 /// </summary>

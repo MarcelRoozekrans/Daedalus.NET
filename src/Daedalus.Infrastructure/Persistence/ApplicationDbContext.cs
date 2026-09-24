@@ -33,6 +33,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
     /// <summary>Insert-only history of every distinct skill content hash ever synced; see <see cref="SkillVersion"/>.</summary>
     public DbSet<SkillVersion> SkillVersions => Set<SkillVersion>();
+
+    /// <summary>Insert-only history of every distinct role charter content hash ever synced; see <see cref="RoleCharterVersion"/>.</summary>
+    public DbSet<RoleCharterVersion> RoleCharterVersions => Set<RoleCharterVersion>();
+
+    /// <summary>Which version is each role's current one, and whether the role is active; see <see cref="RoleCharterHead"/>.</summary>
+    public DbSet<RoleCharterHead> RoleCharters => Set<RoleCharterHead>();
     public DbSet<ChannelConversation> ChannelConversations => Set<ChannelConversation>();
 
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
