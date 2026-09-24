@@ -17,6 +17,23 @@ public sealed class WorkflowRunGatewayTests
     private const string Signal = "human_approval";
 
     /// <summary>
+    ///     The gateway's misconfiguration guard, deferred from task B5. A gateway built without a writer must refuse
+    ///     an apply loudly, naming the missing writer. Without the guard the call would dereference a null writer
+    ///     instead.
+    /// </summary>
+    [Fact]
+    public async Task An_apply_on_a_gateway_built_without_a_writer_fails_loudly()
+    {
+        var store = Substitute.For<IWorkflowStore>();
+        var gateway = new WorkflowRunGateway(store);
+
+        var act = async () => await gateway.ResumeAsync(
+            Guid.NewGuid(), Signal, null, applyStandingInstructions: true, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*without a StandingInstructionsWriter*");
+    }
+
+    /// <summary>
     ///     Falsifiable: removing the <c>catch (WorkflowConcurrencyException)</c> block from the five-argument
     ///     <c>ResumeAsync</c> turns this red — the exception would propagate out of <c>ApplyAsync</c>'s caller
     ///     unhandled, and <c>await gateway.ResumeAsync(...)</c> would itself throw instead of returning a failed
@@ -69,7 +86,7 @@ public sealed class WorkflowRunGatewayTests
 
         await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, CancellationToken.None);
 
-        File.ReadAllText(dir.Path("AGENT.md")).Should().Be("New instructions.");
+        (await File.ReadAllTextAsync(dir.Path("AGENT.md"))).Should().Be("New instructions.");
     }
 
     private static WorkflowRun RunWith(string pinned, string proposal) => new()

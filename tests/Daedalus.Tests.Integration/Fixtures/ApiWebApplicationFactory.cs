@@ -40,9 +40,17 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     which lands under the project's git-ignored <c>obj</c> folder. <see langword="null"/> (the default) leaves
 ///     the shipped configuration in place, for hosts that never touch the standing-instructions file at all.
 /// </param>
+/// <param name="squadEnabled">
+///     When supplied, overrides <c>Thalos:Squad:Enabled</c>. <see langword="null"/> (the default) keeps the shipped
+///     value, which enables the squad.
+/// </param>
+/// <param name="configureServices">
+///     Runs after this factory's own service replacements, for a test that needs one more, such as a faster
+///     workflow outbox poll. <see langword="null"/> (the default) adds nothing.
+/// </param>
 internal sealed class ApiWebApplicationFactory(
     string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,
-    string? standingInstructionsPath = null)
+    string? standingInstructionsPath = null, bool? squadEnabled = null, Action<IServiceCollection>? configureServices = null)
     : WebApplicationFactory<Daedalus.Api.Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -74,6 +82,11 @@ internal sealed class ApiWebApplicationFactory(
         if (standingInstructionsPath is not null)
         {
             builder.UseSetting("Thalos:Workflow:StandingInstructionsPath", standingInstructionsPath);
+        }
+
+        if (squadEnabled is { } squad)
+        {
+            builder.UseSetting("Thalos:Squad:Enabled", squad ? "true" : "false");
         }
 
         if (keycloak is not null)
@@ -108,6 +121,8 @@ internal sealed class ApiWebApplicationFactory(
                     options.Configuration = new OpenIdConnectConfiguration();
                 });
             }
+
+            configureServices?.Invoke(services);
         });
     }
 }
