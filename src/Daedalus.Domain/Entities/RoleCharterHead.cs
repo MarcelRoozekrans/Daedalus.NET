@@ -47,11 +47,4 @@ public sealed class RoleCharterHead
         IsActive = true;
         UpdatedAt = updatedAt;
     }
-
-    /// <summary>Marks the role inactive — its versions stay in the versions table, only this pointer's activity flips.</summary>
-    public void Deactivate(DateTime updatedAt)
-    {
-        IsActive = false;
-        UpdatedAt = updatedAt;
-    }
 }

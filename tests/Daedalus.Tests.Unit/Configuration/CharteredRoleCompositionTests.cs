@@ -38,6 +38,28 @@ public sealed class CharteredRoleCompositionTests
         reviewer.Revision.Should().NotBeNullOrEmpty("the charter's content hash pins which version this definition was composed from");
     }
 
+    /// <summary>
+    ///     Fix round 1: <c>DaedalusAgentsOptions.CharterRoots</c> used to be a get-only <c>IList&lt;string&gt;</c>
+    ///     pre-populated with <c>["roles"]</c>. <c>ConfigurationBinder</c> binds into a get-only collection by
+    ///     appending rather than replacing it, so the shipped <c>"CharterRoots": [ "roles" ]</c> produced
+    ///     <c>["roles", "roles"]</c> — which made <c>CharterSyncService</c> scan the same root twice, upsert
+    ///     each role once and then hit its own already-seen role a second time as a duplicate (Thalos
+    ///     <c>EventId 603</c>), and skip <c>roles/README.md</c> twice over. Binding must yield exactly one root.
+    /// </summary>
+    [Fact]
+    public void Binding_the_shipped_Api_config_yields_exactly_one_charter_root()
+    {
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile(ApiAppSettingsFileName, optional: false)
+            .Build();
+
+        var options = new DaedalusAgentsOptions();
+        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+
+        options.CharterRoots.Should().Equal("roles");
+    }
+
     [Fact]
     public void A_chartered_agent_with_an_empty_tool_list_fails_registration()
     {

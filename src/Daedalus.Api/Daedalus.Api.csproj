@@ -56,10 +56,10 @@
     <ItemGroup>
         <!-- Squad role charters (Thalos:CharterRoots) - same authoring story as skills above: authored at the
              repo root so git is the source of truth, copied next to the API and, through the project reference,
-             into every test host that calls AddDaedalusAgents. roles/README.md is included too (it is not a
-             charter - it has no frontmatter - but there is no narrower glob that keeps it out without also
-             missing a future <role>/CHARTER.md, so a sync harmlessly skips it instead). -->
-        <Content Include="..\..\roles\**\*.md" Link="roles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+             into every test host that calls AddDaedalusAgents. roles/README.md is excluded: it carries no
+             frontmatter (it documents the folder, not a role), and copying it would only have CharterSyncService
+             scan and skip it - and log a warning - on every start. -->
+        <Content Include="..\..\roles\**\*.md" Exclude="..\..\roles\README.md" Link="roles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>

@@ -584,14 +584,28 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     The single default root, applied here rather than as <see cref="DaedalusAgentsOptions.CharterRoots"/>'s
+    ///     own field initializer — see that property's remarks for why a pre-populated default there is
+    ///     unusable with <c>ConfigurationBinder</c>.
+    /// </summary>
+    private static readonly IReadOnlyList<string> DefaultCharterRoots = ["roles"];
+
+    /// <summary>
     ///     Resolves <c>Thalos:CharterRoots</c> against the content root, the same way <see cref="ResolveSkillRoots"/>
     ///     resolves <c>Thalos:Skills:Roots</c> — see <see cref="ResolveContentRoot"/>'s remarks for why the
-    ///     assembly-directory fallback is load-bearing under <c>dotnet run</c>/Aspire.
+    ///     assembly-directory fallback is load-bearing under <c>dotnet run</c>/Aspire. Falls back to
+    ///     <see cref="DefaultCharterRoots"/> when <paramref name="roots"/> binds empty.
     /// </summary>
-    private static IReadOnlyList<string> ResolveCharterRoots(IList<string> roots, IHostEnvironment environment) =>
-        [.. roots
-            .Where(r => !string.IsNullOrWhiteSpace(r))
-            .Select(r => ResolveContentRoot(r, environment))];
+    private static IReadOnlyList<string> ResolveCharterRoots(IList<string> roots, IHostEnvironment environment)
+    {
+        var configured = roots.Where(r => !string.IsNullOrWhiteSpace(r)).ToList();
+        if (configured.Count == 0)
+        {
+            configured = [.. DefaultCharterRoots];
+        }
+
+        return [.. configured.Select(r => ResolveContentRoot(r, environment))];
+    }
 
     /// <summary>
     ///     The config-owned half of a chartered agent: identity, tools, output cap and memory. Everything else

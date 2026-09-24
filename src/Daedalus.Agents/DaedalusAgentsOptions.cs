@@ -34,11 +34,21 @@ public sealed class DaedalusAgentsOptions
     /// <summary>
     ///     Folders holding <c>&lt;role&gt;.md</c>/<c>&lt;role&gt;/CHARTER.md</c> documents for every
     ///     <see cref="AgentConfig.Chartered"/> agent (<c>Thalos:CharterRoots</c>). Relative paths resolve against
-    ///     the host content root, the same as <see cref="SkillsConfig.Roots"/>. Defaults to <c>["roles"]</c> —
-    ///     unlike <see cref="SkillsConfig.Roots"/>, an empty default here would leave every chartered agent with
-    ///     no root to sync its charter from, so this one is deliberately not empty.
+    ///     the host content root, the same as <see cref="SkillsConfig.Roots"/>.
     /// </summary>
-    public IList<string> CharterRoots { get; } = ["roles"];
+    /// <remarks>
+    ///     <b>Empty by default — same reason as <see cref="SkillsConfig.Roots"/>, not the same conclusion.</b>
+    ///     <c>ConfigurationBinder.Bind</c> reuses whatever instance a get-only (or get/set) collection property
+    ///     already holds and <em>appends</em> to it rather than replacing it — a setter does not change this,
+    ///     it only matters when the property is null. A pre-populated default of <c>["roles"]</c> here plus the
+    ///     shipped <c>"CharterRoots": [ "roles" ]</c> therefore produced <c>["roles", "roles"]</c> (fix round 1;
+    ///     confirmed by adding a setter alone and watching the duplicate persist). Unlike
+    ///     <see cref="SkillsConfig.Roots"/>, "no roots configured" must not mean "no charters" here — every
+    ///     chartered agent needs somewhere to sync from — so <c>ResolveCharterRoots</c> applies the <c>"roles"</c>
+    ///     default itself when this list binds empty, instead of the property carrying a default value that
+    ///     binding can never cleanly override.
+    /// </remarks>
+    public IList<string> CharterRoots { get; } = [];
 
     /// <summary>Workflow-engine settings (<c>Thalos:Workflow</c>): whether the engine is wired at all, and where process files live.</summary>
     public WorkflowConfig Workflow { get; } = new();

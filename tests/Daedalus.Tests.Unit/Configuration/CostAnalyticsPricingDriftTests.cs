@@ -1,6 +1,8 @@
-using Daedalus.Agents;
 using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Thalos;
+using static Daedalus.Tests.Unit.Configuration.ChartersTestSupport;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
@@ -23,10 +25,19 @@ namespace Daedalus.Tests.Unit.Configuration;
 ///     Quietly missing from a cost figure is a smaller defect than quietly wrong, and this is what keeps it
 ///     from happening at all.
 /// </remarks>
+/// <remarks>
+///     <b>Fix round 1: reads the composed, synced agent catalog, not raw configuration.</b> Since phase 2.4
+///     task B2, <c>implementer</c>/<c>reviewer</c> carry no <c>Model</c> key in <c>Thalos:Agents</c> at all —
+///     the reviewer's <c>claude-opus-5</c> comes from <c>roles/reviewer.md</c> (a charter) instead. Resolving
+///     <c>a.Model ?? defaultModel</c> off <c>DaedalusAgentsOptions</c> directly, as this test used to, therefore
+///     saw <see langword="null"/> for the reviewer and silently substituted <c>defaultModel</c> (already
+///     priced) — the guard stopped observing <c>claude-opus-5</c> at all and would not have gone red had its
+///     pricing entry been deleted. Building through <see cref="ChartersTestSupport.BuildWithApiConfigurationAndSyncedChartersAsync"/>
+///     and reading <see cref="IAgentCatalog"/> instead resolves every agent's <em>effective</em> model exactly
+///     as the runtime does, chartered or not.
+/// </remarks>
 public sealed class CostAnalyticsPricingDriftTests
 {
-    private const string ApiAppSettingsFileName = "Daedalus.Api.appsettings.json";
-
     private static IConfiguration LoadApiConfiguration() =>
         new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
@@ -45,31 +56,24 @@ public sealed class CostAnalyticsPricingDriftTests
         ?? throw new InvalidOperationException(
             "Thalos:Anthropic:DefaultModel is not set in Daedalus.Api/appsettings.json.");
 
-    /// <summary>
-    ///     Effective model id per agent declared under <c>Thalos:Agents</c> — <see cref="AgentConfig.Model"/>
-    ///     resolved against <c>Thalos:Anthropic:DefaultModel</c> for agents that omit it, exactly as the runtime
-    ///     resolves which model a call actually goes to. A raw <c>null</c> is never returned here: if this used
-    ///     <c>a.Model</c> unresolved instead, an agent with no <c>Model</c> would put a <see langword="null"/> into
-    ///     the sequence, and <c>pricing.Models.ContainsKey(null)</c> throws — the test would error rather than
-    ///     check the model that agent actually calls. Resolving against <c>defaultModel</c> here is what lets the
-    ///     guard test the right thing instead of merely avoiding that exception.
-    /// </summary>
-    private static IEnumerable<string> RealAppsettingsAgentModels()
-    {
-        var configuration = LoadApiConfiguration();
-        var defaultModel = RealAppsettingsDefaultModel();
-
-        var agentsOptions = new DaedalusAgentsOptions();
-        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(agentsOptions);
-
-        return agentsOptions.Agents.Select(a => a.Model ?? defaultModel);
-    }
-
     [Fact]
-    public void Every_model_configured_on_an_agent_has_a_price()
+    public async Task Every_model_configured_on_an_agent_has_a_price()
     {
         var pricing = RealPricing();
-        var configured = RealAppsettingsAgentModels().Append(RealAppsettingsDefaultModel()).ToList();
+        var defaultModel = RealAppsettingsDefaultModel();
+
+        await using var sp = await BuildWithApiConfigurationAndSyncedChartersAsync();
+
+        // Effective model per agent in the real, composed catalog - AgentDefinition.Model resolved against
+        // Thalos:Anthropic:DefaultModel for whichever agent omits it, exactly as the runtime resolves which
+        // model a call actually goes to. A raw null is never appended here: if this used a.Model unresolved
+        // instead, an agent with no Model would put a null into the sequence and
+        // pricing.Models.ContainsKey(null) throws - the test would error rather than check the model that
+        // agent actually calls.
+        var configured = sp.GetRequiredService<IAgentCatalog>().Agents
+            .Select(a => a.Model ?? defaultModel)
+            .Append(defaultModel)
+            .ToList();
 
         // Falsifiability guard against a vacuous pass: an OnlyContain over an empty sequence is
         // trivially true and would prove nothing. This codebase has shipped that shape before.

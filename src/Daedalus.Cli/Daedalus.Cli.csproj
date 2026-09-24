@@ -63,11 +63,14 @@
     </ItemGroup>
 
     <ItemGroup>
-        <!-- Squad role charters (Thalos:CharterRoots), same authoring story and mechanism as skills above. This
-             host declares no "Chartered": true agent today, so nothing here is actually synced, but every host
-             that copies skills/** copies roles/** too so that stays true only because the roster says so, not
-             because the folder is missing. -->
-        <Content Include="..\..\roles\**\*.md" Link="roles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+        <!-- Squad role charters (Thalos:CharterRoots), same authoring story and mechanism as skills above.
+             CharterSyncService parses every file under this root and upserts/sweeps it into the shared
+             RoleCharterVersions/RoleCharters Postgres tables on every start - the same tables
+             Daedalus.Api's own sync writes - regardless of whether this host declares a "Chartered": true
+             agent to compose any of them onto (it declares none today). This host must therefore have
+             migration AddRoleCharters applied before it starts, the same as Daedalus.Api. roles/README.md is
+             excluded: see Daedalus.Api.csproj's identical comment. -->
+        <Content Include="..\..\roles\**\*.md" Exclude="..\..\roles\README.md" Link="roles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

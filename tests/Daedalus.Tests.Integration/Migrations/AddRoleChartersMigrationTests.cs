@@ -10,12 +10,13 @@ namespace Daedalus.Tests.Integration.Migrations;
 /// <summary>
 ///     Runs the real migration chain on a throwaway database: up to the migration before
 ///     <c>AddRoleCharters</c>, then to latest, and asserts the new <c>RoleCharterVersions</c>/<c>RoleCharters</c>
-///     tables exist and round-trip a row - and that rolling back past it leaves a chain the predecessors' <c>Down</c>
-///     methods can still run. <c>PostgresFixture</c> builds its own schema with <c>EnsureCreatedAsync</c>, not
-///     <c>MigrateAsync</c>, so nothing else in this solution exercises this migration; without this test a broken
-///     one would pass the entire suite. Unlike <c>AddSkillVersionsMigrationTests</c>, there is no pre-existing
-///     table to backfill from - phase 2.3's <c>implementer</c>/<c>reviewer</c> agents were fully declared in
-///     <c>Thalos:Agents</c> until this migration's companion change, so both tables start empty.
+///     tables exist and round-trip a row - and that rolling back to that predecessor runs this migration's own
+///     <c>Down</c> cleanly, then forward again. <c>PostgresFixture</c> builds its own schema with
+///     <c>EnsureCreatedAsync</c>, not <c>MigrateAsync</c>, so nothing else in this solution exercises this
+///     migration; without this test a broken one would pass the entire suite. Unlike
+///     <c>AddSkillVersionsMigrationTests</c>, there is no pre-existing table to backfill from - phase 2.3's
+///     <c>implementer</c>/<c>reviewer</c> agents were fully declared in <c>Thalos:Agents</c> until this
+///     migration's companion change, so both tables start empty.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class AddRoleChartersMigrationTests(PostgresFixture fixture)
@@ -52,8 +53,14 @@ public sealed class AddRoleChartersMigrationTests(PostgresFixture fixture)
             });
     }
 
+    /// <summary>
+    ///     Fix round 1: renamed from <c>Rolling_back_past_this_migration_runs_the_rest_of_the_down_chain</c> —
+    ///     <c>AddSkillVersions</c> is <c>AddRoleCharters</c>' immediate predecessor, so migrating back to it
+    ///     rolls back exactly one migration (this one) and runs only its own <c>Down</c>, not "the rest of the
+    ///     down chain" through the many migrations before it.
+    /// </summary>
     [Fact]
-    public async Task Rolling_back_past_this_migration_runs_the_rest_of_the_down_chain()
+    public async Task Rolling_back_to_the_predecessor_migration_runs_only_this_migrations_down()
     {
         await RunMigrationAsync(
             seed: _ => Task.CompletedTask,
@@ -66,7 +73,7 @@ public sealed class AddRoleChartersMigrationTests(PostgresFixture fixture)
                 var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
                 applied.Should().NotContain(m => m.EndsWith("_AddRoleCharters", StringComparison.Ordinal));
 
-                // And forward again, so the chain is runnable in both directions.
+                // And forward again, so this migration's Up/Down pair is runnable in both directions.
                 await db.Database.MigrateAsync();
                 (await db.RoleCharterVersions.CountAsync()).Should().Be(0);
                 (await db.RoleCharters.CountAsync()).Should().Be(0);

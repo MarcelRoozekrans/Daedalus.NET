@@ -232,11 +232,11 @@ public sealed class SquadConfigurationDriftTests
     ///     reads the pin out of the process file, so it follows the file: a change that moved <c>implement</c>
     ///     onto some other agent would keep that guard green while this one goes red. This asserts the roster
     ///     entry itself, which is what a rollback or a later phase is most likely to disturb.
-    /// </remarks>
-    /// <remarks>
+    ///     <para>
     ///     Phase 2.4 task B2 moved <c>Skills</c> off the config roster and onto the charter
     ///     (<c>roles/implementer.md</c>), so this now reads the composed catalog rather than
     ///     <c>DaedalusAgentsOptions</c> directly — the config entry itself carries no <c>Skills</c> any more.
+    ///     </para>
     /// </remarks>
     [Fact]
     public async Task Implementer_can_load_the_manufacture_implement_skill()
