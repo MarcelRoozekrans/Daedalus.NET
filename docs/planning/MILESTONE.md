@@ -53,7 +53,7 @@ only once something demonstrably better runs in its place.
 | 2.2 | Durable workflow engine | complete (2026-09-22) |
 | 2.3 | The manufacturing squad | complete (2026-09-23; #274) |
 | 2.4 | The process as skills | complete (2026-09-24; #276) |
-| 2.5 | Run write authority, standing instructions in the target workspace, prompt caching | pending |
+| 2.5 | Run write authority, standing instructions in the target workspace, prompt caching | active (2026-09-24) |
 | 2.6 | Ralph retirement | pending |
 | 2.7 | Observability | pending |
 | 2.8 | The scout HTTP path | pending |
