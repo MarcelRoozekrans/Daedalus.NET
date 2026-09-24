@@ -1,4 +1,5 @@
 using System.Data.Async.Adapters;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
@@ -21,10 +22,10 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>
-///     Drives a two-role manufacturing pipeline — an <c>implement</c> node that reports variables through its
-///     outcome tool, and a lens-running <c>review</c> node — through the real <c>OrmWorkflowStore</c>, the real
-///     Thalos <see cref="WorkflowNodeDispatcher"/> and the real
-///     <see cref="WorkflowNodeDispatcherFactory"/> composition, against a real Postgres database. Only
+///     Drives a four-role manufacturing pipeline — an <c>implement</c> node that reports variables through its
+///     outcome tool, a lens-running <c>review</c> node, and — since phase 2.4 task B4 — a <c>retrospect</c> node —
+///     through the real <c>OrmWorkflowStore</c>, the real Thalos <see cref="WorkflowNodeDispatcher"/> and the
+///     real <see cref="WorkflowNodeDispatcherFactory"/> composition, against a real Postgres database. Only
 ///     <see cref="ISubagentRunner"/> and the agent-name lookup are substituted; the store, the outbox, the
 ///     dispatcher, the variable plumbing and both store decorators are the shipped ones.
 /// </summary>
@@ -38,6 +39,15 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     here therefore asserts against the <em>task text the dispatcher actually built</em>, and
 ///     <see cref="The_run_record_holds_the_narrative_the_reviewer_was_not_shown"/> pins that the withheld
 ///     values really were in the run, so a green result cannot mean "nothing travelled".
+///     <para>
+///     <b>Phase 2.4 task B4: <see cref="RunAsync"/> now starts through <see cref="WorkflowRunStarter"/>, not
+///     <c>store.StartAsync</c> directly.</b> Pinning is what makes <see cref="StandingInstructionsRunner"/>
+///     exercisable at all — it reads <see cref="WorkflowRun.Manifest"/>, which only a pinned start ever
+///     populates — so the harness now resolves every task node's agent and skill through a real
+///     <see cref="CatalogRunManifestResolver"/> over a seeded <see cref="InMemorySkillStore"/> and a small
+///     in-test <see cref="IAgentCatalog"/>, the same shape <c>WorkflowRunStarterTests</c> in Thalos.NET itself
+///     uses.
+///     </para>
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
 public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
@@ -49,6 +59,12 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     private const string SummarySentinel = "SUMMARY-MUST-NOT-REACH-THE-REVIEWER";
 
     private const string RationaleSentinel = "RATIONALE-MUST-NOT-REACH-THE-REVIEWER";
+
+    private const string LearningsSentinel = "LEARNINGS-DOTNET-TEST-NEEDS-DOCKER";
+
+    private const string StandingSentinel = "STANDING-INSTRUCTIONS-SENTINEL";
+
+    private const string DefaultRetrospectProposal = "PROPOSED-STANDING-INSTRUCTIONS-SENTINEL";
 
     private const string WorkIntent = "Make ClaimNextAsync skip cancelled tasks";
 
@@ -77,17 +93,29 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         nodes:
           implement:
             agent: implementer
+            skill: manufacture-implement
             outcomes: [changed, blocked]
             branch:
               changed: review
               blocked: stopped
           review:
             agent: reviewer
+            skill: manufacture-review
             outcomes: [approved, rejected]
             branch:
-              approved: done
+              approved: retrospect
               rejected: implement
             lenses: [correctness, falsifiability, mechanism]
+          retrospect:
+            agent: reviewer
+            skill: manufacture-retrospect
+            outcomes: [proposed, none]
+            branch:
+              proposed: gate
+              none: gate
+          gate:
+            await: human_approval
+            next: done
           stopped:
             terminal: failed
           done:
@@ -100,8 +128,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     {
         var result = await RunAsync(squadEnabled: true);
 
-        result.ReviewTasks.Should().NotBeEmpty("the review node must have been dispatched at all");
-        foreach (var task in result.ReviewTasks)
+        result.TasksByNode["review"].Should().NotBeEmpty("the review node must have been dispatched at all");
+        foreach (var task in result.TasksByNode["review"])
         {
             task.Should().Contain(FilesTouched,
                 "files_touched is written by implement through the outcome tool's variables argument and is the " +
@@ -119,8 +147,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     {
         var result = await RunAsync(squadEnabled: true);
 
-        result.ReviewTasks.Should().NotBeEmpty();
-        foreach (var task in result.ReviewTasks)
+        result.TasksByNode["review"].Should().NotBeEmpty();
+        foreach (var task in result.TasksByNode["review"])
         {
             task.Should().NotContain(SummarySentinel,
                 "a summary is rationale in compressed form; a reviewer handed it reviews the account, not the artifact");
@@ -145,17 +173,17 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         result.FinalVariables.Should().ContainKey(ReviewHandoff.FilesTouchedKey);
     }
 
-    /// <summary>The implement node still receives everything: only a lens-running node is narrowed.</summary>
+    /// <summary>The implement node still receives everything: only a projected node is narrowed.</summary>
     [Fact]
     public async Task A_node_that_runs_no_lenses_is_given_the_whole_bag()
     {
         var result = await RunAsync(squadEnabled: true);
 
-        result.ImplementTasks.Should().NotBeEmpty();
-        result.ImplementTasks[0].Should().Contain(WorkIntent,
+        result.TasksByNode["implement"].Should().NotBeEmpty();
+        result.TasksByNode["implement"][0].Should().Contain(WorkIntent,
             "the opening variables reach the first node through Thalos' own rendering of the bag");
-        result.ImplementTasks[0].Should().Contain(OffContractSentinel,
-            "a node that declares no lenses is not narrowed at all, including for keys the review contract does not name");
+        result.TasksByNode["implement"][0].Should().Contain(OffContractSentinel,
+            "a node with no read projection is not narrowed at all, including for keys the review contract does not name");
     }
 
     /// <summary>
@@ -168,12 +196,66 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     {
         var result = await RunAsync(squadEnabled: true);
 
-        result.ReviewTasks.Should().NotBeEmpty();
-        foreach (var task in result.ReviewTasks)
+        result.TasksByNode["review"].Should().NotBeEmpty();
+        foreach (var task in result.TasksByNode["review"])
         {
             task.Should().NotContain(OffContractSentinel,
                 "a deny-list admits every field a later phase adds, and the leak is invisible until someone re-reads the filter");
         }
+    }
+
+    /// <summary>
+    ///     Task B4: the retrospect node reads the implementer's <c>learnings</c> (through the retrospect
+    ///     projection) and the run's pinned standing instructions (appended by
+    ///     <see cref="StandingInstructionsRunner"/>), but never the implementer's narrative — the same isolation
+    ///     the reviewer gets, extended to the one variable retrospect is allowed to read.
+    /// </summary>
+    [Fact]
+    public async Task The_retrospect_node_sees_learnings_and_standing_instructions_but_not_the_narrative()
+    {
+        var result = await RunAsync(squadEnabled: true, documents: new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [ManufactureRunStarter.StandingInstructionsDocument] = StandingSentinel,
+        });
+
+        var task = result.TasksByNode["retrospect"].Single();
+        task.Should().Contain(LearningsSentinel).And.Contain(StandingSentinel);
+        task.Should().NotContain(SummarySentinel).And.NotContain(RationaleSentinel);
+    }
+
+    /// <summary>
+    ///     <see cref="StandingInstructionsRunner"/> is keyed on the pinned skill, not on the node name: only
+    ///     <c>manufacture-implement</c> and <c>manufacture-retrospect</c> are eligible, so <c>review</c> — pinned
+    ///     to <c>manufacture-review</c> — never receives the block, however many lens passes it runs.
+    /// </summary>
+    [Fact]
+    public async Task The_implement_node_is_given_the_standing_instructions_and_the_review_node_is_not()
+    {
+        var result = await RunAsync(squadEnabled: true, documents: new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [ManufactureRunStarter.StandingInstructionsDocument] = StandingSentinel,
+        });
+
+        result.TasksByNode["implement"].Should().OnlyContain(t => t.Contains(StandingSentinel));
+        result.TasksByNode["review"].Should().OnlyContain(t => !t.Contains(StandingSentinel),
+            "the reviewer judges the artifact, not the house rules the implementer followed");
+    }
+
+    /// <summary>
+    ///     The design's amendment 3: rendering cuts a variable's value at 512 characters, but that is a
+    ///     rendering concern, not a storage one — the run's real <c>Variables</c> bag keeps whatever the node
+    ///     reported at full length, which is what a human resuming the gate needs <c>proposed_standing_instructions</c>
+    ///     to still be.
+    /// </summary>
+    [Fact]
+    public async Task A_run_reaches_the_gate_with_the_full_proposal_stored_uncut()
+    {
+        var proposal = new string('p', 3000);
+        var result = await RunAsync(squadEnabled: true, retrospectProposal: proposal);
+
+        result.FinalRun.Status.Should().Be(WorkflowStatus.Awaiting);
+        ((string)result.FinalRun.Variables[ReviewHandoff.ProposedStandingInstructionsKey]!).Should().HaveLength(3000,
+            "rendering cuts at 512, but the stored value is what the host writes to AGENT.md");
     }
 
     [Fact]
@@ -206,7 +288,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     {
         var result = await RunAsync(squadEnabled: false);
 
-        result.Status.Should().Be(WorkflowStatus.Succeeded, "the fallback must still reach a terminal success");
+        result.Status.Should().Be(WorkflowStatus.Awaiting, "the fallback must still reach the human gate");
         result.TransitionModes.Should().NotBeEmpty();
         result.TransitionModes.Should().OnlyContain(m => m != null && m.StartsWith(WorkflowRunModeStore.SquadDisabledPrefix, StringComparison.Ordinal),
             "every transition the run recorded must name the mode that produced it, in workflow_run_event and not only in a log");
@@ -225,14 +307,17 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     }
 
     private sealed record RunOutcome(
-        WorkflowStatus Status,
-        IReadOnlyList<string> ImplementTasks,
-        IReadOnlyList<string> ReviewTasks,
+        WorkflowRun FinalRun,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> TasksByNode,
         IReadOnlyDictionary<string, AgentId> AgentsByNode,
         IReadOnlyDictionary<string, string> FinalVariables,
-        IReadOnlyList<string?> TransitionModes);
+        IReadOnlyList<string?> TransitionModes)
+    {
+        public WorkflowStatus Status => FinalRun.Status;
+    }
 
-    private async Task<RunOutcome> RunAsync(bool squadEnabled)
+    private async Task<RunOutcome> RunAsync(
+        bool squadEnabled, IReadOnlyDictionary<string, string>? documents = null, string? retrospectProposal = null)
     {
         var dbName = $"b5_handoff_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
@@ -250,8 +335,14 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);
             (await definitions.UpsertAndActivateAsync(definition.Value, Yaml, CancellationToken.None)).IsSuccess.Should().BeTrue();
 
-            var runner = new ScriptedRunner();
-            var provider = BuildProvider(store, definitions, runner, squadEnabled);
+            var skills = new InMemorySkillStore(TimeProvider.System);
+            foreach (var skillName in new[] { "manufacture-implement", "manufacture-review", "manufacture-retrospect" })
+            {
+                (await skills.UpsertAsync(SeedSkill(skillName), CancellationToken.None)).IsSuccess.Should().BeTrue();
+            }
+
+            var runner = new ScriptedRunner(retrospectProposal ?? DefaultRetrospectProposal);
+            var (provider, references, catalog) = BuildProvider(store, definitions, runner, squadEnabled, skills);
             await using var disposable = provider;
 
             var nodeDispatcher = WorkflowNodeDispatcherFactory.Create(provider);
@@ -261,18 +352,22 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             var poller = new WorkflowOutboxDispatchService(
                 dataSource, outboxDispatcher, new WorkflowOutboxDispatchOptions(), NullLogger<WorkflowOutboxDispatchService>.Instance);
 
-            var runId = await store.StartAsync(
-                ProcessName, 1, $"b5-handoff:{Guid.NewGuid()}", "implement",
-                new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    [ReviewHandoff.WorkIntentKey] = WorkIntent,
-                    ["issue_url"] = OffContractSentinel,
-                },
-                CancellationToken.None);
+            var manifestResolver = new CatalogRunManifestResolver(references, catalog, skills);
+            var starter = new WorkflowRunStarter(definitions, manifestResolver, store);
 
-            // implement -> review -> done is three dispatches; a couple of spare ticks so a terminal node that
-            // enqueued nothing simply finds an empty batch rather than leaving the run mid-flight.
-            for (var tick = 0; tick < 6; tick++)
+            var variables = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [ReviewHandoff.WorkIntentKey] = WorkIntent,
+                ["issue_url"] = OffContractSentinel,
+            };
+
+            var started = await starter.StartAsync(ProcessName, $"b5-handoff:{Guid.NewGuid()}", variables, documents, CancellationToken.None);
+            started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : "");
+            var runId = started.Value;
+
+            // implement -> review -> retrospect -> gate is four dispatches; spare ticks so a gate that enqueued
+            // nothing simply finds an empty batch rather than leaving the run mid-flight.
+            for (var tick = 0; tick < 8; tick++)
             {
                 await poller.ProcessBatchAsync(CancellationToken.None);
             }
@@ -281,9 +376,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             run.Should().NotBeNull();
 
             return new RunOutcome(
-                run!.Status,
-                runner.TasksFor("implement"),
-                runner.TasksFor("review"),
+                run!,
+                runner.TasksByNode,
                 runner.AgentsByNode,
                 run.Variables.ToDictionary(kv => kv.Key, kv => kv.Value?.ToString() ?? "", StringComparer.Ordinal),
                 await ReadTransitionModesAsync(connectionString, runId));
@@ -295,14 +389,28 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         }
     }
 
+    /// <summary>A minimal, active skill document for <paramref name="name"/> — the body's content is never read by this suite.</summary>
+    private static SkillDocument SeedSkill(string name) => new()
+    {
+        Name = SkillName.Parse(name),
+        Description = "a test skill",
+        Body = "do the thing",
+        SourcePath = $"{name}/SKILL.md",
+        ContentHash = name,
+        UpdatedAt = TimeProvider.System.GetUtcNow(),
+    };
+
     /// <summary>
     ///     Builds the container <see cref="WorkflowNodeDispatcherFactory.Create"/> reads, with the same
     ///     <see cref="SquadWorkflowReferenceResolver"/> wrapping production DI applies. The inner name lookup is
     ///     substituted because a real <c>IAgentCatalog</c> would need a booted host;
-    ///     <c>SquadConfigurationDriftTests</c> covers that the real composition wraps it the same way.
+    ///     <c>SquadConfigurationDriftTests</c> covers that the real composition wraps it the same way. Returns
+    ///     the resolver and catalog alongside the provider so <see cref="RunAsync"/> can build a
+    ///     <see cref="CatalogRunManifestResolver"/> from the exact same instances the dispatcher resolves out of
+    ///     DI, rather than a second, possibly-diverging pair.
     /// </summary>
-    private static ServiceProvider BuildProvider(
-        IWorkflowStore store, IProcessDefinitionStore definitions, ISubagentRunner runner, bool squadEnabled)
+    private static (ServiceProvider Provider, IWorkflowReferenceResolver References, IAgentCatalog Catalog) BuildProvider(
+        IWorkflowStore store, IProcessDefinitionStore definitions, ISubagentRunner runner, bool squadEnabled, ISkillStore skills)
     {
         var names = Substitute.For<IWorkflowReferenceResolver>();
         names.ResolveAgentIdAsync("implementer", Arg.Any<CancellationToken>()).Returns(new ValueTask<AgentId?>(ImplementerId));
@@ -310,16 +418,25 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         names.ResolveAgentIdAsync("Daedalus Architect", Arg.Any<CancellationToken>()).Returns(new ValueTask<AgentId?>(ArchitectId));
 
         var squad = new SquadOptions { Enabled = squadEnabled, FallbackAgentName = "Daedalus Architect" };
+        var squadAgentResolver = new SquadAgentResolver(squad);
+        var references = new SquadWorkflowReferenceResolver(names, squadAgentResolver, NullLogger<SquadWorkflowReferenceResolver>.Instance);
+        var catalog = new FakeAgentCatalog(
+        [
+            Def("implementer", ImplementerId),
+            Def("reviewer", ReviewerId),
+            Def("Daedalus Architect", ArchitectId),
+        ]);
 
         var services = new ServiceCollection();
         services.AddSingleton(store);
         services.AddSingleton(definitions);
         services.AddSingleton(squad);
-        services.AddSingleton<SquadAgentResolver>();
+        services.AddSingleton(squadAgentResolver);
         services.AddSingleton<WorkflowRecallTierLog>();
-        services.AddSingleton<IWorkflowReferenceResolver>(sp => new SquadWorkflowReferenceResolver(names, sp.GetRequiredService<SquadAgentResolver>(), NullLogger<SquadWorkflowReferenceResolver>.Instance));
+        services.AddSingleton<IWorkflowReferenceResolver>(references);
+        services.AddSingleton<IAgentCatalog>(catalog);
         services.AddSingleton(runner);
-        services.AddSingleton(Substitute.For<ISkillStore>());
+        services.AddSingleton(skills);
         services.AddSingleton(Options.Create(new DetachedRunOptions
         {
             PrincipalId = "workflow-test",
@@ -327,7 +444,29 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             MaxTotalTokens = 42_000,
             DeadlineSeconds = 180,
         }));
-        return services.BuildServiceProvider();
+        return (services.BuildServiceProvider(), references, catalog);
+    }
+
+    private static AgentDefinition Def(string name, AgentId id) => new()
+    {
+        Id = id,
+        Name = name,
+        Instructions = "do the thing",
+    };
+
+    /// <summary>
+    ///     An <see cref="IAgentCatalog"/> over a fixed list, the same shape Thalos.NET's own
+    ///     <c>WorkflowRunStarterTests</c> uses - this suite has no booted host to read a real one from.
+    /// </summary>
+    private sealed class FakeAgentCatalog(IReadOnlyList<AgentDefinition> agents) : IAgentCatalog
+    {
+        public IReadOnlyList<AgentDefinition> Agents { get; } = agents;
+
+        public bool TryGet(AgentId id, [MaybeNullWhen(false)] out AgentDefinition definition)
+        {
+            definition = Agents.FirstOrDefault(a => a.Id == id);
+            return definition is not null;
+        }
     }
 
     /// <summary>
@@ -354,11 +493,13 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Answers each node's turn the way the shipped skills instruct: <c>implement</c> reports its three
-    ///     declared variables on the outcome call, and each <c>review</c> lens pass reports evidence through
-    ///     <c>daedalus__report_review_outcome</c> and the matching verdict through the engine's own tool.
+    ///     Answers each node's turn the way the shipped skills instruct: <c>implement</c> reports its declared
+    ///     variables (including the optional <c>learnings</c>) on the outcome call, each <c>review</c> lens pass
+    ///     reports evidence through <c>daedalus__report_review_outcome</c> and the matching verdict through the
+    ///     engine's own tool, and <c>retrospect</c> reports <c>proposed</c> with a replacement standing-instructions
+    ///     text.
     /// </summary>
-    private sealed class ScriptedRunner : ISubagentRunner
+    private sealed class ScriptedRunner(string retrospectProposal) : ISubagentRunner
     {
         private readonly List<(string Node, string Task)> _turns = [];
         private readonly Dictionary<string, AgentId> _agents = new(StringComparer.Ordinal);
@@ -366,8 +507,10 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
         public IReadOnlyDictionary<string, AgentId> AgentsByNode => _agents;
 
-        public List<string> TasksFor(string node) =>
-            _turns.Where(t => string.Equals(t.Node, node, StringComparison.Ordinal)).Select(t => t.Task).ToList();
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> TasksByNode =>
+            _turns
+                .GroupBy(t => t.Node, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, IReadOnlyList<string> (g) => g.Select(t => t.Task).ToList(), StringComparer.Ordinal);
 
         public ValueTask<Result<AgentTurnResult, AgentError>> RunAsync(SubagentRunRequest request, CancellationToken ct = default)
         {
@@ -376,9 +519,13 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             _agents[run.CurrentNode] = request.AgentId;
 
             var outcomeToolName = request.RequiredOutcome!.ToolName;
-            var turn = string.Equals(run.CurrentNode, "implement", StringComparison.Ordinal)
-                ? ImplementTurn(outcomeToolName)
-                : ReviewTurn(outcomeToolName, _lensPass++);
+            var turn = run.CurrentNode switch
+            {
+                "implement" => ImplementTurn(outcomeToolName),
+                "review" => ReviewTurn(outcomeToolName, _lensPass++),
+                "retrospect" => RetrospectTurn(outcomeToolName, retrospectProposal),
+                _ => throw new InvalidOperationException($"ScriptedRunner has no script for node '{run.CurrentNode}'."),
+            };
 
             return ValueTask.FromResult(Result<AgentTurnResult, AgentError>.Success(turn));
         }
@@ -392,11 +539,12 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                     JsonSerializer.Serialize(new
                     {
                         outcome = "changed",
-                        variables = new Dictionary<string, string>(StringComparer.Ordinal)
+                        variables = new Dictionary<string, object?>(StringComparer.Ordinal)
                         {
                             [ReviewHandoff.SummaryKey] = SummarySentinel,
                             [ReviewHandoff.FilesTouchedKey] = FilesTouched,
                             [ReviewHandoff.RationaleKey] = RationaleSentinel,
+                            [ReviewHandoff.LearningsKey] = new[] { LearningsSentinel },
                         },
                     }),
                     Succeeded: true, "ok", TimeSpan.FromMilliseconds(2)),
@@ -427,6 +575,24 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 ],
                 TimeSpan.FromSeconds(2));
         }
+
+        private static AgentTurnResult RetrospectTurn(string outcomeToolName, string proposal) => new(
+            TurnId.New(), new SessionId(Guid.Empty), "proposed a standing-instructions update", default,
+            [
+                new ToolCallSummary(
+                    ToolCallId.New(),
+                    outcomeToolName,
+                    JsonSerializer.Serialize(new
+                    {
+                        outcome = "proposed",
+                        variables = new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            [ReviewHandoff.ProposedStandingInstructionsKey] = proposal,
+                        },
+                    }),
+                    Succeeded: true, "ok", TimeSpan.FromMilliseconds(2)),
+            ],
+            TimeSpan.FromSeconds(1));
     }
 
     private static async Task MigrateAsync(string connectionString)

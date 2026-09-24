@@ -55,13 +55,18 @@ internal static class WorkflowNodeDispatcherFactory
                 sp.GetRequiredService<SquadOptions>(),
                 sp.GetRequiredService<Daedalus.Agents.Memory.WorkflowRecallTierLog>()),
             sp.GetRequiredService<IProcessDefinitionStore>()),
-        // Order matters. ReviewLensRunner is the OUTER decorator and BudgetedSubagentRunner the inner one, so a
-        // node that runs three lens passes runs three separately budgeted turns rather than three passes sharing
-        // one turn's ceiling. Reversing the two would let a two-lens review exhaust the budget and fail the node
-        // on the third, which is a cost control silently becoming a correctness bug.
-        new ReviewLensRunner(
-            new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
-            sp.GetRequiredService<IProcessDefinitionStore>()),
+        // Order matters, twice over. ReviewLensRunner is the middle decorator and BudgetedSubagentRunner the
+        // innermost one, so a node that runs three lens passes runs three separately budgeted turns rather than
+        // three passes sharing one turn's ceiling - reversing the two would let a two-lens review exhaust the
+        // budget and fail the node on the third, which is a cost control silently becoming a correctness bug.
+        // StandingInstructionsRunner is outermost: a review node's pinned skill never matches its eligible set
+        // (manufacture-implement, manufacture-retrospect), so it is inert on every lens pass regardless of where
+        // it sits, but sitting outside means the eligibility check runs once per node dispatch rather than once
+        // per lens pass.
+        new StandingInstructionsRunner(
+            new ReviewLensRunner(
+                new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+                sp.GetRequiredService<IProcessDefinitionStore>())),
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
         sp.GetRequiredService<ISkillStore>(),

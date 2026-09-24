@@ -21,8 +21,10 @@ namespace Daedalus.Agents.Workflow;
 ///     <para>
 ///     <b>Every transition, not only the first.</b> A host decorator has no cheap, reliable "is this the
 ///     first" signal — <c>CompleteNodeAsync</c>'s <c>seq</c> starts at 1 only because of a private constant in
-///     <c>OrmWorkflowStore</c>, and reading the run back to check its bag would add a round trip to every
-///     completion. Recording on every transition is also strictly more honest: a run parked at an approval gate
+///     <c>OrmWorkflowStore</c>. Task B4 does now read the run back on every completion, for <see cref="PinningKey"/>
+///     — see that override's own remarks for why that particular round trip is safe — but the underlying choice
+///     stands regardless: recording on every transition is more honest than recording once, not only cheaper.
+///     A run parked at an approval gate
 ///     for days can resume onto a host whose <c>Thalos:Squad:Enabled</c> has since changed, and a record that
 ///     claimed the mode of the first transition would describe a mode half the run never executed in. Each
 ///     event states the mode that produced <em>that</em> transition.
@@ -34,17 +36,28 @@ namespace Daedalus.Agents.Workflow;
 ///     nothing to add and no turn to describe. The transition that follows the gate carries the mode again.
 ///     </para>
 ///     <para>
-///     <b>The two keys sit above the cap, not inside it.</b> Both are added <em>after</em> every check of a
-///     node's report against Thalos' sixteen-key limit — the dispatcher's own, and
-///     <see cref="ReviewHandoffWorkflowStore"/>'s re-check on a review node — so a node can never be failed
-///     for a key this type added, and the persisted bag can hold sixteen reported keys plus these two. That is
+///     <b>The keys sit above the cap, not inside it.</b> All three — <see cref="SquadModeKey"/>,
+///     <see cref="RecallTierKey"/> and, from task B4, <see cref="PinningKey"/> — are added <em>after</em> every
+///     check of a node's report against Thalos' sixteen-key limit — the dispatcher's own, and
+///     <see cref="ReviewHandoffWorkflowStore"/>'s re-check on a projected node — so a node can never be failed
+///     for a key this type added, and the persisted bag can hold sixteen reported keys plus these three. That is
 ///     the same shape as <c>IWorkflowStore.ResumeAsync</c>'s payload key, which Thalos' own derivation of
 ///     <c>WorkflowVariableBlock.MaxOmittedKeyListLength</c> already carries as "plus one for the engine-minted
-///     payload"; these are two more of exactly that kind, and the derivation's slack does not account for
-///     them. The consequence is bounded and permanent rather than growing, because both keys are overwritten
-///     rather than accumulated: the omitted-key list can fall two names short of naming every key a rendered
-///     block left out, and no further. Growing past that was a separate defect, in the projection rather than
-///     here, and is fixed in <see cref="ReviewHandoffWorkflowStore"/>.
+///     payload"; these are three more of exactly that kind, and the derivation's slack does not account for
+///     them. The consequence is bounded and permanent rather than growing, because every one of the three is
+///     overwritten rather than accumulated: the omitted-key list can fall three names short of naming every key
+///     a rendered block left out, and no further. Growing past that was a separate defect, in the projection
+///     rather than here, and is fixed in <see cref="ReviewHandoffWorkflowStore"/>.
+///     </para>
+///     <para>
+///     <b>Task B4 checked, rather than assumed, that a third permanent key is still safe on a review node.</b>
+///     The shipped <c>manufacture.yaml</c> carries at most nine distinct keys across a run's whole life —
+///     <c>work_intent</c>, <c>files_touched</c>, <c>summary</c>, <c>rationale</c>, <c>learnings</c>,
+///     <c>proposed_standing_instructions</c>, plus the three mode keys — nowhere near the cap of sixteen, and
+///     <c>review</c>'s own outcome-tool call carries no variables at all (its evidence goes through a separate
+///     tool). So <see cref="PinningKey"/> is recorded on every transition, the same as <see cref="SquadModeKey"/>,
+///     rather than only on the run's opening event — the fallback the design considered for a process shape that
+///     would actually threaten the cap, which this one does not.
 ///     </para>
 /// </remarks>
 internal sealed class WorkflowRunModeStore(IWorkflowStore inner, SquadOptions squad, WorkflowRecallTierLog tiers)
@@ -55,6 +68,15 @@ internal sealed class WorkflowRunModeStore(IWorkflowStore inner, SquadOptions sq
 
     /// <summary>The variable and event key carrying which recall tier answered the node's last turn.</summary>
     public const string RecallTierKey = "recall_tier";
+
+    /// <summary>The variable and event key carrying whether this run was started with a pinned <see cref="RunManifest"/>.</summary>
+    public const string PinningKey = "pinning";
+
+    /// <summary>What <see cref="PinningKey"/> reads when the run carries a <see cref="RunManifest"/>.</summary>
+    public const string PinningManifestValue = "manifest";
+
+    /// <summary>What <see cref="PinningKey"/> reads when the run carries none — started before manifests existed, or through the legacy positional <c>StartAsync</c> overload.</summary>
+    public const string PinningNoneValue = "none";
 
     /// <summary>What <see cref="SquadModeKey"/> reads when the roles ran as themselves.</summary>
     public const string SquadEnabledValue = "enabled: each role ran as its own agent";
@@ -82,13 +104,22 @@ internal sealed class WorkflowRunModeStore(IWorkflowStore inner, SquadOptions sq
     }
 
     /// <inheritdoc />
-    public override ValueTask CompleteNodeAsync(Guid runId, long seq, WorkflowTransition transition, NodeResult result, CancellationToken ct)
+    /// <remarks>
+    ///     <see cref="PinningKey"/> needs <see cref="WorkflowRun.Manifest"/>, which this override's parameters do
+    ///     not carry — <c>IWorkflowStore.CompleteNodeAsync</c> takes a <c>runId</c>, not a run — so this reads the
+    ///     run back through <see cref="DelegatingWorkflowStore.Inner"/> first. That costs one round trip this type
+    ///     did not previously make, and is safe to make on every transition because <see cref="WorkflowRun.Manifest"/>
+    ///     is write-once: it cannot go stale between this read and the write below the way a live value could.
+    /// </remarks>
+    public override async ValueTask CompleteNodeAsync(Guid runId, long seq, WorkflowTransition transition, NodeResult result, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(result);
 
+        var run = await Inner.FindAsync(runId, ct).ConfigureAwait(false);
         var annotated = new Dictionary<string, object?>(result.Variables, StringComparer.Ordinal)
         {
             [SquadModeKey] = DescribeMode(_squad),
+            [PinningKey] = run?.Manifest is null ? PinningNoneValue : PinningManifestValue,
         };
 
         // Taken, not peeked: a node whose turn made no recall must not inherit the previous node's tier and
@@ -100,6 +131,6 @@ internal sealed class WorkflowRunModeStore(IWorkflowStore inner, SquadOptions sq
             annotated[RecallTierKey] = tier.ToString();
         }
 
-        return Inner.CompleteNodeAsync(runId, seq, transition, new NodeResult(result.Outcome, annotated), ct);
+        await Inner.CompleteNodeAsync(runId, seq, transition, new NodeResult(result.Outcome, annotated), ct).ConfigureAwait(false);
     }
 }

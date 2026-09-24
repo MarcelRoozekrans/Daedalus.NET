@@ -104,4 +104,39 @@ public sealed class ReviewHandoffTests
         ReviewHandoff.ReviewReads.Should().NotContain(ReviewHandoff.SummaryKey);
         ReviewHandoff.ReviewReads.Should().NotContain(ReviewHandoff.RationaleKey);
     }
+
+    /// <summary>
+    ///     Task B4's second declared read contract, for the <c>retrospect</c> node. Only <c>learnings</c> - never
+    ///     <c>summary</c> or <c>rationale</c>, for the same reason <see cref="ReviewHandoff.ReviewReads"/> excludes
+    ///     them.
+    /// </summary>
+    [Fact]
+    public void The_retrospect_read_contract_is_learnings_alone()
+    {
+        // Falsifiable: adding a key to ReviewHandoff.RetrospectReads turns this red.
+        ReviewHandoff.RetrospectReads.Should().BeEquivalentTo([ReviewHandoff.LearningsKey]);
+        ReviewHandoff.RetrospectReads.Should().NotContain(ReviewHandoff.SummaryKey);
+        ReviewHandoff.RetrospectReads.Should().NotContain(ReviewHandoff.RationaleKey);
+    }
+
+    /// <summary>
+    ///     <see cref="ReviewHandoff.Project"/> is the same allow-list walk <see cref="ReviewHandoff.ProjectForReviewNode"/>
+    ///     always did, generalised to an arbitrary read set so <c>ReviewHandoffWorkflowStore</c> can apply it to
+    ///     <see cref="ReviewHandoff.RetrospectReads"/> too.
+    /// </summary>
+    [Fact]
+    public void Project_walks_the_given_read_set_the_same_way_ProjectForReviewNode_walks_ReviewReads()
+    {
+        var variables = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.LearningsKey] = "dotnet test needs Docker",
+            [ReviewHandoff.SummaryKey] = "did a thing",
+        };
+
+        var projected = ReviewHandoff.Project(variables, ReviewHandoff.RetrospectReads);
+
+        // Falsifiable: widening RetrospectReads to include SummaryKey turns the NotContainKey assertion red.
+        projected.Should().ContainKey(ReviewHandoff.LearningsKey).WhoseValue.Should().Be("dotnet test needs Docker");
+        projected.Should().NotContainKey(ReviewHandoff.SummaryKey);
+    }
 }

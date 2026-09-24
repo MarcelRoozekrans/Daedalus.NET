@@ -41,9 +41,9 @@
 #      the record's content is real, or that a human ever reads it. Opening the actual pull request
 #      stays a deliberately unautomated, human-triggered step.
 #
-#   3. Reaching `succeeded` proves the graph walked implement -> review -> gate -> publish -> done
-#      and that each task node's agent called the outcome tool its schema demanded. Phase 2.3
-#      narrows what that leaves unproven - `implement` must now assert `changed` rather than
+#   3. Reaching `succeeded` proves the graph walked implement -> review -> retrospect -> gate ->
+#      publish -> done and that each task node's agent called the outcome tool its schema demanded.
+#      Phase 2.3 narrows what that leaves unproven - `implement` must now assert `changed` rather than
 #      complete on any output at all, and `review` must survive three lenses and produce evidence -
 #      but it does not close the gap. See section 12 of the design document for the honest limits.
 process: manufacture
@@ -58,7 +58,16 @@ process: manufacture
 # that forced one bump for three graph changes forces this one for a comment-only change. Bumping is the
 # rule working, not an obstacle to route around: a v3 body that no longer matches v3's stored hash is a
 # file the store refuses to activate, leaving the old v3 running and the correction never reaching a run.
-version: 4
+#
+# version bumped 4 -> 5 (phase 2.4, task B4): review's `approved` outcome no longer branches straight to the
+# human gate. It branches to a new `retrospect` node first, which runs as `reviewer` - the same agent that holds
+# no write tool - and sees only the implementer's `learnings` plus the pinned standing instructions, never the
+# implementer's `summary` or `rationale`. It PROPOSES a replacement for the standing instructions file; nothing
+# in this graph writes it. Both of retrospect's outcomes, `proposed` and `none`, still branch to `gate`, so a
+# human approval is required either way and the proposal only ever reaches disk through B5's apply step, on a
+# human's resume. This ports Ralph's AGENT.md self-improvement loop into the workflow - see the phase 2.4
+# design, amendment D4. Content-hash immutability forces the graph edit and this comment to ride one bump.
+version: 5
 
 nodes:
   # `outcomes` is new in version 3. Version 2 declared none, so this node completed on any turn output
@@ -85,11 +94,23 @@ nodes:
     skill: manufacture-review
     outcomes: [approved, rejected]
     branch:
-      approved: gate
+      approved: retrospect
       rejected: implement
     maxVisits: 5
     onExceeded: adjudicate
     lenses: [correctness, falsifiability, mechanism]
+
+  # The standing-instructions loop, ported from Ralph's AGENT.md maintenance. Runs as `reviewer`, which holds no
+  # write tool, and sees only the implementer's `learnings` plus the pinned standing instructions - never its summary
+  # or rationale. It PROPOSES; nothing here writes AGENT.md. The proposal rides the gate below, and only a human
+  # resuming with applyStandingInstructions writes it, in host code. See the phase 2.4 design, D4.
+  retrospect:
+    agent: reviewer
+    skill: manufacture-retrospect
+    outcomes: [proposed, none]
+    branch:
+      proposed: gate
+      none: gate
 
   # A terminal, not a human escalation. subagent-driven-development's own breaker sends a
   # tripped loop to a human; this node just ends the run as failed instead. A faithful

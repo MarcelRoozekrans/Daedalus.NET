@@ -39,10 +39,18 @@ public sealed class RunRecordAnnotationTests
     private static WorkflowTransition AnyTransition() =>
         new("done", WorkflowStatus.Running, awaitingSignal: null, WorkflowEventKind.Branched);
 
-    /// <summary>Captures what the decorator handed the inner store.</summary>
+    /// <summary>
+    ///     Captures what the decorator handed the inner store. Also answers <see cref="FindAsync"/>, which task
+    ///     B4's <see cref="WorkflowRunModeStore.CompleteNodeAsync"/> now calls to read <see cref="WorkflowRun.Manifest"/>
+    ///     for <see cref="WorkflowRunModeStore.PinningKey"/> — <see cref="RunToFind"/> defaults to
+    ///     <see langword="null"/>, which is a run with no manifest as far as that lookup is concerned, so every
+    ///     test that does not care about pinning is unaffected.
+    /// </summary>
     private sealed class CapturingStore : IWorkflowStore
     {
         public NodeResult? Written { get; private set; }
+
+        public WorkflowRun? RunToFind { get; set; }
 
         public ValueTask CompleteNodeAsync(Guid runId, long seq, WorkflowTransition transition, NodeResult result, CancellationToken ct)
         {
@@ -55,7 +63,7 @@ public sealed class RunRecordAnnotationTests
 
         public ValueTask<Guid> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
 
-        public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => throw new NotSupportedException();
+        public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => new(RunToFind);
 
         public ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct) => throw new NotSupportedException();
 
@@ -262,5 +270,52 @@ public sealed class RunRecordAnnotationTests
         store.Written!.Outcome.Should().Be("changed");
         store.Written.Variables[ReviewHandoff.FilesTouchedKey].Should().Be("src/A.cs");
         store.Written.Variables[ReviewHandoff.SummaryKey].Should().Be("did a thing");
+    }
+
+    /// <summary>Task B4: a run started with a pinned manifest records that fact on every transition, alongside the squad mode.</summary>
+    [Fact]
+    public async Task A_run_with_a_manifest_records_pinning_as_manifest()
+    {
+        var runId = Guid.NewGuid();
+        var manifest = new RunManifest { Nodes = new Dictionary<string, NodePin>(StringComparer.Ordinal) };
+        var store = new CapturingStore { RunToFind = Run(runId) with { Manifest = manifest } };
+        var decorated = new WorkflowRunModeStore(store, new SquadOptions { Enabled = true, FallbackAgentName = "x" }, new WorkflowRecallTierLog());
+
+        await decorated.CompleteNodeAsync(runId, 1, AnyTransition(), new NodeResult("changed", new Dictionary<string, object?>(StringComparer.Ordinal)), CancellationToken.None);
+
+        // Falsifiable: swapping the ternary's branches in WorkflowRunModeStore.CompleteNodeAsync turns this red.
+        store.Written!.Variables[WorkflowRunModeStore.PinningKey].Should().Be(WorkflowRunModeStore.PinningManifestValue);
+    }
+
+    /// <summary>The mirror assertion: a run with no manifest at all records "none", not an absent key.</summary>
+    [Fact]
+    public async Task A_run_with_no_manifest_records_pinning_as_none()
+    {
+        var runId = Guid.NewGuid();
+        var store = new CapturingStore { RunToFind = Run(runId) };
+        var decorated = new WorkflowRunModeStore(store, new SquadOptions { Enabled = true, FallbackAgentName = "x" }, new WorkflowRecallTierLog());
+
+        await decorated.CompleteNodeAsync(runId, 1, AnyTransition(), new NodeResult("changed", new Dictionary<string, object?>(StringComparer.Ordinal)), CancellationToken.None);
+
+        // Falsifiable: swapping the ternary's branches in WorkflowRunModeStore.CompleteNodeAsync turns this red
+        // (the same edit that turns A_run_with_a_manifest_records_pinning_as_manifest red the other way).
+        store.Written!.Variables[WorkflowRunModeStore.PinningKey].Should().Be(WorkflowRunModeStore.PinningNoneValue);
+    }
+
+    /// <summary>
+    ///     A run the inner store cannot find is treated as unpinned, not as a crash - the same "answer the safe
+    ///     default rather than throw" shape <c>ReviewHandoffWorkflowStore.ProjectionForAsync</c> uses for an
+    ///     unresolvable definition, because a run about to fail its own lookup elsewhere has no manifest worth
+    ///     asserting either way.
+    /// </summary>
+    [Fact]
+    public async Task A_run_the_store_cannot_find_records_pinning_as_none()
+    {
+        var store = new CapturingStore();
+        var decorated = new WorkflowRunModeStore(store, new SquadOptions { Enabled = true, FallbackAgentName = "x" }, new WorkflowRecallTierLog());
+
+        await decorated.CompleteNodeAsync(Guid.NewGuid(), 1, AnyTransition(), new NodeResult("changed", new Dictionary<string, object?>(StringComparer.Ordinal)), CancellationToken.None);
+
+        store.Written!.Variables[WorkflowRunModeStore.PinningKey].Should().Be(WorkflowRunModeStore.PinningNoneValue);
     }
 }

@@ -82,20 +82,20 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 var definitions = host.Services.GetRequiredService<IProcessDefinitionStore>();
 
                 var activeVersion = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
-                activeVersion.Should().Be(4, "processes/manufacture.yaml declares version: 4 - version 3 moved implement and review onto the squad roles, gave implement an outcome set and gave review its lenses, and version 4 rewrote the file's own description of what roslyn__apply_code_action can write, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
+                activeVersion.Should().Be(5, "processes/manufacture.yaml declares version: 5 - phase 2.4 task B4 added a `retrospect` node between `review` and the human gate, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
 
                 var definition = await definitions.GetAsync("manufacture", activeVersion!.Value, CancellationToken.None);
                 definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);
                 definition.Value.StartNode.Should().Be("implement", "'implement' is the first key under 'nodes' in the real file");
-                definition.Value.Nodes.Keys.Should().Contain(["implement", "review", "adjudicate", "gate", "publish", "done"]);
+                definition.Value.Nodes.Keys.Should().Contain(["implement", "review", "retrospect", "adjudicate", "gate", "publish", "done"]);
 
                 // Activation is the load-bearing part of the three assertions below, not the equality. A
                 // definition only reaches this store after ProcessValidator.ValidateAsync has accepted it against
                 // this host's real IWorkflowReferenceResolver, which resolves every `agent:` over the live
-                // IAgentCatalog and every `skill:` over the live ISkillStore. So a v3 that is active at all is a
-                // v3 whose 'implementer' and 'reviewer' both exist here - which is the one thing the unit-level
+                // IAgentCatalog and every `skill:` over the live ISkillStore. So a v5 that is active at all is a
+                // v5 whose 'implementer' and 'reviewer' both exist here - which is the one thing the unit-level
                 // guards over the YAML text cannot show, because they read a configuration file rather than a
-                // booted host. Falsifiable: renaming either agent in Thalos:Agents leaves version 2 active and
+                // booted host. Falsifiable: renaming either agent in Thalos:Agents leaves the previous version active and
                 // the assertion above red.
                 definition.Value.Nodes["implement"].Agent.Should().Be("implementer");
                 definition.Value.Nodes["review"].Agent.Should().Be("reviewer");
