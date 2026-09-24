@@ -1,9 +1,10 @@
-﻿using System.Data.Async.Adapters;
+using System.Data.Async.Adapters;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Thalos;
+using Thalos.Skills;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 using ZeroAlloc.ORM.Migrations;
@@ -15,7 +16,9 @@ namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>
 ///     Drives <see cref="WorkflowOutboxDispatchService"/> — the workflow engine's outbox poller — against a real
-///     Postgres outbox table, end to end: a real <see cref="OrmWorkflowStore.StartAsync"/> enqueues a real
+///     Postgres outbox table, end to end: a real
+///     <see cref="OrmWorkflowStore.StartAsync(string,int,string,string,System.Collections.Generic.IReadOnlyDictionary{string,object},System.Threading.CancellationToken)"/>
+///     enqueues a real
 ///     dispatch row, the poller's own <see cref="WorkflowOutboxDispatchService.ProcessBatchAsync"/> fetches and
 ///     dispatches it through a real <see cref="WorkflowNodeDispatcher"/>, and the run and the outbox table are
 ///     both asserted afterward. Before this test <see cref="WorkflowOutboxDispatchService"/> had no functional
@@ -72,7 +75,7 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
                 .Returns(Result<AgentTurnResult, AgentError>.Success(
                     new AgentTurnResult(TurnId.New(), new SessionId(Guid.Empty), "done", default, [], TimeSpan.Zero)));
 
-            var nodeDispatcher = new WorkflowNodeDispatcher(store, runner, resolver, definitions, run => new WorkflowCaller(run));
+            var nodeDispatcher = new WorkflowNodeDispatcher(store, runner, resolver, definitions, Substitute.For<ISkillStore>(), run => new WorkflowCaller(run));
             var outboxDispatcher = new WorkflowDispatchOutboxDispatcher(nodeDispatcher);
 
             await using var dataSource = NpgsqlDataSource.Create(connectionString);

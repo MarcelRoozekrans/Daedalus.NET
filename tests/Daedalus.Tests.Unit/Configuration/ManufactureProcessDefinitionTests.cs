@@ -7,11 +7,12 @@ using Thalos.Workflow;
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
-///     Pins the shape phase 2.3 gave <c>processes/manufacture.yaml</c>: version 4, both manufacturing nodes on
-///     their squad roles, <c>implement</c> carrying an outcome set it did not have at version 2, and
-///     <c>review</c> declaring the three lenses <see cref="ReviewLens"/> knows how to run. Reads the real,
-///     deployed file through the same <see cref="ProcessLoader"/> production uses, and validates it through the
-///     same <see cref="ProcessValidator"/> <c>ProcessDefinitionSync</c> runs before activating anything.
+///     Pins the shape <c>processes/manufacture.yaml</c> has at version 5: both manufacturing nodes on their
+///     squad roles, <c>implement</c> carrying an outcome set it did not have at version 2, <c>review</c>
+///     declaring the three lenses <see cref="ReviewLens"/> knows how to run, and — from phase 2.4 task B4 — a
+///     <c>retrospect</c> node between <c>review</c> and the human gate. Reads the real, deployed file through the
+///     same <see cref="ProcessLoader"/> production uses, and validates it through the same
+///     <see cref="ProcessValidator"/> <c>ProcessDefinitionSync</c> runs before activating anything.
 /// </summary>
 /// <remarks>
 ///     <see cref="ProcessNodeSkillAllowlistTests"/> is the neighbouring guard and covers a different question —
@@ -44,19 +45,18 @@ public sealed class ManufactureProcessDefinitionTests
     }
 
     [Fact]
-    public void The_process_is_at_version_four()
+    public void The_process_is_at_version_five()
     {
         var definition = LoadManufactureProcess();
 
         definition.Name.Should().Be("manufacture");
 
-        // Falsifiable: setting `version:` back to 3 in processes/manufacture.yaml turns this red. The number is
+        // Falsifiable: setting `version:` back to 4 in processes/manufacture.yaml turns this red. The number is
         // load-bearing rather than cosmetic - phase 2.2's content-hash immutability refuses a same-version
-        // content change, so a v4 body still labelled v3 is not a cosmetic slip, it is a file the store will
-        // refuse to activate while an older v3 keeps running. Version 4 carries no graph change at all: it
-        // exists because the final review's finding 1 rewrote the constraint-1 comment that described
-        // roslyn__apply_code_action as plain editing, and a comment is part of the hashed content.
-        definition.Version.Should().Be(4);
+        // content change, so a v5 body still labelled v4 is not a cosmetic slip, it is a file the store will
+        // refuse to activate while an older v4 keeps running. Version 5 (phase 2.4, task B4) adds the
+        // `retrospect` node between `review` and `gate`.
+        definition.Version.Should().Be(5);
     }
 
     [Fact]
@@ -70,9 +70,9 @@ public sealed class ManufactureProcessDefinitionTests
             .Select(n => (Node: n.Key, Agent: n.Value.Agent!))
             .ToList();
 
-        // Guard against a vacuous pass: an assertion over an empty sequence proves nothing. Three nodes name an
-        // agent today - implement, review and publish.
-        named.Should().HaveCount(3, "implement, review and publish each run an agent");
+        // Guard against a vacuous pass: an assertion over an empty sequence proves nothing. Four nodes name an
+        // agent today - implement, review, retrospect and publish.
+        named.Should().HaveCount(4, "implement, review, retrospect and publish each run an agent");
 
         foreach (var (node, agent) in named)
         {
@@ -113,7 +113,9 @@ public sealed class ManufactureProcessDefinitionTests
         review.Agent.Should().Be("reviewer");
         review.Skill.Should().Be("manufacture-review");
         review.Outcomes.Should().BeEquivalentTo(["approved", "rejected"]);
-        review.Branch!["approved"].Should().Be("gate");
+        // Version 5 (task B4): an approval no longer goes straight to the human gate - it goes to `retrospect`
+        // first. Falsifiable: pointing `approved` back at `gate` turns this red.
+        review.Branch!["approved"].Should().Be("retrospect");
         review.Branch["rejected"].Should().Be("implement");
         review.MaxVisits.Should().Be(5);
         review.OnExceeded.Should().Be("adjudicate");
@@ -131,6 +133,36 @@ public sealed class ManufactureProcessDefinitionTests
         resolved.Value.Select(l => l.Name).Should().Equal("correctness", "falsifiability", "mechanism");
     }
 
+    /// <summary>
+    ///     The node task B4 added: it must be pinned to the exact skill name
+    ///     <see cref="ReviewHandoff.RetrospectSkillName"/> keys its projection on, run as the reviewer (the role
+    ///     that holds no write tool), declare no lenses (it is not a review pass), and branch both its outcomes
+    ///     to the human gate, never around it.
+    /// </summary>
+    [Fact]
+    public void Retrospect_runs_the_reviewer_declares_no_lenses_and_always_reaches_the_gate()
+    {
+        var retrospect = LoadManufactureProcess().Nodes["retrospect"];
+
+        retrospect.Agent.Should().Be("reviewer");
+        // Falsifiable: renaming this node's `skill:` turns this red, and turns
+        // ProcessDefinitionDriftTests.The_shipped_retrospect_node_uses_the_skill_the_projection_keys_on red too -
+        // ReviewHandoffWorkflowStore.ProjectionForAsync and StandingInstructionsRunner both key off this exact
+        // string.
+        retrospect.Skill.Should().Be(ReviewHandoff.RetrospectSkillName);
+        retrospect.Outcomes.Should().BeEquivalentTo(["proposed", "none"]);
+
+        // Falsifiable: declaring `lenses:` on this node turns this red - retrospect is not a review pass, and
+        // ReviewHandoffWorkflowStore.ProjectionForAsync would misclassify it as one and project the wrong keys.
+        retrospect.Lenses.Should().BeEmpty();
+
+        // Falsifiable: pointing either outcome anywhere but `gate` turns this red - both a proposal and no
+        // proposal require the same human approval before anything downstream of this run can act on either.
+        retrospect.Branch.Should().NotBeNull();
+        retrospect.Branch!["proposed"].Should().Be("gate");
+        retrospect.Branch["none"].Should().Be("gate");
+    }
+
     [Fact]
     public async Task The_graph_still_validates_against_the_real_agent_and_skill_catalogue()
     {
@@ -146,7 +178,7 @@ public sealed class ManufactureProcessDefinitionTests
         // "not found" for everything and this test would fail for the wrong reason - or, with a permissive
         // resolver, pass for the wrong reason. Assert both are populated before relying on them.
         agentNames.Should().NotBeEmpty();
-        skillNames.Should().Contain(["manufacture-implement", "manufacture-review", "manufacture-publish"]);
+        skillNames.Should().Contain(["manufacture-implement", "manufacture-review", "manufacture-retrospect", "manufacture-publish"]);
 
         var resolver = Substitute.For<IWorkflowReferenceResolver>();
         resolver.ResolveAgentIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Thalos.Workflow;
 
 namespace Daedalus.Agents.Workflow;
@@ -33,6 +34,15 @@ namespace Daedalus.Agents.Workflow;
 ///     which node is under review. A node with no lenses is untouched and receives the whole bag.
 ///     </para>
 ///     <para>
+///     <b>Task B4 widens this to a second, narrower node: <c>retrospect</c>.</b> It runs as <c>reviewer</c>, the
+///     same withholding role, and for the same reason — it must not see the implementer's <c>summary</c> or
+///     <c>rationale</c>, only the durable <see cref="ReviewHandoff.LearningsKey"/>. Retrospect declares no
+///     lenses, so it is told apart by its pinned skill instead: <see cref="ProjectionForAsync"/> (renamed from
+///     <c>IsReviewNodeAsync</c>, which only ever answered yes/no for one contract) now returns the declared read
+///     set for whichever contract applies to the run's current node, or <see langword="null"/> for a node under
+///     neither.
+///     </para>
+///     <para>
 ///     <b>This narrows what a node is told, never what the run stores.</b> <c>OrmWorkflowStore</c> re-reads
 ///     the row inside its own transaction before merging, so the persisted bag still holds <c>summary</c> and
 ///     <c>rationale</c> for humans and for <c>adjudicate</c>, and a human reading a run through
@@ -60,8 +70,9 @@ namespace Daedalus.Agents.Workflow;
 ///     Thalos makes for a report it
 ///     rejects and for the same reason — a failed run carries a message a process author can read back out of
 ///     <c>WorkflowRun.LastError</c>, and a throw here would escape the dispatcher and dead-letter the dispatch
-///     instead. What this check does <em>not</em> count is the two keys <see cref="WorkflowRunModeStore"/>
-///     adds below it; see that type for why they sit above the cap permanently, exactly as
+///     instead. What this check does <em>not</em> count is the three keys <see cref="WorkflowRunModeStore"/>
+///     is about to add below it, on this same transition; see that type for why they escape only this one
+///     check, once, and count against the cap like any other key on every transition after — exactly as
 ///     <c>IWorkflowStore.ResumeAsync</c>'s engine-minted payload key already does in Thalos' own derivation.
 ///     </para>
 /// </remarks>
@@ -93,16 +104,27 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             return run;
         }
 
-        return await IsReviewNodeAsync(run, ct).ConfigureAwait(false)
-            ? run with { Variables = ReviewHandoff.ProjectForReviewNode(run.Variables) }
+        var reads = await ProjectionForAsync(run, ct).ConfigureAwait(false);
+        return reads is not null
+            ? run with { Variables = ReviewHandoff.Project(run.Variables, reads) }
             : run;
     }
 
     /// <inheritdoc />
     /// <remarks>
-    ///     Only a review node is re-checked. Every other node was already counted by the dispatcher against
-    ///     the same bag this would read, so a second check there would be a second place for the same rule to
-    ///     live — and a round trip on every transition to learn nothing.
+    ///     <b>Two jobs, on every transition.</b> The first is <see cref="EnforceProposalAuthorship"/>: only a node
+    ///     pinned to <see cref="ReviewHandoff.RetrospectSkillName"/> may write
+    ///     <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/>, and when it completes, the key holds exactly
+    ///     what that completion proposed, or nothing. That rule has to see every node, because the node that would
+    ///     plant the key is any node but retrospect. So this method now reads the run and its definition on every
+    ///     transition, not only on a projected one.
+    ///     <para>
+    ///     The second job is the key-cap re-check, and it still runs only on a projected node. Every other node was
+    ///     already counted by the dispatcher against the same bag this would read, so a second check there would be
+    ///     a second place for the same rule to live. The check counts the report <em>after</em> the authorship rule
+    ///     has rewritten it. That rule only ever removes a key or overwrites one the run already holds, so it can
+    ///     never be the reason a report crosses the cap.
+    ///     </para>
     /// </remarks>
     public override async ValueTask CompleteNodeAsync(
         Guid runId, long seq, WorkflowTransition transition, NodeResult result, CancellationToken ct)
@@ -110,9 +132,18 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         ArgumentNullException.ThrowIfNull(result);
 
         var run = await Inner.FindAsync(runId, ct).ConfigureAwait(false);
-        if (run is not null && await IsReviewNodeAsync(run, ct).ConfigureAwait(false))
+        if (run is null)
         {
-            var breach = DescribeKeyLimitBreach(run, result.Variables);
+            await Inner.CompleteNodeAsync(runId, seq, transition, result, ct).ConfigureAwait(false);
+            return;
+        }
+
+        var node = await NodeForAsync(run, ct).ConfigureAwait(false);
+        var authored = EnforceProposalAuthorship(run, node, result);
+
+        if (ProjectionFor(node) is not null)
+        {
+            var breach = DescribeKeyLimitBreach(run, authored.Variables);
             if (breach is not null)
             {
                 await Inner.FailAsync(runId, breach, ct).ConfigureAwait(false);
@@ -120,8 +151,78 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             }
         }
 
-        await Inner.CompleteNodeAsync(runId, seq, transition, result, ct).ConfigureAwait(false);
+        await Inner.CompleteNodeAsync(runId, seq, transition, authored, ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    ///     Enforces design decision D4 on the write path: the <c>retrospect</c> node is the only author of a
+    ///     standing-instructions proposal. Returns <paramref name="result"/> unchanged when there is nothing to
+    ///     enforce, or a copy with <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/> removed or set to
+    ///     <see langword="null"/>.
+    /// </summary>
+    /// <remarks>
+    ///     <b>Why this is needed.</b> Thalos merges each node's reported variables into the run's bag. A later
+    ///     write wins, and a report that leaves a key out leaves the earlier value in place. The dispatcher accepts
+    ///     any key name a node reports. So without this rule, <c>implement</c> or <c>review</c> could report the
+    ///     key, <c>retrospect</c> could then report <c>none</c> with no variables as its skill tells it to, and the
+    ///     planted value would reach the gate. There, <c>GET</c> would show it as retrospect's diff and an apply
+    ///     would write it to disk.
+    ///     <list type="bullet">
+    ///         <item>
+    ///             <b>Any node that is not retrospect</b> has the key removed from its report. The rest of the
+    ///             report is kept.
+    ///         </item>
+    ///         <item>
+    ///             <b>A retrospect completion</b> keeps a reported key only when its outcome is
+    ///             <see cref="ReviewHandoff.RetrospectProposedOutcome"/>. On any other outcome, or when
+    ///             <c>proposed</c> arrives without the key, the key is set to <see langword="null"/> if the report
+    ///             or the run's bag holds it. <see cref="StandingInstructionsWriter"/> already treats null as no
+    ///             proposal. A null is written only over a key the run already holds, so this never adds a key to the
+    ///             bag and never moves it toward the key cap.
+    ///         </item>
+    ///     </list>
+    ///     <para>
+    ///     Retrospect is identified the same way <see cref="ProjectionFor"/> identifies it: by the skill its node
+    ///     declares on the run's own pinned process version, not by the node's name. A node whose definition
+    ///     cannot be resolved is treated as not being retrospect, so its report is stripped. The dispatcher fails
+    ///     such a run anyway.
+    ///     </para>
+    /// </remarks>
+    private static NodeResult EnforceProposalAuthorship(WorkflowRun run, ProcessNode? node, NodeResult result)
+    {
+        const string key = ReviewHandoff.ProposedStandingInstructionsKey;
+        var reported = result.Variables.ContainsKey(key);
+
+        if (!IsRetrospect(node))
+        {
+            return reported
+                ? new NodeResult(result.Outcome, Without(result.Variables, key))
+                : result;
+        }
+
+        if (reported && string.Equals(result.Outcome, ReviewHandoff.RetrospectProposedOutcome, StringComparison.Ordinal))
+        {
+            return result;
+        }
+
+        if (!reported && !run.Variables.ContainsKey(key))
+        {
+            return result;
+        }
+
+        var cleared = new Dictionary<string, object?>(result.Variables, StringComparer.Ordinal) { [key] = null };
+        return new NodeResult(result.Outcome, cleared);
+    }
+
+    private static Dictionary<string, object?> Without(IReadOnlyDictionary<string, object?> variables, string key)
+    {
+        var copy = new Dictionary<string, object?>(variables, StringComparer.Ordinal);
+        copy.Remove(key);
+        return copy;
+    }
+
+    private static bool IsRetrospect(ProcessNode? node) =>
+        node is not null && string.Equals(node.Skill, ReviewHandoff.RetrospectSkillName, StringComparison.Ordinal);
 
     /// <summary>
     ///     The failure message for a report that would take the run's real bag past
@@ -149,21 +250,48 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
 
         return $"Node '{run.CurrentNode}' reported {reported.Count} variable(s), which would take the run's variable bag to " +
             $"{merged.Count} distinct keys, past the limit of {MaxVariableKeys}. Counted against the run's real bag of " +
-            $"{run.Variables.Count} key(s): this node runs review lenses, so the bag the dispatcher was given is narrowed " +
-            "to the review contract's read keys and is not what the run actually holds. Overwrite an existing key instead " +
-            "of minting a new one, or report fewer, larger-grained variables.";
+            $"{run.Variables.Count} key(s): this node's dispatch is narrowed to a declared read projection, so the bag " +
+            "the dispatcher was given is not what the run actually holds. Overwrite an existing key instead of minting " +
+            "a new one, or report fewer, larger-grained variables.";
     }
 
     /// <summary>
-    ///     Whether the node the run is currently on declares review lenses. A definition or node that cannot be
-    ///     resolved answers <see langword="false"/>: the dispatcher resolves both itself a moment later and
-    ///     fails the run with its own message, and a run that is about to fail has no reviewer to isolate.
+    ///     The declared read set the node the run is currently on is projected down to, or <see langword="null"/>
+    ///     when the node carries no projection at all and is given the whole bag. A review node (one that
+    ///     declares <c>lenses:</c>) yields <see cref="ReviewHandoff.ReviewReads"/>; a <c>retrospect</c> node (one
+    ///     pinned to <see cref="ReviewHandoff.RetrospectSkillName"/>) yields <see cref="ReviewHandoff.RetrospectReads"/>.
+    ///     A definition or node that cannot be resolved answers <see langword="null"/>: the dispatcher resolves
+    ///     both itself a moment later and fails the run with its own message, and a run that is about to fail has
+    ///     no reviewer or retrospect step to isolate.
     /// </summary>
-    private async ValueTask<bool> IsReviewNodeAsync(WorkflowRun run, CancellationToken ct)
+    private async ValueTask<FrozenSet<string>?> ProjectionForAsync(WorkflowRun run, CancellationToken ct) =>
+        ProjectionFor(await NodeForAsync(run, ct).ConfigureAwait(false));
+
+    /// <summary>The projection for <paramref name="node"/>; see <see cref="ProjectionForAsync"/>.</summary>
+    private static FrozenSet<string>? ProjectionFor(ProcessNode? node)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        if (node.Lenses.Count > 0)
+        {
+            return ReviewHandoff.ReviewReads;
+        }
+
+        return IsRetrospect(node) ? ReviewHandoff.RetrospectReads : null;
+    }
+
+    /// <summary>
+    ///     The node the run is currently on, read from the run's own pinned process version, or
+    ///     <see langword="null"/> when the definition or the node cannot be resolved.
+    /// </summary>
+    private async ValueTask<ProcessNode?> NodeForAsync(WorkflowRun run, CancellationToken ct)
     {
         var definition = await _definitions.GetAsync(run.Process, run.ProcessVersion, ct).ConfigureAwait(false);
-        return definition.IsSuccess
-            && definition.Value.Nodes.TryGetValue(run.CurrentNode, out var node)
-            && node.Lenses.Count > 0;
+        return definition.IsSuccess && definition.Value.Nodes.TryGetValue(run.CurrentNode, out var node)
+            ? node
+            : null;
     }
 }

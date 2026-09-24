@@ -3,6 +3,7 @@ using System.Reflection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
+using Daedalus.Agents.Charters;
 using Daedalus.Agents.Git;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
@@ -33,6 +34,7 @@ using Thalos.Memory;
 using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
 using Thalos.Skills;
+using Thalos.Skills.Charters;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 
@@ -80,6 +82,21 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     public const string GitToolSourceName = "git";
 
+    /// <summary>
+    ///     The Thalos tool-source name of <see cref="DaedalusManufactureTools"/>; tools appear as
+    ///     <c>manufacture__{tool}</c> (today, only <c>manufacture__start</c>).
+    /// </summary>
+    /// <remarks>
+    ///     Not <c>workflow</c> — that name is deliberately never used by any tool source, so it can never collide
+    ///     with a resume- or cancel-capable tool if one were ever added by mistake; see
+    ///     <c>ResumeToolBoundaryTests.No_tool_source_is_named_workflow</c>. Same boundary shape as
+    ///     <see cref="RepoActionToolSourceName"/> and <see cref="GitToolSourceName"/>: registered unconditionally —
+    ///     <see cref="Workflow.IManufactureRunStarter"/> always resolves, engine on or off — and bound to
+    ///     <see cref="DeveloperPolicy"/> in <c>Thalos:ToolPolicies</c>, because starting a run is unattended spend
+    ///     with no human in the turn.
+    /// </remarks>
+    public const string ManufactureToolSourceName = "manufacture";
+
     /// <summary>Name of the application database connection string (<c>ConnectionStrings:daedalus</c>), shared with the Rag.NET memory index.</summary>
     public const string DatabaseConnectionName = "daedalus";
 
@@ -122,10 +139,34 @@ public static class DaedalusAgentsServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(environment);
-        ThrowIfMemoryAlreadyRegistered(services, nameof(AddDaedalusAgents));
 
         var options = new DaedalusAgentsOptions();
         configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+        return services.AddDaedalusAgents(options, configuration, environment, embeddingGenerator);
+    }
+
+    /// <summary>
+    ///     Test seam: same as <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/>,
+    ///     but takes an already-bound <see cref="DaedalusAgentsOptions"/> instead of binding <paramref name="configuration"/>
+    ///     itself. <paramref name="configuration"/> is still read for the connection string and for the
+    ///     sub-builders (<c>UseAnthropic</c>, memory, workflow) that bind their own sections directly. Lets a test
+    ///     mutate one field of an otherwise shipped configuration — for example, clearing a chartered agent's
+    ///     <c>Tools</c> — without fighting configuration-override syntax for arrays; see
+    ///     <c>SquadConfigurationDriftTests</c> and <c>CharteredRoleCompositionTests</c>.
+    /// </summary>
+    internal static IServiceCollection AddDaedalusAgents(
+        this IServiceCollection services,
+        DaedalusAgentsOptions options,
+        IConfiguration configuration,
+        IHostEnvironment environment,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(environment);
+        ThrowIfMemoryAlreadyRegistered(services, nameof(AddDaedalusAgents));
+
         var connectionString = ResolveConnectionString(configuration);
 
         // The Ralph MCP failure-patterns tool class doubles as the implementation behind DaedalusKnowledgeTools (fresh
@@ -169,12 +210,17 @@ public static class DaedalusAgentsServiceCollectionExtensions
         ValidateSkillsConfig(options.Skills, skillRoots);
         services.TryAddSingleton(options.Skills);
 
+        var charterRoots = ResolveCharterRoots(options.CharterRoots, environment);
+        ValidateCharterConfig(options);
+
         // The role→agent split for the manufacturing squad. Registered unconditionally (unlike the Workflow
         // block below): SquadAgentResolver has no database or hosted-service dependency, and a host that never
         // dispatches a squad-staffed process node simply never calls Resolve.
         ValidateSquadConfig(options.Squad);
         services.TryAddSingleton(options.Squad);
         services.TryAddSingleton<SquadAgentResolver>();
+
+        ValidateContentConfig(options.Content);
 
         // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
         // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
@@ -187,10 +233,26 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // host's container disposes it on shutdown. Gated on Workflow.Enabled — see that option's own remarks
         // for why a host whose database has none of these tables must not wire any of this at all.
         var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
+        var standingInstructionsPath = ResolveStandingInstructionsPath(options.Workflow.StandingInstructionsPath, environment);
+        if (options.Workflow.Enabled)
+        {
+            ValidateStandingInstructionsPath(standingInstructionsPath, environment);
+        }
+
+        // Registered unconditionally, the same as options.Memory/options.Skills/options.Squad above: task B5's
+        // StandingInstructionsWriter resolves its own path from this instance via DI (see AddDaedalusWorkflow),
+        // and only AddDaedalusWorkflow — gated on Enabled below — ever constructs one.
+        services.TryAddSingleton(options.Workflow);
         if (options.Workflow.Enabled)
         {
             services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
         }
+
+        // Always registered, engine on or off — see IManufactureRunStarter's own remarks. AddDaedalusWorkflow
+        // below replaces this with the real ManufactureRunStarter when Workflow.Enabled; every other host keeps
+        // this default, so WorkflowRunsController and DaedalusManufactureTools stay constructible either way and
+        // report the engine is off instead of failing DI resolution.
+        services.TryAddSingleton<IManufactureRunStarter, DisabledManufactureRunStarter>();
 
         // The memory index embeds with the DI generator; a host that only hands the instance to this call (for Sentinel) still gets a working index.
         if (embeddingGenerator is not null)
@@ -233,6 +295,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 // write boundary, and the reviewer's daedalus__* grant already names it.
                 .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools), typeof(DaedalusReviewTools))
                 .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
+                // Registered unconditionally, like the two sources above: IManufactureRunStarter always resolves
+                // (the disabled default when Workflow.Enabled is false), so this source is always present for
+                // Every_manufacture_tool_is_bound_to_the_developer_policy to check against real, shipped config
+                // rather than passing vacuously on a host that never registers it.
+                .AddLocalTools(ManufactureToolSourceName, typeof(DaedalusManufactureTools))
                 // Thalos's own local-git write capability (branch, commit, push, open pull request). UseLibGit2SharpGit
                 // registers the IGitWriteService implementation GitActionTools needs alongside IPullRequestPublisher
                 // (registered above, in AddDaedalusAgents proper). Same write boundary as repoaction__*, just owned by
@@ -249,8 +316,33 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
             foreach (var agent in options.Agents)
             {
+                if (agent.Chartered)
+                {
+                    // Registered as an AgentEnvelope below instead: prose, model and skills come from its role
+                    // charter, not this entry.
+                    continue;
+                }
+
                 thalos.AddAgent(ToDefinition(agent));
             }
+
+            // Chartered agents: the tool envelope (identity + Tools + memory) is built here, from configuration,
+            // exactly like every other agent - only the prose/model/skills half moves to roles/*.md. Called
+            // unconditionally (Envelopes may be empty, as on Daedalus.Cli, which declares no chartered agent) so
+            // every host that calls AddDaedalusAgents gets the same CharteredAgentCatalog/CharterSyncService
+            // wiring rather than two different IAgentCatalog shapes depending on whether any role is chartered.
+            thalos.UseRoleCharters(o =>
+                {
+                    o.Roots = [.. charterRoots];
+                    foreach (var agent in options.Agents)
+                    {
+                        if (agent.Chartered)
+                        {
+                            o.Envelopes.Add(ToEnvelope(agent));
+                        }
+                    }
+                })
+                .UseRoleCharterStore<PostgresRoleCharterStore>();
 
             if (options.Sentinel.Enabled)
             {
@@ -269,22 +361,48 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         if (options.Workflow.Enabled)
         {
-            AddDaedalusWorkflow(services, processesRoot);
+            AddDaedalusWorkflow(services, processesRoot, standingInstructionsPath);
+        }
+
+        // Off by default: nothing in shipped appsettings sets Thalos:Content:ResyncInterval (see that option's
+        // own remarks), so no host pays for this loop until an operator opts in. Registered last, after AddThalos
+        // and the optional AddDaedalusWorkflow above, so every service ContentResyncService needs has already
+        // been decided one way or the other — including ProcessDefinitionSync, which simply does not exist on
+        // this collection when Workflow.Enabled is false; sp.GetService below returns null for it rather than
+        // throwing, and ContentResyncService skips that step on every tick instead of failing to resolve.
+        if (options.Content.ResyncInterval is { } resyncInterval)
+        {
+            // SkillSyncService and CharterSyncService are each registered by Thalos only via
+            // TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, T>()) — see
+            // ForwardHostedServiceToConcreteSingleton's remarks for what resolving them as a bare T would
+            // otherwise construct.
+            ForwardHostedServiceToConcreteSingleton<SkillSyncService>(services);
+            ForwardHostedServiceToConcreteSingleton<CharterSyncService>(services);
+
+            services.AddHostedService(sp => new ContentResyncService(
+                resyncInterval,
+                sp.GetRequiredService<SkillSyncService>(),
+                sp.GetRequiredService<CharterSyncService>(),
+                sp.GetService<ProcessDefinitionSync>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<ContentResyncService>>()));
         }
 
         return services;
     }
 
     /// <summary>
-    ///     Registers the five pieces <c>AddWorkflowOrm</c> (called above, inside <c>AddThalos</c>) does not:
+    ///     Registers the six pieces <c>AddWorkflowOrm</c> (called above, inside <c>AddThalos</c>) does not:
     ///     <see cref="IWorkflowReferenceResolver"/>, <see cref="WorkflowNodeDispatcher"/>, the outbox consumer for
     ///     <see cref="Thalos.Workflow.WorkflowDispatch.TypeName"/>, <see cref="WorkflowRunReconciler"/> on a
-    ///     one-minute sweep, and <see cref="IProcessDefinitionSource"/> feeding <see cref="ProcessDefinitionSync"/>
-    ///     at boot. Split out from <see cref="AddDaedalusAgents"/> only for readability — every registration here
+    ///     one-minute sweep, <see cref="IProcessDefinitionSource"/> feeding <see cref="ProcessDefinitionSync"/> at
+    ///     boot, and the real <see cref="Workflow.ManufactureRunStarter"/> in place of the
+    ///     <see cref="Workflow.DisabledManufactureRunStarter"/> registered unconditionally above. Split out from
+    ///     <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> only for readability — every registration here
     ///     depends on <c>IWorkflowStore</c>/<c>IProcessDefinitionStore</c>, which only exist once <c>AddThalos</c>
     ///     has run, so this is called after it, never on its own.
     /// </summary>
-    private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot)
+    private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot, string standingInstructionsPath)
     {
         // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
         // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
@@ -304,11 +422,23 @@ public static class DaedalusAgentsServiceCollectionExtensions
         services.AddSingleton<WorkflowRecallTierLog>();
         DecorateMemoryServiceWithRecallTierRecording(services);
 
+        // Task B5: the one type that ever writes Thalos:Workflow:StandingInstructionsPath, and only from
+        // WorkflowRunGateway's five-argument ResumeAsync overload, on a human's explicit applyStandingInstructions.
+        // Registered here, workflow-enabled hosts only, alongside the gateway it is injected into below.
+        services.AddSingleton<StandingInstructionsWriter>();
+
         // The resume/cancel REST boundary's only path to IWorkflowStore (from AddWorkflowOrm above). Never an
         // agent, never a Thalos tool — see WorkflowRunGateway's own remarks for why, and for what actually
         // authorizes a call to it (ASP.NET Core's WorkflowResume policy in Daedalus.Api/Program.cs, not
         // Thalos:ToolPolicies, which DefaultToolAuthorizer only ever evaluates against a tool call).
         services.AddSingleton<WorkflowRunGateway>();
+
+        // Replaces the DisabledManufactureRunStarter registered unconditionally above, now that WorkflowRunStarter
+        // (from AddWorkflowOrm, inside AddThalos) and IWorkflowReferenceResolver (just above) both resolve.
+        // Replace, not TryAdd: TryAddSingleton is first-registration-wins, and the disabled default was already
+        // added before this method ever runs.
+        services.Replace(ServiceDescriptor.Singleton<IManufactureRunStarter>(sp =>
+            new ManufactureRunStarter(sp.GetRequiredService<WorkflowRunStarter>(), standingInstructionsPath)));
 
         // ISubagentRunner comes from AddThalos; IWorkflowStore/IProcessDefinitionStore from AddWorkflowOrm above.
         // Built via WorkflowNodeDispatcherFactory, not inline here — see that type's remarks for why this needs
@@ -370,15 +500,67 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     Ensures <typeparamref name="T"/> is resolvable as a concrete singleton, and that it is the exact
+    ///     instance the host's <see cref="IHostedService"/> pipeline runs — not a second one constructed
+    ///     independently.
+    /// </summary>
+    /// <remarks>
+    ///     Reading <c>SkillThalosBuilderExtensions</c>/<c>CharterThalosBuilderExtensions</c> at Thalos.NET v0.10.0
+    ///     confirms <see cref="Thalos.Skills.SkillSyncService"/> and
+    ///     <see cref="Thalos.Skills.Charters.CharterSyncService"/> are each registered only via
+    ///     <c>TryAddEnumerable(ServiceDescriptor.Singleton&lt;IHostedService, T&gt;())</c> — there is no concrete
+    ///     <c>T</c> registration alongside it. A container caches a singleton per <see cref="ServiceDescriptor"/>,
+    ///     not per implementation type, so a plain <c>services.TryAddSingleton&lt;T&gt;()</c> here would add a
+    ///     second, independently-constructed instance: resolving <c>IEnumerable&lt;IHostedService&gt;</c> (what
+    ///     <c>IHost.StartAsync</c> does, to run <c>StartingAsync</c> once at boot) and resolving <c>T</c> directly
+    ///     (what <see cref="ContentResyncService"/> does, on every tick) would each get their own sync racing the
+    ///     same store. This method's second half prevents that: it finds the descriptor Thalos added, removes it,
+    ///     and replaces it with a factory that forwards to the concrete singleton, so both paths resolve the one
+    ///     instance. Idempotent — a second call for the same <typeparamref name="T"/> finds no matching descriptor
+    ///     left to remove and leaves the singleton registration as-is.
+    /// </remarks>
+    private static void ForwardHostedServiceToConcreteSingleton<T>(IServiceCollection services)
+        where T : class, IHostedService
+    {
+        services.TryAddSingleton<T>();
+
+        var hostedDescriptor = services.FirstOrDefault(d =>
+            d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(T));
+        if (hostedDescriptor is null)
+        {
+            return;
+        }
+
+        services.Remove(hostedDescriptor);
+        services.Add(ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<T>()));
+    }
+
+    /// <summary>
+    ///     Fails fast on <c>Thalos:Content</c>: a configured, non-positive <see cref="ContentConfig.ResyncInterval"/>
+    ///     would otherwise surface much later, as <see cref="PeriodicTimer"/>'s own
+    ///     <see cref="ArgumentOutOfRangeException"/> the first time <see cref="ContentResyncService.ExecuteAsync"/>
+    ///     runs, rather than at host start.
+    /// </summary>
+    private static void ValidateContentConfig(ContentConfig config)
+    {
+        if (config.ResyncInterval is { } interval && interval <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                $"{ContentConfig.SectionName}:ResyncInterval must be greater than zero when set, but was " +
+                $"{interval.ToString(null, CultureInfo.InvariantCulture)}.");
+        }
+    }
+
+    /// <summary>
     ///     Memory-only registration for hosts that run Ralph but <b>no</b> Thalos agents — the console worker. Registers the
-    ///     same <c>IMemoryService</c>, Postgres store and Rag.NET index as <see cref="AddDaedalusAgents"/>, plus the Ralph
+    ///     same <c>IMemoryService</c>, Postgres store and Rag.NET index as <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/>, plus the Ralph
     ///     port <c>ILearningsMemory</c>. No agents, tools, Sentinel or reindex service (the API host runs that one).
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">Host configuration; <c>Thalos:Memory</c> and <c>ConnectionStrings:daedalus</c> are read.</param>
     /// <remarks>
     ///     <para>
-    ///         Mutually exclusive with <see cref="AddDaedalusAgents"/>, and checked: calling both throws. The Daedalus
+    ///         Mutually exclusive with <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/>, and checked: calling both throws. The Daedalus
     ///         registrations are <c>TryAdd</c>-based, but <c>UseRagNetMemory</c> is last-call-wins, so a later
     ///         <see cref="AddDaedalusMemory"/> would flip <c>EnsureSchemaOnStartup</c> back to <c>false</c> on the API host
     ///         — nobody would create <c>rag_chunks</c>, every memory would stay <c>index_pending</c>, and nothing would fail
@@ -401,7 +583,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     ///     A <c>Thalos:Memory</c> value is out of range, or memory is already registered on this collection — this method
-    ///     and <see cref="AddDaedalusAgents"/> are mutually exclusive.
+    ///     and <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> are mutually exclusive.
     /// </exception>
     public static IServiceCollection AddDaedalusMemory(this IServiceCollection services, IConfiguration configuration)
     {
@@ -495,6 +677,79 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     Fails fast when a chartered agent is still defined in both places at once. A chartered agent's
+    ///     <see cref="AgentConfig.Instructions"/> must be blank — its prose now comes from
+    ///     <c>roles/&lt;Name&gt;.md</c> — and its <see cref="AgentConfig.Tools"/> must not be empty. Unlike an
+    ///     unchartered agent (<see cref="ToDefinition"/>), a chartered one gets no <c>["*"]</c> fallback for an
+    ///     empty <c>Tools</c> list: the tool list is this role's whole security envelope, and the reviewer's
+    ///     independence rests on that envelope never silently widening to everything.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A chartered agent still has non-blank <c>Instructions</c>, or an empty <c>Tools</c> list.</exception>
+    private static void ValidateCharterConfig(DaedalusAgentsOptions options)
+    {
+        foreach (var agent in options.Agents)
+        {
+            if (!agent.Chartered)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(agent.Instructions))
+            {
+                throw new InvalidOperationException(
+                    $"Thalos:Agents: chartered agent '{agent.Name}' still has non-blank Instructions. " +
+                    "A chartered agent's prose comes from its role charter (roles/<Name>.md) now - delete " +
+                    "Instructions from this entry.");
+            }
+
+            if (agent.Tools.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Thalos:Agents: chartered agent '{agent.Name}' has an empty Tools list. " +
+                    "A chartered agent's Tools is its whole security envelope and has no wildcard default - set it explicitly.");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     The single default root, applied here rather than as <see cref="DaedalusAgentsOptions.CharterRoots"/>'s
+    ///     own field initializer — see that property's remarks for why a pre-populated default there is
+    ///     unusable with <c>ConfigurationBinder</c>.
+    /// </summary>
+    private static readonly IReadOnlyList<string> DefaultCharterRoots = ["roles"];
+
+    /// <summary>
+    ///     Resolves <c>Thalos:CharterRoots</c> against the content root, the same way <see cref="ResolveSkillRoots"/>
+    ///     resolves <c>Thalos:Skills:Roots</c> — see <see cref="ResolveContentRoot"/>'s remarks for why the
+    ///     assembly-directory fallback is load-bearing under <c>dotnet run</c>/Aspire. Falls back to
+    ///     <see cref="DefaultCharterRoots"/> when <paramref name="roots"/> binds empty.
+    /// </summary>
+    private static IReadOnlyList<string> ResolveCharterRoots(IList<string> roots, IHostEnvironment environment)
+    {
+        var configured = roots.Where(r => !string.IsNullOrWhiteSpace(r)).ToList();
+        if (configured.Count == 0)
+        {
+            configured = [.. DefaultCharterRoots];
+        }
+
+        return [.. configured.Select(r => ResolveContentRoot(r, environment))];
+    }
+
+    /// <summary>
+    ///     The config-owned half of a chartered agent: identity, tools, output cap and memory. Everything else
+    ///     (<see cref="AgentEnvelope"/> has no <c>Description</c>/<c>Instructions</c>/<c>Model</c>/<c>Skills</c>)
+    ///     comes from the role's active charter instead — see <c>CharteredAgentCatalog.Compose</c>.
+    /// </summary>
+    private static AgentEnvelope ToEnvelope(AgentConfig agent) => new()
+    {
+        Id = ParseAgentId(agent.Id, agent.Name),
+        Name = agent.Name,
+        Tools = [.. agent.Tools],
+        MaxOutputTokens = agent.MaxOutputTokens,
+        Memory = agent.Memory is null ? null : new AgentMemorySettings { Enabled = agent.Memory.Enabled, TopK = agent.Memory.TopK },
+    };
+
+    /// <summary>
     ///     Fails fast on the Daedalus-only <c>Thalos:Memory</c> keys (Thalos validates its own <c>MemoryOptions</c> on start).
     ///     A bad value here would otherwise surface much later as a rejected memory or a mis-sized vector column.
     /// </summary>
@@ -539,7 +794,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
     /// <summary>
     ///     Refuses a second memory registration. <c>UseRagNetMemory</c> is last-call-wins, so calling
-    ///     <see cref="AddDaedalusAgents"/> and <see cref="AddDaedalusMemory"/> on one host would silently leave
+    ///     <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> and <see cref="AddDaedalusMemory"/> on one host would silently leave
     ///     <c>EnsureSchemaOnStartup</c> at whatever the later call passed — on the API host that means nobody creates
     ///     <c>rag_chunks</c> and every memory stays <c>index_pending</c> with nothing failing. Fail loudly instead.
     /// </summary>
@@ -699,6 +954,63 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
     private static string ResolveMcpConfigPath(string configured, IHostEnvironment environment) =>
         Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
+
+    /// <summary>
+    ///     Resolves <c>Thalos:Workflow:StandingInstructionsPath</c> against the content root, the same rule
+    ///     <see cref="ResolveMcpConfigPath"/> applies to <c>Thalos:McpConfigPath</c> — a single file, not a
+    ///     directory, so unlike <see cref="ResolveContentRoot"/> there is no assembly-directory fallback to fall
+    ///     back to: a missing file is not this method's problem to solve, see
+    ///     <see cref="Workflow.ManufactureRunStarter.StartAsync"/>.
+    /// </summary>
+    /// <remarks>
+    ///     <c>internal</c>, not <c>private</c>: <see cref="Workflow.StandingInstructionsWriter"/> reuses this same
+    ///     resolution rule for its own path rather than restating it, per task B5. Two independently-maintained
+    ///     copies of "how a configured, possibly-relative path resolves against the content root" is exactly the
+    ///     kind of drift this method's own doc comment already warns against for <see cref="ResolveContentRoot"/>.
+    /// </remarks>
+    internal static string ResolveStandingInstructionsPath(string configured, IHostEnvironment environment) =>
+        Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
+
+    /// <summary>
+    ///     Fails fast unless the resolved <c>Thalos:Workflow:StandingInstructionsPath</c> is a <c>.md</c> file
+    ///     under the content root.
+    /// </summary>
+    /// <remarks>
+    ///     <see cref="Workflow.StandingInstructionsWriter"/> overwrites this file with model-authored text that a
+    ///     human approved at the gate. Resolution accepts a rooted path and a <c>..</c> segment as given, so without
+    ///     this check a misconfigured value such as <c>appsettings.json</c> or <c>../other-host/appsettings.json</c>
+    ///     would let an approved proposal replace the host's own configuration. The comparison runs on full,
+    ///     normalised paths and asks whether the path relative to the content root climbs out of it, so a sibling
+    ///     directory that merely shares the root's name as a prefix is outside too. Only checked when the workflow
+    ///     engine is enabled, the only case in which a writer is registered at all.
+    /// </remarks>
+    internal static void ValidateStandingInstructionsPath(string resolvedPath, IHostEnvironment environment)
+    {
+        var contentRoot = Path.GetFullPath(environment.ContentRootPath);
+        var fullPath = Path.GetFullPath(resolvedPath);
+        var relative = Path.GetRelativePath(contentRoot, fullPath);
+
+        var outside = Path.IsPathRooted(relative)
+            || string.Equals(relative, ".", StringComparison.Ordinal)
+            || string.Equals(relative, "..", StringComparison.Ordinal)
+            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+        if (outside)
+        {
+            throw new InvalidOperationException(
+                $"{WorkflowConfig.SectionName}:StandingInstructionsPath resolves to '{fullPath}', which is outside the " +
+                $"content root '{contentRoot}'. The standing-instructions file is overwritten with approved model text, " +
+                "so it must live under the content root.");
+        }
+
+        if (!string.Equals(Path.GetExtension(fullPath), ".md", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{WorkflowConfig.SectionName}:StandingInstructionsPath resolves to '{fullPath}', which is not a .md file. " +
+                "The standing-instructions file is overwritten with approved model text, so it must be a markdown file " +
+                "and never a configuration or code file.");
+        }
+    }
 
     private static AgentDefinition ToDefinition(AgentConfig agent) => new()
     {

@@ -62,4 +62,15 @@
         <Content Include="..\..\skills\**\SKILL.md" Link="skills\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- Squad role charters (Thalos:CharterRoots), same authoring story and mechanism as skills above.
+             CharterSyncService parses every file under this root and upserts/sweeps it into the shared
+             RoleCharterVersions/RoleCharters Postgres tables on every start - the same tables
+             Daedalus.Api's own sync writes - regardless of whether this host declares a "Chartered": true
+             agent to compose any of them onto (it declares none today). This host must therefore have
+             migration AddRoleCharters applied before it starts, the same as Daedalus.Api. roles/README.md is
+             excluded: see Daedalus.Api.csproj's identical comment. -->
+        <Content Include="..\..\roles\**\*.md" Exclude="..\..\roles\README.md" Link="roles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

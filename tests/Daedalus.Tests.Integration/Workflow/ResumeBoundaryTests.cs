@@ -1,4 +1,4 @@
-﻿using System.Data.Async.Adapters;
+using System.Data.Async.Adapters;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Thalos;
+using Thalos.Skills;
 using Thalos.Tools;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
@@ -323,7 +324,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
 
     /// <summary>
     ///     Resume and cancel agree on 404 for a run that does not exist. Exercised through the real controller,
-    ///     not just <see cref="WorkflowRunGateway"/> - <see cref="WorkflowRunGateway.ResumeAsync"/>'s own "not
+    ///     not just <see cref="WorkflowRunGateway"/> - <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,CancellationToken)"/>'s own "not
     ///     found" failure alone maps to 409, which is why <see cref="WorkflowRunsController.Resume"/> checks
     ///     existence itself before delegating, the same way <see cref="WorkflowRunsController.Cancel"/> already
     ///     did.
@@ -367,6 +368,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             Substitute.For<ISubagentRunner>(),
             Substitute.For<IWorkflowReferenceResolver>(),
             store.Definitions,
+            Substitute.For<ISkillStore>(),
             r => new WorkflowCaller(r));
 
         await dispatcher.DispatchAsync(new WorkflowDispatchMessage(runId, run!.CurrentSeq, "gate"), CancellationToken.None);

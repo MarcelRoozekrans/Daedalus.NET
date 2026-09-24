@@ -1,6 +1,45 @@
 # Session State
 
-**Last session:** 2026-09-23
+**Last session:** 2026-09-24
+
+## Current Position - phase 2.4 complete, PR #276 open; phase 2.5 next
+
+**Milestone 2.** Phase 2.4 - the process as skills - is **complete (2026-09-24)**. Branch
+`feat/phase-2.4-process-as-skills` is pushed and open as **PR #276** against `main`. Every ruling, the
+live proof, the final review and the carried-forward list are in
+`docs/plans/2026-09-23-phase-2.4-rulings.md`.
+
+- Suites: Unit 397, Unit.Application 425, Unit.Domain 356, Unit.Infrastructure 142, Integration 581.
+- The final review was clean after one fix wave. The Critical it found, any node planting the
+  standing-instructions proposal, is fixed: now only retrospect can author it.
+- The live proof stopped at `implement`. Review, retrospect and the gate are unreachable until a run
+  can write.
+- **Roadmap renumbered.** A new **phase 2.5 - run write authority** was inserted, so Ralph retirement
+  is now **2.6**. Older text in this file that says "phase 2.5 deletes Ralph" means 2.6.
+
+## Recommended Next Step
+
+1. Merge PR #276, after CI and the owner's review. Then confirm every `fix:` and `feat:` commit
+   appears in the release-please PR, because a green workflow does not prove a commit was counted.
+2. Start **phase 2.5** with `start-next-phase`. It has no design spec yet, so it routes to a
+   brainstorm. It covers the three decisions below and ends with the live proof rerun that 2.4 could
+   not complete. Before booting a host for that proof, push the `daily-digest` schedule's
+   `NextRunAt` forward, or it fires on startup.
+
+## Decided 2026-09-24
+
+1. **Run writes:** a scoped grant tied to the developer who started the run. Only the `implement`
+   node gets `roslyn__apply_*`, with no `git__*` or `repoaction__*`. Each write is logged with the
+   starter's id, and publish stays behind the gate.
+2. **`AGENT.md`:** resolves against the run's target workspace, which today is the Daedalus repo root.
+3. **Prompt caching:** goes into the next Thalos.NET release.
+4. **Thalos 0.10.0 release notes:** left as is.
+
+Parked on 2026-09-24: Jev as a conditional tool selector, in `docs/planning/parked-ideas.md`.
+
+---
+
+## History below this line
 **Milestone 1 — Hermes-Style Agent Framework: CLOSED (2026-09-21).** All 9 phases complete. See
 `docs/planning/MILESTONE.md` for the definition-of-done checklist and its honest scoping, and
 `docs/planning/ROADMAP.md` for the "Carried forward from Milestone 1" list of 7 known, deliberately
@@ -487,6 +526,9 @@ unreadable. Fixed in #250.
    deliberate `Major.0.0.0` would make an unversioned build harmless rather than hazardous.
 
 ## Recommended Next Step
+
+**Superseded 2026-09-24 — see "Recommended Next Step" at the top of this file.** Everything below
+is historical.
 
 **Superseded 2026-09-21 — Milestone 1 is closed; phases 1.7, 1.8 and 1.9 are all complete.** The
 paragraphs below describing 1.7 as next are historical and left in place rather than deleted; they

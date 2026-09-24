@@ -23,7 +23,7 @@ namespace Daedalus.Agents.Workflow;
 ///     Requires <see cref="DaedalusSchedulingServiceCollectionExtensions.AddDaedalusScheduling"/> to have been
 ///     called on the same host — that is what binds <see cref="DetachedRunOptions"/> from the
 ///     <c>DetachedRuns</c> configuration section. Both hosts that call
-///     <see cref="Daedalus.Agents.DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents"/> —
+///     <see cref="Daedalus.Agents.DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents(Microsoft.Extensions.DependencyInjection.IServiceCollection, Microsoft.Extensions.Configuration.IConfiguration, Microsoft.Extensions.Hosting.IHostEnvironment, Microsoft.Extensions.AI.IEmbeddingGenerator{string, Microsoft.Extensions.AI.Embedding{float}}?)"/> —
 ///     <c>Daedalus.Api</c> and <c>Daedalus.Cli</c> — also call <c>AddDaedalusScheduling</c>, so this resolves
 ///     the exact same <see cref="IOptions{TOptions}"/> registration <see cref="SubagentRunExecutor"/> does, not
 ///     a second binding of the same section that could disagree with it. This type is only ever actually

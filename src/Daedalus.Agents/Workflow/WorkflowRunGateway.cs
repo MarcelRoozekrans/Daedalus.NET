@@ -28,10 +28,21 @@ namespace Daedalus.Agents.Workflow;
 ///     role-based authorization instead of <c>DefaultToolAuthorizer</c>, because a REST endpoint is not a Thalos
 ///     tool call and <c>DefaultToolAuthorizer</c> never sees one.
 ///     </para>
+///     <para>
+///     <b><see cref="StandingInstructionsWriter"/> defaults to <see langword="null"/>.</b> The default keeps this
+///     type constructible with only a store — <c>ResumeSignalMismatchTests</c> and
+///     <c>ResumeToolBoundaryTests</c>/<c>ResumeAuthorizationBoundaryTests</c> in <c>ResumeBoundaryTests.cs</c> are
+///     pinned to construct it that way and stay green unchanged — while every host still wires the real writer
+///     through DI (see <c>AddDaedalusWorkflow</c>). A caller that asks the five-argument
+///     <see cref="ResumeAsync(Guid,string,string?,bool,CancellationToken)"/> overload to apply standing
+///     instructions without one throws: that combination is a wiring bug, never a normal outcome a caller should
+///     branch on.
+///     </para>
 /// </remarks>
-public sealed class WorkflowRunGateway(IWorkflowStore store)
+public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstructionsWriter? writer = null)
 {
     private readonly IWorkflowStore _store = store ?? throw new ArgumentNullException(nameof(store));
+    private readonly StandingInstructionsWriter? _writer = writer;
 
     /// <summary>Finds a run by id, or <see langword="null"/> if none exists.</summary>
     public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => _store.FindAsync(runId, ct);
@@ -42,7 +53,19 @@ public sealed class WorkflowRunGateway(IWorkflowStore store)
     ///     run is actually awaiting rather than only echoing back the signal the caller supplied — and the run's
     ///     status is left untouched: no silent no-op, no partial transition.
     /// </summary>
-    public async ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct)
+    /// <remarks>
+    ///     <c>internal</c>, not <c>public</c>: fix round 1 of task B5 found nothing in <c>src</c> calling this
+    ///     overload directly any more — <c>Daedalus.Api.Controllers.WorkflowRunsController.Resume</c> only ever calls the
+    ///     five-argument <see cref="ResumeAsync(Guid,string,string?,bool,CancellationToken)"/> overload below,
+    ///     which applies standing instructions when asked before delegating here. A future <c>public</c> caller of
+    ///     this overload could bypass that entirely — resuming a gate with no chance to apply a proposal, or worse,
+    ///     no chance to be refused when it should have been. <c>internal</c> keeps this callable only from within
+    ///     <c>Daedalus.Agents</c> and from <c>Daedalus.Tests.Integration</c>/<c>Daedalus.Tests.Unit</c> (both
+    ///     granted <c>InternalsVisibleTo</c>) — <c>ResumeSignalMismatchTests</c> in <c>ResumeBoundaryTests.cs</c>
+    ///     still constructs <see cref="WorkflowRunGateway"/> directly and calls this overload, and stays green
+    ///     unchanged with no source change of its own.
+    /// </remarks>
+    internal async ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(signal);
 
@@ -52,6 +75,100 @@ public sealed class WorkflowRunGateway(IWorkflowStore store)
             return Result.Failure($"Workflow run '{runId}' was not found.");
         }
 
+        var awaiting = CheckAwaiting(run, signal, runId);
+        if (awaiting.IsFailure)
+        {
+            return awaiting;
+        }
+
+        return await _store.ResumeAsync(runId, signal, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Task B5: the resume path a human's <c>POST /api/workflow-runs/{id}/resume</c> actually calls.
+    ///     <paramref name="applyStandingInstructions"/> is never set except by an explicit choice in that request
+    ///     body — see <see cref="StandingInstructionsWriter"/>'s own remarks for why that is this design's trust
+    ///     boundary. When set: the run is read and checked against <paramref name="signal"/> with the same
+    ///     <see cref="CheckAwaiting"/> rule <see cref="ResumeAsync(Guid,string,string?,CancellationToken)"/> uses
+    ///     for its own check below — fix round 1 of this task found the original code skipped this check here,
+    ///     so a wrong signal or an already-cancelled/succeeded run would still write the file before the engine
+    ///     resume eventually refused it. Only once that check passes is
+    ///     <see cref="StandingInstructionsWriter.ApplyAsync"/> called, and on any failure it is returned
+    ///     unchanged — <see cref="ResumeAsync(Guid,string,string?,CancellationToken)"/> is never reached, so a
+    ///     stale or missing proposal, a wrong signal, or a run that is not awaiting can never leave the run's
+    ///     status touched. Only once the write (or the no-op skip, when the flag is unset) succeeds does the
+    ///     engine resume run, and its own failure maps to <see cref="ResumeRefusal.EngineRefused"/> here, with
+    ///     that failure's message carried through as <see cref="ResumeFailure.Detail"/> unchanged.
+    ///     <para>
+    ///     <b>The write is not rolled back.</b> If <see cref="StandingInstructionsWriter.ApplyAsync"/> succeeds
+    ///     and the engine resume that follows then loses a concurrency race
+    ///     (<see cref="WorkflowConcurrencyException"/> — another writer changed the run between this method's own
+    ///     pre-check and the store's write), the file has already been written and stays written; this method
+    ///     catches that exception and reports it as <see cref="ResumeRefusal.EngineRefused"/>, naming in
+    ///     <see cref="ResumeFailure.Detail"/> that the file was already written, but it does not attempt to
+    ///     restore the file to its previous text. A human who sees this failure and retries the resume will find
+    ///     <see cref="StandingInstructionsWriter.ApplyAsync"/> refuses the second time with
+    ///     <see cref="ResumeRefusal.InstructionsChangedSinceStart"/> — the pinned text and the now-written file no
+    ///     longer match — which is the correct, safe outcome even though it reads as a second, different failure.
+    ///     </para>
+    /// </summary>
+    public async ValueTask<UnitResult<ResumeFailure>> ResumeAsync(
+        Guid runId, string signal, string? payload, bool applyStandingInstructions, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(signal);
+
+        if (applyStandingInstructions)
+        {
+            if (_writer is null)
+            {
+                throw new InvalidOperationException(
+                    "WorkflowRunGateway was constructed without a StandingInstructionsWriter; it cannot apply standing instructions.");
+            }
+
+            var run = await _store.FindAsync(runId, ct).ConfigureAwait(false);
+            if (run is null)
+            {
+                return UnitResult<ResumeFailure>.Failure(
+                    new ResumeFailure(ResumeRefusal.EngineRefused, $"Workflow run '{runId}' was not found."));
+            }
+
+            var awaiting = CheckAwaiting(run, signal, runId);
+            if (awaiting.IsFailure)
+            {
+                return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, awaiting.Error));
+            }
+
+            var applied = await _writer.ApplyAsync(run, ct).ConfigureAwait(false);
+            if (applied.IsFailure)
+            {
+                return applied;
+            }
+        }
+
+        try
+        {
+            var result = await ResumeAsync(runId, signal, payload, ct).ConfigureAwait(false);
+            return result.IsSuccess
+                ? UnitResult<ResumeFailure>.Success()
+                : UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, result.Error));
+        }
+        catch (WorkflowConcurrencyException ex)
+        {
+            var detail = applyStandingInstructions
+                ? $"The standing-instructions file was already written, but the resume itself lost a concurrency race: {ex.Message}"
+                : ex.Message;
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, detail));
+        }
+    }
+
+    /// <summary>
+    ///     <paramref name="run"/> is parked awaiting exactly <paramref name="signal"/>, or a failure naming what
+    ///     it is actually awaiting instead — the one check shared by both <c>ResumeAsync</c> overloads, so the
+    ///     wording can never drift between the pre-check the five-argument overload runs before writing and the
+    ///     check the four-argument overload runs before resuming.
+    /// </summary>
+    private static Result CheckAwaiting(WorkflowRun run, string signal, Guid runId)
+    {
         if (run.Status != WorkflowStatus.Awaiting)
         {
             return Result.Failure($"Workflow run '{runId}' is not awaiting any signal (status: {run.Status}).");
@@ -59,11 +176,10 @@ public sealed class WorkflowRunGateway(IWorkflowStore store)
 
         if (!string.Equals(run.AwaitingSignal, signal, StringComparison.Ordinal))
         {
-            return Result.Failure(
-                $"Workflow run '{runId}' is awaiting signal '{run.AwaitingSignal}', not '{signal}'.");
+            return Result.Failure($"Workflow run '{runId}' is awaiting signal '{run.AwaitingSignal}', not '{signal}'.");
         }
 
-        return await _store.ResumeAsync(runId, signal, payload, ct).ConfigureAwait(false);
+        return Result.Success();
     }
 
     /// <summary>Cancels <paramref name="runId"/> for <paramref name="reason"/>. A no-op past a terminal status.</summary>

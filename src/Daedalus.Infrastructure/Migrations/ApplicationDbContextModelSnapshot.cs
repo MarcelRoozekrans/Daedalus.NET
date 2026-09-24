@@ -620,6 +620,72 @@ namespace Daedalus.Infrastructure.Migrations
                     b.ToTable("RepositoryConfigurations");
                 });
 
+            modelBuilder.Entity("Daedalus.Domain.Entities.RoleCharterHead", b =>
+                {
+                    b.Property<string>("Role")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CurrentHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Role");
+
+                    b.HasIndex("IsActive")
+                        .HasDatabaseName("IX_RoleCharterHead_IsActive");
+
+                    b.ToTable("RoleCharters", (string)null);
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.RoleCharterVersion", b =>
+                {
+                    b.Property<string>("Role")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Instructions")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("SourcePath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.PrimitiveCollection<List<string>>("_skills")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("Skills");
+
+                    b.HasKey("Role", "ContentHash");
+
+                    b.ToTable("RoleCharterVersions", (string)null);
+                });
+
             modelBuilder.Entity("Daedalus.Domain.Entities.ScheduledRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -817,6 +883,43 @@ namespace Daedalus.Infrastructure.Migrations
                         .HasDatabaseName("IX_Skill_IsActive");
 
                     b.ToTable("Skills", (string)null);
+                });
+
+            modelBuilder.Entity("Daedalus.Domain.Entities.SkillVersion", b =>
+                {
+                    b.Property<string>("Name")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("SourcePath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.PrimitiveCollection<List<string>>("_tags")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("Tags");
+
+                    b.HasKey("Name", "ContentHash");
+
+                    b.ToTable("SkillVersions", (string)null);
                 });
 
             modelBuilder.Entity("Daedalus.Domain.Entities.Task", b =>

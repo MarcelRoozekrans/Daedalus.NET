@@ -4,7 +4,7 @@ using Daedalus.Application.Configuration;
 namespace Daedalus.Agents;
 
 /// <summary>
-///     Bound from the <c>Thalos</c> configuration section by <see cref="DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents"/>.
+///     Bound from the <c>Thalos</c> configuration section by <see cref="Daedalus.Agents.DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents(Microsoft.Extensions.DependencyInjection.IServiceCollection, Microsoft.Extensions.Configuration.IConfiguration, Microsoft.Extensions.Hosting.IHostEnvironment, Microsoft.Extensions.AI.IEmbeddingGenerator{string, Microsoft.Extensions.AI.Embedding{float}}?)"/>.
 ///     Agent definitions are declared in configuration so no redeploy is needed to add one; the Anthropic provider reads
 ///     its own <c>Thalos:Anthropic</c> subsection (see <c>Thalos.Anthropic.AnthropicOptions</c>).
 /// </summary>
@@ -31,11 +31,33 @@ public sealed class DaedalusAgentsOptions
     /// <summary>Skill settings (<c>Thalos:Skills</c>): Thalos <c>SkillOptions</c> keys plus the Daedalus root resolution.</summary>
     public SkillsConfig Skills { get; } = new();
 
+    /// <summary>
+    ///     Folders holding <c>&lt;role&gt;.md</c>/<c>&lt;role&gt;/CHARTER.md</c> documents for every
+    ///     <see cref="AgentConfig.Chartered"/> agent (<c>Thalos:CharterRoots</c>). Relative paths resolve against
+    ///     the host content root, the same as <see cref="SkillsConfig.Roots"/>.
+    /// </summary>
+    /// <remarks>
+    ///     <b>Empty by default — same reason as <see cref="SkillsConfig.Roots"/>, not the same conclusion.</b>
+    ///     <c>ConfigurationBinder.Bind</c> reuses whatever instance a get-only (or get/set) collection property
+    ///     already holds and <em>appends</em> to it rather than replacing it — a setter does not change this,
+    ///     it only matters when the property is null. A pre-populated default of <c>["roles"]</c> here plus the
+    ///     shipped <c>"CharterRoots": [ "roles" ]</c> therefore produced <c>["roles", "roles"]</c> (fix round 1;
+    ///     confirmed by adding a setter alone and watching the duplicate persist). Unlike
+    ///     <see cref="SkillsConfig.Roots"/>, "no roots configured" must not mean "no charters" here — every
+    ///     chartered agent needs somewhere to sync from — so <c>ResolveCharterRoots</c> applies the <c>"roles"</c>
+    ///     default itself when this list binds empty, instead of the property carrying a default value that
+    ///     binding can never cleanly override.
+    /// </remarks>
+    public IList<string> CharterRoots { get; } = [];
+
     /// <summary>Workflow-engine settings (<c>Thalos:Workflow</c>): whether the engine is wired at all, and where process files live.</summary>
     public WorkflowConfig Workflow { get; } = new();
 
     /// <summary>Manufacturing squad settings (<c>Thalos:Squad</c>): whether roles resolve to their own agents or all collapse onto one fallback.</summary>
     public SquadOptions Squad { get; } = new();
+
+    /// <summary>Periodic content resync settings (<c>Thalos:Content</c>): whether <see cref="ContentResyncService"/> runs at all.</summary>
+    public ContentConfig Content { get; } = new();
 }
 
 /// <summary>One agent definition as declared in configuration.</summary>
@@ -73,6 +95,17 @@ public sealed class AgentConfig
 
     /// <summary>Per-agent memory overrides (<c>Thalos:Agents:N:Memory</c>); <see langword="null"/> → inherit <c>Thalos:Memory</c>.</summary>
     public AgentMemoryConfig? Memory { get; set; }
+
+    /// <summary>
+    ///     Whether <see cref="Description"/>, <see cref="Instructions"/>, <see cref="Model"/> and <see cref="Skills"/>
+    ///     come from a versioned role charter (<c>roles/&lt;Name&gt;.md</c>, synced by Thalos'
+    ///     <c>CharterSyncService</c>) instead of this entry. When true, <see cref="Instructions"/> must be blank
+    ///     and <see cref="Tools"/> must not be empty — see
+    ///     <c>DaedalusAgentsServiceCollectionExtensions.ValidateCharterConfig</c>. Only <see cref="Id"/>,
+    ///     <see cref="Name"/>, <see cref="Tools"/> and <see cref="Memory"/> remain this entry's own; the other four
+    ///     fields are ignored here even if populated — see Thalos' <c>AgentEnvelope</c>.
+    /// </summary>
+    public bool Chartered { get; set; }
 }
 
 /// <summary>
@@ -210,7 +243,7 @@ public sealed class SkillSearchConfig
 
 
 /// <summary>
-///     <c>Thalos:Workflow</c>: whether <see cref="DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents"/>
+///     <c>Thalos:Workflow</c>: whether <see cref="Daedalus.Agents.DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents(Microsoft.Extensions.DependencyInjection.IServiceCollection, Microsoft.Extensions.Configuration.IConfiguration, Microsoft.Extensions.Hosting.IHostEnvironment, Microsoft.Extensions.AI.IEmbeddingGenerator{string, Microsoft.Extensions.AI.Embedding{float}}?)"/>
 ///     wires the durable workflow engine (the store, the outbox poller, the stranded-run sweep, and the
 ///     process-definition sync) at all, and where its process files live on disk.
 /// </summary>
@@ -244,4 +277,31 @@ public sealed class WorkflowConfig
     ///     root, falling back to the assembly directory, the same way <c>Thalos:Skills:Roots</c> does.
     /// </summary>
     public string ProcessesRoot { get; set; } = "processes";
+
+    /// <summary>
+    ///     The standing-instructions file <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter"/> pins into
+    ///     every new manufacture run's manifest as <c>standing_instructions</c>. Relative paths resolve against
+    ///     the host content root, the same as <see cref="ProcessesRoot"/> — unlike that folder, a missing file is
+    ///     not an error: the run simply starts with an empty standing-instructions document (see
+    ///     <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter.StartAsync"/>).
+    /// </summary>
+    public string StandingInstructionsPath { get; set; } = "AGENT.md";
+}
+
+/// <summary>
+///     <c>Thalos:Content</c>: whether <see cref="ContentResyncService"/> runs at all, and on what interval.
+/// </summary>
+public sealed class ContentConfig
+{
+    /// <summary>Configuration section name: <c>Thalos:Content</c>.</summary>
+    public const string SectionName = "Thalos:Content";
+
+    /// <summary>
+    ///     How often <see cref="ContentResyncService"/> re-runs the skill, charter and process-definition syncs.
+    ///     <see langword="null"/> (the default — nothing in shipped configuration sets this key) means the
+    ///     service is not registered at all: files still reach a running host through the redeploy path, the same
+    ///     as before this existed. Set it and a running host picks up an edited <c>SKILL.md</c>, <c>roles/*.md</c>
+    ///     or <c>processes/*.yaml</c> on the next tick instead.
+    /// </summary>
+    public TimeSpan? ResyncInterval { get; set; }
 }

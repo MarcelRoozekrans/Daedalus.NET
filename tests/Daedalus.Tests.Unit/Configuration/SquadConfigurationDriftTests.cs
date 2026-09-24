@@ -1,12 +1,10 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Workflow;
+using static Daedalus.Tests.Unit.Configuration.ChartersTestSupport;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
@@ -31,40 +29,22 @@ public sealed class SquadConfigurationDriftTests
             .AddJsonFile(fileName, optional: false)
             .Build();
 
-    private static ServiceProvider BuildWithApiConfiguration(bool? squadEnabledOverride = null)
-    {
-        var environment = Substitute.For<IHostEnvironment>();
-        environment.ContentRootPath.Returns(AppContext.BaseDirectory);
-        environment.EnvironmentName.Returns("Development");
-
-        var builder = new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile(ApiAppSettingsFileName, optional: false);
-        if (squadEnabledOverride is { } enabled)
-        {
-            builder.AddInMemoryCollection(new Dictionary<string, string?>(StringComparer.Ordinal)
-            {
-                ["Thalos:Squad:Enabled"] = enabled ? "true" : "false",
-            });
-        }
-
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        services.AddDaedalusAgents(builder.Build(), environment);
-        return services.BuildServiceProvider();
-    }
-
+    /// <summary>
+    ///     <c>implementer</c> and <c>reviewer</c> are chartered agents (phase 2.4 task B2): <see cref="IAgentCatalog"/>
+    ///     serves only config agents until a role's charter has actually been synced, so every helper here that
+    ///     expects to find either of them goes through <see cref="ChartersTestSupport.BuildWithApiConfigurationAndSyncedChartersAsync"/>
+    ///     rather than a plain, unsynced composition.
+    /// </summary>
     private static async Task<AgentId?> ResolveThroughRealCompositionAsync(bool squadEnabled, string roleName)
     {
-        using var sp = BuildWithApiConfiguration(squadEnabled);
+        await using var sp = await BuildWithApiConfigurationAndSyncedChartersAsync(squadEnabled);
         var resolver = sp.GetRequiredService<IWorkflowReferenceResolver>();
         return await resolver.ResolveAgentIdAsync(roleName, CancellationToken.None);
     }
 
-    private static AgentId AgentNamed(string name)
+    private static async Task<AgentId> AgentNamedAsync(string name)
     {
-        using var sp = BuildWithApiConfiguration();
+        await using var sp = await BuildWithApiConfigurationAndSyncedChartersAsync();
         return sp.GetRequiredService<IAgentCatalog>().Agents.Single(a => string.Equals(a.Name, name, StringComparison.Ordinal)).Id;
     }
 
@@ -82,9 +62,9 @@ public sealed class SquadConfigurationDriftTests
     {
         var resolved = await ResolveThroughRealCompositionAsync(squadEnabled: false, roleName);
 
-        resolved.Should().Be(AgentNamed("Daedalus Architect"),
+        resolved.Should().Be(await AgentNamedAsync("Daedalus Architect"),
             "a disabled squad must keep the pipeline runnable on the configuration phase 2.2 proved, without editing the process file");
-        resolved.Should().NotBe(AgentNamed(roleName));
+        resolved.Should().NotBe(await AgentNamedAsync(roleName));
     }
 
     [Theory]
@@ -94,7 +74,7 @@ public sealed class SquadConfigurationDriftTests
     {
         var resolved = await ResolveThroughRealCompositionAsync(squadEnabled: true, roleName);
 
-        resolved.Should().Be(AgentNamed(roleName),
+        resolved.Should().Be(await AgentNamedAsync(roleName),
             "otherwise the flag is stuck on the fallback and the squad never runs at all");
     }
 
@@ -252,27 +232,34 @@ public sealed class SquadConfigurationDriftTests
     ///     reads the pin out of the process file, so it follows the file: a change that moved <c>implement</c>
     ///     onto some other agent would keep that guard green while this one goes red. This asserts the roster
     ///     entry itself, which is what a rollback or a later phase is most likely to disturb.
+    ///     <para>
+    ///     Phase 2.4 task B2 moved <c>Skills</c> off the config roster and onto the charter
+    ///     (<c>roles/implementer.md</c>), so this now reads the composed catalog rather than
+    ///     <c>DaedalusAgentsOptions</c> directly — the config entry itself carries no <c>Skills</c> any more.
+    ///     </para>
     /// </remarks>
     [Fact]
-    public void Implementer_can_load_the_manufacture_implement_skill()
+    public async Task Implementer_can_load_the_manufacture_implement_skill()
     {
-        var options = new DaedalusAgentsOptions();
-        Load(ApiAppSettingsFileName).GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+        await using var sp = await BuildWithApiConfigurationAndSyncedChartersAsync();
 
-        var implementer = options.Agents.Should().ContainSingle(a => a.Name == "implementer").Subject;
+        var implementer = sp.GetRequiredService<IAgentCatalog>().Agents.Should().ContainSingle(a => a.Name == "implementer").Subject;
 
         implementer.Skills.Should().Contain("manufacture-implement");
     }
 
+    /// <remarks>
+    ///     Phase 2.4 task B2 moved <c>Model</c> off the config roster and onto the charter
+    ///     (<c>roles/reviewer.md</c>), so this now reads the composed catalog rather than
+    ///     <c>DaedalusAgentsOptions</c> directly — the config entry itself carries no <c>Model</c> any more.
+    /// </remarks>
     [Fact]
-    public void Reviewer_is_priced_on_a_different_model_line_from_the_default()
+    public async Task Reviewer_is_priced_on_a_different_model_line_from_the_default()
     {
-        var configuration = Load(ApiAppSettingsFileName);
-        var options = new DaedalusAgentsOptions();
-        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+        var defaultModel = Load(ApiAppSettingsFileName)["Thalos:Anthropic:DefaultModel"];
 
-        var reviewer = options.Agents.Should().ContainSingle(a => a.Name == "reviewer").Subject;
-        var defaultModel = configuration["Thalos:Anthropic:DefaultModel"];
+        await using var sp = await BuildWithApiConfigurationAndSyncedChartersAsync();
+        var reviewer = sp.GetRequiredService<IAgentCatalog>().Agents.Should().ContainSingle(a => a.Name == "reviewer").Subject;
 
         reviewer.Model.Should().NotBeNullOrWhiteSpace();
         reviewer.Model.Should().NotBe(defaultModel,
@@ -281,9 +268,9 @@ public sealed class SquadConfigurationDriftTests
     }
 
     [Fact]
-    public void Implementer_and_reviewer_resolve_from_real_configuration_and_appear_in_the_catalog()
+    public async Task Implementer_and_reviewer_resolve_from_real_configuration_and_appear_in_the_catalog()
     {
-        using var sp = BuildWithApiConfiguration();
+        await using var sp = await BuildWithApiConfigurationAndSyncedChartersAsync();
 
         var agents = sp.GetRequiredService<IAgentCatalog>().Agents;
         agents.Should().Contain(a => a.Name == "implementer");

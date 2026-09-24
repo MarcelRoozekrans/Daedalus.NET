@@ -62,11 +62,51 @@ public static class ReviewHandoff
     public const string RationaleKey = "rationale";
 
     /// <summary>
+    ///     The implementer's own build/run/test observations, optionally reported alongside its outcome. The one
+    ///     thing <c>retrospect</c> reads — see <see cref="RetrospectReads"/> — and, like <see cref="FilesTouchedKey"/>,
+    ///     a narrow, factual pointer rather than the implementer's narrative.
+    /// </summary>
+    public const string LearningsKey = "learnings";
+
+    /// <summary>
+    ///     The complete replacement text <c>retrospect</c> proposes for the standing instructions file, reported
+    ///     on its <c>proposed</c> outcome. B5 is what ever writes this to disk, and only after a human resumes the
+    ///     gate the retrospect node's branch always leads to — this key is a proposal sitting in the run record,
+    ///     never a write.
+    /// </summary>
+    public const string ProposedStandingInstructionsKey = "proposed_standing_instructions";
+
+    /// <summary>
+    ///     The <c>retrospect</c> outcome that carries a proposal. The skill's other outcome, <c>none</c>, carries
+    ///     none. <see cref="ReviewHandoffWorkflowStore"/> keeps a reported <see cref="ProposedStandingInstructionsKey"/>
+    ///     only on this outcome and clears the key on every other retrospect completion, so the value a human sees
+    ///     at the gate is always the one this run's retrospect turn reported, or nothing.
+    /// </summary>
+    public const string RetrospectProposedOutcome = "proposed";
+
+    /// <summary>The skill name <c>implement</c> is pinned to. Named here so it sits beside <see cref="RetrospectSkillName"/> rather than as a bare literal at the one other call site that needs it, <see cref="StandingInstructionsRunner"/>.</summary>
+    public const string ImplementSkillName = "manufacture-implement";
+
+    /// <summary>The skill name a <c>retrospect</c> node is pinned to — what <see cref="ReviewHandoffWorkflowStore.ProjectionForAsync"/> and <see cref="StandingInstructionsRunner"/> both key off.</summary>
+    public const string RetrospectSkillName = "manufacture-retrospect";
+
+    /// <summary>
     ///     The only keys a <c>review</c> dispatch is given. <see cref="FilesTouchedKey"/> is the sole thing the
     ///     implementer writes that appears here: a pointer travels, an account does not.
     /// </summary>
     public static readonly FrozenSet<string> ReviewReads =
         new[] { WorkIntentKey, FilesTouchedKey }.ToFrozenSet(StringComparer.Ordinal);
+
+    /// <summary>
+    ///     The only keys a <c>retrospect</c> dispatch is given: the implementer's <see cref="LearningsKey"/>.
+    ///     Never <see cref="SummaryKey"/> or <see cref="RationaleKey"/> — retrospect proposes a change to the
+    ///     standing instructions from durable facts, not from the implementer's narrative, for the same reason
+    ///     the reviewer does not read either. The pinned standing instructions themselves travel a different way:
+    ///     as a manifest document, appended to the task text by <see cref="StandingInstructionsRunner"/>, not as a
+    ///     run variable — so they are not in this set.
+    /// </summary>
+    public static readonly FrozenSet<string> RetrospectReads =
+        new[] { LearningsKey }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>
     ///     Projects a run's variables down to <see cref="ReviewReads"/>. Keys outside that set are not copied;
@@ -97,12 +137,24 @@ public static class ReviewHandoff
     ///     would throw away type information for nothing.
     /// </summary>
     /// <param name="variables">The run's accumulated variables.</param>
-    public static IReadOnlyDictionary<string, object?> ProjectForReviewNode(IReadOnlyDictionary<string, object?> variables)
+    public static IReadOnlyDictionary<string, object?> ProjectForReviewNode(IReadOnlyDictionary<string, object?> variables) =>
+        Project(variables, ReviewReads);
+
+    /// <summary>
+    ///     Projects a run's variables down to an arbitrary declared read set, keeping each value as it stands —
+    ///     the same allow-list shape <see cref="ProjectForReviewNode"/> has always had, generalised in task B4 so
+    ///     <see cref="ReviewHandoffWorkflowStore"/> can apply it to <see cref="RetrospectReads"/> as well as
+    ///     <see cref="ReviewReads"/> without a second copy of the walk.
+    /// </summary>
+    /// <param name="variables">The run's accumulated variables.</param>
+    /// <param name="reads">The declared set of keys the dispatch may see.</param>
+    public static IReadOnlyDictionary<string, object?> Project(IReadOnlyDictionary<string, object?> variables, IReadOnlySet<string> reads)
     {
         ArgumentNullException.ThrowIfNull(variables);
+        ArgumentNullException.ThrowIfNull(reads);
 
-        var projected = new Dictionary<string, object?>(ReviewReads.Count, StringComparer.Ordinal);
-        foreach (var key in ReviewReads)
+        var projected = new Dictionary<string, object?>(reads.Count, StringComparer.Ordinal);
+        foreach (var key in reads)
         {
             if (variables.TryGetValue(key, out var value))
                 projected[key] = value;

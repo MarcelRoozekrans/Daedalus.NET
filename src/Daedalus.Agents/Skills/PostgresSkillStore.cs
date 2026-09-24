@@ -1,6 +1,7 @@
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Thalos;
 using Thalos.Skills;
 using ZeroAlloc.Results;
@@ -60,9 +61,44 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
             }
         }
 
+        // Append-only history: a run pinned to this hash must be able to load it later, even after a further sync
+        // replaces the current Skills row above or DeactivateMissingAsync marks it inactive. Skipped when the hash
+        // has already been captured (an unchanged file re-synced, or the same content re-uploaded under the name).
+        SkillVersion? addedVersion = null;
+        var versionExists = await db.SkillVersions.AnyAsync(v => v.Name == name && v.ContentHash == skill.ContentHash, ct).ConfigureAwait(false);
+        if (!versionExists)
+        {
+            var version = SkillVersion.Create(name, skill.ContentHash, skill.Description, skill.Body, skill.Tags, skill.SourcePath, skill.UpdatedAt.UtcDateTime);
+            if (version.IsFailure)
+            {
+                return Result<SkillDocument, AgentError>.Failure(AgentError.SkillValidationFailed(version.Error));
+            }
+
+            addedVersion = version.Value;
+            db.SkillVersions.Add(addedVersion);
+        }
+
         try
         {
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (addedVersion is not null && IsLostVersionInsert(ex))
+        {
+            // Another host synced the same content between the AnyAsync check above and this save: Daedalus.Api and
+            // Daedalus.Cli both sync skills into these shared tables at start. Its row is keyed on the same
+            // (Name, ContentHash), and a version row is a pure function of that content, so the row we meant to write
+            // is already there and losing the race is success. The failed save rolled back its whole transaction,
+            // including this call's update to the Skills row, so the version is detached and the rest saved again.
+            db.Entry(addedVersion).State = EntityState.Detached;
+            try
+            {
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (DbUpdateException retry)
+            {
+                return Result<SkillDocument, AgentError>.Failure(
+                    AgentError.SkillStoreFailed("Could not store the skill.", retry.GetType().Name));
+            }
         }
         catch (DbUpdateException ex)
         {
@@ -71,6 +107,39 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
         }
 
         return Result<SkillDocument, AgentError>.Success(ToDocument(row));
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="ex"/> is a primary-key violation on <c>SkillVersions</c>, the only table whose
+    ///     insert this store treats as safe to lose. A violation anywhere else, such as two hosts both creating
+    ///     the same <c>Skills</c> row, is still a failure.
+    /// </summary>
+    private static bool IsLostVersionInsert(DbUpdateException ex) =>
+        ex.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            TableName: SkillVersionsTable,
+        };
+
+    private const string SkillVersionsTable = "SkillVersions";
+
+    /// <inheritdoc />
+    public async ValueTask<Result<SkillDocument, AgentError>> GetVersionAsync(SkillName name, string contentHash, CancellationToken ct)
+    {
+        var key = name.Value;
+        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var version = await db.SkillVersions.AsNoTracking()
+            .FirstOrDefaultAsync(v => v.Name == key && v.ContentHash == contentHash, ct).ConfigureAwait(false);
+
+        if (version is null)
+        {
+            return Result<SkillDocument, AgentError>.Failure(AgentError.SkillNotFound($"{key}@{contentHash}"));
+        }
+
+        // IsActive comes from the current Skills row, not the version: a version has no activity of its own, and a
+        // skill whose file has since disappeared must still report IsActive false for a run reading a pinned copy.
+        var current = await db.Skills.AsNoTracking().FirstOrDefaultAsync(s => s.Id == key, ct).ConfigureAwait(false);
+        return Result<SkillDocument, AgentError>.Success(ToDocument(version, current?.IsActive ?? false));
     }
 
     /// <inheritdoc />
@@ -163,5 +232,17 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
         ContentHash = s.ContentHash,
         IsActive = s.IsActive,
         UpdatedAt = new DateTimeOffset(s.UpdatedAt, TimeSpan.Zero),
+    };
+
+    private static SkillDocument ToDocument(SkillVersion v, bool isActive) => new()
+    {
+        Name = SkillName.Parse(v.Name),
+        Description = v.Description,
+        Body = v.Body,
+        Tags = v.Tags.ToList(),
+        SourcePath = v.SourcePath,
+        ContentHash = v.ContentHash,
+        IsActive = isActive,
+        UpdatedAt = new DateTimeOffset(v.CreatedAt, TimeSpan.Zero),
     };
 }

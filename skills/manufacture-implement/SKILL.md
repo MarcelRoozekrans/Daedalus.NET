@@ -161,3 +161,27 @@ prompt afterwards: the review node's dispatch is built from a variable bag those
 already been removed from, so the component that renders variables into a prompt never holds them.
 Writing `summary` is therefore safe in the only sense that matters — there is no wording of it that
 reaches the reviewer.
+
+## Optional: what you learned by running something
+
+If, in the course of this turn, you learned a durable fact about this project's build, run or test
+process — something you found out by actually running a command, not something you already believed —
+you may add a fourth key to the same outcome-tool call:
+
+```json
+{
+  "outcome": "changed",
+  "variables": {
+    "summary": "...",
+    "files_touched": ["..."],
+    "rationale": "...",
+    "learnings": ["dotnet test needs Docker running for Integration"]
+  }
+}
+```
+
+At most 3 entries, each one short sentence, and only facts you learned by running something — never a
+status report, never task narrative, never an opinion about the change itself. This is not a second
+`summary`: `learnings` reaches a later `retrospect` step, which proposes updates to this project's
+standing build/run/test instructions from exactly this kind of fact. If you learned nothing durable
+this turn, omit the key entirely rather than inventing something to fill it.
