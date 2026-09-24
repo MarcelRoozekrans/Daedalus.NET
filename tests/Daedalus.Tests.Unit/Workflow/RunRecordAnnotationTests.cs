@@ -53,6 +53,8 @@ public sealed class RunRecordAnnotationTests
         public ValueTask<Guid> StartAsync(string process, int version, string correlationKey, string startNode, IReadOnlyDictionary<string, object?>? initialVariables, CancellationToken ct) =>
             throw new NotSupportedException();
 
+        public ValueTask<Guid> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
+
         public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => throw new NotSupportedException();
 
         public ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct) => throw new NotSupportedException();

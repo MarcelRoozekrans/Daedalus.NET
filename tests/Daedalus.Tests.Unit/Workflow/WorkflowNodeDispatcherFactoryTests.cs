@@ -4,6 +4,7 @@ using Daedalus.Agents.Workflow;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Thalos;
+using Thalos.Skills;
 using Thalos.Workflow;
 using ZeroAlloc.Authorization;
 using ZeroAlloc.Results;
@@ -84,6 +85,7 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         services.AddSingleton(definitions);
         services.AddSingleton(resolver);
         services.AddSingleton<ISubagentRunner>(innerRunner);
+        services.AddSingleton(Substitute.For<ISkillStore>());
         services.AddSingleton(detachedOptions);
         // The two store decorators the factory puts between the dispatcher and IWorkflowStore need these.
         services.AddSingleton(new SquadOptions { Enabled = true, FallbackAgentName = "Daedalus Architect" });

@@ -30,6 +30,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
     public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
     public DbSet<Skill> Skills => Set<Skill>();
+
+    /// <summary>Insert-only history of every distinct skill content hash ever synced; see <see cref="SkillVersion"/>.</summary>
+    public DbSet<SkillVersion> SkillVersions => Set<SkillVersion>();
     public DbSet<ChannelConversation> ChannelConversations => Set<ChannelConversation>();
 
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>

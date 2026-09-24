@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Thalos;
+using Thalos.Skills;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 using ZeroAlloc.ORM.Migrations;
@@ -318,6 +319,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton<WorkflowRecallTierLog>();
         services.AddSingleton<IWorkflowReferenceResolver>(sp => new SquadWorkflowReferenceResolver(names, sp.GetRequiredService<SquadAgentResolver>(), NullLogger<SquadWorkflowReferenceResolver>.Instance));
         services.AddSingleton(runner);
+        services.AddSingleton(Substitute.For<ISkillStore>());
         services.AddSingleton(Options.Create(new DetachedRunOptions
         {
             PrincipalId = "workflow-test",

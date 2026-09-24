@@ -2,6 +2,7 @@ using Daedalus.Agents.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Thalos;
+using Thalos.Skills;
 using Thalos.Workflow;
 
 namespace Daedalus.Agents.Workflow;
@@ -63,5 +64,6 @@ internal static class WorkflowNodeDispatcherFactory
             sp.GetRequiredService<IProcessDefinitionStore>()),
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
+        sp.GetRequiredService<ISkillStore>(),
         resolveCaller: run => new WorkflowCaller(run));
 }

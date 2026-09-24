@@ -44,30 +44,30 @@
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.3" />
 
-    <!-- Thalos.NET (nuget.org). 0.8.0 → 0.9.0 across the whole family: Thalos.NET.Workflow/.Orm pin
+    <!-- Thalos.NET (nuget.org). 0.9.0 → 0.10.0 across the whole family: Thalos.NET.Workflow/.Orm pin
          Thalos.NET and Thalos.NET.Skills at exactly their own version, and all fifteen packages release
-         together (see Thalos.NET/docs/release.md, "The next release ships fifteen packages"). All fifteen
-         0.9.0 versions were read off nuget.org's flat container before this bump, not taken from a brief.
-         0.9.0 is BREAKING: IWorkflowStore.StartAsync gained an initialVariables parameter before its
-         CancellationToken, and WorkflowNodeDispatcher now carries a node's reported variables into
-         WorkflowRun.Variables and renders that bag into the next node's task text. Consumed by phase 2.3
-         task B5 for the implement -> review handoff. -->
-    <PackageVersion Include="Thalos.NET" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Git" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Memory" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Skills" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Channels" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.9.0" />
+         together (see Thalos.NET/docs/release.md, "The next release ships fifteen packages").
+         0.10.0 is BREAKING: IWorkflowStore gained a WorkflowStartRequest-based StartAsync overload that
+         carries an optional run-pinning RunManifest, WorkflowRun gained Manifest, WorkflowNodeDispatcher's
+         constructor gained an ISkillStore parameter to load a pinned node's exact skill version, and
+         ISkillStore itself gained GetVersionAsync so a pinned run can still load a skill body a later sync
+         has since replaced. Consumed by phase 2.4 task B1 to give the Postgres skill store a history. -->
+    <PackageVersion Include="Thalos.NET" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Git" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Skills" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Channels" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.10.0" />
     <!-- Phase 2.2 Part B: consume the durable workflow engine Part A shipped. -->
-    <PackageVersion Include="Thalos.NET.Workflow" Version="0.9.0" />
-    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.9.0" />
+    <PackageVersion Include="Thalos.NET.Workflow" Version="0.10.0" />
+    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.10.0" />
     <!-- ZeroAlloc.ORM: floor set by Thalos.NET.Workflow.Orm 0.7.0 (raw-SQL migrations/store, no EF Core). -->
     <PackageVersion Include="ZeroAlloc.ORM" Version="1.7.1" />
     <!-- AdoNet.Async.Adapters: floor set by Thalos.NET.Workflow.Orm 0.7.0's own nuspec (1.4.1) — NOT the

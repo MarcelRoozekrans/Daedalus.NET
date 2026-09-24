@@ -1,4 +1,4 @@
-﻿using System.Data.Async.Adapters;
+using System.Data.Async.Adapters;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Thalos;
+using Thalos.Skills;
 using Thalos.Tools;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
@@ -367,6 +368,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             Substitute.For<ISubagentRunner>(),
             Substitute.For<IWorkflowReferenceResolver>(),
             store.Definitions,
+            Substitute.For<ISkillStore>(),
             r => new WorkflowCaller(r));
 
         await dispatcher.DispatchAsync(new WorkflowDispatchMessage(runId, run!.CurrentSeq, "gate"), CancellationToken.None);

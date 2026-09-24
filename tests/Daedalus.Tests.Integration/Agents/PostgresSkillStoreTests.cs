@@ -60,6 +60,29 @@ public sealed class PostgresSkillStoreTests(PostgresFixture fixture) : SkillStor
         result.Error.Code.Should().Be(AgentErrorCode.SkillValidationFailed);
     }
 
+    /// <summary>
+    ///     Daedalus-specific: <see cref="SkillDocument.IsActive"/> on a pinned version is not stored on the version row
+    ///     itself (a version has no activity of its own) — it is read off the skill's current <c>Skills</c> row at
+    ///     query time, so it reflects deactivation even for a hash that is no longer current.
+    /// </summary>
+    [Fact]
+    public async Task GetVersion_reports_IsActive_from_the_current_skills_row_not_the_version_row()
+    {
+        var clock = NewClock();
+        var store = await CreateStoreAsync(clock);
+        await store.UpsertAsync(NewSkill(clock, "release", hash: "hash-v1"), CancellationToken.None);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await store.UpsertAsync(NewSkill(clock, "release", hash: "hash-v2"), CancellationToken.None);
+
+        var beforeDeactivation = await store.GetVersionAsync(SkillName.Parse("release"), "hash-v1", CancellationToken.None);
+        beforeDeactivation.Value.IsActive.Should().BeTrue("the skill is still current when hash-v1 is loaded");
+
+        await store.DeactivateMissingAsync([], CancellationToken.None);
+
+        var afterDeactivation = await store.GetVersionAsync(SkillName.Parse("release"), "hash-v1", CancellationToken.None);
+        afterDeactivation.Value.IsActive.Should().BeFalse("the same superseded version now reports the skill's current, deactivated state");
+    }
+
     /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
     private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
     {

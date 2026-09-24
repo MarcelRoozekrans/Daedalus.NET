@@ -21,14 +21,7 @@ internal abstract class DelegatingWorkflowStore(IWorkflowStore inner) : IWorkflo
     protected IWorkflowStore Inner { get; } = inner ?? throw new ArgumentNullException(nameof(inner));
 
     /// <inheritdoc />
-    public virtual ValueTask<Guid> StartAsync(
-        string process,
-        int version,
-        string correlationKey,
-        string startNode,
-        IReadOnlyDictionary<string, object?>? initialVariables,
-        CancellationToken ct) =>
-        Inner.StartAsync(process, version, correlationKey, startNode, initialVariables, ct);
+    public virtual ValueTask<Guid> StartAsync(WorkflowStartRequest request, CancellationToken ct) => Inner.StartAsync(request, ct);
 
     /// <inheritdoc />
     public virtual ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => Inner.FindAsync(runId, ct);
