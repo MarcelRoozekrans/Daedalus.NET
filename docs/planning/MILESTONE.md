@@ -3,10 +3,10 @@
 **Status:** active
 **Started:** 2026-09-21
 
-> Written 2026-09-24, after phase 2.4 closed. Milestone 2 was opened with a goal in `ROADMAP.md`
-> but no definition of done. The criteria below are reconstructed from that goal and the phase
-> list, and they are for the owner to confirm or correct before `audit-milestone` ever reads
-> them. Milestone 1's file is archived at `docs/planning/archive/MILESTONE-1.md`.
+> Written 2026-09-24, after phase 2.4 closed. Milestone 2 had a goal in `ROADMAP.md` but no
+> definition of done; the criteria below were reconstructed from that goal and the phase list and
+> **confirmed by the owner on 2026-09-24**. Milestone 1's file is archived at
+> `docs/planning/archive/MILESTONE-1.md`.
 
 ## Goal
 
