@@ -2,34 +2,29 @@
 
 **Last session:** 2026-09-24
 
-## Current Position - phase 2.4: done, final review clean, awaiting push approval
+## Current Position - phase 2.4 complete, PR #276 open; phase 2.5 next
 
-**Milestone 2, phase 2.4 - the process as skills.** Branch `feat/phase-2.4-process-as-skills`,
-**not pushed**. Plan `docs/plans/2026-09-23-phase-2.4-process-as-skills-plan.md`. Every ruling,
-the live proof, the final review and the carried-forward list are in
+**Milestone 2.** Phase 2.4 - the process as skills - is **complete (2026-09-24)**. Branch
+`feat/phase-2.4-process-as-skills` is pushed and open as **PR #276** against `main`. Every ruling, the
+live proof, the final review and the carried-forward list are in
 `docs/plans/2026-09-23-phase-2.4-rulings.md`.
 
-- **Part A:** Thalos.NET **0.10.0 released**. **B1 to B7 complete.**
-- **Final whole-branch review:** ready to merge with fixes, fixed in one wave `880c1f2..1b94c4f`, and
-  the re-review confirmed all findings addressed. The Critical: any node could plant the standing-
-  instructions proposal, and now only retrospect can author it.
-- **Suites:** Unit 397, Unit.Application 425, Unit.Domain 356, Unit.Infrastructure 142, Integration 581.
-- **Live proof** ran once and stopped at `implement`. The implementer honestly reported `blocked`
-  after 737,634 input tokens, and the budget then failed the node. Review, retrospect and the gate are
-  unreachable until a run can write. See the rulings doc.
+- Suites: Unit 397, Unit.Application 425, Unit.Domain 356, Unit.Infrastructure 142, Integration 581.
+- The final review was clean after one fix wave. The Critical it found, any node planting the
+  standing-instructions proposal, is fixed: now only retrospect can author it.
+- The live proof stopped at `implement`. Review, retrospect and the gate are unreachable until a run
+  can write.
+- **Roadmap renumbered.** A new **phase 2.5 - run write authority** was inserted, so Ralph retirement
+  is now **2.6**. Older text in this file that says "phase 2.5 deletes Ralph" means 2.6.
 
 ## Recommended Next Step
 
-1. **Ask the owner before pushing** the branch and opening the Daedalus PR (B7 step 6). After the
-   merge, confirm every `fix:`/`feat:` commit appears in the release-please PR.
-2. `complete-phase` 2.4.
-3. `insert-phase` a new 2.5 before Ralph retirement, which becomes 2.6. It covers:
-   - a scoped write grant tied to the run's starter: only `implement` gets `roslyn__apply_*`, with no
-     git or repo actions;
-   - `AGENT.md` resolved against the target workspace;
-   - prompt caching in Thalos.NET.Anthropic.
-
-   It ends with the live proof rerun.
+1. Merge PR #276, after CI and the owner's review. Then confirm every `fix:` and `feat:` commit
+   appears in the release-please PR, because a green workflow does not prove a commit was counted.
+2. Start **phase 2.5** with `start-next-phase`. It has no design spec yet, so it routes to a
+   brainstorm. It covers the three decisions below and ends with the live proof rerun that 2.4 could
+   not complete. Before booting a host for that proof, push the `daily-digest` schedule's
+   `NextRunAt` forward, or it fires on startup.
 
 ## Decided 2026-09-24
 
