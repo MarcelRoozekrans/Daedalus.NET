@@ -30,10 +30,14 @@ namespace Daedalus.Tests.Unit;
 ///     Replacing the per-sync <c>try</c>/<c>catch</c> in <c>ContentResyncService.RunSkillSyncAsync</c> and
 ///     the other two <c>Run*SyncAsync</c> methods with one shared <c>try</c>/<c>catch</c> around the whole
 ///     sequential chain in <c>ExecuteAsync</c> makes
-///     <see cref="A_throwing_skill_sync_still_lets_the_charter_and_process_syncs_run_on_the_same_tick"/>,
-///     <see cref="A_throwing_charter_sync_still_lets_the_skill_and_process_syncs_run_on_the_same_tick"/> and
-///     <see cref="A_throwing_process_sync_still_lets_the_skill_and_charter_syncs_run_on_the_same_tick"/> fail: a
-///     throw from the first call in the chain never lets the later two run at all.
+///     <see cref="A_throwing_skill_sync_still_lets_the_charter_and_process_syncs_run_on_the_same_tick"/> and
+///     <see cref="A_throwing_charter_sync_still_lets_the_skill_and_process_syncs_run_on_the_same_tick"/> fail: a
+///     throw from the first call in the chain never lets the later two run at all. Removing only
+///     <c>RunProcessSyncAsync</c>'s own <c>try</c>/<c>catch</c> (it runs last in the chain, so a same-tick
+///     assertion cannot see it) makes
+///     <see cref="A_throwing_process_sync_does_not_stop_the_loop_from_reaching_the_next_tick"/> fail instead: the
+///     exception escapes <c>ExecuteAsync</c>'s <c>while</c> loop and no second tick ever runs — see that test's
+///     own remarks (fix round 1, Important 2).
 ///     </item>
 ///     <item>
 ///     Deleting the <c>if (processSync is null) return;</c> guard in <c>RunProcessSyncAsync</c> throws a
@@ -46,6 +50,12 @@ namespace Daedalus.Tests.Unit;
 ///     Deleting the <c>while</c> loop's second iteration (replacing it with a single pass, no re-tick) makes
 ///     <see cref="A_failing_skill_sync_does_not_stop_the_loop_from_reaching_the_next_tick"/> fail: the second
 ///     tick's charter run never happens.
+///     </item>
+///     <item>
+///     Removing <c>ExecuteAsync</c>'s outer <c>catch (OperationCanceledException)</c> entirely makes
+///     <see cref="Stopping_after_a_tick_lets_the_execute_task_run_to_completion"/> fail: shutdown then ends
+///     <see cref="BackgroundService.ExecuteTask"/> <see cref="TaskStatus.Canceled"/> instead of
+///     <see cref="TaskStatus.RanToCompletion"/> (fix round 1, Minor 4).
 ///     </item>
 ///     </list>
 /// </remarks>
@@ -138,8 +148,15 @@ public sealed class ContentResyncServiceTests
         Volatile.Read(ref processRuns).Should().Be(1, "a throwing charter sync must not stop the process sync on the same tick");
     }
 
+    /// <summary>
+    ///     The process step runs <em>last</em> in a tick, so a same-tick assertion alone cannot fail here — by the
+    ///     time it throws, the skill and charter syncs have already run whether or not they are isolated from it
+    ///     (fix round 1, Important 2). What a throwing process sync can only break is the <em>next</em> tick: if
+    ///     <c>RunProcessSyncAsync</c>'s own <c>try</c>/<c>catch</c> were removed, the exception would escape
+    ///     <c>ExecuteAsync</c>'s <c>while</c> loop entirely and no second tick would ever run.
+    /// </summary>
     [Fact]
-    public async Task A_throwing_process_sync_still_lets_the_skill_and_charter_syncs_run_on_the_same_tick()
+    public async Task A_throwing_process_sync_does_not_stop_the_loop_from_reaching_the_next_tick()
     {
         var clock = new FakeTimeProvider();
         var skillRuns = 0;
@@ -151,10 +168,24 @@ public sealed class ContentResyncServiceTests
 
         var sut = new ContentResyncService(Interval, skillSync, charterSync, processSync, clock, NullLogger<ContentResyncService>.Instance);
 
-        await RunOneTickAsync(sut, clock, () => Volatile.Read(ref skillRuns) >= 1 && Volatile.Read(ref charterRuns) >= 1);
+        await sut.StartAsync(CancellationToken.None);
+        try
+        {
+            clock.Advance(Interval);
+            await AdvanceUntilAsync(clock, Interval, () => Volatile.Read(ref skillRuns) >= 1 && Volatile.Read(ref charterRuns) >= 1);
 
-        Volatile.Read(ref skillRuns).Should().Be(1, "a throwing process sync must not stop the skill sync on the same tick");
-        Volatile.Read(ref charterRuns).Should().BeGreaterThanOrEqualTo(1, "a throwing process sync must not stop the charter sync on the same tick");
+            clock.Advance(Interval);
+            await AdvanceUntilAsync(clock, Interval, () => Volatile.Read(ref skillRuns) >= 2);
+        }
+        finally
+        {
+            await sut.StopAsync(CancellationToken.None);
+        }
+
+        Volatile.Read(ref skillRuns).Should().BeGreaterThanOrEqualTo(2,
+            "the process sync throwing on the first tick must not stop the second tick's skill sync from running at all");
+        Volatile.Read(ref charterRuns).Should().BeGreaterThanOrEqualTo(2,
+            "the process sync throwing on the first tick must not stop the second tick's charter sync from running at all");
     }
 
     /// <summary>
@@ -235,6 +266,41 @@ public sealed class ContentResyncServiceTests
 
         await stop.Should().NotThrowAsync();
         logger.Levels.Should().NotContain(LogLevel.Error, "shutdown cancellation is not a sync failure and must not be logged as one");
+    }
+
+    /// <summary>
+    ///     Fix round 1, Minor 4: exercises <c>ExecuteAsync</c>'s outer <c>catch (OperationCanceledException)</c>
+    ///     directly, after at least one real tick has run — not just the "stop before any tick" case above, which
+    ///     can reach the outer catch before <c>WaitForNextTickAsync</c> is even awaited once.
+    ///     <see cref="BackgroundService.StopAsync"/> does not rethrow a faulted execute task (fix round 1's
+    ///     Important 2 finding), so a missing or narrowed catch would not surface as a thrown exception here.
+    ///     It also would not necessarily leave <see cref="Task.IsFaulted"/> true: the C# compiler turns an
+    ///     uncaught <see cref="OperationCanceledException"/> whose token matches the one that requested
+    ///     cancellation into <see cref="TaskStatus.Canceled"/>, not <see cref="TaskStatus.Faulted"/> — the first
+    ///     version of this test asserted <c>IsFaulted</c> alone and passed even with the catch removed. Asserting
+    ///     the exact status is <see cref="TaskStatus.RanToCompletion"/> catches both.
+    /// </summary>
+    [Fact]
+    public async Task Stopping_after_a_tick_lets_the_execute_task_run_to_completion()
+    {
+        var clock = new FakeTimeProvider();
+        var skillRuns = 0;
+
+        var skillSync = BuildSkillSync(SucceedingSkillStore(() => Interlocked.Increment(ref skillRuns)), clock);
+        var charterSync = BuildCharterSync(SucceedingCharterStore(() => { }), clock);
+        var processSync = BuildProcessSync(SucceedingProcessSource(() => { }));
+
+        var sut = new ContentResyncService(Interval, skillSync, charterSync, processSync, clock, NullLogger<ContentResyncService>.Instance);
+
+        await sut.StartAsync(CancellationToken.None);
+        clock.Advance(Interval);
+        await AdvanceUntilAsync(clock, Interval, () => Volatile.Read(ref skillRuns) >= 1);
+
+        await sut.StopAsync(CancellationToken.None);
+
+        sut.ExecuteTask.Should().NotBeNull();
+        sut.ExecuteTask!.Status.Should().Be(TaskStatus.RanToCompletion,
+            "shutdown cancels the timer's wait, which the outer catch must swallow instead of letting the execute task end faulted or canceled");
     }
 
     private static async Task RunOneTickAsync(ContentResyncService sut, FakeTimeProvider clock, Func<bool> condition)
@@ -385,13 +451,26 @@ public sealed class ContentResyncServiceTests
 ///     <c>services.TryAddSingleton&lt;SkillSyncService&gt;()</c> (no forwarding) makes
 ///     <see cref="Skill_sync_service_is_the_same_instance_the_hosted_pipeline_runs_and_content_resync_resolves"/>
 ///     go red: the hosted-service collection and the direct resolution then construct two different instances.
-///     Both were verified red by making exactly those edits and reverted.
+///     Changing the registration factory's <c>sp.GetService&lt;ProcessDefinitionSync&gt;()</c> to
+///     <c>GetRequiredService</c> makes
+///     <see cref="Content_resync_constructs_with_a_null_process_sync_when_the_workflow_engine_is_disabled"/> go
+///     red: resolving <see cref="IHostedService"/> then throws instead of constructing
+///     <see cref="ContentResyncService"/> with a null process sync (fix round 1, Important 1). Deleting
+///     <c>ValidateContentConfig</c>'s non-positive-interval check makes
+///     <see cref="A_non_positive_resync_interval_fails_host_start"/> go red (fix round 1, Minor 3). All were
+///     verified red by making exactly those edits and reverted.
 /// </remarks>
 public sealed class ContentResyncServiceRegistrationTests
 {
     private const string ApiAppSettingsFileName = "Daedalus.Api.appsettings.json";
 
-    private static ServiceProvider BuildContainer(TimeSpan? resyncInterval)
+    /// <param name="resyncInterval">Overrides <c>Thalos:Content:ResyncInterval</c>; <see langword="null"/> leaves it unset.</param>
+    /// <param name="workflowEnabled">
+    ///     Overrides <c>Thalos:Workflow:Enabled</c>; <see langword="true"/> (the shipped API default) leaves it
+    ///     unset. <see langword="false"/> is what a host with the workflow engine off looks like — nothing
+    ///     registers <see cref="ProcessDefinitionSync"/> in that configuration.
+    /// </param>
+    private static ServiceProvider BuildContainer(TimeSpan? resyncInterval, bool workflowEnabled = true)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(AppContext.BaseDirectory);
@@ -400,12 +479,20 @@ public sealed class ContentResyncServiceRegistrationTests
         var builder = new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile(ApiAppSettingsFileName, optional: false);
+        var overrides = new Dictionary<string, string?>(StringComparer.Ordinal);
         if (resyncInterval is { } interval)
         {
-            builder.AddInMemoryCollection(new Dictionary<string, string?>(StringComparer.Ordinal)
-            {
-                ["Thalos:Content:ResyncInterval"] = interval.ToString(),
-            });
+            overrides["Thalos:Content:ResyncInterval"] = interval.ToString();
+        }
+
+        if (!workflowEnabled)
+        {
+            overrides["Thalos:Workflow:Enabled"] = "false";
+        }
+
+        if (overrides.Count > 0)
+        {
+            builder.AddInMemoryCollection(overrides);
         }
 
         var services = new ServiceCollection();
@@ -466,5 +553,36 @@ public sealed class ContentResyncServiceRegistrationTests
 
         sp.GetServices<IHostedService>().Should().Contain(s => s is ProcessDefinitionSyncHostedService);
         sp.GetService<ProcessDefinitionSync>().Should().NotBeNull();
+    }
+
+    /// <summary>
+    ///     Fix round 1, Important 1: the ruling requires the workflow-disabled case to work at the DI level, not
+    ///     only when <see cref="ContentResyncService"/> is constructed by hand in
+    ///     <see cref="ContentResyncServiceTests.Null_process_sync_is_skipped_without_stopping_the_skill_and_charter_syncs"/>.
+    ///     With <c>Thalos:Workflow:Enabled</c> false, nothing registers <see cref="ProcessDefinitionSync"/> at
+    ///     all, so <c>AddDaedalusAgents</c>'s registration factory must resolve it with
+    ///     <c>sp.GetService&lt;ProcessDefinitionSync&gt;()</c> (nullable), not <c>GetRequiredService</c> — this
+    ///     forces the factory to actually run by resolving <see cref="IHostedService"/>, which
+    ///     <c>Content_resync_is_present_when_an_interval_is_configured</c> alone never does under this
+    ///     configuration.
+    /// </summary>
+    [Fact]
+    public void Content_resync_constructs_with_a_null_process_sync_when_the_workflow_engine_is_disabled()
+    {
+        using var sp = BuildContainer(TimeSpan.FromMinutes(5), workflowEnabled: false);
+
+        sp.GetServices<IHostedService>().Should().ContainSingle(s => s is ContentResyncService,
+            "the resync loop must still construct with the workflow engine off — it just skips the process step");
+        sp.GetService<ProcessDefinitionSync>().Should().BeNull(
+            "Thalos:Workflow:Enabled is false, so nothing registers ProcessDefinitionSync on this host");
+    }
+
+    /// <summary>Fix round 1, Minor 3: <c>ValidateContentConfig</c>'s non-positive-interval guard.</summary>
+    [Fact]
+    public void A_non_positive_resync_interval_fails_host_start()
+    {
+        var act = () => BuildContainer(TimeSpan.Zero);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Content:ResyncInterval*");
     }
 }
