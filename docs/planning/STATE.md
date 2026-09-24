@@ -1,6 +1,53 @@
 # Session State
 
-**Last session:** 2026-09-23
+**Last session:** 2026-09-24
+
+## Current Position — phase 2.4 in progress (paused 2026-09-24)
+
+**Milestone 2, phase 2.4 — the process as skills: executing.** Branch
+`feat/phase-2.4-process-as-skills`, not pushed. Plan
+`docs/plans/2026-09-23-phase-2.4-process-as-skills-plan.md`, executed by subagent-driven development.
+The ledger with every ruling, deferred minor and task report is **local and gitignored**:
+`.superpowers/sdd/2026-09-23-phase-2.4-process-as-skills-plan/progress.md`. Read it first; it is the
+recovery map.
+
+- **Part A done:** Thalos.NET **0.10.0 released** — PR #163, release PR #164, tag verified, packages
+  on nuget.org. Its changelog lists only 1 of 4 breaking changes because of the squash merge; the
+  GitHub release notes can be edited by hand.
+- **B1 complete** `0ca263f` — Thalos 0.10.0 adopted, `SkillVersions` history plus backfill migration.
+- **B2 complete** `a01dc0d`, `192e28e` — squad roles are charters in `roles/`, tool envelope stays in
+  config; pricing guard reads the composed catalog.
+- **B3 complete** `9df6068` — `POST`/`GET /api/workflow-runs` and `manufacture__start`, bound to
+  `developer`. Closes 2.3 carried item 1: `work_intent` now has a producer.
+- **B4 complete** `965beb9`, `0aae45e` — process v5 with a proposing-only `retrospect` node.
+- **B5 in fix round 1.** `815eb0e` is the implementation. Review found the gateway wrote `AGENT.md`
+  before checking the run was `Awaiting` on that signal. A fix was dispatched at pause time with two
+  rulings recorded in the ledger: pre-check the gate before writing, and map a concurrency failure
+  after a write to 409 saying the file was written.
+- **B6 and B7 not started.**
+
+## Recommended Next Step
+
+1. `git status`. **If the tree is dirty, the B5 fix round was interrupted mid-edit.** Inspect it; either
+   finish it by dispatching a fresh implementer with `task-B5-brief.md`, `task-B5-report.md` and the
+   findings in the ledger, or `git restore` and redo the round.
+2. If a commit after `815eb0e` exists and the tree is clean, run the scoped re-review of B5 fix round 1
+   against `815eb0e..HEAD`.
+3. Then B6, content resync, then B7, the owner checkpoint. **B7 needs your go-ahead** before spending
+   Anthropic credits on the live proof and before pushing or opening the PR.
+
+## Open Decisions for the owner
+
+1. **Where `AGENT.md` lives.** `StandingInstructionsPath` resolves against the Daedalus host's content
+   root, so a run pins and, on approval, rewrites *Daedalus's* standing instructions, not the target
+   repository's. Plan-mandated by B3; flagged for the final review. Decide before the live proof.
+2. Whether to hand-edit the Thalos 0.10.0 release notes to list all four breaking changes.
+
+Parked on 2026-09-24: Jev as a conditional tool selector, in `docs/planning/parked-ideas.md`.
+
+---
+
+## History below this line
 **Milestone 1 — Hermes-Style Agent Framework: CLOSED (2026-09-21).** All 9 phases complete. See
 `docs/planning/MILESTONE.md` for the definition-of-done checklist and its honest scoping, and
 `docs/planning/ROADMAP.md` for the "Carried forward from Milestone 1" list of 7 known, deliberately
@@ -487,6 +534,9 @@ unreadable. Fixed in #250.
    deliberate `Major.0.0.0` would make an unversioned build harmless rather than hazardous.
 
 ## Recommended Next Step
+
+**Superseded 2026-09-24 — see "Recommended Next Step" at the top of this file.** Everything below
+is historical.
 
 **Superseded 2026-09-21 — Milestone 1 is closed; phases 1.7, 1.8 and 1.9 are all complete.** The
 paragraphs below describing 1.7 as next are historical and left in place rather than deleted; they
