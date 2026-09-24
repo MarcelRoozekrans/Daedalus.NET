@@ -25,6 +25,29 @@ Every host that copies `skills/**` copies `roles/**` too, `Daedalus.Cli` include
 on every start — the same Postgres tables `Daedalus.Api`'s own sync writes. A version with no matching
 envelope simply composes into no agent on that host.
 
+## What a charter edit can change without a reviewed deploy
+
+The tool envelope is the only part of a role that is guaranteed to need a reviewed deploy. Everything
+else in a charter's frontmatter does not. With `Thalos:Content:ResyncInterval` set, a running host
+re-syncs this folder on every tick, so an edit to a charter file reaches live agents without a build,
+a review or a restart. That edit can change:
+
+- **which procedures the role may load.** `skills:` is the role's skill allow-list. Adding
+  `manufacture-implement` to `reviewer.md`, for example, would let the reviewer read the instructions
+  the work it judges was produced from. See the section on the reviewer's skills below.
+- **which model the role runs on.** `model:` selects the model. Changing it changes the reviewer's
+  strength and cost, and nothing at runtime checks that the new model is priced. The
+  `ModelPricing:Models` coverage guard, `CostAnalyticsPricingDriftTests`, runs only at test time,
+  against the charters in the repo. A charter edited in place on a running host never passes
+  through it, so the new model's spend can be silently excluded from cost totals.
+
+This is accepted, not overlooked. The actual capability boundary is the tool envelope, meaning what a
+role can *do*, and it stays in `appsettings.json` behind a reviewed deploy. A charter edit can change
+what a role is *told* and which model it runs on. It cannot give the reviewer a write tool. Treat
+write access to this folder on a host with `ResyncInterval` set as equal to the ability to change
+the reviewer's allow-list and model. With `ResyncInterval` unset, which is the shipped default, every
+charter change still arrives through a redeploy.
+
 ## Why the reviewer runs `claude-opus-5`
 
 Design decision D12 asks for a peer-strength model from a different family so the reviewer does not
