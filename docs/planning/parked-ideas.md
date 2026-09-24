@@ -182,3 +182,49 @@ isolation any stronger.
 
 That last point is the only genuinely open question here, and it is the reason this deserves a phase
 rather than a patch.
+
+---
+
+## Jev as a pre-LLM tool and skill selector
+
+**Raised:** 2026-09-24, during phase 2.4. **Status:** parked, **conditional**. Revisit only once the
+implement-turn token bloat has been measured and tool schemas turn out to dominate it.
+
+Jev is TypeSafe AI's "System One" model: a hosted classifier, not a chat model. Input text plus a map of
+predefined questions goes in, and one typed, probability-weighted answer per question comes out. It has
+three primitives: Noul, a yes/no probability; Choice, one of up to 255 fixed options; and Score, 2 to 10
+ordered levels. It cannot generate text or call tools. It is called over HTTP with `POST /v1/systemone`.
+No official .NET SDK was found on 2026-09-24. The vendor claims up to 200x faster and 400x cheaper than
+an LLM on classification, and that is **unverified**.
+
+### The one place it could earn its keep
+
+Phase 2.3 carried forward item 2: one `implement` turn used **358703 input tokens** against a
+`MaxTotalTokens` of 150000. The 32 roslyn tool schemas and the skill catalogue land in every prompt. The
+published .NET pattern is exactly this: score each tool or skill against the request before the chat
+call and expose only the winners.
+
+### Why it is not the next step
+
+- **The bloat is unmeasured.** Nobody has broken the 358k into schemas, skill catalogue, variables and
+  conversation. If schemas dominate, the cheaper fix is a tighter per-role `Tools` envelope, which phase
+  2.4's charters already give a home. Jev is only worth trying if that is not enough.
+- **A second vendor in the hot path of every turn**, adjacent to the parked second-chat-provider idea
+  above. It is not a chat provider, so it would not go through `IChatClientProvider`.
+- **Scores rescale silently.** The .NET write-up reports that adding a criterion rescales a Score, so a
+  fixed threshold quietly changes meaning. In a codebase whose recurring defect is tests that pass for
+  the wrong reason, any threshold would need a drift guard.
+- **Placement, if built:** a generic `IToolSelector`-style port in Thalos with a deterministic default,
+  and the Jev client in the host, per the 2026-09-21 Thalos/Daedalus split.
+
+### Where it must not go
+
+**Review verdicts and gates.** Phase 2.3 requires a rejection to carry file, line and failure scenario
+and an approval a non-empty `checked[]`. A bare probability carries no evidence and would reopen phase
+2.2's `Succeeded`-without-the-work gap.
+
+Smaller candidates, nice to have and not needed: ranking scout digest items by relevance or urgency,
+and a cheap check that skips `retrospect` when the implementer reported no learnings.
+
+Sources: browserbase.com/blog/what-is-jev; dev.to/ohalay/scoring-a2a-agent-skills-with-system-one-jev-in-net-k1n;
+gist.github.com/pjburnhill/adf8d28efcad9df037bfdece178ef965.
