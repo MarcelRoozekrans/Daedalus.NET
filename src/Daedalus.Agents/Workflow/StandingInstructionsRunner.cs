@@ -34,6 +34,11 @@ namespace Daedalus.Agents.Workflow;
 ///     line inside the file itself closing the block early and running the rest of the file as if it were the
 ///     turn's own instruction; replacing it with <c>&lt;/standing-instructions-escaped&gt;</c> is enough to stop
 ///     that without treating a human-maintained file as hostile input.
+///     <see cref="BuildBlock"/>'s <c>Replace</c> call is exact-case (<see cref="StringComparison.Ordinal"/>), so
+///     a differently-cased tag — <c>&lt;/Standing-Instructions&gt;</c>, say — would not be neutralised. That is
+///     accepted rather than fixed: the file is maintained by a human who is not trying to defeat this check, the
+///     tag's own spelling (<see cref="CloseTag"/>) is lower-case throughout this type, and a case-insensitive
+///     match would cost a culture-aware comparison for a threat model that does not exist here.
 ///     </para>
 ///     <para>
 ///     <b>Placed outside <see cref="ReviewLensRunner"/>, not inside it.</b> A review node's pinned skill is

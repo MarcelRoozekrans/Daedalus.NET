@@ -71,7 +71,8 @@ namespace Daedalus.Agents.Workflow;
 ///     rejects and for the same reason — a failed run carries a message a process author can read back out of
 ///     <c>WorkflowRun.LastError</c>, and a throw here would escape the dispatcher and dead-letter the dispatch
 ///     instead. What this check does <em>not</em> count is the three keys <see cref="WorkflowRunModeStore"/>
-///     adds below it; see that type for why they sit above the cap permanently, exactly as
+///     is about to add below it, on this same transition; see that type for why they escape only this one
+///     check, once, and count against the cap like any other key on every transition after — exactly as
 ///     <c>IWorkflowStore.ResumeAsync</c>'s engine-minted payload key already does in Thalos' own derivation.
 ///     </para>
 /// </remarks>
