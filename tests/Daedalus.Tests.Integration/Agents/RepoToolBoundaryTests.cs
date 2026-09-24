@@ -1,10 +1,12 @@
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
+using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Tools;
+using Thalos.Workflow;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Agents;
@@ -186,6 +188,57 @@ public sealed class RepoToolBoundaryTests(PostgresFixture fixture) : IAsyncLifet
             $"DetachedRuns:Roles is [{string.Join(", ", configured.Roles)}] and must never grant " +
             $"'{DeveloperPolicy.DeveloperRole}' or '{DeveloperPolicy.AdminRole}' — that one line is what makes " +
             "the repoaction__* tool policy deny an unattended run at all");
+    }
+
+    /// <summary>
+    ///     Phase 2.4 task B3's own boundary: <c>manufacture__*</c> (<c>DaedalusManufactureTools</c>) starts a whole
+    ///     manufacture run unattended, so it is bound to <see cref="DeveloperPolicy"/> the same way
+    ///     <c>repoaction__*</c> and <c>git__*</c> already are above. Unlike those two, this source is registered
+    ///     unconditionally — see <c>DaedalusAgentsServiceCollectionExtensions.ManufactureToolSourceName</c> — so it
+    ///     is present here even though <see cref="ApiWebApplicationFactory"/> always disables the workflow engine.
+    /// </summary>
+    [Fact]
+    public void Every_manufacture_tool_is_bound_to_the_developer_policy()
+    {
+        var policies = ToolPolicyBindings();
+        var tools = ToolNames().Where(n => n.StartsWith("manufacture__", StringComparison.Ordinal)).ToList();
+
+        tools.Should().NotBeEmpty("otherwise this test passes vacuously");
+
+        foreach (var tool in tools)
+        {
+            policies.Any(b => GlobMatches(b.ToolPattern, tool) && string.Equals(b.PolicyName, DeveloperPolicy.PolicyName, StringComparison.Ordinal))
+                .Should().BeTrue($"{tool} starts unattended work and must be denied at the authorizer");
+        }
+    }
+
+    /// <summary>
+    ///     A run's own turns execute as <see cref="WorkflowCaller"/>, whose only role is <c>"workflow"</c> — this
+    ///     ties that role to the same <see cref="DeveloperPolicy"/> the binding above requires, the same way
+    ///     <see cref="The_configured_detached_run_roles_fail_the_developer_policy"/> already ties a scheduled
+    ///     run's configured roles to it. Without this, a run could call <c>manufacture__start</c> from inside one
+    ///     of its own node turns and start another run of itself.
+    /// </summary>
+    [Fact]
+    public async Task A_workflow_run_cannot_start_a_run()
+    {
+        var run = new WorkflowRun
+        {
+            Id = Guid.NewGuid(),
+            Process = "manufacture",
+            ProcessVersion = 5,
+            CurrentNode = "implement",
+            CurrentSeq = 1,
+            Status = WorkflowStatus.Running,
+            Visits = new Dictionary<string, int>(StringComparer.Ordinal),
+        };
+        var caller = new WorkflowCaller(run);
+
+        var result = await new DeveloperPolicy().EvaluateAsync(caller, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue(
+            "WorkflowCaller's only role is \"workflow\", which must never satisfy the developer policy that " +
+            "manufacture__* is bound to");
     }
 
     /// <summary>Qualified <c>{source}__{tool}</c> names, read once from the built host in <see cref="InitializeAsync"/>.</summary>

@@ -21,7 +21,17 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     exercise the real Keycloak claim shape. When <see langword="null"/> (the default), the host behaves exactly as
 ///     before.
 /// </remarks>
-internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null)
+/// <param name="connectionString">The database this host's <c>ConnectionStrings:daedalus</c> is set to.</param>
+/// <param name="runtime">Replaces Thalos' registered <see cref="IAgentRuntime"/> for the life of this host.</param>
+/// <param name="keycloak">See this type's own remarks.</param>
+/// <param name="workflowEnabled">
+///     Defaults to <see langword="false"/>, which every existing caller relies on — see the remarks on the
+///     <c>Thalos:Workflow:Enabled</c> setting below for why that default holds. Pass <see langword="true"/> only
+///     against a <paramref name="connectionString"/> already migrated with Thalos.NET.Workflow.Orm's raw-SQL
+///     migrations (see <c>StartRunEndpointTests</c>), never against the shared <c>PostgresFixture</c> database,
+///     which is built with EF Core's <c>EnsureCreatedAsync</c> and has none of those tables.
+/// </param>
+internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false)
     : WebApplicationFactory<Daedalus.Api.Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -43,11 +53,12 @@ internal sealed class ApiWebApplicationFactory(string connectionString, IAgentRu
         // PostgresFixture builds this database with EF Core's EnsureCreatedAsync, which creates only the EF model
         // (including ApplicationDbContext's own outbox table). It never runs Thalos.NET.Workflow.Orm's raw-SQL
         // migrations, so workflow_run/workflow_run_event/process_definition and the ORM outbox table do not exist
-        // here. Left enabled, WorkflowOutboxDispatchService, WorkflowStrandedRunSweepService and
-        // ProcessDefinitionSyncHostedService would each tick against those missing tables and fail every cycle
+        // here. Left enabled against that database, WorkflowOutboxDispatchService, WorkflowStrandedRunSweepService
+        // and ProcessDefinitionSyncHostedService would each tick against those missing tables and fail every cycle
         // with Postgres 42P01 — caught and logged, so silently, for the life of every test that uses this factory.
-        // See WorkflowConfig.Enabled's own remarks.
-        builder.UseSetting("Thalos:Workflow:Enabled", "false");
+        // See WorkflowConfig.Enabled's own remarks, and this constructor's own parameter doc, for the one caller
+        // that opts into the engine against a database it migrated itself.
+        builder.UseSetting("Thalos:Workflow:Enabled", workflowEnabled ? "true" : "false");
 
         if (keycloak is not null)
         {

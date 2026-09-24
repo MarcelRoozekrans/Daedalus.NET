@@ -61,7 +61,7 @@ public sealed class ApiThalosConfigurationTests
         agent.Name.Should().Be("Daedalus Architect");
         // repoaction__* is on the Architect and nowhere else: it is the interactive agent, so a human is present
         // for every comment, label or close. The unattended scout must never carry it.
-        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "memory__*", "skills__*", "context7__*", "repoaction__*");
+        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "memory__*", "skills__*", "context7__*", "repoaction__*", "manufacture__*");
         agent.Skills.Should().Equal("*");
         agent.Instructions.Should().Contain("roslyn__").And.Contain("daedalus__").And.Contain("memory__").And.Contain("skills__");
     }
@@ -78,7 +78,8 @@ public sealed class ApiThalosConfigurationTests
             ("roslyn__apply_*", "developer"),
             ("roslyn__rename_*", "developer"),
             ("repoaction__*", "developer"),
-            ("git__*", "developer"));
+            ("git__*", "developer"),
+            ("manufacture__*", "developer"));
 
         var sentinel = sp.GetRequiredService<SentinelOptions>();
         sentinel.OnCritical.Should().Be(SentinelAction.Quarantine);

@@ -274,4 +274,13 @@ public sealed class WorkflowConfig
     ///     root, falling back to the assembly directory, the same way <c>Thalos:Skills:Roots</c> does.
     /// </summary>
     public string ProcessesRoot { get; set; } = "processes";
+
+    /// <summary>
+    ///     The standing-instructions file <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter"/> pins into
+    ///     every new manufacture run's manifest as <c>standing_instructions</c>. Relative paths resolve against
+    ///     the host content root, the same as <see cref="ProcessesRoot"/> — unlike that folder, a missing file is
+    ///     not an error: the run simply starts with an empty standing-instructions document (see
+    ///     <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter.StartAsync"/>).
+    /// </summary>
+    public string StandingInstructionsPath { get; set; } = "AGENT.md";
 }

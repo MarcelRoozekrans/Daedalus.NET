@@ -82,6 +82,21 @@ public static class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     public const string GitToolSourceName = "git";
 
+    /// <summary>
+    ///     The Thalos tool-source name of <see cref="DaedalusManufactureTools"/>; tools appear as
+    ///     <c>manufacture__{tool}</c> (today, only <c>manufacture__start</c>).
+    /// </summary>
+    /// <remarks>
+    ///     Not <c>workflow</c> — that name is deliberately never used by any tool source, so it can never collide
+    ///     with a resume- or cancel-capable tool if one were ever added by mistake; see
+    ///     <c>ResumeToolBoundaryTests.No_tool_source_is_named_workflow</c>. Same boundary shape as
+    ///     <see cref="RepoActionToolSourceName"/> and <see cref="GitToolSourceName"/>: registered unconditionally —
+    ///     <see cref="Workflow.IManufactureRunStarter"/> always resolves, engine on or off — and bound to
+    ///     <see cref="DeveloperPolicy"/> in <c>Thalos:ToolPolicies</c>, because starting a run is unattended spend
+    ///     with no human in the turn.
+    /// </remarks>
+    public const string ManufactureToolSourceName = "manufacture";
+
     /// <summary>Name of the application database connection string (<c>ConnectionStrings:daedalus</c>), shared with the Rag.NET memory index.</summary>
     public const string DatabaseConnectionName = "daedalus";
 
@@ -216,10 +231,17 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // host's container disposes it on shutdown. Gated on Workflow.Enabled — see that option's own remarks
         // for why a host whose database has none of these tables must not wire any of this at all.
         var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
+        var standingInstructionsPath = ResolveStandingInstructionsPath(options.Workflow.StandingInstructionsPath, environment);
         if (options.Workflow.Enabled)
         {
             services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
         }
+
+        // Always registered, engine on or off — see IManufactureRunStarter's own remarks. AddDaedalusWorkflow
+        // below replaces this with the real ManufactureRunStarter when Workflow.Enabled; every other host keeps
+        // this default, so WorkflowRunsController and DaedalusManufactureTools stay constructible either way and
+        // report the engine is off instead of failing DI resolution.
+        services.TryAddSingleton<IManufactureRunStarter, DisabledManufactureRunStarter>();
 
         // The memory index embeds with the DI generator; a host that only hands the instance to this call (for Sentinel) still gets a working index.
         if (embeddingGenerator is not null)
@@ -262,6 +284,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 // write boundary, and the reviewer's daedalus__* grant already names it.
                 .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools), typeof(DaedalusReviewTools))
                 .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
+                // Registered unconditionally, like the two sources above: IManufactureRunStarter always resolves
+                // (the disabled default when Workflow.Enabled is false), so this source is always present for
+                // Every_manufacture_tool_is_bound_to_the_developer_policy to check against real, shipped config
+                // rather than passing vacuously on a host that never registers it.
+                .AddLocalTools(ManufactureToolSourceName, typeof(DaedalusManufactureTools))
                 // Thalos's own local-git write capability (branch, commit, push, open pull request). UseLibGit2SharpGit
                 // registers the IGitWriteService implementation GitActionTools needs alongside IPullRequestPublisher
                 // (registered above, in AddDaedalusAgents proper). Same write boundary as repoaction__*, just owned by
@@ -323,22 +350,24 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         if (options.Workflow.Enabled)
         {
-            AddDaedalusWorkflow(services, processesRoot);
+            AddDaedalusWorkflow(services, processesRoot, standingInstructionsPath);
         }
 
         return services;
     }
 
     /// <summary>
-    ///     Registers the five pieces <c>AddWorkflowOrm</c> (called above, inside <c>AddThalos</c>) does not:
+    ///     Registers the six pieces <c>AddWorkflowOrm</c> (called above, inside <c>AddThalos</c>) does not:
     ///     <see cref="IWorkflowReferenceResolver"/>, <see cref="WorkflowNodeDispatcher"/>, the outbox consumer for
     ///     <see cref="Thalos.Workflow.WorkflowDispatch.TypeName"/>, <see cref="WorkflowRunReconciler"/> on a
-    ///     one-minute sweep, and <see cref="IProcessDefinitionSource"/> feeding <see cref="ProcessDefinitionSync"/>
-    ///     at boot. Split out from <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> only for readability — every registration here
+    ///     one-minute sweep, <see cref="IProcessDefinitionSource"/> feeding <see cref="ProcessDefinitionSync"/> at
+    ///     boot, and the real <see cref="Workflow.ManufactureRunStarter"/> in place of the
+    ///     <see cref="Workflow.DisabledManufactureRunStarter"/> registered unconditionally above. Split out from
+    ///     <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> only for readability — every registration here
     ///     depends on <c>IWorkflowStore</c>/<c>IProcessDefinitionStore</c>, which only exist once <c>AddThalos</c>
     ///     has run, so this is called after it, never on its own.
     /// </summary>
-    private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot)
+    private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot, string standingInstructionsPath)
     {
         // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
         // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
@@ -363,6 +392,13 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // authorizes a call to it (ASP.NET Core's WorkflowResume policy in Daedalus.Api/Program.cs, not
         // Thalos:ToolPolicies, which DefaultToolAuthorizer only ever evaluates against a tool call).
         services.AddSingleton<WorkflowRunGateway>();
+
+        // Replaces the DisabledManufactureRunStarter registered unconditionally above, now that WorkflowRunStarter
+        // (from AddWorkflowOrm, inside AddThalos) and IWorkflowReferenceResolver (just above) both resolve.
+        // Replace, not TryAdd: TryAddSingleton is first-registration-wins, and the disabled default was already
+        // added before this method ever runs.
+        services.Replace(ServiceDescriptor.Singleton<IManufactureRunStarter>(sp =>
+            new ManufactureRunStarter(sp.GetRequiredService<WorkflowRunStarter>(), standingInstructionsPath)));
 
         // ISubagentRunner comes from AddThalos; IWorkflowStore/IProcessDefinitionStore from AddWorkflowOrm above.
         // Built via WorkflowNodeDispatcherFactory, not inline here — see that type's remarks for why this needs
@@ -825,6 +861,16 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     private static string ResolveMcpConfigPath(string configured, IHostEnvironment environment) =>
+        Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
+
+    /// <summary>
+    ///     Resolves <c>Thalos:Workflow:StandingInstructionsPath</c> against the content root, the same rule
+    ///     <see cref="ResolveMcpConfigPath"/> applies to <c>Thalos:McpConfigPath</c> — a single file, not a
+    ///     directory, so unlike <see cref="ResolveContentRoot"/> there is no assembly-directory fallback to fall
+    ///     back to: a missing file is not this method's problem to solve, see
+    ///     <see cref="Workflow.ManufactureRunStarter.StartAsync"/>.
+    /// </summary>
+    private static string ResolveStandingInstructionsPath(string configured, IHostEnvironment environment) =>
         Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
 
     private static AgentDefinition ToDefinition(AgentConfig agent) => new()
