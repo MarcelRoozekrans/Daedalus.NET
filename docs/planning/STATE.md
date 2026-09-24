@@ -41,7 +41,7 @@ Parked on 2026-09-24: Jev as a conditional tool selector, in `docs/planning/park
 
 ## History below this line
 **Milestone 1 — Hermes-Style Agent Framework: CLOSED (2026-09-21).** All 9 phases complete. See
-`docs/planning/MILESTONE.md` for the definition-of-done checklist and its honest scoping, and
+`docs/planning/archive/MILESTONE-1.md` for the definition-of-done checklist and its honest scoping, and
 `docs/planning/ROADMAP.md` for the "Carried forward from Milestone 1" list of 7 known, deliberately
 unfixed items.
 
