@@ -2,46 +2,43 @@
 
 **Last session:** 2026-09-24
 
-## Current Position — phase 2.4: all tasks done, whole-branch review next
+## Current Position - phase 2.4: done, final review clean, awaiting push approval
 
-**Milestone 2, phase 2.4 — the process as skills.** Branch `feat/phase-2.4-process-as-skills`,
+**Milestone 2, phase 2.4 - the process as skills.** Branch `feat/phase-2.4-process-as-skills`,
 **not pushed**. Plan `docs/plans/2026-09-23-phase-2.4-process-as-skills-plan.md`. Every ruling,
-the live proof and the deferred minors: `docs/plans/2026-09-23-phase-2.4-rulings.md`. The local
-ledger `.superpowers/sdd/2026-09-23-phase-2.4-process-as-skills-plan/progress.md` stays until the
-final review is clean.
+the live proof, the final review and the carried-forward list are in
+`docs/plans/2026-09-23-phase-2.4-rulings.md`.
 
-- **Part A:** Thalos.NET **0.10.0 released**.
-- **B1–B6 complete**, each reviewed clean. B5 `0aae45e..1eb8ecd`, B6 `01d5bc5..9237e9c`.
-- **B7:** suites green at `ab73439` — Unit 376, Unit.Application 413, Unit.Domain 356,
-  Unit.Infrastructure 142, Integration 574. `ab73439` fixed two Unit.Application regressions no
-  brief had run.
-- **Live proof ran once and stopped at `implement`.** Run `14b8c121…`, process v5, pins recorded
-  for all four task nodes. The implementer honestly recorded `blocked` after verifying no Roslyn
-  fixer exists, used **737,634 input tokens**, and was then failed by the budget decorator at
-  600,000. **Review, lenses, retrospect and the gate were never reached — and cannot be, for any
-  intent:** `roslyn__apply_*` is `developer`-only, a run is role `workflow`, and v5 routes `blocked`
-  to a failed terminal. The owner chose to record this rather than spend on a rerun.
-- Starting the AppHost also fired the overdue daily digest, which delivered a real Telegram message.
+- **Part A:** Thalos.NET **0.10.0 released**. **B1 to B7 complete.**
+- **Final whole-branch review:** ready to merge with fixes, fixed in one wave `880c1f2..1b94c4f`, and
+  the re-review confirmed all findings addressed. The Critical: any node could plant the standing-
+  instructions proposal, and now only retrospect can author it.
+- **Suites:** Unit 397, Unit.Application 425, Unit.Domain 356, Unit.Infrastructure 142, Integration 581.
+- **Live proof** ran once and stopped at `implement`. The implementer honestly reported `blocked`
+  after 737,634 input tokens, and the budget then failed the node. Review, retrospect and the gate are
+  unreachable until a run can write. See the rulings doc.
 
 ## Recommended Next Step
 
-1. The SDD whole-branch review of `feat/phase-2.4-process-as-skills` against `main`, on the most
-   capable model, pointed at the deferred minors in the rulings doc. One fix wave, one scoped
-   re-review.
-2. Then **ask the owner before pushing** the branch and opening the Daedalus PR (B7 step 6).
-3. Then `complete-phase` 2.4.
+1. **Ask the owner before pushing** the branch and opening the Daedalus PR (B7 step 6). After the
+   merge, confirm every `fix:`/`feat:` commit appears in the release-please PR.
+2. `complete-phase` 2.4.
+3. `insert-phase` a new 2.5 before Ralph retirement, which becomes 2.6. It covers:
+   - a scoped write grant tied to the run's starter: only `implement` gets `roslyn__apply_*`, with no
+     git or repo actions;
+   - `AGENT.md` resolved against the target workspace;
+   - prompt caching in Thalos.NET.Anthropic.
 
-## Open Decisions for the owner
+   It ends with the live proof rerun.
 
-1. **How a manufacture run may write** — the blocker for any further live proof. Options: 2.2's
-   Option C, a scoped `workflow` write grant, or routing `blocked` to review. See the rulings doc,
-   carried forward item 1.
-2. **Where `AGENT.md` lives** — deferred until after the proof, still open because the proof never
-   reached the write.
-3. **Prompt caching in Thalos.NET.Anthropic**, raised 2026-09-24 — no `cache_control` is set today,
-   so each call in an agent loop re-bills the same prefix. Rulings doc, carried forward item 7.
+## Decided 2026-09-24
 
-Decided 2026-09-24: the Thalos 0.10.0 release notes stay as they are.
+1. **Run writes:** a scoped grant tied to the developer who started the run. Only the `implement`
+   node gets `roslyn__apply_*`, with no `git__*` or `repoaction__*`. Each write is logged with the
+   starter's id, and publish stays behind the gate.
+2. **`AGENT.md`:** resolves against the run's target workspace, which today is the Daedalus repo root.
+3. **Prompt caching:** goes into the next Thalos.NET release.
+4. **Thalos 0.10.0 release notes:** left as is.
 
 Parked on 2026-09-24: Jev as a conditional tool selector, in `docs/planning/parked-ideas.md`.
 
