@@ -28,7 +28,7 @@ recovery map.
 
 ## Recommended Next Step
 
-1. `git status`. **If the tree is dirty, the B5 fix round was interrupted mid-edit.** Inspect it; either
+1. The B5 fix round finished after the pause as `1eb8ecd`, with Unit 360 and Integration 574 passing. **Next: its scoped re-review against `815eb0e..1eb8ecd`.** If `git status` is dirty anyway, inspect it; either
    finish it by dispatching a fresh implementer with `task-B5-brief.md`, `task-B5-report.md` and the
    findings in the ledger, or `git restore` and redo the round.
 2. If a commit after `815eb0e` exists and the tree is clean, run the scoped re-review of B5 fix round 1
