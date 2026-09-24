@@ -220,6 +220,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
         services.TryAddSingleton(options.Squad);
         services.TryAddSingleton<SquadAgentResolver>();
 
+        ValidateContentConfig(options.Content);
+
         // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
         // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
         // per call (Thalos.NET.Workflow.Orm gives it no seam to accept a shared data source instead). Registered
@@ -357,6 +359,30 @@ public static class DaedalusAgentsServiceCollectionExtensions
             AddDaedalusWorkflow(services, processesRoot, standingInstructionsPath);
         }
 
+        // Off by default: nothing in shipped appsettings sets Thalos:Content:ResyncInterval (see that option's
+        // own remarks), so no host pays for this loop until an operator opts in. Registered last, after AddThalos
+        // and the optional AddDaedalusWorkflow above, so every service ContentResyncService needs has already
+        // been decided one way or the other — including ProcessDefinitionSync, which simply does not exist on
+        // this collection when Workflow.Enabled is false; sp.GetService below returns null for it rather than
+        // throwing, and ContentResyncService skips that step on every tick instead of failing to resolve.
+        if (options.Content.ResyncInterval is { } resyncInterval)
+        {
+            // SkillSyncService and CharterSyncService are each registered by Thalos only via
+            // TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, T>()) — see
+            // ForwardHostedServiceToConcreteSingleton's remarks for what resolving them as a bare T would
+            // otherwise construct.
+            ForwardHostedServiceToConcreteSingleton<SkillSyncService>(services);
+            ForwardHostedServiceToConcreteSingleton<CharterSyncService>(services);
+
+            services.AddHostedService(sp => new ContentResyncService(
+                resyncInterval,
+                sp.GetRequiredService<SkillSyncService>(),
+                sp.GetRequiredService<CharterSyncService>(),
+                sp.GetService<ProcessDefinitionSync>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<ContentResyncService>>()));
+        }
+
         return services;
     }
 
@@ -466,6 +492,58 @@ public static class DaedalusAgentsServiceCollectionExtensions
             descriptor.ImplementationInstance
             ?? descriptor.ImplementationFactory?.Invoke(sp)
             ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!);
+    }
+
+    /// <summary>
+    ///     Ensures <typeparamref name="T"/> is resolvable as a concrete singleton, and that it is the exact
+    ///     instance the host's <see cref="IHostedService"/> pipeline runs — not a second one constructed
+    ///     independently.
+    /// </summary>
+    /// <remarks>
+    ///     Reading <c>SkillThalosBuilderExtensions</c>/<c>CharterThalosBuilderExtensions</c> at Thalos.NET v0.10.0
+    ///     confirms <see cref="Thalos.Skills.SkillSyncService"/> and
+    ///     <see cref="Thalos.Skills.Charters.CharterSyncService"/> are each registered only via
+    ///     <c>TryAddEnumerable(ServiceDescriptor.Singleton&lt;IHostedService, T&gt;())</c> — there is no concrete
+    ///     <c>T</c> registration alongside it. A container caches a singleton per <see cref="ServiceDescriptor"/>,
+    ///     not per implementation type, so a plain <c>services.TryAddSingleton&lt;T&gt;()</c> here would add a
+    ///     second, independently-constructed instance: resolving <c>IEnumerable&lt;IHostedService&gt;</c> (what
+    ///     <c>IHost.StartAsync</c> does, to run <c>StartingAsync</c> once at boot) and resolving <c>T</c> directly
+    ///     (what <see cref="ContentResyncService"/> does, on every tick) would each get their own sync racing the
+    ///     same store. This method's second half prevents that: it finds the descriptor Thalos added, removes it,
+    ///     and replaces it with a factory that forwards to the concrete singleton, so both paths resolve the one
+    ///     instance. Idempotent — a second call for the same <typeparamref name="T"/> finds no matching descriptor
+    ///     left to remove and leaves the singleton registration as-is.
+    /// </remarks>
+    private static void ForwardHostedServiceToConcreteSingleton<T>(IServiceCollection services)
+        where T : class, IHostedService
+    {
+        services.TryAddSingleton<T>();
+
+        var hostedDescriptor = services.FirstOrDefault(d =>
+            d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(T));
+        if (hostedDescriptor is null)
+        {
+            return;
+        }
+
+        services.Remove(hostedDescriptor);
+        services.Add(ServiceDescriptor.Singleton<IHostedService>(sp => sp.GetRequiredService<T>()));
+    }
+
+    /// <summary>
+    ///     Fails fast on <c>Thalos:Content</c>: a configured, non-positive <see cref="ContentConfig.ResyncInterval"/>
+    ///     would otherwise surface much later, as <see cref="PeriodicTimer"/>'s own
+    ///     <see cref="ArgumentOutOfRangeException"/> the first time <see cref="ContentResyncService.ExecuteAsync"/>
+    ///     runs, rather than at host start.
+    /// </summary>
+    private static void ValidateContentConfig(ContentConfig config)
+    {
+        if (config.ResyncInterval is { } interval && interval <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                $"{ContentConfig.SectionName}:ResyncInterval must be greater than zero when set, but was " +
+                $"{interval.ToString(null, CultureInfo.InvariantCulture)}.");
+        }
     }
 
     /// <summary>

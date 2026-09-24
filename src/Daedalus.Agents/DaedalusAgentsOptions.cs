@@ -55,6 +55,9 @@ public sealed class DaedalusAgentsOptions
 
     /// <summary>Manufacturing squad settings (<c>Thalos:Squad</c>): whether roles resolve to their own agents or all collapse onto one fallback.</summary>
     public SquadOptions Squad { get; } = new();
+
+    /// <summary>Periodic content resync settings (<c>Thalos:Content</c>): whether <see cref="ContentResyncService"/> runs at all.</summary>
+    public ContentConfig Content { get; } = new();
 }
 
 /// <summary>One agent definition as declared in configuration.</summary>
@@ -283,4 +286,22 @@ public sealed class WorkflowConfig
     ///     <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter.StartAsync"/>).
     /// </summary>
     public string StandingInstructionsPath { get; set; } = "AGENT.md";
+}
+
+/// <summary>
+///     <c>Thalos:Content</c>: whether <see cref="ContentResyncService"/> runs at all, and on what interval.
+/// </summary>
+public sealed class ContentConfig
+{
+    /// <summary>Configuration section name: <c>Thalos:Content</c>.</summary>
+    public const string SectionName = "Thalos:Content";
+
+    /// <summary>
+    ///     How often <see cref="ContentResyncService"/> re-runs the skill, charter and process-definition syncs.
+    ///     <see langword="null"/> (the default — nothing in shipped configuration sets this key) means the
+    ///     service is not registered at all: files still reach a running host through the redeploy path, the same
+    ///     as before this existed. Set it and a running host picks up an edited <c>SKILL.md</c>, <c>roles/*.md</c>
+    ///     or <c>processes/*.yaml</c> on the next tick instead.
+    /// </summary>
+    public TimeSpan? ResyncInterval { get; set; }
 }
