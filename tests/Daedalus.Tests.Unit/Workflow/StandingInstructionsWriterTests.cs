@@ -165,6 +165,45 @@ public sealed class StandingInstructionsWriterTests
         StandingInstructionsWriter.Diff(run).Should().Contain("+Integration needs Docker.");
     }
 
+    /// <summary>
+    ///     Fix round 1: <c>Diff</c> now shares <c>ApplyAsync</c>'s exact "is there really a proposal" condition via
+    ///     the private <c>ProposalOrNull</c> helper, so an empty-string proposal — which <c>ApplyAsync</c> already
+    ///     refuses as <see cref="ResumeRefusal.NoProposal"/> — must read as "no proposal" here too, not as an
+    ///     all-deletions diff. Falsifiable: reverting <c>Diff</c> to its own, narrower guard (absent or not a
+    ///     string, but not empty) turns this red — it would return <c>"-Run dotnet test."</c> instead of
+    ///     <see langword="null"/>.
+    /// </summary>
+    [Fact]
+    public void Diff_returns_null_when_the_proposal_is_an_empty_string()
+    {
+        var run = RunWith(pinned: "Run dotnet test.", proposal: "");
+
+        StandingInstructionsWriter.Diff(run).Should().BeNull();
+    }
+
+    /// <summary>
+    ///     Fix round 1: when <c>File.Move</c> fails after the temp file was already written — here, because the
+    ///     destination is itself an existing directory, which also proves the new
+    ///     <see cref="UnauthorizedAccessException"/> mapping added this round, since that is what
+    ///     <see cref="File.Move(string,string,bool)"/> throws for this exact case on Windows — the orphaned temp
+    ///     file must not survive in the standing-instructions directory. Falsifiable: removing the <c>finally</c>
+    ///     block's cleanup turns this red — a stray <c>*.tmp</c> file would remain.
+    /// </summary>
+    [Fact]
+    public async Task Cleans_up_the_temp_file_when_the_move_fails()
+    {
+        using var dir = new TempDirectory();
+        Directory.CreateDirectory(dir.Path("AGENT.md"));
+        var run = RunWith(pinned: "", proposal: "New instructions.");
+
+        var result = await Writer(dir).ApplyAsync(run, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Kind.Should().Be(ResumeRefusal.WriteFailed);
+        Directory.GetFiles(dir.Root).Should().NotContain(f => f.EndsWith(".tmp", StringComparison.Ordinal),
+            "a failed move must not leave an orphaned temp file behind in the standing-instructions directory");
+    }
+
     private static StandingInstructionsWriter Writer(TempDirectory dir) =>
         new(new WorkflowConfig { StandingInstructionsPath = dir.Path("AGENT.md") }, Substitute.For<IHostEnvironment>());
 

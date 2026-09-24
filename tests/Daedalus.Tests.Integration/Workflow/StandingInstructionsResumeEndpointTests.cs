@@ -118,6 +118,54 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
         });
     }
 
+    /// <summary>
+    ///     Fix round 1, Important 1: the gate's own status/signal check runs before <c>ApplyAsync</c>, not only
+    ///     afterward inside the engine's own resume — otherwise a wrong signal would still write the file and
+    ///     only then be refused.
+    /// </summary>
+    [Fact]
+    public async Task Resuming_with_the_flag_and_a_wrong_signal_is_refused_before_writing()
+    {
+        await WithHostAsync(async (factory, connectionString, dir) =>
+        {
+            var runId = await SeedParkedRunAsync(connectionString, "wrong-signal", proposal: "Some proposal.");
+
+            using var client = DeveloperClient(factory);
+            var response = await client.PostAsJsonAsync(
+                $"/api/workflow-runs/{runId}/resume",
+                new { signal = "not_the_real_signal", payload = (string?)null, applyStandingInstructions = true });
+
+            response.StatusCode.Should().Be(HttpStatusCode.Conflict,
+                "a wrong signal must be refused before the engine ever sees it");
+            File.Exists(dir.Path("AGENT.md")).Should().BeFalse(
+                "a wrong signal must be refused before any write, not written and then refused");
+        });
+    }
+
+    /// <summary>
+    ///     Fix round 1, Important 1, the other half: a run that is no longer <c>Awaiting</c> at all — here,
+    ///     already cancelled — must be refused the same way, before <c>ApplyAsync</c> ever runs.
+    /// </summary>
+    [Fact]
+    public async Task Resuming_with_the_flag_against_an_already_cancelled_run_is_refused_before_writing()
+    {
+        await WithHostAsync(async (factory, connectionString, dir) =>
+        {
+            var runId = await SeedParkedRunAsync(connectionString, "already-cancelled", proposal: "Some proposal.");
+            await CancelDirectlyAsync(connectionString, runId);
+
+            using var client = DeveloperClient(factory);
+            var response = await client.PostAsJsonAsync(
+                $"/api/workflow-runs/{runId}/resume",
+                new { signal = Signal, payload = (string?)null, applyStandingInstructions = true });
+
+            response.StatusCode.Should().Be(HttpStatusCode.Conflict,
+                "a run that is no longer awaiting must be refused before the engine ever sees it");
+            File.Exists(dir.Path("AGENT.md")).Should().BeFalse(
+                "an already-cancelled run must be refused before any write, not written and then refused");
+        });
+    }
+
     [Fact]
     public async Task Resuming_with_the_flag_and_a_proposal_writes_it_and_succeeds()
     {
@@ -200,6 +248,23 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
         parked.AwaitingSignal.Should().Be(Signal);
 
         return runId;
+    }
+
+    /// <summary>
+    ///     Cancels <paramref name="runId"/> through the same standalone store <see cref="SeedParkedRunAsync"/>
+    ///     seeds with, so a test can drive a run past <see cref="WorkflowStatus.Awaiting"/> before ever touching
+    ///     the REST endpoint.
+    /// </summary>
+    private static async Task CancelDirectlyAsync(string connectionString, Guid runId)
+    {
+        var options = new WorkflowOrmOptions { ConnectionString = connectionString };
+        var definitions = new OrmProcessDefinitionStore(options);
+        var store = new OrmWorkflowStore(options, definitions);
+
+        await store.CancelAsync(runId, "cancelled before the resume attempt", CancellationToken.None);
+
+        var cancelled = await store.FindAsync(runId, CancellationToken.None);
+        cancelled!.Status.Should().Be(WorkflowStatus.Cancelled, "otherwise the rest of this test proves nothing");
     }
 
     /// <summary>

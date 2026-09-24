@@ -12,6 +12,9 @@ internal sealed class TempDirectory : IDisposable
 
     public TempDirectory() => Directory.CreateDirectory(_root);
 
+    /// <summary>This directory's own root path, for listing its contents directly (e.g. checking for orphaned temp files).</summary>
+    public string Root => _root;
+
     /// <summary>Combines <paramref name="relative"/> onto this directory's root. Named to match test call sites: <c>dir.Path("AGENT.md")</c>.</summary>
     public string Path(string relative) => global::System.IO.Path.Combine(_root, relative);
 

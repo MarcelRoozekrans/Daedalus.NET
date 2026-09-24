@@ -64,26 +64,26 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IHostEnvir
     ///     <c>overwrite: true</c> — the rename is what keeps a reader of the file from ever observing a partial
     ///     write.
     /// </summary>
+    /// <remarks>
+    ///     <b>Fix round 1.</b> The staleness read moved inside the <c>try</c>, so a locked or otherwise
+    ///     unreadable file now reports <see cref="ResumeRefusal.WriteFailed"/> instead of throwing past this
+    ///     method. <see cref="UnauthorizedAccessException"/> — thrown for a read-only file or a permissions
+    ///     denial, neither of which is an <see cref="IOException"/> — is caught alongside it. A cancellation
+    ///     (<see cref="OperationCanceledException"/>) is deliberately <em>not</em> caught here and propagates to
+    ///     the caller, but the <c>finally</c> block below still runs first and still deletes an orphaned temp
+    ///     file — cancelling a write must not leave a stray <c>.tmp</c> file behind any more than a genuine
+    ///     failure should.
+    /// </remarks>
     public async ValueTask<UnitResult<ResumeFailure>> ApplyAsync(WorkflowRun run, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(run);
 
-        if (!run.Variables.TryGetValue(ReviewHandoff.ProposedStandingInstructionsKey, out var proposalValue)
-            || proposalValue is not string proposal
-            || string.IsNullOrEmpty(proposal))
+        var proposal = ProposalOrNull(run);
+        if (proposal is null)
         {
             return UnitResult<ResumeFailure>.Failure(new ResumeFailure(
                 ResumeRefusal.NoProposal,
                 $"Workflow run '{run.Id}' carries no '{ReviewHandoff.ProposedStandingInstructionsKey}' proposal to apply."));
-        }
-
-        var pinned = PinnedText(run);
-        var current = File.Exists(_path) ? await File.ReadAllTextAsync(_path, ct).ConfigureAwait(false) : "";
-        if (!string.Equals(current, pinned, StringComparison.Ordinal))
-        {
-            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(
-                ResumeRefusal.InstructionsChangedSinceStart,
-                $"'{_path}' no longer holds the text pinned when run '{run.Id}' started; refusing to overwrite an edit made since."));
         }
 
         var directory = Path.GetDirectoryName(_path);
@@ -91,26 +91,43 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IHostEnvir
             ? $"{_path}.{Guid.NewGuid():N}.tmp"
             : Path.Combine(directory, $"{Path.GetFileName(_path)}.{Guid.NewGuid():N}.tmp");
 
+        var moved = false;
         try
         {
+            var pinned = PinnedText(run);
+            var current = File.Exists(_path) ? await File.ReadAllTextAsync(_path, ct).ConfigureAwait(false) : "";
+            if (!string.Equals(current, pinned, StringComparison.Ordinal))
+            {
+                return UnitResult<ResumeFailure>.Failure(new ResumeFailure(
+                    ResumeRefusal.InstructionsChangedSinceStart,
+                    $"'{_path}' no longer holds the text pinned when run '{run.Id}' started; refusing to overwrite an edit made since."));
+            }
+
             await File.WriteAllTextAsync(tempPath, proposal, ct).ConfigureAwait(false);
             File.Move(tempPath, _path, overwrite: true);
+            moved = true;
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            if (File.Exists(tempPath))
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.WriteFailed, ex.Message));
+        }
+        finally
+        {
+            // Cleans up whenever the temp file was created but never became the real file — a caught
+            // IOException/UnauthorizedAccessException above, or an OperationCanceledException left uncaught to
+            // propagate. Best-effort: a failure here is not worth masking the real outcome behind.
+            if (!moved && File.Exists(tempPath))
             {
                 try
                 {
                     File.Delete(tempPath);
                 }
-                catch (IOException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // Best-effort cleanup only; the WriteFailed result below already names the real failure.
+                    // Best-effort cleanup only; the result already returned (or the propagating cancellation)
+                    // already names the real outcome.
                 }
             }
-
-            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.WriteFailed, ex.Message));
         }
 
         return UnitResult<ResumeFailure>.Success();
@@ -118,23 +135,33 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IHostEnvir
 
     /// <summary>
     ///     A unified-style line diff of the run's pinned standing instructions against its proposal, or
-    ///     <see langword="null"/> when the run carries no proposal — the same "no proposal" condition
-    ///     <see cref="ApplyAsync"/> refuses on, read-only and side-effect free so <c>GET /api/workflow-runs/{id}</c>
-    ///     can show an operator what a resume with <c>applyStandingInstructions: true</c> would write, before they
-    ///     decide.
+    ///     <see langword="null"/> when the run carries no proposal — the exact same condition
+    ///     <see cref="ApplyAsync"/> refuses <see cref="ResumeRefusal.NoProposal"/> on, via the shared
+    ///     <see cref="ProposalOrNull"/> helper so the two can never drift (fix round 1: before this, <c>Diff</c>
+    ///     treated an empty-string proposal as a real one and returned an all-deletions diff, while
+    ///     <c>ApplyAsync</c> already refused it as no proposal at all). Read-only and side-effect free, so
+    ///     <c>GET /api/workflow-runs/{id}</c> can show an operator what a resume with
+    ///     <c>applyStandingInstructions: true</c> would write, before they decide.
     /// </summary>
     public static string? Diff(WorkflowRun run)
     {
         ArgumentNullException.ThrowIfNull(run);
 
-        if (!run.Variables.TryGetValue(ReviewHandoff.ProposedStandingInstructionsKey, out var proposalValue)
-            || proposalValue is not string proposal)
-        {
-            return null;
-        }
-
-        return LineDiff.Compute(PinnedText(run), proposal);
+        var proposal = ProposalOrNull(run);
+        return proposal is null ? null : LineDiff.Compute(PinnedText(run), proposal);
     }
+
+    /// <summary>
+    ///     <paramref name="run"/>'s reported <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/>, or
+    ///     <see langword="null"/> when it is absent, not a string, or an empty string — the one "is there really a
+    ///     proposal" check <see cref="ApplyAsync"/> and <see cref="Diff"/> both need and must agree on.
+    /// </summary>
+    private static string? ProposalOrNull(WorkflowRun run) =>
+        run.Variables.TryGetValue(ReviewHandoff.ProposedStandingInstructionsKey, out var value)
+            && value is string proposal
+            && !string.IsNullOrEmpty(proposal)
+            ? proposal
+            : null;
 
     private static string PinnedText(WorkflowRun run) =>
         run.Manifest is not null && run.Manifest.Documents.TryGetValue(ManufactureRunStarter.StandingInstructionsDocument, out var text)
