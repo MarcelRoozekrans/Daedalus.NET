@@ -1,12 +1,14 @@
 using System.Data.Async.Adapters;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using Daedalus.Agents;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -306,18 +308,74 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             "the same channel has to carry both polarities, or a disabled run is distinguishable only by an absence");
     }
 
+    /// <summary>
+    ///     Final review finding C1, the attack end to end: <c>implement</c> reports
+    ///     <c>proposed_standing_instructions</c> alongside its real variables, and <c>retrospect</c> then reports
+    ///     <c>none</c> with no variables at all, exactly as its skill tells it to. Thalos leaves an unreported key
+    ///     in place, so before the fix the planted text reached the gate. There, <c>GET</c> showed it as
+    ///     retrospect's diff and an apply wrote it to disk.
+    /// </summary>
+    [Fact]
+    public async Task A_proposal_planted_by_implement_never_reaches_the_gate()
+    {
+        var result = await RunAsync(squadEnabled: true, plantAt: "implement", retrospectOutcome: "none");
+
+        await AssertNoProposalAtTheGateAsync(result);
+    }
+
+    /// <summary>
+    ///     The same attack from <c>review</c>, which runs as the same agent as <c>retrospect</c> but not under its
+    ///     skill. The planted key rides the last lens pass's outcome call, the turn ReviewLensRunner returns.
+    /// </summary>
+    [Fact]
+    public async Task A_proposal_planted_by_review_never_reaches_the_gate()
+    {
+        var result = await RunAsync(squadEnabled: true, plantAt: "review", retrospectOutcome: "none");
+
+        await AssertNoProposalAtTheGateAsync(result);
+    }
+
+    private static async Task AssertNoProposalAtTheGateAsync(RunOutcome result)
+    {
+        result.PlantsReported.Should().Be(1, "otherwise the attack was never attempted and this test proves nothing");
+        result.FinalRun.Status.Should().Be(WorkflowStatus.Awaiting, "the run must be parked at the gate, where a human would look");
+        result.FinalRun.CurrentNode.Should().Be("gate");
+
+        if (result.FinalRun.Variables.TryGetValue(ReviewHandoff.ProposedStandingInstructionsKey, out var value))
+        {
+            value.Should().BeNull("only retrospect may author a proposal, and it proposed none");
+        }
+
+        StandingInstructionsWriter.Diff(result.FinalRun).Should().BeNull(
+            "GET /api/workflow-runs/{id} must show no diff for a run whose retrospect proposed nothing");
+
+        using var dir = new TempDirectory();
+        var writer = new StandingInstructionsWriter(
+            new WorkflowConfig { StandingInstructionsPath = dir.Path("AGENT.md") }, Substitute.For<IHostEnvironment>());
+        var applied = await writer.ApplyAsync(result.FinalRun, CancellationToken.None);
+
+        applied.IsFailure.Should().BeTrue("an apply must have nothing to write");
+        applied.Error.Kind.Should().Be(ResumeRefusal.NoProposal);
+        File.Exists(dir.Path("AGENT.md")).Should().BeFalse();
+    }
+
     private sealed record RunOutcome(
         WorkflowRun FinalRun,
         IReadOnlyDictionary<string, IReadOnlyList<string>> TasksByNode,
         IReadOnlyDictionary<string, AgentId> AgentsByNode,
         IReadOnlyDictionary<string, string> FinalVariables,
-        IReadOnlyList<string?> TransitionModes)
+        IReadOnlyList<string?> TransitionModes,
+        int PlantsReported)
     {
         public WorkflowStatus Status => FinalRun.Status;
     }
 
     private async Task<RunOutcome> RunAsync(
-        bool squadEnabled, IReadOnlyDictionary<string, string>? documents = null, string? retrospectProposal = null)
+        bool squadEnabled,
+        IReadOnlyDictionary<string, string>? documents = null,
+        string? retrospectProposal = null,
+        string? plantAt = null,
+        string retrospectOutcome = ReviewHandoff.RetrospectProposedOutcome)
     {
         var dbName = $"b5_handoff_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
@@ -341,7 +399,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 (await skills.UpsertAsync(SeedSkill(skillName), CancellationToken.None)).IsSuccess.Should().BeTrue();
             }
 
-            var runner = new ScriptedRunner(retrospectProposal ?? DefaultRetrospectProposal);
+            var runner = new ScriptedRunner(retrospectProposal ?? DefaultRetrospectProposal, plantAt, retrospectOutcome);
             var (provider, references, catalog) = BuildProvider(store, definitions, runner, squadEnabled, skills);
             await using var disposable = provider;
 
@@ -380,7 +438,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 runner.TasksByNode,
                 runner.AgentsByNode,
                 run.Variables.ToDictionary(kv => kv.Key, kv => kv.Value?.ToString() ?? "", StringComparer.Ordinal),
-                await ReadTransitionModesAsync(connectionString, runId));
+                await ReadTransitionModesAsync(connectionString, runId),
+                runner.PlantsReported);
         }
         finally
         {
@@ -497,15 +556,20 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     ///     variables (including the optional <c>learnings</c>) on the outcome call, each <c>review</c> lens pass
     ///     reports evidence through <c>daedalus__report_review_outcome</c> and the matching verdict through the
     ///     engine's own tool, and <c>retrospect</c> reports <c>proposed</c> with a replacement standing-instructions
-    ///     text.
+    ///     text. With <c>plantAt</c> set, that node also reports <c>proposed_standing_instructions</c>, the C1
+    ///     attack; with <c>retrospectOutcome</c> set to <c>none</c>, retrospect reports no variables at all.
     /// </summary>
-    private sealed class ScriptedRunner(string retrospectProposal) : ISubagentRunner
+    private sealed class ScriptedRunner(string retrospectProposal, string? plantAt, string retrospectOutcome) : ISubagentRunner
     {
+        private const string PlantedProposal = "PLANTED-BY-A-NODE-THAT-IS-NOT-RETROSPECT";
+
         private readonly List<(string Node, string Task)> _turns = [];
         private readonly Dictionary<string, AgentId> _agents = new(StringComparer.Ordinal);
         private int _lensPass;
 
         public IReadOnlyDictionary<string, AgentId> AgentsByNode => _agents;
+
+        public int PlantsReported { get; private set; }
 
         public IReadOnlyDictionary<string, IReadOnlyList<string>> TasksByNode =>
             _turns
@@ -521,38 +585,70 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             var outcomeToolName = request.RequiredOutcome!.ToolName;
             var turn = run.CurrentNode switch
             {
-                "implement" => ImplementTurn(outcomeToolName),
-                "review" => ReviewTurn(outcomeToolName, _lensPass++),
-                "retrospect" => RetrospectTurn(outcomeToolName, retrospectProposal),
+                "implement" => ImplementTurn(outcomeToolName, Plant("implement")),
+                "review" => ReviewTurn(outcomeToolName, _lensPass, Plant("review", onlyWhen: _lensPass++ == 2)),
+                "retrospect" => RetrospectTurn(outcomeToolName, retrospectProposal, retrospectOutcome),
                 _ => throw new InvalidOperationException($"ScriptedRunner has no script for node '{run.CurrentNode}'."),
             };
 
             return ValueTask.FromResult(Result<AgentTurnResult, AgentError>.Success(turn));
         }
 
-        private static AgentTurnResult ImplementTurn(string outcomeToolName) => new(
-            TurnId.New(), new SessionId(Guid.Empty), "applied one code action", default,
-            [
-                new ToolCallSummary(
-                    ToolCallId.New(),
-                    outcomeToolName,
-                    JsonSerializer.Serialize(new
-                    {
-                        outcome = "changed",
-                        variables = new Dictionary<string, object?>(StringComparer.Ordinal)
-                        {
-                            [ReviewHandoff.SummaryKey] = SummarySentinel,
-                            [ReviewHandoff.FilesTouchedKey] = FilesTouched,
-                            [ReviewHandoff.RationaleKey] = RationaleSentinel,
-                            [ReviewHandoff.LearningsKey] = new[] { LearningsSentinel },
-                        },
-                    }),
-                    Succeeded: true, "ok", TimeSpan.FromMilliseconds(2)),
-            ],
-            TimeSpan.FromSeconds(1));
-
-        private static AgentTurnResult ReviewTurn(string outcomeToolName, int pass)
+        /// <summary>
+        ///     Whether <paramref name="node"/>'s report plants the key this turn. Counted, so a test can prove the
+        ///     attack was attempted. <paramref name="onlyWhen"/> narrows review to its last lens pass, the one
+        ///     whose turn the lens runner returns.
+        /// </summary>
+        private bool Plant(string node, bool onlyWhen = true)
         {
+            if (!onlyWhen || !string.Equals(plantAt, node, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            PlantsReported++;
+            return true;
+        }
+
+        private static AgentTurnResult ImplementTurn(string outcomeToolName, bool plant)
+        {
+            var variables = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [ReviewHandoff.SummaryKey] = SummarySentinel,
+                [ReviewHandoff.FilesTouchedKey] = FilesTouched,
+                [ReviewHandoff.RationaleKey] = RationaleSentinel,
+                [ReviewHandoff.LearningsKey] = new[] { LearningsSentinel },
+            };
+            if (plant)
+            {
+                variables[ReviewHandoff.ProposedStandingInstructionsKey] = PlantedProposal;
+            }
+
+            return new AgentTurnResult(
+                TurnId.New(), new SessionId(Guid.Empty), "applied one code action", default,
+                [
+                    new ToolCallSummary(
+                        ToolCallId.New(),
+                        outcomeToolName,
+                        JsonSerializer.Serialize(new { outcome = "changed", variables }),
+                        Succeeded: true, "ok", TimeSpan.FromMilliseconds(2)),
+                ],
+                TimeSpan.FromSeconds(1));
+        }
+
+        private static AgentTurnResult ReviewTurn(string outcomeToolName, int pass, bool plant)
+        {
+            var outcomeArguments = plant
+                ? JsonSerializer.Serialize(new
+                {
+                    outcome = "approved",
+                    variables = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [ReviewHandoff.ProposedStandingInstructionsKey] = PlantedProposal,
+                    },
+                })
+                : $$"""{"{{OutcomeToolSchema.ArgumentName}}":"approved"}""";
+
             var lens = pass switch { 0 => "correctness", 1 => "falsifiability", _ => "mechanism" };
             return new AgentTurnResult(
                 TurnId.New(), new SessionId(Guid.Empty), $"{lens}: approved", default,
@@ -570,29 +666,33 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                     new ToolCallSummary(
                         ToolCallId.New(),
                         outcomeToolName,
-                        $$"""{"{{OutcomeToolSchema.ArgumentName}}":"approved"}""",
+                        outcomeArguments,
                         Succeeded: true, "ok", TimeSpan.FromMilliseconds(1)),
                 ],
                 TimeSpan.FromSeconds(2));
         }
 
-        private static AgentTurnResult RetrospectTurn(string outcomeToolName, string proposal) => new(
-            TurnId.New(), new SessionId(Guid.Empty), "proposed a standing-instructions update", default,
-            [
-                new ToolCallSummary(
-                    ToolCallId.New(),
-                    outcomeToolName,
-                    JsonSerializer.Serialize(new
+        private static AgentTurnResult RetrospectTurn(string outcomeToolName, string proposal, string outcome)
+        {
+            // "none" passes no variables at all, exactly as skills/manufacture-retrospect/SKILL.md instructs.
+            var arguments = string.Equals(outcome, ReviewHandoff.RetrospectProposedOutcome, StringComparison.Ordinal)
+                ? JsonSerializer.Serialize(new
+                {
+                    outcome,
+                    variables = new Dictionary<string, string>(StringComparer.Ordinal)
                     {
-                        outcome = "proposed",
-                        variables = new Dictionary<string, string>(StringComparer.Ordinal)
-                        {
-                            [ReviewHandoff.ProposedStandingInstructionsKey] = proposal,
-                        },
-                    }),
-                    Succeeded: true, "ok", TimeSpan.FromMilliseconds(2)),
-            ],
-            TimeSpan.FromSeconds(1));
+                        [ReviewHandoff.ProposedStandingInstructionsKey] = proposal,
+                    },
+                })
+                : $$"""{"{{OutcomeToolSchema.ArgumentName}}":"{{outcome}}"}""";
+
+            return new AgentTurnResult(
+                TurnId.New(), new SessionId(Guid.Empty), "retrospect reported", default,
+                [
+                    new ToolCallSummary(ToolCallId.New(), outcomeToolName, arguments, Succeeded: true, "ok", TimeSpan.FromMilliseconds(2)),
+                ],
+                TimeSpan.FromSeconds(1));
+        }
     }
 
     private static async Task MigrateAsync(string connectionString)

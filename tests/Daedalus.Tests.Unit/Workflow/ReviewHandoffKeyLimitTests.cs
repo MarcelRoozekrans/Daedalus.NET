@@ -82,7 +82,7 @@ public sealed class ReviewHandoffKeyLimitTests
     [Fact]
     public async Task A_review_node_report_that_takes_the_real_bag_past_the_cap_fails_the_run()
     {
-        var inner = new RecordingStore(RunWith("review", Keys("standing", 15)));
+        var inner = new RecordingWorkflowStore(RunWith("review", Keys("standing", 15)));
         var store = new ReviewHandoffWorkflowStore(inner, Definitions());
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("rejected", Report("fresh", 2)), CancellationToken.None);
@@ -103,7 +103,7 @@ public sealed class ReviewHandoffKeyLimitTests
     [Fact]
     public async Task A_review_node_report_that_stays_inside_the_cap_is_completed_normally()
     {
-        var inner = new RecordingStore(RunWith("review", Keys("standing", 14)));
+        var inner = new RecordingWorkflowStore(RunWith("review", Keys("standing", 14)));
         var store = new ReviewHandoffWorkflowStore(inner, Definitions());
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("rejected", Report("fresh", 2)), CancellationToken.None);
@@ -111,7 +111,7 @@ public sealed class ReviewHandoffKeyLimitTests
         inner.FailureMessage.Should().BeNull();
         inner.Completed.Should().NotBeNull();
         inner.Completed!.Outcome.Should().Be("rejected");
-        inner.Completed.Variables.Should().HaveCount(2, "the decorator checks the report, it never rewrites it");
+        inner.Completed.Variables.Should().HaveCount(2, "the decorator checks the report, and rewrites it only to enforce who may propose standing instructions");
     }
 
     /// <summary>
@@ -122,7 +122,7 @@ public sealed class ReviewHandoffKeyLimitTests
     [Fact]
     public async Task A_review_node_that_only_overwrites_existing_keys_is_never_capped()
     {
-        var inner = new RecordingStore(RunWith("review", Keys("standing", 16)));
+        var inner = new RecordingWorkflowStore(RunWith("review", Keys("standing", 16)));
         var store = new ReviewHandoffWorkflowStore(inner, Definitions());
 
         var overwrite = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -143,7 +143,7 @@ public sealed class ReviewHandoffKeyLimitTests
     [Fact]
     public async Task A_node_that_runs_no_lenses_is_not_re_checked_here()
     {
-        var inner = new RecordingStore(RunWith("implement", Keys("standing", 20)));
+        var inner = new RecordingWorkflowStore(RunWith("implement", Keys("standing", 20)));
         var store = new ReviewHandoffWorkflowStore(inner, Definitions());
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("changed", Report("fresh", 4)), CancellationToken.None);
@@ -168,42 +168,5 @@ public sealed class ReviewHandoffKeyLimitTests
         // stops looking is the shape this codebase keeps producing.
         field.Should().NotBeNull("Thalos.Workflow.WorkflowVariableBlock.MaxVariableKeys is what this constant mirrors");
         field!.GetRawConstantValue().Should().Be(ReviewHandoffWorkflowStore.MaxVariableKeys);
-    }
-
-    /// <summary>An <see cref="IWorkflowStore"/> that answers one run and records which member was called.</summary>
-    private sealed class RecordingStore(WorkflowRun run) : IWorkflowStore
-    {
-        public WorkflowRun? Run { get; } = run;
-
-        public NodeResult? Completed { get; private set; }
-
-        public string? FailureMessage { get; private set; }
-
-        public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => new(Run);
-
-        public ValueTask CompleteNodeAsync(Guid runId, long seq, WorkflowTransition transition, NodeResult result, CancellationToken ct)
-        {
-            Completed = result;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct)
-        {
-            FailureMessage = errorMessage;
-            return ValueTask.CompletedTask;
-        }
-
-        public ValueTask<Guid> StartAsync(string process, int version, string correlationKey, string startNode, IReadOnlyDictionary<string, object?>? initialVariables, CancellationToken ct) =>
-            throw new NotSupportedException();
-
-        public ValueTask<Guid> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
-
-        public ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct) => throw new NotSupportedException();
-
-        public ValueTask<bool> FailStrandedAsync(Guid runId, long expectedSeq, string errorMessage, CancellationToken ct) => throw new NotSupportedException();
-
-        public ValueTask CancelAsync(Guid runId, string reason, CancellationToken ct) => throw new NotSupportedException();
-
-        public ValueTask<IReadOnlyList<WorkflowRun>> FindStrandedAsync(TimeSpan olderThan, CancellationToken ct) => throw new NotSupportedException();
     }
 }

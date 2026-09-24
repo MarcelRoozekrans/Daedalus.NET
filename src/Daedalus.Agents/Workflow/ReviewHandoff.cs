@@ -76,6 +76,14 @@ public static class ReviewHandoff
     /// </summary>
     public const string ProposedStandingInstructionsKey = "proposed_standing_instructions";
 
+    /// <summary>
+    ///     The <c>retrospect</c> outcome that carries a proposal. The skill's other outcome, <c>none</c>, carries
+    ///     none. <see cref="ReviewHandoffWorkflowStore"/> keeps a reported <see cref="ProposedStandingInstructionsKey"/>
+    ///     only on this outcome and clears the key on every other retrospect completion, so the value a human sees
+    ///     at the gate is always the one this run's retrospect turn reported, or nothing.
+    /// </summary>
+    public const string RetrospectProposedOutcome = "proposed";
+
     /// <summary>The skill name <c>implement</c> is pinned to. Named here so it sits beside <see cref="RetrospectSkillName"/> rather than as a bare literal at the one other call site that needs it, <see cref="StandingInstructionsRunner"/>.</summary>
     public const string ImplementSkillName = "manufacture-implement";
 

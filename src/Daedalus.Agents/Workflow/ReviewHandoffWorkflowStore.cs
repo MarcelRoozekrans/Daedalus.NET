@@ -112,9 +112,19 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
 
     /// <inheritdoc />
     /// <remarks>
-    ///     Only a projected node is re-checked. Every other node was already counted by the dispatcher against
-    ///     the same bag this would read, so a second check there would be a second place for the same rule to
-    ///     live — and a round trip on every transition to learn nothing.
+    ///     <b>Two jobs, on every transition.</b> The first is <see cref="EnforceProposalAuthorship"/>: only a node
+    ///     pinned to <see cref="ReviewHandoff.RetrospectSkillName"/> may write
+    ///     <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/>, and when it completes, the key holds exactly
+    ///     what that completion proposed, or nothing. That rule has to see every node, because the node that would
+    ///     plant the key is any node but retrospect. So this method now reads the run and its definition on every
+    ///     transition, not only on a projected one.
+    ///     <para>
+    ///     The second job is the key-cap re-check, and it still runs only on a projected node. Every other node was
+    ///     already counted by the dispatcher against the same bag this would read, so a second check there would be
+    ///     a second place for the same rule to live. The check counts the report <em>after</em> the authorship rule
+    ///     has rewritten it. That rule only ever removes a key or overwrites one the run already holds, so it can
+    ///     never be the reason a report crosses the cap.
+    ///     </para>
     /// </remarks>
     public override async ValueTask CompleteNodeAsync(
         Guid runId, long seq, WorkflowTransition transition, NodeResult result, CancellationToken ct)
@@ -122,9 +132,18 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         ArgumentNullException.ThrowIfNull(result);
 
         var run = await Inner.FindAsync(runId, ct).ConfigureAwait(false);
-        if (run is not null && await ProjectionForAsync(run, ct).ConfigureAwait(false) is not null)
+        if (run is null)
         {
-            var breach = DescribeKeyLimitBreach(run, result.Variables);
+            await Inner.CompleteNodeAsync(runId, seq, transition, result, ct).ConfigureAwait(false);
+            return;
+        }
+
+        var node = await NodeForAsync(run, ct).ConfigureAwait(false);
+        var authored = EnforceProposalAuthorship(run, node, result);
+
+        if (ProjectionFor(node) is not null)
+        {
+            var breach = DescribeKeyLimitBreach(run, authored.Variables);
             if (breach is not null)
             {
                 await Inner.FailAsync(runId, breach, ct).ConfigureAwait(false);
@@ -132,8 +151,78 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             }
         }
 
-        await Inner.CompleteNodeAsync(runId, seq, transition, result, ct).ConfigureAwait(false);
+        await Inner.CompleteNodeAsync(runId, seq, transition, authored, ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    ///     Enforces design decision D4 on the write path: the <c>retrospect</c> node is the only author of a
+    ///     standing-instructions proposal. Returns <paramref name="result"/> unchanged when there is nothing to
+    ///     enforce, or a copy with <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/> removed or set to
+    ///     <see langword="null"/>.
+    /// </summary>
+    /// <remarks>
+    ///     <b>Why this is needed.</b> Thalos merges each node's reported variables into the run's bag. A later
+    ///     write wins, and a report that leaves a key out leaves the earlier value in place. The dispatcher accepts
+    ///     any key name a node reports. So without this rule, <c>implement</c> or <c>review</c> could report the
+    ///     key, <c>retrospect</c> could then report <c>none</c> with no variables as its skill tells it to, and the
+    ///     planted value would reach the gate. There, <c>GET</c> would show it as retrospect's diff and an apply
+    ///     would write it to disk.
+    ///     <list type="bullet">
+    ///         <item>
+    ///             <b>Any node that is not retrospect</b> has the key removed from its report. The rest of the
+    ///             report is kept.
+    ///         </item>
+    ///         <item>
+    ///             <b>A retrospect completion</b> keeps a reported key only when its outcome is
+    ///             <see cref="ReviewHandoff.RetrospectProposedOutcome"/>. On any other outcome, or when
+    ///             <c>proposed</c> arrives without the key, the key is set to <see langword="null"/> if the report
+    ///             or the run's bag holds it. <see cref="StandingInstructionsWriter"/> already treats null as no
+    ///             proposal. A null is written only over a key the run already holds, so this never adds a key to the
+    ///             bag and never moves it toward the key cap.
+    ///         </item>
+    ///     </list>
+    ///     <para>
+    ///     Retrospect is identified the same way <see cref="ProjectionFor"/> identifies it: by the skill its node
+    ///     declares on the run's own pinned process version, not by the node's name. A node whose definition
+    ///     cannot be resolved is treated as not being retrospect, so its report is stripped. The dispatcher fails
+    ///     such a run anyway.
+    ///     </para>
+    /// </remarks>
+    private static NodeResult EnforceProposalAuthorship(WorkflowRun run, ProcessNode? node, NodeResult result)
+    {
+        const string key = ReviewHandoff.ProposedStandingInstructionsKey;
+        var reported = result.Variables.ContainsKey(key);
+
+        if (!IsRetrospect(node))
+        {
+            return reported
+                ? new NodeResult(result.Outcome, Without(result.Variables, key))
+                : result;
+        }
+
+        if (reported && string.Equals(result.Outcome, ReviewHandoff.RetrospectProposedOutcome, StringComparison.Ordinal))
+        {
+            return result;
+        }
+
+        if (!reported && !run.Variables.ContainsKey(key))
+        {
+            return result;
+        }
+
+        var cleared = new Dictionary<string, object?>(result.Variables, StringComparer.Ordinal) { [key] = null };
+        return new NodeResult(result.Outcome, cleared);
+    }
+
+    private static Dictionary<string, object?> Without(IReadOnlyDictionary<string, object?> variables, string key)
+    {
+        var copy = new Dictionary<string, object?>(variables, StringComparer.Ordinal);
+        copy.Remove(key);
+        return copy;
+    }
+
+    private static bool IsRetrospect(ProcessNode? node) =>
+        node is not null && string.Equals(node.Skill, ReviewHandoff.RetrospectSkillName, StringComparison.Ordinal);
 
     /// <summary>
     ///     The failure message for a report that would take the run's real bag past
@@ -175,10 +264,13 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
     ///     both itself a moment later and fails the run with its own message, and a run that is about to fail has
     ///     no reviewer or retrospect step to isolate.
     /// </summary>
-    private async ValueTask<FrozenSet<string>?> ProjectionForAsync(WorkflowRun run, CancellationToken ct)
+    private async ValueTask<FrozenSet<string>?> ProjectionForAsync(WorkflowRun run, CancellationToken ct) =>
+        ProjectionFor(await NodeForAsync(run, ct).ConfigureAwait(false));
+
+    /// <summary>The projection for <paramref name="node"/>; see <see cref="ProjectionForAsync"/>.</summary>
+    private static FrozenSet<string>? ProjectionFor(ProcessNode? node)
     {
-        var definition = await _definitions.GetAsync(run.Process, run.ProcessVersion, ct).ConfigureAwait(false);
-        if (definition.IsFailure || !definition.Value.Nodes.TryGetValue(run.CurrentNode, out var node))
+        if (node is null)
         {
             return null;
         }
@@ -188,8 +280,18 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             return ReviewHandoff.ReviewReads;
         }
 
-        return string.Equals(node.Skill, ReviewHandoff.RetrospectSkillName, StringComparison.Ordinal)
-            ? ReviewHandoff.RetrospectReads
+        return IsRetrospect(node) ? ReviewHandoff.RetrospectReads : null;
+    }
+
+    /// <summary>
+    ///     The node the run is currently on, read from the run's own pinned process version, or
+    ///     <see langword="null"/> when the definition or the node cannot be resolved.
+    /// </summary>
+    private async ValueTask<ProcessNode?> NodeForAsync(WorkflowRun run, CancellationToken ct)
+    {
+        var definition = await _definitions.GetAsync(run.Process, run.ProcessVersion, ct).ConfigureAwait(false);
+        return definition.IsSuccess && definition.Value.Nodes.TryGetValue(run.CurrentNode, out var node)
+            ? node
             : null;
     }
 }
