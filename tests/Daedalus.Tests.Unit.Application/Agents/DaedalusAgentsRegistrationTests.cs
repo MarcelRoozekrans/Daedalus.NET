@@ -58,10 +58,15 @@ public sealed class DaedalusAgentsRegistrationTests
 
     private static ServiceProvider Build(IConfiguration configuration, IEmbeddingGenerator<string, Embedding<float>>? embeddings = null)
     {
+        var environment = Environment();
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        services.AddDaedalusAgents(configuration, Environment(), embeddings);
+        // A real host (WebApplicationBuilder/HostBuilder) always registers IHostEnvironment itself; this bare
+        // ServiceCollection does not, so StandingInstructionsWriter (task B5, DI-injected IHostEnvironment) fails
+        // to resolve unless the same instance handed to AddDaedalusAgents below is also registered here.
+        services.AddSingleton(environment);
+        services.AddDaedalusAgents(configuration, environment, embeddings);
         return services.BuildServiceProvider();
     }
 
@@ -137,10 +142,12 @@ public sealed class DaedalusAgentsRegistrationTests
 
         var sources = sp.GetServices<IToolSource>().ToList();
 
-        // Three local sources: reads live under the prefix agents already allow, and two write sources (Daedalus's
-        // own repoaction__* and Thalos's git__*) under prefixes no daedalus__* glob can reach. See
-        // RepoToolBoundaryTests for the boundary itself.
-        sources.OfType<LocalToolSource>().Select(s => s.Name).Should().Equal("daedalus", "repoaction", "git");
+        // Four local sources: reads live under the prefix agents already allow, and three write sources
+        // (Daedalus's own repoaction__* and manufacture__*, and Thalos's git__*) under prefixes no daedalus__*
+        // glob can reach. manufacture__* -> developer is pinned separately by
+        // RepoToolBoundaryTests.Every_manufacture_tool_is_bound_to_the_developer_policy; see RepoToolBoundaryTests
+        // for the write boundary itself.
+        sources.OfType<LocalToolSource>().Select(s => s.Name).Should().Equal("daedalus", "repoaction", "manufacture", "git");
     }
 
     [Fact]
