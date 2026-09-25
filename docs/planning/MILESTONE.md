@@ -20,7 +20,7 @@ only once something demonstrably better runs in its place.
 
 ## Definition of Done
 
-- [ ] **All planned phases complete.** Phases 2.1 through 2.9 are merged.
+- [ ] **All planned phases complete.** Phases 2.1 through 2.10 are merged.
 - [ ] **One manufacture run proven live from intent to reviewed pull request.** It is started
       through `POST /api/workflow-runs`, against a repository the owner chooses. Every step is
       recorded in the run's event log, not asserted:
@@ -32,16 +32,16 @@ only once something demonstrably better runs in its place.
 
       Phases 2.2 to 2.4 each proved part of this and none proved the whole. The criterion exists
       because "reached `Succeeded`" has twice not meant "did the work".
-- [ ] **Ralph retired only after that run.** Phase 2.6 deletes the loop only once the live run
+- [ ] **Ralph retired only after that run.** Phase 2.7 deletes the loop only once the live run
       above exists, so the retirement proves the replacement works.
-- [ ] **A run is traceable.** A manufacture run emits spans, per phase 2.7, and a failed run can be
+- [ ] **A run is traceable.** A manufacture run emits spans, per phase 2.8, and a failed run can be
       diagnosed from them and the event log without reading agent transcripts.
 - [ ] **Spend is visible and bounded.** Agent-turn token usage is aggregated into cost analytics.
       The token budget either caps spend during a turn or is documented as the post-turn check it
       is, sized from measurements rather than picked.
 - [ ] **All tests passing.** Unit, Unit.Application, Unit.Domain, Unit.Infrastructure and
       Integration all pass. Playwright.Api and Playwright.Browser pass for any phase that touches
-      UI, including 2.9's manufacturing console.
+      UI, including 2.10's manufacturing console.
 - [ ] **Documentation complete.** Every phase has a design doc, a plan and a rulings record in
       `docs/plans/`.
 
@@ -54,10 +54,11 @@ only once something demonstrably better runs in its place.
 | 2.3 | The manufacturing squad | complete (2026-09-23; #274) |
 | 2.4 | The process as skills | complete (2026-09-24; #276) |
 | 2.5 | Run write authority, standing instructions in the target workspace, prompt caching | active (2026-09-24) |
-| 2.6 | Ralph retirement | pending |
-| 2.7 | Observability | pending |
-| 2.8 | The scout HTTP path | pending |
-| 2.9 | Manufacturing console | pending |
+| 2.6 | Issues as a first-class output | pending |
+| 2.7 | Ralph retirement | pending |
+| 2.8 | Observability | pending |
+| 2.9 | The scout HTTP path | pending |
+| 2.10 | Manufacturing console | pending |
 
 Full phase text, including what each completed phase actually proved and carried forward, is in
 `docs/planning/ROADMAP.md`.

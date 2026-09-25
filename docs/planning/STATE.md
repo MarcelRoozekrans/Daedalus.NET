@@ -15,7 +15,7 @@ live proof, the final review and the carried-forward list are in
 - The live proof stopped at `implement`. Review, retrospect and the gate are unreachable until a run
   can write.
 - **Roadmap renumbered.** A new **phase 2.5 - run write authority** was inserted, so Ralph retirement
-  is now **2.6**. Older text in this file that says "phase 2.5 deletes Ralph" means 2.6.
+  is now **2.7**, after **phase 2.6 - issues as a first-class output** was inserted on 2026-09-25. Older text in this file that says "phase 2.5 deletes Ralph" means 2.7.
 
 ## Recommended Next Step
 
