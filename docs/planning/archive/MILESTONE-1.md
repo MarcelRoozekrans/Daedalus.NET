@@ -78,19 +78,19 @@ ships.
 Real, found during phases 1.7–1.9, deliberately left open at close rather than fixed or hidden:
 
 1. **Two pre-existing `Entity<TId>` equality bugs** — cross-type equality, and transient entities
-   comparing equal. Pinned as clearly-labelled characterisation tests (phase 1.7).
+   comparing equal. Pinned as clearly-labelled characterisation tests (phase 1.7). — #289
 2. **A `byte[] RowVersion` column is inert on Npgsql** on 7 older entities, so they have no working
    optimistic concurrency; only the 2 newer scheduling entities use the real `xmin` column. Known,
-   with a code comment and a design-doc admission (found in phase 1.8).
+   with a code comment and a design-doc admission (found in phase 1.8). — #290
 3. **`GetAllTasksQuery` and `GetTaskByIdQuery` are dead** — registered handlers, never invoked;
-   reads bypass the mediator via `ITaskQueryService` (found in phase 1.8).
+   reads bypass the mediator via `ITaskQueryService` (found in phase 1.8). — #291
 4. **CI excludes three suites** — both Playwright projects outright, and the Keycloak tests by
    `Category!=AuthenticationFlow`. All three now pass (phase 1.7 proved it), but the filter itself
-   is unchanged. This is how a suite sat at 0 of 126 passing unnoticed since phase 1.4.
+   is unchanged. This is how a suite sat at 0 of 126 passing unnoticed since phase 1.4. — #284
 5. **`ZA0501` suppressed** in `Directory.Build.props`, pending a repo-wide `[LoggerMessage]`
-   migration.
+   migration. — #292
 6. **`benchmarks/` (`Daedalus.Benchmarks`) is absent from `Daedalus.sln`**, so CI never builds it;
-   it has two pre-existing compile errors.
+   it has two pre-existing compile errors. — #293
 7. **Thalos.NET's `scripts/pack-local.ps1`** hard-codes `0.3.0-<suffix>` and never calls
    GitVersion, and `Directory.Build.props` `VersionPrefix` is stuck at 0.3.0. Real releases are
-   safe because GitVersion wins in CI; local dev feeds are not.
+   safe because GitVersion wins in CI; local dev feeds are not. — Thalos.NET#167

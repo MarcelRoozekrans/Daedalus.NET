@@ -77,22 +77,23 @@ in the event log. **Process version 4 has never been executed at all.**
 **Carried forward from 2.3:**
 
 1. `work_intent` has no producer — nothing in `src` calls `StartAsync`. It is one of only two things
-   the reviewer is ever given, so in production it can receive only the other.
+   the reviewer is ever given, so in production it can receive only the other. — fixed, phase 2.4 task
+   B3 (`manufacture__start` tool + `POST`/`GET /api/workflow-runs`).
 2. `DetachedRuns:MaxTotalTokens` is 150000 in both hosts; one measured implement turn used **358703
    input tokens**. Deliberately not raised: the sizing is unresolved and raising it without
    understanding the bloat raises the ceiling on waste. The 32 roslyn tool schemas, the skill
-   catalogue and the variable block all land in that prompt.
+   catalogue and the variable block all land in that prompt. — #280
 3. `roslyn__apply_code_action` applies a refactoring Roslyn already offers at a position and defaults
    to preview. It is not arbitrary editing, and the §4.1 decision was taken on a broader description
    than the tool supports.
 4. Agent turn usage is recorded in `AgentSessions`/`AgentMessages` but never aggregated into cost
    analytics, which reads `TaskExecutions` only — and phase 2.5 deletes Ralph, the only writer of
-   those rows. Parked as a phase.
+   those rows. Parked as a phase. — #281
 5. A second chat provider would make the different-family reviewer literally true. Parked, with the
    open design question recorded: `IChatClientProvider` resolves one provider per host, not per agent.
 6. Commit hygiene checks here cover nested parens and session URLs but **not subject length**; one
    116-character subject failed commitlint on this phase's own PR. `.commitlintrc.yml` caps headers
-   at 100.
+   at 100. — #282
 
 **Phase 2.1 — git write tooling: complete (2026-09-21).** Branch `feat/phase-2.1-git-tooling`, 6
 commits, PR opened against `main`. The roadmap described this phase as building branch, commit, push
@@ -134,12 +135,13 @@ waiting on that decision.
    the GitHub parameter before reaching Azure DevOps. Fixed in this phase's task 5.
 2. `Daedalus.Console`'s `RalphLoopWorker` does not call the Agents composition root
    (`AddDaedalusAgents`), so agent-registered services — including all `git__*` tools — are absent
-   on that host. Console only calls `AddDaedalusMemory`.
+   on that host. Console only calls `AddDaedalusMemory`. — #283
 3. The Integration suite test-host-crashed twice during this phase under Docker resource
    contention, with zero failures reported both times. A third and this task's own run were clean.
    Resource contention on this machine, not code.
 4. Thalos's `scripts/pack-local.ps1` hard-codes `0.3.0-<suffix>` and never calls GitVersion, so
-   local dev feeds carry the wrong version. Real releases are unaffected — GitVersion wins in CI.
+   local dev feeds carry the wrong version. Real releases are unaffected — GitVersion wins in CI. —
+   Thalos.NET#167
 
 **Phase 2.2 — durable workflow engine: complete (2026-09-22).** Branch
 `feat/phase-2.2-daedalus-wiring`, 11 tasks across two repos, PR opened against `main`. Design:
@@ -247,36 +249,42 @@ exactly as phase 2.1 left its own live-remote proof "ready and waiting."
    `RalphPromptTemplateBuilder` instructs agents to "update or create `AGENT.md` … only build/run/test
    instructions" — the standing-instructions loop the Copilot port identifies as compounding, and it
    lives only in Ralph today. Phase 2.5 deletes Ralph. This has to land in the workflow engine (or a
-   skill it runs) before that happens, or the capability is lost, not retired.
+   skill it runs) before that happens, or the capability is lost, not retired. — fixed, phase 2.4 task
+   B4/B5: the `retrospect` node ports this loop into the workflow (`processes/manufacture.yaml`), and
+   `StandingInstructionsWriter` applies it on a human resume at the gate.
 2. **No "start a workflow run" surface exists in Daedalus.** Tasks 9/10 built resume and cancel only;
    Task 11's own proof had to call `Thalos.Workflow.Orm.OrmWorkflowStore.StartAsync` directly from a
    throwaway console harness because nothing else does. Phase 2.4 (or a dedicated endpoint) needs to
-   supply a real trigger.
+   supply a real trigger. — fixed, phase 2.4 task B3 (`manufacture__start` tool +
+   `POST`/`GET /api/workflow-runs`).
 3. **Cross-node memory handoff does not work at a live run's latency.** `manufacture-implement` and
    `manufacture-review` were designed to hand off through `memory__remember`/`memory__recall`, scoped
    correctly by the run's own `WorkflowCaller.Id` — but every memory row observed in this environment
    stayed `IndexPending = true` well past the run's own lifetime, so semantic recall found nothing to
    search. A process wanting reliable node-to-node handoff needs a different channel; `NodeResult.Variables`
    exists in the store but nothing currently wires it into a later node's task text (a gap Task 5's
-   ledger already named and this phase did not close).
+   ledger already named and this phase did not close). — #304
 4. **`SubagentBudgetExceeded` is easy to hit with a tool-heavy agent.** `Daedalus Architect`'s full
    toolset (`roslyn__*`, `daedalus__*`, `memory__*`, `skills__*`, `context7__*`, `repoaction__*`) plus
    open-ended exploration instructions exhausted the 150,000-token detached-run budget on the very
    first attempt at `manufacture-implement`. Fixed for this process by hard-capping each skill to one
    or two tool calls; the underlying mismatch between that budget and an Architect-class agent's
-   toolset remains for any future process node that is less disciplined about it.
+   toolset remains for any future process node that is less disciplined about it. — the sizing half is
+   #280; the post-turn budget-check half is Thalos.NET#173.
 5. **Multi-instance duplicate dispatch remains open.** `FetchPendingAsync` has no
    `FOR UPDATE SKIP LOCKED`, so two hosts polling the same outbox table both fetch and both dispatch
    the same row — the `xmin` check means only one transition commits, but both agent turns run and
    both spend. `Daedalus.Cli` was disabled as a workflow host in Task 9 specifically to avoid this;
-   the gap reopens the moment the API host itself is scaled past one replica.
+   the gap reopens the moment the API host itself is scaled past one replica. — out of scope for this
+   sweep: `FetchPendingAsync` is `ZeroAlloc.Outbox.Orm`'s own implementation, an upstream package
+   neither Daedalus.NET nor Thalos.NET owns.
 6. **The publish node cannot open a real pull request, by design, for now.** `git__*` and
    `repoaction__*` are bound to the `developer` policy and denied to the `workflow` role — deliberate,
    not a gap to close casually. Task 10 recorded **Option C** (host code calls `IPullRequestPublisher`
    directly, after the graph and a human have already decided, removing the model from the trust path
    entirely) as the preferred fix for a later phase; it also closes the `Succeeded`-without-the-work
    gap, since host code would return a real result the graph could branch on. Not built now — it needs
-   a new node kind in Thalos, a bigger change than this phase's scope.
+   a new node kind in Thalos, a bigger change than this phase's scope. — Thalos.NET#171
 7. **A real, unfixed Thalos.NET defect: `ProcessDefinitionSync` has no resilience to the *store*
    failing, only to a *bad document*.** `ProcessDefinitionSync.SyncAsync` does degrade gracefully
    per document exactly as its own remarks describe — a document that fails to load or validate is
@@ -293,7 +301,7 @@ exactly as phase 2.1 left its own live-remote proof "ready and waiting."
    catches a per-document validation failure, and let dispatch's own retry machinery handle a store
    that is down entirely. Worked around here, for the four hosts this task's own change newly
    exposed to it, by disabling `Thalos:Workflow:Enabled` — matching `ApiWebApplicationFactory`'s
-   existing, documented pattern — which sidesteps the defect rather than fixing it.
+   existing, documented pattern — which sidesteps the defect rather than fixing it. — Thalos.NET#168
 8. **`Daedalus.Api.csproj` had a `processes/` folder wired to nothing.** `Thalos:Workflow:ProcessesRoot`
    could never have resolved a real file, on any host, ever, until this task added the same
    `CopyToOutputDirectory` `Content` item `skills/**/*.SKILL.md` already had. Same shape as phase 2.1's
@@ -306,10 +314,11 @@ exactly as phase 2.1 left its own live-remote proof "ready and waiting."
    the same role `SkillsStartupTests` already plays for `skills/`.
 9. Still open from the design doc's own carried-forward list, untouched by this phase: `AGENTS.md`
    (the cross-tool convention, distinct from item 1 above) is never probed by
-   `FileSystemWorkspaceContextProvider`; 8 of 14 base skills are multi-file against a single-body
-   `Skill` model; `Thalos.NET.Anthropic` is the only chat provider, so `models`/`quorum` on a node
-   parse but do nothing; and the squad roster (phase 2.3) still needs the same git-to-Postgres sync
-   skills already have.
+   `FileSystemWorkspaceContextProvider` (#294); 8 of 14 base skills are multi-file against a
+   single-body `Skill` model (Thalos.NET#175); `Thalos.NET.Anthropic` is the only chat provider, so
+   `models`/`quorum` on a node parse but do nothing; and the squad roster (phase 2.3) still needs the
+   same git-to-Postgres sync skills already have — fixed, phase 2.4 task B2 (role charters synced via
+   `Thalos.NET.Skills.Charters.CharterSyncService`, mirroring skill sync).
 
 **Phase 2.3 — the manufacturing squad: in progress** on branch
 `feat/phase-2.3-manufacturing-squad`. Design:
@@ -432,14 +441,18 @@ repositories in the ZeroAlloc org**; all 23 are fixed and merged, tracked in
 
 2. **`ci.yml` excludes `~Playwright`**, so ~99 browser tests and the whole `Playwright.Api` suite
    never run in CI. The `Playwright.Api` fixture bug — 126 of 126 failing in `OneTimeSetUp` on
-   `relation "Skills" does not exist` — is therefore invisible there. Carried from 1.4.
+   `relation "Skills" does not exist` — is therefore invisible there. Carried from 1.4. — #284
 
 3. **`Daedalus.Cli` has an independent boot failure:** `IProjectRepository` is unregistered for
    `WorkspaceOrchestrator`. It reproduces only under `DOTNET_ENVIRONMENT=Development`, not
-   `ASPNETCORE_ENVIRONMENT`, because the CLI uses the generic Host builder.
+   `ASPNETCORE_ENVIRONMENT`, because the CLI uses the generic Host builder. — fixed/stale: at current
+   HEAD `WorkspaceOrchestrator` is only reachable through `Daedalus.Console`'s `RalphLoopWorker`
+   (`src/Daedalus.Agents/Workflow` and `Daedalus.Console/Program.cs:37` register `IProjectRepository`
+   there), and `Daedalus.Cli` never references `WorkspaceOrchestrator` at all — this scenario no
+   longer reproduces against the current host split.
 
 4. `appsettings.Development.json` carries `postgres`/`postgres` while the compose container
-   `daedalus_postgres` uses `daedalus`/`daedalus`.
+   `daedalus_postgres` uses `daedalus`/`daedalus`. — #285
 
 ## Environment note that will bite immediately
 
@@ -490,40 +503,49 @@ unreadable. Fixed in #250.
 
 1. **"Cron wrong" is not representable.** An enabled schedule whose cron never fires reads
    `NotYetDue` or `Overdue`; the diagnostics page cannot say "your cron is wrong." So four and a half
-   of the five documented death causes are covered, not five.
+   of the five documented death causes are covered, not five. — #286
 
 2. **A schedule that is both overdue and has a failed last run renders `Failed`**, with a past
-   `Next run` beside it and no visual cue.
+   `Next run` beside it and no visual cue. — #287
 
 3. **A non-existent schedule id returns `200 OK` with an empty list**, so "no such schedule" and
    "schedule with zero runs" are indistinguishable to a caller. The agent tool's wording covers both
-   honestly; the service-level fix needs a `Result`-shaped return and was deferred.
+   honestly; the service-level fix needs a `Result`-shaped return and was deferred. — #288
 
 4. **Four ZeroAlloc packages still carry mis-stamped assemblies** — `Specification` 1.1.0, `Flux`
    1.1.1, `Saga` 2.0.0, `EventSourcing` 1.2.0. All are **latent, not broken**: breakage requires the
    assembly version to go *down* between releases, and these are uniformly wrong rather than
    downgrades. Their repos use multi-package release-please configs, so a `.github/` change released
    nothing; each picks up a correct stamp on its next real code change, with the fix already in place.
+   — out of scope for this sweep: these are upstream ZeroAlloc-org package repos, not Daedalus.NET or
+   Thalos.NET.
 
 5. **`global.json` pins SDK `10.0.401` across the ZeroAlloc org** while runners may only have
    `10.0.400`. This is a race with GitHub's runner-image rollout and caused one publish failure that
    had to be rescued by hand. It will keep failing publishes intermittently until the pin is relaxed.
+   — out of scope for this sweep: upstream ZeroAlloc-org repos.
 
 ## Open Decisions (user)
 
 1. **`AgentErrorCode` gaining a `None = 0` member.** `Validation` is member 0, so `default(AgentError)`
    is indistinguishable from a real validation failure. Renumbering is impossible — the enum is
    serialized. Phase 1.6 and 1.9 both took the opposite lesson deliberately: `RunVerdict` reserves
-   `Unknown = 0` precisely because of this.
-2. **The stranded-run reaper.** 1.6 made stranded runs visible, which was its precondition.
+   `Unknown = 0` precisely because of this. — Thalos.NET#170
+2. **The stranded-run reaper.** 1.6 made stranded runs visible, which was its precondition. —
+   superseded: Ralph (and its `ScheduledRuns`) is scheduled for retirement in phase 2.6 rather than
+   further investment; the workflow engine's own stranded-run sweep
+   (`WorkflowStrandedRunSweepService`) already covers workflow runs.
 3. **Cross-origin schedule name collision** — still unreachable, since `schedule__create` was
-   deliberately cut in 1.6 and not added in 1.9.
+   deliberately cut in 1.6 and not added in 1.9. — not currently reachable; no action needed unless
+   `schedule__create` is built.
 4. **Deprecate or unlist the confirmed-broken ZeroAlloc versions** — `Results` 1.2.1,
    `Collections` 1.1.4, `Validation` 1.3.0, `Rest` 1.3.0. They cannot be loaded and leaving them
-   listed invites someone else into the same afternoon.
+   listed invites someone else into the same afternoon. — out of scope for this sweep: upstream
+   ZeroAlloc-org repos.
 5. **Set an explicit `AssemblyVersion` policy** in the ZeroAlloc repos' `Directory.Build.props`.
    Several declare no version property at all, which is why their fallback was MSBuild's `1.0.0`. A
-   deliberate `Major.0.0.0` would make an unversioned build harmless rather than hazardous.
+   deliberate `Major.0.0.0` would make an unversioned build harmless rather than hazardous. — out of
+   scope for this sweep: upstream ZeroAlloc-org repos.
 
 ## Recommended Next Step
 
