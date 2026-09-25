@@ -275,9 +275,8 @@ exactly as phase 2.1 left its own live-remote proof "ready and waiting."
    `FOR UPDATE SKIP LOCKED`, so two hosts polling the same outbox table both fetch and both dispatch
    the same row — the `xmin` check means only one transition commits, but both agent turns run and
    both spend. `Daedalus.Cli` was disabled as a workflow host in Task 9 specifically to avoid this;
-   the gap reopens the moment the API host itself is scaled past one replica. — out of scope for this
-   sweep: `FetchPendingAsync` is `ZeroAlloc.Outbox.Orm`'s own implementation, an upstream package
-   neither Daedalus.NET nor Thalos.NET owns.
+   the gap reopens the moment the API host itself is scaled past one replica. — ZeroAlloc-Net/ZeroAlloc.Outbox#191, filed upstream: `FetchPendingAsync` is
+   `ZeroAlloc.Outbox.Orm`'s own implementation.
 6. **The publish node cannot open a real pull request, by design, for now.** `git__*` and
    `repoaction__*` are bound to the `developer` policy and denied to the `workflow` role — deliberate,
    not a gap to close casually. Task 10 recorded **Option C** (host code calls `IPullRequestPublisher`
@@ -517,13 +516,13 @@ unreadable. Fixed in #250.
    assembly version to go *down* between releases, and these are uniformly wrong rather than
    downgrades. Their repos use multi-package release-please configs, so a `.github/` change released
    nothing; each picks up a correct stamp on its next real code change, with the fix already in place.
-   — out of scope for this sweep: these are upstream ZeroAlloc-org package repos, not Daedalus.NET or
-   Thalos.NET.
+   — fixed upstream: new stamps verified, tracked in
+   ZeroAlloc-Net/.github#26.
 
 5. **`global.json` pins SDK `10.0.401` across the ZeroAlloc org** while runners may only have
    `10.0.400`. This is a race with GitHub's runner-image rollout and caused one publish failure that
    had to be rescued by hand. It will keep failing publishes intermittently until the pin is relaxed.
-   — out of scope for this sweep: upstream ZeroAlloc-org repos.
+   — ZeroAlloc-Net/.github#34.
 
 ## Open Decisions (user)
 
@@ -540,12 +539,10 @@ unreadable. Fixed in #250.
    `schedule__create` is built.
 4. **Deprecate or unlist the confirmed-broken ZeroAlloc versions** — `Results` 1.2.1,
    `Collections` 1.1.4, `Validation` 1.3.0, `Rest` 1.3.0. They cannot be loaded and leaving them
-   listed invites someone else into the same afternoon. — out of scope for this sweep: upstream
-   ZeroAlloc-org repos.
+   listed invites someone else into the same afternoon. — ZeroAlloc-Net/.github#35.
 5. **Set an explicit `AssemblyVersion` policy** in the ZeroAlloc repos' `Directory.Build.props`.
    Several declare no version property at all, which is why their fallback was MSBuild's `1.0.0`. A
-   deliberate `Major.0.0.0` would make an unversioned build harmless rather than hazardous. — out of
-   scope for this sweep: upstream ZeroAlloc-org repos.
+   deliberate `Major.0.0.0` would make an unversioned build harmless rather than hazardous. — ZeroAlloc-Net/.github#36.
 
 ## Recommended Next Step
 
