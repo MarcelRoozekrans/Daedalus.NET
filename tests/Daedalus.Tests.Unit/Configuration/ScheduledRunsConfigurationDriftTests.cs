@@ -57,11 +57,11 @@ public sealed class ScheduledRunsConfigurationDriftTests
     /// <summary>
     ///     Pins <c>Daedalus.Cli/appsettings.json</c>'s <c>Thalos:Workflow:Enabled</c> to <see langword="false"/> —
     ///     deliberately the one setting in this file that must <em>not</em> match the Api's. <c>Daedalus.Cli</c>
-    ///     is not orchestrated by the AppHost and has no <c>WaitForCompletion(migrations)</c> step, and even
-    ///     where the workflow tables do exist, a second poller against the same outbox table as
-    ///     <c>Daedalus.Api</c> only buys duplicate paid agent turns — <c>FetchPendingAsync</c> has no
-    ///     <c>FOR UPDATE SKIP LOCKED</c>, so both hosts can fetch and dispatch the same row and both pay for the
-    ///     turn. See <c>WorkflowConfig.Enabled</c>'s own remarks. Without this test, deleting or flipping that
+    ///     is not orchestrated by the AppHost and has no <c>WaitForCompletion(migrations)</c> step, so the
+    ///     workflow tables are not guaranteed to exist when it starts, and whether it may run the engine alongside
+    ///     <c>Daedalus.Api</c> at all is an open owner decision. A second poller is no longer a duplicate-dispatch
+    ///     risk: the outbox claim is row-locked since ZeroAlloc.Outbox 3.0. See <c>WorkflowConfig.Enabled</c>'s
+    ///     own remarks. Without this test, deleting or flipping that
     ///     one line in the real file is invisible to every other test in this solution:
     ///     <c>CliHostSchedulingWiringTests</c> deliberately builds its own minimal configuration that never sets
     ///     this key (to exercise <c>WorkflowConfig.Enabled</c>'s compiled-in default), so it never reads this
@@ -74,7 +74,7 @@ public sealed class ScheduledRunsConfigurationDriftTests
 
         workflow.Should().ContainKey("Enabled", "Daedalus.Cli/appsettings.json must set Thalos:Workflow:Enabled explicitly");
         bool.Parse(workflow["Enabled"]!).Should().BeFalse(
-            "a second poller against the same outbox table as Daedalus.Api only buys duplicate paid agent " +
-            "turns, and Daedalus.Cli has no WaitForCompletion(migrations) guarantee the tables even exist");
+            "Daedalus.Cli has no WaitForCompletion(migrations) guarantee the workflow tables even exist, and " +
+            "whether it may run the engine alongside Daedalus.Api is an open owner decision");
     }
 }

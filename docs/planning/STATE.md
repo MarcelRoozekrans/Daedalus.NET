@@ -276,7 +276,11 @@ exactly as phase 2.1 left its own live-remote proof "ready and waiting."
    the same row — the `xmin` check means only one transition commits, but both agent turns run and
    both spend. `Daedalus.Cli` was disabled as a workflow host in Task 9 specifically to avoid this;
    the gap reopens the moment the API host itself is scaled past one replica. — ZeroAlloc-Net/ZeroAlloc.Outbox#191, filed upstream: `FetchPendingAsync` is
-   `ZeroAlloc.Outbox.Orm`'s own implementation.
+   `ZeroAlloc.Outbox.Orm`'s own implementation. — fixed, phase 2.5 task B0 (#310): ZeroAlloc.Outbox 3.0.1
+   replaces the fetch with a lease-based claim, `FOR UPDATE SKIP LOCKED` on Postgres, and
+   `WorkflowOutboxDispatchService` now claims, renews and marks under that lease. Whether `Daedalus.Cli` may
+   run the workflow engine alongside the API is still an open owner decision, so its `Workflow:Enabled`
+   stays `false`.
 6. **The publish node cannot open a real pull request, by design, for now.** `git__*` and
    `repoaction__*` are bound to the `developer` policy and denied to the `workflow` role — deliberate,
    not a gap to close casually. Task 10 recorded **Option C** (host code calls `IPullRequestPublisher`

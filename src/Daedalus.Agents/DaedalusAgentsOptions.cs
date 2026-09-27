@@ -258,12 +258,11 @@ public sealed class WorkflowConfig
     ///     which is <c>Daedalus.Api</c> alone: that ordering is what guarantees <c>Daedalus.Migrations</c> has
     ///     already applied <c>WorkflowOrmMigrations</c>/<c>OutboxOrmMigrations</c> before the host starts (see
     ///     <c>EnsureSchemaOnStartup</c>'s remarks in <c>AddDaedalusAgents</c>). <c>Daedalus.Cli</c> also calls
-    ///     <c>AddDaedalusAgents</c> but is an interactive tool with no such ordering guarantee, and — even where
-    ///     the tables do exist — a second poller against the same outbox table as the Api host only buys
-    ///     duplicate paid agent turns, since <c>FetchPendingAsync</c> has no <c>FOR UPDATE SKIP LOCKED</c>: both
-    ///     hosts can fetch and dispatch the same row, and both pay for the turn, even though the run row's
-    ///     <c>xmin</c> check means only one transition commits. <c>Daedalus.Cli/appsettings.json</c> sets this
-    ///     <see langword="false"/> for exactly that reason. Integration tests that boot the real Api host against
+    ///     <c>AddDaedalusAgents</c> but is an interactive tool with no such ordering guarantee, so
+    ///     <c>Daedalus.Cli/appsettings.json</c> sets this <see langword="false"/>. A second poller is no longer a
+    ///     duplicate-dispatch risk — <c>WorkflowOutboxDispatchService</c> claims each message under a row-locked
+    ///     lease — but whether the Cli may run the engine alongside the Api host is an open owner decision, so the
+    ///     setting stays until that is made. Integration tests that boot the real Api host against
     ///     <c>PostgresFixture</c>'s <c>EnsureCreatedAsync</c> schema — which builds only the EF Core model, never
     ///     these raw-SQL tables — set this <see langword="false"/> too, via <c>ApiWebApplicationFactory</c>, or
     ///     every one of the workflow engine's hosted services (the outbox poller, the stranded-run sweep, the

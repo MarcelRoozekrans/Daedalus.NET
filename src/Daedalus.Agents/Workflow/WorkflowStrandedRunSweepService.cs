@@ -12,36 +12,27 @@ namespace Daedalus.Agents.Workflow;
 ///     its host.
 /// </summary>
 /// <remarks>
-///     <b>The stranded threshold is 30 minutes — sized against a formula, not a round number.</b> Per
-///     <see cref="WorkflowRunReconciler.SweepAsync"/>'s own XML doc, the threshold must comfortably exceed both
-///     the longest a healthy node's agent turn runs and the outbox's own retry-and-backoff window, during which
-///     a run's <c>updated_at</c> does not advance. There is a third term easy to miss the first time: this
-///     sweep has no cap of its own on how many turns wait behind each other in one poll batch — that is
-///     <see cref="WorkflowOutboxDispatchOptions.BatchSize"/>'s job, not this type's — and a run queued behind
-///     others in the same batch has its <c>updated_at</c> frozen for the whole queue ahead of it, not just its
-///     own turn. The threshold must therefore exceed
-///     <c>WorkflowOutboxDispatchOptions.BatchSize * longest turn + retry-and-backoff window</c>, not just the
-///     last two terms alone — sizing it only against a single turn and the backoff window, as an earlier version
-///     of this comment did, silently assumed a batch size of 1 without saying so, and would have started failing
-///     healthy runs the day someone raised <c>BatchSize</c> back up without revisiting this number.
+///     <b>The stranded threshold is derived, not a constant.</b> Per <see cref="WorkflowRunReconciler.SweepAsync"/>'s
+///     own XML doc, the threshold must comfortably exceed everything during which a healthy run's
+///     <c>updated_at</c> does not advance. <see cref="WorkflowDispatchTiming.StrandedAfter"/> sums those terms from
+///     the same options the dispatch loop runs on: a crashed host's lease running out, the next dispatch's gate
+///     wait and turn deadline, and the retry backoff, plus a margin. The composition root computes it once and
+///     passes it in, so a change to the lease, the turn deadline or the retry budget moves this threshold with
+///     it. The fixed 30 minutes this used to be was sized before leases existed; with a 20-minute lease it would
+///     terminate runs a healthy replica was about to pick up.
 ///     <para>
-///     Today's numbers: <see cref="WorkflowOutboxDispatchOptions.BatchSize"/> is 1 (see that property's own
-///     remarks for why it is not batched at all), so the queueing term drops out. A turn's ceiling is
-///     configuration, not a guess — <see cref="BudgetedSubagentRunner"/> stamps <c>DetachedRunOptions.DeadlineSeconds</c>
-///     (300s / 5 minutes in <c>appsettings.json</c>) onto every workflow-run turn. With
-///     <see cref="WorkflowOutboxDispatchOptions"/>'s retry defaults (<c>MaxAttempts</c> 8, <c>RetryBaseDelay</c>
-///     2s) the backoff alone reaches roughly four minutes before dead-lettering. <c>1 * 5 minutes + ~4 minutes</c>
-///     is comfortably under 30 — the margin this threshold keeps is deliberate, not just generous, because
-///     <c>BatchSize</c>, <c>DeadlineSeconds</c> and <c>MaxAttempts</c>/<c>RetryBaseDelay</c> can all change
-///     independently of this file. Sizing this only against agent-turn length would terminate runs whose next
-///     delivery attempt was about to succeed.
+///     A run queued behind others in one poll batch would add a queueing term, but
+///     <see cref="WorkflowOutboxDispatchOptions.BatchSize"/> is held at 1 by
+///     <see cref="WorkflowDispatchTiming.Validate"/>, so there is none.
 ///     </para>
 /// </remarks>
 internal sealed partial class WorkflowStrandedRunSweepService(
     WorkflowRunReconciler reconciler,
+    TimeSpan strandedAfter,
     ILogger<WorkflowStrandedRunSweepService> logger) : BackgroundService
 {
-    private static readonly TimeSpan StrandedAfter = TimeSpan.FromMinutes(30);
+    /// <summary>How long a run may go without a write before the sweep terminates it as stranded.</summary>
+    internal TimeSpan StrandedAfter { get; } = strandedAfter;
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,22 +41,37 @@ internal sealed partial class WorkflowStrandedRunSweepService(
 
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
         {
-            try
-            {
-                var terminated = await reconciler.SweepAsync(StrandedAfter, stoppingToken).ConfigureAwait(false);
-                if (terminated > 0)
-                {
-                    LogTerminated(logger, terminated);
-                }
-            }
-            // A normal host shutdown cancels stoppingToken mid-sweep; that is not a sweep failure and must
-            // propagate so the BackgroundService loop above stops promptly instead of logging a spurious error.
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                LogSweepFailed(logger, ex);
-            }
+            await SweepOnceAsync(stoppingToken).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    ///     Runs one sweep. Internal, not private, so a test can drive a single sweep without waiting on the
+    ///     one-minute timer. It never lets a failure escape, which would end every future sweep: only a
+    ///     cancellation of <paramref name="stoppingToken"/> propagates.
+    /// </summary>
+    internal async Task SweepOnceAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            var terminated = await reconciler.SweepAsync(StrandedAfter, stoppingToken).ConfigureAwait(false);
+            if (terminated > 0)
+            {
+                LogTerminated(logger, terminated);
+            }
+        }
+        // A normal host shutdown cancels stoppingToken mid-sweep; that is not a sweep failure and must
+        // propagate so the BackgroundService loop above stops promptly instead of logging a spurious error.
+        // Any other cancellation, such as a timeout inside the store, is a failed sweep: the next tick retries.
+        catch (Exception ex) when (!IsStopping(ex, stoppingToken))
+        {
+            LogSweepFailed(logger, ex);
+        }
+    }
+
+    /// <summary>True only for a cancellation caused by <paramref name="stoppingToken"/>, which means the host is stopping.</summary>
+    private static bool IsStopping(Exception ex, CancellationToken stoppingToken) =>
+        ex is OperationCanceledException && stoppingToken.IsCancellationRequested;
 
     [LoggerMessage(EventId = 1820, Level = LogLevel.Information, Message = "Workflow sweep terminated {Count} stranded run(s).")]
     private static partial void LogTerminated(ILogger logger, int count);

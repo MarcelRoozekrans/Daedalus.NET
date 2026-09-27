@@ -192,6 +192,13 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // it is durability laid down for 1.5 proactive pushes. See the design doc, section 9.
         services.AddChannelOutbox();
 
+        // The deadline every detached agent turn runs under: SubagentRunExecutor applies it to the scheduling
+        // steps this outbox dispatches, and BudgetedSubagentRunner to every workflow turn. Read from
+        // configuration here rather than from IOptions<DetachedRunOptions> so both lease checks fail at
+        // registration, like every other configuration check in this method, instead of at first resolution.
+        var turnDeadline = TimeSpan.FromSeconds(
+            configuration.GetSection("DetachedRuns").GetValue<int>(nameof(DetachedRunOptions.DeadlineSeconds)));
+
         AddGitHub(services, configuration);
 
         // Thalos's pull-request publisher abstraction, implemented over Daedalus's existing pull-request-factory
@@ -361,8 +368,12 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         if (options.Workflow.Enabled)
         {
-            AddDaedalusWorkflow(services, processesRoot, standingInstructionsPath);
+            AddDaedalusWorkflow(services, processesRoot, standingInstructionsPath, turnDeadline);
         }
+
+        // After the workflow block, whose own lease check is the stricter one on a workflow host, so each check's
+        // message stays reachable on the host it is written for.
+        ValidateChannelOutboxLease(turnDeadline);
 
         // Off by default: nothing in shipped appsettings sets Thalos:Content:ResyncInterval (see that option's
         // own remarks), so no host pays for this loop until an operator opts in. Registered last, after AddThalos
@@ -402,7 +413,8 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     depends on <c>IWorkflowStore</c>/<c>IProcessDefinitionStore</c>, which only exist once <c>AddThalos</c>
     ///     has run, so this is called after it, never on its own.
     /// </summary>
-    private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot, string standingInstructionsPath)
+    private static void AddDaedalusWorkflow(
+        IServiceCollection services, string processesRoot, string standingInstructionsPath, TimeSpan turnDeadline)
     {
         // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
         // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
@@ -451,15 +463,31 @@ public static class DaedalusAgentsServiceCollectionExtensions
         services.AddSingleton<ProcessDefinitionSync>();
         services.AddHostedService<ProcessDefinitionSyncHostedService>();
 
+        // No dispatch gate runs before a turn yet, so a dispatch is the turn alone. The task that adds the gate
+        // passes its readiness timeout here, which lengthens both the lease check and the stranded threshold.
+        var gateWait = TimeSpan.Zero;
+        var dispatchOptions = new WorkflowOutboxDispatchOptions();
+        WorkflowDispatchTiming.Validate(dispatchOptions, turnDeadline, gateWait);
+        var strandedAfter = WorkflowDispatchTiming.StrandedAfter(dispatchOptions, turnDeadline, gateWait);
+
         // The outbox consumer: see WorkflowOutboxDispatchService's remarks for why this is a hand-rolled poller
-        // rather than a second ZeroAlloc.Outbox AddOutbox() call.
+        // rather than a second ZeroAlloc.Outbox AddOutbox() call. The dispatcher is registered as its concrete
+        // type only, never as IOutboxTypeDispatcher: the channel pipeline's OutboxWorkerService enumerates every
+        // IOutboxTypeDispatcher in the container, and must not pick this one up.
         services.AddSingleton<WorkflowDispatchOutboxDispatcher>();
-        services.AddSingleton<WorkflowOutboxDispatchOptions>();
-        services.AddHostedService<WorkflowOutboxDispatchService>();
+        services.AddSingleton(dispatchOptions);
+        services.AddHostedService(sp => new WorkflowOutboxDispatchService(
+            sp.GetRequiredService<NpgsqlDataSource>(),
+            sp.GetRequiredService<WorkflowDispatchOutboxDispatcher>(),
+            sp.GetRequiredService<WorkflowOutboxDispatchOptions>(),
+            sp.GetRequiredService<ILogger<WorkflowOutboxDispatchService>>()));
 
         // The stranded-run sweep: Thalos ships WorkflowRunReconciler with no timer of its own, deliberately.
         services.AddSingleton<WorkflowRunReconciler>();
-        services.AddHostedService<WorkflowStrandedRunSweepService>();
+        services.AddHostedService(sp => new WorkflowStrandedRunSweepService(
+            sp.GetRequiredService<WorkflowRunReconciler>(),
+            strandedAfter,
+            sp.GetRequiredService<ILogger<WorkflowStrandedRunSweepService>>()));
     }
 
     /// <summary>
@@ -541,6 +569,22 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     <see cref="ArgumentOutOfRangeException"/> the first time <see cref="ContentResyncService.ExecuteAsync"/>
     ///     runs, rather than at host start.
     /// </summary>
+    /// <summary>
+    ///     Rejects a turn deadline the channel and scheduling outbox's lease cannot hold: the lease is renewed only
+    ///     right before a dispatch, so a scheduling step whose agent turn outlived it could be claimed and run a
+    ///     second time by the other host polling the same table.
+    /// </summary>
+    private static void ValidateChannelOutboxLease(TimeSpan turnDeadline)
+    {
+        if (turnDeadline >= ChannelOutboxServiceCollectionExtensions.LeaseDuration)
+        {
+            throw new InvalidOperationException(
+                $"DetachedRuns:DeadlineSeconds ({turnDeadline}) must be shorter than the channel and scheduling " +
+                $"outbox's lease ({ChannelOutboxServiceCollectionExtensions.LeaseDuration}): a scheduling step whose " +
+                "agent turn outlives the lease can be claimed and run again by another host.");
+        }
+    }
+
     private static void ValidateContentConfig(ContentConfig config)
     {
         if (config.ResyncInterval is { } interval && interval <= TimeSpan.Zero)
