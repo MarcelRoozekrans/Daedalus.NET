@@ -285,6 +285,31 @@ public sealed class WorkflowConfig
     ///     <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter.StartAsync"/>).
     /// </summary>
     public string StandingInstructionsPath { get; set; } = "AGENT.md";
+
+    /// <summary>
+    ///     Phase 2.5: the only repositories a manufacture run may target (<c>Thalos:Workflow:Repositories:N</c>).
+    ///     Empty by default because the binder appends to a pre-filled list.
+    /// </summary>
+    public IList<RepositoryConfig> Repositories { get; } = [];
+
+    /// <summary>
+    ///     Where run workspaces live: mirrors under <c>&lt;DataRoot&gt;/mirrors</c>, worktrees under
+    ///     <c>&lt;DataRoot&gt;/runs</c>. Absolute, or blank for <c>%LOCALAPPDATA%/Daedalus/workflow-data</c>; a relative
+    ///     value fails at registration.
+    /// </summary>
+    public string DataRoot { get; set; } = "";
+
+    /// <summary>The git author every manufacture-run commit is written as (<c>Thalos:Workflow:CommitAuthor</c>).</summary>
+    public CommitAuthorConfig CommitAuthor { get; } = new();
+
+    /// <summary>
+    ///     The process nodes whose turns may write into their run's workspace, and which file extensions each may write
+    ///     (<c>Thalos:Workflow:WriteGrants:N</c>). Empty by default because the binder appends to a pre-filled list.
+    /// </summary>
+    public IList<WriteGrantConfig> WriteGrants { get; } = [];
+
+    /// <summary>How long a run waits for its run-scoped Roslyn server to report ready. Default 10 minutes.</summary>
+    public TimeSpan RoslynReadyTimeout { get; set; } = TimeSpan.FromMinutes(10);
 }
 
 /// <summary>

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
@@ -30,6 +31,7 @@ using Thalos.Anthropic;
 using Thalos.Caching;
 using Thalos.Git;
 using Thalos.Git.LibGit2Sharp;
+using Thalos.Git.Workspaces;
 using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
@@ -42,7 +44,7 @@ using Thalos.Workflow.Orm;
 namespace Daedalus.Agents;
 
 /// <summary>Composition root for the Thalos-based agent stack. Ralph Loop registrations are untouched (strangler).</summary>
-public static class DaedalusAgentsServiceCollectionExtensions
+public static partial class DaedalusAgentsServiceCollectionExtensions
 {
     /// <summary>The Thalos tool-source name of <see cref="DaedalusKnowledgeTools"/>; tools appear as <c>daedalus__{tool}</c>.</summary>
     public const string KnowledgeToolSourceName = "daedalus";
@@ -233,6 +235,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         ValidateContentConfig(options.Content);
 
+        // Checked whether or not the engine is on: Daedalus.Cli ships the same write grant with the engine off, and a
+        // grant that only fails validation once someone flips Enabled is a grant nobody reviewed.
+        ValidateWorkflowWriteConfig(options.Workflow);
+
         // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
         // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
         // per call (Thalos.NET.Workflow.Orm gives it no seam to accept a shared data source instead). Registered
@@ -295,6 +301,12 @@ public static class DaedalusAgentsServiceCollectionExtensions
                     o.ConnectionString = connectionString;
                     o.EnsureSchemaOnStartup = false;
                 });
+
+                // Phase 2.5: every run gets a git worktree of its repository under the data root. The credential
+                // source is what lets the provider and the workspace git reach a private remote; without it every
+                // clone, fetch and push is anonymous, which a private repository refuses.
+                thalos.Services.TryAddSingleton<IGitCredentialSource, GitHubGitCredentialSource>();
+                thalos.UseGitWorktreeWorkspaces(o => o.DataRoot = ResolveDataRoot(options.Workflow.DataRoot));
             }
 
             thalos.UseAnthropic(configuration)
@@ -606,6 +618,126 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 $"{interval.ToString(null, CultureInfo.InvariantCulture)}.");
         }
     }
+
+    /// <summary>
+    ///     Fails fast on the phase 2.5 write-authority keys of <c>Thalos:Workflow</c>: <c>Repositories</c>,
+    ///     <c>DataRoot</c>, <c>CommitAuthor</c> and <c>WriteGrants</c>. Together they decide what a run may check out,
+    ///     where it writes, and which files a model turn may change, so a malformed value must stop the host at
+    ///     registration rather than surface at the first run.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     A repository name is malformed or duplicated, a remote is blank, a solution path is rooted or contains
+    ///     <c>..</c>, <c>DataRoot</c> is set but not absolute, a write grant has a blank process or node, a write grant
+    ///     has no allowed extensions or a malformed one, or repositories are configured without a full commit author.
+    /// </exception>
+    private static void ValidateWorkflowWriteConfig(WorkflowConfig config)
+    {
+        const string section = WorkflowConfig.SectionName;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < config.Repositories.Count; i++)
+        {
+            var repository = config.Repositories[i];
+            var key = $"{section}:Repositories:{i}";
+            if (!RepositoryNamePattern().IsMatch(repository.Name))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Name '{repository.Name}' must match ^[a-z0-9][a-z0-9-]{{0,63}}$. It becomes a path segment " +
+                    "under the data root and is the name a run start refers to.");
+            }
+
+            if (!names.Add(repository.Name))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Name '{repository.Name}' is declared more than once. A run start names its repository, so " +
+                    "two entries with one name would make the target ambiguous.");
+            }
+
+            if (string.IsNullOrWhiteSpace(repository.Remote))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Remote must not be blank: it is the git remote the run's worktree is cloned from and pushed to.");
+            }
+
+            if (repository.Solution is { } solution
+                && (Path.IsPathRooted(solution) || solution.Contains("..", StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Solution '{solution}' must be a repository-relative path with no '..': the run's Roslyn " +
+                    "server loads it from inside the worktree and nowhere else.");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(config.DataRoot) && !Path.IsPathFullyQualified(config.DataRoot))
+        {
+            throw new InvalidOperationException(
+                $"{section}:DataRoot '{config.DataRoot}' must be an absolute path, or blank for " +
+                "%LOCALAPPDATA%/Daedalus/workflow-data. A relative data root would move with the working directory.");
+        }
+
+        for (var i = 0; i < config.WriteGrants.Count; i++)
+        {
+            var grant = config.WriteGrants[i];
+            var key = $"{section}:WriteGrants:{i}";
+            if (string.IsNullOrWhiteSpace(grant.Process))
+            {
+                throw new InvalidOperationException($"{key}:Process must not be blank: a write grant names the process it applies to.");
+            }
+
+            if (string.IsNullOrWhiteSpace(grant.Node))
+            {
+                throw new InvalidOperationException($"{key}:Node must not be blank: a write grant names the node it applies to.");
+            }
+
+            if (grant.AllowedExtensions.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"{key}:AllowedExtensions must list at least one extension, such as \".cs\". It is an allow-list " +
+                    "(ruling R29), and a missing key is not a supported configuration.");
+            }
+
+            if (grant.AllowedExtensions.FirstOrDefault(e => !AllowedExtensionPattern().IsMatch(e)) is { } malformed)
+            {
+                throw new InvalidOperationException(
+                    $"{key}:AllowedExtensions entry '{malformed}' must be a dot followed by letters and digits only, " +
+                    "such as \".cs\" (ruling R29).");
+            }
+        }
+
+        if (config.Repositories.Count > 0)
+        {
+            if (string.IsNullOrWhiteSpace(config.CommitAuthor.Name))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:CommitAuthor:Name must not be blank while {section}:Repositories is configured: " +
+                    "every run commit is written as this author.");
+            }
+
+            if (string.IsNullOrWhiteSpace(config.CommitAuthor.Email))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:CommitAuthor:Email must not be blank while {section}:Repositories is configured: " +
+                    "every run commit is written as this author.");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     The workspace data root: the configured <c>Thalos:Workflow:DataRoot</c> when set, which
+    ///     <see cref="ValidateWorkflowWriteConfig"/> has already checked is absolute, otherwise
+    ///     <c>%LOCALAPPDATA%/Daedalus/workflow-data</c>.
+    /// </summary>
+    internal static string ResolveDataRoot(string configured) =>
+        string.IsNullOrEmpty(configured)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Daedalus", "workflow-data")
+            : configured;
+
+    // \z rather than $: in .NET, $ also matches just before a trailing newline, so "sandbox\n" would pass.
+    [GeneratedRegex(@"^[a-z0-9][a-z0-9-]{0,63}\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
+    private static partial Regex RepositoryNamePattern();
+
+    // \z rather than $, for the same reason: ".cs\n" is not an extension.
+    [GeneratedRegex(@"^\.[A-Za-z0-9]+\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
+    private static partial Regex AllowedExtensionPattern();
 
     /// <summary>
     ///     Memory-only registration for hosts that run Ralph but <b>no</b> Thalos agents — the console worker. Registers the
