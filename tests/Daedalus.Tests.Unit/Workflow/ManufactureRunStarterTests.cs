@@ -132,6 +132,48 @@ public sealed class ManufactureRunStarterTests : IDisposable
         await _workspaces.Received(1).RemoveAsync(Arg.Any<Guid>(), CancellationToken.None);
     }
 
+    /// <summary>
+    ///     Fix round 1. A removal that throws must not replace the read fault. The read is made to fail with an
+    ///     <see cref="IOException"/> by holding <c>AGENT.md</c> open with <see cref="FileShare.None"/>. Red, per
+    ///     assertion: remove without a <c>try</c> of its own, and the removal's exception escapes instead; drop the
+    ///     record in its <c>catch</c>, and the key is absent.
+    /// </summary>
+    [Fact]
+    public async Task A_removal_that_throws_during_a_read_fault_does_not_replace_the_read_fault()
+    {
+        _workspaces.RemoveAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns<ValueTask<UnitResult<AgentError>>>(_ => throw new InvalidOperationException("remover crashed."));
+        await using var locked = LockedAgentMd();
+
+        var act = async () => await CreateStarter().StartAsync(Request("sandbox"), CancellationToken.None);
+
+        var thrown = await act.Should().ThrowExactlyAsync<IOException>();
+        thrown.Which.Data[ManufactureRunStarter.WorkspaceRemovalFailureKey].Should().Be("remover crashed.");
+    }
+
+    /// <summary>
+    ///     Fix round 1. A removal that reports a failure is recorded on the read fault, which still propagates as
+    ///     itself. Red: discard the removal's result, and the key is absent.
+    /// </summary>
+    [Fact]
+    public async Task A_removal_that_fails_during_a_read_fault_is_recorded_on_the_read_fault()
+    {
+        _workspaces.RemoveAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<UnitResult<AgentError>>(UnitResult<AgentError>.Failure(AgentError.Validation("worktree is locked."))));
+        await using var locked = LockedAgentMd();
+
+        var act = async () => await CreateStarter().StartAsync(Request("sandbox"), CancellationToken.None);
+
+        var thrown = await act.Should().ThrowExactlyAsync<IOException>();
+        thrown.Which.Data[ManufactureRunStarter.WorkspaceRemovalFailureKey].Should().Be("worktree is locked.");
+    }
+
+    private FileStream LockedAgentMd()
+    {
+        File.WriteAllText(_worktree.Path("AGENT.md"), "Run dotnet test.");
+        return new FileStream(_worktree.Path("AGENT.md"), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    }
+
     private static ManufactureStartRequest Request(string repository) => new("Tighten a guard.", repository, Starter);
 
     private ManufactureRunStarter CreateStarter() => new(

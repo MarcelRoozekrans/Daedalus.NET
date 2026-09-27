@@ -51,6 +51,12 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
     /// <summary>The manifest document key the request's work intent is pinned under.</summary>
     public const string WorkIntentDocument = "work_intent";
 
+    /// <summary>
+    ///     The <see cref="Exception.Data"/> key under which a fault reading the standing instructions carries why its
+    ///     worktree could not be removed. Absent when the removal succeeded; the sweeper reclaims a worktree left behind.
+    /// </summary>
+    public const string WorkspaceRemovalFailureKey = "Daedalus.WorkspaceRemovalFailure";
+
     /// <summary>The only process this type ever starts.</summary>
     private const string ProcessName = "manufacture";
 
@@ -105,11 +111,11 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
         {
             standingInstructions = await ReadStandingInstructionsAsync(created.Value, ct).ConfigureAwait(false);
         }
-        catch
+        catch (Exception readFault)
         {
             // No run row can exist yet, so the worktree is certainly an orphan: remove it now rather than leave it to
-            // the sweeper, then let the fault surface as it would have without a worktree.
-            await _workspaces.RemoveAsync(runId, CancellationToken.None).ConfigureAwait(false);
+            // the sweeper, then rethrow the read fault itself, unchanged, whatever the removal did.
+            await RemoveOrphanAsync(runId, readFault).ConfigureAwait(false);
             throw;
         }
 
@@ -143,6 +149,30 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
             ? started
             : Result<Guid>.Failure(
                 $"{started.Error} The run's workspace could not be removed and is left for the sweeper: {removed.Error.Message}");
+    }
+
+    /// <summary>
+    ///     Removes the worktree of a start whose standing-instructions read threw, never letting the removal replace
+    ///     <paramref name="readFault"/>. A removal that fails or throws is recorded on the read fault under
+    ///     <see cref="WorkspaceRemovalFailureKey"/>, the exception counterpart of the start-failure path naming both
+    ///     failures in its error text. The read fault keeps its own type, so a caller that handles an
+    ///     <see cref="OperationCanceledException"/> or an <see cref="IOException"/> still sees one, where an
+    ///     <see cref="AggregateException"/> would change what every caller has to catch.
+    /// </summary>
+    private async Task RemoveOrphanAsync(Guid runId, Exception readFault)
+    {
+        try
+        {
+            var removed = await _workspaces.RemoveAsync(runId, CancellationToken.None).ConfigureAwait(false);
+            if (removed.IsFailure)
+            {
+                readFault.Data[WorkspaceRemovalFailureKey] = removed.Error.Message;
+            }
+        }
+        catch (Exception removalFault)
+        {
+            readFault.Data[WorkspaceRemovalFailureKey] = removalFault.Message;
+        }
     }
 
     private RepositoryConfig? FindRepository(string? name) =>
