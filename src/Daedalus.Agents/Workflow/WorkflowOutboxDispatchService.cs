@@ -88,18 +88,28 @@ internal sealed partial class WorkflowOutboxDispatchService(
 
         do
         {
-            try
-            {
-                await ProcessBatchAsync(stoppingToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (!IsStopping(ex, stoppingToken))
-            {
-                // A cancellation that did not come from the stopping token, such as a timeout inside the store,
-                // is a failed batch, not a request to stop the host.
-                LogBatchFailed(logger, ex);
-            }
+            await PollOnceAsync(stoppingToken).ConfigureAwait(false);
         }
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    ///     Runs one poll and never lets a failure escape, which would end every future poll: only a cancellation
+    ///     of <paramref name="stoppingToken"/> propagates. Internal, not private, so a test can drive one poll
+    ///     without the timer, the same seam <see cref="WorkflowStrandedRunSweepService.SweepOnceAsync"/> gives.
+    /// </summary>
+    internal async Task PollOnceAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await ProcessBatchAsync(stoppingToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!IsStopping(ex, stoppingToken))
+        {
+            // A cancellation that did not come from the stopping token, such as a mark running out of its
+            // bookkeeping budget, is a failed batch, not a request to stop the host.
+            LogBatchFailed(logger, ex);
+        }
     }
 
     /// <summary>

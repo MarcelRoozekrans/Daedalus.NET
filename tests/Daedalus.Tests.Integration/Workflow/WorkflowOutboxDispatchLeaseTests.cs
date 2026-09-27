@@ -194,6 +194,76 @@ public sealed class WorkflowOutboxDispatchLeaseTests(PostgresFixture fixture)
         });
     }
 
+    [Fact]
+    public async Task An_entry_whose_lease_was_lost_before_its_dispatch_is_skipped()
+    {
+        await WithDatabaseAsync(async dataSource =>
+        {
+            var first = await EnqueueAsync(dataSource);
+            var second = await EnqueueAsync(dataSource);
+
+            // A batch of two, which the registration refuses but the constructor does not: both rows are claimed
+            // under this host's lease, and while the first dispatches, another replica takes over the second.
+            var dispatched = new ConcurrentBag<Guid>();
+            var service = CreateService(dataSource, new ScriptedDispatcher(async (payload, _) =>
+            {
+                dispatched.Add(new Guid(payload.Span));
+                await using var command = dataSource.CreateCommand("UPDATE outboxmessages SET lockedby = 'replica-b' WHERE payload = @payload");
+                command.Parameters.AddWithValue("payload", second.ToByteArray());
+                await command.ExecuteNonQueryAsync();
+            }), new WorkflowOutboxDispatchOptions { BatchSize = 2 });
+
+            await service.ProcessBatchAsync(CancellationToken.None);
+
+            dispatched.Should().Equal([first], "the renewal before the second dispatch fails, so it is skipped, not run twice");
+        });
+    }
+
+    [Fact]
+    public async Task A_cancellation_that_is_not_a_stop_does_not_end_the_poll_loop()
+    {
+        await WithDatabaseAsync(async dataSource =>
+        {
+            var id = await EnqueueAsync(dataSource);
+
+            // Another session holds the row lock when the dispatch finishes, so the mark waits past its own
+            // five-second budget and is cancelled by it. The host is not stopping.
+            await using var blocker = await dataSource.OpenConnectionAsync();
+            await using var transaction = await blocker.BeginTransactionAsync();
+            var service = CreateService(dataSource, new ScriptedDispatcher(async (_, _) =>
+            {
+                await using var lockCommand = new NpgsqlCommand("SELECT id FROM outboxmessages WHERE payload = @payload FOR UPDATE", blocker, transaction);
+                lockCommand.Parameters.AddWithValue("payload", id.ToByteArray());
+                await lockCommand.ExecuteNonQueryAsync();
+            }));
+
+            var thrown = await Record.ExceptionAsync(() => service.PollOnceAsync(CancellationToken.None));
+            await transaction.RollbackAsync();
+
+            thrown.Should().BeNull("a cancellation that did not come from the stopping token is a failed batch; letting it escape would end every future poll");
+        });
+    }
+
+    [Fact]
+    public async Task A_stop_ends_the_poll_loop()
+    {
+        await WithDatabaseAsync(async dataSource =>
+        {
+            await EnqueueAsync(dataSource);
+
+            using var stopping = new CancellationTokenSource();
+            var service = CreateService(dataSource, new ScriptedDispatcher(async (_, ct) =>
+            {
+                await stopping.CancelAsync();
+                ct.ThrowIfCancellationRequested();
+            }));
+
+            var thrown = await Record.ExceptionAsync(() => service.PollOnceAsync(stopping.Token));
+
+            thrown.Should().BeAssignableTo<OperationCanceledException>("a stop propagates so the host can shut down");
+        });
+    }
+
     private static WorkflowOutboxDispatchService CreateService(
         NpgsqlDataSource dataSource, IOutboxTypeDispatcher dispatcher, WorkflowOutboxDispatchOptions? options = null) =>
         new(dataSource, dispatcher, options ?? new WorkflowOutboxDispatchOptions(), NullLogger<WorkflowOutboxDispatchService>.Instance);

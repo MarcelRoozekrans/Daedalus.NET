@@ -67,6 +67,10 @@ public static class ChannelOutboxServiceCollectionExtensions
     ///             the default equals the deadline, and a turn that ran to it would let the other host claim the
     ///             step and pay for the same turn again. <c>AddDaedalusAgents</c> rejects a deadline that is not
     ///             shorter than this lease.
+    ///             The lease is shared by every message type on this pipeline, so it has a cost for chat: a host
+    ///             that crashes while holding a batch leaves those replies unclaimable for up to 20 minutes, not 5,
+    ///             which outweighs the 2 s <see cref="OutboxOptions.PollingInterval"/> above for that case. A
+    ///             graceful stop releases unfinished leases at once; only a crash pays this.
     ///         </description></item>
     ///     </list>
     ///     <see cref="OutboxOptions.HostId"/> is left at its default, the machine name plus a value random per

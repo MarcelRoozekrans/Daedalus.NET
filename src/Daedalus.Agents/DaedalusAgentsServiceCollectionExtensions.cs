@@ -564,12 +564,6 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
-    ///     Fails fast on <c>Thalos:Content</c>: a configured, non-positive <see cref="ContentConfig.ResyncInterval"/>
-    ///     would otherwise surface much later, as <see cref="PeriodicTimer"/>'s own
-    ///     <see cref="ArgumentOutOfRangeException"/> the first time <see cref="ContentResyncService.ExecuteAsync"/>
-    ///     runs, rather than at host start.
-    /// </summary>
-    /// <summary>
     ///     Rejects a turn deadline the channel and scheduling outbox's lease cannot hold: the lease is renewed only
     ///     right before a dispatch, so a scheduling step whose agent turn outlived it could be claimed and run a
     ///     second time by the other host polling the same table.
@@ -585,6 +579,12 @@ public static class DaedalusAgentsServiceCollectionExtensions
         }
     }
 
+    /// <summary>
+    ///     Fails fast on <c>Thalos:Content</c>: a configured, non-positive <see cref="ContentConfig.ResyncInterval"/>
+    ///     would otherwise surface much later, as <see cref="PeriodicTimer"/>'s own
+    ///     <see cref="ArgumentOutOfRangeException"/> the first time <see cref="ContentResyncService.ExecuteAsync"/>
+    ///     runs, rather than at host start.
+    /// </summary>
     private static void ValidateContentConfig(ContentConfig config)
     {
         if (config.ResyncInterval is { } interval && interval <= TimeSpan.Zero)
