@@ -626,9 +626,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     registration rather than surface at the first run.
     /// </summary>
     /// <exception cref="InvalidOperationException">
-    ///     A repository name is malformed or duplicated, a remote is blank, a solution path is rooted or contains
-    ///     <c>..</c>, <c>DataRoot</c> is set but not absolute, a write grant has a blank process or node, a write grant
-    ///     has no allowed extensions or a malformed one, or repositories are configured without a full commit author.
+    ///     A repository name is malformed or duplicated, a remote is blank, a solution path is blank, rooted or contains
+    ///     <c>..</c>, <c>DataRoot</c> is set but not absolute, <c>RoslynReadyTimeout</c> is not positive, a write grant
+    ///     has a blank process or node or repeats another grant's process and node, a write grant has no allowed
+    ///     extensions or a malformed one, or repositories are configured without a full commit author.
     /// </exception>
     private static void ValidateWorkflowWriteConfig(WorkflowConfig config)
     {
@@ -658,6 +659,13 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                     $"{key}:Remote must not be blank: it is the git remote the run's worktree is cloned from and pushed to.");
             }
 
+            if (repository.Solution is { } blankSolution && string.IsNullOrWhiteSpace(blankSolution))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Solution must name a solution file or be left out: a blank value would hand the run's " +
+                    "Roslyn server the worktree directory itself.");
+            }
+
             if (repository.Solution is { } solution
                 && (Path.IsPathRooted(solution) || solution.Contains("..", StringComparison.Ordinal)))
             {
@@ -674,6 +682,15 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 "%LOCALAPPDATA%/Daedalus/workflow-data. A relative data root would move with the working directory.");
         }
 
+        if (config.RoslynReadyTimeout <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                $"{section}:RoslynReadyTimeout must be greater than zero, but was " +
+                $"{config.RoslynReadyTimeout.ToString(null, CultureInfo.InvariantCulture)}. A run waits this long for its " +
+                "Roslyn server, so zero or less would fail every run before the server could start.");
+        }
+
+        var grantedNodes = new HashSet<(string Process, string Node)>();
         for (var i = 0; i < config.WriteGrants.Count; i++)
         {
             var grant = config.WriteGrants[i];
@@ -686,6 +703,13 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             if (string.IsNullOrWhiteSpace(grant.Node))
             {
                 throw new InvalidOperationException($"{key}:Node must not be blank: a write grant names the node it applies to.");
+            }
+
+            if (!grantedNodes.Add((grant.Process, grant.Node)))
+            {
+                throw new InvalidOperationException(
+                    $"{key} grants '{grant.Process}'/'{grant.Node}' more than once. Only one grant may apply to a node, " +
+                    "or which extension list wins would depend on the order of the entries.");
             }
 
             if (grant.AllowedExtensions.Count == 0)

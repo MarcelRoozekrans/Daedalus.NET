@@ -36,13 +36,16 @@ public sealed class WorkflowWriteConfigTests
         return options;
     }
 
-    private static (ServiceCollection Services, DaedalusAgentsOptions Options, IConfiguration Configuration, IHostEnvironment Environment) LoadShippedApi()
+    private static (ServiceCollection Services, DaedalusAgentsOptions Options, IConfiguration Configuration, IHostEnvironment Environment) LoadShippedApi() =>
+        LoadShipped(ApiAppSettingsFileName);
+
+    private static (ServiceCollection Services, DaedalusAgentsOptions Options, IConfiguration Configuration, IHostEnvironment Environment) LoadShipped(string fileName)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(AppContext.BaseDirectory);
         environment.EnvironmentName.Returns("Development");
 
-        var configuration = Load(ApiAppSettingsFileName);
+        var configuration = Load(fileName);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
@@ -98,9 +101,12 @@ public sealed class WorkflowWriteConfigTests
     [InlineData("remote-blank", "*Repositories:0:Remote*")]
     [InlineData("solution-rooted", "*Repositories:0:Solution*")]
     [InlineData("solution-dot-dot", "*Repositories:0:Solution*")]
+    [InlineData("solution-blank", "*Repositories:0:Solution must name*")]
+    [InlineData("roslyn-ready-timeout-zero", "*Workflow:RoslynReadyTimeout*")]
     [InlineData("data-root-relative", "*Workflow:DataRoot*")]
     [InlineData("grant-process-blank", "*WriteGrants:0:Process*")]
     [InlineData("grant-node-blank", "*WriteGrants:0:Node*")]
+    [InlineData("grant-duplicated", "*WriteGrants:1 grants 'manufacture'/'implement' more than once*")]
     [InlineData("grant-no-extensions", "*WriteGrants:0:AllowedExtensions must list*")]
     [InlineData("grant-extension-without-dot", "*WriteGrants:0:AllowedExtensions entry 'cs'*")]
     [InlineData("grant-extension-dot-only", "*WriteGrants:0:AllowedExtensions entry '.'*")]
@@ -134,6 +140,17 @@ public sealed class WorkflowWriteConfigTests
                 break;
             case "solution-dot-dot":
                 sandbox.Solution = "../other/Other.sln";
+                break;
+            case "solution-blank":
+                sandbox.Solution = " ";
+                break;
+            case "roslyn-ready-timeout-zero":
+                workflow.RoslynReadyTimeout = TimeSpan.Zero;
+                break;
+            case "grant-duplicated":
+                var duplicate = new WriteGrantConfig { Process = grant.Process, Node = grant.Node };
+                duplicate.AllowedExtensions.Add(".md");
+                workflow.WriteGrants.Add(duplicate);
                 break;
             case "data-root-relative":
                 workflow.DataRoot = "workflow-data";
@@ -172,6 +189,32 @@ public sealed class WorkflowWriteConfigTests
         var act = () => services.AddDaedalusAgents(options, configuration, environment);
 
         act.Should().Throw<InvalidOperationException>().WithMessage(expectedMessage);
+    }
+
+    /// <summary>
+    ///     The Cli ships the same write grant with the engine off. Validation must not depend on <c>Enabled</c>, or a
+    ///     malformed Cli grant would ship unreviewed and fail only once someone turned the engine on.
+    /// </summary>
+    [Fact]
+    public void The_shipped_Cli_config_registers()
+    {
+        var (services, options, configuration, environment) = LoadShipped(CliAppSettingsFileName);
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void A_malformed_grant_fails_registration_with_the_engine_off()
+    {
+        var (services, options, configuration, environment) = LoadShipped(CliAppSettingsFileName);
+        options.Workflow.Enabled.Should().BeFalse("this test is about the engine-off host");
+        options.Workflow.WriteGrants.Should().ContainSingle().Subject.AllowedExtensions.Add("./x");
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*WriteGrants:0:AllowedExtensions entry './x'*");
     }
 
     /// <summary>The control for every row above: the shipped Api configuration itself registers cleanly.</summary>
