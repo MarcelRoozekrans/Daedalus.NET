@@ -13,7 +13,7 @@ public sealed class GitHubApiFindOpenPullRequestTests
 {
     private static RepoRef Repo() => RepoRef.Parse("o/r").Value;
 
-    private static GitHubApi Build(RespondingHandler handler) => new(
+    private static GitHubApi Build(HttpMessageHandler handler) => new(
         new HttpClient(handler),
         Options.Create(new GitHubOptions()),
         new GitHubTokenSource(_ => "ghp_example"),
@@ -77,6 +77,102 @@ public sealed class GitHubApiFindOpenPullRequestTests
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("Bad credentials");
+    }
+
+    /// <summary>
+    ///     A network or DNS fault is a failed result, not an exception. Falsifiable per assertion: removing the
+    ///     catch makes the call throw, and <c>act</c> fails on <c>NotThrowAsync</c>; answering <c>Success(null)</c>
+    ///     from the catch fails <c>IsFailure</c>; returning a failure without the exception's message fails the last.
+    /// </summary>
+    [Fact]
+    public async Task A_network_fault_is_a_failure_not_an_exception()
+    {
+        var api = Build(new ThrowingHandler(new HttpRequestException("No such host is known.")));
+        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?> result = default!;
+
+        var act = async () => result = await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("No such host is known.");
+    }
+
+    /// <summary>
+    ///     A client-side timeout surfaces as an <see cref="OperationCanceledException"/> while the caller's token is
+    ///     not cancelled, and is a failed result. Falsifiable: letting every <see cref="OperationCanceledException"/>
+    ///     through, whatever the caller's token says, makes <c>act</c> throw, and answering
+    ///     <c>Success(null)</c> from the catch fails <c>IsFailure</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_timeout_of_the_clients_own_is_a_failure()
+    {
+        var api = Build(new ThrowingHandler(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout.")));
+        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?> result = default!;
+
+        var act = async () => result = await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        result.IsFailure.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     A cancellation of the caller's own token still propagates. Falsifiable: catching every
+    ///     <see cref="OperationCanceledException"/> as a failure turns this red.
+    /// </summary>
+    [Fact]
+    public async Task A_cancellation_of_the_callers_token_propagates()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var api = Build(new ThrowingHandler(new TaskCanceledException("canceled")));
+
+        var act = async () => await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    /// <summary>
+    ///     A 200 whose body is not JSON, such as a proxy's HTML page, is a failure. Falsifiable: removing the catch
+    ///     makes <c>act</c> throw <see cref="System.Text.Json.JsonException"/>, and answering <c>Success(null)</c> from
+    ///     the catch fails <c>IsFailure</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_body_that_is_not_json_is_a_failure()
+    {
+        var api = Build(new RespondingHandler(HttpStatusCode.OK, "<html><body>Proxy login</body></html>"));
+        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?> result = default!;
+
+        var act = async () => result = await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        result.IsFailure.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     A listed pull request without <c>html_url</c> is a failure. Falsifiable: removing the catch makes
+    ///     <c>act</c> throw <see cref="KeyNotFoundException"/>, and answering <c>Success(null)</c> from the catch fails
+    ///     <c>IsFailure</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_listed_pull_request_missing_its_web_url_is_a_failure()
+    {
+        var api = Build(new RespondingHandler(HttpStatusCode.OK, """[{"number":7}]"""));
+        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?> result = default!;
+
+        var act = async () => result = await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        result.IsFailure.Should().BeTrue();
+    }
+
+    /// <summary>Throws one fixed exception for every request, as a network fault or a client timeout does.</summary>
+    private sealed class ThrowingHandler(Exception exception) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromException<HttpResponseMessage>(exception);
+        }
     }
 
     /// <summary>Records the last request and answers every request with one fixed response.</summary>

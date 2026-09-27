@@ -161,8 +161,14 @@ public sealed class WorkflowCallerMemoryScopingTests
         var run1 = NewRun("manufacture-autorecall-parity");
         var run2 = NewRun("manufacture-autorecall-parity");
 
+        // A decoy in the per-run scope run2 would read if its memory owner were its per-run Id. It gives the
+        // regression below a transient message of its own, so the marker clause is what catches it, not the
+        // message's absence.
+        var caller2 = new WorkflowCaller(run2);
+        await harness.SeedAsync(caller2.Id, agentId: null, "PER-RUN-DECOY-7c1e93");
+
         await harness.RunAsync(ReviewerId, "Remember something for the agenda.", new WorkflowCaller(run1));
-        await harness.RunAsync(ReviewerId, "What is on the agenda?", new WorkflowCaller(run2));
+        await harness.RunAsync(ReviewerId, "What is on the agenda?", caller2);
 
         // The last request is run2's only model call. Since Thalos 0.11.0 MemoryContextProvider (auto-recall)
         // places the recalled memories in one transient message after the stored history, not in the
@@ -173,8 +179,9 @@ public sealed class WorkflowCallerMemoryScopingTests
         // honour IMemoryOwner). Auto-recall's query is the user text above, which shares no tokens with the
         // marker, so this exercises the Recency-tier fallback rather than semantic ranking — irrelevant here
         // since the message carries the full MemoryRecallBlock.Render() output, never trimmed the way a tool
-        // result is. Falsifiable: a per-run WorkflowCaller.MemoryOwnerId puts run1's note out of run2's scope, so the
-        // transient message holds no marker.
+        // result is. Falsifiable per clause: making WorkflowCaller.MemoryOwnerId its per-run Id puts run1's note
+        // out of run2's scope, so run2 recalls only the decoy and the marker clause fails; an owner no note is
+        // stored under recalls nothing, so no transient message is sent and the ContainSingle clause fails.
         var lastRequest = scripted.Requests[^1];
         lastRequest.Messages.Should().ContainSingle(m =>
                 m.AdditionalProperties != null && m.AdditionalProperties.ContainsKey(PromptCacheHints.Transient))

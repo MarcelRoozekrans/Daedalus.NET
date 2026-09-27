@@ -1,8 +1,10 @@
 using System.Data.Async.Adapters;
+using System.Security.Claims;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -14,6 +16,7 @@ using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 using ZeroAlloc.ORM.Migrations;
 using ZeroAlloc.Outbox.Orm;
+using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
@@ -358,6 +361,64 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
 
             result.Should().BeOfType<NotFoundResult>();
         });
+    }
+
+    /// <summary>
+    ///     A caller that passed the <c>WorkflowResume</c> policy but has no usable subject never approves a gate.
+    ///     The HTTP suites cannot reach this branch: the test authentication handler rejects a request without
+    ///     <c>X-Test-User</c> before it gets here. Falsifiable per assertion: falling back to
+    ///     <c>AnonymousSecurityContext</c> when <c>TryCreate</c> fails resumes the run, which fails all three.
+    /// </summary>
+    [Fact]
+    public async Task The_controller_refuses_a_resume_from_a_caller_with_no_subject()
+    {
+        await WithScratchDatabaseAsync(async store =>
+        {
+            var runId = await ParkedAtGateAsync(store, "no-subject");
+            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store)), DeveloperWithoutSubject());
+
+            var result = await controller.Resume(
+                runId, new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
+
+            result.Should().BeOfType<UnauthorizedResult>();
+            var run = await store.Store.FindAsync(runId, CancellationToken.None);
+            run!.Status.Should().Be(WorkflowStatus.Awaiting, "an unattributable resume must leave the gate closed");
+            run.LastResume.Should().BeNull("nobody approved this gate");
+        });
+    }
+
+    /// <summary>
+    ///     The same caller never starts a run. Falsifiable per assertion: falling back to
+    ///     <c>AnonymousSecurityContext</c> when <c>TryCreate</c> fails reaches the starter, which fails both.
+    /// </summary>
+    [Fact]
+    public async Task The_controller_refuses_a_start_from_a_caller_with_no_subject()
+    {
+        await WithScratchDatabaseAsync(async store =>
+        {
+            var starter = Substitute.For<IManufactureRunStarter>();
+            starter.StartAsync(Arg.Any<ManufactureStartRequest>(), Arg.Any<CancellationToken>())
+                .Returns(new ValueTask<Result<Guid>>(Result<Guid>.Success(Guid.NewGuid())));
+            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store)), DeveloperWithoutSubject());
+
+            var result = await controller.Start(new StartWorkflowRunRequest("Tighten a guard."), starter, CancellationToken.None);
+
+            result.Should().BeOfType<UnauthorizedResult>();
+            await starter.DidNotReceive().StartAsync(Arg.Any<ManufactureStartRequest>(), Arg.Any<CancellationToken>());
+        });
+    }
+
+    /// <summary>
+    ///     Authenticated, and in the role the <c>WorkflowResume</c> policy admits, but with no <c>sub</c>, no
+    ///     name identifier and no name: <c>ClaimsSecurityContext</c> can only call it anonymous.
+    /// </summary>
+    private static ClaimsPrincipal DeveloperWithoutSubject() =>
+        new(new ClaimsIdentity([new Claim(ClaimTypes.Role, "developer")], "Test"));
+
+    private static WorkflowRunsController WithUser(WorkflowRunsController controller, ClaimsPrincipal user)
+    {
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = user } };
+        return controller;
     }
 
     /// <summary>Starts a run at the gate node and dispatches it once, parking it at <c>Awaiting</c>.</summary>

@@ -25,7 +25,7 @@ namespace Daedalus.Infrastructure.Services.GitHub;
 ///     a confusing category error later. Writes carry no retry: a failure is returned to the caller as-is, because a
 ///     retried comment or label is a visible action taken twice.
 /// </summary>
-public sealed class GitHubApi : IGitHubReader, IGitHubWriter
+public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
 {
     private const string ApiVersion = "2022-11-28";
 
@@ -143,6 +143,11 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
     ///     value is URL-encoded, so a branch such as <c>manufacture/&lt;run-id&gt;</c> is sent as
     ///     <c>manufacture%2F&lt;run-id&gt;</c> rather than splitting the query.
     /// </summary>
+    /// <remarks>
+    ///     Every expected fault is a failed result, never an exception: a network or DNS fault, a timeout of the
+    ///     client's own, a body that is not JSON (a proxy's HTML page on a 200), and an element missing
+    ///     <c>number</c> or <c>html_url</c>. Only a cancellation of <paramref name="ct"/> itself propagates.
+    /// </remarks>
     public async Task<Result<PullRequestResult?>> FindOpenPullRequestAsync(RepoRef repo, string headBranch, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(repo);
@@ -152,12 +157,29 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
         if (token.IsFailure)
             return Result<PullRequestResult?>.Failure(token.Error);
 
+        try
+        {
+            return await QueryOpenPullRequestAsync(repo, headBranch, token.Value, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            return Result<PullRequestResult?>.Failure($"Looking up an open pull request on GitHub timed out: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or KeyNotFoundException
+                                       or InvalidOperationException or FormatException)
+        {
+            LogOpenPullRequestLookupFailed(_logger, ex, repo.ToString());
+            return Result<PullRequestResult?>.Failure($"Looking up an open pull request on GitHub failed: {ex.Message}");
+        }
+    }
+
+    private async Task<Result<PullRequestResult?>> QueryOpenPullRequestAsync(
+        RepoRef repo, string headBranch, string token, CancellationToken ct)
+    {
         var url = $"{RepoUrl(repo)}/pulls?state=open&head={Uri.EscapeDataString($"{repo.Owner}:{headBranch}")}";
 
-        // Not disposed here, matching CreatePullRequestAsync: the stub handler in tests keeps this request around so a
-        // test can inspect the URI it sent.
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        ApplyHeaders(request, token.Value);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplyHeaders(request, token);
 
         using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -497,6 +519,10 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
 
         return $"GitHub request failed with status {(int)response.StatusCode} {response.StatusCode}. GitHub said: {message}";
     }
+
+    [LoggerMessage(EventId = 510, Level = LogLevel.Warning,
+        Message = "Looking up an open pull request for {Repository} failed")]
+    private static partial void LogOpenPullRequestLookupFailed(ILogger logger, Exception exception, string repository);
 
     private static string ExtractMessage(string body)
     {
