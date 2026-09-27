@@ -1,30 +1,24 @@
 using System.Collections.Concurrent;
-using System.Data.Async.Adapters;
 using System.Text.Json;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using Npgsql;
 using Thalos;
 using Thalos.Workflow;
-using Thalos.Workflow.Orm;
 using ZeroAlloc.Authorization;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>
 ///     Final review finding I1: the B3 to B4 to B5 seam, end to end, in one booted host. A run is started over
-///     <c>POST /api/workflow-runs</c>, so through the registered <see cref="ManufactureRunStarter"/>, with a
-///     non-empty standing-instructions file under the host's content root. The host's own outbox poller then
+///     <c>POST /api/workflow-runs</c>, so through the registered <see cref="ManufactureRunStarter"/>, on the
+///     allow-listed <see cref="ScratchWorkflowHost.Repository"/>, whose worktree holds a non-empty
+///     standing-instructions file that the run pins. The host's own outbox poller then
 ///     walks the real <c>processes/manufacture.yaml</c> through implement, review, retrospect and the gate. Every
 ///     component is the shipped one except <see cref="IAgentRuntime"/>, which <see cref="ScriptedRuntime"/>
 ///     replaces so each node reports a scripted outcome. Nothing else in the suite walked version 5 to
@@ -32,11 +26,12 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     endpoint's stale-file 409 or write-failure 500 with a real pinned text.
 /// </summary>
 /// <remarks>
-///     Each test gets its own database and host, the same shape as <c>StartRunEndpointTests</c>. The outbox poll
-///     interval is cut from five seconds to a quarter of one, so a walk of five dispatches takes seconds rather
-///     than half a minute. The standing-instructions file lives in a <see cref="TempDirectory"/> under the Api
-///     project's git-ignored <c>obj</c> folder, because <c>AddDaedalusAgents</c> refuses a path outside the
-///     content root.
+///     Each test gets its own <see cref="ScratchWorkflowHost"/>, the same as <c>StartRunEndpointTests</c>. The outbox
+///     poll interval is cut from five seconds to a quarter of one, so a walk of five dispatches takes seconds rather
+///     than half a minute. The run pins the standing instructions from its worktree, at the configured path. The
+///     writer still reads and writes that path under the content root, so the file there lives in a
+///     <see cref="TempDirectory"/> under the Api project's git-ignored <c>obj</c> folder, because
+///     <c>AddDaedalusAgents</c> refuses a path outside the content root.
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
 public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
@@ -57,7 +52,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     [Fact]
     public async Task A_run_pins_the_standing_instructions_and_an_approved_proposal_is_written_on_the_way_to_success()
     {
-        await WithHostAsync(squadEnabled: null, async (host) =>
+        await WithHostAsync(squadEnabled: null, StandingInstructions, async (host) =>
         {
             await File.WriteAllTextAsync(host.Dir.Path("AGENT.md"), StandingInstructions);
 
@@ -92,7 +87,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     [Fact]
     public async Task An_apply_after_the_file_was_edited_since_the_run_started_is_refused_with_409()
     {
-        await WithHostAsync(squadEnabled: null, async (host) =>
+        await WithHostAsync(squadEnabled: null, StandingInstructions, async (host) =>
         {
             await File.WriteAllTextAsync(host.Dir.Path("AGENT.md"), StandingInstructions);
 
@@ -119,7 +114,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     [Fact]
     public async Task An_apply_whose_write_fails_answers_500_and_leaves_the_run_at_the_gate()
     {
-        await WithHostAsync(squadEnabled: null, async (host) =>
+        await WithHostAsync(squadEnabled: null, standingInstructions: null, async (host) =>
         {
             var runId = await StartAsync(host);
             await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
@@ -143,7 +138,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     [Fact]
     public async Task With_the_squad_off_the_run_still_walks_to_success_as_the_fallback_agent()
     {
-        await WithHostAsync(squadEnabled: false, async (host) =>
+        await WithHostAsync(squadEnabled: false, standingInstructions: null, async (host) =>
         {
             var runId = await StartAsync(host);
             await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
@@ -167,7 +162,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
 
     private static async Task<Guid> StartAsync(Host host)
     {
-        var response = await host.Client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "add a health check endpoint" });
+        var response = await host.Client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "add a health check endpoint", repository = ScratchWorkflowHost.Repository });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>();
         return body!.RunId;
@@ -205,75 +200,41 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Creates a throwaway, fully migrated database, boots the Api against it with the workflow engine on, a
-    ///     scripted runtime, a fast outbox poll and the standing-instructions file under the content root, runs
-    ///     <paramref name="body"/>, and tears everything down.
+    ///     Boots a <see cref="ScratchWorkflowHost"/> with a scripted runtime, a fast outbox poll and the
+    ///     standing-instructions path under the content root, runs <paramref name="body"/>, and tears everything down.
+    ///     The run pins its standing instructions from its own worktree at that same relative path, so the remote's
+    ///     <c>main</c> holds <paramref name="standingInstructions"/> there, or nothing when it is <see langword="null"/>.
+    ///     The writer still reads and writes the content-root file, which is why tests that pass a text write it to
+    ///     <see cref="Host.Dir"/> too.
     /// </summary>
-    private async Task WithHostAsync(bool? squadEnabled, Func<Host, Task> body)
+    private async Task WithHostAsync(bool? squadEnabled, string? standingInstructions, Func<Host, Task> body)
     {
-        var dbName = $"manufacture_seam_{Guid.NewGuid():N}";
-        await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
-        var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = dbName }.ConnectionString;
-
         var relative = TempDirectory.NewContentRootRelative();
-        ApiWebApplicationFactory? factory = null;
-        try
+        var agentMd = Path.Combine(relative, "AGENT.md");
+        List<(string Path, string Content)> seed = [("README.md", "seam")];
+        if (standingInstructions is not null)
         {
-            await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(connectionString)))
-            {
-                await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
-                await db.Database.MigrateAsync();
-            }
-
-            await using (var connection = new NpgsqlConnection(connectionString))
-            {
-                await connection.OpenAsync();
-                var asyncConnection = connection.AsAsync();
-                var dialect = new PostgresMigrationDialect();
-                await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-                await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
-            }
-
-            var runtime = new ScriptedRuntime();
-            factory = new ApiWebApplicationFactory(
-                connectionString, runtime, workflowEnabled: true,
-                standingInstructionsPath: Path.Combine(relative, "AGENT.md"),
-                squadEnabled: squadEnabled,
-                configureServices: services =>
-                {
-                    services.RemoveAll<WorkflowOutboxDispatchOptions>();
-                    services.AddSingleton(new WorkflowOutboxDispatchOptions { PollingInterval = TimeSpan.FromMilliseconds(250) });
-                });
-
-            // Force the host to build and start now, so the process and skill syncs have run before any request.
-            _ = factory.Services;
-
-            var contentRoot = factory.Services.GetRequiredService<IHostEnvironment>().ContentRootPath;
-            using var dir = new TempDirectory(Path.Combine(contentRoot, relative));
-            using var client = factory.CreateClient();
-            client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, "a-developer");
-            client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, "developer");
-
-            await body(new Host(factory, client, factory.Services.GetRequiredService<IWorkflowStore>(), runtime, dir));
+            seed.Add((relative.Replace('\\', '/') + "/AGENT.md", standingInstructions));
         }
-        finally
-        {
-            if (factory is not null)
+
+        var runtime = new ScriptedRuntime();
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture,
+            runtime,
+            seed: seed,
+            standingInstructionsPath: agentMd,
+            squadEnabled: squadEnabled,
+            configureServices: services =>
             {
-                await factory.DisposeAsync();
-            }
+                services.RemoveAll<WorkflowOutboxDispatchOptions>();
+                services.AddSingleton(new WorkflowOutboxDispatchOptions { PollingInterval = TimeSpan.FromMilliseconds(250) });
+            });
 
-            NpgsqlConnection.ClearAllPools();
-            await ExecuteOnServerAsync($"DROP DATABASE IF EXISTS \"{dbName}\" WITH (FORCE)");
-        }
-    }
+        var contentRoot = host.Factory.Services.GetRequiredService<IHostEnvironment>().ContentRootPath;
+        using var dir = new TempDirectory(Path.Combine(contentRoot, relative));
+        using var client = host.Client("a-developer", "developer");
 
-    private async Task ExecuteOnServerAsync(string sql)
-    {
-        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(sql, connection);
-        await command.ExecuteNonQueryAsync();
+        await body(new Host(host.Factory, client, host.Store, runtime, dir));
     }
 
     /// <summary>

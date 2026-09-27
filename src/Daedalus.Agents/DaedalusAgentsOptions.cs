@@ -278,11 +278,13 @@ public sealed class WorkflowConfig
     public string ProcessesRoot { get; set; } = "processes";
 
     /// <summary>
-    ///     The standing-instructions file <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter"/> pins into
-    ///     every new manufacture run's manifest as <c>standing_instructions</c>. Relative paths resolve against
-    ///     the host content root, the same as <see cref="ProcessesRoot"/> — unlike that folder, a missing file is
-    ///     not an error: the run simply starts with an empty standing-instructions document (see
+    ///     The standing-instructions file. <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter"/> reads it from
+    ///     the run's own worktree, at this path relative to the repository root, and pins it into every new
+    ///     manufacture run's manifest as <c>standing_instructions</c>. A missing file is not an error: the run simply
+    ///     starts with an empty standing-instructions document (see
     ///     <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter.StartAsync"/>).
+    ///     <see cref="Daedalus.Agents.Workflow.StandingInstructionsWriter"/> still resolves it against the host content
+    ///     root until it moves into the worktree too.
     /// </summary>
     public string StandingInstructionsPath { get; set; } = "AGENT.md";
 

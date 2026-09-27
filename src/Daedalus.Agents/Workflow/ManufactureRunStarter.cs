@@ -1,4 +1,5 @@
 using Thalos.Workflow;
+using Thalos.Workspaces;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Workflow;
@@ -7,24 +8,48 @@ namespace Daedalus.Agents.Workflow;
 ///     The real <see cref="IManufactureRunStarter"/>, registered by
 ///     <c>DaedalusAgentsServiceCollectionExtensions.AddDaedalusWorkflow</c> in place of
 ///     <see cref="DisabledManufactureRunStarter"/> whenever <c>Thalos:Workflow:Enabled</c> is
-///     <see langword="true"/>. Shapes one call onto <see cref="WorkflowRunStarter.StartAsync"/>: the process is
-///     always <c>manufacture</c>, the opening variable is always <c>work_intent</c>, and the current standing
-///     instructions file — read fresh on every call, not cached, so an edit to it takes effect on the very next
-///     run — is pinned into the manifest as <see cref="StandingInstructionsDocument"/>.
+///     <see langword="true"/>. Resolves the request's repository against <see cref="WorkflowConfig.Repositories"/>,
+///     prepares the run's git worktree through <see cref="IRunWorkspaceProvider"/>, and then shapes one call onto
+///     <see cref="WorkflowRunStarter.StartAsync"/> under the same run id: the process is always <c>manufacture</c>,
+///     the opening variable is always <c>work_intent</c>, and the work intent and the worktree's standing
+///     instructions file are pinned into the manifest as <see cref="WorkIntentDocument"/> and
+///     <see cref="StandingInstructionsDocument"/>.
 /// </summary>
 /// <remarks>
-///     <b>The correlation key is a fresh attempt id, not an idempotency key over the caller's input.</b>
-///     <c>$"manufacture:{Guid.NewGuid():N}"</c> means two calls with the same <c>workIntent</c> text always start
-///     two different runs — this type has no notion of "the same request retried" to collapse them under. The
-///     key space <see cref="IWorkflowStore.StartAsync(WorkflowStartRequest,System.Threading.CancellationToken)"/>
-///     enforces uniqueness over is global and permanent for the life of the database, so the prefix exists only
-///     to make a run's correlation key human-readable in a query, not to partition it from any other process's
-///     keys — no other process uses this one.
+///     <para>
+///     <b>The repository is a name, resolved here.</b> A request never carries a remote URL. The only remotes a run
+///     can reach are the reviewed entries of <see cref="WorkflowConfig.Repositories"/>, matched by
+///     <see cref="RepositoryConfig.Name"/> with an ordinal comparison, and any other name fails the start before a
+///     worktree or a run row exists.
+///     </para>
+///     <para>
+///     <b>The worktree is created immediately before the run, under the same id.</b> The workspace sweeper treats a
+///     workspace with no run row as an orphan once its grace period has passed since the workspace became ready, so
+///     nothing slow sits between the create and the start: only the read of the standing instructions from the new
+///     worktree, which the run pins. When the start then reports a failure, no run row was written, so the worktree
+///     is removed again. When the start throws instead, whether a row was written is unknown, and the worktree is
+///     left for the sweeper, which decides on the run's state rather than on a guess made here.
+///     </para>
+///     <para>
+///     <b>The standing instructions come from the worktree, not from the host.</b> They are read fresh from
+///     <c>&lt;worktree&gt;/&lt;StandingInstructionsPath&gt;</c> on every start, so what a run pins is the text on the
+///     repository's default branch at the moment it started, or <c>""</c> when the repository has no such file.
+///     </para>
+///     <para>
+///     <b>The correlation key is the run id, not an idempotency key over the caller's input.</b> Two calls with the
+///     same <c>workIntent</c> text always start two different runs, because every call mints a fresh run id. The key
+///     space <see cref="IWorkflowStore.StartAsync(WorkflowStartRequest,System.Threading.CancellationToken)"/>
+///     enforces uniqueness over is global and permanent for the life of the database, so the prefix exists only to
+///     make a run's correlation key human-readable in a query, not to partition it from any other process's keys.
+///     </para>
 /// </remarks>
-public sealed class ManufactureRunStarter(WorkflowRunStarter starter, string standingInstructionsPath) : IManufactureRunStarter
+public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorkspaceProvider workspaces, WorkflowConfig config) : IManufactureRunStarter
 {
-    /// <summary>The manifest document key the current standing instructions file is pinned under.</summary>
+    /// <summary>The manifest document key the worktree's standing instructions file is pinned under.</summary>
     public const string StandingInstructionsDocument = "standing_instructions";
+
+    /// <summary>The manifest document key the request's work intent is pinned under.</summary>
+    public const string WorkIntentDocument = "work_intent";
 
     /// <summary>The only process this type ever starts.</summary>
     private const string ProcessName = "manufacture";
@@ -39,7 +64,8 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, string sta
     private const int MaxWorkIntentLength = 4000;
 
     private readonly WorkflowRunStarter _starter = starter ?? throw new ArgumentNullException(nameof(starter));
-    private readonly string _standingInstructionsPath = standingInstructionsPath ?? throw new ArgumentNullException(nameof(standingInstructionsPath));
+    private readonly IRunWorkspaceProvider _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
+    private readonly WorkflowConfig _config = config ?? throw new ArgumentNullException(nameof(config));
 
     /// <inheritdoc />
     public async ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
@@ -58,26 +84,73 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, string sta
                 $"workIntent must be at most {MaxWorkIntentLength} characters, but was {workIntent.Length}.");
         }
 
-        var standingInstructions = File.Exists(_standingInstructionsPath)
-            ? await File.ReadAllTextAsync(_standingInstructionsPath, ct).ConfigureAwait(false)
-            : "";
+        var repository = FindRepository(request.Repository);
+        if (repository is null)
+        {
+            return Result<Guid>.Failure($"repository '{request.Repository}' is not allow-listed");
+        }
 
-        var correlationKey = $"manufacture:{Guid.NewGuid():N}";
+        var runId = Guid.NewGuid();
+        var created = await _workspaces.CreateAsync(
+            new RunWorkspaceRequest(
+                runId, repository.Name, repository.Remote, repository.DefaultBranch, $"manufacture/{runId}", repository.Solution),
+            ct).ConfigureAwait(false);
+        if (created.IsFailure)
+        {
+            return Result<Guid>.Failure($"could not prepare the run's workspace: {created.Error.Message}");
+        }
+
+        string standingInstructions;
+        try
+        {
+            standingInstructions = await ReadStandingInstructionsAsync(created.Value, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // No run row can exist yet, so the worktree is certainly an orphan: remove it now rather than leave it to
+            // the sweeper, then let the fault surface as it would have without a worktree.
+            await _workspaces.RemoveAsync(runId, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+
         var variables = new Dictionary<string, object?>(StringComparer.Ordinal) { ["work_intent"] = workIntent };
         var documents = new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            [WorkIntentDocument] = workIntent,
             [StandingInstructionsDocument] = standingInstructions,
         };
 
-        return await _starter.StartAsync(
+        var started = await _starter.StartAsync(
             new WorkflowRunStartOptions
             {
                 Process = ProcessName,
-                CorrelationKey = correlationKey,
+                CorrelationKey = $"manufacture:{runId:N}",
+                RunId = runId,
+                StartedBy = request.StartedBy,
                 Variables = variables,
                 Documents = documents,
-                StartedBy = request.StartedBy,
             },
             ct).ConfigureAwait(false);
+        if (started.IsSuccess)
+        {
+            return started;
+        }
+
+        // A reported failure wrote no run row, so this worktree belongs to no run. CancellationToken.None: the undo
+        // must run even when the caller has given up, or the worktree waits out the sweeper's grace period.
+        var removed = await _workspaces.RemoveAsync(runId, CancellationToken.None).ConfigureAwait(false);
+        return removed.IsSuccess
+            ? started
+            : Result<Guid>.Failure(
+                $"{started.Error} The run's workspace could not be removed and is left for the sweeper: {removed.Error.Message}");
+    }
+
+    private RepositoryConfig? FindRepository(string? name) =>
+        _config.Repositories.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal));
+
+    private async Task<string> ReadStandingInstructionsAsync(RunWorkspace workspace, CancellationToken ct)
+    {
+        var path = Path.Combine(workspace.Root, _config.StandingInstructionsPath);
+        return File.Exists(path) ? await File.ReadAllTextAsync(path, ct).ConfigureAwait(false) : "";
     }
 }

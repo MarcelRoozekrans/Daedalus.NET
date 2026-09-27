@@ -48,9 +48,15 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     Runs after this factory's own service replacements, for a test that needs one more, such as a faster
 ///     workflow outbox poll. <see langword="null"/> (the default) adds nothing.
 /// </param>
+/// <param name="settings">
+///     Host settings applied after every setting this factory makes itself, so a test can set any key, including
+///     one this factory already sets, such as <c>Thalos:Workflow:Repositories:0:Remote</c>. <see langword="null"/>
+///     (the default) keeps the shipped configuration.
+/// </param>
 internal sealed class ApiWebApplicationFactory(
     string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,
-    string? standingInstructionsPath = null, bool? squadEnabled = null, Action<IServiceCollection>? configureServices = null)
+    string? standingInstructionsPath = null, bool? squadEnabled = null, Action<IServiceCollection>? configureServices = null,
+    IReadOnlyDictionary<string, string?>? settings = null)
     : WebApplicationFactory<Daedalus.Api.Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -95,6 +101,11 @@ internal sealed class ApiWebApplicationFactory(
             // registering AddJwtBearer, so they must land before the host builds, not via ConfigureAppConfiguration.
             builder.UseSetting("Authentication:Authority", keycloak.Authority);
             builder.UseSetting("Authentication:Audience", "daedalus-api");
+        }
+
+        foreach (var (key, value) in settings ?? new Dictionary<string, string?>(StringComparer.Ordinal))
+        {
+            builder.UseSetting(key, value);
         }
 
         builder.ConfigureServices(services =>

@@ -43,9 +43,11 @@ namespace Daedalus.Api.Controllers;
 public sealed class WorkflowRunsController(WorkflowRunGateway runs) : ControllerBase
 {
     /// <summary>
-    ///     Starts a new manufacture run for <paramref name="request"/>'s <see cref="StartWorkflowRunRequest.WorkIntent"/>.
-    ///     A blank intent fails with 400 before <see cref="IManufactureRunStarter.StartAsync"/> is even called. Past
-    ///     that, every failure the starter reports is a 422 <em>except</em> the specific, constant message
+    ///     Starts a new manufacture run for <paramref name="request"/>'s <see cref="StartWorkflowRunRequest.WorkIntent"/>
+    ///     on the allow-listed repository its <see cref="StartWorkflowRunRequest.Repository"/> names. A blank intent or
+    ///     a blank repository fails with 400 before <see cref="IManufactureRunStarter.StartAsync"/> is even called.
+    ///     Past that, every failure the starter reports is a 422, including a repository that is not allow-listed,
+    ///     <em>except</em> the specific, constant message
     ///     <see cref="Daedalus.Agents.Workflow.DisabledManufactureRunStarter.DisabledMessage"/>, which means the
     ///     workflow engine is off on this host and is reported as 503 instead — that one failure is a host
     ///     configuration fact, not something about this particular request.
@@ -72,13 +74,18 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             return Problem(detail: "WorkIntent must not be blank.", statusCode: StatusCodes.Status400BadRequest);
         }
 
+        if (string.IsNullOrWhiteSpace(request.Repository))
+        {
+            return Problem(detail: "Repository must not be blank.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
         if (!HttpSecurityContextFactory.TryCreate(User, out var caller))
         {
             return Unauthorized();
         }
 
         var startRequest = new ManufactureStartRequest(
-            request.WorkIntent, RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value));
+            request.WorkIntent, request.Repository, RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value));
         var result = await starter.StartAsync(startRequest, ct);
         if (result.IsFailure)
         {
@@ -211,7 +218,11 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 
 /// <summary>Request body for <see cref="WorkflowRunsController.Start"/>.</summary>
 /// <param name="WorkIntent">What the run should manufacture, in the requester's own words. Must not be blank.</param>
-public sealed record StartWorkflowRunRequest(string WorkIntent);
+/// <param name="Repository">
+///     The name of an entry in <c>Thalos:Workflow:Repositories</c>, such as <c>sandbox</c>. Must not be blank. Only a
+///     name, never a URL: a name that is not allow-listed is a 422, so no request can point a run at another remote.
+/// </param>
+public sealed record StartWorkflowRunRequest(string WorkIntent, string Repository);
 
 /// <summary>Response body for <see cref="WorkflowRunsController.Start"/>.</summary>
 /// <param name="RunId">The id of the run that was just started.</param>

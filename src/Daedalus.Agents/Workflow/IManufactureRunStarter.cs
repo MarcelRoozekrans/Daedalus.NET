@@ -18,14 +18,15 @@ namespace Daedalus.Agents.Workflow;
 public interface IManufactureRunStarter
 {
     /// <summary>
-    ///     Starts one manufacture run with <paramref name="request"/>'s
-    ///     <see cref="ManufactureStartRequest.WorkIntent"/> as its opening variable (<c>work_intent</c>) and the
-    ///     current standing instructions pinned as a manifest document
-    ///     (<see cref="ManufactureRunStarter.StandingInstructionsDocument"/>). The run records
+    ///     Starts one manufacture run on the allow-listed repository <paramref name="request"/> names, in a git
+    ///     worktree of its own, with <see cref="ManufactureStartRequest.WorkIntent"/> as its opening variable
+    ///     (<c>work_intent</c>) and pinned, together with the worktree's standing instructions, as manifest
+    ///     documents (<see cref="ManufactureRunStarter.WorkIntentDocument"/> and
+    ///     <see cref="ManufactureRunStarter.StandingInstructionsDocument"/>). The run records
     ///     <see cref="ManufactureStartRequest.StartedBy"/> as the principal that started it. Failure text is safe
-    ///     to show a caller — a blank or over-long work intent, a disabled engine, and a pin failure (an
-    ///     unresolvable agent or an inactive skill on a task node) are all reported through
-    ///     <see cref="Result{T}.Error"/> rather than thrown.
+    ///     to show a caller — a blank or over-long work intent, a repository that is not allow-listed, a worktree
+    ///     that could not be prepared, a disabled engine, and a pin failure (an unresolvable agent or an inactive
+    ///     skill on a task node) are all reported through <see cref="Result{T}.Error"/> rather than thrown.
     /// </summary>
     ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct);
 }

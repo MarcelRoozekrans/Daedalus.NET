@@ -401,7 +401,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
                 .Returns(new ValueTask<Result<Guid>>(Result<Guid>.Success(Guid.NewGuid())));
             var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store)), DeveloperWithoutSubject());
 
-            var result = await controller.Start(new StartWorkflowRunRequest("Tighten a guard."), starter, CancellationToken.None);
+            var result = await controller.Start(new StartWorkflowRunRequest("Tighten a guard.", "sandbox"), starter, CancellationToken.None);
 
             result.Should().BeOfType<UnauthorizedResult>();
             await starter.DidNotReceive().StartAsync(Arg.Any<ManufactureStartRequest>(), Arg.Any<CancellationToken>());

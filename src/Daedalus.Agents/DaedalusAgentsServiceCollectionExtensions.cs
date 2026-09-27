@@ -40,6 +40,7 @@ using Thalos.Skills;
 using Thalos.Skills.Charters;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
+using Thalos.Workspaces;
 
 namespace Daedalus.Agents;
 
@@ -389,7 +390,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         if (options.Workflow.Enabled)
         {
-            AddDaedalusWorkflow(services, processesRoot, standingInstructionsPath, turnDeadline);
+            AddDaedalusWorkflow(services, processesRoot, turnDeadline);
         }
 
         // After the workflow block, whose own lease check is the stricter one on a workflow host, so each check's
@@ -435,7 +436,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     has run, so this is called after it, never on its own.
     /// </summary>
     private static void AddDaedalusWorkflow(
-        IServiceCollection services, string processesRoot, string standingInstructionsPath, TimeSpan turnDeadline)
+        IServiceCollection services, string processesRoot, TimeSpan turnDeadline)
     {
         // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
         // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
@@ -470,11 +471,15 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.AddSingleton<WorkflowRunGateway>();
 
         // Replaces the DisabledManufactureRunStarter registered unconditionally above, now that WorkflowRunStarter
-        // (from AddWorkflowOrm, inside AddThalos) and IWorkflowReferenceResolver (just above) both resolve.
+        // (from AddWorkflowOrm, inside AddThalos), IWorkflowReferenceResolver (just above) and IRunWorkspaceProvider
+        // (from UseGitWorktreeWorkspaces, inside AddThalos) all resolve.
         // Replace, not TryAdd: TryAddSingleton is first-registration-wins, and the disabled default was already
         // added before this method ever runs.
         services.Replace(ServiceDescriptor.Singleton<IManufactureRunStarter>(sp =>
-            new ManufactureRunStarter(sp.GetRequiredService<WorkflowRunStarter>(), standingInstructionsPath)));
+            new ManufactureRunStarter(
+                sp.GetRequiredService<WorkflowRunStarter>(),
+                sp.GetRequiredService<IRunWorkspaceProvider>(),
+                sp.GetRequiredService<WorkflowConfig>())));
 
         // ISubagentRunner comes from AddThalos; IWorkflowStore/IProcessDefinitionStore from AddWorkflowOrm above.
         // Built via WorkflowNodeDispatcherFactory, not inline here — see that type's remarks for why this needs

@@ -67,6 +67,9 @@
         <!-- SkillsStartupTests boots a host on the shipped API configuration; link it under an unambiguous name, the
              same way Daedalus.Tests.Unit does (Api, Console and Web all ship an appsettings.json). -->
         <None Include="..\..\src\Daedalus.Api\appsettings.json" Link="Daedalus.Api.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- Ruling R24: every ScratchWorkflowHost points Thalos:McpConfigPath here, so no test host declares a
+             run-scoped MCP server and none starts a real Roslyn server. Copied flat, next to the test assembly. -->
+        <None Update="Fixtures/no-run-scoped.mcp.json" Link="no-run-scoped.mcp.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
 </Project>
