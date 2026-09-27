@@ -1,5 +1,7 @@
 using Asp.Versioning;
+using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
+using Daedalus.Api.Agents;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Thalos.Workflow;
@@ -59,6 +61,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     [HttpPost]
     [ProducesResponseType(typeof(StartWorkflowRunResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Start(
@@ -69,7 +72,14 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             return Problem(detail: "WorkIntent must not be blank.", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var result = await starter.StartAsync(request.WorkIntent, ct);
+        if (!HttpSecurityContextFactory.TryCreate(User, out var caller))
+        {
+            return Unauthorized();
+        }
+
+        var startRequest = new ManufactureStartRequest(
+            request.WorkIntent, RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value));
+        var result = await starter.StartAsync(startRequest, ct);
         if (result.IsFailure)
         {
             return string.Equals(result.Error, DisabledManufactureRunStarter.DisabledMessage, StringComparison.Ordinal)
@@ -114,6 +124,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     [HttpPost("{id:guid}/resume")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
@@ -129,7 +140,14 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             return NotFound();
         }
 
-        var result = await runs.ResumeAsync(id, request.Signal, request.Payload, request.ApplyStandingInstructions, ct);
+        // After the 404 check, not before it: a resume of a run that does not exist is a 404 whoever asks.
+        if (!HttpSecurityContextFactory.TryCreate(User, out var caller))
+        {
+            return Unauthorized();
+        }
+
+        var approver = RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value);
+        var result = await runs.ResumeAsync(id, request.Signal, request.Payload, request.ApplyStandingInstructions, approver, ct);
         if (result.IsSuccess)
         {
             return NoContent();

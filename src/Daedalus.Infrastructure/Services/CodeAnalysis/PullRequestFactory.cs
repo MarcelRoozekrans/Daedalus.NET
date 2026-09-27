@@ -1,7 +1,7 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
@@ -38,6 +38,25 @@ public sealed class PullRequestFactory(
                 repositoryUrl, featureBranch, baseBranch, title, description, ct).ConfigureAwait(false),
 
             _ => Result<PullRequestResult>.Failure($"Unsupported platform: {platform}")
+        };
+    }
+
+    public async Task<Result<PullRequestResult?>> FindOpenPullRequestAsync(
+        string repositoryUrl,
+        string featureBranch,
+        CancellationToken ct = default)
+    {
+        var platform = detector.DetectPlatform(repositoryUrl);
+
+        return platform switch
+        {
+            RepositoryPlatform.GitHub => await github.FindOpenPullRequestAsync(
+                repositoryUrl, featureBranch, ct).ConfigureAwait(false),
+
+            RepositoryPlatform.AzureDevOps => Result<PullRequestResult?>.Failure(
+                "finding an open pull request is not supported for Azure DevOps"),
+
+            _ => Result<PullRequestResult?>.Failure($"Unsupported platform: {platform}")
         };
     }
 }

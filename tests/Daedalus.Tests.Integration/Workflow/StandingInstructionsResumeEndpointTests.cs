@@ -26,10 +26,11 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     <c>SquadHandoffEndToEndTests</c> (task B4) proves the model's proposal reaches <c>WorkflowRun.Variables</c>
 ///     uncut; that plumbing is not this task's to re-prove. What B5 owns is what happens once a run is already
 ///     sitting at the gate — so each test here starts a small, throwaway two-node process
-///     (<c>gate</c> → terminal <c>publish</c>) directly at <c>gate</c>, the same positional
-///     <see cref="IWorkflowStore.StartAsync(string,int,string,string,System.Collections.Generic.IReadOnlyDictionary{string,object},System.Threading.CancellationToken)"/>
-///     overload <c>ResumeSignalMismatchTests.ParkedAtGateAsync</c> uses, with the proposal (or its absence) set
-///     directly as an opening variable. That overload never populates <see cref="WorkflowRun.Manifest"/>, so the
+///     (<c>gate</c> → terminal <c>publish</c>) directly at <c>gate</c>, through
+///     <see cref="IWorkflowStore.StartAsync(WorkflowStartRequest,System.Threading.CancellationToken)"/> as
+///     <c>ResumeSignalMismatchTests.ParkedAtGateAsync</c> does, with the proposal (or its absence) set
+///     directly as an opening variable. That request carries no <see cref="WorkflowStartRequest.Manifest"/>, so the
+///     run's <see cref="WorkflowRun.Manifest"/> stays empty and the
 ///     pinned standing-instructions text this suite exercises against is always <c>""</c> — every test here writes
 ///     no initial <c>AGENT.md</c> content (an absent file also reads back as <c>""</c>, per
 ///     <see cref="StandingInstructionsWriter.ApplyAsync"/>'s own rule), so the pinned/current comparison always
@@ -78,6 +79,10 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
             var store = factory.Services.GetRequiredService<IWorkflowStore>();
             var run = await store.FindAsync(runId, CancellationToken.None);
             run!.CurrentNode.Should().Be("publish", "the gate's 'next' edge must still resolve when the flag is unset");
+
+            // Falsifiable: the controller passing a constant principal instead of RunPrincipals.From(caller, ...)
+            // records that constant here instead of the HTTP caller.
+            run.LastResume!.By.Id.Should().Be("a-developer", "HeaderTestAuthHandler puts X-Test-User in the sub claim");
         });
     }
 
@@ -234,13 +239,24 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
             ? null
             : new Dictionary<string, object?>(StringComparer.Ordinal) { [ReviewHandoff.ProposedStandingInstructionsKey] = proposal };
 
-        var runId = await store.StartAsync(
-            ProcessName, 1, $"{correlationKey}:{Guid.NewGuid()}", "gate", initialVariables, CancellationToken.None);
+        var started = await store.StartAsync(
+            new WorkflowStartRequest
+            {
+                Process = ProcessName,
+                Version = 1,
+                CorrelationKey = $"{correlationKey}:{Guid.NewGuid()}",
+                StartNode = "gate",
+                InitialVariables = initialVariables,
+                StartedBy = TestPrincipals.Starter,
+            },
+            CancellationToken.None);
+        started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : null);
+        var runId = started.Value;
 
         var run = await store.FindAsync(runId, CancellationToken.None);
         var dispatcher = new WorkflowNodeDispatcher(
             store, Substitute.For<ISubagentRunner>(), Substitute.For<IWorkflowReferenceResolver>(), definitions,
-            Substitute.For<ISkillStore>(), r => new WorkflowCaller(r));
+            Substitute.For<ISkillStore>(), r => new WorkflowCaller(r), gates: [], hostActions: []);
 
         await dispatcher.DispatchAsync(new WorkflowDispatchMessage(runId, run!.CurrentSeq, "gate"), CancellationToken.None);
 

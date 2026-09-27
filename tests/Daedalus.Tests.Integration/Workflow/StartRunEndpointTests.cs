@@ -86,6 +86,27 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
         });
     }
 
+    /// <summary>
+    ///     The run records the HTTP caller as its starter. Falsifiable per assertion: passing a constant
+    ///     <c>new RunPrincipal("manufacture-endpoint", [])</c> from the controller fails the id assertion, and
+    ///     dropping the roles, <c>new RunPrincipal(caller.Id, [])</c>, fails the roles assertion.
+    /// </summary>
+    [Fact]
+    public async Task Post_records_the_callers_subject_and_roles_as_the_starter()
+    {
+        await WithRunningHostAsync(async (factory, _) =>
+        {
+            using var client = DeveloperClient(factory);
+            var response = await client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "Tighten a guard." });
+
+            response.StatusCode.Should().Be(HttpStatusCode.Created);
+            var runId = (await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
+            var run = await factory.Services.GetRequiredService<IWorkflowStore>().FindAsync(runId, CancellationToken.None);
+            run!.StartedBy!.Id.Should().Be("a-developer", "HeaderTestAuthHandler puts X-Test-User in the sub claim");
+            run.StartedBy.Roles.Should().Equal("developer");
+        });
+    }
+
     [Fact]
     public async Task A_deactivated_node_skill_fails_the_start_and_writes_no_row()
     {

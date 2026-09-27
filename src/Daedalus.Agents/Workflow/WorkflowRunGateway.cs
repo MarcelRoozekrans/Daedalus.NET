@@ -32,9 +32,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <b><see cref="StandingInstructionsWriter"/> defaults to <see langword="null"/>.</b> The default keeps this
 ///     type constructible with only a store — <c>ResumeSignalMismatchTests</c> and
 ///     <c>ResumeToolBoundaryTests</c>/<c>ResumeAuthorizationBoundaryTests</c> in <c>ResumeBoundaryTests.cs</c> are
-///     pinned to construct it that way and stay green unchanged — while every host still wires the real writer
-///     through DI (see <c>AddDaedalusWorkflow</c>). A caller that asks the five-argument
-///     <see cref="ResumeAsync(Guid,string,string?,bool,CancellationToken)"/> overload to apply standing
+///     pinned to construct it that way — while every host still wires the real writer
+///     through DI (see <c>AddDaedalusWorkflow</c>). A caller that asks the public
+///     <see cref="ResumeAsync(Guid,string,string?,bool,RunPrincipal,CancellationToken)"/> overload to apply standing
 ///     instructions without one throws: that combination is a wiring bug, never a normal outcome a caller should
 ///     branch on.
 ///     </para>
@@ -56,18 +56,23 @@ public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstruction
     /// <remarks>
     ///     <c>internal</c>, not <c>public</c>: fix round 1 of task B5 found nothing in <c>src</c> calling this
     ///     overload directly any more — <c>Daedalus.Api.Controllers.WorkflowRunsController.Resume</c> only ever calls the
-    ///     five-argument <see cref="ResumeAsync(Guid,string,string?,bool,CancellationToken)"/> overload below,
+    ///     public <see cref="ResumeAsync(Guid,string,string?,bool,RunPrincipal,CancellationToken)"/> overload below,
     ///     which applies standing instructions when asked before delegating here. A future <c>public</c> caller of
     ///     this overload could bypass that entirely — resuming a gate with no chance to apply a proposal, or worse,
     ///     no chance to be refused when it should have been. <c>internal</c> keeps this callable only from within
     ///     <c>Daedalus.Agents</c> and from <c>Daedalus.Tests.Integration</c>/<c>Daedalus.Tests.Unit</c> (both
     ///     granted <c>InternalsVisibleTo</c>) — <c>ResumeSignalMismatchTests</c> in <c>ResumeBoundaryTests.cs</c>
-    ///     still constructs <see cref="WorkflowRunGateway"/> directly and calls this overload, and stays green
-    ///     unchanged with no source change of its own.
+    ///     still constructs <see cref="WorkflowRunGateway"/> directly and calls this overload.
+    ///     <para>
+    ///     <b>Every resume names its approver.</b> <paramref name="resumedBy"/> is required and never null: the store
+    ///     records it on the run as <see cref="WorkflowRun.LastResume"/>, so who approved a gate is part of the
+    ///     run. There is no overload that resumes without one.
+    ///     </para>
     /// </remarks>
-    internal async ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct)
+    internal async ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, RunPrincipal resumedBy, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(signal);
+        ArgumentNullException.ThrowIfNull(resumedBy);
 
         var run = await _store.FindAsync(runId, ct).ConfigureAwait(false);
         if (run is null)
@@ -81,7 +86,8 @@ public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstruction
             return awaiting;
         }
 
-        return await _store.ResumeAsync(runId, signal, payload, ct).ConfigureAwait(false);
+        return await _store.ResumeAsync(
+            runId, new WorkflowResumeRequest { Signal = signal, Payload = payload, ResumedBy = resumedBy }, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -89,12 +95,12 @@ public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstruction
     ///     <paramref name="applyStandingInstructions"/> is never set except by an explicit choice in that request
     ///     body — see <see cref="StandingInstructionsWriter"/>'s own remarks for why that is this design's trust
     ///     boundary. When set: the run is read and checked against <paramref name="signal"/> with the same
-    ///     <see cref="CheckAwaiting"/> rule <see cref="ResumeAsync(Guid,string,string?,CancellationToken)"/> uses
+    ///     <see cref="CheckAwaiting"/> rule <see cref="ResumeAsync(Guid,string,string?,RunPrincipal,CancellationToken)"/> uses
     ///     for its own check below — fix round 1 of this task found the original code skipped this check here,
     ///     so a wrong signal or an already-cancelled/succeeded run would still write the file before the engine
     ///     resume eventually refused it. Only once that check passes is
     ///     <see cref="StandingInstructionsWriter.ApplyAsync"/> called, and on any failure it is returned
-    ///     unchanged — <see cref="ResumeAsync(Guid,string,string?,CancellationToken)"/> is never reached, so a
+    ///     unchanged — <see cref="ResumeAsync(Guid,string,string?,RunPrincipal,CancellationToken)"/> is never reached, so a
     ///     stale or missing proposal, a wrong signal, or a run that is not awaiting can never leave the run's
     ///     status touched. Only once the write (or the no-op skip, when the flag is unset) succeeds does the
     ///     engine resume run, and its own failure maps to <see cref="ResumeRefusal.EngineRefused"/> here, with
@@ -113,9 +119,10 @@ public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstruction
     ///     </para>
     /// </summary>
     public async ValueTask<UnitResult<ResumeFailure>> ResumeAsync(
-        Guid runId, string signal, string? payload, bool applyStandingInstructions, CancellationToken ct)
+        Guid runId, string signal, string? payload, bool applyStandingInstructions, RunPrincipal resumedBy, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(signal);
+        ArgumentNullException.ThrowIfNull(resumedBy);
 
         if (applyStandingInstructions)
         {
@@ -147,7 +154,7 @@ public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstruction
 
         try
         {
-            var result = await ResumeAsync(runId, signal, payload, ct).ConfigureAwait(false);
+            var result = await ResumeAsync(runId, signal, payload, resumedBy, ct).ConfigureAwait(false);
             return result.IsSuccess
                 ? UnitResult<ResumeFailure>.Success()
                 : UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, result.Error));
@@ -164,8 +171,8 @@ public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstruction
     /// <summary>
     ///     <paramref name="run"/> is parked awaiting exactly <paramref name="signal"/>, or a failure naming what
     ///     it is actually awaiting instead — the one check shared by both <c>ResumeAsync</c> overloads, so the
-    ///     wording can never drift between the pre-check the five-argument overload runs before writing and the
-    ///     check the four-argument overload runs before resuming.
+    ///     wording can never drift between the pre-check the public overload runs before writing and the
+    ///     check the internal overload runs before resuming.
     /// </summary>
     private static Result CheckAwaiting(WorkflowRun run, string signal, Guid runId)
     {

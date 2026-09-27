@@ -1,16 +1,16 @@
 #pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute — JsonSerializer.Serialize
-                               // over small anonymous write payloads; accepted risk, matching GitHubPullRequestFactory
-                               // and AzureDevOpsPullRequestFactory elsewhere in this project.
+// over small anonymous write payloads; accepted risk, matching GitHubPullRequestFactory
+// and AzureDevOpsPullRequestFactory elsewhere in this project.
 
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using ZeroAlloc.Results;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.GitHub;
 
@@ -132,6 +132,51 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
         {
             PullRequestId = content.GetProperty("number").GetInt32().ToString(CultureInfo.InvariantCulture),
             PullRequestUrl = content.GetProperty("url").GetString() ?? string.Empty,
+            WebUrl = content.GetProperty("html_url").GetString() ?? string.Empty,
+            Status = PullRequestStatus.Open,
+        });
+    }
+
+    /// <summary>
+    ///     The open pull request whose head is <paramref name="headBranch"/> in <paramref name="repo"/>, or
+    ///     <see langword="null"/> when none is open. GitHub's <c>head</c> filter takes <c>owner:branch</c>; the whole
+    ///     value is URL-encoded, so a branch such as <c>manufacture/&lt;run-id&gt;</c> is sent as
+    ///     <c>manufacture%2F&lt;run-id&gt;</c> rather than splitting the query.
+    /// </summary>
+    public async Task<Result<PullRequestResult?>> FindOpenPullRequestAsync(RepoRef repo, string headBranch, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        ArgumentException.ThrowIfNullOrWhiteSpace(headBranch);
+
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<PullRequestResult?>.Failure(token.Error);
+
+        var url = $"{RepoUrl(repo)}/pulls?state=open&head={Uri.EscapeDataString($"{repo.Owner}:{headBranch}")}";
+
+        // Not disposed here, matching CreatePullRequestAsync: the stub handler in tests keeps this request around so a
+        // test can inspect the URI it sent.
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplyHeaders(request, token.Value);
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+            return Result<PullRequestResult?>.Failure(MapError(response, body));
+
+        using var doc = JsonDocument.Parse(body);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            return Result<PullRequestResult?>.Failure($"GitHub returned {doc.RootElement.ValueKind} for a pull request list, not an array.");
+
+        if (doc.RootElement.GetArrayLength() == 0)
+            return Result<PullRequestResult?>.Success(null);
+
+        var content = doc.RootElement[0];
+        return Result<PullRequestResult?>.Success(new PullRequestResult
+        {
+            PullRequestId = content.GetProperty("number").GetInt32().ToString(CultureInfo.InvariantCulture),
+            PullRequestUrl = content.TryGetProperty("url", out var apiUrl) ? apiUrl.GetString() ?? string.Empty : string.Empty,
             WebUrl = content.GetProperty("html_url").GetString() ?? string.Empty,
             Status = PullRequestStatus.Open,
         });

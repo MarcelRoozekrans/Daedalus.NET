@@ -70,5 +70,10 @@ internal static class WorkflowNodeDispatcherFactory
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
         sp.GetRequiredService<ISkillStore>(),
-        resolveCaller: run => new WorkflowCaller(run));
+        resolveCaller: run => new WorkflowCaller(run),
+        // The real registrations, empty until the dispatch gate and the open-pull-request action are registered.
+        // The host actions are the same GetServices sequence AddDaedalusWorkflow hands WorkflowReferenceResolver,
+        // so an action node that validates at load time is the one this dispatcher can run.
+        gates: sp.GetServices<IWorkflowDispatchGate>(),
+        hostActions: sp.GetServices<IWorkflowHostAction>());
 }

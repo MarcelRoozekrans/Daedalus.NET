@@ -1,9 +1,9 @@
 #pragma warning disable CA1054 // URI-like parameters should not be strings
 
-using ZeroAlloc.Results;
 using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
@@ -26,19 +26,7 @@ public sealed class GitHubPullRequestFactory(
     {
         try
         {
-            // Parse owner/repo from URL
-            var urlParts = repositoryUrl
-                .Replace("https://github.com/", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("git@github.com:", "", StringComparison.OrdinalIgnoreCase)
-                .Replace(".git", "", StringComparison.OrdinalIgnoreCase)
-                .Split('/');
-
-            if (urlParts.Length < 2)
-            {
-                return Result<PullRequestResult>.Failure("Invalid GitHub URL format");
-            }
-
-            var repoRef = RepoRef.Parse($"{urlParts[0]}/{urlParts[1]}");
+            var repoRef = ParseRepository(repositoryUrl);
             if (repoRef.IsFailure)
             {
                 return Result<PullRequestResult>.Failure(repoRef.Error);
@@ -65,5 +53,36 @@ public sealed class GitHubPullRequestFactory(
             logger.LogError(ex, "Error creating GitHub pull request");
             return Result<PullRequestResult>.Failure($"Error creating PR: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    ///     The open pull request from <paramref name="featureBranch"/> on the repository at
+    ///     <paramref name="repositoryUrl"/>, or <see langword="null"/> when none is open. Parses the URL only; the
+    ///     query is <see cref="GitHubApi.FindOpenPullRequestAsync"/>'s.
+    /// </summary>
+    public async Task<Result<PullRequestResult?>> FindOpenPullRequestAsync(
+        string repositoryUrl, string featureBranch, CancellationToken ct = default)
+    {
+        var repoRef = ParseRepository(repositoryUrl);
+        if (repoRef.IsFailure)
+        {
+            return Result<PullRequestResult?>.Failure(repoRef.Error);
+        }
+
+        return await gitHub.FindOpenPullRequestAsync(repoRef.Value, featureBranch, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Owner and repository out of an HTTPS or SSH GitHub remote URL.</summary>
+    private static Result<RepoRef> ParseRepository(string repositoryUrl)
+    {
+        var urlParts = repositoryUrl
+            .Replace("https://github.com/", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("git@github.com:", "", StringComparison.OrdinalIgnoreCase)
+            .Replace(".git", "", StringComparison.OrdinalIgnoreCase)
+            .Split('/');
+
+        return urlParts.Length < 2
+            ? Result<RepoRef>.Failure("Invalid GitHub URL format")
+            : RepoRef.Parse($"{urlParts[0]}/{urlParts[1]}");
     }
 }

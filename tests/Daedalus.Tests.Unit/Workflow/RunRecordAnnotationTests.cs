@@ -58,14 +58,11 @@ public sealed class RunRecordAnnotationTests
             return ValueTask.CompletedTask;
         }
 
-        public ValueTask<Guid> StartAsync(string process, int version, string correlationKey, string startNode, IReadOnlyDictionary<string, object?>? initialVariables, CancellationToken ct) =>
-            throw new NotSupportedException();
-
-        public ValueTask<Guid> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public ValueTask<Result<Guid>> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
 
         public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => new(RunToFind);
 
-        public ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct) => throw new NotSupportedException();
+        public ValueTask<Result> ResumeAsync(Guid runId, WorkflowResumeRequest request, CancellationToken ct) => throw new NotSupportedException();
 
         public ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct) => throw new NotSupportedException();
 
@@ -101,6 +98,28 @@ public sealed class RunRecordAnnotationTests
 
         store.Written.Should().NotBeNull();
         return store.Written!;
+    }
+
+    /// <summary>
+    ///     The mode annotation rebuilds the report, and must carry the node's token usage across. Falsifiable:
+    ///     dropping the <c>Usage</c> copy in <see cref="WorkflowRunModeStore.CompleteNodeAsync"/> leaves it null.
+    /// </summary>
+    [Fact]
+    public async Task The_nodes_token_usage_survives_the_mode_annotation()
+    {
+        var usage = new TurnUsage(1000, 50, "m") { CacheReadTokens = 800, CacheWriteTokens = 100 };
+        var store = new CapturingStore();
+        var decorated = new WorkflowRunModeStore(
+            store, new SquadOptions { Enabled = true, FallbackAgentName = "x" }, new WorkflowRecallTierLog());
+
+        await decorated.CompleteNodeAsync(
+            Guid.NewGuid(),
+            4,
+            AnyTransition(),
+            new NodeResult("approved", new Dictionary<string, object?>(StringComparer.Ordinal)) { Usage = usage },
+            CancellationToken.None);
+
+        store.Written!.Usage.Should().Be(usage);
     }
 
     [Fact]

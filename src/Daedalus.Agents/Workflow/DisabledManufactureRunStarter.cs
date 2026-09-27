@@ -19,6 +19,6 @@ public sealed class DisabledManufactureRunStarter : IManufactureRunStarter
     public const string DisabledMessage = "The manufacturing workflow engine is disabled on this host.";
 
     /// <inheritdoc />
-    public ValueTask<Result<Guid>> StartAsync(string workIntent, CancellationToken ct) =>
+    public ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct) =>
         new(Result<Guid>.Failure(DisabledMessage));
 }

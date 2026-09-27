@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
 using Thalos;
+using ZeroAlloc.Authorization;
 
 namespace Daedalus.Agents.Tools;
 
@@ -25,16 +27,24 @@ public sealed class DaedalusManufactureTools(IManufactureRunStarter starter)
     public const string StartToolName = "start";
 
     /// <summary>Starts a new manufacture run for a work intent, reporting the run id or why it could not start.</summary>
+    /// <param name="caller">
+    ///     The calling turn's principal, bound by Thalos because the parameter is typed exactly
+    ///     <see cref="ISecurityContext"/>; it never appears in the tool's schema. The run records it as its starter.
+    /// </param>
+    /// <param name="workIntent">What the run should manufacture.</param>
+    /// <param name="ct">Cancellation token.</param>
     [ThalosTool(StartToolName)]
     [Description(
         "Start a new manufacture run: implement, review and publish a change for the given work intent. Returns " +
         "the started run's id, or explains why the run could not start — a blank or over-long work intent, the " +
         "workflow engine being disabled on this host, or a task node's agent or skill failing to resolve.")]
     public async Task<string> Start(
+        ISecurityContext caller,
         [Description("What the run should manufacture, in the requester's own words.")] string workIntent,
         CancellationToken ct = default)
     {
-        var result = await starter.StartAsync(workIntent, ct).ConfigureAwait(false);
+        var result = await starter.StartAsync(new ManufactureStartRequest(workIntent, RunPrincipals.From(caller)), ct)
+            .ConfigureAwait(false);
         return result.IsSuccess
             ? $"Started manufacture run {result.Value}."
             : $"Could not start a manufacture run: {result.Error}";

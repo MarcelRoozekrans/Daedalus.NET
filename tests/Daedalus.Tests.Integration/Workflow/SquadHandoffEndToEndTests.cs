@@ -419,7 +419,16 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 ["issue_url"] = OffContractSentinel,
             };
 
-            var started = await starter.StartAsync(ProcessName, $"b5-handoff:{Guid.NewGuid()}", variables, documents, CancellationToken.None);
+            var started = await starter.StartAsync(
+                new WorkflowRunStartOptions
+                {
+                    Process = ProcessName,
+                    CorrelationKey = $"b5-handoff:{Guid.NewGuid()}",
+                    Variables = variables,
+                    Documents = documents,
+                    StartedBy = TestPrincipals.Starter,
+                },
+                CancellationToken.None);
             started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : "");
             var runId = started.Value;
 

@@ -1,4 +1,5 @@
 using Daedalus.Agents.Workflow;
+using Thalos;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 
@@ -161,5 +162,27 @@ public sealed class ProposalAuthorshipTests
         var completed = await CompleteAsync(RunAt("reflect"), "none", new(StringComparer.Ordinal));
 
         completed.Variables.Should().BeEmpty("clearing must never add a key the run does not hold, or it would count toward the cap");
+    }
+
+    /// <summary>
+    ///     Both rebuilds of the report carry the node's token usage across. Falsifiable per row: dropping the
+    ///     <c>Usage</c> copy on the stripped rebuild turns the <c>implement</c> row red, and dropping it on the
+    ///     cleared rebuild turns the <c>reflect</c> row red.
+    /// </summary>
+    [Theory]
+    [InlineData("implement", "changed")] // not retrospect, so the key is stripped
+    [InlineData("reflect", "none")] // retrospect without "proposed", so the key is cleared to null
+    public async Task The_nodes_token_usage_survives_a_rewritten_report(string node, string outcome)
+    {
+        var usage = new TurnUsage(1000, 50, "m") { CacheReadTokens = 800 };
+        var reported = new Dictionary<string, object?>(StringComparer.Ordinal) { [Key] = Planted };
+        var run = RunAt(node);
+        var inner = new RecordingWorkflowStore(run);
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+
+        await store.CompleteNodeAsync(
+            run.Id, 3, AnyTransition(), new NodeResult(outcome, reported) { Usage = usage }, CancellationToken.None);
+
+        inner.Completed!.Usage.Should().Be(usage);
     }
 }

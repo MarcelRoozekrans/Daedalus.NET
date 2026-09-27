@@ -56,6 +56,42 @@ public sealed class PullRequestFactoryDispatchTests
         githubHandler.LastRequestUri.Should().BeNull("an Azure DevOps URL must never reach the GitHub factory");
     }
 
+    /// <summary>
+    ///     The open-pull-request lookup goes through the same dispatch. Falsifiable per assertion: routing the lookup
+    ///     away from the GitHub factory fails the first, and parsing the wrong owner or repository out of the URL,
+    ///     or querying anything but the pulls endpoint, fails the second.
+    /// </summary>
+    [Fact]
+    public async Task A_github_url_is_looked_up_on_the_github_pulls_endpoint()
+    {
+        var githubHandler = new RecordingHandler(HttpStatusCode.ServiceUnavailable);
+        var azureHandler = new RecordingHandler(HttpStatusCode.ServiceUnavailable);
+        var sut = BuildSut(githubHandler, azureHandler);
+
+        await sut.FindOpenPullRequestAsync("https://github.com/owner/repo.git", "manufacture/abc");
+
+        githubHandler.LastRequestUri.Should().NotBeNull("a GitHub URL must reach the GitHub factory's HTTP client");
+        githubHandler.LastRequestUri!.AbsolutePath.Should().Be("/repos/owner/repo/pulls");
+    }
+
+    /// <summary>
+    ///     Azure DevOps has no lookup yet, and says so rather than answering "none open". Falsifiable per assertion:
+    ///     returning <c>Success(null)</c> fails the first, and routing the URL to the GitHub factory, whose URL
+    ///     parser then fails with its own message, fails the second.
+    /// </summary>
+    [Fact]
+    public async Task An_azure_devops_lookup_fails_as_unsupported()
+    {
+        var githubHandler = new RecordingHandler(HttpStatusCode.ServiceUnavailable);
+        var azureHandler = new RecordingHandler(HttpStatusCode.ServiceUnavailable);
+        var sut = BuildSut(githubHandler, azureHandler);
+
+        var result = await sut.FindOpenPullRequestAsync("https://dev.azure.com/org/project/_git/repo", "manufacture/abc");
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("finding an open pull request is not supported for Azure DevOps");
+    }
+
     private static PullRequestFactory BuildSut(RecordingHandler githubHandler, RecordingHandler azureHandler)
     {
         var authProvider = AuthProviderReturningToken();

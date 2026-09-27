@@ -1,9 +1,9 @@
+using Daedalus.Application.Services.CodeAnalysis;
 using LibGit2Sharp;
+using Microsoft.Extensions.Logging;
 using Thalos;
 using Thalos.Git;
 using ZeroAlloc.Results;
-using Daedalus.Application.Services.CodeAnalysis;
-using Microsoft.Extensions.Logging;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Daedalus.Agents.Git;
@@ -33,9 +33,9 @@ namespace Daedalus.Agents.Git;
 ///         <see cref="IPullRequestFactory"/> needs, then delegates everything else to it.
 ///     </para>
 /// </remarks>
-public sealed class ThalosPullRequestPublisher(
+public sealed partial class ThalosPullRequestPublisher(
     IPullRequestFactory pullRequestFactory,
-    ILogger<ThalosPullRequestPublisher> logger) : IPullRequestPublisher
+    ILogger<ThalosPullRequestPublisher> logger) : IPullRequestPublisher, IOpenPullRequestLookup
 {
     public async ValueTask<Result<PullRequestResult, AgentError>> OpenPullRequestAsync(
         string repositoryPath,
@@ -89,4 +89,32 @@ public sealed class ThalosPullRequestPublisher(
         return Result<PullRequestResult, AgentError>.Success(
             new PullRequestResult(result.Value.WebUrl, result.Value.PullRequestId));
     }
+
+    /// <summary>
+    ///     The open pull request from <paramref name="sourceBranch"/> on the repository at <paramref name="remoteUrl"/>,
+    ///     looked up through <see cref="IPullRequestFactory"/>'s platform dispatch. Unlike
+    ///     <see cref="OpenPullRequestAsync"/> this never opens a working tree: the remote URL is the configured one,
+    ///     passed in, so there is no synchronous LibGit2Sharp call to move off the caller's thread.
+    /// </summary>
+    public async ValueTask<Result<PullRequestResult?, AgentError>> FindOpenPullRequestAsync(
+        string remoteUrl, string sourceBranch, CancellationToken ct)
+    {
+        var result = await pullRequestFactory.FindOpenPullRequestAsync(remoteUrl, sourceBranch, ct).ConfigureAwait(false);
+
+        if (result.IsFailure)
+        {
+            LogLookupFailed(logger, remoteUrl, result.Error);
+            return Result<PullRequestResult?, AgentError>.Failure(
+                AgentError.GitOperationFailed("Failed to look up an open pull request", result.Error));
+        }
+
+        return Result<PullRequestResult?, AgentError>.Success(
+            result.Value is { } found ? new PullRequestResult(found.WebUrl, found.PullRequestId) : null);
+    }
+
+    [LoggerMessage(
+        EventId = 2320,
+        Level = LogLevel.Error,
+        Message = "Failed to look up an open pull request for {RepositoryUrl}: {Error}")]
+    private static partial void LogLookupFailed(ILogger logger, string repositoryUrl, string error);
 }

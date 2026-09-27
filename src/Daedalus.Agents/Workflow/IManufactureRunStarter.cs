@@ -18,12 +18,14 @@ namespace Daedalus.Agents.Workflow;
 public interface IManufactureRunStarter
 {
     /// <summary>
-    ///     Starts one manufacture run with <paramref name="workIntent"/> as its opening variable
-    ///     (<c>work_intent</c>) and the current standing instructions pinned as a manifest document
-    ///     (<see cref="ManufactureRunStarter.StandingInstructionsDocument"/>). Failure text is safe to show a
-    ///     caller — a blank or over-long <paramref name="workIntent"/>, a disabled engine, and a pin failure (an
+    ///     Starts one manufacture run with <paramref name="request"/>'s
+    ///     <see cref="ManufactureStartRequest.WorkIntent"/> as its opening variable (<c>work_intent</c>) and the
+    ///     current standing instructions pinned as a manifest document
+    ///     (<see cref="ManufactureRunStarter.StandingInstructionsDocument"/>). The run records
+    ///     <see cref="ManufactureStartRequest.StartedBy"/> as the principal that started it. Failure text is safe
+    ///     to show a caller — a blank or over-long work intent, a disabled engine, and a pin failure (an
     ///     unresolvable agent or an inactive skill on a task node) are all reported through
     ///     <see cref="Result{T}.Error"/> rather than thrown.
     /// </summary>
-    ValueTask<Result<Guid>> StartAsync(string workIntent, CancellationToken ct);
+    ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct);
 }

@@ -136,6 +136,6 @@ internal sealed class WorkflowRunModeStore(IWorkflowStore inner, SquadOptions sq
             annotated[RecallTierKey] = tier.ToString();
         }
 
-        await Inner.CompleteNodeAsync(runId, seq, transition, new NodeResult(result.Outcome, annotated), ct).ConfigureAwait(false);
+        await Inner.CompleteNodeAsync(runId, seq, transition, new NodeResult(result.Outcome, annotated) { Usage = result.Usage }, ct).ConfigureAwait(false);
     }
 }

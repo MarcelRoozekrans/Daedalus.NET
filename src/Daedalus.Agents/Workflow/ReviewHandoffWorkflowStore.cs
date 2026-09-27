@@ -196,7 +196,7 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         if (!IsRetrospect(node))
         {
             return reported
-                ? new NodeResult(result.Outcome, Without(result.Variables, key))
+                ? new NodeResult(result.Outcome, Without(result.Variables, key)) { Usage = result.Usage }
                 : result;
         }
 
@@ -211,7 +211,7 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         }
 
         var cleared = new Dictionary<string, object?>(result.Variables, StringComparer.Ordinal) { [key] = null };
-        return new NodeResult(result.Outcome, cleared);
+        return new NodeResult(result.Outcome, cleared) { Usage = result.Usage };
     }
 
     private static Dictionary<string, object?> Without(IReadOnlyDictionary<string, object?> variables, string key)

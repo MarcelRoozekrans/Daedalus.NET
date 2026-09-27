@@ -27,6 +27,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using Thalos;
 using Thalos.Anthropic;
+using Thalos.Caching;
 using Thalos.Git;
 using Thalos.Git.LibGit2Sharp;
 using Thalos.Mcp;
@@ -207,6 +208,9 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // host calling this method alone resolves the publisher fine but only fails, at first use, if it never
         // called that one too. That mirrors how the factory itself already gets consumed across composition roots.
         services.AddScoped<IPullRequestPublisher, ThalosPullRequestPublisher>();
+        // The same scoped instance answers the open-pull-request lookup. It is its own interface so GitActionTools,
+        // which depends on IPullRequestPublisher only, never gains a read surface through it.
+        services.AddScoped<IOpenPullRequestLookup>(sp => (ThalosPullRequestPublisher)sp.GetRequiredService<IPullRequestPublisher>());
 
         ValidateMemoryConfig(options.Memory);
         services.TryAddSingleton(options.Memory);
@@ -295,6 +299,11 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
             thalos.UseAnthropic(configuration)
                 .UseSessionStore<PostgresAgentSessionStore>()
+                // Phase 2.5, spec decision 9: the provider-neutral cache hints, placed outermost so Sentinel and every
+                // other decorator further in sees the hinted request. Anthropic's translator
+                // (Thalos:Anthropic:PromptCaching, on by default) turns them into cache_control; a provider without a
+                // translator ignores them.
+                .UsePromptCaching()
                 // Reads join the existing source the scout already allows; writes go in their own, which its
                 // daedalus__* glob cannot name. See RepoActionToolSourceName for why the split is not the boundary.
                 // DaedalusReviewTools joins this source rather than getting its own: report_review_outcome is a
@@ -424,7 +433,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // ProcessValidator at load time and WorkflowNodeDispatcher at dispatch time, and decorating only one
         // of them would let a process validate against one set of agent names and then run against another.
         services.AddSingleton<IWorkflowReferenceResolver>(sp => new SquadWorkflowReferenceResolver(
-            new WorkflowReferenceResolver(sp.GetRequiredService<IAgentCatalog>(), sp.GetRequiredService<ISkillStore>()),
+            new WorkflowReferenceResolver(
+                sp.GetRequiredService<IAgentCatalog>(),
+                sp.GetRequiredService<ISkillStore>(),
+                sp.GetServices<IWorkflowHostAction>()),
             sp.GetRequiredService<SquadAgentResolver>(),
             sp.GetRequiredService<ILogger<SquadWorkflowReferenceResolver>>()));
 
@@ -435,7 +447,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
         DecorateMemoryServiceWithRecallTierRecording(services);
 
         // Task B5: the one type that ever writes Thalos:Workflow:StandingInstructionsPath, and only from
-        // WorkflowRunGateway's five-argument ResumeAsync overload, on a human's explicit applyStandingInstructions.
+        // WorkflowRunGateway's public ResumeAsync overload, on a human's explicit applyStandingInstructions.
         // Registered here, workflow-enabled hosts only, alongside the gateway it is injected into below.
         services.AddSingleton<StandingInstructionsWriter>();
 

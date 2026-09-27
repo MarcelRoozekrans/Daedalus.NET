@@ -42,8 +42,11 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, string sta
     private readonly string _standingInstructionsPath = standingInstructionsPath ?? throw new ArgumentNullException(nameof(standingInstructionsPath));
 
     /// <inheritdoc />
-    public async ValueTask<Result<Guid>> StartAsync(string workIntent, CancellationToken ct)
+    public async ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var workIntent = request.WorkIntent;
         if (string.IsNullOrWhiteSpace(workIntent))
         {
             return Result<Guid>.Failure("workIntent must not be blank.");
@@ -66,6 +69,15 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, string sta
             [StandingInstructionsDocument] = standingInstructions,
         };
 
-        return await _starter.StartAsync(ProcessName, correlationKey, variables, documents, ct).ConfigureAwait(false);
+        return await _starter.StartAsync(
+            new WorkflowRunStartOptions
+            {
+                Process = ProcessName,
+                CorrelationKey = correlationKey,
+                Variables = variables,
+                Documents = documents,
+                StartedBy = request.StartedBy,
+            },
+            ct).ConfigureAwait(false);
     }
 }

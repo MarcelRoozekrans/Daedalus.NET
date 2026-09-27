@@ -21,7 +21,7 @@ internal abstract class DelegatingWorkflowStore(IWorkflowStore inner) : IWorkflo
     protected IWorkflowStore Inner { get; } = inner ?? throw new ArgumentNullException(nameof(inner));
 
     /// <inheritdoc />
-    public virtual ValueTask<Guid> StartAsync(WorkflowStartRequest request, CancellationToken ct) => Inner.StartAsync(request, ct);
+    public virtual ValueTask<Result<Guid>> StartAsync(WorkflowStartRequest request, CancellationToken ct) => Inner.StartAsync(request, ct);
 
     /// <inheritdoc />
     public virtual ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => Inner.FindAsync(runId, ct);
@@ -31,8 +31,8 @@ internal abstract class DelegatingWorkflowStore(IWorkflowStore inner) : IWorkflo
         Inner.CompleteNodeAsync(runId, seq, transition, result, ct);
 
     /// <inheritdoc />
-    public virtual ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct) =>
-        Inner.ResumeAsync(runId, signal, payload, ct);
+    public virtual ValueTask<Result> ResumeAsync(Guid runId, WorkflowResumeRequest request, CancellationToken ct) =>
+        Inner.ResumeAsync(runId, request, ct);
 
     /// <inheritdoc />
     public virtual ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct) => Inner.FailAsync(runId, errorMessage, ct);

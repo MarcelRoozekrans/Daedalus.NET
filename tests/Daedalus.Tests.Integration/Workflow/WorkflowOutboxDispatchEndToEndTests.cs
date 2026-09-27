@@ -18,7 +18,7 @@ namespace Daedalus.Tests.Integration.Workflow;
 /// <summary>
 ///     Drives <see cref="WorkflowOutboxDispatchService"/> — the workflow engine's outbox poller — against a real
 ///     Postgres outbox table, end to end: a real
-///     <see cref="OrmWorkflowStore.StartAsync(string,int,string,string,System.Collections.Generic.IReadOnlyDictionary{string,object},System.Threading.CancellationToken)"/>
+///     <see cref="OrmWorkflowStore.StartAsync(WorkflowStartRequest,System.Threading.CancellationToken)"/>
 ///     enqueues a real
 ///     dispatch row, the poller's own <see cref="WorkflowOutboxDispatchService.ProcessBatchAsync"/> claims and
 ///     dispatches it through a real <see cref="WorkflowNodeDispatcher"/>, and the run and the outbox table are
@@ -76,7 +76,8 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
                 .Returns(Result<AgentTurnResult, AgentError>.Success(
                     new AgentTurnResult(TurnId.New(), new SessionId(Guid.Empty), "done", default, [], TimeSpan.Zero)));
 
-            var nodeDispatcher = new WorkflowNodeDispatcher(store, runner, resolver, definitions, Substitute.For<ISkillStore>(), run => new WorkflowCaller(run));
+            var nodeDispatcher = new WorkflowNodeDispatcher(
+                store, runner, resolver, definitions, Substitute.For<ISkillStore>(), run => new WorkflowCaller(run), gates: [], hostActions: []);
             var outboxDispatcher = new WorkflowDispatchOutboxDispatcher(nodeDispatcher);
 
             await using var dataSource = NpgsqlDataSource.Create(connectionString);
@@ -84,8 +85,18 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
             var poller = new WorkflowOutboxDispatchService(
                 dataSource, outboxDispatcher, pollerOptions, NullLogger<WorkflowOutboxDispatchService>.Instance);
 
-            var runId = await store.StartAsync(
-                "e2e-smoke-test", 1, $"e2e-test:{Guid.NewGuid()}", "start", initialVariables: null, CancellationToken.None);
+            var started = await store.StartAsync(
+                new WorkflowStartRequest
+                {
+                    Process = "e2e-smoke-test",
+                    Version = 1,
+                    CorrelationKey = $"e2e-test:{Guid.NewGuid()}",
+                    StartNode = "start",
+                    StartedBy = TestPrincipals.Starter,
+                },
+                CancellationToken.None);
+            started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : null);
+            var runId = started.Value;
 
             // First tick: dispatches "start" (a real agent turn through the substituted ISubagentRunner) and
             // transitions the run to "finish" — which OrmWorkflowStore.CompleteNodeAsync enqueues its own

@@ -2,6 +2,7 @@ using Daedalus.Agents.Workflow;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Thalos;
+using Thalos.Caching;
 using Thalos.Memory;
 using Thalos.Testing;
 using Thalos.Workflow;
@@ -163,16 +164,21 @@ public sealed class WorkflowCallerMemoryScopingTests
         await harness.RunAsync(ReviewerId, "Remember something for the agenda.", new WorkflowCaller(run1));
         await harness.RunAsync(ReviewerId, "What is on the agenda?", new WorkflowCaller(run2));
 
-        // The last request is run2's only model call. Its Options.Instructions come solely from
-        // MemoryContextProvider (auto-recall) — the script never gives the model a chance to call
-        // memory__recall in this turn — so the marker's presence here proves auto-recall resolved the
-        // same owner an explicit memory__recall call would (Part A's own fix-round bug: the two read
-        // paths disagreeing because only one of them was updated to honour IMemoryOwner). Auto-recall's
-        // query is the user text above, which shares no tokens with the marker, so this exercises the
-        // Recency-tier fallback rather than semantic ranking — irrelevant here since ChatOptions.Instructions
-        // carries the full MemoryRecallBlock.Render() output, never trimmed the way a tool result is.
+        // The last request is run2's only model call. Since Thalos 0.11.0 MemoryContextProvider (auto-recall)
+        // places the recalled memories in one transient message after the stored history, not in the
+        // instructions, so the instructions stay a cacheable prefix. The script never gives the model a chance
+        // to call memory__recall in this turn, so that message is the only way the marker can reach the model,
+        // and its presence proves auto-recall resolved the same owner an explicit memory__recall call would
+        // (Part A's own fix-round bug: the two read paths disagreeing because only one of them was updated to
+        // honour IMemoryOwner). Auto-recall's query is the user text above, which shares no tokens with the
+        // marker, so this exercises the Recency-tier fallback rather than semantic ranking — irrelevant here
+        // since the message carries the full MemoryRecallBlock.Render() output, never trimmed the way a tool
+        // result is. Falsifiable: a per-run WorkflowCaller.MemoryOwnerId puts run1's note out of run2's scope, so the
+        // transient message holds no marker.
         var lastRequest = scripted.Requests[^1];
-        lastRequest.Options?.Instructions.Should().Contain(marker);
+        lastRequest.Messages.Should().ContainSingle(m =>
+                m.AdditionalProperties != null && m.AdditionalProperties.ContainsKey(PromptCacheHints.Transient))
+            .Which.Text.Should().Contain(marker);
     }
 
     private static WorkflowRun NewRun(string process) => new()

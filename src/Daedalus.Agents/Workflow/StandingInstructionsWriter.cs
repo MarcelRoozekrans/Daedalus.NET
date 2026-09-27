@@ -4,7 +4,7 @@ using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Workflow;
 
-/// <summary>Why <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,bool,CancellationToken)"/> refused a resume.</summary>
+/// <summary>Why <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,bool,Thalos.Workflow.RunPrincipal,CancellationToken)"/> refused a resume.</summary>
 public enum ResumeRefusal
 {
     /// <summary>The run's <c>retrospect</c> step reported no <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/> — there is nothing to apply.</summary>

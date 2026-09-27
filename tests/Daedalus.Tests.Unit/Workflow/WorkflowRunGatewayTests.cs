@@ -6,8 +6,8 @@ using Thalos.Workflow;
 namespace Daedalus.Tests.Unit.Workflow;
 
 /// <summary>
-///     Fix round 1 of task B5. <see cref="WorkflowRunGateway"/>'s five-argument
-///     <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,bool,CancellationToken)"/> overload must not
+///     Fix round 1 of task B5. <see cref="WorkflowRunGateway"/>'s public
+///     <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,bool,RunPrincipal,CancellationToken)"/> overload must not
 ///     let a <see cref="WorkflowConcurrencyException"/> thrown by the underlying store's own resume propagate as
 ///     an unhandled exception once <see cref="StandingInstructionsWriter.ApplyAsync"/> has already written the
 ///     file — see that method's own remarks on why the write is not, and cannot cheaply be, rolled back.
@@ -15,6 +15,8 @@ namespace Daedalus.Tests.Unit.Workflow;
 public sealed class WorkflowRunGatewayTests
 {
     private const string Signal = "human_approval";
+
+    private static readonly RunPrincipal Approver = new("u-admin", ["admin"]) { DisplayName = "admin" };
 
     /// <summary>
     ///     The gateway's misconfiguration guard, deferred from task B5. A gateway built without a writer must refuse
@@ -28,13 +30,13 @@ public sealed class WorkflowRunGatewayTests
         var gateway = new WorkflowRunGateway(store);
 
         var act = async () => await gateway.ResumeAsync(
-            Guid.NewGuid(), Signal, null, applyStandingInstructions: true, CancellationToken.None);
+            Guid.NewGuid(), Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*without a StandingInstructionsWriter*");
     }
 
     /// <summary>
-    ///     Falsifiable: removing the <c>catch (WorkflowConcurrencyException)</c> block from the five-argument
+    ///     Falsifiable: removing the <c>catch (WorkflowConcurrencyException)</c> block from the public
     ///     <c>ResumeAsync</c> turns this red — the exception would propagate out of <c>ApplyAsync</c>'s caller
     ///     unhandled, and <c>await gateway.ResumeAsync(...)</c> would itself throw instead of returning a failed
     ///     <c>UnitResult</c>.
@@ -47,14 +49,14 @@ public sealed class WorkflowRunGatewayTests
 
         var store = Substitute.For<IWorkflowStore>();
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
-        store.ResumeAsync(run.Id, Signal, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        store.ResumeAsync(run.Id, Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal), Arg.Any<CancellationToken>())
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
         var writer = new StandingInstructionsWriter(
             new WorkflowConfig { StandingInstructionsPath = dir.Path("AGENT.md") }, Substitute.For<IHostEnvironment>());
         var gateway = new WorkflowRunGateway(store, writer);
 
-        var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, CancellationToken.None);
+        var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Kind.Should().Be(ResumeRefusal.EngineRefused);
@@ -77,16 +79,41 @@ public sealed class WorkflowRunGatewayTests
 
         var store = Substitute.For<IWorkflowStore>();
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
-        store.ResumeAsync(run.Id, Signal, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        store.ResumeAsync(run.Id, Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal), Arg.Any<CancellationToken>())
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
         var writer = new StandingInstructionsWriter(
             new WorkflowConfig { StandingInstructionsPath = dir.Path("AGENT.md") }, Substitute.For<IHostEnvironment>());
         var gateway = new WorkflowRunGateway(store, writer);
 
-        await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, CancellationToken.None);
+        await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
 
         (await File.ReadAllTextAsync(dir.Path("AGENT.md"))).Should().Be("New instructions.");
+    }
+
+    /// <summary>
+    ///     The approver the controller supplies is the one the store records. Falsifiable: building the
+    ///     <see cref="WorkflowResumeRequest"/> in the gateway from a constant principal instead of the one passed in
+    ///     turns the <c>Received</c> check red.
+    /// </summary>
+    [Fact]
+    public async Task The_approver_reaches_the_store_with_the_resume()
+    {
+        // The flag stays off, so the standing-instructions writer is never reached.
+        var run = RunWith(pinned: "", proposal: "New instructions.");
+        var store = Substitute.For<IWorkflowStore>();
+        store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
+        store.ResumeAsync(run.Id, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result>(Result.Success()));
+
+        var result = await new WorkflowRunGateway(store).ResumeAsync(
+            run.Id, Signal, null, applyStandingInstructions: false, Approver, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        await store.Received(1).ResumeAsync(
+            run.Id,
+            Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal && r.ResumedBy == Approver),
+            Arg.Any<CancellationToken>());
     }
 
     private static WorkflowRun RunWith(string pinned, string proposal) => new()

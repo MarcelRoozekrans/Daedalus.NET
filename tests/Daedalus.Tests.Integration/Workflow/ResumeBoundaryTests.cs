@@ -259,6 +259,9 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
 {
     private const string ProcessName = "resume-boundary-test";
 
+    /// <summary>The approver every resume in this class carries; none of these tests is about who approved.</summary>
+    private static readonly RunPrincipal TestApprover = new("test-approver", ["admin"]);
+
     private const string Yaml = """
         process: resume-boundary-test
         version: 1
@@ -278,7 +281,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var gateway = new WorkflowRunGateway(store.Store);
             var runId = await ParkedAtGateAsync(store, "c1");
 
-            var result = await gateway.ResumeAsync(runId, "ci_passed", payload: null, CancellationToken.None);
+            var result = await gateway.ResumeAsync(runId, "ci_passed", payload: null, TestApprover, CancellationToken.None);
 
             result.IsFailure.Should().BeTrue();
             result.Error.Should().Contain("human_approval");
@@ -293,7 +296,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         {
             var gateway = new WorkflowRunGateway(store.Store);
 
-            var result = await gateway.ResumeAsync(Guid.NewGuid(), "human_approval", payload: null, CancellationToken.None);
+            var result = await gateway.ResumeAsync(Guid.NewGuid(), "human_approval", payload: null, TestApprover, CancellationToken.None);
 
             result.IsFailure.Should().BeTrue();
             result.Error.Should().Contain("was not found");
@@ -309,7 +312,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var gateway = new WorkflowRunGateway(store.Store);
             var runId = await ParkedAtGateAsync(store, "c2");
 
-            var result = await gateway.ResumeAsync(runId, "human_approval", payload: null, CancellationToken.None);
+            var result = await gateway.ResumeAsync(runId, "human_approval", payload: null, TestApprover, CancellationToken.None);
 
             result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : string.Empty);
             var run = await store.Store.FindAsync(runId, CancellationToken.None);
@@ -324,7 +327,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
 
     /// <summary>
     ///     Resume and cancel agree on 404 for a run that does not exist. Exercised through the real controller,
-    ///     not just <see cref="WorkflowRunGateway"/> - <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,CancellationToken)"/>'s own "not
+    ///     not just <see cref="WorkflowRunGateway"/> - <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,RunPrincipal,CancellationToken)"/>'s own "not
     ///     found" failure alone maps to 409, which is why <see cref="WorkflowRunsController.Resume"/> checks
     ///     existence itself before delegating, the same way <see cref="WorkflowRunsController.Cancel"/> already
     ///     did.
@@ -360,7 +363,18 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     /// <summary>Starts a run at the gate node and dispatches it once, parking it at <c>Awaiting</c>.</summary>
     private static async Task<Guid> ParkedAtGateAsync(ScratchStore store, string correlationKey)
     {
-        var runId = await store.Store.StartAsync(ProcessName, 1, $"{correlationKey}:{Guid.NewGuid()}", "gate", initialVariables: null, CancellationToken.None);
+        var started = await store.Store.StartAsync(
+            new WorkflowStartRequest
+            {
+                Process = ProcessName,
+                Version = 1,
+                CorrelationKey = $"{correlationKey}:{Guid.NewGuid()}",
+                StartNode = "gate",
+                StartedBy = TestPrincipals.Starter,
+            },
+            CancellationToken.None);
+        started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : null);
+        var runId = started.Value;
 
         var run = await store.Store.FindAsync(runId, CancellationToken.None);
         var dispatcher = new WorkflowNodeDispatcher(
@@ -369,7 +383,9 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             Substitute.For<IWorkflowReferenceResolver>(),
             store.Definitions,
             Substitute.For<ISkillStore>(),
-            r => new WorkflowCaller(r));
+            r => new WorkflowCaller(r),
+            gates: [],
+            hostActions: []);
 
         await dispatcher.DispatchAsync(new WorkflowDispatchMessage(runId, run!.CurrentSeq, "gate"), CancellationToken.None);
 

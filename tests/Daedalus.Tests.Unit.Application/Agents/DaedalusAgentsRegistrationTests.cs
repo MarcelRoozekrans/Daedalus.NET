@@ -1,10 +1,12 @@
 using AI.Sentinel;
 using AI.Sentinel.Detectors.Security;
 using Daedalus.Agents;
+using Daedalus.Agents.Git;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Skills;
 using Daedalus.Agents.Workflow;
+using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -13,8 +15,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Thalos;
+using Thalos.Caching;
+using Thalos.Git;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
+using Thalos.Sentinel;
 using Thalos.Skills;
 using Thalos.Tools;
 using ZeroAlloc.Authorization;
@@ -62,6 +67,9 @@ public sealed class DaedalusAgentsRegistrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        // A real host gets the pull request factory from Daedalus.Infrastructure, not from AddDaedalusAgents, and
+        // the pull request publisher needs one to resolve.
+        services.AddSingleton(Substitute.For<IPullRequestFactory>());
         // A real host (WebApplicationBuilder/HostBuilder) always registers IHostEnvironment itself; this bare
         // ServiceCollection does not, so StandingInstructionsWriter (task B5, DI-injected IHostEnvironment) fails
         // to resolve unless the same instance handed to AddDaedalusAgents below is also registered here.
@@ -294,6 +302,94 @@ public sealed class DaedalusAgentsRegistrationTests
         });
 
         seen.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     Spec decision 9: the provider-neutral cache hints are placed on every agent's chat client. Falsifiable:
+    ///     removing <c>.UsePromptCaching()</c> from <c>AddDaedalusAgents</c> leaves no such decorator registered.
+    /// </summary>
+    [Fact]
+    public void The_composed_host_places_prompt_cache_hints_on_every_agents_chat_client()
+    {
+        using var sp = Build(Config());
+
+        sp.GetServices<IChatClientDecorator>().Should().Contain(d => d.GetType().Name == "PromptCachingDecorator",
+            "the Anthropic translator only acts on the hints PromptCachingChatClient places");
+    }
+
+    /// <summary>
+    ///     The hints reach the provider through Sentinel. The chain is composed the way Thalos' <c>AgentFactory</c>
+    ///     composes it, every registered decorator in ascending <see cref="IChatClientDecorator.Order"/> around the
+    ///     provider's client, so a decorator that dropped a message's properties on the way in would strip them here.
+    ///     Falsifiable per assertion: disabling Sentinel in the default configuration fails the first, and removing
+    ///     <c>.UsePromptCaching()</c> fails the second and third.
+    /// </summary>
+    [Fact]
+    public async Task The_cache_hints_survive_sentinel_and_reach_the_provider()
+    {
+        using var sp = Build(Config());
+        var agent = sp.GetRequiredService<IAgentCatalog>().Agents.Single();
+        var provider = new CapturingChatClient();
+
+        var decorators = sp.GetServices<IChatClientDecorator>().OrderBy(d => d.Order).ToList();
+        IChatClient client = provider;
+        foreach (var decorator in decorators)
+        {
+            client = decorator.Decorate(client, agent, sp);
+        }
+
+        await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "List the open tasks.")],
+            new ChatOptions { Instructions = "You are helpful." },
+            CancellationToken.None);
+
+        decorators.Should().Contain(d => d is SentinelChatClientDecorator, "otherwise this proves nothing about Sentinel");
+        var sent = provider.Messages.Should().ContainSingle().Subject;
+        sent.AdditionalProperties.Should().ContainKey(PromptCacheHints.Breakpoint);
+        provider.Options!.AdditionalProperties.Should().ContainKey(PromptCacheHints.InstructionsBreakpoint);
+    }
+
+    /// <summary>
+    ///     Ruling R28a: the publisher answers the open-pull-request lookup too, as one scoped instance. Falsifiable:
+    ///     registering the lookup as its own <c>AddScoped&lt;IOpenPullRequestLookup, ThalosPullRequestPublisher&gt;()</c>
+    ///     fails the same-instance assertion, and leaving the registration out makes the resolution throw.
+    /// </summary>
+    [Fact]
+    public void The_open_pull_request_lookup_is_the_scoped_pull_request_publisher()
+    {
+        using var sp = Build(Config());
+        using var scope = sp.CreateScope();
+
+        var lookup = scope.ServiceProvider.GetRequiredService<IOpenPullRequestLookup>();
+
+        lookup.Should()
+            .BeSameAs(scope.ServiceProvider.GetRequiredService<IPullRequestPublisher>());
+    }
+
+    /// <summary>The provider end of the chain: records what arrived and answers with one fixed reply.</summary>
+    private sealed class CapturingChatClient : IChatClient
+    {
+        public IReadOnlyList<ChatMessage> Messages { get; private set; } = [];
+
+        public ChatOptions? Options { get; private set; }
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            Messages = [.. messages];
+            Options = options;
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "none open")));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
     }
 
     [Fact]
