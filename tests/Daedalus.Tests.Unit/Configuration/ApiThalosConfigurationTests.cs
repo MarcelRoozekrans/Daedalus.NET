@@ -77,7 +77,7 @@ public sealed class ApiThalosConfigurationTests
 
         var policies = sp.GetRequiredService<IOptions<ThalosOptions>>().Value.ToolPolicies;
         policies.Select(p => (p.ToolPattern, p.PolicyName)).Should().Equal(
-            ("roslyn__apply_*", "workspace-write"),
+            ("roslyn__apply_*", "developer"),
             ("workspace__write_*", "workspace-write"),
             ("workspace__edit_*", "workspace-write"),
             ("roslyn__set_active_solution", "developer"),
@@ -95,10 +95,11 @@ public sealed class ApiThalosConfigurationTests
 
     /// <summary>
     ///     Phase 2.5, task B5: the shipped appsettings, in both hosts, binds each write pattern of a run's worktree to
-    ///     <c>workspace-write</c> exactly once, and none of them to <c>developer</c>. <c>developer</c> is the binding this
-    ///     replaced, and a workflow caller can never pass it, so a leftover one would silently stop <c>implement</c> from
-    ///     writing while every grant looked configured. The raw file is read rather than a composed host, so the Cli file
-    ///     is covered too.
+    ///     <c>workspace-write</c> exactly once, and none of them to <c>developer</c>, which a workflow caller can never
+    ///     pass, so a leftover one would silently stop <c>implement</c> from writing while every grant looked configured.
+    ///     <c>roslyn__apply_*</c> stays bound to <c>developer</c> alone until task B9 makes Roslyn run-scoped: until then
+    ///     it serves the host's own solution, and a workflow binding would let a granted turn change the host's checkout.
+    ///     The raw file is read rather than a composed host, so the Cli file is covered too.
     /// </summary>
     [Theory]
     [InlineData(ApiAppSettingsFileName)]
@@ -109,7 +110,7 @@ public sealed class ApiThalosConfigurationTests
             .Select(c => (Pattern: c["Pattern"], Policy: c["Policy"]))
             .ToList();
 
-        foreach (var pattern in new[] { "workspace__write_*", "workspace__edit_*", "roslyn__apply_*" })
+        foreach (var pattern in new[] { "workspace__write_*", "workspace__edit_*" })
         {
             // ContainSingle is also what rules out a second, developer binding: the authorizer evaluates every
             // matching binding, so a leftover one would deny a granted workflow caller.
@@ -117,6 +118,11 @@ public sealed class ApiThalosConfigurationTests
                     $"{fileName} must bind {pattern} exactly once")
                 .Which.Policy.Should().Be("workspace-write");
         }
+
+        // Red: rebinding roslyn__apply_* to workspace-write before B9, or adding a second binding beside developer.
+        bindings.Where(b => string.Equals(b.Pattern, "roslyn__apply_*", StringComparison.Ordinal)).Should().ContainSingle(
+                $"{fileName} must bind roslyn__apply_* exactly once")
+            .Which.Policy.Should().Be("developer", "Roslyn serves the host's own solution until B9 makes it run-scoped");
 
         bindings.Should().Contain(("roslyn__set_active_solution", "developer"),
             "switching the loaded solution is an operator action a workflow turn must never take");

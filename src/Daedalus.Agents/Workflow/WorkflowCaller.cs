@@ -45,7 +45,8 @@ namespace Daedalus.Agents.Workflow;
 ///     <see langword="null"/> is the normal state of every ungranted node, so the parameter is nullable but required:
 ///     every construction says which (rulings R27 and R29). A granted caller also holds
 ///     <see cref="WorkspaceWritePolicy.WorkspaceWriterRole"/>, which is what the <c>workspace-write</c> binding on
-///     <c>workspace__write_*</c>, <c>workspace__edit_*</c> and <c>roslyn__apply_*</c> checks.
+///     <c>workspace__write_*</c> and <c>workspace__edit_*</c> checks. <c>roslyn__apply_*</c> stays on <c>developer</c>,
+///     which this caller never passes, until task B9 makes Roslyn run-scoped.
 ///     </para>
 ///     <para>
 ///     <b>The <c>thalos.*</c> claims come from the run row and reviewed config only.</b>
@@ -119,17 +120,20 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
         };
         if (grant is not null)
         {
-            claims[RunWorkspaceClaims.WriteExtensions] = string.Join(';', grant.AllowedExtensions.Where(e => Ascii.IsValid(e)).Select(AsciiLower));
+            claims[RunWorkspaceClaims.WriteExtensions] = string.Join(';', grant.AllowedExtensions
+                .Where(e => DaedalusAgentsServiceCollectionExtensions.AllowedExtensionPattern().IsMatch(e))
+                .Select(AsciiLower));
         }
 
         return claims.ToFrozenDictionary(StringComparer.Ordinal);
     }
 
     /// <summary>
-    ///     Lower-cases an extension that is ASCII, which <c>ValidateWorkflowWriteConfig</c> requires of every configured one
-    ///     (a dot, then letters and digits). The ASCII mapping is exact both ways, unlike a culture's. A non-ASCII entry
-    ///     can only come from a grant built outside that validation, and is left out of the claim, which narrows the
-    ///     grant rather than widening it.
+    ///     Lower-cases an extension that already matched the pattern <c>ValidateWorkflowWriteConfig</c> enforces on every
+    ///     configured one: a dot, then ASCII letters and digits. The ASCII mapping is exact both ways, unlike a
+    ///     culture's. An entry that does not match can only come from a grant built outside that validation, and is left
+    ///     out of the claim, so it narrows the grant rather than widening it: a <c>';'</c> inside one entry would
+    ///     otherwise split into extra extensions when the tools parse the claim.
     /// </summary>
     private static string AsciiLower(string extension) =>
         string.Create(extension.Length, extension, static (target, source) => Ascii.ToLower(source, target, out _));

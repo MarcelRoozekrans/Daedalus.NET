@@ -50,15 +50,22 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
     public async Task DisposeAsync() => await _host.DisposeAsync();
 
     /// <summary>
-    ///     Red: drop the grant from the resolver, so every caller is built with <c>grant: null</c>; or, for the
-    ///     <c>roslyn__apply_*</c> row, keep that pattern bound to <c>developer</c>.
+    ///     Red: drop the grant from the resolver, so every caller is built with <c>grant: null</c>.
     /// </summary>
     [Theory]
     [InlineData("workspace__write_file")]
     [InlineData("workspace__edit_file")]
-    [InlineData("roslyn__apply_code_action")]
     public async Task Implement_of_an_admin_started_run_may_write_its_workspace(string tool) =>
         (await Authorize(_host, Caller(_host, await RunAt(_host, "implement", Admin)), tool)).Allowed.Should().BeTrue();
+
+    /// <summary>
+    ///     Until task B9 makes Roslyn run-scoped, it serves the host's own solution, so even a granted implement turn may
+    ///     not apply code actions: <c>roslyn__apply_*</c> stays bound to <c>developer</c>. Red: rebind it to
+    ///     <c>workspace-write</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_granted_implement_turn_may_not_apply_code_actions_to_the_host_solution() =>
+        (await Authorize(_host, Caller(_host, await RunAt(_host, "implement", Admin)), "roslyn__apply_code_action")).Allowed.Should().BeFalse();
 
     /// <summary>
     ///     Both nodes are task nodes pinned in the manifest and started by an admin, so only the grant's node comparison
@@ -82,7 +89,7 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
     /// <summary>Red: drop the starter-role check in <see cref="WorkspaceWriteGrant.GrantFor"/>.</summary>
     [Fact]
     public async Task A_run_started_by_a_non_developer_may_not() =>
-        (await Authorize(_host, Caller(_host, await RunAt(_host, "implement", new RunPrincipal("u", ["analyst"]))), "roslyn__apply_code_action"))
+        (await Authorize(_host, Caller(_host, await RunAt(_host, "implement", new RunPrincipal("u", ["analyst"]))), "workspace__write_file"))
             .Allowed.Should().BeFalse();
 
     /// <summary>
@@ -131,8 +138,8 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
     /// <summary>
     ///     A chat turn has no run. A developer's token that carries <c>thalos.run_id</c> of a real run, whose worktree
     ///     exists, must not reach it: <see cref="ClaimsSecurityContext"/> drops the claim, so the tool finds no workspace.
-    ///     The authorizer is not what stops this: <c>developer</c> passes <c>workspace-write</c>, as it passed the
-    ///     <c>developer</c> binding on <c>roslyn__apply_*</c> before.
+    ///     The authorizer is not what stops this: <c>developer</c> passes <c>workspace-write</c>, as it passes the
+    ///     <c>developer</c> binding on <c>roslyn__apply_*</c>.
     /// </summary>
     [Fact]
     public async Task A_chat_turn_carrying_a_forged_run_claim_cannot_write_that_runs_worktree()

@@ -767,7 +767,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
     // \z rather than $, for the same reason: ".cs\n" is not an extension.
     [GeneratedRegex(@"^\.[A-Za-z0-9]+\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
-    private static partial Regex AllowedExtensionPattern();
+    // Internal because WorkflowCaller filters a grant's extensions with this same pattern before they reach the
+    // write-extension claim.
+    internal static partial Regex AllowedExtensionPattern();
 
     /// <summary>
     ///     Memory-only registration for hosts that run Ralph but <b>no</b> Thalos agents — the console worker. Registers the

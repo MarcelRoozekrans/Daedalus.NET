@@ -90,20 +90,26 @@ public sealed class WorkflowCallerTests
     }
 
     /// <summary>
-    ///     Config validation admits only ASCII extensions, so a non-ASCII entry can only come from a grant built around
-    ///     it. It is left out of the claim, narrowing the grant, never passed through half-converted.
+    ///     Config validation admits only a dot followed by ASCII letters and digits, so any other entry can only come from
+    ///     a grant built around it. It is left out of the claim, narrowing the grant, never widening it.
     /// </summary>
-    [Fact]
-    public void A_non_ascii_extension_is_left_out_of_the_claim()
+    /// <remarks>
+    ///     Red for the non-ASCII row: drop the filter; the entry reaches <c>Ascii.ToLower</c>, which stops at the first
+    ///     non-ASCII character and leaves the rest unwritten. Red for the <c>';'</c> row: filter with
+    ///     <c>Ascii.IsValid</c> instead of the config pattern; the claim becomes <c>.cs;.cs;.props</c>, which the tools
+    ///     parse as a grant of <c>.props</c> too.
+    /// </remarks>
+    [Theory]
+    [InlineData(".\u00C7s")]
+    [InlineData(".cs;.props")]
+    public void An_entry_the_config_pattern_rejects_is_left_out_of_the_claim(string entry)
     {
         var grant = new WriteGrantConfig { Process = "manufacture", Node = "implement" };
         grant.AllowedExtensions.Add(".CS");
-        grant.AllowedExtensions.Add(".Çs");
+        grant.AllowedExtensions.Add(entry);
 
         var caller = new WorkflowCaller(NewRun("manufacture", Guid.NewGuid()), grant);
 
-        // Red: drop the Ascii.IsValid filter; the entry then reaches Ascii.ToLower, which stops at the first
-        // non-ASCII character and leaves the rest of the string unwritten.
         caller.Claims.Should().ContainKey(RunWorkspaceClaims.WriteExtensions).WhoseValue.Should().Be(".cs");
     }
 
