@@ -49,8 +49,8 @@ public sealed class WorkflowCallerMemoryScopingTests
         var run1 = NewRun("manufacture-recall-carryover");
         var run2 = NewRun("manufacture-recall-carryover"); // same process, a later run
 
-        await harness.RunAsync(ReviewerId, "Remember something for later runs.", new WorkflowCaller(run1));
-        var second = await harness.RunAsync(ReviewerId, "Recall the carryover marker.", new WorkflowCaller(run2));
+        await harness.RunAsync(ReviewerId, "Remember something for later runs.", new WorkflowCaller(run1, grant: null));
+        var second = await harness.RunAsync(ReviewerId, "Recall the carryover marker.", new WorkflowCaller(run2, grant: null));
 
         var recall = second.ToolCalls.Should().ContainSingle(tc => tc.ToolName == "memory__recall").Which;
         recall.ResultPreview.Should().Contain(marker,
@@ -79,7 +79,7 @@ public sealed class WorkflowCallerMemoryScopingTests
 
         await using var harness = BuildHarness(scripted);
         var run = NewRun("manufacture-role-partition");
-        var caller = new WorkflowCaller(run); // same run for both roles
+        var caller = new WorkflowCaller(run, grant: null); // same run for both roles
 
         await harness.RunAsync(ImplementerId, "Remember something only the implementer should see.", caller);
         var implementerRecall = await harness.RunAsync(ImplementerId, "Recall your own marker.", caller);
@@ -126,7 +126,7 @@ public sealed class WorkflowCallerMemoryScopingTests
 
         await using var harness = BuildHarness(scripted);
         var run = NewRun("manufacture-own-plus-shared");
-        var caller = new WorkflowCaller(run);
+        var caller = new WorkflowCaller(run, grant: null);
 
         await harness.SeedAsync(caller.MemoryOwnerId, ReviewerId, reviewerMarker);
         await harness.SeedAsync(caller.MemoryOwnerId, agentId: null, sharedMarker);
@@ -164,10 +164,10 @@ public sealed class WorkflowCallerMemoryScopingTests
         // A decoy in the per-run scope run2 would read if its memory owner were its per-run Id. It gives the
         // regression below a transient message of its own, so the marker clause is what catches it, not the
         // message's absence.
-        var caller2 = new WorkflowCaller(run2);
+        var caller2 = new WorkflowCaller(run2, grant: null);
         await harness.SeedAsync(caller2.Id, agentId: null, "PER-RUN-DECOY-7c1e93");
 
-        await harness.RunAsync(ReviewerId, "Remember something for the agenda.", new WorkflowCaller(run1));
+        await harness.RunAsync(ReviewerId, "Remember something for the agenda.", new WorkflowCaller(run1, grant: null));
         await harness.RunAsync(ReviewerId, "What is on the agenda?", caller2);
 
         // The last request is run2's only model call. Since Thalos 0.11.0 MemoryContextProvider (auto-recall)

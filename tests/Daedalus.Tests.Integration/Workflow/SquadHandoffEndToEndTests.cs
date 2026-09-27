@@ -501,6 +501,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton(squad);
         services.AddSingleton(squadAgentResolver);
         services.AddSingleton<WorkflowRecallTierLog>();
+        // The caller resolver reads the write grants from it; these tests assert handoff, not write grants.
+        services.AddSingleton(new WorkflowConfig());
         services.AddSingleton<IWorkflowReferenceResolver>(references);
         services.AddSingleton<IAgentCatalog>(catalog);
         services.AddSingleton(runner);

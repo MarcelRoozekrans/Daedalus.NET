@@ -24,6 +24,8 @@ public sealed class ApiThalosConfigurationTests
 
     private const string ConsoleAppSettingsFileName = "Daedalus.Console.appsettings.json";
 
+    private const string CliAppSettingsFileName = "Daedalus.Cli.appsettings.json";
+
     private static IConfiguration LoadApiConfiguration() => Load(ApiAppSettingsFileName);
 
     private static IConfiguration LoadConsoleConfiguration() => Load(ConsoleAppSettingsFileName);
@@ -75,7 +77,10 @@ public sealed class ApiThalosConfigurationTests
 
         var policies = sp.GetRequiredService<IOptions<ThalosOptions>>().Value.ToolPolicies;
         policies.Select(p => (p.ToolPattern, p.PolicyName)).Should().Equal(
-            ("roslyn__apply_*", "developer"),
+            ("roslyn__apply_*", "workspace-write"),
+            ("workspace__write_*", "workspace-write"),
+            ("workspace__edit_*", "workspace-write"),
+            ("roslyn__set_active_solution", "developer"),
             ("roslyn__rename_*", "developer"),
             ("repoaction__*", "developer"),
             ("git__*", "developer"),
@@ -86,6 +91,35 @@ public sealed class ApiThalosConfigurationTests
         sentinel.OnHigh.Should().Be(SentinelAction.Alert);
         sentinel.OnMedium.Should().Be(SentinelAction.Log);
         sentinel.OnLow.Should().Be(SentinelAction.Log);
+    }
+
+    /// <summary>
+    ///     Phase 2.5, task B5: the shipped appsettings, in both hosts, binds each write pattern of a run's worktree to
+    ///     <c>workspace-write</c> exactly once, and none of them to <c>developer</c>. <c>developer</c> is the binding this
+    ///     replaced, and a workflow caller can never pass it, so a leftover one would silently stop <c>implement</c> from
+    ///     writing while every grant looked configured. The raw file is read rather than a composed host, so the Cli file
+    ///     is covered too.
+    /// </summary>
+    [Theory]
+    [InlineData(ApiAppSettingsFileName)]
+    [InlineData(CliAppSettingsFileName)]
+    public void The_shipped_appsettings_binds_each_workspace_write_pattern(string fileName)
+    {
+        var bindings = Load(fileName).GetSection("Thalos:ToolPolicies").GetChildren()
+            .Select(c => (Pattern: c["Pattern"], Policy: c["Policy"]))
+            .ToList();
+
+        foreach (var pattern in new[] { "workspace__write_*", "workspace__edit_*", "roslyn__apply_*" })
+        {
+            // ContainSingle is also what rules out a second, developer binding: the authorizer evaluates every
+            // matching binding, so a leftover one would deny a granted workflow caller.
+            bindings.Where(b => string.Equals(b.Pattern, pattern, StringComparison.Ordinal)).Should().ContainSingle(
+                    $"{fileName} must bind {pattern} exactly once")
+                .Which.Policy.Should().Be("workspace-write");
+        }
+
+        bindings.Should().Contain(("roslyn__set_active_solution", "developer"),
+            "switching the loaded solution is an operator action a workflow turn must never take");
     }
 
     [Fact]

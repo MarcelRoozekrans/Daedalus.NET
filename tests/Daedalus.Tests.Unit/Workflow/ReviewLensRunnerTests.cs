@@ -76,7 +76,7 @@ public sealed class ReviewLensRunnerTests
     {
         AgentId = ReviewerId,
         Task = "Load the skill 'manufacture-review' and follow it.",
-        Caller = new WorkflowCaller(run),
+        Caller = new WorkflowCaller(run, grant: null),
         RequiredOutcome = ReviewOutcome,
     };
 

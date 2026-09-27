@@ -77,7 +77,7 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
                     new AgentTurnResult(TurnId.New(), new SessionId(Guid.Empty), "done", default, [], TimeSpan.Zero)));
 
             var nodeDispatcher = new WorkflowNodeDispatcher(
-                store, runner, resolver, definitions, Substitute.For<ISkillStore>(), run => new WorkflowCaller(run), gates: [], hostActions: []);
+                store, runner, resolver, definitions, Substitute.For<ISkillStore>(), run => new WorkflowCaller(run, grant: null), gates: [], hostActions: []);
             var outboxDispatcher = new WorkflowDispatchOutboxDispatcher(nodeDispatcher);
 
             await using var dataSource = NpgsqlDataSource.Create(connectionString);

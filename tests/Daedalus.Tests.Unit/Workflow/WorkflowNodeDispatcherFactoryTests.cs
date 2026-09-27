@@ -1,3 +1,4 @@
+using Daedalus.Agents;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
@@ -90,6 +91,8 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         // The two store decorators the factory puts between the dispatcher and IWorkflowStore need these.
         services.AddSingleton(new SquadOptions { Enabled = true, FallbackAgentName = "Daedalus Architect" });
         services.AddSingleton<WorkflowRecallTierLog>();
+        // The caller resolver reads the write grants from it; none are needed for a budget.
+        services.AddSingleton(new WorkflowConfig());
         await using var provider = services.BuildServiceProvider();
 
         var dispatcher = WorkflowNodeDispatcherFactory.Create(provider);

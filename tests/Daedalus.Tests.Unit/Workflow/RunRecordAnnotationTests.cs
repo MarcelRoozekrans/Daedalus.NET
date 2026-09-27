@@ -87,7 +87,7 @@ public sealed class RunRecordAnnotationTests
         var log = new WorkflowRecallTierLog();
         if (tier is { } answered)
         {
-            var caller = new WorkflowCaller(Run(runId));
+            var caller = new WorkflowCaller(Run(runId), grant: null);
             var memory = new RecallTierRecordingMemoryService(ServiceAnswering(answered), log, () => caller);
             await memory.RecallAsync("anything", new MemoryScope(caller.MemoryOwnerId, Reviewer, "daedalus"), new RecallOptions(), CancellationToken.None);
         }
@@ -170,7 +170,7 @@ public sealed class RunRecordAnnotationTests
     {
         var runId = Guid.NewGuid();
         var log = new WorkflowRecallTierLog();
-        var caller = new WorkflowCaller(Run(runId));
+        var caller = new WorkflowCaller(Run(runId), grant: null);
         var memory = new RecallTierRecordingMemoryService(ServiceAnswering(MemoryRecallTier.Semantic), log, () => caller);
         await memory.RecallAsync("anything", new MemoryScope(caller.MemoryOwnerId, Reviewer, "daedalus"), new RecallOptions(), CancellationToken.None);
 
@@ -192,7 +192,7 @@ public sealed class RunRecordAnnotationTests
     {
         var log = new WorkflowRecallTierLog();
         var otherRun = Guid.NewGuid();
-        var caller = new WorkflowCaller(Run(otherRun));
+        var caller = new WorkflowCaller(Run(otherRun), grant: null);
         var memory = new RecallTierRecordingMemoryService(ServiceAnswering(MemoryRecallTier.Recency), log, () => caller);
         await memory.RecallAsync("anything", new MemoryScope(caller.MemoryOwnerId, Reviewer, "daedalus"), new RecallOptions(), CancellationToken.None);
 
@@ -231,7 +231,7 @@ public sealed class RunRecordAnnotationTests
     {
         var log = new WorkflowRecallTierLog();
         var runId = Guid.NewGuid();
-        var caller = new WorkflowCaller(Run(runId));
+        var caller = new WorkflowCaller(Run(runId), grant: null);
         var inner = Substitute.For<IMemoryService>();
         inner.RecallAsync(Arg.Any<string>(), Arg.Any<MemoryScope>(), Arg.Any<RecallOptions>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result<MemoryRecallResult, AgentError>>(

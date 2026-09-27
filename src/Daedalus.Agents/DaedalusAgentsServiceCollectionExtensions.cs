@@ -336,7 +336,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 .UseLibGit2SharpGit()
                 .AddLocalTools(GitToolSourceName, typeof(GitActionTools))
                 .AddMcpServersFromFile(ResolveMcpConfigPath(options.McpConfigPath, environment))
-                .AddPolicy<DeveloperPolicy>();
+                .AddPolicy<DeveloperPolicy>()
+                .AddPolicy<WorkspaceWritePolicy>();
 
             foreach (var binding in options.ToolPolicies)
             {

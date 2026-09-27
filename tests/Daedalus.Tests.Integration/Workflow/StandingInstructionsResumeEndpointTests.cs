@@ -256,7 +256,7 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
         var run = await store.FindAsync(runId, CancellationToken.None);
         var dispatcher = new WorkflowNodeDispatcher(
             store, Substitute.For<ISubagentRunner>(), Substitute.For<IWorkflowReferenceResolver>(), definitions,
-            Substitute.For<ISkillStore>(), r => new WorkflowCaller(r), gates: [], hostActions: []);
+            Substitute.For<ISkillStore>(), r => new WorkflowCaller(r, grant: null), gates: [], hostActions: []);
 
         await dispatcher.DispatchAsync(new WorkflowDispatchMessage(runId, run!.CurrentSeq, "gate"), CancellationToken.None);
 

@@ -444,7 +444,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             Substitute.For<IWorkflowReferenceResolver>(),
             store.Definitions,
             Substitute.For<ISkillStore>(),
-            r => new WorkflowCaller(r),
+            r => new WorkflowCaller(r, grant: null),
             gates: [],
             hostActions: []);
 

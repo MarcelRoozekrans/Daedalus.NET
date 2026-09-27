@@ -1,6 +1,9 @@
 using System.Collections.Frozen;
+using System.Text;
+using Daedalus.Agents.Security;
 using Thalos.Memory;
 using Thalos.Workflow;
+using Thalos.Workspaces;
 using ZeroAlloc.Authorization;
 
 namespace Daedalus.Agents.Workflow;
@@ -31,13 +34,30 @@ namespace Daedalus.Agents.Workflow;
 ///     <b>This role denies by binding, and allows by default.</b> <c>Thalos.Tools.DefaultToolAuthorizer</c>
 ///     evaluates every <c>ToolPolicies</c> binding whose pattern matches the tool and allows the call when
 ///     <em>no</em> binding matches — so a <c>"workflow"</c> principal is denied exactly what is bound to
-///     <c>developer</c> and allowed everything unbound. The reach of that today is benign, and was checked
-///     against the registered tool surface; the standing obligation it creates is not optional: any new tool
+///     <c>developer</c>, and to <c>workspace-write</c> unless granted, and allowed everything unbound. The reach
+///     of that today is benign, and was checked against the registered tool surface; the standing obligation it creates is not optional: any new tool
 ///     source that can write anything must get its own <c>Thalos:ToolPolicies</c> line in the same change,
 ///     because without one it is silently granted to an unattended agent that loops without a human in the turn.
 ///     </para>
+///     <para>
+///     <b>The write grant (phase 2.5).</b> <paramref name="grant"/> is the entry that grants this run's current node
+///     workspace writes, from <see cref="WorkspaceWriteGrant.GrantFor"/>, or <see langword="null"/> when it holds none.
+///     <see langword="null"/> is the normal state of every ungranted node, so the parameter is nullable but required:
+///     every construction says which (rulings R27 and R29). A granted caller also holds
+///     <see cref="WorkspaceWritePolicy.WorkspaceWriterRole"/>, which is what the <c>workspace-write</c> binding on
+///     <c>workspace__write_*</c>, <c>workspace__edit_*</c> and <c>roslyn__apply_*</c> checks.
+///     </para>
+///     <para>
+///     <b>The <c>thalos.*</c> claims come from the run row and reviewed config only.</b>
+///     <see cref="RunWorkspaceClaims.RunId"/> routes this caller's <c>workspace__*</c> and run-scoped MCP calls to this
+///     run's worktree and servers, and <see cref="RunWorkspaceClaims.WriteExtensions"/> narrows what it may write
+///     there. Both are built here from <paramref name="run"/> and <paramref name="grant"/>, never copied from a
+///     variable or an inbound identity.
+///     </para>
 /// </remarks>
-internal sealed class WorkflowCaller(WorkflowRun run) : ISecurityContext, IMemoryOwner
+/// <param name="run">The run these turns belong to.</param>
+/// <param name="grant">The granting write entry, or <see langword="null"/> for a node with no write grant.</param>
+internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) : ISecurityContext, IMemoryOwner
 {
     /// <summary>
     ///     The run these turns belong to. Carried so a decorator on the runner side — <see cref="ReviewLensRunner"/>
@@ -74,8 +94,43 @@ internal sealed class WorkflowCaller(WorkflowRun run) : ISecurityContext, IMemor
     public bool PinMemoriesToAgent => true;
 
     /// <inheritdoc />
-    public IReadOnlySet<string> Roles { get; } = new HashSet<string>(StringComparer.Ordinal) { "workflow" };
+    /// <remarks><c>{workflow}</c>, plus <see cref="WorkspaceWritePolicy.WorkspaceWriterRole"/> only when granted.</remarks>
+    public IReadOnlySet<string> Roles { get; } = grant is not null
+        ? new HashSet<string>(StringComparer.Ordinal) { "workflow", WorkspaceWritePolicy.WorkspaceWriterRole }
+        : new HashSet<string>(StringComparer.Ordinal) { "workflow" };
 
     /// <inheritdoc />
-    public IReadOnlyDictionary<string, string> Claims { get; } = FrozenDictionary<string, string>.Empty;
+    /// <remarks>
+    ///     <see cref="RunWorkspaceClaims.RunId"/>, <c>node</c> and <c>started_by</c> (empty for a run with no starter),
+    ///     and <see cref="RunWorkspaceClaims.WriteExtensions"/> only when granted: the granting entry's extensions,
+    ///     lower-cased and joined with <c>';'</c>. The workspace tools intersect it with their host-wide ceiling
+    ///     (ruling R29). Absent rather than blank for an ungranted caller, because a present blank claim is a grant
+    ///     of zero extensions, not the absence of one.
+    /// </remarks>
+    public IReadOnlyDictionary<string, string> Claims { get; } = BuildClaims(run, grant);
+
+    private static FrozenDictionary<string, string> BuildClaims(WorkflowRun run, WriteGrantConfig? grant)
+    {
+        var claims = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [RunWorkspaceClaims.RunId] = run.Id.ToString(),
+            ["node"] = run.CurrentNode,
+            ["started_by"] = run.StartedBy?.Id ?? "",
+        };
+        if (grant is not null)
+        {
+            claims[RunWorkspaceClaims.WriteExtensions] = string.Join(';', grant.AllowedExtensions.Where(e => Ascii.IsValid(e)).Select(AsciiLower));
+        }
+
+        return claims.ToFrozenDictionary(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    ///     Lower-cases an extension that is ASCII, which <c>ValidateWorkflowWriteConfig</c> requires of every configured one
+    ///     (a dot, then letters and digits). The ASCII mapping is exact both ways, unlike a culture's. A non-ASCII entry
+    ///     can only come from a grant built outside that validation, and is left out of the claim, which narrows the
+    ///     grant rather than widening it.
+    /// </summary>
+    private static string AsciiLower(string extension) =>
+        string.Create(extension.Length, extension, static (target, source) => Ascii.ToLower(source, target, out _));
 }
