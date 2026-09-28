@@ -190,6 +190,18 @@ public sealed class DaedalusAgentsRegistrationTests
     }
 
     /// <summary>
+    ///     Task B6: the write audit and the review lenses resolve the run record store from the host, so a
+    ///     workflow-enabled host must register the EF store, not leave it for each consumer to add.
+    /// </summary>
+    [Fact]
+    public void The_run_record_store_is_registered_when_the_workflow_engine_is_enabled()
+    {
+        using var sp = Build(Config());
+
+        sp.GetService<IWorkflowRunRecordStore>().Should().BeOfType<WorkflowRunRecordStore>();
+    }
+
+    /// <summary>
     ///     Final review finding I3. The standing-instructions file is overwritten with approved model text, so a
     ///     path that climbs out of the content root, whether rooted elsewhere or through <c>..</c>, must take the
     ///     host down at registration. The sibling case is a directory that shares the content root's name as a

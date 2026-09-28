@@ -471,6 +471,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // Thalos:ToolPolicies, which DefaultToolAuthorizer only ever evaluates against a tool call).
         services.AddSingleton<WorkflowRunGateway>();
 
+        // Task B6: the host's append-only record of a run, which the write audit and the review lenses append to.
+        // A singleton is safe: the store takes a fresh DbContext from IDbContextFactory on every call.
+        services.AddSingleton<IWorkflowRunRecordStore, WorkflowRunRecordStore>();
+
         // Replaces the DisabledManufactureRunStarter registered unconditionally above, now that WorkflowRunStarter
         // (from AddWorkflowOrm, inside AddThalos), IWorkflowReferenceResolver (just above) and IRunWorkspaceProvider
         // (from UseGitWorktreeWorkspaces, inside AddThalos) all resolve.
