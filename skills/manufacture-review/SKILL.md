@@ -99,8 +99,11 @@ Daedalus supplies a second tool that does.
 |---|---|
 | `lens` | the lens this pass was told to apply |
 | `verdict` | `approved` or `rejected` |
-| `findings` | JSON array; **required and non-empty when you reject**. Each entry `{"file": "...", "line": 42, "scenario": "..."}` — `scenario` is the concrete failure, not a complaint. |
-| `checked` | JSON array of strings; **required and non-empty when you approve**. What you examined and found sound, specifically enough that a human can go and look at the same thing. |
+| `findings` | JSON array; **required and non-empty when you reject**. Each entry `{"file": "...", "line": 42, "scenario": "..."}` — `scenario` is the concrete failure, not a complaint. At most 32 entries; `file` and `scenario` at most 1000 characters each. |
+| `checked` | JSON array of strings; **required and non-empty when you approve**. What you examined and found sound, specifically enough that a human can go and look at the same thing. At most 32 entries of at most 1000 characters each. |
+
+No value may contain a NUL character. A report over these limits is refused, so name the most
+important findings and group related checked items.
 
 **This tool refuses a hollow report.** An `approved` with an empty or missing `checked` is rejected
 by the tool and not recorded; so is a `rejected` whose findings lack a file, a positive line

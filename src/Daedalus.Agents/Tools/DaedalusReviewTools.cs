@@ -58,8 +58,8 @@ public sealed class DaedalusReviewTools
     public string ReportReviewOutcome(
         [Description("The review lens this pass applied: correctness, falsifiability or mechanism.")] string lens,
         [Description("The verdict for this lens only: 'approved' or 'rejected'.")] string verdict,
-        [Description("JSON array of findings, required when rejecting. Each entry: {\"file\": \"src/X.cs\", \"line\": 42, \"scenario\": \"what concretely goes wrong\"}.")] string? findings = null,
-        [Description("JSON array of strings, required when approving. What you examined and found sound, specific enough for a human to look at the same thing.")] string? @checked = null)
+        [Description("JSON array of findings, required when rejecting. Each entry: {\"file\": \"src/X.cs\", \"line\": 42, \"scenario\": \"what concretely goes wrong\"}. At most 32 entries; 'file' and 'scenario' at most 1000 characters each; no NUL characters.")] string? findings = null,
+        [Description("JSON array of strings, required when approving. What you examined and found sound, specific enough for a human to look at the same thing. At most 32 entries of at most 1000 characters each; no NUL characters.")] string? @checked = null)
     {
         var validated = ReviewEvidence.Validate(lens, verdict, findings, @checked);
         if (validated.IsFailure)

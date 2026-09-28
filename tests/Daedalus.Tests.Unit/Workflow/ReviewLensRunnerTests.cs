@@ -421,6 +421,26 @@ public sealed class ReviewLensRunnerTests
     }
 
     [Fact]
+    public async Task The_recorded_lens_is_the_configured_name_not_the_case_the_model_reported()
+    {
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        var appended = new List<WorkflowRunRecord>();
+        records.AppendAsync(Arg.Do<WorkflowRunRecord>(appended.Add), Arg.Any<CancellationToken>()).Returns(ValueTask.CompletedTask);
+        // The lens match in ParseCall ignores case, so "Correctness" is accepted as the correctness pass.
+        var runner = new ReviewLensRunner(
+            new RecordingRunner(_ => Rejects("Correctness")), DefinitionsWith("correctness"), Scopes(records),
+            TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
+
+        var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var record = appended.Should().ContainSingle().Subject;
+        using var payload = System.Text.Json.JsonDocument.Parse(record.PayloadJson);
+        // Red: recording evidence.Lens, the model's spelling, instead of lens.Name.
+        payload.RootElement.GetProperty("lens").GetString().Should().Be("correctness");
+    }
+
+    [Fact]
     public async Task A_pass_whose_evidence_cannot_be_recorded_fails_the_node_and_no_further_pass_runs()
     {
         var inner = new RecordingRunner(i => Approves(ThreeLenses[i]));

@@ -169,6 +169,30 @@ public sealed class ReviewEvidenceTests
         rejection.IsSuccess.Should().BeTrue(rejection.IsFailure ? rejection.Error : "");
     }
 
+    /// <summary>
+    ///     The tool's parameter descriptions tell the model the bounds before it reports. They are attribute strings,
+    ///     so they hold the numbers as literals; this pins them to the constants. Red: changing
+    ///     <see cref="ReviewEvidence.MaxEntries"/> or <see cref="ReviewEvidence.MaxEntryLength"/>.
+    /// </summary>
+    [Theory]
+    [InlineData("findings")]
+    [InlineData("checked")]
+    public void The_tools_parameter_description_states_the_evidence_bounds(string parameter)
+    {
+        var description = typeof(DaedalusReviewTools)
+            .GetMethod(nameof(DaedalusReviewTools.ReportReviewOutcome))!
+            .GetParameters()
+            .Single(p => string.Equals(p.Name, parameter, StringComparison.Ordinal))
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), inherit: false)
+            .Cast<System.ComponentModel.DescriptionAttribute>()
+            .Single()
+            .Description;
+
+        description.Should().Contain($"At most {ReviewEvidence.MaxEntries} entries");
+        description.Should().Contain($"at most {ReviewEvidence.MaxEntryLength} characters");
+        description.Should().Contain("no NUL characters");
+    }
+
     [Fact]
     public void The_tool_the_reviewer_calls_refuses_a_hollow_approval_and_records_an_evidenced_one()
     {

@@ -418,10 +418,13 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
     /// <summary>
     ///     Reads a record's payload strictly: a missing member, a null one or any member beyond the four the
-    ///     payload holds fails the read. Red: adding a member to the payload ReviewLensRunner records.
+    ///     payload holds fails the read, and so does a member whose name differs only in case, since the Web
+    ///     defaults would otherwise match <c>Lens</c> to <c>lens</c>. Red: adding a member to the payload
+    ///     ReviewLensRunner records, or naming one <c>Lens</c>.
     /// </summary>
     private static readonly JsonSerializerOptions StrictPayload = new(JsonSerializerDefaults.Web)
     {
+        PropertyNameCaseInsensitive = false,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         RespectRequiredConstructorParameters = true,
         RespectNullableAnnotations = true,

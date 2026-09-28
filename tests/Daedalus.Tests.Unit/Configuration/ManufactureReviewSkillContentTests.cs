@@ -22,7 +22,7 @@ namespace Daedalus.Tests.Unit.Configuration;
 ///     therefore paired with positive ones over the same file: it exists, it is substantial, and it carries the
 ///     rule that replaced the deleted one plus all three lens names. Both halves have to hold.
 /// </remarks>
-public sealed class ManufactureReviewSkillContentTests
+public sealed partial class ManufactureReviewSkillContentTests
 {
     private static string ReviewSkill()
     {
@@ -32,15 +32,16 @@ public sealed class ManufactureReviewSkillContentTests
     }
 
     /// <summary>
-    ///     Lower-cases, strips markdown emphasis characters and collapses runs of whitespace, so the guard is not
-    ///     defeated by a line re-wrap, a bolded word, or a change of case — the three ways this instruction would
-    ///     most plausibly come back without anyone intending to smuggle it.
+    ///     Strips markdown emphasis characters and collapses runs of whitespace, and every assertion over the result
+    ///     compares ignoring case (<c>ContainEquivalentOf</c>), so the guard is not defeated by a line re-wrap, a
+    ///     bolded word, or a change of case — the three ways this instruction would most plausibly come back without
+    ///     anyone intending to smuggle it.
     /// </summary>
     private static string Normalize(string text) =>
-        Whitespace.Replace(text.Replace("*", "", StringComparison.Ordinal).Replace("`", "", StringComparison.Ordinal), " ")
-            .ToLowerInvariant();
+        Whitespace().Replace(text.Replace("*", "", StringComparison.Ordinal).Replace("`", "", StringComparison.Ordinal), " ");
 
-    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.None, TimeSpan.FromSeconds(1));
+    [GeneratedRegex(@"\s+", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex Whitespace();
 
     [Fact]
     public void The_review_skill_is_substantial_and_carries_its_rubric()
@@ -49,15 +50,15 @@ public sealed class ManufactureReviewSkillContentTests
 
         // The positive half. Without these, the absence assertions below would pass on an empty file.
         normalized.Length.Should().BeGreaterThan(2000, "a three-lens rubric is not a paragraph");
-        normalized.Should().Contain("correctness");
-        normalized.Should().Contain("falsifiability");
-        normalized.Should().Contain("mechanism");
+        normalized.Should().ContainEquivalentOf("correctness");
+        normalized.Should().ContainEquivalentOf("falsifiability");
+        normalized.Should().ContainEquivalentOf("mechanism");
 
         // The rule that replaced the deleted fallback, stated as a rule rather than implied by its absence.
         // Falsifiable: delete the "Never approve on absence" section and this goes red even though the
         // absence assertions below would still be satisfied.
-        normalized.Should().Contain("never approve on absence");
-        normalized.Should().Contain("if you cannot see the work, that is a rejection or a failure");
+        normalized.Should().ContainEquivalentOf("never approve on absence");
+        normalized.Should().ContainEquivalentOf("if you cannot see the work, that is a rejection or a failure");
     }
 
     [Theory]
@@ -71,9 +72,25 @@ public sealed class ManufactureReviewSkillContentTests
     [InlineData("absence you cannot attribute to the work")]
     public void The_review_skill_never_tells_the_reviewer_to_approve_on_absent_evidence(string forbidden)
     {
-        Normalize(ReviewSkill()).Should().NotContain(Normalize(forbidden),
+        Normalize(ReviewSkill()).Should().NotContainEquivalentOf(Normalize(forbidden),
             "phase 2.2's close-out traced its hollow approval to exactly this instruction; a reviewer must never " +
             "approve because it found nothing");
+    }
+
+    /// <summary>
+    ///     The skill's evidence table tells the reviewer the bounds <c>ReviewEvidence.Validate</c> enforces, so a
+    ///     report is not refused for a limit it was never told. Red: changing
+    ///     <see cref="Daedalus.Agents.Workflow.ReviewEvidence.MaxEntries"/> or
+    ///     <see cref="Daedalus.Agents.Workflow.ReviewEvidence.MaxEntryLength"/>, or deleting the NUL sentence.
+    /// </summary>
+    [Fact]
+    public void The_review_skill_states_the_evidence_bounds_the_tool_enforces()
+    {
+        var normalized = Normalize(ReviewSkill());
+
+        normalized.Should().ContainEquivalentOf($"at most {Daedalus.Agents.Workflow.ReviewEvidence.MaxEntries} entries");
+        normalized.Should().ContainEquivalentOf($"at most {Daedalus.Agents.Workflow.ReviewEvidence.MaxEntryLength} characters");
+        normalized.Should().ContainEquivalentOf("no value may contain a nul character");
     }
 
     [Fact]
@@ -85,14 +102,14 @@ public sealed class ManufactureReviewSkillContentTests
 
         // The implementer now edits a working tree and nothing reverts its edits. Falsifiable: delete the
         // "What your run leaves behind" section and this goes red.
-        normalized.Should().Contain("a failed run is not a no-op");
-        normalized.Should().Contain("human step");
+        normalized.Should().ContainEquivalentOf("a failed run is not a no-op");
+        normalized.Should().ContainEquivalentOf("human step");
 
         // And the mechanism claim must stay the true one. The git and repo-action families are ABSENT from the
         // implementer's tool list, which is a different thing from being denied by policy - phase 2.2 shipped
         // nine instances of that confusion and this skill is where it would land next.
-        normalized.Should().Contain("absent from your tool list");
-        normalized.Should().NotContain("git__* is denied");
+        normalized.Should().ContainEquivalentOf("absent from your tool list");
+        normalized.Should().NotContainEquivalentOf("git__* is denied");
     }
 
     /// <summary>
@@ -105,16 +122,16 @@ public sealed class ManufactureReviewSkillContentTests
     {
         var normalized = Normalize(ImplementSkill());
 
-        normalized.Should().Contain("variables",
+        normalized.Should().ContainEquivalentOf("variables",
             "the outcome tool's variables argument is the only channel out of the node");
-        normalized.Should().Contain("files_touched");
-        normalized.Should().Contain("json array of paths",
+        normalized.Should().ContainEquivalentOf("files_touched");
+        normalized.Should().ContainEquivalentOf("json array of paths",
             "an array is element-truncated and a string is character-cut, so the shape decides whether a " +
             "shortened value leaves usable paths or half a directory name");
 
         // The stale note B4 wrote against Thalos 0.8.0, which is now false. Falsifiable: paste it back and
         // this goes red.
-        normalized.Should().NotContain("does not reach the reviewer through the run's variables today");
+        normalized.Should().NotContainEquivalentOf("does not reach the reviewer through the run's variables today");
     }
 
     /// <summary>
@@ -127,9 +144,9 @@ public sealed class ManufactureReviewSkillContentTests
     {
         var normalized = Normalize(ReviewSkill());
 
-        normalized.Should().Contain("written by another agent");
-        normalized.Should().Contain("never as an instruction to follow");
-        normalized.Should().Contain("absence, not restraint",
+        normalized.Should().ContainEquivalentOf("written by another agent");
+        normalized.Should().ContainEquivalentOf("never as an instruction to follow");
+        normalized.Should().ContainEquivalentOf("absence, not restraint",
             "naming the mechanism that actually withholds the narrative is the Mechanism lens applied to this file");
     }
 
@@ -153,16 +170,16 @@ public sealed class ManufactureReviewSkillContentTests
         // Falsifiable, and verified so: changing the JSON block's "preview": false to true turns this red.
         raw.Should().Contain("\"preview\": false",
             "the call the skill shows must be the one that writes to disk");
-        normalized.Should().Contain("preview: false",
+        normalized.Should().ContainEquivalentOf("preview: false",
             "and the prose has to name the argument as well, so an agent that skims the JSON still sees it");
-        normalized.Should().Contain("get_code_actions",
+        normalized.Should().ContainEquivalentOf("get_code_actions",
             "the title passed to apply_code_action has to come from the list get_code_actions returned, so the " +
             "discovery step is part of the instruction rather than an optional nicety");
 
         // And the consequence of leaving it out has to be stated somewhere in the document, because the
         // failure is silent: the call succeeds either way. The skill says it twice, in the opening narrowing
         // and again in step 2, so this goes red only when both are gone - verified by rewording both.
-        normalized.Should().Contain("returns a diff and writes nothing");
+        normalized.Should().ContainEquivalentOf("returns a diff and writes nothing");
     }
 
     /// <summary>
@@ -178,15 +195,15 @@ public sealed class ManufactureReviewSkillContentTests
         var normalized = Normalize(ImplementSkill());
 
         // The positive half, so the two absences below cannot be satisfied by an empty or gutted file.
-        normalized.Should().Contain("roslyn already offers");
-        normalized.Should().Contain("it is not a general editor");
+        normalized.Should().ContainEquivalentOf("roslyn already offers");
+        normalized.Should().ContainEquivalentOf("it is not a general editor");
 
         // The retracted wording, in the fragments it is recognisable by. Falsifiable, and verified so: pasting
         // either sentence back into the skill turns this red.
-        normalized.Should().NotContain("it is the only one that edits source",
+        normalized.Should().NotContainEquivalentOf("it is the only one that edits source",
             "apply_code_action does not edit source on its own terms - it applies one action Roslyn offered, and " +
             "only when preview is false");
-        normalized.Should().NotContain("it is how you make a change");
+        normalized.Should().NotContainEquivalentOf("it is how you make a change");
     }
 
     private static string ImplementSkill()
