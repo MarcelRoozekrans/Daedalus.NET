@@ -1361,7 +1361,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
     /// <summary>
     ///     Validates <c>Thalos:Workflow:StandingInstructionsPath</c> and returns it in canonical worktree-relative form:
-    ///     forward-slash separated, with no <c>.</c> segment and no repeated separator. That one form is what
+    ///     forward-slash separated, with no <c>.</c> segment and no empty segment. That one form is what
     ///     <see cref="Workflow.ManufactureRunStarter"/> reads the run's pinned text from,
     ///     <see cref="Workflow.StandingInstructionsWriter"/> writes an approved proposal to, both through
     ///     <see cref="WorkspacePath.Resolve"/> inside the run's worktree, and the <c>workspace__*</c> tools protect in
@@ -1369,14 +1369,25 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     <c>./AGENT.md</c> is protected as the <c>AGENT.md</c> a run would write.
     /// </summary>
     /// <remarks>
+    ///     <para>
     ///     The file is overwritten with model-authored text that a human approved at the gate, so the check fails the
-    ///     host at registration, rather than at the first resume, for a value that is blank; rooted, or carrying a
-    ///     <c>:</c>, which on Linux is how a Windows-rooted <c>C:/x/AGENT.md</c> reads; that climbs with a <c>..</c>
-    ///     segment; that reaches into the repository's <c>.git</c> directory, or its NTFS short-name alias; or that is
-    ///     not a <c>.md</c> file. A rooted value used to be accepted when it lay under the content root, and after the
-    ///     move into the worktree <c>Path.Combine(worktree, rooted)</c> would have read and written that host file
-    ///     instead. <see cref="WorkspacePath.Resolve"/> applies these rules again, and its link checks, at every read
-    ///     and write, so a value that passes here still cannot leave the worktree through a link inside it.
+    ///     host at registration, rather than at every run, for a value that is blank; is
+    ///     rooted, or carries a <c>:</c>, which on Linux is how a Windows-rooted <c>C:/x/AGENT.md</c> reads; climbs with
+    ///     a <c>..</c> segment; is not a <c>.md</c> file; or is refused by <see cref="WorkspacePath.Resolve"/> itself. A
+    ///     rooted value used to be accepted when it lay under the content root, and after the move into the worktree
+    ///     <c>Path.Combine(worktree, rooted)</c> would have read and written that host file instead.
+    ///     </para>
+    ///     <para>
+    ///     <b>Resolve is asked, not restated.</b> The canonical value is resolved against a fresh, empty stand-in
+    ///     directory, so every rule <see cref="WorkspacePath.Resolve"/> applies to the value alone — the <c>.git</c>
+    ///     directory and its <c>git~N</c> alias, a NUL character, and on Windows a reserved device name such as <c>CON</c> or a segment
+    ///     ending in a dot or space — refuses the boot rather than every start, and cannot drift from the rule the
+    ///     reader and writer meet at run time. The canonical form is built lexically, not with
+    ///     <c>Path.GetFullPath</c>, which on Windows trims a trailing dot and would hide <c>docs/.../AGENT.md</c> from
+    ///     that check, and which throws <see cref="ArgumentException"/> on a NUL character.
+    ///     <see cref="WorkspacePath.Resolve"/> applies these rules again, and its link checks, at every
+    ///     read and write, so a value that passes here still cannot leave the worktree through a link inside it.
+    ///     </para>
     /// </remarks>
     /// <exception cref="InvalidOperationException">The configured value breaks one of the rules above.</exception>
     internal static string StandingInstructionsRelativePath(string configured)
@@ -1394,26 +1405,17 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 "written to each run's worktree, so the path must be relative to the repository root.");
         }
 
-        if (configured.Split(['/', '\\']).Any(segment => string.Equals(segment, "..", StringComparison.Ordinal)))
+        var segments = configured.Split(['/', '\\']);
+        if (segments.Any(segment => string.Equals(segment, "..", StringComparison.Ordinal)))
         {
             throw new InvalidOperationException(
                 $"{Key} is '{configured}', which climbs with a '..' segment. The standing-instructions file is overwritten " +
                 "with approved model text, so it must stay inside the run's worktree.");
         }
 
-        // No rooted value and no '..' reach this point, so the full path cannot leave the stand-in root; only '.'
-        // segments and repeated separators are dropped. On Windows GetFullPath also trims a segment's trailing dots
-        // and spaces, which is why the git-directory check runs on this form rather than on the raw value.
-        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "daedalus-worktree-root"));
-        var canonical = Path.GetRelativePath(root, Path.GetFullPath(Path.Combine(root, configured))).Replace('\\', '/');
-
-        if (canonical.Split('/').Any(IsGitDirectorySegment))
-        {
-            throw new InvalidOperationException(
-                $"{Key} is '{configured}', which is inside the repository's .git directory. The standing-instructions " +
-                "file must be a tracked file of the repository.");
-        }
-
+        // Lexical on purpose: only empty and '.' segments are dropped, so a segment Resolve refuses reaches it as written.
+        var canonical = string.Join(
+            '/', segments.Where(segment => segment.Length > 0 && !string.Equals(segment, ".", StringComparison.Ordinal)));
         if (!string.Equals(Path.GetExtension(canonical), ".md", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
@@ -1421,15 +1423,24 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 "approved model text, so it must be a markdown file and never a configuration or code file.");
         }
 
+        var standIn = Directory.CreateTempSubdirectory("daedalus-standing-instructions-check-");
+        try
+        {
+            var resolved = WorkspacePath.Resolve(standIn.FullName, canonical);
+            if (resolved.IsFailure)
+            {
+                throw new InvalidOperationException(
+                    $"{Key} is '{configured}', which a run's worktree does not permit: {resolved.Error.Message} Every run " +
+                    "reads and writes the standing-instructions file there, so every run would fail.");
+            }
+        }
+        finally
+        {
+            standIn.Delete(recursive: true);
+        }
+
         return canonical;
     }
-
-    /// <summary><c>.git</c>, or git's NTFS short-name alias of it, <c>git~N</c>, both ignoring case, as <see cref="WorkspacePath"/> refuses them.</summary>
-    private static bool IsGitDirectorySegment(string segment) =>
-        segment.Equals(".git", StringComparison.OrdinalIgnoreCase)
-        || (segment.Length > 4
-            && segment.StartsWith("git~", StringComparison.OrdinalIgnoreCase)
-            && segment[4..].All(char.IsAsciiDigit));
 
     private static AgentDefinition ToDefinition(AgentConfig agent) => new()
     {
