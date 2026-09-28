@@ -95,6 +95,15 @@ public sealed class PullRequestBodyTests
     }
 
     [Fact]
+    public void With_no_review_evidence_the_body_says_so_and_claims_no_verification()
+    {
+        var body = PullRequestBody.Render(Facts() with { Checked = [] });
+
+        body.Should().Contain("## Review\n\nNo review evidence is recorded for this run.\n")
+            .And.NotContain(PullRequestBody.ReviewLabel);
+    }
+
+    [Fact]
     public void With_no_recorded_approval_the_body_says_so_rather_than_naming_anyone()
     {
         var body = PullRequestBody.Render(Facts() with { ApprovedBy = null, ApprovedAt = null });

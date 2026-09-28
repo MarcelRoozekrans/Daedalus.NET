@@ -78,9 +78,10 @@ internal static class PullRequestBody
             body.Append(CultureInfo.InvariantCulture, $"- and {facts.Changes.Count - MaxChangedFilesListed} more files\n");
 
         body.Append("\n## Review\n\n");
-        body.Append(ReviewLabel).Append("\n\n");
-        if (facts.Checked.Count == 0)
-            body.Append("No review evidence is recorded for this run.\n");
+        // The label claims a verification, so it appears only over lenses whose approval the action checked.
+        body.Append(facts.Checked.Count == 0
+            ? "No review evidence is recorded for this run.\n"
+            : ReviewLabel + "\n\n");
 
         foreach (var (lens, items) in facts.Checked)
         {
