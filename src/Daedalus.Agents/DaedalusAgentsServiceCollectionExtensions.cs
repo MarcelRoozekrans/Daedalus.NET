@@ -391,7 +391,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         if (options.Workflow.Enabled)
         {
-            AddDaedalusWorkflow(services, processesRoot, turnDeadline);
+            AddDaedalusWorkflow(services, processesRoot, turnDeadline, options.ToolPolicies);
         }
 
         // After the workflow block, whose own lease check is the stricter one on a workflow host, so each check's
@@ -437,7 +437,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     has run, so this is called after it, never on its own.
     /// </summary>
     private static void AddDaedalusWorkflow(
-        IServiceCollection services, string processesRoot, TimeSpan turnDeadline)
+        IServiceCollection services, string processesRoot, TimeSpan turnDeadline, IEnumerable<ToolPolicyConfig> toolPolicies)
     {
         // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
         // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
@@ -474,6 +474,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // Task B6: the host's append-only record of a run, which the write audit and the review lenses append to.
         // A singleton is safe: the store takes a fresh DbContext from IDbContextFactory on every call.
         services.AddSingleton<IWorkflowRunRecordStore, WorkflowRunRecordStore>();
+
+        // Task B7: every workspace write a run is allowed is recorded in that store before the tool runs, or denied.
+        DecorateToolAuthorizerWithWriteAudit(services, toolPolicies);
 
         // Replaces the DisabledManufactureRunStarter registered unconditionally above, now that WorkflowRunStarter
         // (from AddWorkflowOrm, inside AddThalos), IWorkflowReferenceResolver (just above) and IRunWorkspaceProvider
@@ -554,12 +557,51 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 (IMemoryService)CreateInner(sp, existing),
                 sp.GetRequiredService<WorkflowRecallTierLog>()),
             existing.Lifetime));
-
-        static object CreateInner(IServiceProvider sp, ServiceDescriptor descriptor) =>
-            descriptor.ImplementationInstance
-            ?? descriptor.ImplementationFactory?.Invoke(sp)
-            ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!);
     }
+
+    /// <summary>
+    ///     Replaces the registered <see cref="IToolAuthorizer"/> with <see cref="AuditingToolAuthorizer"/> wrapped around
+    ///     it, auditing every <c>Thalos:ToolPolicies</c> pattern bound to <see cref="WorkspaceWritePolicy.PolicyName"/>.
+    /// </summary>
+    /// <remarks>
+    ///     The descriptor is rewritten, as in <see cref="DecorateMemoryServiceWithRecallTierRecording"/>, so the one
+    ///     authorizer every <c>AuthorizingAIFunction</c> resolves is the auditing one. It wraps the authorizer
+    ///     <c>AddThalos</c> registered, which is the only one: AI.Sentinel screens the chat pipeline and does not
+    ///     decorate <see cref="IToolAuthorizer"/>, so the audit sees the final decision. A host with no authorizer to
+    ///     wrap is a composition error, not a host with nothing to audit, so it throws rather than skip the audit.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">No <see cref="IToolAuthorizer"/> is registered.</exception>
+    private static void DecorateToolAuthorizerWithWriteAudit(IServiceCollection services, IEnumerable<ToolPolicyConfig> toolPolicies)
+    {
+        var existing = services.LastOrDefault(d => d.ServiceType == typeof(IToolAuthorizer))
+            ?? throw new InvalidOperationException("No IToolAuthorizer is registered to audit; AddThalos registers one.");
+        string[] auditedPatterns =
+        [
+            .. toolPolicies
+                .Where(b => string.Equals(b.Policy, WorkspaceWritePolicy.PolicyName, StringComparison.Ordinal))
+                .Select(b => b.Pattern),
+        ];
+
+        services.Remove(existing);
+        services.Add(ServiceDescriptor.Describe(
+            typeof(IToolAuthorizer),
+            sp => new AuditingToolAuthorizer(
+                (IToolAuthorizer)CreateInner(sp, existing),
+                auditedPatterns,
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<AuditingToolAuthorizer>>()),
+            existing.Lifetime));
+    }
+
+    /// <summary>
+    ///     Builds the service a rewritten descriptor wraps, from whichever form it was registered in: an instance, a
+    ///     factory or a type.
+    /// </summary>
+    private static object CreateInner(IServiceProvider sp, ServiceDescriptor descriptor) =>
+        descriptor.ImplementationInstance
+        ?? descriptor.ImplementationFactory?.Invoke(sp)
+        ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!);
 
     /// <summary>
     ///     Ensures <typeparamref name="T"/> is resolvable as a concrete singleton, and that it is the exact
