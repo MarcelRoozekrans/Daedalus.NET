@@ -168,6 +168,44 @@ public sealed class ManufactureRunStarterTests : IDisposable
         thrown.Which.Data[ManufactureRunStarter.WorkspaceRemovalFailureKey].Should().Be("worktree is locked.");
     }
 
+    /// <summary>
+    ///     Task B11: the standing instructions are read through <see cref="WorkspacePath.Resolve"/>, so a directory link
+    ///     in the worktree that leads out of it fails the start instead of pinning a host file's text, and the worktree is
+    ///     removed. Red, per assertion: read <c>Path.Combine(root, path)</c> instead, and the start goes on to the
+    ///     starter, which fails for its own reason, so the first fails; drop the removal on that refusal, and the second
+    ///     fails.
+    /// </summary>
+    [Fact]
+    public async Task A_link_that_leads_out_of_the_worktree_fails_the_start_and_removes_the_worktree()
+    {
+        using var outside = new TempDirectory();
+        await File.WriteAllTextAsync(outside.Path("AGENT.md"), "A host file.");
+        using var link = DirectoryLink.Create(_worktree.Path("docs"), outside.Root);
+        _config.StandingInstructionsPath = "docs/AGENT.md";
+
+        var result = await CreateStarter().StartAsync(Request("sandbox"), CancellationToken.None);
+
+        result.Error.Should().Be(
+            "the standing instructions 'docs/AGENT.md' cannot be read from the run's worktree: the path is not permitted.");
+        await _workspaces.Received(1).RemoveAsync(Arg.Any<Guid>(), CancellationToken.None);
+    }
+
+    /// <summary>
+    ///     Task B11: the starter reads the same canonical relative path the writer writes, so <c>./AGENT.md</c> is read,
+    ///     not refused. The start then fails for the substituted store's reason, which shows the read passed. Red: read
+    ///     the configured value as it is, and <see cref="WorkspacePath.Resolve"/> refuses its <c>.</c> segment.
+    /// </summary>
+    [Fact]
+    public async Task A_non_canonical_path_is_read_as_its_canonical_form()
+    {
+        await File.WriteAllTextAsync(_worktree.Path("AGENT.md"), "Run dotnet test.");
+        _config.StandingInstructionsPath = "./AGENT.md";
+
+        var result = await CreateStarter().StartAsync(Request("sandbox"), CancellationToken.None);
+
+        result.Error.Should().Contain("process 'manufacture' has no active version");
+    }
+
     private FileStream LockedAgentMd()
     {
         File.WriteAllText(_worktree.Path("AGENT.md"), "Run dotnet test.");

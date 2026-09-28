@@ -330,11 +330,12 @@ public sealed class WorkflowWriteConfigTests
     ///     Fix round 1: the <c>workspace__*</c> tools compare a protected path exactly, ignoring case only, against the
     ///     canonical worktree-relative path, so a non-canonical <c>StandingInstructionsPath</c> that boot validation
     ///     accepts must be canonicalised, or implement could rewrite the worktree's <c>AGENT.md</c>. Red: add the
-    ///     configured value as it is.
+    ///     configured value as it is. Task B11 refuses a <c>..</c> segment at boot, so <c>docs/../AGENT.md</c> left this
+    ///     theory for the registration refusals, and a repeated separator took its place.
     /// </summary>
     [Theory]
     [InlineData("./AGENT.md")]
-    [InlineData("docs/../AGENT.md")]
+    [InlineData(".//AGENT.md")]
     public async Task A_non_canonical_standing_instructions_path_is_protected_in_its_canonical_form(string configured)
     {
         var (services, options, configuration, environment) = LoadShippedApi();

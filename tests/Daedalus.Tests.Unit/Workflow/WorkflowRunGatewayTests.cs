@@ -1,7 +1,7 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
-using Microsoft.Extensions.Hosting;
 using Thalos.Workflow;
+using Thalos.Workspaces;
 
 namespace Daedalus.Tests.Unit.Workflow;
 
@@ -52,8 +52,7 @@ public sealed class WorkflowRunGatewayTests
         store.ResumeAsync(run.Id, Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal), Arg.Any<CancellationToken>())
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
-        var writer = new StandingInstructionsWriter(
-            new WorkflowConfig { StandingInstructionsPath = dir.Path("AGENT.md") }, Substitute.For<IHostEnvironment>());
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir));
         var gateway = new WorkflowRunGateway(store, writer);
 
         var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
@@ -82,12 +81,14 @@ public sealed class WorkflowRunGatewayTests
         store.ResumeAsync(run.Id, Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal), Arg.Any<CancellationToken>())
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
-        var writer = new StandingInstructionsWriter(
-            new WorkflowConfig { StandingInstructionsPath = dir.Path("AGENT.md") }, Substitute.For<IHostEnvironment>());
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir));
         var gateway = new WorkflowRunGateway(store, writer);
 
         await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
 
+        // Task B11: checked on its own first, so a write that never reached the run's worktree fails this assertion
+        // rather than throwing from the read below.
+        File.Exists(dir.Path("AGENT.md")).Should().BeTrue("the write goes to the worktree the provider reports for the run");
         (await File.ReadAllTextAsync(dir.Path("AGENT.md"))).Should().Be("New instructions.");
     }
 
@@ -114,6 +115,15 @@ public sealed class WorkflowRunGatewayTests
             run.Id,
             Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal && r.ResumedBy == Approver),
             Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>A provider whose only worktree is <paramref name="dir"/>, reported for <paramref name="run"/>'s id.</summary>
+    private static IRunWorkspaceProvider Workspaces(WorkflowRun run, TempDirectory dir)
+    {
+        var workspaces = Substitute.For<IRunWorkspaceProvider>();
+        workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(
+            new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", dir.Root, null)));
+        return workspaces;
     }
 
     private static WorkflowRun RunWith(string pinned, string proposal) => new()

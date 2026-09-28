@@ -6,7 +6,6 @@ using Daedalus.Api.Controllers;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Workflow;
 using ZeroAlloc.Authorization;
@@ -28,10 +27,9 @@ namespace Daedalus.Tests.Integration.Workflow;
 /// <remarks>
 ///     Each test gets its own <see cref="ScratchWorkflowHost"/>, the same as <c>StartRunEndpointTests</c>. The outbox
 ///     poll interval is cut from five seconds to a quarter of one, so a walk of five dispatches takes seconds rather
-///     than half a minute. The run pins the standing instructions from its worktree, at the configured path. The
-///     writer still reads and writes that path under the content root, so the file there lives in a
-///     <see cref="TempDirectory"/> under the Api project's git-ignored <c>obj</c> folder, because
-///     <c>AddDaedalusAgents</c> refuses a path outside the content root.
+///     than half a minute. The run pins the standing instructions from its worktree, at the shipped relative
+///     <c>AGENT.md</c>, and an approved proposal is written back to that same file (task B11, ruling R4), so every
+///     assertion on the file reads it from the run's worktree under the host's data root.
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
 public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
@@ -47,15 +45,15 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     /// <summary>
     ///     The whole seam, happy path: the file's text is pinned at start and handed to implement and retrospect,
     ///     GET shows retrospect's proposal as a diff against it, and a resume with
-    ///     <c>applyStandingInstructions</c> writes the proposal and lets the run finish.
+    ///     <c>applyStandingInstructions</c> writes the proposal and lets the run finish. Red for the file assertion:
+    ///     point the writer back at the content root, and the worktree's file still holds the pinned text without the
+    ///     learned line.
     /// </summary>
     [Fact]
     public async Task A_run_pins_the_standing_instructions_and_an_approved_proposal_is_written_on_the_way_to_success()
     {
         await WithHostAsync(squadEnabled: null, StandingInstructions, async (host) =>
         {
-            await File.WriteAllTextAsync(host.Dir.Path("AGENT.md"), StandingInstructions);
-
             var runId = await StartAsync(host);
             var parked = await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
 
@@ -73,7 +71,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
 
             var resume = await ResumeWithApplyAsync(host, runId);
             resume.StatusCode.Should().Be(HttpStatusCode.NoContent);
-            (await File.ReadAllTextAsync(host.Dir.Path("AGENT.md"))).Should().Be(StandingInstructions + LearnedLine + "\n");
+            (await File.ReadAllTextAsync(host.AgentMd(runId))).Should().Be(StandingInstructions + LearnedLine + "\n");
 
             await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Succeeded, "succeeded");
             host.Runtime.Nodes.Should().Contain("publish", "the run must have walked through publish to reach done");
@@ -89,18 +87,16 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     {
         await WithHostAsync(squadEnabled: null, StandingInstructions, async (host) =>
         {
-            await File.WriteAllTextAsync(host.Dir.Path("AGENT.md"), StandingInstructions);
-
             var runId = await StartAsync(host);
             await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
 
             const string humanEdit = "Run dotnet build before dotnet test.\nA human added this line.\n";
-            await File.WriteAllTextAsync(host.Dir.Path("AGENT.md"), humanEdit);
+            await File.WriteAllTextAsync(host.AgentMd(runId), humanEdit);
 
             var resume = await ResumeWithApplyAsync(host, runId);
 
             resume.StatusCode.Should().Be(HttpStatusCode.Conflict);
-            (await File.ReadAllTextAsync(host.Dir.Path("AGENT.md"))).Should().Be(humanEdit, "the human's edit must survive");
+            (await File.ReadAllTextAsync(host.AgentMd(runId))).Should().Be(humanEdit, "the human's edit must survive");
             var run = await host.Store.FindAsync(runId, CancellationToken.None);
             run!.Status.Should().Be(WorkflowStatus.Awaiting, "a refused apply must never reach the engine's resume");
         });
@@ -119,14 +115,14 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
             var runId = await StartAsync(host);
             await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
 
-            Directory.CreateDirectory(host.Dir.Path("AGENT.md"));
+            Directory.CreateDirectory(host.AgentMd(runId));
 
             var resume = await ResumeWithApplyAsync(host, runId);
 
             resume.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
             var run = await host.Store.FindAsync(runId, CancellationToken.None);
             run!.Status.Should().Be(WorkflowStatus.Awaiting, "a failed write must never reach the engine's resume");
-            Directory.GetFiles(host.Dir.Root, "*.tmp").Should().BeEmpty("the writer must clean up its temp file");
+            Directory.GetFiles(host.Worktree(runId), "*.tmp").Should().BeEmpty("the writer must clean up its temp file");
         });
     }
 
@@ -158,7 +154,14 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     }
 
     private sealed record Host(
-        ApiWebApplicationFactory Factory, HttpClient Client, IWorkflowStore Store, ScriptedRuntime Runtime, TempDirectory Dir);
+        ApiWebApplicationFactory Factory, HttpClient Client, IWorkflowStore Store, ScriptedRuntime Runtime, string DataRoot)
+    {
+        /// <summary>The run's worktree, where the workspace provider puts it under the data root.</summary>
+        public string Worktree(Guid runId) => Path.Combine(DataRoot, "runs", runId.ToString());
+
+        /// <summary>The standing-instructions file the run pinned from, and an approved proposal is written to.</summary>
+        public string AgentMd(Guid runId) => Path.Combine(Worktree(runId), "AGENT.md");
+    }
 
     private static async Task<Guid> StartAsync(Host host)
     {
@@ -200,21 +203,17 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Boots a <see cref="ScratchWorkflowHost"/> with a scripted runtime, a fast outbox poll and the
-    ///     standing-instructions path under the content root, runs <paramref name="body"/>, and tears everything down.
-    ///     The run pins its standing instructions from its own worktree at that same relative path, so the remote's
-    ///     <c>main</c> holds <paramref name="standingInstructions"/> there, or nothing when it is <see langword="null"/>.
-    ///     The writer still reads and writes the content-root file, which is why tests that pass a text write it to
-    ///     <see cref="Host.Dir"/> too.
+    ///     Boots a <see cref="ScratchWorkflowHost"/> with a scripted runtime and a fast outbox poll, runs
+    ///     <paramref name="body"/>, and tears everything down. The shipped relative <c>AGENT.md</c> applies, so the
+    ///     remote's <c>main</c> holds <paramref name="standingInstructions"/> there, or no such file when it is
+    ///     <see langword="null"/>, and every run's worktree starts with it.
     /// </summary>
     private async Task WithHostAsync(bool? squadEnabled, string? standingInstructions, Func<Host, Task> body)
     {
-        var relative = TempDirectory.NewContentRootRelative();
-        var agentMd = Path.Combine(relative, "AGENT.md");
         List<(string Path, string Content)> seed = [("README.md", "seam")];
         if (standingInstructions is not null)
         {
-            seed.Add((relative.Replace('\\', '/') + "/AGENT.md", standingInstructions));
+            seed.Add(("AGENT.md", standingInstructions));
         }
 
         var runtime = new ScriptedRuntime();
@@ -222,7 +221,6 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
             fixture,
             runtime,
             seed: seed,
-            standingInstructionsPath: agentMd,
             squadEnabled: squadEnabled,
             configureServices: services =>
             {
@@ -230,11 +228,9 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
                 services.AddSingleton(new WorkflowOutboxDispatchOptions { PollingInterval = TimeSpan.FromMilliseconds(250) });
             });
 
-        var contentRoot = host.Factory.Services.GetRequiredService<IHostEnvironment>().ContentRootPath;
-        using var dir = new TempDirectory(Path.Combine(contentRoot, relative));
         using var client = host.Client("a-developer", "developer");
 
-        await body(new Host(host.Factory, client, host.Store, runtime, dir));
+        await body(new Host(host.Factory, client, host.Store, runtime, host.DataRoot));
     }
 
     /// <summary>

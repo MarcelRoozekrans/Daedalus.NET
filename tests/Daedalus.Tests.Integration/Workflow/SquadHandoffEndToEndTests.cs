@@ -19,6 +19,7 @@ using Thalos;
 using Thalos.Skills;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
+using Thalos.Workspaces;
 using ZeroAlloc.ORM.Migrations;
 using ZeroAlloc.Outbox.Orm;
 using ZeroAlloc.Results;
@@ -463,8 +464,10 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             "GET /api/workflow-runs/{id} must show no diff for a run whose retrospect proposed nothing");
 
         using var dir = new TempDirectory();
-        var writer = new StandingInstructionsWriter(
-            new WorkflowConfig { StandingInstructionsPath = dir.Path("AGENT.md") }, Substitute.For<IHostEnvironment>());
+        var workspaces = Substitute.For<IRunWorkspaceProvider>();
+        workspaces.FindAsync(result.FinalRun.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(new RunWorkspace(
+            result.FinalRun.Id, "sandbox", "unused", "main", $"manufacture/{result.FinalRun.Id}", dir.Root, null)));
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, workspaces);
         var applied = await writer.ApplyAsync(result.FinalRun, CancellationToken.None);
 
         applied.IsFailure.Should().BeTrue("an apply must have nothing to write");

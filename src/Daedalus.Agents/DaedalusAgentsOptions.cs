@@ -283,8 +283,9 @@ public sealed class WorkflowConfig
     ///     manufacture run's manifest as <c>standing_instructions</c>. A missing file is not an error: the run simply
     ///     starts with an empty standing-instructions document (see
     ///     <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter.StartAsync"/>).
-    ///     <see cref="Daedalus.Agents.Workflow.StandingInstructionsWriter"/> still resolves it against the host content
-    ///     root until it moves into the worktree too.
+    ///     <see cref="Daedalus.Agents.Workflow.StandingInstructionsWriter"/> writes an approved proposal to the same file
+    ///     in the same worktree. It must be relative, with no <c>..</c> segment, outside <c>.git</c>, and a <c>.md</c>
+    ///     file; with the engine on, any other value fails the host at registration.
     /// </summary>
     public string StandingInstructionsPath { get; set; } = "AGENT.md";
 

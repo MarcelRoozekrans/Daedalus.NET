@@ -33,7 +33,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <para>
 ///     <b>The standing instructions come from the worktree, not from the host.</b> They are read fresh from
 ///     <c>&lt;worktree&gt;/&lt;StandingInstructionsPath&gt;</c> on every start, so what a run pins is the text on the
-///     repository's default branch at the moment it started, or <c>""</c> when the repository has no such file.
+///     repository's default branch at the moment it started, or <c>""</c> when the repository has no such file. The
+///     path is resolved through <see cref="WorkspacePath.Resolve"/>, as <see cref="StandingInstructionsWriter"/> resolves
+///     the file an approved proposal replaces, and a path it refuses fails the start and removes the worktree.
 ///     </para>
 ///     <para>
 ///     <b>The correlation key is the run id, not an idempotency key over the caller's input.</b> Two calls with the
@@ -73,6 +75,11 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
     private readonly IRunWorkspaceProvider _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
     private readonly WorkflowConfig _config = config ?? throw new ArgumentNullException(nameof(config));
 
+    // Task B11: the same canonical relative path StandingInstructionsWriter writes, so the text a run pins and the
+    // file its approved proposal replaces are one file.
+    private readonly string _standingInstructionsPath = DaedalusAgentsServiceCollectionExtensions.StandingInstructionsRelativePath(
+        (config ?? throw new ArgumentNullException(nameof(config))).StandingInstructionsPath);
+
     /// <inheritdoc />
     public async ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
     {
@@ -106,7 +113,7 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
             return Result<Guid>.Failure($"could not prepare the run's workspace: {created.Error.Message}");
         }
 
-        string standingInstructions;
+        Result<string> standingInstructions;
         try
         {
             standingInstructions = await ReadStandingInstructionsAsync(created.Value, ct).ConfigureAwait(false);
@@ -119,11 +126,18 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
             throw;
         }
 
+        if (standingInstructions.IsFailure)
+        {
+            // Refused before any start, so no run row exists: the worktree is removed the same way a reported start
+            // failure removes it.
+            return await RemoveAfterFailureAsync(runId, standingInstructions.Error).ConfigureAwait(false);
+        }
+
         var variables = new Dictionary<string, object?>(StringComparer.Ordinal) { ["work_intent"] = workIntent };
         var documents = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [WorkIntentDocument] = workIntent,
-            [StandingInstructionsDocument] = standingInstructions,
+            [StandingInstructionsDocument] = standingInstructions.Value,
         };
 
         var started = await _starter.StartAsync(
@@ -142,13 +156,22 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
             return started;
         }
 
-        // A reported failure wrote no run row, so this worktree belongs to no run. CancellationToken.None: the undo
-        // must run even when the caller has given up, or the worktree waits out the sweeper's grace period.
+        return await RemoveAfterFailureAsync(runId, started.Error).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Removes the worktree of a start that reported <paramref name="error"/> before any run row was written, so the
+    ///     worktree belongs to no run, and returns that failure, naming a removal failure too when there is one.
+    ///     <see cref="CancellationToken.None"/>: the undo must run even when the caller has given up, or the worktree
+    ///     waits out the sweeper's grace period.
+    /// </summary>
+    private async Task<Result<Guid>> RemoveAfterFailureAsync(Guid runId, string error)
+    {
         var removed = await _workspaces.RemoveAsync(runId, CancellationToken.None).ConfigureAwait(false);
         return removed.IsSuccess
-            ? started
+            ? Result<Guid>.Failure(error)
             : Result<Guid>.Failure(
-                $"{started.Error} The run's workspace could not be removed and is left for the sweeper: {removed.Error.Message}");
+                $"{error} The run's workspace could not be removed and is left for the sweeper: {removed.Error.Message}");
     }
 
     /// <summary>
@@ -178,9 +201,23 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
     private RepositoryConfig? FindRepository(string? name) =>
         _config.Repositories.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal));
 
-    private async Task<string> ReadStandingInstructionsAsync(RunWorkspace workspace, CancellationToken ct)
+    /// <summary>
+    ///     The worktree's standing instructions, or <c>""</c> when the file does not exist, resolved through
+    ///     <see cref="WorkspacePath.Resolve"/> exactly as <see cref="StandingInstructionsWriter"/> resolves the file it
+    ///     writes. A path the resolution refuses, such as one through a link that leads out of the worktree, fails the
+    ///     start rather than pinning a host file's text.
+    /// </summary>
+    private async Task<Result<string>> ReadStandingInstructionsAsync(RunWorkspace workspace, CancellationToken ct)
     {
-        var path = Path.Combine(workspace.Root, _config.StandingInstructionsPath);
-        return File.Exists(path) ? await File.ReadAllTextAsync(path, ct).ConfigureAwait(false) : "";
+        var resolved = WorkspacePath.Resolve(workspace.Root, _standingInstructionsPath);
+        if (resolved.IsFailure)
+        {
+            return Result<string>.Failure(
+                $"the standing instructions '{_standingInstructionsPath}' cannot be read from the run's worktree: " +
+                resolved.Error.Message);
+        }
+
+        var path = resolved.Value;
+        return Result<string>.Success(File.Exists(path) ? await File.ReadAllTextAsync(path, ct).ConfigureAwait(false) : "");
     }
 }

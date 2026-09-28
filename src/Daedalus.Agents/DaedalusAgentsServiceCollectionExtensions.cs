@@ -261,11 +261,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // host's container disposes it on shutdown. Gated on Workflow.Enabled — see that option's own remarks
         // for why a host whose database has none of these tables must not wire any of this at all.
         var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
-        var standingInstructionsPath = ResolveStandingInstructionsPath(options.Workflow.StandingInstructionsPath, environment);
         var dataRoot = ResolveDataRoot(options.Workflow.DataRoot);
+        var standingInstructionsPath = "";
         if (options.Workflow.Enabled)
         {
-            ValidateStandingInstructionsPath(standingInstructionsPath, environment);
+            // Phase 2.5, task B11: relative, inside the run's worktree. ManufactureRunStarter and
+            // StandingInstructionsWriter apply the same check when they are built; this makes a bad value fail the
+            // boot instead of the first run.
+            standingInstructionsPath = StandingInstructionsRelativePath(options.Workflow.StandingInstructionsPath);
             ValidateDataRootForRunServers(dataRoot);
         }
 
@@ -327,7 +330,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 // writable, by any run.
                 thalos.UseRunWorkspaceTools(
                     WriteExtensionCeiling(options.Workflow.WriteGrants),
-                    o => o.ProtectedPaths.Add(WorktreeRelativePath(options.Workflow.StandingInstructionsPath)));
+                    o => o.ProtectedPaths.Add(standingInstructionsPath));
             }
 
             thalos.UseAnthropic(configuration)
@@ -666,18 +669,6 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                     "server run-scoped or bind the pattern to developer instead.");
             }
         }
-    }
-
-    /// <summary>
-    ///     The canonical worktree-relative form of a repository-relative path, forward-slash separated, the form the
-    ///     <c>workspace__*</c> tools compare <see cref="RunWorkspaceToolOptions.ProtectedPaths"/> against. They compare
-    ///     exactly, ignoring case only, so <c>./AGENT.md</c> or <c>docs/../AGENT.md</c>, which boot validation accepts,
-    ///     would otherwise never match the <c>AGENT.md</c> a run writes.
-    /// </summary>
-    internal static string WorktreeRelativePath(string configured)
-    {
-        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "daedalus-worktree-root"));
-        return Path.GetRelativePath(root, Path.GetFullPath(Path.Combine(root, configured))).Replace('\\', '/');
     }
 
     /// <summary>
@@ -1369,61 +1360,76 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
 
     /// <summary>
-    ///     Resolves <c>Thalos:Workflow:StandingInstructionsPath</c> against the content root, the same rule
-    ///     <see cref="ResolveMcpConfigPath"/> applies to <c>Thalos:McpConfigPath</c> — a single file, not a
-    ///     directory, so unlike <see cref="ResolveContentRoot"/> there is no assembly-directory fallback to fall
-    ///     back to: a missing file is not this method's problem to solve, see
-    ///     <see cref="Workflow.ManufactureRunStarter.StartAsync"/>.
+    ///     Validates <c>Thalos:Workflow:StandingInstructionsPath</c> and returns it in canonical worktree-relative form:
+    ///     forward-slash separated, with no <c>.</c> segment and no repeated separator. That one form is what
+    ///     <see cref="Workflow.ManufactureRunStarter"/> reads the run's pinned text from,
+    ///     <see cref="Workflow.StandingInstructionsWriter"/> writes an approved proposal to, both through
+    ///     <see cref="WorkspacePath.Resolve"/> inside the run's worktree, and the <c>workspace__*</c> tools protect in
+    ///     <see cref="RunWorkspaceToolOptions.ProtectedPaths"/>, which they compare exactly, ignoring case only. So
+    ///     <c>./AGENT.md</c> is protected as the <c>AGENT.md</c> a run would write.
     /// </summary>
     /// <remarks>
-    ///     <c>internal</c>, not <c>private</c>: <see cref="Workflow.StandingInstructionsWriter"/> reuses this same
-    ///     resolution rule for its own path rather than restating it, per task B5. Two independently-maintained
-    ///     copies of "how a configured, possibly-relative path resolves against the content root" is exactly the
-    ///     kind of drift this method's own doc comment already warns against for <see cref="ResolveContentRoot"/>.
+    ///     The file is overwritten with model-authored text that a human approved at the gate, so the check fails the
+    ///     host at registration, rather than at the first resume, for a value that is blank; rooted, or carrying a
+    ///     <c>:</c>, which on Linux is how a Windows-rooted <c>C:/x/AGENT.md</c> reads; that climbs with a <c>..</c>
+    ///     segment; that reaches into the repository's <c>.git</c> directory, or its NTFS short-name alias; or that is
+    ///     not a <c>.md</c> file. A rooted value used to be accepted when it lay under the content root, and after the
+    ///     move into the worktree <c>Path.Combine(worktree, rooted)</c> would have read and written that host file
+    ///     instead. <see cref="WorkspacePath.Resolve"/> applies these rules again, and its link checks, at every read
+    ///     and write, so a value that passes here still cannot leave the worktree through a link inside it.
     /// </remarks>
-    internal static string ResolveStandingInstructionsPath(string configured, IHostEnvironment environment) =>
-        Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
-
-    /// <summary>
-    ///     Fails fast unless the resolved <c>Thalos:Workflow:StandingInstructionsPath</c> is a <c>.md</c> file
-    ///     under the content root.
-    /// </summary>
-    /// <remarks>
-    ///     <see cref="Workflow.StandingInstructionsWriter"/> overwrites this file with model-authored text that a
-    ///     human approved at the gate. Resolution accepts a rooted path and a <c>..</c> segment as given, so without
-    ///     this check a misconfigured value such as <c>appsettings.json</c> or <c>../other-host/appsettings.json</c>
-    ///     would let an approved proposal replace the host's own configuration. The comparison runs on full,
-    ///     normalised paths and asks whether the path relative to the content root climbs out of it, so a sibling
-    ///     directory that merely shares the root's name as a prefix is outside too. Only checked when the workflow
-    ///     engine is enabled, the only case in which a writer is registered at all.
-    /// </remarks>
-    internal static void ValidateStandingInstructionsPath(string resolvedPath, IHostEnvironment environment)
+    /// <exception cref="InvalidOperationException">The configured value breaks one of the rules above.</exception>
+    internal static string StandingInstructionsRelativePath(string configured)
     {
-        var contentRoot = Path.GetFullPath(environment.ContentRootPath);
-        var fullPath = Path.GetFullPath(resolvedPath);
-        var relative = Path.GetRelativePath(contentRoot, fullPath);
-
-        var outside = Path.IsPathRooted(relative)
-            || string.Equals(relative, ".", StringComparison.Ordinal)
-            || string.Equals(relative, "..", StringComparison.Ordinal)
-            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
-        if (outside)
+        const string Key = WorkflowConfig.SectionName + ":StandingInstructionsPath";
+        if (string.IsNullOrWhiteSpace(configured))
         {
-            throw new InvalidOperationException(
-                $"{WorkflowConfig.SectionName}:StandingInstructionsPath resolves to '{fullPath}', which is outside the " +
-                $"content root '{contentRoot}'. The standing-instructions file is overwritten with approved model text, " +
-                "so it must live under the content root.");
+            throw new InvalidOperationException($"{Key} is blank. It must name a .md file relative to the repository root.");
         }
 
-        if (!string.Equals(Path.GetExtension(fullPath), ".md", StringComparison.OrdinalIgnoreCase))
+        if (Path.IsPathRooted(configured) || configured.Contains(':', StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                $"{WorkflowConfig.SectionName}:StandingInstructionsPath resolves to '{fullPath}', which is not a .md file. " +
-                "The standing-instructions file is overwritten with approved model text, so it must be a markdown file " +
-                "and never a configuration or code file.");
+                $"{Key} is '{configured}', which is not a relative path. The standing-instructions file is read from and " +
+                "written to each run's worktree, so the path must be relative to the repository root.");
         }
+
+        if (configured.Split(['/', '\\']).Any(segment => string.Equals(segment, "..", StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                $"{Key} is '{configured}', which climbs with a '..' segment. The standing-instructions file is overwritten " +
+                "with approved model text, so it must stay inside the run's worktree.");
+        }
+
+        // No rooted value and no '..' reach this point, so the full path cannot leave the stand-in root; only '.'
+        // segments and repeated separators are dropped. On Windows GetFullPath also trims a segment's trailing dots
+        // and spaces, which is why the git-directory check runs on this form rather than on the raw value.
+        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "daedalus-worktree-root"));
+        var canonical = Path.GetRelativePath(root, Path.GetFullPath(Path.Combine(root, configured))).Replace('\\', '/');
+
+        if (canonical.Split('/').Any(IsGitDirectorySegment))
+        {
+            throw new InvalidOperationException(
+                $"{Key} is '{configured}', which is inside the repository's .git directory. The standing-instructions " +
+                "file must be a tracked file of the repository.");
+        }
+
+        if (!string.Equals(Path.GetExtension(canonical), ".md", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{Key} is '{configured}', which is not a .md file. The standing-instructions file is overwritten with " +
+                "approved model text, so it must be a markdown file and never a configuration or code file.");
+        }
+
+        return canonical;
     }
+
+    /// <summary><c>.git</c>, or git's NTFS short-name alias of it, <c>git~N</c>, both ignoring case, as <see cref="WorkspacePath"/> refuses them.</summary>
+    private static bool IsGitDirectorySegment(string segment) =>
+        segment.Equals(".git", StringComparison.OrdinalIgnoreCase)
+        || (segment.Length > 4
+            && segment.StartsWith("git~", StringComparison.OrdinalIgnoreCase)
+            && segment[4..].All(char.IsAsciiDigit));
 
     private static AgentDefinition ToDefinition(AgentConfig agent) => new()
     {

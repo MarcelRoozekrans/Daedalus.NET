@@ -70,10 +70,6 @@ public sealed class DaedalusAgentsRegistrationTests
         // A real host gets the pull request factory from Daedalus.Infrastructure, not from AddDaedalusAgents, and
         // the pull request publisher needs one to resolve.
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
-        // A real host (WebApplicationBuilder/HostBuilder) always registers IHostEnvironment itself; this bare
-        // ServiceCollection does not, so StandingInstructionsWriter (task B5, DI-injected IHostEnvironment) fails
-        // to resolve unless the same instance handed to AddDaedalusAgents below is also registered here.
-        services.AddSingleton(environment);
         services.AddDaedalusAgents(configuration, environment, embeddings);
         return services.BuildServiceProvider();
     }
@@ -204,30 +200,34 @@ public sealed class DaedalusAgentsRegistrationTests
     }
 
     /// <summary>
-    ///     Final review finding I3. The standing-instructions file is overwritten with approved model text, so a
-    ///     path that climbs out of the content root, whether rooted elsewhere or through <c>..</c>, must take the
-    ///     host down at registration. The sibling case is a directory that shares the content root's name as a
-    ///     prefix, which a string prefix check would wrongly accept.
+    ///     Final review finding I3, moved into the worktree by task B11. The standing-instructions file is overwritten
+    ///     with approved model text in the run's worktree, so a value that could name any file but a tracked markdown
+    ///     file of the repository must take the host down at registration. A rooted value is refused even where it
+    ///     lies under the content root, which phase 2.4 accepted; resolved against a worktree it would name that host
+    ///     file. A <c>..</c> segment is refused even where it would come back inside. Red, per row: drop the rooted
+    ///     check, and the two rooted rows fail; drop the <c>..</c> check, and the three <c>..</c> rows fail; drop the
+    ///     git check, and the three git rows fail.
     /// </summary>
     [Theory]
-    [InlineData("../AGENT.md")]
-    [InlineData("nested/../../AGENT.md")]
-    [InlineData("SIBLING")]
-    [InlineData("ROOTED")]
-    public void A_standing_instructions_path_outside_the_content_root_fails_fast(string configured)
+    [InlineData("../AGENT.md", "*'..' segment*")]
+    [InlineData("nested/../../AGENT.md", "*'..' segment*")]
+    [InlineData("docs/../AGENT.md", "*'..' segment*")]
+    [InlineData("C:/x/AGENT.md", "*not a relative path*")]
+    [InlineData("ROOTED", "*not a relative path*")]
+    [InlineData(".git/AGENT.md", "*.git directory*")]
+    [InlineData("docs/.GIT/AGENT.md", "*.git directory*")]
+    [InlineData("git~1/AGENT.md", "*.git directory*")]
+    public void A_standing_instructions_path_that_is_not_confined_to_the_worktree_fails_fast(string configured, string reason)
     {
-        var contentRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
-        var path = configured switch
-        {
-            "SIBLING" => Path.Combine("..", Path.GetFileName(contentRoot) + "-sibling", "AGENT.md"),
-            "ROOTED" => Path.Combine(Path.GetDirectoryName(contentRoot)!, "AGENT.md"),
-            _ => configured,
-        };
+        var path = string.Equals(configured, "ROOTED", StringComparison.Ordinal)
+            ? Path.Combine(Path.GetTempPath(), "AGENT.md")
+            : configured;
 
         var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", path)));
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*Thalos:Workflow:StandingInstructionsPath*outside the content root*");
+            .WithMessage("*Thalos:Workflow:StandingInstructionsPath*")
+            .WithMessage(reason);
     }
 
     [Theory]
@@ -244,18 +244,15 @@ public sealed class DaedalusAgentsRegistrationTests
 
     /// <summary>
     ///     The mirror cases, without which the two tests above would be satisfied by a check that refused every
-    ///     path. A rooted path is accepted when it is under the content root.
+    ///     path: a relative markdown path, in a folder, in any case, or with a <c>.</c> segment the canonical form drops.
     /// </summary>
     [Theory]
     [InlineData("AGENT.md")]
     [InlineData("docs/STANDING.MD")]
-    [InlineData("docs/../AGENT.md")]
-    [InlineData("ROOTED")]
-    public void A_markdown_standing_instructions_path_under_the_content_root_is_accepted(string configured)
+    [InlineData("./AGENT.md")]
+    public void A_relative_markdown_standing_instructions_path_is_accepted(string configured)
     {
-        var path = string.Equals(configured, "ROOTED", StringComparison.Ordinal) ? Path.Combine(Path.GetTempPath(), "AGENT.md") : configured;
-
-        var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", path)));
+        var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", configured)));
 
         act.Should().NotThrow();
     }

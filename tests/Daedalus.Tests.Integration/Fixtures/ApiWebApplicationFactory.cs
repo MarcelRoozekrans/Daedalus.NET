@@ -31,15 +31,6 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     migrations (see <c>StartRunEndpointTests</c>), never against the shared <c>PostgresFixture</c> database,
 ///     which is built with EF Core's <c>EnsureCreatedAsync</c> and has none of those tables.
 /// </param>
-/// <param name="standingInstructionsPath">
-///     Task B5. When supplied, overrides <c>Thalos:Workflow:StandingInstructionsPath</c> so
-///     <c>StandingInstructionsWriter</c> reads and writes there instead of the default <c>AGENT.md</c> resolved
-///     against this factory's content root — <c>src/Daedalus.Api</c>, per this class's own remarks above, a real
-///     project directory whose tracked files a test must never touch. <c>AddDaedalusAgents</c> refuses a path
-///     outside the content root, so pass a path relative to it from <c>TempDirectory.NewContentRootRelative</c>,
-///     which lands under the project's git-ignored <c>obj</c> folder. <see langword="null"/> (the default) leaves
-///     the shipped configuration in place, for hosts that never touch the standing-instructions file at all.
-/// </param>
 /// <param name="squadEnabled">
 ///     When supplied, overrides <c>Thalos:Squad:Enabled</c>. <see langword="null"/> (the default) keeps the shipped
 ///     value, which enables the squad.
@@ -55,7 +46,7 @@ namespace Daedalus.Tests.Integration.Fixtures;
 /// </param>
 internal sealed class ApiWebApplicationFactory(
     string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,
-    string? standingInstructionsPath = null, bool? squadEnabled = null, Action<IServiceCollection>? configureServices = null,
+    bool? squadEnabled = null, Action<IServiceCollection>? configureServices = null,
     IReadOnlyDictionary<string, string?>? settings = null)
     : WebApplicationFactory<Daedalus.Api.Program>
 {
@@ -84,11 +75,6 @@ internal sealed class ApiWebApplicationFactory(
         // See WorkflowConfig.Enabled's own remarks, and this constructor's own parameter doc, for the one caller
         // that opts into the engine against a database it migrated itself.
         builder.UseSetting("Thalos:Workflow:Enabled", workflowEnabled ? "true" : "false");
-
-        if (standingInstructionsPath is not null)
-        {
-            builder.UseSetting("Thalos:Workflow:StandingInstructionsPath", standingInstructionsPath);
-        }
 
         if (squadEnabled is { } squad)
         {

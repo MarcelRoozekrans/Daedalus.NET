@@ -68,15 +68,13 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
     /// <summary>
     ///     Boots a host. <paramref name="seed"/> is the remote's <c>main</c>, on top of <c>README.md</c>; left out, it
     ///     is <c>AGENT.md</c> holding <c>Run dotnet test.</c> and <c>src/A.cs</c> holding <c>class A {}</c>.
-    ///     <paramref name="standingInstructionsPath"/>, <paramref name="squadEnabled"/> and
-    ///     <paramref name="configureServices"/> are passed to <see cref="ApiWebApplicationFactory"/> as they are.
+    ///     <paramref name="squadEnabled"/> and <paramref name="configureServices"/> are passed to <see cref="ApiWebApplicationFactory"/> as they are.
     /// </summary>
     public static async Task<ScratchWorkflowHost> StartAsync(
         PostgresFixture fixture,
         IAgentRuntime runtime,
         IReadOnlyList<(string Path, string Content)>? seed = null,
         IReadOnlyDictionary<string, string?>? settings = null,
-        string? standingInstructionsPath = null,
         bool? squadEnabled = null,
         Action<IServiceCollection>? configureServices = null)
     {
@@ -110,8 +108,7 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
             }
 
             factory = new ApiWebApplicationFactory(
-                connectionString, runtime, workflowEnabled: true, standingInstructionsPath: standingInstructionsPath,
-                squadEnabled: squadEnabled, configureServices: configureServices, settings: all);
+                connectionString, runtime, workflowEnabled: true, squadEnabled: squadEnabled, configureServices: configureServices, settings: all);
 
             // Builds and starts the host now, so the process and skill syncs, which each await their first pass inside
             // StartAsync, have run before any request, and before a test deactivates a synced skill.
