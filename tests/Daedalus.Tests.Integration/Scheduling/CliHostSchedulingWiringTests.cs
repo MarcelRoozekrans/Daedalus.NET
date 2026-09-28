@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Thalos.Workflow;
 using ZeroAlloc.Outbox;
 using Task = System.Threading.Tasks.Task;
 
@@ -70,6 +72,35 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
         hosted.Count(h => h is WorkflowOutboxDispatchService).Should().Be(1);
         hosted.Count(h => h is WorkflowStrandedRunSweepService).Should().Be(1);
         hosted.Count(h => h is ProcessDefinitionSyncHostedService).Should().Be(1);
+        hosted.Count(h => h is RunWorkspaceSweepService).Should().Be(1,
+            "task B10: this is the only thing that removes a published run's worktree (rulings R14/R19)");
+    }
+
+    /// <summary>
+    ///     Task B10 fix round 1: <see cref="RunWorkspaceSweeper"/> must see the same <see cref="IWorkflowStore"/>
+    ///     <see cref="Daedalus.Agents.Workflow.WorkflowRunGateway"/> and <c>WorkflowRunReconciler</c> do — never a
+    ///     decorated copy such as <c>ReviewHandoffWorkflowStore</c>/<c>WorkflowRunModeStore</c>, which only
+    ///     <c>WorkflowNodeDispatcherFactory</c>'s dispatcher-facing copy gets (see that factory's own remarks). A
+    ///     human reading a run must see everything it holds, which a decorator could hide or rewrite.
+    /// </summary>
+    /// <remarks>
+    ///     Red: wrap the registration's <c>sp.GetRequiredService&lt;IWorkflowStore&gt;()</c> in one of those
+    ///     decorators before handing it to <see cref="RunWorkspaceSweeper"/>'s constructor. The sweeper then holds a
+    ///     different instance than <see cref="IWorkflowStore"/> itself resolves to, and this test's
+    ///     <c>BeSameAs</c> assertion goes red — verified by making exactly that edit and reverting it.
+    /// </remarks>
+    [Fact]
+    public void The_run_workspace_sweeper_resolves_over_the_undecorated_workflow_store()
+    {
+        using var provider = BuildProvider();
+
+        var sweeper = provider.GetRequiredService<RunWorkspaceSweeper>();
+        var store = provider.GetRequiredService<IWorkflowStore>();
+
+        var field = typeof(RunWorkspaceSweeper).GetField("_store", BindingFlags.NonPublic | BindingFlags.Instance);
+        field.Should().NotBeNull("RunWorkspaceSweeper is expected to keep its dependency in a private '_store' field");
+        field!.GetValue(sweeper).Should().BeSameAs(store,
+            "the sweeper must resolve the exact IWorkflowStore instance the container hands out elsewhere, not a decorated copy");
     }
 
     [Fact]
