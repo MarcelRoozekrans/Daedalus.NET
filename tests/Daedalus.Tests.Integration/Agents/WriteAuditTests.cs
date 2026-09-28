@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
@@ -28,7 +29,11 @@ public sealed class WriteAuditTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private static readonly RunPrincipal Admin = new("u-admin", ["admin"]);
 
-    private static readonly JsonSerializerOptions PayloadJson = new(JsonSerializerDefaults.Web);
+    /// <summary>An extra payload property, such as the file's content, fails the read instead of being ignored.</summary>
+    private static readonly JsonSerializerOptions PayloadJson = new(JsonSerializerDefaults.Web)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    };
 
     private ScratchWorkflowHost _host = null!;
 
@@ -45,7 +50,6 @@ public sealed class WriteAuditTests(PostgresFixture fixture) : IAsyncLifetime
         var decision = await Authorize(_host, caller, "workspace__write_file", Args("path", "src/A.cs"));
 
         // Red: return a denial after the record is appended.
-
         decision.Allowed.Should().BeTrue();
         // Red: remove the DecorateToolAuthorizerWithWriteAudit call; nothing is recorded.
         var record = (await Records(_host, run)).Should().ContainSingle().Subject;
@@ -72,7 +76,6 @@ public sealed class WriteAuditTests(PostgresFixture fixture) : IAsyncLifetime
         var denied = await Authorize(_host, Caller(_host, run with { CurrentNode = "review" }), "workspace__write_file", Args("path", "src/B.cs"));
 
         // Red: return an allowance for every decision that is not audited.
-
         denied.Allowed.Should().BeFalse();
         // Red: audit before asking the inner authorizer, so the denied review call is recorded too.
         (await Records(_host, run)).Select(r => r.Node).Should().Equal("implement");
@@ -88,7 +91,6 @@ public sealed class WriteAuditTests(PostgresFixture fixture) : IAsyncLifetime
         var read = await Authorize(_host, caller, "roslyn__find_references", Args("filePath", "src/B.cs"));
 
         // Red: return a denial for every decision that is not audited.
-
         read.Allowed.Should().BeTrue();
         // Red: treat every tool as audited, so the read is recorded as well.
         (await Records(_host, run)).Select(r => Payload(r).Tool).Should().Equal("workspace__write_file");
@@ -112,12 +114,42 @@ public sealed class WriteAuditTests(PostgresFixture fixture) : IAsyncLifetime
         var decision = await Authorize(host, Caller(host, run), "roslyn__apply_code_action", Args("filePath", "src/A.cs"));
 
         // Red: return a denial after the record is appended.
-
         decision.Allowed.Should().BeTrue();
         // Red for the record: build the audited set from a fixed ["workspace__*"] instead of the workspace-write bindings.
         // Red for the path: drop the filePath fallback, so the path is null.
         Payload((await Records(host, run)).Should().ContainSingle().Subject)
             .Should().Be(new AuditPayload("roslyn__apply_code_action", "src/A.cs"));
+    }
+
+    [Fact]
+    public async Task A_path_at_the_length_cap_is_allowed_and_recorded()
+    {
+        var run = await RunAt(_host, "implement");
+        var path = "src/" + new string('a', AuditingToolAuthorizer.MaxPathLength - 7) + ".cs";
+
+        var decision = await Authorize(_host, Caller(_host, run), "workspace__write_file", Args("path", path));
+
+        // Red: an off-by-one cap, `>=` in place of `>`.
+        decision.Allowed.Should().BeTrue();
+        // Red: record a path at the cap with its last character cut.
+        (await Records(_host, run)).Select(r => Payload(r).Path).Should().Equal(path);
+    }
+
+    [Fact]
+    public async Task A_path_over_the_length_cap_is_denied_as_audit_unavailable_and_not_recorded()
+    {
+        var run = await RunAt(_host, "implement");
+        await Authorize(_host, Caller(_host, run), "workspace__write_file", Args("path", "src/A.cs"));
+        var path = "src/" + new string('a', AuditingToolAuthorizer.MaxPathLength - 6) + ".cs";
+
+        var decision = await Authorize(_host, Caller(_host, run), "workspace__write_file", Args("path", path));
+
+        // Red: remove the cap; the long path is recorded and the inner, allowed decision returned.
+        decision.Reason.Should().Be(AuditingToolAuthorizer.AuditUnavailable);
+        // Red: deny with an allowed decision that carries the reason.
+        decision.Allowed.Should().BeFalse();
+        // Red: check the cap only after the record is appended.
+        (await Records(_host, run)).Select(r => Payload(r).Path).Should().Equal("src/A.cs");
     }
 
     /// <summary>
@@ -212,9 +244,16 @@ public sealed class WriteAuditTests(PostgresFixture fixture) : IAsyncLifetime
     private static async Task<IReadOnlyList<WorkflowRunRecord>> Records(ScratchWorkflowHost host, WorkflowRun run) =>
         await host.Factory.Services.GetRequiredService<IWorkflowRunRecordStore>().ListAsync(run.Id, kind: null, CancellationToken.None);
 
-    /// <summary>The payload read as a value: <c>jsonb</c> keeps neither its whitespace nor its key order.</summary>
-    private static AuditPayload Payload(WorkflowRunRecord record) =>
-        JsonSerializer.Deserialize<AuditPayload>(record.PayloadJson, PayloadJson)!;
+    /// <summary>
+    ///     The payload read as a value: <c>jsonb</c> keeps neither its whitespace nor its key order. Red: add the call's
+    ///     <c>content</c> to the recorded payload; the read then fails on this assertion, since <see cref="PayloadJson"/>
+    ///     refuses any property but <c>tool</c> and <c>path</c>.
+    /// </summary>
+    private static AuditPayload Payload(WorkflowRunRecord record)
+    {
+        var read = () => JsonSerializer.Deserialize<AuditPayload>(record.PayloadJson, PayloadJson);
+        return read.Should().NotThrow("the payload holds the tool and the path only, never the file's content").Subject!;
+    }
 
     private sealed record AuditPayload(string? Tool, string? Path);
 

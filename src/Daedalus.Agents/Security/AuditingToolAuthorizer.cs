@@ -34,7 +34,8 @@ namespace Daedalus.Agents.Security;
 ///     <para>
 ///     <b>What.</b> The payload is <c>{ tool, path }</c> only. The path is read from <c>path</c>, the
 ///     <c>workspace__*</c> argument, or <c>filePath</c>, Roslyn's. Content and edit text are never stored: they can be
-///     large, and the run's own commit already holds what was written.
+///     large, and the run's own commit already holds what was written. A path longer than <see cref="MaxPathLength"/> is
+///     not recorded, and the call is denied.
 ///     </para>
 ///     <para>
 ///     <b>Fail closed (ruling R25).</b> An invalid record or a failed append is logged and the call is denied with
@@ -59,6 +60,12 @@ internal sealed partial class AuditingToolAuthorizer(
     /// <summary>The denial reason for an allowed write whose audit record could not be written.</summary>
     public const string AuditUnavailable = "audit unavailable";
 
+    /// <summary>
+    ///     The longest path, in UTF-16 characters, that is recorded. A longer one is denied, not truncated: truncation
+    ///     would collapse different paths into one ambiguous record, and the file system refuses such a path anyway.
+    /// </summary>
+    public const int MaxPathLength = 4096;
+
     /// <inheritdoc />
     public async ValueTask<ToolAuthorizationDecision> AuthorizeAsync(
         ISecurityContext caller, string qualifiedToolName, JsonElement arguments, CancellationToken ct)
@@ -71,6 +78,12 @@ internal sealed partial class AuditingToolAuthorizer(
 
         var run = workflow.Run;
         var path = TryString(arguments, "path") ?? TryString(arguments, "filePath");
+        if (path?.Length > MaxPathLength)
+        {
+            LogAuditRejected(logger, qualifiedToolName, run.Id, $"path is {path.Length} characters, more than {MaxPathLength}");
+            return ToolAuthorizationDecision.Deny(AuditUnavailable);
+        }
+
         var record = WorkflowRunRecord.Create(
             run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.WorkspaceWriteKind, caller.Id, run.StartedBy?.Id,
             JsonSerializer.Serialize(new { tool = qualifiedToolName, path }), clock.GetUtcNow().UtcDateTime);
