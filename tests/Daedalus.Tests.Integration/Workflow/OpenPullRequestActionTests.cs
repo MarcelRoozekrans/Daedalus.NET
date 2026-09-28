@@ -177,6 +177,7 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
 
         var result = await _action.RunAsync(_run, PublishNode, CancellationToken.None);
 
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : "");
         result.Value.Outcome.Should().Be("failed");
         result.Value.Variables["publish_error"].Should().Be("nothing to publish");
         _publisher.OpenCount.Should().Be(0);

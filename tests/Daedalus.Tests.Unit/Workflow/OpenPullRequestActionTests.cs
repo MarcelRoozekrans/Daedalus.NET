@@ -23,6 +23,7 @@ public sealed class OpenPullRequestActionTests : IDisposable
 {
     private const string Remote = "https://github.com/MarcelRoozekrans/daedalus-sandbox.git";
     private static readonly Guid RunId = new(0x1c2d3e4f, 0x5a6b, 0x4c7d, 0x8e, 0x9f, 0x0a, 0x1b, 0x2c, 0x3d, 0x4e, 0x5f);
+    private static readonly string[] CanonicalStandingPath = ["docs/AGENT.md"];
     private static readonly ProcessNode PublishNode = new() { Action = OpenPullRequestAction.ActionName, Outcomes = ["published", "failed"] };
 
     private readonly IRunWorkspaceProvider _workspaces = Substitute.For<IRunWorkspaceProvider>();
@@ -33,7 +34,6 @@ public sealed class OpenPullRequestActionTests : IDisposable
     private readonly WorkflowConfig _config = new();
     private readonly ServiceProvider _services;
     private readonly RunWorkspace _ws = new(RunId, "sandbox", Remote, "main", $"manufacture/{RunId}", "C:/data/runs/r1", SolutionPath: null);
-    private static readonly string[] second = new[] { "docs/AGENT.md" };
 
     public OpenPullRequestActionTests()
     {
@@ -116,10 +116,10 @@ public sealed class OpenPullRequestActionTests : IDisposable
 
         await _git.Received(1).CommitAsync(_ws, Arg.Is<GitCommitRequest>(r =>
             r.Author == new GitAuthor("Daedalus", "daedalus@roozekrans.nl") && r.Paths == null
-            && r.ExcludePaths != null && r.ExcludePaths.SequenceEqual(second)), Arg.Any<CancellationToken>());
+            && r.ExcludePaths != null && r.ExcludePaths.SequenceEqual(CanonicalStandingPath)), Arg.Any<CancellationToken>());
         await _git.Received(1).CommitAsync(_ws, Arg.Is<GitCommitRequest>(r =>
             r.Author == new GitAuthor("Daedalus", "daedalus@roozekrans.nl") && r.ExcludePaths == null
-            && r.Paths != null && r.Paths.SequenceEqual(second)), Arg.Any<CancellationToken>());
+            && r.Paths != null && r.Paths.SequenceEqual(CanonicalStandingPath)), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -174,7 +174,7 @@ public sealed class OpenPullRequestActionTests : IDisposable
     }
 
     [Fact]
-    public async Task A_repository_no_longer_allow_listed_is_refused_before_the_lookup()
+    public async Task A_repository_no_longer_allow_listed_is_refused_before_it_commits_or_pushes()
     {
         _config.Repositories.Clear();
 
@@ -182,11 +182,13 @@ public sealed class OpenPullRequestActionTests : IDisposable
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("no longer allow-listed");
+        await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
+        await _git.DidNotReceiveWithAnyArgs().PushAsync(default!, default);
         await _lookup.DidNotReceiveWithAnyArgs().FindOpenPullRequestAsync(default!, default!, default);
     }
 
     [Fact]
-    public async Task A_repository_now_configured_at_another_remote_is_refused_before_the_lookup()
+    public async Task A_repository_now_configured_at_another_remote_is_refused_before_it_commits_or_pushes()
     {
         _config.Repositories[0].Remote = "https://github.com/someone-else/daedalus-sandbox.git";
 
@@ -194,11 +196,13 @@ public sealed class OpenPullRequestActionTests : IDisposable
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("different remote");
+        await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
+        await _git.DidNotReceiveWithAnyArgs().PushAsync(default!, default);
         await _lookup.DidNotReceiveWithAnyArgs().FindOpenPullRequestAsync(default!, default!, default);
     }
 
     [Fact]
-    public async Task An_unreadable_review_evidence_record_fails_the_action_rather_than_publishing_without_it()
+    public async Task An_unreadable_review_evidence_record_is_refused_before_it_commits_or_pushes()
     {
         var record = WorkflowRunRecord.Create(RunId, 7, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", null,
             """{ "verdict": "approved" }""", DateTime.UtcNow).Value;
@@ -209,7 +213,26 @@ public sealed class OpenPullRequestActionTests : IDisposable
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("review evidence");
+        await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
+        await _git.DidNotReceiveWithAnyArgs().PushAsync(default!, default);
         await _publisher.DidNotReceiveWithAnyArgs().OpenPullRequestAsync(default!, default!, default!, default!, default!, default);
+    }
+
+    [Fact]
+    public async Task A_lens_whose_last_record_at_the_approving_visit_is_a_rejection_is_refused_before_it_commits_or_pushes()
+    {
+        WorkflowRunRecord Evidence(string lens, string verdict) =>
+            WorkflowRunRecord.Create(RunId, 7, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", null,
+                $$"""{ "lens": "{{lens}}", "verdict": "{{verdict}}", "checked": ["x"], "findings": [] }""", DateTime.UtcNow).Value;
+        _records.ListAsync(RunId, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([Evidence("correctness", "approved"), Evidence("failure-modes", "rejected")]));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("lens 'failure-modes'").And.Contain("not an approval");
+        await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
+        await _git.DidNotReceiveWithAnyArgs().PushAsync(default!, default);
     }
 
     [Fact]

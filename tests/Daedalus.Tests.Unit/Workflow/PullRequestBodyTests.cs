@@ -46,6 +46,7 @@ public sealed class PullRequestBodyTests
         var positions = headings.Select(h => body.IndexOf(h, StringComparison.Ordinal)).ToArray();
         positions.Should().NotContain(-1).And.BeInAscendingOrder();
         body.Should().Contain("## Agent-written summary\n\n> Written by the implement agent; not verified by host code.\n");
+        body.Should().Contain("## Review\n\n> Reported by the review agents; host code verified only that each lens approved.\n\n- correctness\n");
         body.Should().Contain("- `src/A.cs`  +3 -1");
     }
 

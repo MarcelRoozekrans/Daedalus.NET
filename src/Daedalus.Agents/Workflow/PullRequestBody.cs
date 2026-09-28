@@ -13,7 +13,8 @@ namespace Daedalus.Agents.Workflow;
 ///     blocks, every line prefixed with <c>&gt;</c>, so a line in them that reads <c>## Approval</c> is quoted text, not a
 ///     heading. Lens names, checked items, file paths and the approver's name are each collapsed onto one line, so none
 ///     of them can start a line of its own. The agent's summary comes last, under its own heading, and its first line
-///     is the label that says host code did not verify it.
+///     is the label that says host code did not verify it. The review section likewise opens with a label: its checked
+///     items are the review agents' own report, and host code verified only each lens's approving verdict.
 ///     </para>
 ///     <para>
 ///     <b>Bounded.</b> The title's line is cut to <see cref="MaxTitleLineLength"/>. The summary, the intent, each list
@@ -40,6 +41,9 @@ internal static class PullRequestBody
 
     /// <summary>The longest body this renders, cut marker included.</summary>
     public const int MaxBodyLength = 60_000;
+
+    /// <summary>The first line of the review section: the checked items are the review agents' own words.</summary>
+    public const string ReviewLabel = "> Reported by the review agents; host code verified only that each lens approved.";
 
     /// <summary>The first line of the agent-written section.</summary>
     public const string AgentTextLabel = "> Written by the implement agent; not verified by host code.";
@@ -74,6 +78,7 @@ internal static class PullRequestBody
             body.Append(CultureInfo.InvariantCulture, $"- and {facts.Changes.Count - MaxChangedFilesListed} more files\n");
 
         body.Append("\n## Review\n\n");
+        body.Append(ReviewLabel).Append("\n\n");
         if (facts.Checked.Count == 0)
             body.Append("No review evidence is recorded for this run.\n");
 

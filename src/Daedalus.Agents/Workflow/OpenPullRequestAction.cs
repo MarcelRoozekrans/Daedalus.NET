@@ -86,6 +86,26 @@ internal sealed class OpenPullRequestAction(
             || string.IsNullOrWhiteSpace(workIntent))
             return Failed($"run '{run.Id}' has no pinned work intent to describe the pull request with", ws);
 
+        // Every refusal that does not depend on git comes before the first commit, so a refused run is never
+        // committed or pushed, and a retry of one pushes nothing either. The repository must still be allow-listed, at
+        // the remote the workspace was created for: the lookup below queries the configured remote (ruling R22), so
+        // it must be the one the branch is pushed to.
+        if (config.Repositories.FirstOrDefault(r => string.Equals(r.Name, ws.Repository, StringComparison.Ordinal)) is not { } repository)
+            return Failed($"repository '{ws.Repository}' is no longer allow-listed", ws);
+        if (!string.Equals(repository.Remote, ws.Remote, StringComparison.Ordinal))
+            return Failed($"repository '{ws.Repository}' is now configured at a different remote than the run's workspace", ws);
+
+        // Two interfaces (ruling R28a): IOpenPullRequestLookup reads, IPullRequestPublisher opens. Both are scoped, so
+        // they come from this scope rather than this singleton's constructor, as does the record store.
+        await using var scope = scopes.CreateAsyncScope();
+
+        // The review evidence is read and validated before any side effect too, even on a redelivery whose pull
+        // request is already open: it is one query against the host's own append-only store, and reading it first
+        // means an unreadable record fails the run once, instead of every retry pushing and then failing.
+        var reviewed = await CheckedAsync(run.Id, scope.ServiceProvider, ct).ConfigureAwait(false);
+        if (reviewed.IsFailure)
+            return Failed(reviewed.Error, ws);
+
         var author = new GitAuthor(config.CommitAuthor.Name, config.CommitAuthor.Email);
 
         // 1. Commit. Each call is a no-op when nothing is staged, so a redelivery commits nothing twice.
@@ -131,14 +151,7 @@ internal sealed class OpenPullRequestAction(
         if (push.IsFailure)
             return Failed($"push failed: {Describe(push.Error)}", ws);
 
-        // 3. Open, or reuse, the pull request. The lookup takes the configured remote, never the worktree, so it opens
-        // no repository (ruling R22). It must be the remote the branch was just pushed to.
-        if (config.Repositories.FirstOrDefault(r => string.Equals(r.Name, ws.Repository, StringComparison.Ordinal)) is not { } repository)
-            return Failed($"repository '{ws.Repository}' is no longer allow-listed", ws);
-        if (!string.Equals(repository.Remote, ws.Remote, StringComparison.Ordinal))
-            return Failed($"repository '{ws.Repository}' is now configured at a different remote than the run pushed to", ws);
-
-        await using var scope = scopes.CreateAsyncScope();
+        // 3. Open, or reuse, the pull request.
         var lookup = scope.ServiceProvider.GetRequiredService<IOpenPullRequestLookup>();
         var publisher = scope.ServiceProvider.GetRequiredService<IPullRequestPublisher>();
 
@@ -149,10 +162,6 @@ internal sealed class OpenPullRequestAction(
         var pr = existing.Value;
         if (pr is null)
         {
-            var reviewed = await CheckedAsync(run.Id, scope.ServiceProvider, ct).ConfigureAwait(false);
-            if (reviewed.IsFailure)
-                return Failed(reviewed.Error, ws);
-
             var body = PullRequestBody.Render(new PullRequestFacts(
                 workIntent,
                 changes,
@@ -184,7 +193,8 @@ internal sealed class OpenPullRequestAction(
     ///     What each lens of the approving review visit checked: the review-evidence records at the highest
     ///     <see cref="WorkflowRunRecord.Seq"/>, the last record per lens. A redelivered review node records its lenses
     ///     again at the same seq, and the store lists records in append order within a seq, so the last one is the
-    ///     visit's final word. Payloads are read as parsed JSON, since <c>jsonb</c> keeps no text.
+    ///     visit's final word. Payloads are read as parsed JSON, since <c>jsonb</c> keeps no text. Each lens's final
+    ///     record must be an approval, which is what the body's review label states host code verified.
     /// </summary>
     private static async ValueTask<Result<IReadOnlyList<(string Lens, IReadOnlyList<string> Checked)>>> CheckedAsync(
         Guid runId, IServiceProvider services, CancellationToken ct)
@@ -197,7 +207,7 @@ internal sealed class OpenPullRequestAction(
             return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Success([]);
 
         var approvingSeq = records.Max(r => r.Seq);
-        var lenses = new List<(string Lens, IReadOnlyList<string> Checked)>();
+        var lenses = new List<(string Lens, bool Approved, IReadOnlyList<string> Checked)>();
         foreach (var record in records.Where(r => r.Seq == approvingSeq))
         {
             var read = ReadEvidence(record);
@@ -211,10 +221,16 @@ internal sealed class OpenPullRequestAction(
                 lenses.Add(read.Value);
         }
 
-        return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Success(lenses);
+        if (lenses.FirstOrDefault(l => !l.Approved) is { Lens: { } rejected })
+        {
+            return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Failure(
+                $"the review evidence for lens '{rejected}' at the approving visit is not an approval");
+        }
+
+        return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Success([.. lenses.Select(l => (l.Lens, l.Checked))]);
     }
 
-    private static Result<(string Lens, IReadOnlyList<string> Checked)> ReadEvidence(WorkflowRunRecord record)
+    private static Result<(string Lens, bool Approved, IReadOnlyList<string> Checked)> ReadEvidence(WorkflowRunRecord record)
     {
         try
         {
@@ -222,11 +238,14 @@ internal sealed class OpenPullRequestAction(
             var root = payload.RootElement;
             if (root.ValueKind == JsonValueKind.Object
                 && root.TryGetProperty("lens", out var lens) && lens.ValueKind == JsonValueKind.String
+                && root.TryGetProperty("verdict", out var verdict) && verdict.ValueKind == JsonValueKind.String
                 && root.TryGetProperty("checked", out var examined) && examined.ValueKind == JsonValueKind.Array
                 && examined.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String))
             {
-                return Result<(string, IReadOnlyList<string>)>.Success(
-                    (lens.GetString()!, [.. examined.EnumerateArray().Select(e => e.GetString()!)]));
+                return Result<(string, bool, IReadOnlyList<string>)>.Success((
+                    lens.GetString()!,
+                    string.Equals(verdict.GetString(), ReviewEvidence.Approved, StringComparison.Ordinal),
+                    [.. examined.EnumerateArray().Select(e => e.GetString()!)]));
             }
         }
         catch (JsonException)
@@ -234,8 +253,8 @@ internal sealed class OpenPullRequestAction(
             // Reported below with the record's id, the same as a payload of the wrong shape.
         }
 
-        return Result<(string, IReadOnlyList<string>)>.Failure(
-            $"review evidence record {record.Id} has no readable lens and checked list");
+        return Result<(string, bool, IReadOnlyList<string>)>.Failure(
+            $"review evidence record {record.Id} has no readable lens, verdict and checked list");
     }
 
     private static string Describe(AgentError error) =>
