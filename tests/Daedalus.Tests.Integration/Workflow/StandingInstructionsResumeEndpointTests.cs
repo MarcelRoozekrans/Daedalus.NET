@@ -316,9 +316,15 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
                 await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
             }
 
+            // Ruling R24: the shipped .mcp.json declares a run-scoped roslyn, so without this every run the host started
+            // would launch a real Roslyn server. Absolute, because a relative path resolves against the content root.
             factory = new ApiWebApplicationFactory(
                 connectionString, Substitute.For<IAgentRuntime>(), workflowEnabled: true,
-                standingInstructionsPath: Path.Combine(relative, "AGENT.md"));
+                standingInstructionsPath: Path.Combine(relative, "AGENT.md"),
+                settings: new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    ["Thalos:McpConfigPath"] = Path.Combine(AppContext.BaseDirectory, "no-run-scoped.mcp.json"),
+                });
 
             // Force the host to build and start now — see StartRunEndpointTests.WithRunningHostAsync's own remarks.
             _ = factory.Services;

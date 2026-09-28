@@ -45,8 +45,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <see langword="null"/> is the normal state of every ungranted node, so the parameter is nullable but required:
 ///     every construction says which (rulings R27 and R29). A granted caller also holds
 ///     <see cref="WorkspaceWritePolicy.WorkspaceWriterRole"/>, which is what the <c>workspace-write</c> binding on
-///     <c>workspace__write_*</c> and <c>workspace__edit_*</c> checks. <c>roslyn__apply_*</c> stays on <c>developer</c>,
-///     which this caller never passes, until task B9 makes Roslyn run-scoped.
+///     <c>workspace__write_*</c> and <c>workspace__edit_*</c> checks. <c>roslyn__apply_*</c> is bound to
+///     <see cref="CSharpWritePolicy"/>, which this caller passes only when its grant includes <c>.cs</c>; its run
+///     claim routes the call to its own run's Roslyn server.
 ///     </para>
 ///     <para>
 ///     <b>The <c>thalos.*</c> claims come from the run row and reviewed config only.</b>

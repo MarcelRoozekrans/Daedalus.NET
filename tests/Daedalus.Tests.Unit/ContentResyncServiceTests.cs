@@ -503,26 +503,26 @@ public sealed class ContentResyncServiceRegistrationTests
     }
 
     [Fact]
-    public void Content_resync_is_absent_when_no_interval_is_configured()
+    public async Task Content_resync_is_absent_when_no_interval_is_configured()
     {
-        using var sp = BuildContainer(resyncInterval: null);
+        await using var sp = BuildContainer(resyncInterval: null);
 
         sp.GetServices<IHostedService>().Should().NotContain(s => s is ContentResyncService,
             "shipped configuration sets no Thalos:Content:ResyncInterval, so no host pays for this loop by default");
     }
 
     [Fact]
-    public void Content_resync_is_present_when_an_interval_is_configured()
+    public async Task Content_resync_is_present_when_an_interval_is_configured()
     {
-        using var sp = BuildContainer(TimeSpan.FromMinutes(5));
+        await using var sp = BuildContainer(TimeSpan.FromMinutes(5));
 
         sp.GetServices<IHostedService>().Should().ContainSingle(s => s is ContentResyncService);
     }
 
     [Fact]
-    public void Skill_sync_service_is_the_same_instance_the_hosted_pipeline_runs_and_content_resync_resolves()
+    public async Task Skill_sync_service_is_the_same_instance_the_hosted_pipeline_runs_and_content_resync_resolves()
     {
-        using var sp = BuildContainer(TimeSpan.FromMinutes(5));
+        await using var sp = BuildContainer(TimeSpan.FromMinutes(5));
 
         var hosted = sp.GetServices<IHostedService>().OfType<SkillSyncService>().Single();
 
@@ -531,9 +531,9 @@ public sealed class ContentResyncServiceRegistrationTests
     }
 
     [Fact]
-    public void Charter_sync_service_is_the_same_instance_the_hosted_pipeline_runs_and_content_resync_resolves()
+    public async Task Charter_sync_service_is_the_same_instance_the_hosted_pipeline_runs_and_content_resync_resolves()
     {
-        using var sp = BuildContainer(TimeSpan.FromMinutes(5));
+        await using var sp = BuildContainer(TimeSpan.FromMinutes(5));
 
         var hosted = sp.GetServices<IHostedService>().OfType<CharterSyncService>().Single();
 
@@ -547,9 +547,9 @@ public sealed class ContentResyncServiceRegistrationTests
     ///     own — forwarding <see cref="SkillSyncService"/>/<see cref="CharterSyncService"/> must not have disturbed it.
     /// </summary>
     [Fact]
-    public void Process_definition_sync_still_resolves_when_content_resync_is_registered()
+    public async Task Process_definition_sync_still_resolves_when_content_resync_is_registered()
     {
-        using var sp = BuildContainer(TimeSpan.FromMinutes(5));
+        await using var sp = BuildContainer(TimeSpan.FromMinutes(5));
 
         sp.GetServices<IHostedService>().Should().Contain(s => s is ProcessDefinitionSyncHostedService);
         sp.GetService<ProcessDefinitionSync>().Should().NotBeNull();

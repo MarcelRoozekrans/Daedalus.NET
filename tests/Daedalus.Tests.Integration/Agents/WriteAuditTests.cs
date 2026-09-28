@@ -97,8 +97,27 @@ public sealed class WriteAuditTests(PostgresFixture fixture) : IAsyncLifetime
     }
 
     /// <summary>
-    ///     Task B9 rebinds <c>roslyn__apply_*</c> to <c>workspace-write</c>. The audited set is read from the same
-    ///     bindings, so that rebinding alone makes the call audited, and Roslyn's <c>filePath</c> argument is the path.
+    ///     Task B9: the shipped configuration binds <c>roslyn__apply_*</c> to <c>csharp-write</c>, and a code action
+    ///     writes the run's worktree like any workspace write, so a granted implement turn's call is recorded, with
+    ///     Roslyn's <c>filePath</c> as the path.
+    /// </summary>
+    [Fact]
+    public async Task The_shipped_roslyn_apply_binding_is_audited_with_its_file_path()
+    {
+        var run = await RunAt(_host, "implement");
+
+        var decision = await Authorize(_host, Caller(_host, run), "roslyn__apply_code_action", Args("filePath", "src/A.cs"));
+
+        // Red: leave roslyn__apply_* on developer, which the workflow caller fails.
+        decision.Allowed.Should().BeTrue();
+        // Red: drop csharp-write from the audited policies; the call is allowed and nothing is recorded.
+        Payload((await Records(_host, run)).Should().ContainSingle().Subject)
+            .Should().Be(new AuditPayload("roslyn__apply_code_action", "src/A.cs"));
+    }
+
+    /// <summary>
+    ///     A pattern rebound to <c>workspace-write</c> is audited too: the audited set is read from the bindings, so the
+    ///     rebinding alone makes the call audited, and Roslyn's <c>filePath</c> argument is the path.
     /// </summary>
     [Fact]
     public async Task A_tool_rebound_to_workspace_write_is_audited_with_its_file_path()

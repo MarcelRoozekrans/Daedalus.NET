@@ -30,10 +30,11 @@ namespace Daedalus.Tests.Integration.Agents;
 ///     in the test and is never written; nothing else about the run changes.
 ///     </para>
 ///     <para>
-///     The <c>workspace__*</c> tools are not registered on the host until task B9, so the tests that need a tool's own
-///     answer build <see cref="WorkspaceTools"/> over the host's real <see cref="IRunWorkspaceProvider"/> and the run's
-///     real worktree. Their ceiling is deliberately wider than the shipped grant, so what narrows a write to
-///     <c>.cs</c> and <c>.md</c> in them is the caller's own grant claim.
+///     The tests that need a tool's own answer use the host's own <see cref="WorkspaceTools"/>, over its registered
+///     <see cref="RunWorkspaceToolOptions"/> (task B9). The extension test boots a host whose config adds a second
+///     grant, on <c>review</c>, for <c>.props</c> and <c>.json</c>, so the real ceiling, the union of the grants,
+///     admits both, and what narrows implement's writes to <c>.cs</c> and <c>.md</c> is its own grant claim.
+///     <see cref="Daedalus.Tests.Integration.Workflow.WorkspaceExtensionBoundaryTests"/> covers the shipped ceiling.
 ///     </para>
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
@@ -59,13 +60,33 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
         (await Authorize(_host, Caller(_host, await RunAt(_host, "implement", Admin)), tool)).Allowed.Should().BeTrue();
 
     /// <summary>
-    ///     Until task B9 makes Roslyn run-scoped, it serves the host's own solution, so even a granted implement turn may
-    ///     not apply code actions: <c>roslyn__apply_*</c> stays bound to <c>developer</c>. Red: rebind it to
-    ///     <c>workspace-write</c>.
+    ///     Task B9: Roslyn is run-scoped, so a granted implement turn may apply code actions, in its own run's worktree.
+    ///     Its shipped grant includes <c>.cs</c>. Red: leave <c>roslyn__apply_*</c> on <c>developer</c>.
     /// </summary>
     [Fact]
-    public async Task A_granted_implement_turn_may_not_apply_code_actions_to_the_host_solution() =>
-        (await Authorize(_host, Caller(_host, await RunAt(_host, "implement", Admin)), "roslyn__apply_code_action")).Allowed.Should().BeFalse();
+    public async Task A_granted_implement_turn_whose_grant_includes_cs_may_apply_code_actions() =>
+        (await Authorize(_host, Caller(_host, await RunAt(_host, "implement", Admin)), "roslyn__apply_code_action")).Allowed.Should().BeTrue();
+
+    /// <summary>
+    ///     RoslynCodeLens writes <c>.cs</c> documents with no extension check, so a grant without <c>.cs</c> must not reach
+    ///     <c>roslyn__apply_*</c>, even though it passes <c>workspace-write</c>. Red: bind <c>roslyn__apply_*</c> to
+    ///     <c>workspace-write</c>; the first assertion then passes the call.
+    /// </summary>
+    [Fact]
+    public async Task A_granted_implement_turn_whose_grant_lacks_cs_may_not_apply_code_actions()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture, Substitute.For<IAgentRuntime>(), settings: new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["Thalos:Workflow:WriteGrants:0:AllowedExtensions:0"] = ".md",
+                ["Thalos:Workflow:WriteGrants:0:AllowedExtensions:1"] = ".txt",
+            });
+        var caller = Caller(host, await RunAt(host, "implement", Admin));
+
+        (await Authorize(host, caller, "roslyn__apply_code_action")).Allowed.Should().BeFalse();
+        // The control: the same caller still holds its workspace grant, so the refusal above is the missing .cs.
+        (await Authorize(host, caller, "workspace__write_file")).Allowed.Should().BeTrue();
+    }
 
     /// <summary>
     ///     Both nodes are task nodes pinned in the manifest and started by an admin, so only the grant's node comparison
@@ -166,18 +187,29 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
     }
 
     /// <summary>
-    ///     The shipped grant allows <c>.cs</c> and <c>.md</c>. The tools here allow <c>.props</c> and <c>.json</c> too,
-    ///     so only the caller's grant claim refuses them.
+    ///     The shipped grant allows implement <c>.cs</c> and <c>.md</c>. This host also grants <c>review</c>
+    ///     <c>.props</c> and <c>.json</c>, so the host's real ceiling admits both, and only implement's own grant claim
+    ///     refuses them.
     /// </summary>
     [Theory]
     [InlineData("Directory.Build.props")]
     [InlineData("src/appsettings.json")]
     public async Task A_granted_run_cannot_write_an_extension_outside_its_grant(string path)
     {
-        var run = await RunAt(_host, "implement", Admin);
-        var caller = Caller(_host, run);
-        var tools = Tools(_host);
-        var root = await WorktreeOf(_host, run);
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture, Substitute.For<IAgentRuntime>(), settings: new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["Thalos:Workflow:WriteGrants:1:Process"] = "manufacture",
+                ["Thalos:Workflow:WriteGrants:1:Node"] = "review",
+                ["Thalos:Workflow:WriteGrants:1:AllowedExtensions:0"] = ".props",
+                ["Thalos:Workflow:WriteGrants:1:AllowedExtensions:1"] = ".json",
+            });
+        var run = await RunAt(host, "implement", Admin);
+        var caller = Caller(host, run);
+        var tools = Tools(host);
+        var root = await WorktreeOf(host, run);
+        host.Factory.Services.GetRequiredService<RunWorkspaceToolOptions>().AllowedWriteExtensions
+            .Should().Contain([".props", ".json"], "otherwise the ceiling, not the claim, refuses the write");
 
         var refused = await tools.WriteFile(caller, path, "<Project />", CancellationToken.None);
         var allowed = await tools.WriteFile(caller, "src/B.cs", "class B {}", CancellationToken.None);
@@ -232,18 +264,8 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
         return captured!.Caller;
     }
 
-    /// <summary>
-    ///     The <c>workspace__*</c> tools over the host's real workspace provider. The ceiling is wider than any shipped
-    ///     grant on purpose; see the class remarks.
-    /// </summary>
-    private static WorkspaceTools Tools(ScratchWorkflowHost host) => new(
-        host.Factory.Services.GetRequiredService<IRunWorkspaceProvider>(),
-        new RunWorkspaceToolOptions
-        {
-            AllowedWriteExtensions = new HashSet<string>([".cs", ".md", ".props", ".json"], StringComparer.OrdinalIgnoreCase),
-        },
-        [],
-        NullLogger<WorkspaceTools>.Instance);
+    /// <summary>The host's own <c>workspace__*</c> tools, over its registered <see cref="RunWorkspaceToolOptions"/>.</summary>
+    private static WorkspaceTools Tools(ScratchWorkflowHost host) => ActivatorUtilities.CreateInstance<WorkspaceTools>(host.Factory.Services);
 
     private static async Task<string> WorktreeOf(ScratchWorkflowHost host, WorkflowRun run)
     {

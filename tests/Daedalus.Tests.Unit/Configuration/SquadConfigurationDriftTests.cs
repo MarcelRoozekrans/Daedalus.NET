@@ -221,6 +221,44 @@ public sealed class SquadConfigurationDriftTests
     }
 
     /// <summary>
+    ///     Phase 2.5, task B9: the reviewer reads the run's worktree through the two <c>workspace__</c> read tools, named
+    ///     one by one like its Roslyn tools, and holds neither a write nor an edit tool nor the wildcard. Whether a
+    ///     write would be <em>allowed</em> is the <c>workspace-write</c> binding's call; this keeps the tool from even
+    ///     being offered to the agent that judges the code.
+    /// </summary>
+    [Fact]
+    public void Reviewer_tool_list_reads_the_worktree_but_holds_no_workspace_write_tool()
+    {
+        var options = new DaedalusAgentsOptions();
+        Load(ApiAppSettingsFileName).GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+
+        var reviewer = options.Agents.Should().ContainSingle(a => a.Name == "reviewer").Subject;
+
+        // Red: replace the two read tools with "workspace__*".
+        reviewer.Tools.Should().NotContain("workspace__*", "a wildcard would admit workspace__write_file");
+        // Red: add "workspace__write_file", or "workspace__write_*".
+        reviewer.Tools.Should().NotContain(t => t.StartsWith("workspace__write_", StringComparison.Ordinal));
+        // Red: add "workspace__edit_file".
+        reviewer.Tools.Should().NotContain(t => t.StartsWith("workspace__edit_", StringComparison.Ordinal));
+        // Red: remove either read tool.
+        reviewer.Tools.Should().Contain("workspace__read_file").And.Contain("workspace__list_files");
+    }
+
+    /// <summary>
+    ///     Phase 2.5, task B9: the implementer is offered every <c>workspace__</c> tool; the <c>workspace-write</c> binding
+    ///     decides, per node and per run, whether its writes are allowed. Red: remove <c>"workspace__*"</c> from its
+    ///     <c>Tools</c>.
+    /// </summary>
+    [Fact]
+    public void Implementer_tool_list_holds_the_workspace_tools()
+    {
+        var options = new DaedalusAgentsOptions();
+        Load(ApiAppSettingsFileName).GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+
+        options.Agents.Should().ContainSingle(a => a.Name == "implementer").Subject.Tools.Should().Contain("workspace__*");
+    }
+
+    /// <summary>
     ///     The exact defect phase 2.2's Task 11 hit: the <c>writer</c> agent's <c>Skills</c> was <c>[]</c>, so
     ///     the <c>publish</c> node it was pinned to could never load its skill.
     ///     <see cref="ProcessNodeSkillAllowlistTests"/> covers this generically for every node in

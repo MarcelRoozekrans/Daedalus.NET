@@ -1,5 +1,6 @@
 using AI.Sentinel;
 using Daedalus.Agents;
+using Daedalus.Agents.Workflow;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -10,6 +11,8 @@ using Thalos;
 using Thalos.Mcp;
 using Thalos.Memory.RagNet;
 using Thalos.Skills;
+using Thalos.Workflow;
+using Thalos.Workspaces;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
@@ -50,9 +53,9 @@ public sealed class ApiThalosConfigurationTests
     }
 
     [Fact]
-    public void Appsettings_declares_the_daedalus_architect_agent_with_a_stable_ulid()
+    public async Task Appsettings_declares_the_daedalus_architect_agent_with_a_stable_ulid()
     {
-        using var sp = BuildWithApiConfiguration();
+        await using var sp = BuildWithApiConfiguration();
 
         // The catalog also carries the RepoDigest workflow's scout and writer agents; this test only guards
         // the human-facing Daedalus Architect entry and its stable id.
@@ -69,15 +72,15 @@ public sealed class ApiThalosConfigurationTests
     }
 
     [Fact]
-    public void Appsettings_binds_anthropic_defaults_tool_policies_and_sentinel_actions()
+    public async Task Appsettings_binds_anthropic_defaults_tool_policies_and_sentinel_actions()
     {
-        using var sp = BuildWithApiConfiguration();
+        await using var sp = BuildWithApiConfiguration();
 
         sp.GetRequiredService<IChatClientProvider>().DefaultModel.Should().Be("claude-sonnet-5");
 
         var policies = sp.GetRequiredService<IOptions<ThalosOptions>>().Value.ToolPolicies;
         policies.Select(p => (p.ToolPattern, p.PolicyName)).Should().Equal(
-            ("roslyn__apply_*", "developer"),
+            ("roslyn__apply_*", "csharp-write"),
             ("workspace__write_*", "workspace-write"),
             ("workspace__edit_*", "workspace-write"),
             ("roslyn__set_active_solution", "developer"),
@@ -97,9 +100,9 @@ public sealed class ApiThalosConfigurationTests
     ///     Phase 2.5, task B5: the shipped appsettings, in both hosts, binds each write pattern of a run's worktree to
     ///     <c>workspace-write</c> exactly once, and none of them to <c>developer</c>, which a workflow caller can never
     ///     pass, so a leftover one would silently stop <c>implement</c> from writing while every grant looked configured.
-    ///     <c>roslyn__apply_*</c> stays bound to <c>developer</c> alone until task B9 makes Roslyn run-scoped: until then
-    ///     it serves the host's own solution, and a workflow binding would let a granted turn change the host's checkout.
-    ///     The raw file is read rather than a composed host, so the Cli file is covered too.
+    ///     Task B9: <c>roslyn__apply_*</c> is bound to <c>csharp-write</c> alone, which also requires the grant to include
+    ///     <c>.cs</c>; a <c>workspace-write</c> binding in its place would let a grant without <c>.cs</c> apply code
+    ///     actions. The raw file is read rather than a composed host, so the Cli file is covered too.
     /// </summary>
     [Theory]
     [InlineData(ApiAppSettingsFileName)]
@@ -119,27 +122,27 @@ public sealed class ApiThalosConfigurationTests
                 .Which.Policy.Should().Be("workspace-write");
         }
 
-        // Red: rebinding roslyn__apply_* to workspace-write before B9, or adding a second binding beside developer.
+        // Red: rebinding roslyn__apply_* to workspace-write, which does not check for .cs, or leaving it on developer.
         bindings.Where(b => string.Equals(b.Pattern, "roslyn__apply_*", StringComparison.Ordinal)).Should().ContainSingle(
                 $"{fileName} must bind roslyn__apply_* exactly once")
-            .Which.Policy.Should().Be("developer", "Roslyn serves the host's own solution until B9 makes it run-scoped");
+            .Which.Policy.Should().Be("csharp-write", "a code action writes .cs documents, so the grant must include .cs");
 
         bindings.Should().Contain(("roslyn__set_active_solution", "developer"),
             "switching the loaded solution is an operator action a workflow turn must never take");
     }
 
     [Fact]
-    public void Crash_recovery_hosted_service_is_registered()
+    public async Task Crash_recovery_hosted_service_is_registered()
     {
-        using var sp = BuildWithApiConfiguration();
+        await using var sp = BuildWithApiConfiguration();
 
         sp.GetServices<IHostedService>().Should().ContainSingle(s => s.GetType().Name == "AgentSessionCrashRecovery");
     }
 
     [Fact]
-    public void Api_host_owns_the_ragnet_schema_and_creates_it_on_start()
+    public async Task Api_host_owns_the_ragnet_schema_and_creates_it_on_start()
     {
-        using var sp = BuildWithApiConfiguration();
+        await using var sp = BuildWithApiConfiguration();
 
         sp.GetRequiredService<RagNetMemoryOptions>().EnsureSchemaOnStartup.Should().BeTrue();
         sp.GetServices<IHostedService>().Should().ContainSingle(s => s.GetType().Name == "RagNetMemorySchemaInitializer");
@@ -201,12 +204,57 @@ public sealed class ApiThalosConfigurationTests
         var path = Path.Combine(AppContext.BaseDirectory, ".mcp.json");
         File.Exists(path).Should().BeTrue(".mcp.json must be CopyToOutputDirectory=PreserveNewest in Daedalus.Api.csproj");
 
-        var servers = McpConfigFile.Load(path);
+        var servers = McpConfigFile.Parse(File.ReadAllText(path));
 
         servers.Keys.Should().BeEquivalentTo("roslyn", "context7");
         servers["roslyn"].EffectiveType.Should().Be("stdio");
         servers["roslyn"].ShutdownTimeout.Should().Be(TimeSpan.FromSeconds(2));
         servers["context7"].EffectiveType.Should().Be("http");
+    }
+
+    /// <summary>
+    ///     Phase 2.5, task B9: roslyn is run-scoped, so a workflow turn is served by its run's own server over its
+    ///     worktree. The values are the Roslyn staleness spike's: <c>list_solutions</c> reports ready once the solution is
+    ///     loaded, and <c>rebuild_solution</c> picks up files a run has added. context7 stays host-wide: it reads no
+    ///     workspace.
+    /// </summary>
+    [Fact]
+    public void Mcp_config_makes_roslyn_run_scoped_over_the_runs_own_solution()
+    {
+        var servers = McpConfigFile.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, ".mcp.json")));
+
+        // Red: remove the runScoped block; RunScoped is then null.
+        var runScoped = servers["roslyn"].RunScoped;
+        runScoped.Should().NotBeNull("a workflow turn must never be served by the host's own solution");
+        // Red: point the run's server at the host solution, i.e. drop the placeholder from args.
+        runScoped!.Args.Should().Contain("${run.workspace.solution}");
+        // Red: set readyTool to another tool, or remove it.
+        runScoped.ReadyTool.Should().Be("list_solutions");
+        // Red: set reload to "none".
+        runScoped.Reload.Should().Be("tool:rebuild_solution");
+        // Red: add a runScoped block to context7.
+        servers["context7"].RunScoped.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     Phase 2.5, task B9: the composed Api host registers the <c>workspace__*</c> tools with the union of its write
+    ///     grants as the ceiling, the standing-instructions file protected, and the readiness gate before task nodes.
+    /// </summary>
+    [Fact]
+    public async Task The_api_host_registers_the_workspace_tools_and_the_readiness_gate()
+    {
+        await using var sp = BuildWithApiConfiguration();
+
+        var options = sp.GetRequiredService<RunWorkspaceToolOptions>();
+        // Red: omit the ProtectedPaths.Add in UseRunWorkspaceTools' configure.
+        options.ProtectedPaths.Should().Contain("AGENT.md");
+        // Red: pass an empty set, or one built from something other than WriteGrants, as the ceiling.
+        options.AllowedWriteExtensions.Should().BeEquivalentTo(".cs", ".md");
+        // Red: remove the gate's registration.
+        sp.GetServices<IWorkflowDispatchGate>().Should().ContainSingle().Which.Should().BeOfType<RunToolServersReadyGate>();
+        // Red: remove the runScoped block from .mcp.json and rebind roslyn__apply_* to developer, since with csharp-write
+        // bound the boot guard refuses the host first; nothing then registers the readiness the gate waits on.
+        sp.GetService<IRunToolServerReadiness>().Should().NotBeNull();
     }
 
     /// <summary>
@@ -236,7 +284,7 @@ public sealed class ApiThalosConfigurationTests
     }
 
     [Fact]
-    public void A_relative_skills_root_falls_back_to_the_assembly_directory()
+    public async Task A_relative_skills_root_falls_back_to_the_assembly_directory()
     {
         // Regression, caught by the AppHost smoke run. Under `dotnet run` (and therefore under Aspire) the content root
         // is the *project* directory, but the skills folder is only ever copied to the *output* directory. Resolving
@@ -257,7 +305,7 @@ public sealed class ApiThalosConfigurationTests
             services.AddLogging();
             services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
             services.AddDaedalusAgents(LoadApiConfiguration(), env);
-            using var sp = services.BuildServiceProvider();
+            await using var sp = services.BuildServiceProvider();
 
             sp.GetRequiredService<IOptions<SkillOptions>>().Value.Roots
                 .Should().ContainSingle().Which.Should().Be(expected);

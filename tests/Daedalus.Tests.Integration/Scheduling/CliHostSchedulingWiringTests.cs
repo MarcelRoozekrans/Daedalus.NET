@@ -89,18 +89,45 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
             "leaving DefaultOutboxDispatcher in place would dead-letter every step instead of running it");
     }
 
+    /// <summary>
+    ///     20 min lease + the dispatch gate's wait, <c>Thalos:Workflow:RoslynReadyTimeout</c> (10 min by default) + the
+    ///     turn deadline + 254 s retry backoff + 5 min margin. Red: pass <see cref="TimeSpan.Zero"/> as the gate wait
+    ///     again; the default row is then 34:14, and a run healthily waiting on the gate would be swept as stranded.
+    /// </summary>
     [Theory]
-    [InlineData(300, 34, 14)]
-    [InlineData(600, 39, 14)]
-    public void The_stranded_run_sweep_threshold_is_derived_from_the_configured_turn_deadline(
-        int deadlineSeconds, int minutes, int seconds)
+    [InlineData(300, null, 44, 14)]
+    [InlineData(300, "00:05:00", 39, 14)]
+    [InlineData(420, "00:01:00", 37, 14)]
+    public void The_stranded_run_sweep_threshold_is_derived_from_the_turn_deadline_and_the_gate_wait(
+        int deadlineSeconds, string? roslynReadyTimeout, int minutes, int seconds)
     {
-        using var provider = BuildProvider(new(StringComparer.Ordinal) { ["DetachedRuns:DeadlineSeconds"] = deadlineSeconds.ToString(CultureInfo.InvariantCulture) });
+        var overrides = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["DetachedRuns:DeadlineSeconds"] = deadlineSeconds.ToString(CultureInfo.InvariantCulture),
+        };
+        if (roslynReadyTimeout is not null)
+        {
+            overrides["Thalos:Workflow:RoslynReadyTimeout"] = roslynReadyTimeout;
+        }
+
+        using var provider = BuildProvider(overrides);
 
         var sweep = provider.GetServices<IHostedService>().OfType<WorkflowStrandedRunSweepService>().Single();
 
-        // 20 min lease + the turn deadline + 254 s retry backoff + 5 min margin; no dispatch gate yet.
         sweep.StrandedAfter.Should().Be(new TimeSpan(0, minutes, seconds));
+    }
+
+    /// <summary>
+    ///     A 10-minute turn behind the default 10-minute gate wait fills the whole 20-minute lease, so another replica
+    ///     could claim the message mid-turn. Red: pass <see cref="TimeSpan.Zero"/> as the gate wait; registration then
+    ///     passes.
+    /// </summary>
+    [Fact]
+    public void A_turn_deadline_the_lease_cannot_hold_behind_the_gate_wait_fails_registration()
+    {
+        var act = () => BuildProvider(new(StringComparer.Ordinal) { ["DetachedRuns:DeadlineSeconds"] = "600" });
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*LeaseDuration*must exceed the longest dispatch*");
     }
 
     [Fact]

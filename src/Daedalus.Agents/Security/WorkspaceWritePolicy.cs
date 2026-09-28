@@ -6,8 +6,8 @@ namespace Daedalus.Agents.Security;
 /// <summary>
 ///     Tool policy <c>workspace-write</c>: the write boundary for a run's worktree, bound in <c>Thalos:ToolPolicies</c>
 ///     to <c>workspace__write_*</c> and <c>workspace__edit_*</c>. Passes for the <see cref="WorkspaceWriterRole"/> role,
-///     and for <c>developer</c> or <c>admin</c>. <c>roslyn__apply_*</c> stays bound to <c>developer</c> until task B9
-///     makes Roslyn run-scoped: until then it serves the host's own solution, which no workflow turn may change.
+///     and for <c>developer</c> or <c>admin</c>. <c>roslyn__apply_*</c> is bound to <see cref="CSharpWritePolicy"/>
+///     instead, which also requires the grant to include <c>.cs</c>.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -19,9 +19,9 @@ namespace Daedalus.Agents.Security;
 ///     caller's <c>["workflow"]</c> both fail.
 ///     </para>
 ///     <para>
-///     <b>Passing this policy is not enough to write a workspace.</b> <c>developer</c> and <c>admin</c> pass so a
-///     human's own chat turn keeps <c>roslyn__apply_*</c> against the host's loaded solution once B9 binds that pattern
-///     here, as the <c>developer</c> binding already allows. The <c>workspace__*</c> tools act only on the workspace
+///     <b>Passing this policy is not enough to write a workspace.</b> <c>developer</c> and <c>admin</c> pass, as they
+///     pass <see cref="CSharpWritePolicy"/> for a human's own chat turn against the host's loaded solution. The
+///     <c>workspace__*</c> tools act only on the workspace
 ///     the caller's <c>thalos.run_id</c> claim names, and a chat caller carries none:
 ///     <see cref="ClaimsSecurityContext"/> drops every inbound <c>thalos.*</c> claim, so a token cannot supply one.
 ///     </para>

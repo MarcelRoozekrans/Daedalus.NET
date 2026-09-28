@@ -8,7 +8,19 @@
       "command": "dnx",
       "args": ["RoslynCodeLens.Mcp", "--yes", "--", "C:/Projects/Prive/daedalus/Daedalus.sln"],
       "env": { "ROSLYN_CODELENS_OPEN_PROJECT_TIMEOUT_SECONDS": "600" },
-      "shutdownTimeout": "00:00:02"
+      "shutdownTimeout": "00:00:02",
+      // Phase 2.5: a workflow turn carrying a run claim is served ONLY by its run's own server over its worktree,
+      // never by the host server above; chat and scheduled turns keep the host server. Started when the run's
+      // workspace is ready, disposed with it; the dispatch gate waits up to Thalos:Workflow:RoslynReadyTimeout for it
+      // before every task node. See docs/plans/2026-09-24-phase-2.5-roslyn-staleness-spike.md for readyTool and reload.
+      // Loading and rebuilding evaluate MSBuild, which can run code; that is safe only because
+      // WriteGrants[*].AllowedExtensions keeps every project, props and targets file unwritable by a run, so a reload
+      // evaluates only repository-owned MSBuild files. See docs/plans/2026-09-25-phase-2.5-msbuild-execution-spike.md.
+      "runScoped": {
+        "args": ["RoslynCodeLens.Mcp", "--yes", "--", "${run.workspace.solution}"],
+        "readyTool": "list_solutions",
+        "reload": "tool:rebuild_solution"
+      }
     },
     "context7": {
       "type": "http",

@@ -102,6 +102,8 @@ public sealed class WorkflowWriteConfigTests
     [InlineData("solution-rooted", "*Repositories:0:Solution*")]
     [InlineData("solution-dot-dot", "*Repositories:0:Solution*")]
     [InlineData("solution-blank", "*Repositories:0:Solution must name*")]
+    [InlineData("solution-percent", "*Repositories:0:Solution*must not contain '%'*")]
+    [InlineData("data-root-percent", "*Workflow:DataRoot*contains '%'*")]
     [InlineData("roslyn-ready-timeout-zero", "*Workflow:RoslynReadyTimeout*")]
     [InlineData("data-root-relative", "*Workflow:DataRoot*")]
     [InlineData("grant-process-blank", "*WriteGrants:0:Process*")]
@@ -143,6 +145,12 @@ public sealed class WorkflowWriteConfigTests
                 break;
             case "solution-blank":
                 sandbox.Solution = " ";
+                break;
+            case "solution-percent":
+                sandbox.Solution = "%TEMP%/Sandbox.sln";
+                break;
+            case "data-root-percent":
+                workflow.DataRoot = Path.Combine(Path.GetTempPath(), "%USERNAME%", "workflow-data");
                 break;
             case "roslyn-ready-timeout-zero":
                 workflow.RoslynReadyTimeout = TimeSpan.Zero;
@@ -189,6 +197,84 @@ public sealed class WorkflowWriteConfigTests
         var act = () => services.AddDaedalusAgents(options, configuration, environment);
 
         act.Should().Throw<InvalidOperationException>().WithMessage(expectedMessage);
+    }
+
+    /// <summary>
+    ///     Task B9: <c>csharp-write</c> admits a granted workflow turn, so on a workflow host it may reach only run-scoped
+    ///     MCP servers; bound to a host-scoped one, a run would apply code actions to the host's own solution. Each row
+    ///     points the shipped Api host at an <c>.mcp.json</c> whose <c>roslyn</c> is host-scoped. Red for every row: remove
+    ///     the <c>ValidateCSharpWriteBindings</c> call. Red for the <c>ros*</c> and <c>*</c> rows: compare the source
+    ///     name ordinally instead of as a glob.
+    /// </summary>
+    [Theory]
+    [InlineData("roslyn__apply_*")]
+    [InlineData("ros*")]
+    [InlineData("*")]
+    public void A_csharp_write_binding_that_reaches_a_host_scoped_server_fails_registration_with_the_engine_on(string pattern)
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        options.Workflow.Enabled.Should().BeTrue("this test is about the workflow host");
+        using var mcp = new TempMcpConfig("host-scoped");
+        options.McpConfigPath = mcp.Path;
+        options.ToolPolicies.Clear();
+        options.ToolPolicies.Add(new ToolPolicyConfig { Pattern = pattern, Policy = "csharp-write" });
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*binds '{pattern}' to csharp-write, which reaches MCP server 'roslyn'*not run-scoped*");
+    }
+
+    /// <summary>
+    ///     A binding that reaches no configured MCP server matches no tool, as on a test host whose <c>.mcp.json</c>
+    ///     declares none. Red: refuse every csharp-write binding whose source is not a run-scoped server.
+    /// </summary>
+    [Theory]
+    [InlineData("no-roslyn")]
+    [InlineData("no-file")]
+    public void A_csharp_write_binding_that_reaches_no_mcp_server_registers(string mcpShape)
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        using var mcp = new TempMcpConfig(mcpShape);
+        options.McpConfigPath = mcp.Path;
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().NotThrow();
+    }
+
+    /// <summary>
+    ///     The control for the rows above: the same host over a run-scoped <c>roslyn</c> registers. Red: make the check
+    ///     ignore <c>RunScoped</c>, so every server counts as host-scoped.
+    /// </summary>
+    [Fact]
+    public void A_csharp_write_binding_to_a_run_scoped_source_registers()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        using var mcp = new TempMcpConfig("run-scoped");
+        options.McpConfigPath = mcp.Path;
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().NotThrow();
+    }
+
+    /// <summary>
+    ///     With the engine off there is no workflow caller, and <c>csharp-write</c> admits exactly what <c>developer</c>
+    ///     does, so the Cli's host-scoped <c>roslyn</c> may keep it. Red: run the check whatever <c>Enabled</c> says.
+    /// </summary>
+    [Fact]
+    public void A_csharp_write_binding_to_a_host_scoped_source_registers_with_the_engine_off()
+    {
+        var (services, options, configuration, environment) = LoadShipped(CliAppSettingsFileName);
+        options.Workflow.Enabled.Should().BeFalse("this test is about the engine-off host");
+        options.ToolPolicies.Should().Contain(b => b.Pattern == "roslyn__apply_*" && b.Policy == "csharp-write");
+        using var mcp = new TempMcpConfig("host-scoped");
+        options.McpConfigPath = mcp.Path;
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().NotThrow();
     }
 
     /// <summary>
@@ -266,11 +352,11 @@ public sealed class WorkflowWriteConfigTests
     }
 
     [Fact]
-    public void With_the_engine_on_the_host_resolves_git_worktree_workspaces_with_GitHub_credentials()
+    public async Task With_the_engine_on_the_host_resolves_git_worktree_workspaces_with_GitHub_credentials()
     {
         var (services, options, configuration, environment) = LoadShippedApi();
         services.AddDaedalusAgents(options, configuration, environment);
-        using var sp = services.BuildServiceProvider();
+        await using var sp = services.BuildServiceProvider();
 
         // GetService, not GetRequiredService, so a missing registration fails the assertion rather than throwing. The
         // scope reports every miss, because one call registers both the provider and the workspace git.
@@ -295,5 +381,32 @@ public sealed class WorkflowWriteConfigTests
             sp.GetService<IGitCredentialSource>().Should().BeNull();
             sp.GetService<IRunWorkspaceProvider>().Should().BeNull();
         }
+    }
+
+    /// <summary>A temporary <c>.mcp.json</c> in one of four shapes, deleted on dispose.</summary>
+    private sealed class TempMcpConfig : IDisposable
+    {
+        private readonly string _directory = Directory.CreateTempSubdirectory("daedalus-mcp-").FullName;
+
+        public TempMcpConfig(string shape)
+        {
+            Path = System.IO.Path.Combine(_directory, ".mcp.json");
+            var roslyn = shape switch
+            {
+                "host-scoped" => """{ "roslyn": { "command": "dnx", "args": ["RoslynCodeLens.Mcp", "--", "C:/host/App.sln"] } }""",
+                "run-scoped" => """{ "roslyn": { "command": "dnx", "args": ["RoslynCodeLens.Mcp", "--", "C:/host/App.sln"], "runScoped": { "args": ["RoslynCodeLens.Mcp", "--", "${run.workspace.solution}"] } } }""",
+                "no-roslyn" => """{ "context7": { "type": "http", "url": "https://mcp.context7.com/mcp" } }""",
+                "no-file" => null,
+                _ => throw new ArgumentOutOfRangeException(nameof(shape), shape, "no such shape"),
+            };
+            if (roslyn is not null)
+            {
+                File.WriteAllText(Path, $$"""{ "mcpServers": {{roslyn}} }""");
+            }
+        }
+
+        public string Path { get; }
+
+        public void Dispose() => Directory.Delete(_directory, recursive: true);
     }
 }

@@ -19,9 +19,10 @@ namespace Daedalus.Agents.Security;
 ///     <para>
 ///     <b>What is audited.</b> A call is recorded only when all three hold: the inner authorizer allowed it, the caller
 ///     is a <see cref="WorkflowCaller"/>, and the tool matches one of <paramref name="auditedPatterns"/>. The patterns
-///     are every <c>Thalos:ToolPolicies</c> pattern bound to <see cref="WorkspaceWritePolicy.PolicyName"/>, so the
-///     audit set is the grant's own, reviewed configuration: a tool that is rebound to <c>workspace-write</c>, as task
-///     B9 does for <c>roslyn__apply_*</c>, is audited from that change on without touching this type. A denied call is
+///     are every <c>Thalos:ToolPolicies</c> pattern bound to <see cref="WorkspaceWritePolicy.PolicyName"/> or
+///     <see cref="CSharpWritePolicy.PolicyName"/>, so the audit set is the grant's own, reviewed configuration: a tool
+///     rebound to either, as <c>roslyn__apply_*</c> is to <c>csharp-write</c>, is audited from that change on without
+///     touching this type. A denied call is
 ///     not recorded here; <c>AuthorizingAIFunction</c> already publishes a denial notification for it. A chat or
 ///     scheduled caller has no run to record against and cannot reach a run's worktree (its inbound <c>thalos.*</c>
 ///     claims are dropped by <see cref="ClaimsSecurityContext"/>), so it is not recorded either.
