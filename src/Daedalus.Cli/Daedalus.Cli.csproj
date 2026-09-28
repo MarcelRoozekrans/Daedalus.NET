@@ -53,11 +53,12 @@
 
     <ItemGroup>
         <!-- MCP servers for the Thalos agents; resolved relative to the content root (Thalos:McpConfigPath).
-             A None item, not Content: Content flows to every referencing project, and Daedalus.Api's .mcp.json lands at
-             the same output path in the test projects, so whichever file was written last would win. Only this host
-             needs its own copy; the tests read the Api's. -->
+             Not a Content or None copy item: every item with CopyToOutputDirectory flows to referencing projects
+             through GetCopyToOutputDirectoryItems, and Daedalus.Api's .mcp.json lands at the same TargetPath in the
+             test projects, so whichever file was newer would win. The two targets below copy it into this host's own
+             build and publish output only. -->
         <Content Remove=".mcp.json" />
-        <None Include=".mcp.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <None Remove=".mcp.json" />
     </ItemGroup>
 
     <ItemGroup>
@@ -76,5 +77,14 @@
              excluded: see Daedalus.Api.csproj's identical comment. -->
         <Content Include="..\..\roles\**\*.md" Exclude="..\..\roles\README.md" Link="roles\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
+
+    <!-- See the .mcp.json comment above: copied by this project alone, so it never reaches a referencing project. -->
+    <Target Name="CopyCliMcpConfigToOutput" AfterTargets="Build">
+        <Copy SourceFiles="$(MSBuildProjectDirectory)/.mcp.json" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    </Target>
+
+    <Target Name="CopyCliMcpConfigToPublish" AfterTargets="Publish">
+        <Copy SourceFiles="$(MSBuildProjectDirectory)/.mcp.json" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    </Target>
 
 </Project>

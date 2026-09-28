@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Thalos;
 using Thalos.Git.Workspaces;
 using Thalos.Workspaces;
 
@@ -250,6 +251,38 @@ public sealed class WorkflowWriteConfigTests
         var act = RegisterWithCSharpWrite("run-scoped", pattern);
 
         act.Should().NotThrow();
+    }
+
+    /// <summary>
+    ///     Fix round 2: a literal <c>roslyn__</c> prefix also matches the tools of a source named <c>roslyn_</c>, which
+    ///     are <c>roslyn___tool</c>. A host-scoped <c>roslyn_</c> beside a run-scoped <c>roslyn</c> must therefore be
+    ///     refused. Red: drop the <c>name + "_"</c> branch from <c>CSharpWriteBindingCheck.SourcesReachedBy</c>; the host
+    ///     then registers.
+    /// </summary>
+    [Fact]
+    public void A_host_scoped_source_named_with_a_trailing_underscore_is_reached_and_refused_at_registration()
+    {
+        var act = RegisterWithCSharpWrite("roslyn-underscore", "roslyn__*");
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*binds 'roslyn__*' to csharp-write, which reaches MCP server 'roslyn_'*not run-scoped*");
+    }
+
+    /// <summary>
+    ///     The same reach at host start, over a built source named <c>roslyn_</c> that is not run-scoped. Red: drop the
+    ///     <c>name + "_"</c> branch; the start check then passes.
+    /// </summary>
+    [Fact]
+    public async Task A_built_source_named_with_a_trailing_underscore_is_refused_at_host_start()
+    {
+        var source = Substitute.For<IToolSource>();
+        source.Name.Returns("roslyn_");
+        var check = new CSharpWriteBindingCheck([source], ["roslyn__*"]);
+
+        var act = () => check.StartAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*binds 'roslyn__*' to csharp-write, which reaches tool source 'roslyn_'*");
     }
 
     /// <summary>
@@ -500,6 +533,7 @@ public sealed class WorkflowWriteConfigTests
                 "host-scoped" => """{ "roslyn": { "command": "dnx", "args": ["RoslynCodeLens.Mcp", "--", "C:/host/App.sln"] } }""",
                 "run-scoped" => """{ "roslyn": { "command": "dnx", "args": ["RoslynCodeLens.Mcp", "--", "C:/host/App.sln"], "runScoped": { "args": ["RoslynCodeLens.Mcp", "--", "${run.workspace.solution}"] } } }""",
                 "no-roslyn" => """{ "context7": { "type": "http", "url": "https://mcp.context7.com/mcp" } }""",
+                "roslyn-underscore" => """{ "roslyn": { "command": "dnx", "args": ["RoslynCodeLens.Mcp", "--", "C:/host/App.sln"], "runScoped": { "args": ["RoslynCodeLens.Mcp", "--", "${run.workspace.solution}"] } }, "roslyn_": { "command": "dnx", "args": ["RoslynCodeLens.Mcp", "--", "C:/host/App.sln"] } }""",
                 "no-file" => null,
                 _ => throw new ArgumentOutOfRangeException(nameof(shape), shape, "no such shape"),
             };

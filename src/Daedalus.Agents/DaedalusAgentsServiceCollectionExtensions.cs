@@ -522,10 +522,6 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.AddSingleton<ProcessDefinitionSync>();
         services.AddHostedService<ProcessDefinitionSyncHostedService>();
 
-        // Task B9: before every task node's turn, the run's workspace must exist when the node holds a write grant,
-        // and the run's own MCP servers must be ready. Registered on every workflow host, not only one whose .mcp.json
-        // declares a runScoped entry: IRunToolServerReadiness is optional, and the workspace check (ruling R9) holds
-        // without it. WorkflowNodeDispatcherFactory hands the dispatcher every registered gate.
         // Task B9: every csharp-write pattern must reach only run-scoped sources. AddDaedalusAgents checked the patterns
         // and .mcp.json at registration; this checks the sources the container actually built, at host start.
         string[] csharpWritePatterns =
@@ -536,6 +532,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         ];
         services.AddHostedService(sp => new CSharpWriteBindingCheck(sp.GetServices<IToolSource>(), csharpWritePatterns));
 
+        // Task B9: before every task node's turn, the run's workspace must exist when the node holds a write grant,
+        // and the run's own MCP servers must be ready. Registered on every workflow host, not only one whose .mcp.json
+        // declares a runScoped entry: IRunToolServerReadiness is optional, and the workspace check (ruling R9) holds
+        // without it. WorkflowNodeDispatcherFactory hands the dispatcher every registered gate.
         services.AddSingleton<IWorkflowDispatchGate>(sp => new RunToolServersReadyGate(
             sp.GetRequiredService<IRunWorkspaceProvider>(),
             sp.GetRequiredService<WorkflowConfig>(),
