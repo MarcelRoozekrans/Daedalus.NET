@@ -566,6 +566,22 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             sp.GetRequiredService<WorkflowRunReconciler>(),
             strandedAfter,
             sp.GetRequiredService<ILogger<WorkflowStrandedRunSweepService>>()));
+
+        // Task B10, rulings R14/R19: the only thing that removes a published run's worktree. Over the undecorated
+        // IWorkflowStore, like WorkflowRunGateway and WorkflowRunReconciler above — see
+        // WorkflowNodeDispatcherFactory.Create's remarks for why only the dispatcher's copy is wrapped. A host may
+        // not have registered TimeProvider itself (DaedalusSchedulingServiceCollectionExtensions and
+        // InfrastructureServiceExtensions each TryAddSingleton it, but neither is guaranteed to have run), so this
+        // falls back to TimeProvider.System rather than requiring it.
+        services.AddSingleton(sp => new RunWorkspaceSweeper(
+            sp.GetRequiredService<IRunWorkspaceProvider>(),
+            sp.GetRequiredService<IWorkflowStore>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<ILogger<RunWorkspaceSweeper>>()));
+        services.AddHostedService(sp => new RunWorkspaceSweepService(
+            sp.GetRequiredService<RunWorkspaceSweeper>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<ILogger<RunWorkspaceSweepService>>()));
     }
 
     /// <summary>
