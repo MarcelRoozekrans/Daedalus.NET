@@ -93,6 +93,9 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         services.AddSingleton<WorkflowRecallTierLog>();
         // The caller resolver reads the write grants from it; none are needed for a budget.
         services.AddSingleton(new WorkflowConfig());
+        // ReviewLensRunner timestamps and logs the review evidence it records; this node declares no lenses.
+        services.AddSingleton(TimeProvider.System);
+        services.AddLogging();
         await using var provider = services.BuildServiceProvider();
 
         var dispatcher = WorkflowNodeDispatcherFactory.Create(provider);

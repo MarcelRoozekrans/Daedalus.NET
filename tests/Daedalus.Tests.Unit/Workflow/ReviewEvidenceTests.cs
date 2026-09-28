@@ -109,6 +109,66 @@ public sealed class ReviewEvidenceTests
         brokenFindings.Error.Should().Contain("findings");
     }
 
+    private static readonly string[] NulEntry = ["a\0b"];
+
+    private static string Json(object value) => System.Text.Json.JsonSerializer.Serialize(value);
+
+    private static string Findings(int count, string file = "src/X.cs", string scenario = "it throws") =>
+        Json(Enumerable.Range(0, count).Select(_ => new { file, line = 1, scenario }).ToArray());
+
+    /// <summary>
+    ///     The evidence is recorded as a <c>WorkflowRunRecord</c>, so what the model writes into it is bounded.
+    ///     Each row's red is deleting its own clause from ReviewEvidence: the entry-count checks in ParseChecked
+    ///     and ParseFindings, and the length and NUL checks in CheckEntry.
+    /// </summary>
+    [Theory]
+    [InlineData("checked-count", "'checked' has 33 entries")]
+    [InlineData("checked-length", "'checked' entry 1 is 1001 characters")]
+    [InlineData("checked-nul", "'checked' entry 1 contains a NUL character")]
+    [InlineData("findings-count", "'findings' has 33 entries")]
+    [InlineData("file-length", "Finding 1's 'file' is 1001 characters")]
+    [InlineData("scenario-length", "Finding 1's 'scenario' is 1001 characters")]
+    [InlineData("file-nul", "Finding 1's 'file' contains a NUL character")]
+    [InlineData("scenario-nul", "Finding 1's 'scenario' contains a NUL character")]
+    public void Evidence_that_could_not_be_recorded_in_full_is_refused(string row, string expected)
+    {
+        var tooLong = new string('x', ReviewEvidence.MaxEntryLength + 1);
+        var result = row switch
+        {
+            "checked-count" => ReviewEvidence.Validate("correctness", "approved", null,
+                Json(Enumerable.Range(0, ReviewEvidence.MaxEntries + 1).Select(i => $"item {i}").ToArray())),
+            "checked-length" => ReviewEvidence.Validate("correctness", "approved", null, Json(new[] { tooLong })),
+            "checked-nul" => ReviewEvidence.Validate("correctness", "approved", null, Json(NulEntry)),
+            "findings-count" => ReviewEvidence.Validate("correctness", "rejected", Findings(ReviewEvidence.MaxEntries + 1), null),
+            "file-length" => ReviewEvidence.Validate("correctness", "rejected", Findings(1, file: tooLong), null),
+            "scenario-length" => ReviewEvidence.Validate("correctness", "rejected", Findings(1, scenario: tooLong), null),
+            "file-nul" => ReviewEvidence.Validate("correctness", "rejected", Findings(1, file: "a\0b"), null),
+            "scenario-nul" => ReviewEvidence.Validate("correctness", "rejected", Findings(1, scenario: "a\0b"), null),
+            _ => throw new ArgumentOutOfRangeException(nameof(row)),
+        };
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain(expected);
+    }
+
+    /// <summary>
+    ///     The green half of the bounds: evidence at every limit is accepted. Red: an off-by-one in any bound,
+    ///     such as <c>&gt;=</c> for <c>&gt;</c>.
+    /// </summary>
+    [Fact]
+    public void Evidence_at_every_limit_is_accepted()
+    {
+        var atLimit = new string('x', ReviewEvidence.MaxEntryLength);
+
+        var approval = ReviewEvidence.Validate("correctness", "approved", null,
+            Json(Enumerable.Range(0, ReviewEvidence.MaxEntries).Select(_ => atLimit).ToArray()));
+        var rejection = ReviewEvidence.Validate("correctness", "rejected",
+            Findings(ReviewEvidence.MaxEntries, file: atLimit, scenario: atLimit), null);
+
+        approval.IsSuccess.Should().BeTrue(approval.IsFailure ? approval.Error : "");
+        rejection.IsSuccess.Should().BeTrue(rejection.IsFailure ? rejection.Error : "");
+    }
+
     [Fact]
     public void The_tool_the_reviewer_calls_refuses_a_hollow_approval_and_records_an_evidenced_one()
     {

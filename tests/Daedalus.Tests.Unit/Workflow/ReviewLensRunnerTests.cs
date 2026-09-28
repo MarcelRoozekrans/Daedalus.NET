@@ -1,8 +1,11 @@
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Thalos;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
+using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
 namespace Daedalus.Tests.Unit.Workflow;
 
@@ -21,6 +24,8 @@ public sealed class ReviewLensRunnerTests
 {
     private static readonly AgentId ReviewerId = new(new Guid(0x62_21_a3_bd, 0x4f5c, 0x483b, 0xb2, 0xff, 0x36, 0xa2, 0xab, 0xa0, 0x7a, 0xef));
     private static readonly OutcomeToolSchema ReviewOutcome = new("workflow__report_outcome", ["approved", "rejected"]);
+
+    private static readonly string[] ThreeLenses = ["correctness", "falsifiability", "mechanism"];
 
     private const string GoodChecked = """["ReviewLensRunner short-circuits","ReviewHandoff walks the allow-list"]""";
     private const string GoodFinding = """[{"file":"src/Daedalus.Agents/Workflow/ReviewLensRunner.cs","line":42,"scenario":"lens 2 reuses lens 1's task text"}]""";
@@ -99,6 +104,26 @@ public sealed class ReviewLensRunnerTests
     private static AgentTurnResult Approves(string lens) => Turn(lens, "approved", examined: GoodChecked);
     private static AgentTurnResult Rejects(string lens) => Turn(lens, "rejected", findings: GoodFinding);
 
+    /// <summary>
+    ///     The scope factory every runner is built with: <paramref name="records"/>, or a substitute that accepts
+    ///     every append, registered as a scoped <see cref="IWorkflowRunRecordStore"/>.
+    /// </summary>
+    private static IServiceScopeFactory Scopes(IWorkflowRunRecordStore? records = null)
+    {
+        var services = new ServiceCollection();
+        services.AddScoped(_ => records ?? Substitute.For<IWorkflowRunRecordStore>());
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
+
+    /// <summary>A record store whose every append throws <paramref name="failure"/>.</summary>
+    private static IWorkflowRunRecordStore FailingRecords(Exception failure)
+    {
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ValueTask.FromException(failure));
+        return records;
+    }
+
     /// <summary>Records every task text the decorator sent inward, in order.</summary>
     private sealed class RecordingRunner(Func<int, AgentTurnResult> respond) : ISubagentRunner
     {
@@ -116,7 +141,7 @@ public sealed class ReviewLensRunnerTests
     {
         var lensNames = new[] { "correctness", "falsifiability", "mechanism" };
         var inner = new RecordingRunner(i => Approves(lensNames[i]));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith(lensNames));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith(lensNames), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -138,7 +163,7 @@ public sealed class ReviewLensRunnerTests
     public async Task The_first_rejection_short_circuits_and_the_remaining_lenses_do_not_run()
     {
         var inner = new RecordingRunner(_ => Rejects("correctness"));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -161,7 +186,7 @@ public sealed class ReviewLensRunnerTests
     public async Task A_rejection_on_the_second_lens_runs_two_passes_and_stops()
     {
         var inner = new RecordingRunner(i => i == 0 ? Approves("correctness") : Rejects("falsifiability"));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -183,8 +208,8 @@ public sealed class ReviewLensRunnerTests
     [Fact]
     public async Task Each_pass_names_the_keys_it_was_given_and_restates_none_of_their_values()
     {
-        var inner = new RecordingRunner(i => Approves(new[] { "correctness", "falsifiability", "mechanism" }[i]));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"));
+        var inner = new RecordingRunner(i => Approves(ThreeLenses[i]));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -205,7 +230,7 @@ public sealed class ReviewLensRunnerTests
     public async Task A_run_with_no_review_variables_is_told_so_rather_than_handed_an_empty_section()
     {
         var inner = new RecordingRunner(_ => Approves("correctness"));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         await runner.RunAsync(ReviewRequest(ReviewRun(new Dictionary<string, object?>(StringComparer.Ordinal))), CancellationToken.None);
 
@@ -225,7 +250,7 @@ public sealed class ReviewLensRunnerTests
         // advance the run to the gate.
         var hollow = Turn("correctness", "approved", examined: "[]");
         var inner = new RecordingRunner(_ => hollow);
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -245,7 +270,7 @@ public sealed class ReviewLensRunnerTests
                 $$"""{"{{OutcomeToolSchema.ArgumentName}}":"approved"}""", true, "ok", TimeSpan.Zero),
         ], TimeSpan.Zero);
 
-        var runner = new ReviewLensRunner(new RecordingRunner(_ => silent), DefinitionsWith("correctness"));
+        var runner = new ReviewLensRunner(new RecordingRunner(_ => silent), DefinitionsWith("correctness"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -268,7 +293,7 @@ public sealed class ReviewLensRunnerTests
                 $$"""{"{{OutcomeToolSchema.ArgumentName}}":"approved"}""", true, "ok", TimeSpan.Zero),
         ], TimeSpan.Zero);
 
-        var runner = new ReviewLensRunner(new RecordingRunner(_ => disagreeing), DefinitionsWith("correctness"));
+        var runner = new ReviewLensRunner(new RecordingRunner(_ => disagreeing), DefinitionsWith("correctness"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -284,7 +309,7 @@ public sealed class ReviewLensRunnerTests
     {
         // One thorough correctness pass must not be able to stand in for all three.
         var inner = new RecordingRunner(_ => Approves("correctness"));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "mechanism"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "mechanism"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -299,7 +324,7 @@ public sealed class ReviewLensRunnerTests
     public async Task A_node_that_declares_no_lenses_is_passed_straight_through_unmodified()
     {
         var inner = new RecordingRunner(_ => Approves("correctness"));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith());
+        var runner = new ReviewLensRunner(inner, DefinitionsWith(), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
         var request = ReviewRequest(ReviewRun());
 
         var result = await runner.RunAsync(request, CancellationToken.None);
@@ -316,7 +341,7 @@ public sealed class ReviewLensRunnerTests
     public async Task A_caller_that_is_not_a_workflow_run_is_passed_straight_through()
     {
         var inner = new RecordingRunner(_ => Approves("correctness"));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var request = new SubagentRunRequest
         {
@@ -338,7 +363,7 @@ public sealed class ReviewLensRunnerTests
     public async Task A_lens_the_host_does_not_know_fails_the_node_rather_than_being_skipped()
     {
         var inner = new RecordingRunner(_ => Approves("correctness"));
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "thoroughness"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "thoroughness"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -357,7 +382,7 @@ public sealed class ReviewLensRunnerTests
         inner.RunAsync(Arg.Any<SubagentRunRequest>(), Arg.Any<CancellationToken>())
             .Returns(Result<AgentTurnResult, AgentError>.Failure(AgentError.Validation("budget exhausted")));
 
-        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness", "falsifiability", "mechanism"), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
 
         var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
 
@@ -366,5 +391,85 @@ public sealed class ReviewLensRunnerTests
         result.IsFailure.Should().BeTrue();
         result.Error.Message.Should().Be("budget exhausted");
         await inner.Received(1).RunAsync(Arg.Any<SubagentRunRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task An_accepted_pass_is_recorded_as_the_caller_at_the_runs_seq_node_starter_and_clock_time()
+    {
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        var appended = new List<WorkflowRunRecord>();
+        records.AppendAsync(Arg.Do<WorkflowRunRecord>(appended.Add), Arg.Any<CancellationToken>()).Returns(ValueTask.CompletedTask);
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 9, 28, 9, 30, 0, TimeSpan.Zero));
+        var run = ReviewRun() with { StartedBy = new RunPrincipal("u-starter", ["developer"]) };
+        var request = ReviewRequest(run);
+        var runner = new ReviewLensRunner(
+            new RecordingRunner(_ => Rejects("correctness")), DefinitionsWith("correctness"), Scopes(records), clock,
+            NullLogger<ReviewLensRunner>.Instance);
+
+        var result = await runner.RunAsync(request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var record = appended.Should().ContainSingle().Subject;
+        // Each red: swapping the field for another value in ReviewLensRunner.RecordAsync.
+        record.RunId.Should().Be(run.Id);
+        record.Seq.Should().Be(4, "ReviewRun's CurrentSeq; recording CurrentSeq + 1 turns this red");
+        record.Node.Should().Be("review");
+        record.Kind.Should().Be(WorkflowRunRecord.ReviewEvidenceKind);
+        record.PrincipalId.Should().Be(request.Caller.Id);
+        record.StartedById.Should().Be("u-starter");
+        record.CreatedAt.Should().Be(new DateTime(2026, 9, 28, 9, 30, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task A_pass_whose_evidence_cannot_be_recorded_fails_the_node_and_no_further_pass_runs()
+    {
+        var inner = new RecordingRunner(i => Approves(ThreeLenses[i]));
+        var runner = new ReviewLensRunner(
+            inner, DefinitionsWith("correctness", "falsifiability", "mechanism"),
+            Scopes(FailingRecords(new InvalidOperationException("database is down"))), TimeProvider.System,
+            NullLogger<ReviewLensRunner>.Instance);
+
+        var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
+
+        // Red: ignoring RecordAsync's failure in RunLensesAsync. The review then approves on three passes of
+        // which no evidence exists, which is the silent loss this failure mode exists to prevent.
+        result.IsFailure.Should().BeTrue("a review whose evidence was lost must not read as a review that ran");
+        result.Error.Code.Should().Be(AgentErrorCode.StoreError);
+        result.Error.Message.Should().Contain("'correctness' review pass's evidence could not be recorded");
+        // Red: remembering the failure and returning it after the loop lets all three passes run first.
+        inner.Tasks.Should().ContainSingle("a pass that could not be recorded is not a reason to pay for the next");
+    }
+
+    [Fact]
+    public async Task A_cancellation_nobody_asked_for_fails_the_node_rather_than_escaping()
+    {
+        // A command timeout surfaces as an OperationCanceledException while the caller's token is untouched.
+        var runner = new ReviewLensRunner(
+            new RecordingRunner(_ => Approves("correctness")), DefinitionsWith("correctness"),
+            Scopes(FailingRecords(new OperationCanceledException("command timeout"))), TimeProvider.System,
+            NullLogger<ReviewLensRunner>.Instance);
+
+        var act = async () => await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
+
+        // Red: filtering with `ex is not OperationCanceledException` alone lets the timeout escape.
+        var result = (await act.Should().NotThrowAsync()).Subject;
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(AgentErrorCode.StoreError);
+    }
+
+    [Fact]
+    public async Task The_callers_own_cancellation_propagates()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var runner = new ReviewLensRunner(
+            new RecordingRunner(_ => Approves("correctness")), DefinitionsWith("correctness"),
+            Scopes(FailingRecords(new OperationCanceledException(cts.Token))), TimeProvider.System,
+            NullLogger<ReviewLensRunner>.Instance);
+
+        var act = async () => await runner.RunAsync(ReviewRequest(ReviewRun()), cts.Token);
+
+        // Red: catching every exception turns the caller's own cancellation into a failed node.
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 }

@@ -57,6 +57,19 @@ public sealed record ReviewEvidence(
     /// <summary>The rejecting verdict, matching the <c>review</c> node's declared outcome.</summary>
     public const string Rejected = "rejected";
 
+    /// <summary>
+    ///     The most entries <see cref="Checked"/> or <see cref="Findings"/> may hold. The evidence is recorded as a
+    ///     <see cref="Daedalus.Domain.Entities.WorkflowRunRecord"/>, so model-written text is bounded here, where the
+    ///     model is told and can report again, rather than cut or refused silently at the store.
+    /// </summary>
+    public const int MaxEntries = 32;
+
+    /// <summary>
+    ///     The longest <see cref="Checked"/> entry, finding <see cref="ReviewFinding.File"/> or
+    ///     <see cref="ReviewFinding.Scenario"/>, in UTF-16 characters. See <see cref="MaxEntries"/>.
+    /// </summary>
+    public const int MaxEntryLength = 1000;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>Whether this pass approved.</summary>
@@ -137,6 +150,9 @@ public sealed record ReviewEvidence(
         if (parsed is null)
             return Result<IReadOnlyList<ReviewFinding>>.Success([]);
 
+        if (parsed.Length > MaxEntries)
+            return Result<IReadOnlyList<ReviewFinding>>.Failure($"'findings' has {parsed.Length} entries; at most {MaxEntries} are accepted. Report the most important ones.");
+
         for (var i = 0; i < parsed.Length; i++)
         {
             var finding = parsed[i];
@@ -146,6 +162,11 @@ public sealed record ReviewEvidence(
                 return Result<IReadOnlyList<ReviewFinding>>.Failure($"Finding {i + 1} ('{finding.File}') has no positive 'line'. Line numbers are one-based.");
             if (string.IsNullOrWhiteSpace(finding.Scenario))
                 return Result<IReadOnlyList<ReviewFinding>>.Failure($"Finding {i + 1} ('{finding.File}') has no 'scenario'. Name the input or state under which the code fails.");
+
+            var text = CheckEntry($"Finding {i + 1}'s 'file'", finding.File)
+                       ?? CheckEntry($"Finding {i + 1}'s 'scenario'", finding.Scenario);
+            if (text is not null)
+                return Result<IReadOnlyList<ReviewFinding>>.Failure(text);
         }
 
         return Result<IReadOnlyList<ReviewFinding>>.Success(parsed);
@@ -174,6 +195,30 @@ public sealed record ReviewEvidence(
         // A blank entry is dropped rather than accepted, so ["", " "] counts as nothing checked and is refused
         // above by the same rule that refuses an empty array. Otherwise the cheapest way past the evidence
         // requirement would be a list of empty strings.
+        if (kept.Length > MaxEntries)
+            return Result<IReadOnlyList<string>>.Failure($"'checked' has {kept.Length} entries; at most {MaxEntries} are accepted. Group related items.");
+
+        for (var i = 0; i < kept.Length; i++)
+        {
+            var text = CheckEntry($"'checked' entry {i + 1}", kept[i]);
+            if (text is not null)
+                return Result<IReadOnlyList<string>>.Failure(text);
+        }
+
         return Result<IReadOnlyList<string>>.Success(kept);
+    }
+
+    /// <summary>
+    ///     Returns why <paramref name="value"/> cannot be recorded, or <see langword="null"/> when it can: longer than
+    ///     <see cref="MaxEntryLength"/>, or holding a NUL character, which the record's <c>jsonb</c> column refuses.
+    /// </summary>
+    private static string? CheckEntry(string what, string value)
+    {
+        if (value.Length > MaxEntryLength)
+            return $"{what} is {value.Length} characters; at most {MaxEntryLength} are accepted. Say it more briefly.";
+
+        return value.Contains('\0', StringComparison.Ordinal)
+            ? $"{what} contains a NUL character, which cannot be recorded. Remove it."
+            : null;
     }
 }

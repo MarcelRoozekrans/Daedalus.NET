@@ -1,5 +1,6 @@
 using Daedalus.Agents.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Skills;
@@ -67,7 +68,12 @@ internal static class WorkflowNodeDispatcherFactory
         new StandingInstructionsRunner(
             new ReviewLensRunner(
                 new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
-                sp.GetRequiredService<IProcessDefinitionStore>())),
+                sp.GetRequiredService<IProcessDefinitionStore>(),
+                // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
+                // dependency.
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
         sp.GetRequiredService<ISkillStore>(),

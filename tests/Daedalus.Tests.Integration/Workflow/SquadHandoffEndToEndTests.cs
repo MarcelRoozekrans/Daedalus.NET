@@ -1,12 +1,15 @@
 using System.Data.Async.Adapters;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Daedalus.Agents;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
+using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -20,6 +23,7 @@ using ZeroAlloc.ORM.Migrations;
 using ZeroAlloc.Outbox.Orm;
 using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
+using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
 namespace Daedalus.Tests.Integration.Workflow;
 
@@ -335,6 +339,112 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         await AssertNoProposalAtTheGateAsync(result);
     }
 
+    /// <summary>
+    ///     Phase 2.5 task B8: every lens pass <see cref="ReviewLensRunner"/> accepts leaves one
+    ///     <see cref="WorkflowRunRecord.ReviewEvidenceKind"/> record, written by host code from the validated
+    ///     evidence, at the review node's sequence number.
+    /// </summary>
+    [Fact]
+    public async Task Each_approving_lens_pass_is_recorded_in_lens_order_at_the_review_nodes_seq()
+    {
+        var result = await RunAsync(squadEnabled: true);
+
+        result.Status.Should().Be(WorkflowStatus.Awaiting, "the review must have approved for three passes to run");
+        result.ReviewPassSeqs.Should().HaveCount(3).And.OnlyContain(seq => seq == result.ReviewPassSeqs[0]);
+        var reviewSeq = result.ReviewPassSeqs[0];
+
+        // Red: recording only the last pass, after the loop, leaves one record.
+        result.ReviewEvidence.Should().HaveCount(3);
+        // Red: recording lens.Name from the wrong index, or the checked items of another pass.
+        result.ReviewEvidence.Select(Payload).Should().BeEquivalentTo(
+            [Approved("correctness", "c1"), Approved("falsifiability", "f1"), Approved("mechanism", "m1")],
+            o => o.WithStrictOrdering());
+        // Red: recording run.CurrentSeq + 1, or the node as anything but the one dispatched.
+        result.ReviewEvidence.Should().OnlyContain(r => r.Seq == reviewSeq && r.Node == "review");
+        // Red: recording the run's starter as the principal, or dropping the starter.
+        result.ReviewEvidence.Should().OnlyContain(r =>
+            r.PrincipalId == $"workflow:{ProcessName}:{result.FinalRun.Id}" && r.StartedById == TestPrincipals.Starter.Id);
+    }
+
+    /// <summary>
+    ///     A rejection records its one pass, with its findings, and the review the run loops back to records its
+    ///     own passes under a later sequence number, so the two visits stay apart in the record.
+    /// </summary>
+    [Fact]
+    public async Task A_rejected_review_records_one_pass_and_the_loop_back_review_records_the_next_under_a_higher_seq()
+    {
+        var result = await RunAsync(squadEnabled: true, rejectFirstReview: true);
+
+        result.Status.Should().Be(WorkflowStatus.Awaiting, "the second review must have approved");
+        result.ReviewPassSeqs.Should().HaveCount(4, "one rejecting pass, then three approving ones");
+        var (rejectedSeq, approvedSeq) = (result.ReviewPassSeqs[0], result.ReviewPassSeqs[1]);
+        approvedSeq.Should().BeGreaterThan(rejectedSeq);
+
+        // Red: short-circuiting before recording the rejecting pass leaves three records.
+        result.ReviewEvidence.Should().HaveCount(4);
+        result.ReviewEvidence.Select(Payload).Should().BeEquivalentTo(
+            [
+                new EvidencePayload("correctness", "rejected", [], [RejectedFinding]),
+                Approved("correctness", "c1"),
+                Approved("falsifiability", "f1"),
+                Approved("mechanism", "m1"),
+            ],
+            o => o.WithStrictOrdering());
+        // Red: recording every pass at the run's first review seq.
+        result.ReviewEvidence.Select(r => r.Seq).Should().Equal(rejectedSeq, approvedSeq, approvedSeq, approvedSeq);
+    }
+
+    /// <summary>
+    ///     A pass that fails validation is not recorded: the record holds only evidence the runner accepted. The
+    ///     second pass approves with nothing checked, which fails the node.
+    /// </summary>
+    [Fact]
+    public async Task A_pass_that_fails_validation_is_not_recorded()
+    {
+        var result = await RunAsync(squadEnabled: true, malformedPass: 1);
+
+        result.Status.Should().Be(WorkflowStatus.Failed, "the malformed pass fails the review node");
+        result.ReviewPassSeqs.Should().HaveCount(2, "the malformed pass ran, and nothing after it");
+        // Red: recording each pass from its raw evidence call before ReadEvidence validates it adds the
+        // malformed falsifiability pass.
+        result.ReviewEvidence.Select(Payload).Should().BeEquivalentTo([Approved("correctness", "c1")]);
+    }
+
+    private const string RejectedFindingJson =
+        """[{"file":"src/Daedalus.Infrastructure/Persistence/TaskRepository.cs","line":42,"scenario":"cancelled rows are still claimed"}]""";
+
+    private static readonly FindingPayload RejectedFinding =
+        new("src/Daedalus.Infrastructure/Persistence/TaskRepository.cs", 42, "cancelled rows are still claimed");
+
+    /// <summary>
+    ///     Reads a record's payload strictly: a missing member, a null one or any member beyond the four the
+    ///     payload holds fails the read. Red: adding a member to the payload ReviewLensRunner records.
+    /// </summary>
+    private static readonly JsonSerializerOptions StrictPayload = new(JsonSerializerDefaults.Web)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        RespectRequiredConstructorParameters = true,
+        RespectNullableAnnotations = true,
+    };
+
+    private static EvidencePayload Approved(string lens, string examined) => new(lens, "approved", [examined], []);
+
+    private static EvidencePayload Payload(WorkflowRunRecord record)
+    {
+        var read = () => JsonSerializer.Deserialize<EvidencePayload>(record.PayloadJson, StrictPayload);
+        return read.Should().NotThrow("the payload holds lens, verdict, checked and findings only").Subject!;
+    }
+
+    private sealed record EvidencePayload(string Lens, string Verdict, string[] Checked, FindingPayload[] Findings);
+
+    private sealed record FindingPayload(string File, int Line, string Scenario);
+
+    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
+    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
+    {
+        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
+    }
+
     private static async Task AssertNoProposalAtTheGateAsync(RunOutcome result)
     {
         result.PlantsReported.Should().Be(1, "otherwise the attack was never attempted and this test proves nothing");
@@ -365,7 +475,9 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         IReadOnlyDictionary<string, AgentId> AgentsByNode,
         IReadOnlyDictionary<string, string> FinalVariables,
         IReadOnlyList<string?> TransitionModes,
-        int PlantsReported)
+        int PlantsReported,
+        IReadOnlyList<WorkflowRunRecord> ReviewEvidence,
+        IReadOnlyList<long> ReviewPassSeqs)
     {
         public WorkflowStatus Status => FinalRun.Status;
     }
@@ -375,7 +487,9 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         IReadOnlyDictionary<string, string>? documents = null,
         string? retrospectProposal = null,
         string? plantAt = null,
-        string retrospectOutcome = ReviewHandoff.RetrospectProposedOutcome)
+        string retrospectOutcome = ReviewHandoff.RetrospectProposedOutcome,
+        bool rejectFirstReview = false,
+        int? malformedPass = null)
     {
         var dbName = $"b5_handoff_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
@@ -399,8 +513,10 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 (await skills.UpsertAsync(SeedSkill(skillName), CancellationToken.None)).IsSuccess.Should().BeTrue();
             }
 
-            var runner = new ScriptedRunner(retrospectProposal ?? DefaultRetrospectProposal, plantAt, retrospectOutcome);
-            var (provider, references, catalog) = BuildProvider(store, definitions, runner, squadEnabled, skills);
+            var runner = new ScriptedRunner(
+                retrospectProposal ?? DefaultRetrospectProposal, plantAt, retrospectOutcome, rejectFirstReview, malformedPass);
+            var records = new WorkflowRunRecordStore(new FixtureDbContextFactory(fixture));
+            var (provider, references, catalog) = BuildProvider(store, definitions, runner, squadEnabled, skills, records);
             await using var disposable = provider;
 
             var nodeDispatcher = WorkflowNodeDispatcherFactory.Create(provider);
@@ -432,9 +548,10 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : "");
             var runId = started.Value;
 
-            // implement -> review -> retrospect -> gate is four dispatches; spare ticks so a gate that enqueued
-            // nothing simply finds an empty batch rather than leaving the run mid-flight.
-            for (var tick = 0; tick < 8; tick++)
+            // implement -> review -> retrospect -> gate is four dispatches, six with one rejected review; spare
+            // ticks so a gate that enqueued nothing simply finds an empty batch rather than leaving the run
+            // mid-flight.
+            for (var tick = 0; tick < 12; tick++)
             {
                 await poller.ProcessBatchAsync(CancellationToken.None);
             }
@@ -448,7 +565,9 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 runner.AgentsByNode,
                 run.Variables.ToDictionary(kv => kv.Key, kv => kv.Value?.ToString() ?? "", StringComparer.Ordinal),
                 await ReadTransitionModesAsync(connectionString, runId),
-                runner.PlantsReported);
+                runner.PlantsReported,
+                await records.ListAsync(runId, WorkflowRunRecord.ReviewEvidenceKind, CancellationToken.None),
+                runner.ReviewPassSeqs);
         }
         finally
         {
@@ -478,7 +597,12 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     ///     DI, rather than a second, possibly-diverging pair.
     /// </summary>
     private static (ServiceProvider Provider, IWorkflowReferenceResolver References, IAgentCatalog Catalog) BuildProvider(
-        IWorkflowStore store, IProcessDefinitionStore definitions, ISubagentRunner runner, bool squadEnabled, ISkillStore skills)
+        IWorkflowStore store,
+        IProcessDefinitionStore definitions,
+        ISubagentRunner runner,
+        bool squadEnabled,
+        ISkillStore skills,
+        IWorkflowRunRecordStore records)
     {
         var names = Substitute.For<IWorkflowReferenceResolver>();
         names.ResolveAgentIdAsync("implementer", Arg.Any<CancellationToken>()).Returns(new ValueTask<AgentId?>(ImplementerId));
@@ -507,6 +631,10 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton<IAgentCatalog>(catalog);
         services.AddSingleton(runner);
         services.AddSingleton(skills);
+        // The real record store over the fixture's Daedalus database, where ReviewLensRunner records each pass.
+        services.AddSingleton(records);
+        services.AddSingleton(TimeProvider.System);
+        services.AddLogging();
         services.AddSingleton(Options.Create(new DetachedRunOptions
         {
             PrincipalId = "workflow-test",
@@ -570,15 +698,26 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     ///     text. With <c>plantAt</c> set, that node also reports <c>proposed_standing_instructions</c>, the C1
     ///     attack; with <c>retrospectOutcome</c> set to <c>none</c>, retrospect reports no variables at all.
     /// </summary>
-    private sealed class ScriptedRunner(string retrospectProposal, string? plantAt, string retrospectOutcome) : ISubagentRunner
+    private sealed class ScriptedRunner(
+        string retrospectProposal,
+        string? plantAt,
+        string retrospectOutcome,
+        bool rejectFirstReview,
+        int? malformedPass) : ISubagentRunner
     {
         private const string PlantedProposal = "PLANTED-BY-A-NODE-THAT-IS-NOT-RETROSPECT";
 
         private readonly List<(string Node, string Task)> _turns = [];
         private readonly Dictionary<string, AgentId> _agents = new(StringComparer.Ordinal);
+        private readonly List<long> _reviewPassSeqs = [];
+        private long? _reviewSeq;
+        private int _reviewVisits;
         private int _lensPass;
 
         public IReadOnlyDictionary<string, AgentId> AgentsByNode => _agents;
+
+        /// <summary>The run's <see cref="WorkflowRun.CurrentSeq"/> at each review lens pass, in order.</summary>
+        public IReadOnlyList<long> ReviewPassSeqs => _reviewPassSeqs;
 
         public int PlantsReported { get; private set; }
 
@@ -597,7 +736,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             var turn = run.CurrentNode switch
             {
                 "implement" => ImplementTurn(outcomeToolName, Plant("implement")),
-                "review" => ReviewTurn(outcomeToolName, _lensPass, Plant("review", onlyWhen: _lensPass++ == 2)),
+                "review" => ReviewPass(run, outcomeToolName),
                 "retrospect" => RetrospectTurn(outcomeToolName, retrospectProposal, retrospectOutcome),
                 _ => throw new InvalidOperationException($"ScriptedRunner has no script for node '{run.CurrentNode}'."),
             };
@@ -647,7 +786,58 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 TimeSpan.FromSeconds(1));
         }
 
-        private static AgentTurnResult ReviewTurn(string outcomeToolName, int pass, bool plant)
+        /// <summary>
+        ///     One lens pass. The pass index restarts at each review visit, told apart by the run's sequence number.
+        ///     With <c>rejectFirstReview</c>, the first visit's first pass rejects; with <c>malformedPass</c>, that
+        ///     pass of the first visit reports an approval with nothing checked, which the evidence schema refuses.
+        /// </summary>
+        private AgentTurnResult ReviewPass(WorkflowRun run, string outcomeToolName)
+        {
+            if (_reviewSeq != run.CurrentSeq)
+            {
+                _reviewSeq = run.CurrentSeq;
+                _reviewVisits++;
+                _lensPass = 0;
+            }
+
+            _reviewPassSeqs.Add(run.CurrentSeq);
+            var pass = _lensPass++;
+            var firstVisit = _reviewVisits == 1;
+            if (firstVisit && rejectFirstReview)
+            {
+                return RejectTurn(outcomeToolName, pass);
+            }
+
+            var examined = firstVisit && malformedPass == pass ? "[]" : JsonSerializer.Serialize(new[] { CheckedId(pass) });
+            return ReviewTurn(outcomeToolName, pass, examined, Plant("review", onlyWhen: pass == 2));
+        }
+
+        private static string LensAt(int pass) => pass switch { 0 => "correctness", 1 => "falsifiability", _ => "mechanism" };
+
+        /// <summary>The one item each lens reports as checked: <c>c1</c>, <c>f1</c> and <c>m1</c>.</summary>
+        private static string CheckedId(int pass) => $"{LensAt(pass)[0]}1";
+
+        private static AgentTurnResult RejectTurn(string outcomeToolName, int pass)
+        {
+            var lens = LensAt(pass);
+            return new AgentTurnResult(
+                TurnId.New(), new SessionId(Guid.Empty), $"{lens}: rejected", default,
+                [
+                    new ToolCallSummary(
+                        ToolCallId.New(),
+                        DaedalusReviewTools.QualifiedReportReviewOutcomeToolName,
+                        JsonSerializer.Serialize(new { lens, verdict = "rejected", findings = RejectedFindingJson }),
+                        Succeeded: true, "Recorded", TimeSpan.FromMilliseconds(3)),
+                    new ToolCallSummary(
+                        ToolCallId.New(),
+                        outcomeToolName,
+                        $$"""{"{{OutcomeToolSchema.ArgumentName}}":"rejected"}""",
+                        Succeeded: true, "ok", TimeSpan.FromMilliseconds(1)),
+                ],
+                TimeSpan.FromSeconds(2));
+        }
+
+        private static AgentTurnResult ReviewTurn(string outcomeToolName, int pass, string examined, bool plant)
         {
             var outcomeArguments = plant
                 ? JsonSerializer.Serialize(new
@@ -660,7 +850,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 })
                 : $$"""{"{{OutcomeToolSchema.ArgumentName}}":"approved"}""";
 
-            var lens = pass switch { 0 => "correctness", 1 => "falsifiability", _ => "mechanism" };
+            var lens = LensAt(pass);
             return new AgentTurnResult(
                 TurnId.New(), new SessionId(Guid.Empty), $"{lens}: approved", default,
                 [
@@ -671,7 +861,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                         {
                             lens,
                             verdict = "approved",
-                            @checked = """["TaskRepository.ClaimNextAsync now filters cancelled rows"]""",
+                            @checked = examined,
                         }),
                         Succeeded: true, "Recorded", TimeSpan.FromMilliseconds(3)),
                     new ToolCallSummary(
