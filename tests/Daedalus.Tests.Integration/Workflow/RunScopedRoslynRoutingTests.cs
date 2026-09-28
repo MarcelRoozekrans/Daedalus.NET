@@ -122,9 +122,12 @@ public sealed class RunScopedRoslynRoutingTests : IAsyncLifetime
 
     /// <summary>
     ///     Security question 1: a run's <c>roslyn__*</c> call reaches its own run's server, never the host solution and
-    ///     never another run's server. Red for the first assertion: drop the <c>runScoped</c> block from the shipped
-    ///     <c>.mcp.json</c>; the host server then answers. Red for all three: build <see cref="WorkflowCaller"/>'s
-    ///     <c>thalos.run_id</c> claim from run B's id.
+    ///     never another run's server. Red for the first assertion: drop the <c>thalos.run_id</c> claim from
+    ///     <see cref="WorkflowCaller"/>; the host server then answers, naming <c>HostApp.sln</c>, and
+    ///     <c>Contain(runA)</c> fails first. Removing the shipped <c>runScoped</c> block is caught earlier, by the guard in
+    ///     <see cref="InitializeAsync"/>. The two <c>NotContain</c> assertions have no red of their own in Daedalus: any
+    ///     Daedalus change that routes the call elsewhere fails <c>Contain(runA)</c> first, and routing run A to run B's
+    ///     server would take a change in Thalos's registry.
     /// </summary>
     [Fact]
     public async Task A_runs_roslyn_call_is_served_by_its_own_runs_server_only()
@@ -142,7 +145,8 @@ public sealed class RunScopedRoslynRoutingTests : IAsyncLifetime
     ///     Security question 2: a developer's chat turn, even one whose token forges run A's <c>thalos.run_id</c>, is
     ///     served by the host server and never reaches a run's server, so its <c>roslyn__apply_*</c> cannot change a
     ///     run's worktree. Red: remove the <c>thalos.*</c> strip from <see cref="ClaimsSecurityContext"/>; the forged
-    ///     claim then routes the call to run A's server.
+    ///     claim then routes the call to run A's server, and <c>Contain("HostApp.sln")</c> fails first, since the
+    ///     answer names run A's <c>Tiny.sln</c>.
     /// </summary>
     [Fact]
     public async Task A_developer_chat_turn_carrying_a_forged_run_claim_is_served_by_the_host_server()

@@ -1,6 +1,7 @@
 using AwesomeAssertions.Execution;
 using Daedalus.Agents;
 using Daedalus.Agents.Git;
+using Daedalus.Agents.Security;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -201,28 +202,131 @@ public sealed class WorkflowWriteConfigTests
 
     /// <summary>
     ///     Task B9: <c>csharp-write</c> admits a granted workflow turn, so on a workflow host it may reach only run-scoped
-    ///     MCP servers; bound to a host-scoped one, a run would apply code actions to the host's own solution. Each row
-    ///     points the shipped Api host at an <c>.mcp.json</c> whose <c>roslyn</c> is host-scoped. Red for every row: remove
-    ///     the <c>ValidateCSharpWriteBindings</c> call. Red for the <c>ros*</c> and <c>*</c> rows: compare the source
-    ///     name ordinally instead of as a glob.
+    ///     MCP servers; bound to a host-scoped one, a run would apply code actions to the host's own solution. The row
+    ///     points the shipped Api host at an <c>.mcp.json</c> whose <c>roslyn</c> is host-scoped. Red: remove the
+    ///     <c>ValidateCSharpWriteBindings</c> call.
+    /// </summary>
+    [Fact]
+    public void A_csharp_write_binding_that_reaches_a_host_scoped_server_fails_registration_with_the_engine_on()
+    {
+        var act = RegisterWithCSharpWrite("host-scoped", "roslyn__apply_*");
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*binds 'roslyn__apply_*' to csharp-write, which reaches MCP server 'roslyn'*not run-scoped*");
+    }
+
+    /// <summary>
+    ///     Fix round 1: Thalos's glob lets <c>*</c> span the <c>__</c> separator, so a pattern that does not start with a
+    ///     literal <c>&lt;source&gt;__</c> can reach any source, whatever <c>.mcp.json</c> says. It is refused even over
+    ///     a run-scoped <c>roslyn</c>. Red for every row: treat the text before the first <c>__</c>, or the whole
+    ///     pattern, as a glob over the <c>.mcp.json</c> names, the check before this round; <c>*apply*</c> and
+    ///     <c>roslyn_*</c> then register. Red for the <c>ros?yn__apply_*</c> row: accept any prefix before <c>__</c>
+    ///     without checking it is a valid source name.
+    /// </summary>
+    [Theory]
+    [InlineData("*apply*")]
+    [InlineData("roslyn_*")]
+    [InlineData("ros*")]
+    [InlineData("*")]
+    [InlineData("ros?yn__apply_*")]
+    [InlineData("__apply_*")]
+    public void A_csharp_write_pattern_without_a_literal_source_prefix_fails_registration(string pattern)
+    {
+        var act = RegisterWithCSharpWrite("run-scoped", pattern);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*binds '{pattern}' to csharp-write, but the pattern does not start with a literal '<source>__'*");
+    }
+
+    /// <summary>
+    ///     The positive rows: a literal <c>roslyn__</c> prefix over a run-scoped <c>roslyn</c> registers, whatever
+    ///     follows it. Red: refuse every glob character anywhere in the pattern; the <c>roslyn__*</c> row then fails.
     /// </summary>
     [Theory]
     [InlineData("roslyn__apply_*")]
-    [InlineData("ros*")]
-    [InlineData("*")]
-    public void A_csharp_write_binding_that_reaches_a_host_scoped_server_fails_registration_with_the_engine_on(string pattern)
+    [InlineData("roslyn__*")]
+    public void A_csharp_write_pattern_with_a_literal_run_scoped_source_prefix_registers(string pattern)
+    {
+        var act = RegisterWithCSharpWrite("run-scoped", pattern);
+
+        act.Should().NotThrow();
+    }
+
+    /// <summary>
+    ///     A source that is not in <c>.mcp.json</c> at all, such as the local <c>git</c> source, is invisible at
+    ///     registration, so the check at host start refuses it against the sources the container built. Red: skip
+    ///     sources that are not MCP servers in the start check, or remove its registration; the host then starts.
+    /// </summary>
+    [Fact]
+    public async Task A_csharp_write_pattern_reaching_a_local_tool_source_fails_at_host_start()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        using var mcp = new TempMcpConfig("run-scoped");
+        options.McpConfigPath = mcp.Path;
+        options.ToolPolicies.Add(new ToolPolicyConfig { Pattern = "git__*", Policy = "csharp-write" });
+        services.AddDaedalusAgents(options, configuration, environment);
+        await using var sp = services.BuildServiceProvider();
+
+        var check = sp.GetServices<IHostedService>().OfType<CSharpWriteBindingCheck>().Should().ContainSingle().Subject;
+        var act = () => check.StartAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*binds 'git__*' to csharp-write, which reaches tool source 'git'*not a run-scoped MCP server*");
+    }
+
+    /// <summary>
+    ///     The control for the start check: the shipped bindings over a run-scoped <c>roslyn</c> pass it. Red: treat
+    ///     every source as not run-scoped.
+    /// </summary>
+    [Fact]
+    public async Task The_shipped_csharp_write_binding_passes_the_host_start_check()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        using var mcp = new TempMcpConfig("run-scoped");
+        options.McpConfigPath = mcp.Path;
+        services.AddDaedalusAgents(options, configuration, environment);
+        await using var sp = services.BuildServiceProvider();
+
+        var check = sp.GetServices<IHostedService>().OfType<CSharpWriteBindingCheck>().Should().ContainSingle().Subject;
+        var act = () => check.StartAsync(CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+    }
+
+    /// <summary>
+    ///     Fix round 1: the <c>workspace__*</c> tools compare a protected path exactly, ignoring case only, against the
+    ///     canonical worktree-relative path, so a non-canonical <c>StandingInstructionsPath</c> that boot validation
+    ///     accepts must be canonicalised, or implement could rewrite the worktree's <c>AGENT.md</c>. Red: add the
+    ///     configured value as it is.
+    /// </summary>
+    [Theory]
+    [InlineData("./AGENT.md")]
+    [InlineData("docs/../AGENT.md")]
+    public async Task A_non_canonical_standing_instructions_path_is_protected_in_its_canonical_form(string configured)
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        options.Workflow.StandingInstructionsPath = configured;
+        services.AddDaedalusAgents(options, configuration, environment);
+        await using var sp = services.BuildServiceProvider();
+
+        sp.GetRequiredService<RunWorkspaceToolOptions>().ProtectedPaths.Should().Equal("AGENT.md");
+    }
+
+    private static Action RegisterWithCSharpWrite(string mcpShape, string pattern)
     {
         var (services, options, configuration, environment) = LoadShippedApi();
         options.Workflow.Enabled.Should().BeTrue("this test is about the workflow host");
-        using var mcp = new TempMcpConfig("host-scoped");
+        var mcp = new TempMcpConfig(mcpShape);
         options.McpConfigPath = mcp.Path;
         options.ToolPolicies.Clear();
         options.ToolPolicies.Add(new ToolPolicyConfig { Pattern = pattern, Policy = "csharp-write" });
-
-        var act = () => services.AddDaedalusAgents(options, configuration, environment);
-
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage($"*binds '{pattern}' to csharp-write, which reaches MCP server 'roslyn'*not run-scoped*");
+        return () =>
+        {
+            using (mcp)
+            {
+                services.AddDaedalusAgents(options, configuration, environment);
+            }
+        };
     }
 
     /// <summary>

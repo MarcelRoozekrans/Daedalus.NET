@@ -52,8 +52,12 @@
     </ItemGroup>
 
     <ItemGroup>
-        <!-- MCP servers for the Thalos agents; resolved relative to the content root (Thalos:McpConfigPath) -->
-        <Content Update=".mcp.json" CopyToOutputDirectory="PreserveNewest" />
+        <!-- MCP servers for the Thalos agents; resolved relative to the content root (Thalos:McpConfigPath).
+             A None item, not Content: Content flows to every referencing project, and Daedalus.Api's .mcp.json lands at
+             the same output path in the test projects, so whichever file was written last would win. Only this host
+             needs its own copy; the tests read the Api's. -->
+        <Content Remove=".mcp.json" />
+        <None Include=".mcp.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>

@@ -327,7 +327,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 // writable, by any run.
                 thalos.UseRunWorkspaceTools(
                     WriteExtensionCeiling(options.Workflow.WriteGrants),
-                    o => o.ProtectedPaths.Add(options.Workflow.StandingInstructionsPath));
+                    o => o.ProtectedPaths.Add(WorktreeRelativePath(options.Workflow.StandingInstructionsPath)));
             }
 
             thalos.UseAnthropic(configuration)
@@ -526,6 +526,16 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // and the run's own MCP servers must be ready. Registered on every workflow host, not only one whose .mcp.json
         // declares a runScoped entry: IRunToolServerReadiness is optional, and the workspace check (ruling R9) holds
         // without it. WorkflowNodeDispatcherFactory hands the dispatcher every registered gate.
+        // Task B9: every csharp-write pattern must reach only run-scoped sources. AddDaedalusAgents checked the patterns
+        // and .mcp.json at registration; this checks the sources the container actually built, at host start.
+        string[] csharpWritePatterns =
+        [
+            .. toolPolicies
+                .Where(b => string.Equals(b.Policy, CSharpWritePolicy.PolicyName, StringComparison.Ordinal))
+                .Select(b => b.Pattern),
+        ];
+        services.AddHostedService(sp => new CSharpWriteBindingCheck(sp.GetServices<IToolSource>(), csharpWritePatterns));
+
         services.AddSingleton<IWorkflowDispatchGate>(sp => new RunToolServersReadyGate(
             sp.GetRequiredService<IRunWorkspaceProvider>(),
             sp.GetRequiredService<WorkflowConfig>(),
@@ -608,31 +618,30 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    ///     Fails fast when a <c>Thalos:ToolPolicies</c> pattern bound to <see cref="CSharpWritePolicy"/> can reach an MCP
-    ///     server in <paramref name="mcpConfigPath"/> that is not run-scoped. That policy admits a granted workflow
-    ///     caller, and only a run-scoped source is guaranteed to serve such a caller from its own run's server: a
-    ///     host-scoped one would apply its code actions to this host's own solution. A pattern reaches a server when the
-    ///     part before its first <c>__</c>, or the whole pattern when it has none, matches the server's name as a glob.
-    ///     A pattern that reaches no configured server matches no tool, so it is left alone.
+    ///     Fails fast when a <c>Thalos:ToolPolicies</c> pattern bound to <see cref="CSharpWritePolicy"/> does not start
+    ///     with a literal <c>&lt;source&gt;__</c>, or reaches an MCP server in <paramref name="mcpConfigPath"/> that is
+    ///     not run-scoped. That policy admits a granted workflow caller, and only a run-scoped source is guaranteed to
+    ///     serve such a caller from its own run's server: a host-scoped one would apply its code actions to this host's
+    ///     own solution. <see cref="CSharpWriteBindingCheck"/> says which sources a pattern reaches, and checks the
+    ///     sources the container builds, at host start, for any not declared in <c>.mcp.json</c>.
     /// </summary>
-    /// <exception cref="InvalidOperationException">A binding reaches a server that is not run-scoped.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     A binding does not start with a literal source name, or reaches a server that is not run-scoped.
+    /// </exception>
     internal static void ValidateCSharpWriteBindings(IEnumerable<ToolPolicyConfig> toolPolicies, string mcpConfigPath)
     {
         var patterns = toolPolicies
             .Where(b => string.Equals(b.Policy, CSharpWritePolicy.PolicyName, StringComparison.Ordinal))
             .Select(b => b.Pattern)
             .ToList();
-        if (patterns.Count == 0 || !File.Exists(mcpConfigPath))
-        {
-            return;
-        }
-
-        var hostScoped = McpConfigFile.Load(mcpConfigPath).Where(s => s.Value.RunScoped is null).Select(s => s.Key).ToList();
+        var hostScoped = File.Exists(mcpConfigPath)
+            ? McpConfigFile.Load(mcpConfigPath).Where(s => s.Value.RunScoped is null).Select(s => s.Key).ToList()
+            : [];
         foreach (var pattern in patterns)
         {
-            var separator = pattern.IndexOf("__", StringComparison.Ordinal);
-            var sourcePattern = separator >= 0 ? pattern[..separator] : pattern;
-            if (hostScoped.FirstOrDefault(name => Thalos.Tools.Glob.IsMatch(sourcePattern, name)) is { } server)
+            var reached = CSharpWriteBindingCheck.SourcesReachedBy(pattern)
+                ?? throw new InvalidOperationException(CSharpWriteBindingCheck.NotLiteral(pattern));
+            if (hostScoped.FirstOrDefault(name => reached.Contains(name, StringComparer.Ordinal)) is { } server)
             {
                 throw new InvalidOperationException(
                     $"Thalos:ToolPolicies binds '{pattern}' to {CSharpWritePolicy.PolicyName}, which reaches MCP server " +
@@ -641,6 +650,18 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                     "server run-scoped or bind the pattern to developer instead.");
             }
         }
+    }
+
+    /// <summary>
+    ///     The canonical worktree-relative form of a repository-relative path, forward-slash separated, the form the
+    ///     <c>workspace__*</c> tools compare <see cref="RunWorkspaceToolOptions.ProtectedPaths"/> against. They compare
+    ///     exactly, ignoring case only, so <c>./AGENT.md</c> or <c>docs/../AGENT.md</c>, which boot validation accepts,
+    ///     would otherwise never match the <c>AGENT.md</c> a run writes.
+    /// </summary>
+    internal static string WorktreeRelativePath(string configured)
+    {
+        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "daedalus-worktree-root"));
+        return Path.GetRelativePath(root, Path.GetFullPath(Path.Combine(root, configured))).Replace('\\', '/');
     }
 
     /// <summary>
