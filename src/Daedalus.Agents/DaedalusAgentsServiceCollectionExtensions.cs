@@ -500,6 +500,11 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // A singleton is safe: the store takes a fresh DbContext from IDbContextFactory on every call.
         services.AddSingleton<IWorkflowRunRecordStore, WorkflowRunRecordStore>();
 
+        // Task B13: the post-gate publish step. The resolver above and WorkflowNodeDispatcherFactory both receive every
+        // registered IWorkflowHostAction (ruling R27), so this registration is what makes `action: open-pull-request`
+        // validate and dispatch. A singleton: it resolves the scoped PR lookup and publisher from a scope of its own.
+        services.AddSingleton<IWorkflowHostAction, OpenPullRequestAction>();
+
         // Task B7: every workspace write a run is allowed is recorded in that store before the tool runs, or denied.
         DecorateToolAuthorizerWithWriteAudit(services, toolPolicies);
 

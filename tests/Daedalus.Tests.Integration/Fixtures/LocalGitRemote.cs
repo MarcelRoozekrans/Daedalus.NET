@@ -60,6 +60,37 @@ internal sealed class LocalGitRemote : IDisposable
     public string HeadOf(string branch) => RunGit(_path, "rev-parse", branch);
 
     /// <summary>
+    ///     The newest <paramref name="count"/> commits on <paramref name="branch"/> in the bare repository, newest first,
+    ///     each with the files it changed.
+    /// </summary>
+    public IReadOnlyList<RemoteCommit> Log(string branch, int count)
+    {
+        var shas = RunGit(_path, "rev-list", $"--max-count={count}", branch)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return
+        [
+            .. shas.Select(sha => new RemoteCommit(
+                sha,
+                RunGit(_path, "log", "-1", "--format=%B", sha),
+                RunGit(_path, "show", "--name-only", "--format=", sha)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))),
+        ];
+    }
+
+    /// <summary>The content of <paramref name="path"/> at the tip of <paramref name="branch"/>: <c>git show branch:path</c>.</summary>
+    public string Show(string branch, string path) => RunGit(_path, "show", $"{branch}:{path}");
+
+    /// <summary>Deletes the bare repository's directory, so a push to it fails.</summary>
+    public void Delete() => DeleteReadOnly(_path);
+
+    /// <summary>One commit in the bare repository.</summary>
+    /// <param name="Sha">The commit's sha.</param>
+    /// <param name="Message">The full commit message, trimmed.</param>
+    /// <param name="Files">The files the commit changed, from <c>git show --name-only --format=</c>.</param>
+    public sealed record RemoteCommit(string Sha, string Message, IReadOnlyList<string> Files);
+
+    /// <summary>
     ///     Runs git in <paramref name="workingDirectory"/> with <paramref name="arguments"/>, split on spaces, and
     ///     returns its trimmed standard output. Throws on a non-zero exit, so a test that expected output fails loudly.
     /// </summary>

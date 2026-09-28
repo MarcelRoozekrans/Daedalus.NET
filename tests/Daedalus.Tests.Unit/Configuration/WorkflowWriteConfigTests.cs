@@ -2,6 +2,7 @@ using AwesomeAssertions.Execution;
 using Daedalus.Agents;
 using Daedalus.Agents.Git;
 using Daedalus.Agents.Security;
+using Daedalus.Agents.Workflow;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Git.Workspaces;
+using Thalos.Workflow;
 using Thalos.Workspaces;
 
 namespace Daedalus.Tests.Unit.Configuration;
@@ -504,6 +506,27 @@ public sealed class WorkflowWriteConfigTests
             sp.GetService<IRunWorkspaceProvider>().Should().BeOfType<GitWorktreeWorkspaceProvider>();
             sp.GetService<IRunWorkspaceGit>().Should().BeOfType<GitCliRunWorkspaceGit>();
         }
+    }
+
+    /// <summary>
+    ///     Task B13: open-pull-request is registered once, as a singleton, so the resolver and the dispatcher, which both
+    ///     receive every registered host action, see the same instance.
+    /// </summary>
+    [Fact]
+    public async Task With_the_engine_on_open_pull_request_is_one_singleton_host_action()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        services.AddDaedalusAgents(options, configuration, environment);
+
+        services.Where(d => d.ServiceType == typeof(IWorkflowHostAction))
+            .Should().ContainSingle()
+            .Which.Should().Match<ServiceDescriptor>(d =>
+                d.Lifetime == ServiceLifetime.Singleton && d.ImplementationType == typeof(OpenPullRequestAction));
+
+        await using var sp = services.BuildServiceProvider();
+        var first = sp.GetServices<IWorkflowHostAction>().Should().ContainSingle().Subject;
+        first.Name.Should().Be("open-pull-request");
+        sp.GetServices<IWorkflowHostAction>().Single().Should().BeSameAs(first);
     }
 
     [Fact]
