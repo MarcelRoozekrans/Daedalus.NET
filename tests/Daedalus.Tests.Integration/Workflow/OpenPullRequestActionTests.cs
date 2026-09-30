@@ -149,7 +149,7 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
         await _action.RunAsync(_run, PublishNode, CancellationToken.None);
 
         var body = _publisher.LastBody!;
-        body.Should().Contain("- c1").And.Contain("- f1").And.Contain("- m1");
+        body.Should().Contain("  - `c1`").And.Contain("  - `f1`").And.Contain("  - `m1`");
         body.Should().NotContain("stale-s", "the rejected visit at an older seq is not the approving review");
         body.Should().NotContain("c0-dup", "a redelivered lens record is superseded by the last one at the same seq");
         body.Should().Contain("Approved at the gate by admin").And.NotContain("forged");

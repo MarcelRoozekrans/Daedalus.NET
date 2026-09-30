@@ -9,12 +9,19 @@ namespace Daedalus.Agents.Workflow;
 /// </summary>
 /// <remarks>
 ///     <para>
-///     <b>Nothing supplied becomes structure.</b> The work intent and the agent's summary are rendered inside quoted
-///     blocks, every line prefixed with <c>&gt;</c>, so a line in them that reads <c>## Approval</c> is quoted text, not a
-///     heading. Lens names, checked items, file paths and the approver's name are each collapsed onto one line, so none
-///     of them can start a line of its own. The agent's summary comes last, under its own heading, and its first line
-///     is the label that says host code did not verify it. The review section likewise opens with a label: its checked
-///     items are the review agents' own report, and host code verified only each lens's approving verdict.
+///     <b>Nothing supplied becomes structure.</b> The work intent is rendered inside a quoted block, every line prefixed
+///     with <c>&gt;</c>, so a line in it that reads <c>## Approval</c> is quoted text, not a heading. Lens names, checked
+///     items, file paths and the approver's name are each collapsed onto one line, so none of them can start a line of
+///     its own. The agent's summary comes last, under its own heading, and its first line is the label that says host
+///     code did not verify it. The review section likewise opens with a label: its checked items are the review agents'
+///     own report, and host code verified only each lens's approving verdict.
+///     </para>
+///     <para>
+///     <b>Nothing an agent wrote renders.</b> A quoted block still renders links, images and <c>@</c> mentions, so the
+///     agents' text is never quoted: each checked item is a code span and the summary is a fenced code block, each
+///     fenced with more backticks than the longest run in the text, so the text can neither close its fence nor render
+///     as anything but itself. A link the implement or a review agent wrote therefore reaches a reader as text, an image
+///     is never fetched, and nobody is mentioned.
 ///     </para>
 ///     <para>
 ///     <b>Bounded.</b> The title's line is cut to <see cref="MaxTitleLineLength"/>. The summary, the intent, each list
@@ -59,9 +66,15 @@ internal static class PullRequestBody
         $"feat: {TitleLine(workIntent)}\n\nManufactured by run {runId}.";
 
     /// <summary>Renders the pull-request body. See the type's remarks.</summary>
+    /// <exception cref="ArgumentException">
+    ///     <paramref name="facts"/> carries no review evidence. <c>OpenPullRequestAction</c> refuses such a run before it
+    ///     commits anything, and the review section's label claims a verification only evidence can back.
+    /// </exception>
     public static string Render(PullRequestFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
+        if (facts.Checked.Count == 0)
+            throw new ArgumentException("A pull request body is rendered only for a run with review evidence.", nameof(facts));
 
         var body = new StringBuilder();
         body.Append("## Work intent\n\n");
@@ -78,16 +91,14 @@ internal static class PullRequestBody
             body.Append(CultureInfo.InvariantCulture, $"- and {facts.Changes.Count - MaxChangedFilesListed} more files\n");
 
         body.Append("\n## Review\n\n");
-        // The label claims a verification, so it appears only over lenses whose approval the action checked.
-        body.Append(facts.Checked.Count == 0
-            ? "No review evidence is recorded for this run.\n"
-            : ReviewLabel + "\n\n");
+        // The label claims a verification, which the action checked for every lens listed below it.
+        body.Append(ReviewLabel).Append("\n\n");
 
         foreach (var (lens, items) in facts.Checked)
         {
             body.Append("- ").Append(Entry(lens)).Append('\n');
             foreach (var item in items)
-                body.Append("  - ").Append(Entry(item)).Append('\n');
+                body.Append("  - ").Append(CodeSpan(Entry(item))).Append('\n');
         }
 
         body.Append("\n## Approval\n\n");
@@ -101,9 +112,10 @@ internal static class PullRequestBody
 
         body.Append("\n## Agent-written summary\n\n");
         body.Append(AgentTextLabel).Append("\n\n");
-        AppendQuoted(body, string.IsNullOrWhiteSpace(facts.AgentSummary)
-            ? "No summary was reported."
-            : Cut(facts.AgentSummary, MaxSummaryLength));
+        if (string.IsNullOrWhiteSpace(facts.AgentSummary))
+            body.Append("No summary was reported.\n");
+        else
+            AppendFenced(body, Cut(facts.AgentSummary, MaxSummaryLength));
 
         return body.Length <= MaxBodyLength
             ? body.ToString()
@@ -170,6 +182,43 @@ internal static class PullRequestBody
             var trimmed = line.TrimEnd();
             body.Append(trimmed.Length == 0 ? ">" : "> " + trimmed).Append('\n');
         }
+    }
+
+    /// <summary>
+    ///     <paramref name="text"/>, which is on one line, as a code span fenced with one more backtick than its longest
+    ///     run, padded with a space where CommonMark would otherwise read a backtick or a space at its edge as part of
+    ///     the fence.
+    /// </summary>
+    private static string CodeSpan(string text)
+    {
+        var fence = new string('`', LongestBacktickRun(text) + 1);
+        var pad = text.StartsWith('`') || text.EndsWith('`') || (text.StartsWith(' ') && text.EndsWith(' ')) ? " " : "";
+        return fence + pad + text + pad + fence;
+    }
+
+    /// <summary>
+    ///     <paramref name="text"/> as a fenced code block, fenced with at least three backticks and one more than its
+    ///     longest run, so no line of it can close the block.
+    /// </summary>
+    private static void AppendFenced(StringBuilder body, string text)
+    {
+        var fence = new string('`', Math.Max(3, LongestBacktickRun(text) + 1));
+        body.Append(fence).Append("text\n");
+        foreach (var line in text.ReplaceLineEndings("\n").Split('\n'))
+            body.Append(line.TrimEnd()).Append('\n');
+        body.Append(fence).Append('\n');
+    }
+
+    private static int LongestBacktickRun(string text)
+    {
+        int longest = 0, run = 0;
+        foreach (var c in text)
+        {
+            run = c == '`' ? run + 1 : 0;
+            longest = Math.Max(longest, run);
+        }
+
+        return longest;
     }
 
     private static string Cut(string text, int max) => text.Length <= max ? text : CutAt(text, max) + Ellipsis;

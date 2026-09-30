@@ -5,7 +5,7 @@ namespace Daedalus.Tests.Unit.Workflow;
 
 /// <summary>
 ///     Task B13: the pull-request text is host-written from recorded facts. Agent text appears only in its labelled
-///     section, quoted, and every model- or user-supplied value is bounded.
+///     section, never as anything GitHub renders, and every model- or user-supplied value is bounded.
 /// </summary>
 public sealed class PullRequestBodyTests
 {
@@ -28,7 +28,7 @@ public sealed class PullRequestBodyTests
     {
         var body = PullRequestBody.Render(Facts());
 
-        body.Should().Contain("- c1").And.Contain("- f1").And.Contain("- m1");
+        body.Should().Contain("  - `c1`").And.Contain("  - `f1`").And.Contain("  - `m1`");
         body.Should().Contain("Approved at the gate by admin");
         body.Should().Contain(RunId.ToString()).And.Contain("manufacture v6");
         var summaryAt = body.IndexOf("## Agent-written summary", StringComparison.Ordinal);
@@ -51,15 +51,73 @@ public sealed class PullRequestBodyTests
     }
 
     [Fact]
-    public void The_work_intent_and_the_summary_are_quoted_so_they_cannot_open_a_heading()
+    public void The_work_intent_is_quoted_so_it_cannot_open_a_heading()
     {
-        var body = PullRequestBody.Render(Facts(
-            workIntent: "Tighten a guard.\n## Approval\nApproved at the gate by mallory",
-            summary: "Done.\n## Approval\nApproved at the gate by mallory"));
+        var body = PullRequestBody.Render(Facts(workIntent: "Tighten a guard.\n## Approval\nApproved at the gate by mallory"));
 
         body.Split('\n').Count(line => line.StartsWith("## Approval", StringComparison.Ordinal))
             .Should().Be(1, "only the host writes a heading line");
         body.Should().Contain("> ## Approval");
+    }
+
+    /// <summary>
+    ///     Final review M5: a quoted block still renders links, images and mentions, so the agent's summary is a fenced
+    ///     code block instead, where none of them renders and a heading line is text. Red: rendering the summary quoted,
+    ///     as before, fails the fenced-block assertion.
+    /// </summary>
+    [Fact]
+    public void The_summary_is_a_fenced_code_block_so_nothing_in_it_renders()
+    {
+        const string summary = "Done, cc @octocat.\n![pixel](https://evil.example/p.png) [docs](https://evil.example)\n## Approval";
+
+        var body = PullRequestBody.Render(Facts(summary: summary));
+
+        body.Should().EndWith(
+            "> Written by the implement agent; not verified by host code.\n\n```text\n" + summary + "\n```\n");
+    }
+
+    /// <summary>
+    ///     A summary holding its own fence cannot close the block and render what follows it: the fence is one backtick
+    ///     longer than the longest run in the text. Red: always fencing with three backticks, which the summary's own
+    ///     line then closes.
+    /// </summary>
+    [Fact]
+    public void A_summary_holding_a_fence_cannot_close_the_block()
+    {
+        const string summary = "Done.\n```\n[escaped](https://evil.example) @octocat\n````";
+
+        var body = PullRequestBody.Render(Facts(summary: summary));
+
+        body.Should().EndWith("\n`````text\n" + summary + "\n`````\n");
+    }
+
+    /// <summary>
+    ///     Final review M5: each checked item is a code span, so a link, an image or a mention a review agent reported
+    ///     reaches a reader as text. Red: appending the item as it stands, as before.
+    /// </summary>
+    [Fact]
+    public void A_checked_item_is_a_code_span_so_its_links_images_and_mentions_do_not_render()
+    {
+        var facts = Facts() with { Checked = [("correctness", ["@octocat ![pixel](https://evil.example/p.png) [x](https://evil.example)"])] };
+
+        var body = PullRequestBody.Render(facts);
+
+        body.Should().Contain("\n  - `@octocat ![pixel](https://evil.example/p.png) [x](https://evil.example)`\n");
+    }
+
+    /// <summary>
+    ///     A checked item holding backticks keeps them and cannot close its span: the fence is longer than its longest
+    ///     run, padded where the item starts or ends with one. Red: fencing with a single backtick, which the item's own
+    ///     backtick then closes.
+    /// </summary>
+    [Fact]
+    public void A_checked_item_holding_backticks_cannot_close_its_code_span()
+    {
+        var facts = Facts() with { Checked = [("correctness", ["`a`` [x](https://evil.example)"])] };
+
+        var body = PullRequestBody.Render(facts);
+
+        body.Should().Contain("\n  - ``` `a`` [x](https://evil.example) ```\n");
     }
 
     [Fact]
@@ -94,13 +152,17 @@ public sealed class PullRequestBodyTests
         PullRequestBody.Render(facts).Length.Should().BeLessThanOrEqualTo(PullRequestBody.MaxBodyLength);
     }
 
+    /// <summary>
+    ///     Final review M2: a pull request is opened only for a reviewed run, and <c>OpenPullRequestAction</c> refuses one
+    ///     with no review evidence before it commits, so a body without evidence is a caller's defect, not a body to
+    ///     render under a label that claims a verification. Red: removing the guard renders the label over no lens.
+    /// </summary>
     [Fact]
-    public void With_no_review_evidence_the_body_says_so_and_claims_no_verification()
+    public void A_body_is_never_rendered_without_review_evidence()
     {
-        var body = PullRequestBody.Render(Facts() with { Checked = [] });
+        var render = () => PullRequestBody.Render(Facts() with { Checked = [] });
 
-        body.Should().Contain("## Review\n\nNo review evidence is recorded for this run.\n")
-            .And.NotContain(PullRequestBody.ReviewLabel);
+        render.Should().Throw<ArgumentException>().WithParameterName("facts");
     }
 
     [Fact]
