@@ -12,7 +12,7 @@ namespace Daedalus.Tests.Integration.Fixtures;
 /// <summary>
 ///     Boots the real <c>Daedalus.Api</c> <c>Program</c> in-process (TestServer) against the fixture database, with the
 ///     JWT scheme swapped for <see cref="HeaderTestAuthHandler"/> and Thalos' <see cref="IAgentRuntime"/> replaced by the
-///     supplied fake. Everything else — controllers, ProblemDetails, response compression, rate limiting, JSON context,
+///     supplied fake, or left as the host's own <c>ThalosAgentRuntime</c> when none is supplied. Everything else — controllers, ProblemDetails, response compression, rate limiting, JSON context,
 ///     the Postgres session store and the crash-recovery hosted service — is the production wiring.
 /// </summary>
 /// <remarks>

@@ -33,8 +33,10 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     grant's extensions writes <c>Sandbox.csproj</c>; removing the write grant leaves <c>src/A.cs</c> unedited;
 ///     resuming without applying the standing instructions makes the code commit the newest; unregistering the
 ///     <c>open-pull-request</c> action fails the start; skipping the open-pull-request lookup on a redelivery opens a
-///     second pull request; and a resume endpoint that records a constant principal, or the caller without its roles,
-///     names the wrong approver.
+///     second pull request; a resume endpoint that records a constant principal, or the caller without its roles,
+///     names the wrong approver; dropping implement's summary leaves the body's placeholder in its place; a code commit
+///     that does not exclude AGENT.md leaves AGENT.md in the older commit; and an action that stores the URL under
+///     another key leaves no <c>pr_url</c>.
 ///     </para>
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
@@ -42,6 +44,8 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
 {
     /// <summary>The engine's outcome tool, the name every task node's turn is offered.</summary>
     private const string OutcomeToolName = "workflow__report_outcome";
+
+    private const string Summary = "Tightened the guard in A: a null argument is refused.";
 
     private const string LearnedLine = "Integration tests need Docker running.";
 
@@ -79,7 +83,7 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
             resume.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
             var done = await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Succeeded, "published");
-            done.Variables["pr_url"].Should().Be(FakePullRequestPublisher.Url);
+            done.Variables.Should().ContainKey("pr_url").WhoseValue.Should().Be(FakePullRequestPublisher.Url);
             host.Publisher.OpenCount.Should().Be(1);
 
             var commits = host.Remote.Log($"manufacture/{runId}", count: 2);
@@ -87,7 +91,8 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
             host.Remote.Show($"manufacture/{runId}", "AGENT.md").Should().EndWith(LearnedLine);
             commits[1].Files.Should().Contain("src/A.cs").And.NotContain("AGENT.md");
             host.Publisher.LastBody.Should().Contain("Approved at the gate by a-admin", "the resuming principal, recorded by B1 step 2a, names the approver")
-                .And.Contain(runId.ToString()).And.Contain("## Agent-written summary");
+                .And.Contain(runId.ToString()).And.Contain("## Agent-written summary")
+                .And.Contain(Summary, "the body quotes implement's own summary, not the placeholder for a missing one");
             done.LastResume!.By!.Id.Should().Be("a-admin");
 
             // The ledger carry from B1: the approver is the real caller principal, roles and all, not only its id.
@@ -111,7 +116,7 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
             outcome = "changed",
             variables = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
-                [ReviewHandoff.SummaryKey] = "Tightened the guard in A: a null argument is refused.",
+                [ReviewHandoff.SummaryKey] = Summary,
                 [ReviewHandoff.FilesTouchedKey] = FilesTouched,
                 [ReviewHandoff.LearningsKey] = Learnings,
             },
@@ -144,10 +149,11 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Boots a <see cref="ScratchWorkflowHost"/> with its own runtime, the scripted model, a fast outbox poll, an
-    ///     explicit write grant for implement over <c>.cs</c> and <c>.md</c>, and one <see cref="FakePullRequestPublisher"/>
-    ///     as both pull-request interfaces (ruling R28a). The default seed gives <c>main</c> <c>AGENT.md</c> and
-    ///     <c>src/A.cs</c>.
+    ///     Boots a <see cref="ScratchWorkflowHost"/> with its own runtime, the scripted model, a fast outbox poll, and one
+    ///     <see cref="FakePullRequestPublisher"/> as both pull-request interfaces (ruling R28a). The default seed gives
+    ///     <c>main</c> <c>AGENT.md</c> and <c>src/A.cs</c>. The write grant is the shipped one in
+    ///     <c>src/Daedalus.Api/appsettings.json</c>, implement over <c>.cs</c> and <c>.md</c>: the test sets none of its
+    ///     own, because configuration arrays merge by index, so a test entry could only add to that grant, never narrow it.
     /// </summary>
     private async Task WithV6HostAsync(Func<V6Host, Task> body)
     {
@@ -156,13 +162,6 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
         await using var host = await ScratchWorkflowHost.StartAsync(
             fixture,
             runtime: null,
-            settings: new Dictionary<string, string?>(StringComparer.Ordinal)
-            {
-                ["Thalos:Workflow:WriteGrants:0:Process"] = "manufacture",
-                ["Thalos:Workflow:WriteGrants:0:Node"] = "implement",
-                ["Thalos:Workflow:WriteGrants:0:AllowedExtensions:0"] = ".cs",
-                ["Thalos:Workflow:WriteGrants:0:AllowedExtensions:1"] = ".md",
-            },
             configureServices: services =>
             {
                 services.Replace(ServiceDescriptor.Singleton<IChatClientProvider>(new ScriptedChatClientProvider(chat)));
@@ -209,11 +208,15 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
 
-            return
-            [
-                .. callIds.Select(id => messages.OfType<FunctionResultContent>().First(r => string.Equals(r.CallId, id, StringComparison.Ordinal)))
-                    .Select(r => r.Result?.ToString() ?? ""),
-            ];
+            var results = new List<string>(callIds.Count);
+            foreach (var id in callIds)
+            {
+                var result = messages.OfType<FunctionResultContent>().FirstOrDefault(r => string.Equals(r.CallId, id, StringComparison.Ordinal));
+                result.Should().NotBeNull($"the model's '{toolName}' call '{id}' must have been answered before the model was asked again");
+                results.Add(result!.Result?.ToString() ?? "");
+            }
+
+            return [.. results];
         }
     }
 
