@@ -1,8 +1,70 @@
 # Session State
 
-**Last session:** 2026-09-24
+**Last session:** 2026-09-30, run overnight and autonomously at the owner's request
 
-## Current Position - phase 2.4 complete, PR #276 open; phase 2.5 next
+## Current Position - phase 2.5: B0-B16 and the final review are done; B17, the live proof, waits for the owner
+
+**Milestone 2, phase 2.5, run write authority.** Branch `feat/phase-2.5-run-write-authority`, local only
+and **not pushed**. Part A shipped as Thalos.NET 0.11.0, then 0.11.1. Part B's tasks B0-B16 are complete,
+each reviewed clean. The final whole-branch review was run, and two fix waves followed. Their re-reviews
+approved, and the final reviewer ruled the branch **ready for B17**.
+
+- Suites at the last run: Unit 649, Unit.Application 439, Unit.Domain 383, Unit.Infrastructure 153,
+  Integration 672. There were no failures.
+- The execution ledger holds every ruling, review and red. It is at
+  `.superpowers/sdd/2026-09-24-phase-2.5-run-write-authority-plan/progress.md`, which is git-ignored and
+  kept until the phase closes.
+- **What the final review found, all now fixed:**
+  - **C1:** the implementer's `roslyn__*` reached unbound RoslynCodeLens tools, such as
+    `load_solution` and `change_signature`, from an unpinned `dnx` package. An unattended turn could load
+    the host checkout and write there unaudited. Now the package is pinned to 2.18.1, the envelopes list
+    their tools explicitly, the write and operator tools are bound, and a snapshot test plus a live-server
+    test guard the list.
+  - **I1 and I2:** agent nodes could write `pr_url` and `work_intent`. These are now host-only keys.
+  - **I3:** publish could fail the run after pushing, on the 16-key bag cap. The capacity is now reserved
+    and checked before the first commit.
+  - Minors: the PR body is bounded and neutralised, publish fails closed with no review evidence, and
+    there are DI, exception and options fixes.
+
+## Needs the owner - morning
+
+1. **A security item was reported to the owner directly, not in this public file.** See the session
+   handoff message.
+2. **Run B17, the live proof.** It is an owner checkpoint, because it pushes to the real `daedalus-sandbox`,
+   opens a real PR and spends Anthropic credits. Brief: `task-B17-brief.md` in the ledger folder. Before
+   booting, push the `daily-digest` schedule's `NextRunAt` forward. Things to watch:
+   - the run-scoped Roslyn reload still works now that `rebuild_solution` is bound to `developer`;
+   - diagnostics are compiler-only, because `trust_solution` is operator-only;
+   - a run's Roslyn server stays alive after the run fails, so watch its memory;
+   - the `ThalosPullRequestPublisher` real linked-worktree path has no automated test.
+3. **Decide:** should developer and admin *chat* turns keep `workspace-write` and `csharp-write`, meaning
+   roslyn apply on the host solution? It is documented as intentional in `CSharpWritePolicy` but was never
+   ruled on.
+4. **Decide #313:** delete or bind the `OpenTelemetry` appsettings sections, which nothing reads.
+5. **Behaviour changes to know about:**
+   - OTLP logs export only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, as with Aspire.
+   - A configured `Thalos:Workflow:Dispatch:HostId` fails boot.
+   - Agent nodes have 11 of 16 bag keys.
+   - Architect chat turns need `developer` for operator Roslyn tools.
+   - Publish refuses a run with no review evidence.
+
+## Filed or tracked 2026-09-30
+- Thalos #225: `workspace__write_file` refuses on Windows while a directory is delete-pending. It is a
+  real race that fails closed; B17 does not wait on it.
+- Daedalus #313: the dead OpenTelemetry config.
+- Daedalus #314: the phase 2.6 carries, NFS flock and the resolve-to-move race.
+- The repo-wide `dotnet format` drift was already tracked in #295 and #312.
+
+## Recommended Next Step
+
+1. Handle the security item reported directly to the owner.
+2. Review the branch, then run B17 with the owner present. After B17, close the phase: pre-push review,
+   push, the PR, `complete-phase 2.5`, and after the merge check that every `fix:` and `feat:` commit
+   appears in the release-please PR.
+
+---
+
+## Previous position (2026-09-24) - phase 2.4 complete, PR #276 open; phase 2.5 next
 
 **Milestone 2.** Phase 2.4 - the process as skills - is **complete (2026-09-24)**. Branch
 `feat/phase-2.4-process-as-skills` is pushed and open as **PR #276** against `main`. Every ruling, the
@@ -17,7 +79,7 @@ live proof, the final review and the carried-forward list are in
 - **Roadmap renumbered.** A new **phase 2.5 - run write authority** was inserted, so Ralph retirement
   is now **2.8**, after **phase 2.6 - sandboxed run pods** and **phase 2.7 - issues as a first-class output** were inserted on 2026-09-25. Older text in this file that says "phase 2.5 deletes Ralph" means 2.7.
 
-## Recommended Next Step
+## Recommended Next Step (2026-09-24, done)
 
 1. Merge PR #276, after CI and the owner's review. Then confirm every `fix:` and `feat:` commit
    appears in the release-please PR, because a green workflow does not prove a commit was counted.
