@@ -281,7 +281,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store);
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes());
             var runId = await ParkedAtGateAsync(store, "c1");
 
             var result = await gateway.ResumeAsync(runId, "ci_passed", payload: null, TestApprover, CancellationToken.None);
@@ -297,7 +297,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store);
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes());
 
             var result = await gateway.ResumeAsync(Guid.NewGuid(), "human_approval", payload: null, TestApprover, CancellationToken.None);
 
@@ -312,7 +312,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store);
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes());
             var runId = await ParkedAtGateAsync(store, "c2");
 
             var result = await gateway.ResumeAsync(runId, "human_approval", payload: null, TestApprover, CancellationToken.None);
@@ -340,7 +340,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store));
+            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes()));
 
             var result = await controller.Resume(
                 Guid.NewGuid(), new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
@@ -355,7 +355,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store));
+            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes()));
 
             var result = await controller.Cancel(Guid.NewGuid(), new CancelWorkflowRunRequest("test"), CancellationToken.None);
 
@@ -375,7 +375,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         await WithScratchDatabaseAsync(async store =>
         {
             var runId = await ParkedAtGateAsync(store, "no-subject");
-            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store)), DeveloperWithoutSubject());
+            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes())), DeveloperWithoutSubject());
 
             var result = await controller.Resume(
                 runId, new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
@@ -399,7 +399,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var starter = Substitute.For<IManufactureRunStarter>();
             starter.StartAsync(Arg.Any<ManufactureStartRequest>(), Arg.Any<CancellationToken>())
                 .Returns(new ValueTask<Result<Guid>>(Result<Guid>.Success(Guid.NewGuid())));
-            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store)), DeveloperWithoutSubject());
+            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes())), DeveloperWithoutSubject());
 
             var result = await controller.Start(new StartWorkflowRunRequest("Tighten a guard.", "sandbox"), starter, CancellationToken.None);
 
@@ -503,4 +503,15 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     }
 
     private sealed record ScratchStore(OrmWorkflowStore Store, OrmProcessDefinitionStore Definitions);
+
+    /// <summary>
+    ///     The record-store scope factory every gateway here is built with, as <c>ReviewLensRunnerTests.Scopes</c>
+    ///     builds it. None of these tests reads a run's records.
+    /// </summary>
+    private static IServiceScopeFactory Scopes()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped(_ => Substitute.For<IWorkflowRunRecordStore>());
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
 }

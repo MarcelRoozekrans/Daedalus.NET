@@ -1,3 +1,5 @@
+using Daedalus.Domain.Entities;
+using Microsoft.Extensions.DependencyInjection;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 
@@ -29,23 +31,48 @@ namespace Daedalus.Agents.Workflow;
 ///     tool call and <c>DefaultToolAuthorizer</c> never sees one.
 ///     </para>
 ///     <para>
-///     <b><see cref="StandingInstructionsWriter"/> defaults to <see langword="null"/>.</b> The default keeps this
-///     type constructible with only a store — <c>ResumeSignalMismatchTests</c> and
-///     <c>ResumeToolBoundaryTests</c>/<c>ResumeAuthorizationBoundaryTests</c> in <c>ResumeBoundaryTests.cs</c> are
-///     pinned to construct it that way — while every host still wires the real writer
-///     through DI (see <c>AddDaedalusWorkflow</c>). A caller that asks the public
+///     <b><see cref="StandingInstructionsWriter"/> defaults to <see langword="null"/>; the run's history and its
+///     record store do not.</b> The writer's default keeps the resume tests in <c>ResumeBoundaryTests.cs</c> free of
+///     a writer they never use, while every host still wires the real one through DI (see
+///     <c>AddDaedalusWorkflow</c>). A caller that asks the public
 ///     <see cref="ResumeAsync(Guid,string,string?,bool,RunPrincipal,CancellationToken)"/> overload to apply standing
 ///     instructions without one throws: that combination is a wiring bug, never a normal outcome a caller should
-///     branch on.
+///     branch on. <paramref name="history"/> and <paramref name="scopes"/> are required, not defaulted (task B15,
+///     ruling R25), so no host can build a gateway whose run view silently shows no usage and no write audit.
 ///     </para>
 /// </remarks>
-public sealed class WorkflowRunGateway(IWorkflowStore store, StandingInstructionsWriter? writer = null)
+/// <param name="store">The workflow store every read and write of the run itself goes through.</param>
+/// <param name="history">Reads the run's event log back, including each completed node's token usage.</param>
+/// <param name="scopes">Creates the scope each read of the run's host-written records resolves <see cref="IWorkflowRunRecordStore"/> from.</param>
+/// <param name="writer">Writes an approved standing-instructions proposal; see the remarks.</param>
+public sealed class WorkflowRunGateway(
+    IWorkflowStore store, IWorkflowRunHistory history, IServiceScopeFactory scopes, StandingInstructionsWriter? writer = null)
 {
     private readonly IWorkflowStore _store = store ?? throw new ArgumentNullException(nameof(store));
+    private readonly IWorkflowRunHistory _history = history ?? throw new ArgumentNullException(nameof(history));
+    private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
     private readonly StandingInstructionsWriter? _writer = writer;
 
     /// <summary>Finds a run by id, or <see langword="null"/> if none exists.</summary>
     public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => _store.FindAsync(runId, ct);
+
+    /// <summary>
+    ///     Every event recorded for <paramref name="runId"/>, in ascending seq order, as <see cref="IWorkflowRunHistory"/>
+    ///     reads them. A completion event carries the usage of the node it closes.
+    /// </summary>
+    public ValueTask<IReadOnlyList<WorkflowRunEvent>> ListEventsAsync(Guid runId, CancellationToken ct) =>
+        _history.ListEventsAsync(runId, ct);
+
+    /// <summary>
+    ///     The host-written records of <paramref name="runId"/>, only those of <paramref name="kind"/> when it is not
+    ///     null, in the order <see cref="IWorkflowRunRecordStore.ListAsync"/> gives: by seq, then append order.
+    /// </summary>
+    public async ValueTask<IReadOnlyList<WorkflowRunRecord>> ListRecordsAsync(Guid runId, string? kind, CancellationToken ct)
+    {
+        await using var scope = _scopes.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>()
+            .ListAsync(runId, kind, ct).ConfigureAwait(false);
+    }
 
     /// <summary>
     ///     Resumes <paramref name="runId"/> if it is parked awaiting exactly <paramref name="signal"/>. A run not

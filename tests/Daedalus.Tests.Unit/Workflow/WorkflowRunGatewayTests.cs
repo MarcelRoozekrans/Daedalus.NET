@@ -1,5 +1,6 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
+using Microsoft.Extensions.DependencyInjection;
 using Thalos.Workflow;
 using Thalos.Workspaces;
 
@@ -27,7 +28,7 @@ public sealed class WorkflowRunGatewayTests
     public async Task An_apply_on_a_gateway_built_without_a_writer_fails_loudly()
     {
         var store = Substitute.For<IWorkflowStore>();
-        var gateway = new WorkflowRunGateway(store);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), Scopes());
 
         var act = async () => await gateway.ResumeAsync(
             Guid.NewGuid(), Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
@@ -53,7 +54,7 @@ public sealed class WorkflowRunGatewayTests
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir));
-        var gateway = new WorkflowRunGateway(store, writer);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), Scopes(), writer);
 
         var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
 
@@ -82,7 +83,7 @@ public sealed class WorkflowRunGatewayTests
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir));
-        var gateway = new WorkflowRunGateway(store, writer);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), Scopes(), writer);
 
         await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
 
@@ -107,7 +108,7 @@ public sealed class WorkflowRunGatewayTests
         store.ResumeAsync(run.Id, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Success()));
 
-        var result = await new WorkflowRunGateway(store).ResumeAsync(
+        var result = await new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), Scopes()).ResumeAsync(
             run.Id, Signal, null, applyStandingInstructions: false, Approver, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
@@ -115,6 +116,17 @@ public sealed class WorkflowRunGatewayTests
             run.Id,
             Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal && r.ResumedBy == Approver),
             Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     The record-store scope factory every gateway here is built with, as <c>ReviewLensRunnerTests.Scopes</c>
+    ///     builds it. None of these tests reads a run's records.
+    /// </summary>
+    private static IServiceScopeFactory Scopes()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped(_ => Substitute.For<IWorkflowRunRecordStore>());
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
     /// <summary>A provider whose only worktree is <paramref name="dir"/>, reported for <paramref name="run"/>'s id.</summary>

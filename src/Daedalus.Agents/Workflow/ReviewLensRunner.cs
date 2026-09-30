@@ -120,6 +120,7 @@ internal sealed partial class ReviewLensRunner(
     {
         var projected = ReviewHandoff.ProjectForReview(run.Variables);
         Result<AgentTurnResult, AgentError> last = default;
+        TurnUsage spent = default;
 
         for (var i = 0; i < lenses.Length; i++)
         {
@@ -129,6 +130,8 @@ internal sealed partial class ReviewLensRunner(
             last = await _inner.RunAsync(pass, ct);
             if (last.IsFailure)
                 return last;
+
+            spent = i == 0 ? last.Value.Usage : spent + last.Value.Usage;
 
             var evidence = ReadEvidence(last.Value, lens, request.RequiredOutcome);
             if (evidence.IsFailure)
@@ -141,11 +144,19 @@ internal sealed partial class ReviewLensRunner(
             // Short-circuit. The remaining lenses are not run: a rejection already sends the run back to
             // implement, so confirming it costs turns and changes nothing.
             if (!evidence.Value.IsApproval)
-                return last;
+                return WithUsage(last.Value, spent);
         }
 
-        return last;
+        return WithUsage(last.Value, spent);
     }
+
+    /// <summary>
+    ///     <paramref name="turn"/> with its usage replaced by <paramref name="spent"/>, the sum over every pass that ran.
+    ///     Only the usage changes: the text and the tool calls, and so the outcome the dispatcher reads, stay that
+    ///     pass's own.
+    /// </summary>
+    private static Result<AgentTurnResult, AgentError> WithUsage(AgentTurnResult turn, TurnUsage spent) =>
+        Result<AgentTurnResult, AgentError>.Success(turn with { Usage = spent });
 
     /// <summary>
     ///     Appends one <see cref="WorkflowRunRecord.ReviewEvidenceKind"/> record for an accepted pass, at the run's

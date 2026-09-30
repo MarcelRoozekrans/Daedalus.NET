@@ -411,6 +411,23 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         result.ReviewEvidence.Select(Payload).Should().BeEquivalentTo([Approved("correctness", "c1")]);
     }
 
+    /// <summary>
+    ///     Task B15: the review node's completion event records what every lens pass cost, not only the last. The
+    ///     scripted passes report 100, 200 and 300 input tokens. Red: returning the last pass's turn unchanged from
+    ///     ReviewLensRunner records 300.
+    /// </summary>
+    [Fact]
+    public async Task The_review_nodes_completion_event_carries_the_usage_of_all_three_lens_passes()
+    {
+        var result = await RunAsync(squadEnabled: true);
+
+        result.ReviewPassSeqs.Should().HaveCount(3, "the sum below is over exactly three passes");
+        var review = result.Events.Should().ContainSingle(e => e.FromNode == "review" && e.ToNode == "retrospect",
+            "the approving review completes once, moving the run to retrospect").Subject;
+        review.Usage.Should().NotBeNull("a completed agent node's event carries its usage");
+        review.Usage!.Value.InputTokens.Should().Be(600);
+    }
+
     private const string RejectedFindingJson =
         """[{"file":"src/Daedalus.Infrastructure/Persistence/TaskRepository.cs","line":42,"scenario":"cancelled rows are still claimed"}]""";
 
@@ -483,7 +500,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         IReadOnlyList<string?> TransitionModes,
         int PlantsReported,
         IReadOnlyList<WorkflowRunRecord> ReviewEvidence,
-        IReadOnlyList<long> ReviewPassSeqs)
+        IReadOnlyList<long> ReviewPassSeqs,
+        IReadOnlyList<WorkflowRunEvent> Events)
     {
         public WorkflowStatus Status => FinalRun.Status;
     }
@@ -573,7 +591,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 await ReadTransitionModesAsync(connectionString, runId),
                 runner.PlantsReported,
                 await records.ListAsync(runId, WorkflowRunRecord.ReviewEvidenceKind, CancellationToken.None),
-                runner.ReviewPassSeqs);
+                runner.ReviewPassSeqs,
+                await store.ListEventsAsync(runId, CancellationToken.None));
         }
         finally
         {
@@ -818,6 +837,9 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             return ReviewTurn(outcomeToolName, pass, examined, Plant("review", onlyWhen: pass == 2));
         }
 
+        /// <summary>Pass <paramref name="pass"/>'s usage: 100, 200 and 300 input tokens for the three lenses.</summary>
+        private static TurnUsage LensUsage(int pass) => new((pass + 1) * 100, 10, "lens-model");
+
         private static string LensAt(int pass) => pass switch { 0 => "correctness", 1 => "falsifiability", _ => "mechanism" };
 
         /// <summary>The one item each lens reports as checked: <c>c1</c>, <c>f1</c> and <c>m1</c>.</summary>
@@ -827,7 +849,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         {
             var lens = LensAt(pass);
             return new AgentTurnResult(
-                TurnId.New(), new SessionId(Guid.Empty), $"{lens}: rejected", default,
+                TurnId.New(), new SessionId(Guid.Empty), $"{lens}: rejected", LensUsage(pass),
                 [
                     new ToolCallSummary(
                         ToolCallId.New(),
@@ -858,7 +880,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
             var lens = LensAt(pass);
             return new AgentTurnResult(
-                TurnId.New(), new SessionId(Guid.Empty), $"{lens}: approved", default,
+                TurnId.New(), new SessionId(Guid.Empty), $"{lens}: approved", LensUsage(pass),
                 [
                     new ToolCallSummary(
                         ToolCallId.New(),

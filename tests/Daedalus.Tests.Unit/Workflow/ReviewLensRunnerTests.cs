@@ -492,4 +492,46 @@ public sealed class ReviewLensRunnerTests
         // Red: catching every exception turns the caller's own cancellation into a failed node.
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    /// <summary>
+    ///     Task B15: the one turn the dispatcher sees carries the usage of every lens pass, so the review node's
+    ///     completion event is what the review cost. Red per assertion: returning the last pass's turn unchanged
+    ///     reports 300 input tokens and 30 output tokens, and summing into a fresh usage that drops the cache counts
+    ///     fails the cache assertion.
+    /// </summary>
+    [Fact]
+    public async Task An_approval_reports_the_usage_of_all_three_passes()
+    {
+        var inner = new RecordingRunner(i => WithUsage(Approves(ThreeLenses[i]), i));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith(ThreeLenses), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
+
+        var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        result.Value.Usage.InputTokens.Should().Be(600);
+        result.Value.Usage.OutputTokens.Should().Be(60);
+        result.Value.Usage.CacheReadTokens.Should().Be(60);
+        result.Value.Usage.ModelId.Should().Be("lens-model");
+    }
+
+    /// <summary>
+    ///     The rejection return path sums too: the passes that approved before the rejection were paid for. Red:
+    ///     returning the rejecting pass's turn unchanged reports 200.
+    /// </summary>
+    [Fact]
+    public async Task A_rejection_reports_the_usage_of_every_pass_that_ran()
+    {
+        var inner = new RecordingRunner(i => WithUsage(i == 0 ? Approves("correctness") : Rejects("falsifiability"), i));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith(ThreeLenses), Scopes(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
+
+        var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        inner.Tasks.Should().HaveCount(2, "otherwise the sum below is over a different number of passes");
+        result.Value.Usage.InputTokens.Should().Be(300);
+    }
+
+    /// <summary>Pass <paramref name="pass"/>'s turn with usage 100, 200 or 300 input tokens, a tenth of that out and 20 cache reads.</summary>
+    private static AgentTurnResult WithUsage(AgentTurnResult turn, int pass) =>
+        turn with { Usage = new TurnUsage((pass + 1) * 100, (pass + 1) * 10, "lens-model") { CacheReadTokens = 20 } };
 }

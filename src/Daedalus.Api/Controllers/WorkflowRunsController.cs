@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Asp.Versioning;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Agents;
+using Daedalus.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Thalos.Workflow;
@@ -104,19 +106,75 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     {
         var run = await runs.FindAsync(id, ct);
-        return run is null ? NotFound() : Ok(ToView(run));
+        return run is null ? NotFound() : Ok(await ToViewAsync(run, ct));
     }
 
-    private static WorkflowRunView ToView(WorkflowRun run) => new(
-        run.Id,
-        run.Process,
-        run.ProcessVersion,
-        run.Status.ToString(),
-        run.CurrentNode,
-        run.AwaitingSignal,
-        run.LastError,
-        run.Manifest?.Nodes,
-        StandingInstructionsDiff: StandingInstructionsWriter.Diff(run));
+    /// <summary>
+    ///     Builds the view. Node usage comes from the run's completion events, never from its variables, which no
+    ///     node's usage is written to. The write audit comes from the host-written records, which no agent can add
+    ///     to or change.
+    /// </summary>
+    private async Task<WorkflowRunView> ToViewAsync(WorkflowRun run, CancellationToken ct)
+    {
+        var events = await runs.ListEventsAsync(run.Id, ct);
+        var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
+
+        return new WorkflowRunView(
+            run.Id,
+            run.Process,
+            run.ProcessVersion,
+            run.Status.ToString(),
+            run.CurrentNode,
+            run.AwaitingSignal,
+            run.LastError,
+            run.Manifest?.Nodes,
+            StandingInstructionsDiff: StandingInstructionsWriter.Diff(run),
+            NodeUsage: [.. events.Where(e => e.Usage is not null && e.FromNode is not null).Select(ToUsageView)],
+            PrUrl: ReadPrUrl(run),
+            StartedBy: run.StartedBy?.Id,
+            WriteAudit: [.. writes.Select(ToWriteAuditView)]);
+    }
+
+    private static NodeUsageView ToUsageView(WorkflowRunEvent completion)
+    {
+        var usage = completion.Usage!.Value;
+        return new NodeUsageView(
+            completion.Seq, completion.FromNode!, usage.InputTokens, usage.OutputTokens,
+            usage.CacheReadTokens, usage.CacheWriteTokens, usage.ModelId ?? "");
+    }
+
+    /// <summary>
+    ///     The run's <c>pr_url</c> variable as an absolute URI, or <see langword="null"/> when the run has none yet.
+    ///     A value that is not an absolute URI is not a pull request's address, so it is not shown as one.
+    /// </summary>
+    private static Uri? ReadPrUrl(WorkflowRun run) =>
+        run.Variables.TryGetValue(PrUrlVariable, out var value)
+        && value?.ToString() is { Length: > 0 } text
+        && Uri.TryCreate(text, UriKind.Absolute, out var url)
+            ? url
+            : null;
+
+    /// <summary>
+    ///     Reads one write-audit record. Its payload is <c>{ tool, path }</c> as <c>AuditingToolAuthorizer</c> wrote
+    ///     it, read as parsed JSON, since <c>jsonb</c> keeps the value and not the text.
+    /// </summary>
+    private static WriteAuditView ToWriteAuditView(WorkflowRunRecord record)
+    {
+        using var payload = JsonDocument.Parse(record.PayloadJson);
+        var root = payload.RootElement;
+        return new WriteAuditView(
+            record.Seq, record.Node, ReadString(root, "tool") ?? "", ReadString(root, "path"), record.StartedById);
+    }
+
+    private static string? ReadString(JsonElement root, string name) =>
+        root.ValueKind == JsonValueKind.Object
+        && root.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    /// <summary>The run variable the <c>open-pull-request</c> action writes the opened pull request's URL to.</summary>
+    private const string PrUrlVariable = "pr_url";
 
     /// <summary>
     ///     Resumes <paramref name="id"/> if — and only if — it is parked awaiting exactly
@@ -246,6 +304,13 @@ public sealed record StartWorkflowRunResponse(Guid RunId);
 ///     <see langword="null"/> when the run carries no proposal — including every run started before phase 2.4
 ///     task B4 added the <c>retrospect</c> node at all.
 /// </param>
+/// <param name="NodeUsage">
+///     Each completed agent node's token and cache usage, in seq order, read off the run's completion events and never
+///     off its variables. A node that ran no agent turn, such as a gate or a host action, has no entry.
+/// </param>
+/// <param name="PrUrl">The run's <c>pr_url</c> variable, which the <c>open-pull-request</c> action writes, or <see langword="null"/> before it has.</param>
+/// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
+/// <param name="WriteAudit">Every workspace write the run was allowed, from its write-audit records, in seq order.</param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
@@ -255,4 +320,26 @@ public sealed record WorkflowRunView(
     string? AwaitingSignal,
     string? LastError,
     IReadOnlyDictionary<string, NodePin>? Pins,
-    string? StandingInstructionsDiff);
+    string? StandingInstructionsDiff,
+    IReadOnlyList<NodeUsageView> NodeUsage,
+    Uri? PrUrl,
+    string? StartedBy,
+    IReadOnlyList<WriteAuditView> WriteAudit);
+
+/// <summary>The token usage one completed agent node reported, read off its completion event.</summary>
+/// <param name="Seq">The seq of the node execution the completion event closes.</param>
+/// <param name="Node">The node that completed.</param>
+/// <param name="InputTokens">Input tokens, cache reads and writes included.</param>
+/// <param name="OutputTokens">Output tokens.</param>
+/// <param name="CacheReadTokens">Input tokens read from a prompt cache.</param>
+/// <param name="CacheWriteTokens">Input tokens written to a prompt cache.</param>
+/// <param name="ModelId">The model that served the node, or empty when the turn reported none.</param>
+public sealed record NodeUsageView(long Seq, string Node, int InputTokens, int OutputTokens, int CacheReadTokens, int CacheWriteTokens, string ModelId);
+
+/// <summary>One workspace write the tool authorizer allowed and recorded, read off the run's write-audit records.</summary>
+/// <param name="Seq">The run's seq when the write was allowed.</param>
+/// <param name="Node">The node the run was on.</param>
+/// <param name="Tool">The qualified name of the write tool.</param>
+/// <param name="Path">The path the call named, or <see langword="null"/> when it named none.</param>
+/// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
+public sealed record WriteAuditView(long Seq, string Node, string Tool, string? Path, string? StartedBy);
