@@ -91,6 +91,29 @@ public static class ReviewHandoff
     public const string RetrospectSkillName = "manufacture-retrospect";
 
     /// <summary>
+    ///     Which run variables only one node may write, keyed by the variable, valued by the skill that node is pinned
+    ///     to. <see cref="ReviewHandoffWorkflowStore"/> strips a listed key from the report of every node pinned to any
+    ///     other skill, because Thalos accepts any key name a node reports and a later write wins.
+    ///     <list type="bullet">
+    ///         <item>
+    ///             <see cref="ProposedStandingInstructionsKey"/>: only <see cref="RetrospectSkillName"/>. The gate
+    ///             shows it as retrospect's proposal, and a human's apply writes it to disk (design decision D4).
+    ///         </item>
+    ///         <item>
+    ///             <see cref="SummaryKey"/>: only <see cref="ImplementSkillName"/>. Phase 2.5 task B14:
+    ///             <c>open-pull-request</c> renders it into the pull request body as the implementer's account, so no
+    ///             review lens or retrospect turn may write that account for it.
+    ///         </item>
+    ///     </list>
+    /// </summary>
+    public static readonly FrozenDictionary<string, string> Authors =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [ProposedStandingInstructionsKey] = RetrospectSkillName,
+            [SummaryKey] = ImplementSkillName,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
     ///     The only keys a <c>review</c> dispatch is given. <see cref="FilesTouchedKey"/> is the sole thing the
     ///     implementer writes that appears here: a pointer travels, an account does not.
     /// </summary>

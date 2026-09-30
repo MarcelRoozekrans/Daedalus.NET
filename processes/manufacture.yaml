@@ -1,51 +1,42 @@
 # The first real manufacturing process. A transcription of subagent-driven-development's control
-# flow — implement, review with a bounded fix loop, a human approval gate, then publish — expressed
+# flow - implement, review with a bounded fix loop, a human approval gate, then publish - expressed
 # as data the engine interprets rather than as a skill's prose.
 #
 # Three constraints shape this file:
 #
-#   1. `implement` writes to the working tree. Phase 2.2 shipped this node read-only: its skill
-#      produced a *description* of a change and made none, so the pipeline could reach `succeeded`
-#      with zero code changed and `review` had only prose to read. The project owner reversed that on
-#      2026-09-23 - see docs/plans/2026-09-23-phase-2.3-manufacturing-squad-design.md section 4.1.
+#   1. `implement` edits the run's own worktree, through `workspace__*`, under a write grant. Phase 2.2
+#      shipped this node read-only; phase 2.3 let it apply only a fix Roslyn already offered. Phase 2.5
+#      gives every run its own git worktree on the branch manufacture/<run-id>, created from the run's
+#      allow-listed repository, and the `implementer` agent holds workspace__read_file,
+#      workspace__list_files, workspace__write_file and workspace__edit_file over it.
 #
-#      What the implementer can actually write is NARROWER than "it edits code", and section 4.1
-#      records the narrowing after the tool was checked rather than assumed. `roslyn__apply_code_action`
-#      applies a refactoring or fix that Roslyn ALREADY OFFERS at a position, named by its title out
-#      of `roslyn__get_code_actions`' list for that position, and it DEFAULTS TO `preview: true` -
-#      returning a diff and writing nothing unless the call passes `preview: false`. So the node
-#      cannot author new code or create a file, and a call that omits `preview: false` leaves the
-#      tree untouched while still returning successfully. skills/manufacture-implement/SKILL.md
-#      shows the call with the argument and says what omitting it does, because an implementer that
-#      followed the older wording would report `changed` against an unmodified tree and every
-#      control below would then operate correctly on nothing.
+#      The writes are bounded by host code, not by the skill's prose. They reach a tool only when the
+#      run's `Thalos:Workflow:WriteGrants` entry grants this process and node, and only for the grant's
+#      allowed extensions, `.cs` and `.md` by default (ruling R29). Paths resolve inside the worktree;
+#      `..`, absolute paths, `.git/` and the standing-instructions file `AGENT.md` are refused for writing.
+#      The Roslyn server the node reaches is the run's own, over the same worktree.
 #
-#      The write envelope did NOT widen with it. The `implementer` agent's configured `Tools` list
-#      names `roslyn__*`, `daedalus__*`, `memory__*`, `skills__*` and `context7__*` and nothing else:
-#      no `git__*` and no `repoaction__*` entry appears in it, so neither family is ever offered to
-#      one of its turns. It edits files; it cannot branch, commit, push, or open a pull request.
-#      That is tool ABSENCE, not a policy denial - the `git__*` -> developer binding in
-#      Thalos:ToolPolicies is a second, independent line that would also deny the call, but it is
-#      never reached, because the tool is not in the list to be called.
+#      The implementer still holds no `git__*` and no `repoaction__*` tool: both families are absent from
+#      its configured `Tools` list, so neither is ever offered to one of its turns. It edits files; it
+#      cannot commit, push or open a pull request.
 #
-#      Consequence, stated plainly because nothing in this file undoes it: a run LEAVES UNCOMMITTED
-#      CHANGES BEHIND. A rejected review, a `maxVisits` redirect to `adjudicate`, a failed run and a
-#      stranded run all leave the tree modified, and with `maxVisits: 5` up to five rounds of edits
-#      can pile up on each other. Deciding what to do with them is a human step.
+#      Edits inside a run are never reverted. A rejected review sends the run back to `implement` over the
+#      same worktree, so up to `maxVisits: 5` rounds of edits accumulate there. A failed run keeps its
+#      worktree for a human; the sweeper removes a run's worktree once the run has succeeded, which it
+#      does only after its pull request is open.
 #
-#   2. `publish` still cannot open a pull request, and this is unchanged from phase 2.2. A run
-#      executes as WorkflowCaller, whose only role is "workflow"; `git__*` and `repoaction__*` are
-#      bound to the `developer` policy, which that role fails. So `publish` never attempts a git or
-#      repo-action tool call - it writes a memory__remember record and reports `published` through
-#      its own outcome tool. That call is the only thing enforced structurally; it does not prove
-#      the record's content is real, or that a human ever reads it. Opening the actual pull request
-#      stays a deliberately unautomated, human-triggered step.
+#   2. `publish` is a host action, not an agent turn. After a human approves at the gate, the
+#      `open-pull-request` action commits the worktree's code changes, commits an approved AGENT.md change
+#      separately, pushes the run's own branch to its allow-listed remote, and opens the pull request or
+#      reuses the one already open. It refuses before any commit or push when the run has no workspace, no
+#      pinned work intent, a repository no longer allow-listed at the workspace's remote, or review evidence
+#      that is unreadable or not an approval. No model decides any of it; no agent holds a tool that could.
 #
 #   3. Reaching `succeeded` proves the graph walked implement -> review -> retrospect -> gate ->
-#      publish -> done and that each task node's agent called the outcome tool its schema demanded.
-#      Phase 2.3 narrows what that leaves unproven - `implement` must now assert `changed` rather than
-#      complete on any output at all, and `review` must survive three lenses and produce evidence -
-#      but it does not close the gap. See section 12 of the design document for the honest limits.
+#      publish -> done, that each task node's agent called the outcome tool its schema demanded, and that
+#      host code opened a pull request for a non-empty diff. It does not prove the change is right: that
+#      rests on the review lenses and on the human at the gate. See section 12 of the phase 2.3 design
+#      document for the honest limits of the review.
 process: manufacture
 # version bumped 2 -> 3 (phase 2.3, task B4): implement and review move onto the squad roles, implement
 # gains an outcome set, and review declares its lenses. Content-hash immutability refuses a same-version
@@ -67,16 +58,25 @@ process: manufacture
 # human approval is required either way and the proposal only ever reaches disk through B5's apply step, on a
 # human's resume. This ports Ralph's AGENT.md self-improvement loop into the workflow - see the phase 2.4
 # design, amendment D4. Content-hash immutability forces the graph edit and this comment to ride one bump.
-version: 5
+#
+# version bumped 5 -> 6 (phase 2.5, task B14): `publish` stops being an agent turn. Version 5 ran `Daedalus
+# Architect` under the `manufacture-publish` skill, which could only write a memory record and claim `published`;
+# no pull request was ever opened. Version 6 makes it the `open-pull-request` host action, with outcomes
+# `published` and `failed`, and an empty diff is `failed`, which ends the run at `adjudicate`. `implement` now edits
+# the run's own worktree through `workspace__*`, so its comments and the header above are rewritten with it. The
+# manufacture-publish skill stays on disk because runs pinned to version 5 still load it.
+version: 6
 
 nodes:
   # `outcomes` is new in version 3. Version 2 declared none, so this node completed on any turn output
-  # at all - tolerable while it only wrote a description, not tolerable now it modifies a working tree.
-  # `changed` is an explicit claim that the tree was edited, and it is the ONLY edge into `review`: the
+  # at all - tolerable while it only wrote a description, not tolerable now it edits the run's worktree
+  # through workspace__*, under the run's write grant. `changed` is an explicit claim that the worktree was edited, and it is the ONLY edge into `review`: the
   # reviewer is never dispatched except behind an assertion that there is something to read. `blocked`
   # exists so that claim costs something - with `changed` as the only way out of the node, an agent that
   # edited nothing would still assert it to escape, and the claim would mean nothing. A run that changed
-  # no code did not manufacture anything, so `blocked` ends it rather than advancing it.
+  # no code did not manufacture anything, so `blocked` ends it rather than advancing it. `blocked` is also
+  # the honest answer when the work needs a file the grant does not allow, such as a .csproj: the skill tells
+  # the implementer to name the file and the change, for a human to make.
   implement:
     agent: implementer
     skill: manufacture-implement
@@ -123,12 +123,15 @@ nodes:
     await: human_approval
     next: publish
 
+  # Phase 2.5: publishing is host code, not a model. After a human approves at the gate, the open-pull-request
+  # action commits the worktree's code changes, commits an approved AGENT.md change separately, pushes
+  # manufacture/<run-id> to the run's allow-listed remote, and opens or reuses the PR. An empty diff is `failed`.
   publish:
-    agent: Daedalus Architect
-    skill: manufacture-publish
-    outcomes: [published]
+    action: open-pull-request
+    outcomes: [published, failed]
     branch:
       published: done
+      failed: adjudicate
 
   done:
     terminal: succeeded

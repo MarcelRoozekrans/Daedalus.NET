@@ -7,6 +7,7 @@ using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Thalos;
+using Thalos.Git;
 using Thalos.Workflow;
 using ZeroAlloc.Authorization;
 using Task = System.Threading.Tasks.Task;
@@ -20,9 +21,12 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     standing-instructions file that the run pins. The host's own outbox poller then
 ///     walks the real <c>processes/manufacture.yaml</c> through implement, review, retrospect and the gate. Every
 ///     component is the shipped one except <see cref="IAgentRuntime"/>, which <see cref="ScriptedRuntime"/>
-///     replaces so each node reports a scripted outcome. Nothing else in the suite walked version 5 to
+///     replaces so each node reports a scripted outcome, and the pull-request host, which
+///     <see cref="FakePullRequestPublisher"/> replaces. Nothing else in the suite walked the process to
 ///     <c>Succeeded</c>, asserted the pinned <c>standing_instructions</c> document, or reached the resume
-///     endpoint's stale-file 409 or write-failure 500 with a real pinned text.
+///     endpoint's stale-file 409 or write-failure 500 with a real pinned text. Phase 2.5 task B14 retired the
+///     publish-turn expectations (ruling R4): v6 publishes through the <c>open-pull-request</c> host action, and task
+///     B16 walks that action end to end.
 /// </summary>
 /// <remarks>
 ///     Each test gets its own <see cref="ScratchWorkflowHost"/>, the same as <c>StartRunEndpointTests</c>. The outbox
@@ -74,7 +78,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
             (await File.ReadAllTextAsync(host.AgentMd(runId))).Should().Be(StandingInstructions + LearnedLine + "\n");
 
             await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Succeeded, "succeeded");
-            host.Runtime.Nodes.Should().Contain("publish", "the run must have walked through publish to reach done");
+            host.Runtime.Nodes.Should().NotContain("publish", "v6 publishes through the open-pull-request host action, not an agent turn");
         });
     }
 
@@ -127,12 +131,14 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Task B4 relaxed the squad-off test from <c>Succeeded</c> to <c>Awaiting</c>. This restores the full
-    ///     walk: with the squad off, every node runs as the fallback agent and the run still reaches
-    ///     <c>Succeeded</c> once a human resumes the gate without applying anything.
+    ///     With the squad off, every task node runs as the fallback agent. The scripted implement edits nothing and
+    ///     the resume applies nothing, so the worktree has no diff and v6's <c>open-pull-request</c> action takes
+    ///     <c>failed</c> to <c>adjudicate</c>. Task B16 walks v6 through the action to <c>Succeeded</c> end to end.
+    ///     Red for the failure assertions: omit the empty-diff check in <c>OpenPullRequestAction</c>, and the run
+    ///     reaches <c>Succeeded</c>.
     /// </summary>
     [Fact]
-    public async Task With_the_squad_off_the_run_still_walks_to_success_as_the_fallback_agent()
+    public async Task With_the_squad_off_every_task_node_runs_as_the_fallback_agent()
     {
         await WithHostAsync(squadEnabled: false, standingInstructions: null, async (host) =>
         {
@@ -143,11 +149,13 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
                 $"/api/workflow-runs/{runId}/resume", new { signal = Signal, payload = (string?)null });
             resume.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-            await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Succeeded, "succeeded");
+            var run = await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Failed, "failed at adjudicate");
+            run.CurrentNode.Should().Be("adjudicate", $"an empty diff is the failed outcome, not a failed action, but the run stopped with: {run.LastError}");
+            run.Variables["publish_error"].Should().Be("nothing to publish");
 
             var catalog = host.Factory.Services.GetRequiredService<IAgentCatalog>();
             var fallback = catalog.Agents.Single(a => string.Equals(a.Name, "Daedalus Architect", StringComparison.Ordinal)).Id;
-            host.Runtime.AgentsByNode.Keys.Should().BeEquivalentTo(["implement", "review", "retrospect", "publish"]);
+            host.Runtime.AgentsByNode.Keys.Should().BeEquivalentTo(["implement", "review", "retrospect"]);
             host.Runtime.AgentsByNode.Values.Should().OnlyContain(id => id == fallback,
                 "with the squad off, implement, review and retrospect all run as the fallback agent");
         });
@@ -226,6 +234,14 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
             {
                 services.RemoveAll<WorkflowOutboxDispatchOptions>();
                 services.AddSingleton(new WorkflowOutboxDispatchOptions { PollingInterval = TimeSpan.FromMilliseconds(250) });
+
+                // v6's publish is the open-pull-request host action. The push goes to the LocalGitRemote, which needs
+                // no credentials; the pull request goes to this fake, registered as both interfaces (ruling R28a).
+                var fake = new FakePullRequestPublisher();
+                services.RemoveAll<IPullRequestPublisher>();
+                services.RemoveAll<IOpenPullRequestLookup>();
+                services.AddSingleton<IPullRequestPublisher>(fake);
+                services.AddSingleton<IOpenPullRequestLookup>(fake);
             });
 
         using var client = host.Client("a-developer", "developer");
@@ -236,8 +252,9 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     /// <summary>
     ///     Stands in for the model. Each workflow turn answers the way its shipped skill instructs, through the
     ///     outcome tool the engine offered: implement reports <c>changed</c> with a <c>learnings</c> entry, each
-    ///     review lens pass reports evidence and <c>approved</c>, retrospect proposes the pinned text plus one
-    ///     learned line, and publish reports <c>published</c>. It records each node's task text and agent.
+    ///     review lens pass reports evidence and <c>approved</c>, and retrospect proposes the pinned text plus one
+    ///     learned line. It edits no file. Publish has no arm: in v6 it is a host action, and no agent turn runs
+    ///     there. It records each node's task text and agent.
     /// </summary>
     private sealed class ScriptedRuntime : IAgentRuntime
     {
@@ -301,7 +318,6 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
                 {
                     [ReviewHandoff.ProposedStandingInstructionsKey] = Pinned(run) + LearnedLine + "\n",
                 })],
-                "publish" => [Outcome(tool, "published", null)],
                 _ => [],
             };
 

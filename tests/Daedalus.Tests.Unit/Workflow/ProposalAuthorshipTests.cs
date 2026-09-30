@@ -165,6 +165,41 @@ public sealed class ProposalAuthorshipTests
     }
 
     /// <summary>
+    ///     Phase 2.5 task B14: <see cref="ReviewHandoff.SummaryKey"/> joins the authorship table, because
+    ///     <c>open-pull-request</c> renders it into the pull request body as the implementer's account. A node that is
+    ///     not implement, such as a review lens, must not be able to write that account for it. Red: removing the
+    ///     <c>summary</c> row from the table lets the forged value through on every row.
+    /// </summary>
+    [Theory]
+    [InlineData("review", "approved")]
+    [InlineData("reflect", "none")]
+    public async Task A_summary_reported_by_a_node_that_is_not_implement_is_stripped(string node, string outcome)
+    {
+        var completed = await CompleteAsync(RunAt(node), outcome, new(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.SummaryKey] = "forged",
+        });
+
+        completed.Variables.Should().NotContainKey(ReviewHandoff.SummaryKey,
+            "only implement may write the summary the pull request body carries");
+    }
+
+    /// <summary>
+    ///     The other half: implement's own summary survives the table. Red: keying the <c>summary</c> row on any skill
+    ///     but <see cref="ReviewHandoff.ImplementSkillName"/> strips it here.
+    /// </summary>
+    [Fact]
+    public async Task An_implement_report_keeps_its_own_summary()
+    {
+        var completed = await CompleteAsync(RunAt("implement"), "changed", new(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.SummaryKey] = "filtered cancelled tasks",
+        });
+
+        completed.Variables.Should().ContainKey(ReviewHandoff.SummaryKey).WhoseValue.Should().Be("filtered cancelled tasks");
+    }
+
+    /// <summary>
     ///     Both rebuilds of the report carry the node's token usage across. Falsifiable per row: dropping the
     ///     <c>Usage</c> copy on the stripped rebuild turns the <c>implement</c> row red, and dropping it on the
     ///     cleared rebuild turns the <c>reflect</c> row red.

@@ -82,7 +82,7 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 var definitions = host.Services.GetRequiredService<IProcessDefinitionStore>();
 
                 var activeVersion = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
-                activeVersion.Should().Be(5, "processes/manufacture.yaml declares version: 5 - phase 2.4 task B4 added a `retrospect` node between `review` and the human gate, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
+                activeVersion.Should().Be(6, "processes/manufacture.yaml declares version: 6 - phase 2.5 task B14 turned `publish` into the `open-pull-request` host action, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
 
                 var definition = await definitions.GetAsync("manufacture", activeVersion!.Value, CancellationToken.None);
                 definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);
@@ -92,8 +92,9 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 // Activation is the load-bearing part of the three assertions below, not the equality. A
                 // definition only reaches this store after ProcessValidator.ValidateAsync has accepted it against
                 // this host's real IWorkflowReferenceResolver, which resolves every `agent:` over the live
-                // IAgentCatalog and every `skill:` over the live ISkillStore. So a v5 that is active at all is a
-                // v5 whose 'implementer' and 'reviewer' both exist here - which is the one thing the unit-level
+                // IAgentCatalog, every `skill:` over the live ISkillStore and every `action:` over the registered
+                // IWorkflowHostActions. So a v6 that is active at all is a v6 whose 'implementer' and 'reviewer' both
+                // exist here, and whose open-pull-request action is registered - which is the one thing the unit-level
                 // guards over the YAML text cannot show, because they read a configuration file rather than a
                 // booted host. Falsifiable: renaming either agent in Thalos:Agents leaves the previous version active and
                 // the assertion above red.

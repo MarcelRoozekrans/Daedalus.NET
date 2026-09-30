@@ -1,6 +1,6 @@
 ---
 name: manufacture-publish
-description: Record what a human just approved for publication, without opening any real pull request.
+description: Record what a human just approved for publication, without opening any real pull request. No longer referenced by the active process; it is kept because v5 runs pin it.
 tags: [workflow, manufacture]
 ---
 
