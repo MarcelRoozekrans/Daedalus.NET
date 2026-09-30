@@ -60,16 +60,21 @@ public sealed class OpenPullRequestActionTests : IDisposable
         _publisher.OpenPullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result<PullRequestResult, AgentError>>(Result<PullRequestResult, AgentError>.Success(new PullRequestResult("https://x/pr/7", "7"))));
         _records.ListAsync(RunId, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
-            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([Evidence("correctness", "approved")]));
     }
+
+    private static WorkflowRunRecord Evidence(string lens, string verdict) =>
+        WorkflowRunRecord.Create(RunId, 7, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", null,
+            $$"""{ "lens": "{{lens}}", "verdict": "{{verdict}}", "checked": ["x"], "findings": [] }""", DateTime.UtcNow).Value;
 
     public void Dispose() => _services.Dispose();
 
     private OpenPullRequestAction Action() =>
         new(_workspaces, _git, _services.GetRequiredService<IServiceScopeFactory>(), _config);
 
-    private static WorkflowRun Run(string? workIntent = "Tighten a guard.") => new()
+    private static WorkflowRun Run(string? workIntent = "Tighten a guard.", IReadOnlyDictionary<string, object?>? variables = null) => new()
     {
+        Variables = variables ?? new Dictionary<string, object?>(StringComparer.Ordinal),
         Id = RunId,
         Process = "manufacture",
         ProcessVersion = 6,
@@ -271,9 +276,6 @@ public sealed class OpenPullRequestActionTests : IDisposable
     [Fact]
     public async Task A_lens_whose_last_record_at_the_approving_visit_is_a_rejection_is_refused_before_it_commits_or_pushes()
     {
-        WorkflowRunRecord Evidence(string lens, string verdict) =>
-            WorkflowRunRecord.Create(RunId, 7, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", null,
-                $$"""{ "lens": "{{lens}}", "verdict": "{{verdict}}", "checked": ["x"], "findings": [] }""", DateTime.UtcNow).Value;
         _records.ListAsync(RunId, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([Evidence("correctness", "approved"), Evidence("failure-modes", "rejected")]));
 
@@ -283,6 +285,68 @@ public sealed class OpenPullRequestActionTests : IDisposable
         result.Error.Should().Contain("lens 'failure-modes'").And.Contain("not an approval");
         await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
         await _git.DidNotReceiveWithAnyArgs().PushAsync(default!, default);
+    }
+
+    /// <summary>
+    ///     Final review M2: under process v6 publish is reached only through an approving review, so a run that records
+    ///     no review evidence at all is refused as the <c>failed</c> outcome, with the reason in <c>publish_error</c>,
+    ///     before anything is committed or pushed. Red: treating an empty evidence list as a success, as before, commits,
+    ///     pushes and opens a pull request, failing the outcome and every received-nothing assertion.
+    /// </summary>
+    [Fact]
+    public async Task A_run_with_no_review_evidence_fails_closed_before_it_commits_or_pushes()
+    {
+        _records.ListAsync(RunId, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : "");
+        result.Value.Outcome.Should().Be("failed");
+        result.Value.Variables.Should().Equal(new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.PublishErrorKey] = OpenPullRequestAction.NoReviewEvidence,
+        });
+        await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
+        await _git.DidNotReceiveWithAnyArgs().PushAsync(default!, default);
+        await _publisher.DidNotReceiveWithAnyArgs().OpenPullRequestAsync(default!, default!, default!, default!, default!, default);
+    }
+
+    /// <summary>
+    ///     Final review I3: Thalos checks this action's variables against the sixteen-key cap only after it has run, so a
+    ///     bag with no room for <c>pr_url</c> would fail the run after the push and the pull request. The action refuses
+    ///     it first. Red: deleting the <c>DescribeFullBag</c> check lets the full-bag run commit, push and open.
+    /// </summary>
+    [Fact]
+    public async Task A_run_whose_bag_has_no_room_for_pr_url_is_refused_before_it_commits_or_pushes()
+    {
+        var full = Enumerable.Range(0, ReviewHandoffWorkflowStore.MaxVariableKeys)
+            .ToDictionary(i => $"k{i}", _ => (object?)"v", StringComparer.Ordinal);
+
+        var result = await Action().RunAsync(Run(variables: full), PublishNode, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("'pr_url'").And.Contain("16").And.Contain("nothing was committed or pushed").And.Contain(_ws.Root);
+        await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
+        await _git.DidNotReceiveWithAnyArgs().PushAsync(default!, default);
+        await _publisher.DidNotReceiveWithAnyArgs().OpenPullRequestAsync(default!, default!, default!, default!, default!, default);
+    }
+
+    /// <summary>
+    ///     The boundary: a bag one short of the cap, already holding <c>publish_error</c> from an earlier failed publish,
+    ///     has room for <c>pr_url</c> and publishes. Red: counting both host keys as new, or refusing at fifteen keys.
+    /// </summary>
+    [Fact]
+    public async Task A_run_with_exactly_one_free_key_publishes()
+    {
+        var bag = Enumerable.Range(0, ReviewHandoffWorkflowStore.MaxVariableKeys - 2)
+            .ToDictionary(i => $"k{i}", _ => (object?)"v", StringComparer.Ordinal);
+        bag[ReviewHandoff.PublishErrorKey] = "nothing to publish";
+
+        var result = await Action().RunAsync(Run(variables: bag), PublishNode, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : "");
+        result.Value.Outcome.Should().Be("published");
     }
 
     [Fact]

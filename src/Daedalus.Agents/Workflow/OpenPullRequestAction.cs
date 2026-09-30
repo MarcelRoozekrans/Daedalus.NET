@@ -36,6 +36,11 @@ namespace Daedalus.Agents.Workflow;
 ///     remote and writes no git config (A7). This action adds no second check, refspec or remote name.
 ///     </para>
 ///     <para>
+///     <b>The <c>failed</c> outcome.</b> Two refusals are an outcome, which branches to <c>adjudicate</c>, rather than a
+///     failure: a diff with nothing in it, and a run that records no review evidence at all. Both are decided before
+///     anything is pushed, the second before anything is committed, and each says why in <c>publish_error</c>.
+///     </para>
+///     <para>
 ///     <b>Failures.</b> An expected failure is a failed <see cref="Result{T}"/>, which the dispatcher records prefixed
 ///     with the node's name. A collaborator answering success with nothing in it is a failure with a message, never a
 ///     null, and a pull request URL that is not an absolute http or https URL is a failure too, so the run's
@@ -52,9 +57,11 @@ internal sealed class OpenPullRequestAction(
     IRunWorkspaceProvider workspaces, IRunWorkspaceGit git, IServiceScopeFactory scopes, WorkflowConfig config) : IWorkflowHostAction
 {
     /// <summary>The name a process node references with <c>action: open-pull-request</c>.</summary>
-    public const string ActionName = "open-pull-request";
+    public const string ActionName = ReviewHandoff.PublishActionName;
 
-    private const string SummaryVariable = ReviewHandoff.SummaryKey;
+    /// <summary>What <see cref="ReviewHandoff.PublishErrorKey"/> says when the run records no review evidence at all.</summary>
+    public const string NoReviewEvidence =
+        "no review evidence is recorded for this run, and a pull request is opened only for a reviewed change";
 
     private readonly string _standingInstructionsPath = DaedalusAgentsServiceCollectionExtensions.StandingInstructionsRelativePath(
         (config ?? throw new ArgumentNullException(nameof(config))).StandingInstructionsPath);
@@ -83,6 +90,12 @@ internal sealed class OpenPullRequestAction(
 
     private async ValueTask<Result<HostActionResult>> PublishAsync(WorkflowRun run, RunWorkspace ws, CancellationToken ct)
     {
+        // Thalos checks this action's variables against the run's key cap only after RunAsync returns, so a bag with no
+        // room for them would fail the run after the push and the pull request. ReviewHandoffWorkflowStore keeps that
+        // room from agent nodes; this refuses a run that has none anyway, before anything is committed.
+        if (DescribeFullBag(run) is { } full)
+            return Failed(full, ws);
+
         if (run.Manifest?.Documents.GetValueOrDefault(ManufactureRunStarter.WorkIntentDocument) is not { } workIntent
             || string.IsNullOrWhiteSpace(workIntent))
             return Failed($"run '{run.Id}' has no pinned work intent to describe the pull request with", ws);
@@ -106,6 +119,11 @@ internal sealed class OpenPullRequestAction(
         var reviewed = await CheckedAsync(run.Id, scope.ServiceProvider, ct).ConfigureAwait(false);
         if (reviewed.IsFailure)
             return Failed(reviewed.Error, ws);
+
+        // Under process v6 publish is reached only through an approving review, which records its evidence. A run that
+        // records none was not reviewed the way the pull request body would claim, so nothing is committed or pushed.
+        if (reviewed.Value.Count == 0)
+            return Outcome("failed", ReviewHandoff.PublishErrorKey, NoReviewEvidence);
 
         var author = new GitAuthor(config.CommitAuthor.Name, config.CommitAuthor.Email);
 
@@ -141,10 +159,7 @@ internal sealed class OpenPullRequestAction(
         if (stat.Value is not { } changes)
             return Failed("diff failed: the diff stat reported no file list", ws);
         if (changes.Count == 0)
-        {
-            return Result<HostActionResult>.Success(new HostActionResult(
-                "failed", new Dictionary<string, object?>(StringComparer.Ordinal) { ["publish_error"] = "nothing to publish" }));
-        }
+            return Outcome("failed", ReviewHandoff.PublishErrorKey, "nothing to publish");
 
         // 2. Push. Only this run's own branch, to this run's own remote; the service takes its credentials from the
         // IGitCredentialSource the workspace provider already uses.
@@ -172,7 +187,7 @@ internal sealed class OpenPullRequestAction(
                 run.Id,
                 run.Process,
                 run.ProcessVersion,
-                run.Variables.GetValueOrDefault(SummaryVariable) as string));
+                run.Variables.GetValueOrDefault(ReviewHandoff.SummaryKey) as string));
 
             var opened = await publisher.OpenPullRequestAsync(
                 ws.Root, ws.Branch, ws.DefaultBranch, PullRequestBody.Title(workIntent), body, ct).ConfigureAwait(false);
@@ -191,9 +206,31 @@ internal sealed class OpenPullRequestAction(
             return Failed($"the pull request host answered with '{url}', which is not an absolute http or https URL", ws);
 
         // No RemoveAsync here (rulings R14 and R19): the sweeper removes the worktree once the run is Succeeded.
-        return Result<HostActionResult>.Success(new HostActionResult(
-            "published", new Dictionary<string, object?>(StringComparer.Ordinal) { ["pr_url"] = url }));
+        return Outcome("published", ReviewHandoff.PrUrlKey, url);
     }
+
+    /// <summary>
+    ///     Why the run's variable bag has no room for a key this action writes, or <see langword="null"/> when it has.
+    ///     The action writes exactly one of <see cref="ReviewHandoff.HostActionKeys"/>, so each is checked on its own.
+    /// </summary>
+    private static string? DescribeFullBag(WorkflowRun run)
+    {
+        foreach (var key in ReviewHandoff.HostActionKeys)
+        {
+            var reached = run.Variables.Count + (run.Variables.ContainsKey(key) ? 0 : 1);
+            if (reached > ReviewHandoffWorkflowStore.MaxVariableKeys)
+            {
+                return $"the run's variable bag holds {run.Variables.Count} keys, so writing '{key}' would take it past the " +
+                    $"limit of {ReviewHandoffWorkflowStore.MaxVariableKeys}; nothing was committed or pushed";
+            }
+        }
+
+        return null;
+    }
+
+    private static Result<HostActionResult> Outcome(string outcome, string key, string value) =>
+        Result<HostActionResult>.Success(new HostActionResult(
+            outcome, new Dictionary<string, object?>(StringComparer.Ordinal) { [key] = value }));
 
     /// <summary>
     ///     What each lens of the approving review visit checked: the review-evidence records at the highest

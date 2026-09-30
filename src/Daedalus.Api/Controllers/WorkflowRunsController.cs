@@ -119,6 +119,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var events = await runs.ListEventsAsync(run.Id, ct);
         var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
 
+        var (prUrl, unreadableLink) = ReadPrUrl(run);
         return new WorkflowRunView(
             run.Id,
             run.Process,
@@ -130,7 +131,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             run.Manifest?.Nodes,
             StandingInstructionsDiff: StandingInstructionsWriter.Diff(run),
             NodeUsage: [.. events.Where(e => e.Usage is not null && e.FromNode is not null).Select(ToUsageView)],
-            PrUrl: ReadPrUrl(run),
+            PrUrl: prUrl,
+            UnreadablePullRequestLink: unreadableLink,
             StartedBy: run.StartedBy?.Id,
             WriteAudit: [.. writes.Select(ToWriteAuditView)]);
     }
@@ -144,14 +146,24 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     }
 
     /// <summary>
-    ///     The run's <c>pr_url</c> variable, or <see langword="null"/> when the run has none yet. The value is trusted:
-    ///     <c>OpenPullRequestAction</c>, its only writer, fails rather than write anything but an absolute http or
-    ///     https URL, so a value that does not parse is a defect and fails the request instead of reading as unpublished.
+    ///     The run's <c>pr_url</c> variable as a link, or, when it is not an absolute http or https URL, as the text it
+    ///     holds; both <see langword="null"/> when the run has none yet. <c>OpenPullRequestAction</c> is its only writer
+    ///     and writes only such a URL, and no agent node can write it, but a value that does not read as one is still
+    ///     reported as data on the view rather than failing the request: the view is what a human at the gate reads.
     /// </summary>
-    private static Uri? ReadPrUrl(WorkflowRun run) =>
-        run.Variables.TryGetValue(PrUrlVariable, out var value) && value?.ToString() is { } text
-            ? new Uri(text, UriKind.Absolute)
-            : null;
+    private static (Uri? Link, string? Unreadable) ReadPrUrl(WorkflowRun run)
+    {
+        if (!run.Variables.TryGetValue(ReviewHandoff.PrUrlKey, out var value) || value?.ToString() is not { } text)
+        {
+            return (null, null);
+        }
+
+        return Uri.TryCreate(text, UriKind.Absolute, out var link)
+            && (string.Equals(link.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)
+                || string.Equals(link.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal))
+            ? (link, null)
+            : (null, text);
+    }
 
     /// <summary>
     ///     Reads one write-audit record. Its payload is <c>{ tool, path }</c> as <c>AuditingToolAuthorizer</c> wrote
@@ -171,9 +183,6 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
-
-    /// <summary>The run variable the <c>open-pull-request</c> action writes the opened pull request's URL to.</summary>
-    private const string PrUrlVariable = "pr_url";
 
     /// <summary>
     ///     Resumes <paramref name="id"/> if — and only if — it is parked awaiting exactly
@@ -308,6 +317,10 @@ public sealed record StartWorkflowRunResponse(Guid RunId);
 ///     off its variables. A node that ran no agent turn, such as a gate or a host action, has no entry.
 /// </param>
 /// <param name="PrUrl">The run's <c>pr_url</c> variable, which the <c>open-pull-request</c> action writes, or <see langword="null"/> before it has.</param>
+/// <param name="UnreadablePullRequestLink">
+///     The run's <c>pr_url</c> as stored when it is not an absolute http or https URL, and so is not shown as
+///     <paramref name="PrUrl"/>; otherwise <see langword="null"/>.
+/// </param>
 /// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
 /// <param name="WriteAudit">Every workspace write the run was allowed, from its write-audit records, in seq order.</param>
 public sealed record WorkflowRunView(
@@ -322,6 +335,7 @@ public sealed record WorkflowRunView(
     string? StandingInstructionsDiff,
     IReadOnlyList<NodeUsageView> NodeUsage,
     Uri? PrUrl,
+    string? UnreadablePullRequestLink,
     string? StartedBy,
     IReadOnlyList<WriteAuditView> WriteAudit);
 
