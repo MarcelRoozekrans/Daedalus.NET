@@ -31,7 +31,7 @@ var builder = WebApplication.CreateBuilder(args);
 AppContext.SetSwitch("Microsoft.AspNetCore.Mvc.ApiExplorer.IsEnhancedModelMetadataSupported", true);
 
 // Add service defaults (OpenTelemetry, logging)
-builder.Services.AddServiceDefaults();
+builder.Services.AddServiceDefaults(builder.Configuration);
 
 // Add core infrastructure services (system clock, etc.)
 builder.Services.AddCoreInfrastructureServices();

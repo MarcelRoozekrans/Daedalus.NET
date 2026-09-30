@@ -14,7 +14,7 @@ try
         .ConfigureServices((context, services) =>
         {
             // Add service defaults (OpenTelemetry, logging)
-            services.AddServiceDefaults();
+            services.AddServiceDefaults(context.Configuration);
 
             // Add core infrastructure services (system clock, etc.)
             services.AddCoreInfrastructureServices();
