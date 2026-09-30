@@ -64,7 +64,9 @@ public sealed class ReviewLensRunnerTests
                     Skill = "manufacture-review",
                     Outcomes = ["approved", "rejected"],
                     Branch = new Dictionary<string, string>(StringComparer.Ordinal) { ["approved"] = "done", ["rejected"] = "implement" },
-                    Lenses = lenses.Length == 0 ? null : lenses,
+                    // Empty, never null, for a node that declares none: the process loader maps a missing lenses:
+                    // list to an empty one, and ProcessNode.Lenses is non-nullable with an empty default.
+                    Lenses = lenses,
                 },
                 ["done"] = new() { Terminal = "succeeded" },
             },
