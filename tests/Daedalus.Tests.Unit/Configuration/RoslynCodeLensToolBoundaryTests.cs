@@ -169,7 +169,8 @@ public sealed class RoslynCodeLensToolBoundaryTests
         foreach (var (name, envelope) in Envelopes(Load(appSettings)).Where(e => !string.Equals(e.Name, Architect, StringComparison.Ordinal)))
         {
             envelope
-.Where(pattern => restricted.Exists(tool => Glob.IsMatch(pattern, tool)) && (name, pattern) != ImplementerApply).Should().BeEmpty($"{name} in {appSettings} must not be offered a tool that writes or administers the server");
+                .Where(pattern => restricted.Exists(tool => Glob.IsMatch(pattern, tool)) && (name, pattern) != ImplementerApply)
+                .Should().BeEmpty($"{name} in {appSettings} must not be offered a tool that writes or administers the server");
         }
     }
 
