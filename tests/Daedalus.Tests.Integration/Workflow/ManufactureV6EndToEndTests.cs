@@ -89,6 +89,9 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
             var commits = host.Remote.Log($"manufacture/{runId}", count: 2);
             commits[0].Files.Should().Equal("AGENT.md");
             host.Remote.Show($"manufacture/{runId}", "AGENT.md").Should().EndWith(LearnedLine);
+            // The seed commit on main holds src/A.cs too, so a file list naming it proves nothing on its own: the file at
+            // this commit must be implement's edit. Red: skipping the code commit leaves the seed commit second.
+            host.Remote.Show(commits[1].Sha, "src/A.cs").ReplaceLineEndings("\n").Should().Be(EditedA.TrimEnd('\n'));
             commits[1].Files.Should().Contain("src/A.cs").And.NotContain("AGENT.md");
             host.Publisher.LastBody.Should().Contain("Approved at the gate by a-admin", "the resuming principal, recorded by B1 step 2a, names the approver")
                 .And.Contain(runId.ToString()).And.Contain("## Agent-written summary")

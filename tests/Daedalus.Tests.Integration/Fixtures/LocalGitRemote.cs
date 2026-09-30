@@ -78,8 +78,11 @@ internal sealed class LocalGitRemote : IDisposable
         ];
     }
 
-    /// <summary>The content of <paramref name="path"/> at the tip of <paramref name="branch"/>: <c>git show branch:path</c>.</summary>
-    public string Show(string branch, string path) => RunGit(_path, "show", $"{branch}:{path}");
+    /// <summary>
+    ///     The content of <paramref name="path"/> at <paramref name="revision"/>, a branch, whose tip is read, or a commit
+    ///     sha: <c>git show revision:path</c>, trimmed.
+    /// </summary>
+    public string Show(string revision, string path) => RunGit(_path, "show", $"{revision}:{path}");
 
     /// <summary>Deletes the bare repository's directory, so a push to it fails.</summary>
     public void Delete() => DeleteReadOnly(_path);

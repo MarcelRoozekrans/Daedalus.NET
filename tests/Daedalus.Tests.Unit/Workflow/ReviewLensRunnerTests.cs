@@ -487,7 +487,9 @@ public sealed class ReviewLensRunnerTests
     ///     Task B15: the one turn the dispatcher sees carries the usage of every lens pass, so the review node's
     ///     completion event is what the review cost. Red per assertion: returning the last pass's turn unchanged
     ///     reports 300 input tokens and 30 output tokens, and summing into a fresh usage that drops the cache counts
-    ///     fails the cache assertion.
+    ///     fails the cache assertion. Summing into a fresh usage that keeps every count but not the model, as
+    ///     <c>new TurnUsage(input, output, null)</c> with the cache counts copied, fails the model assertion: the run
+    ///     view would then show the review node's usage under no model.
     /// </summary>
     [Fact]
     public async Task An_approval_reports_the_usage_of_all_three_passes()
@@ -501,6 +503,7 @@ public sealed class ReviewLensRunnerTests
         result.Value.Usage.InputTokens.Should().Be(600);
         result.Value.Usage.OutputTokens.Should().Be(60);
         result.Value.Usage.CacheReadTokens.Should().Be(60);
+        result.Value.Usage.ModelId.Should().Be("lens-model");
     }
 
     /// <summary>
