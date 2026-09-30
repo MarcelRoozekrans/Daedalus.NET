@@ -74,6 +74,9 @@
         <!-- Ruling R24: every ScratchWorkflowHost points Thalos:McpConfigPath here, so no test host declares a
              run-scoped MCP server and none starts a real Roslyn server. Copied flat, next to the test assembly. -->
         <None Update="Fixtures/no-run-scoped.mcp.json" Link="no-run-scoped.mcp.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- The unit suite's snapshot of the pinned RoslynCodeLens server's tools/list, which RunScopedRoslynRoutingTests
+             holds against the live server. One file, so the two suites can never check different snapshots. -->
+        <None Include="..\Daedalus.Tests.Unit\Configuration\RoslynCodeLens.Mcp.tools.json" Link="RoslynCodeLens.Mcp.tools.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
 </Project>

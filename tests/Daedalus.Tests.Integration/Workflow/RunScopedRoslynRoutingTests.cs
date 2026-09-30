@@ -168,6 +168,25 @@ public sealed class RunScopedRoslynRoutingTests : IAsyncLifetime
         answer.Should().NotContain(_runA.ToString());
     }
 
+    /// <summary>
+    ///     Fix round 2: the checked-in snapshot <c>RoslynCodeLensToolBoundaryTests</c> classifies is the pinned server's real
+    ///     tool list, so a pin bump or an edited snapshot cannot leave a new tool unclassified. The host server here is the
+    ///     shipped entry's pinned package. Red: remove a name from the snapshot, which then lacks a tool the server lists.
+    /// </summary>
+    [Fact]
+    public async Task The_live_pinned_servers_tool_list_is_the_checked_in_snapshot()
+    {
+        using var snapshot = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "RoslynCodeLens.Mcp.tools.json")));
+        var expected = snapshot.RootElement.GetProperty("tools").EnumerateArray().Select(t => t.GetString()!).ToList();
+        var source = _services.GetServices<IToolSource>().Single(s => string.Equals(s.Name, "roslyn", StringComparison.Ordinal));
+
+        var live = await source.GetToolsAsync(CancellationToken.None);
+
+        live.IsSuccess.Should().BeTrue(live.IsFailure ? live.Error.ToString() : null);
+        live.Value.Select(t => t.Name.StartsWith("roslyn__", StringComparison.Ordinal) ? t.Name["roslyn__".Length..] : t.Name)
+            .Should().BeEquivalentTo(expected, "the snapshot must be what the pinned server really serves");
+    }
+
     /// <summary>Runs one turn whose model calls <c>roslyn__list_solutions</c>, and returns what the tool answered.</summary>
     private async Task<string> ListSolutionsAsync(ISecurityContext caller)
     {
