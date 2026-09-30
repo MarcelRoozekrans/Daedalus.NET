@@ -38,8 +38,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <para>
 ///     <b>Failures.</b> An expected failure is a failed <see cref="Result{T}"/>, which the dispatcher records prefixed
 ///     with the node's name. A collaborator answering success with nothing in it is a failure with a message, never a
-///     null. An <see cref="OperationCanceledException"/> propagates only when the dispatch's own token was cancelled;
-///     one nobody asked for, such as an HTTP client's timeout, is a failed result, because the outbox would otherwise
+///     null, and a pull request URL that is not an absolute http or https URL is a failure too, so the run's
+///     <c>pr_url</c> is always a link. An <see cref="OperationCanceledException"/> propagates only when the dispatch's
+///     own token was cancelled; one nobody asked for, such as an HTTP client's timeout, is a failed result, because the outbox would otherwise
 ///     retry it until the message is dead-lettered (see <see cref="IWorkflowHostAction"/>).
 ///     </para>
 ///     <para>
@@ -184,6 +185,11 @@ internal sealed class OpenPullRequestAction(
         if (pr is not { Url: { Length: > 0 } url })
             return Failed("the pull request host answered with no pull request URL", ws);
 
+        // The URL is stored as the run's pr_url, and the run view shows it as a link, so it must be one. A host that
+        // answers with anything else has published somewhere this run cannot point a human to.
+        if (!IsWebUrl(url))
+            return Failed($"the pull request host answered with '{url}', which is not an absolute http or https URL", ws);
+
         // No RemoveAsync here (rulings R14 and R19): the sweeper removes the worktree once the run is Succeeded.
         return Result<HostActionResult>.Success(new HostActionResult(
             "published", new Dictionary<string, object?>(StringComparer.Ordinal) { ["pr_url"] = url }));
@@ -259,6 +265,11 @@ internal sealed class OpenPullRequestAction(
 
     private static string Describe(AgentError error) =>
         string.IsNullOrWhiteSpace(error.Detail) ? error.Message : $"{error.Message} {error.Detail}";
+
+    private static bool IsWebUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+        && (string.Equals(parsed.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)
+            || string.Equals(parsed.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal));
 
     private static Result<HostActionResult> Failed(string what, RunWorkspace ws) =>
         Result<HostActionResult>.Failure($"{what}; the worktree is kept at {ws.Root}");

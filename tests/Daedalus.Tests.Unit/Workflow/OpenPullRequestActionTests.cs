@@ -160,6 +160,56 @@ public sealed class OpenPullRequestActionTests : IDisposable
         result.Error.Should().Contain("no pull request").And.Contain(_ws.Root);
     }
 
+    /// <summary>
+    ///     Task B15 fix round 1: the run's <c>pr_url</c> is always a link, so the run view can show it as one. A
+    ///     publisher answering with a relative path, another scheme or text fails the action loudly. Red: dropping the
+    ///     <c>IsWebUrl</c> check publishes each of these as the run's <c>pr_url</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("pull/7")]
+    [InlineData("ftp://x/pr/7")]
+    [InlineData("file:///C:/data/pr/7")]
+    [InlineData("not a url")]
+    public async Task A_publisher_answering_with_a_url_that_is_not_absolute_http_is_a_loud_failure(string answered)
+    {
+        _publisher.OpenPullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<PullRequestResult, AgentError>>(Result<PullRequestResult, AgentError>.Success(new PullRequestResult(answered, "7"))));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain($"'{answered}'").And.Contain("not an absolute http or https URL").And.Contain(_ws.Root);
+    }
+
+    /// <summary>The reused pull request's URL is checked the same way. Red: checking only a newly opened one.</summary>
+    [Fact]
+    public async Task A_reused_pull_request_whose_url_is_not_absolute_http_is_a_loud_failure()
+    {
+        _lookup.FindOpenPullRequestAsync(Remote, _ws.Branch, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<PullRequestResult?, AgentError>>(Result<PullRequestResult?, AgentError>.Success(new PullRequestResult("pull/3", "3"))));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("'pull/3'").And.Contain("not an absolute http or https URL");
+    }
+
+    /// <summary>
+    ///     A plain http URL, such as a self-hosted forge on a private network, is accepted as it is. Red: accepting
+    ///     https only.
+    /// </summary>
+    [Fact]
+    public async Task A_publisher_answering_with_an_http_url_publishes_it()
+    {
+        _publisher.OpenPullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<PullRequestResult, AgentError>>(Result<PullRequestResult, AgentError>.Success(new PullRequestResult("http://forge.internal/pr/7", "7"))));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : "");
+        result.Value.Variables["pr_url"].Should().Be("http://forge.internal/pr/7");
+    }
+
     [Fact]
     public async Task A_diff_stat_answering_success_with_no_list_is_a_clean_failure_that_pushes_nothing()
     {

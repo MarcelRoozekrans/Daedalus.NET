@@ -144,14 +144,13 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     }
 
     /// <summary>
-    ///     The run's <c>pr_url</c> variable as an absolute URI, or <see langword="null"/> when the run has none yet.
-    ///     A value that is not an absolute URI is not a pull request's address, so it is not shown as one.
+    ///     The run's <c>pr_url</c> variable, or <see langword="null"/> when the run has none yet. The value is trusted:
+    ///     <c>OpenPullRequestAction</c>, its only writer, fails rather than write anything but an absolute http or
+    ///     https URL, so a value that does not parse is a defect and fails the request instead of reading as unpublished.
     /// </summary>
     private static Uri? ReadPrUrl(WorkflowRun run) =>
-        run.Variables.TryGetValue(PrUrlVariable, out var value)
-        && value?.ToString() is { Length: > 0 } text
-        && Uri.TryCreate(text, UriKind.Absolute, out var url)
-            ? url
+        run.Variables.TryGetValue(PrUrlVariable, out var value) && value?.ToString() is { } text
+            ? new Uri(text, UriKind.Absolute)
             : null;
 
     /// <summary>
