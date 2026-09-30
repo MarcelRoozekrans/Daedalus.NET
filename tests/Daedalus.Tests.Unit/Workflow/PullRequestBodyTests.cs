@@ -153,6 +153,64 @@ public sealed class PullRequestBodyTests
     }
 
     /// <summary>
+    ///     A flood the review agents control: forty lenses of twenty 300-character items, far past the size limit.
+    ///     Fix round 2: the old whole-body cut dropped everything after the review, so the approval and the labelled
+    ///     summary went missing. The bounded sections are now always whole and the review gives up whole lines. Red:
+    ///     rendering every line and cutting the body as text at the limit, as before, loses the approval and the summary.
+    /// </summary>
+    [Fact]
+    public void A_flood_of_checked_items_never_pushes_out_the_approval_or_the_summary()
+    {
+        var body = PullRequestBody.Render(Flood());
+
+        body.Length.Should().BeLessThanOrEqualTo(PullRequestBody.MaxBodyLength);
+        body.Should().Contain("\n## Approval\n\nApproved at the gate by admin at 2026-09-28 10:30:00 UTC.\n");
+        body.Should().EndWith("> Written by the implement agent; not verified by host code.\n\n```text\nAdded a null check.\n```\n");
+        body.Should().MatchRegex(@"\n- and \d+ more lines of review evidence not shown, to fit the size limit\n");
+    }
+
+    /// <summary>
+    ///     Fix round 2: the body is never cut inside an item, where an open code span would let the rest of an agent's
+    ///     text render. Every item line in the flood is a whole span, opened and closed by the same fence. Red: cutting the
+    ///     body as text at the limit, as before, leaves the last rendered item open.
+    /// </summary>
+    [Fact]
+    public void The_body_is_never_cut_inside_a_checked_item()
+    {
+        var body = PullRequestBody.Render(Flood());
+
+        var items = body.Split('\n').Where(line => line.StartsWith("  - `", StringComparison.Ordinal)).ToList();
+        items.Should().NotBeEmpty();
+        items.Should().OnlyContain(line => line.EndsWith('`') && line.Length > 6,
+            "an item is appended whole or not at all");
+    }
+
+    /// <summary>
+    ///     Fix round 2: each lens lists at most <see cref="PullRequestBody.MaxCheckedItemsPerLens"/> items and says how many
+    ///     more it has. Red: listing every item leaves no such line and 25 spans.
+    /// </summary>
+    [Fact]
+    public void A_lens_lists_at_most_the_cap_of_checked_items_and_says_how_many_more()
+    {
+        var items = Enumerable.Range(0, PullRequestBody.MaxCheckedItemsPerLens + 5).Select(i => $"item-{i}").ToArray();
+
+        var body = PullRequestBody.Render(Facts() with { Checked = [("correctness", items)] });
+
+        body.Split('\n').Count(line => line.StartsWith("  - `item-", StringComparison.Ordinal))
+            .Should().Be(PullRequestBody.MaxCheckedItemsPerLens);
+        body.Should().Contain("\n  - and 5 more checked items not shown\n");
+    }
+
+    /// <summary>Forty lenses, each with the most items and the longest items the body lists.</summary>
+    private static PullRequestFacts Flood()
+    {
+        var items = Enumerable.Range(0, PullRequestBody.MaxCheckedItemsPerLens)
+            .Select(i => $"@octocat [x](https://evil.example/{i}) " + new string('y', PullRequestBody.MaxListEntryLength))
+            .ToArray();
+        return Facts() with { Checked = [.. Enumerable.Range(0, 40).Select(i => ($"lens-{i}", (IReadOnlyList<string>)items))] };
+    }
+
+    /// <summary>
     ///     Final review M2: a pull request is opened only for a reviewed run, and <c>OpenPullRequestAction</c> refuses one
     ///     with no review evidence before it commits, so a body without evidence is a caller's defect, not a body to
     ///     render under a label that claims a verification. Red: removing the guard renders the label over no lens.

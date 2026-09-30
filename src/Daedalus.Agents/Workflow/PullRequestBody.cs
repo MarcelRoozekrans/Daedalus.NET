@@ -24,9 +24,14 @@ namespace Daedalus.Agents.Workflow;
 ///     is never fetched, and nobody is mentioned.
 ///     </para>
 ///     <para>
-///     <b>Bounded.</b> The title's line is cut to <see cref="MaxTitleLineLength"/>. The summary, the intent, each list
-///     entry and the number of files listed are capped, and the whole body never exceeds <see cref="MaxBodyLength"/>,
-///     under GitHub's 65,536-character limit on a pull-request body, so an oversized report cannot fail the open.
+///     <b>Bounded, by whole lines.</b> The title's line is cut to <see cref="MaxTitleLineLength"/>. The summary, the
+///     intent, each list entry, the number of files listed and the number of checked items per lens are capped. The
+///     body never exceeds <see cref="MaxBodyLength"/>, under GitHub's 65,536-character limit on a pull-request body, so
+///     an oversized report cannot fail the open. It is never cut as text: a cut could land inside a code span and let
+///     the rest of an agent's item render. The sections whose size host code bounds, the work intent, the approval,
+///     the run and the labelled summary, are always rendered whole. The two lists, the changed files and the review's
+///     checked items, get the room that is left, and lose whole trailing lines to a host-written line that says how many
+///     are not shown.
 ///     </para>
 /// </remarks>
 internal static class PullRequestBody
@@ -46,6 +51,9 @@ internal static class PullRequestBody
     /// <summary>How many changed files the body lists before it says how many more there are.</summary>
     public const int MaxChangedFilesListed = 100;
 
+    /// <summary>How many checked items the body lists per lens before it says how many more there are.</summary>
+    public const int MaxCheckedItemsPerLens = 20;
+
     /// <summary>The longest body this renders, cut marker included.</summary>
     public const int MaxBodyLength = 60_000;
 
@@ -56,7 +64,9 @@ internal static class PullRequestBody
     public const string AgentTextLabel = "> Written by the implement agent; not verified by host code.";
 
     private const string Ellipsis = "…";
-    private const string CutNotice = "\n\n_This description was cut to fit the pull request's size limit._\n";
+
+    /// <summary>The longest line <see cref="AppendBudgeted"/> writes in place of the lines it leaves out.</summary>
+    private const int MaxOmissionLineLength = 80;
 
     /// <summary>The pull-request title: <c>manufacture: </c> and the intent's first line, cut to <see cref="MaxTitleLineLength"/>.</summary>
     public static string Title(string workIntent) => "manufacture: " + TitleLine(workIntent);
@@ -76,50 +86,88 @@ internal static class PullRequestBody
         if (facts.Checked.Count == 0)
             throw new ArgumentException("A pull request body is rendered only for a run with review evidence.", nameof(facts));
 
-        var body = new StringBuilder();
-        body.Append("## Work intent\n\n");
-        AppendQuoted(body, Cut(facts.WorkIntent, MaxWorkIntentLength));
+        var intent = new StringBuilder("## Work intent\n\n");
+        AppendQuoted(intent, Cut(facts.WorkIntent, MaxWorkIntentLength));
+        intent.Append("\n## Changed files\n\n");
 
-        body.Append("\n## Changed files\n\n");
-        foreach (var change in facts.Changes.Take(MaxChangedFilesListed))
-        {
-            var path = Cut(OneLine(change.Path), MaxListEntryLength).Replace('`', '\'');
-            body.Append(CultureInfo.InvariantCulture, $"- `{path}`  +{change.LinesAdded} -{change.LinesDeleted}\n");
-        }
-
+        List<string> files =
+        [
+            .. facts.Changes.Take(MaxChangedFilesListed).Select(change => string.Create(
+                CultureInfo.InvariantCulture,
+                $"- `{Cut(OneLine(change.Path), MaxListEntryLength).Replace('`', '\'')}`  +{change.LinesAdded} -{change.LinesDeleted}\n")),
+        ];
         if (facts.Changes.Count > MaxChangedFilesListed)
-            body.Append(CultureInfo.InvariantCulture, $"- and {facts.Changes.Count - MaxChangedFilesListed} more files\n");
+            files.Add(string.Create(CultureInfo.InvariantCulture, $"- and {facts.Changes.Count - MaxChangedFilesListed} more files\n"));
 
-        body.Append("\n## Review\n\n");
         // The label claims a verification, which the action checked for every lens listed below it.
-        body.Append(ReviewLabel).Append("\n\n");
-
+        var reviewHeading = "\n## Review\n\n" + ReviewLabel + "\n\n";
+        var review = new List<string>();
         foreach (var (lens, items) in facts.Checked)
         {
-            body.Append("- ").Append(Entry(lens)).Append('\n');
-            foreach (var item in items)
-                body.Append("  - ").Append(CodeSpan(Entry(item))).Append('\n');
+            review.Add("- " + Entry(lens) + "\n");
+            review.AddRange(items.Take(MaxCheckedItemsPerLens).Select(item => "  - " + CodeSpan(Entry(item)) + "\n"));
+            if (items.Count > MaxCheckedItemsPerLens)
+                review.Add(string.Create(CultureInfo.InvariantCulture, $"  - and {items.Count - MaxCheckedItemsPerLens} more checked items not shown\n"));
         }
 
-        body.Append("\n## Approval\n\n");
-        body.Append(facts is { ApprovedBy: { } by, ApprovedAt: { } at }
+        var tail = new StringBuilder("\n## Approval\n\n");
+        tail.Append(facts is { ApprovedBy: { } by, ApprovedAt: { } at }
             ? string.Create(CultureInfo.InvariantCulture, $"Approved at the gate by {Entry(by)} at {at.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC.\n")
             : "No gate approval is recorded for this run.\n");
 
-        body.Append("\n## Run\n\n");
-        body.Append(CultureInfo.InvariantCulture, $"- Run id: `{facts.RunId}`\n");
-        body.Append(CultureInfo.InvariantCulture, $"- Process: {Entry(facts.Process)} v{facts.ProcessVersion}\n");
+        tail.Append("\n## Run\n\n");
+        tail.Append(CultureInfo.InvariantCulture, $"- Run id: `{facts.RunId}`\n");
+        tail.Append(CultureInfo.InvariantCulture, $"- Process: {Entry(facts.Process)} v{facts.ProcessVersion}\n");
 
-        body.Append("\n## Agent-written summary\n\n");
-        body.Append(AgentTextLabel).Append("\n\n");
+        tail.Append("\n## Agent-written summary\n\n");
+        tail.Append(AgentTextLabel).Append("\n\n");
         if (string.IsNullOrWhiteSpace(facts.AgentSummary))
-            body.Append("No summary was reported.\n");
+            tail.Append("No summary was reported.\n");
         else
-            AppendFenced(body, Cut(facts.AgentSummary, MaxSummaryLength));
+            AppendFenced(tail, Cut(facts.AgentSummary, MaxSummaryLength));
 
-        return body.Length <= MaxBodyLength
-            ? body.ToString()
-            : Cut(body.ToString(), MaxBodyLength - CutNotice.Length - Ellipsis.Length) + CutNotice;
+        // Everything but the two lists is bounded by the caps above, far inside MaxBodyLength, so it is always whole.
+        // The lists share what is left, the changed files first, each giving up whole trailing lines.
+        var budget = MaxBodyLength - intent.Length - reviewHeading.Length - tail.Length;
+        var body = new StringBuilder(MaxBodyLength);
+        body.Append(intent);
+        budget -= AppendBudgeted(body, files, budget / 2, "files");
+        body.Append(reviewHeading);
+        AppendBudgeted(body, review, budget, "lines of review evidence");
+        body.Append(tail);
+        return body.ToString();
+    }
+
+    /// <summary>
+    ///     Appends as many of <paramref name="lines"/>, from the first, as fit in <paramref name="budget"/> characters.
+    ///     When some do not fit, it keeps room for one host-written line that says how many were left out, and writes
+    ///     it. A line is appended whole or not at all.
+    /// </summary>
+    /// <returns>The number of characters appended.</returns>
+    private static int AppendBudgeted(StringBuilder body, List<string> lines, int budget, string what)
+    {
+        var total = lines.Sum(line => line.Length);
+        if (total <= budget)
+        {
+            foreach (var line in lines)
+                body.Append(line);
+            return total;
+        }
+
+        var room = budget - MaxOmissionLineLength;
+        var used = 0;
+        var shown = 0;
+        while (shown < lines.Count && used + lines[shown].Length <= room)
+        {
+            body.Append(lines[shown]);
+            used += lines[shown].Length;
+            shown++;
+        }
+
+        var omission = string.Create(
+            CultureInfo.InvariantCulture, $"- and {lines.Count - shown} more {what} not shown, to fit the size limit\n");
+        body.Append(omission);
+        return used + omission.Length;
     }
 
     /// <summary>
