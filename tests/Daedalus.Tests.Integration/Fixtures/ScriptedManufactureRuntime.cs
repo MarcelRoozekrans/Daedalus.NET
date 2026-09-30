@@ -57,7 +57,7 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
         if (request.Caller is not WorkflowCaller caller || request.RequiredOutcome is null)
         {
             return ValueTask.FromResult(Result<AgentTurnResult, AgentError>.Failure(
-                AgentError.Validation("ScriptedRuntime only answers workflow turns that require an outcome.")));
+                AgentError.Validation("ScriptedManufactureRuntime only answers workflow turns that require an outcome.")));
         }
 
         var run = caller.Run;
@@ -86,8 +86,10 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
             _ => [],
         };
 
+        // Only implement reports usage; every other turn reports none, as the seam suite scripted them before.
+        var usage = string.Equals(node, "implement", StringComparison.Ordinal) ? implementUsage : default;
         return ValueTask.FromResult(Result<AgentTurnResult, AgentError>.Success(
-            new AgentTurnResult(TurnId.New(), request.SessionId, $"{node} done", string.Equals(node, "implement", StringComparison.Ordinal) ? implementUsage : default, calls, TimeSpan.FromMilliseconds(5))));
+            new AgentTurnResult(TurnId.New(), request.SessionId, $"{node} done", usage, calls, TimeSpan.FromMilliseconds(5))));
     }
 
     private static string Pinned(WorkflowRun run) =>

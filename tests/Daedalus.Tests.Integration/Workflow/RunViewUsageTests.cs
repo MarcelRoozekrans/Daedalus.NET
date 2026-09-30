@@ -30,6 +30,9 @@ public sealed class RunViewUsageTests(PostgresFixture fixture)
 
     private const string Starter = "a-developer";
 
+    /// <summary>The starter id the seeded write records carry: not the run's, so the view must read it off the record.</summary>
+    private const string RecordStarter = "record-starter";
+
     private static readonly TimeSpan WalkTimeout = TimeSpan.FromSeconds(90);
 
     /// <summary>What the scripted provider reports for the implement turn: distinct, non-zero counts in every field.</summary>
@@ -115,8 +118,9 @@ public sealed class RunViewUsageTests(PostgresFixture fixture)
     ///     The write audit is the run's workspace-write records, as seq, node, tool, path and starter, in seq order.
     ///     The records are appended through the host's own record store, out of seq order and with a review-evidence
     ///     record between them, because the scripted model calls no tools. Red per assertion: listing records of every
-    ///     kind adds the review evidence; ordering by append order instead of seq swaps the two writes; and mapping the
-    ///     principal instead of the starter, or dropping the path, fails the field values.
+    ///     kind adds the review evidence; ordering by append order instead of seq swaps the two writes; mapping the
+    ///     principal, or the run's own starter, instead of the record's starter fails the starter; and dropping the path
+    ///     fails the path. The records carry a starter id that is not the run's, so the run's starter cannot stand in.
     /// </summary>
     [Fact]
     public async Task The_write_audit_lists_the_runs_write_records_in_seq_order()
@@ -135,8 +139,8 @@ public sealed class RunViewUsageTests(PostgresFixture fixture)
             var view = await host.Client.GetFromJsonAsync<WorkflowRunView>($"/api/workflow-runs/{runId}");
 
             view!.WriteAudit.Should().Equal(
-                new WriteAuditView(2, "implement", "workspace__delete_file", null, Starter),
-                new WriteAuditView(5, "implement", "workspace__write_file", "src/B.cs", Starter));
+                new WriteAuditView(2, "implement", "workspace__delete_file", null, RecordStarter),
+                new WriteAuditView(5, "implement", "workspace__write_file", "src/B.cs", RecordStarter));
         });
     }
 
@@ -144,7 +148,7 @@ public sealed class RunViewUsageTests(PostgresFixture fixture)
         IWorkflowRunRecordStore records, Guid runId, long seq, string node, string kind, string principal, object payload)
     {
         var record = WorkflowRunRecord.Create(
-            runId, seq, node, kind, principal, Starter, JsonSerializer.Serialize(payload), DateTime.UtcNow);
+            runId, seq, node, kind, principal, RecordStarter, JsonSerializer.Serialize(payload), DateTime.UtcNow);
         record.IsSuccess.Should().BeTrue(record.IsFailure ? record.Error : null);
         await records.AppendAsync(record.Value, CancellationToken.None);
     }
