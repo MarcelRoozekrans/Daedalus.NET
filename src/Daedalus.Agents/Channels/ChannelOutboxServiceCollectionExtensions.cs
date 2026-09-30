@@ -78,10 +78,10 @@ public static class ChannelOutboxServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddChannelOutbox(this IServiceCollection services)
     {
-        // The serializer is left to AddOutbox's default, SystemTextJsonOutboxSerializer, because no
-        // ISerializerDispatcher is registered. The rows already in the table were written in that format. A move
-        // to ZeroAlloc.Outbox 4.x must call .WithSystemTextJsonSerializer() on this builder, which keeps the stored
-        // byte format, so those rows still deserialize.
+        // ZeroAlloc.Outbox 4.x has no default serializer, and without one the worker fails the host start. The
+        // reflection-based System.Text.Json serializer is chosen explicitly at the end of this chain. No
+        // ISerializerDispatcher is registered, and the rows already in the table were written by the 3.x fallback,
+        // which is the same serializer and writes the same bytes, so those rows still deserialize.
         services.AddOutbox(o =>
             {
                 o.PollingInterval = TimeSpan.FromSeconds(2);
@@ -99,7 +99,8 @@ public static class ChannelOutboxServiceCollectionExtensions
             .AddScheduledRunDueOutbox()
             .AddRunScoutStepOutbox()
             .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox();
+            .AddDeliverDigestOutbox()
+            .WithSystemTextJsonSerializer();
 
         return services;
     }

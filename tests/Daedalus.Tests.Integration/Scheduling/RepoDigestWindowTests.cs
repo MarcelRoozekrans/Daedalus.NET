@@ -1,8 +1,8 @@
 using Daedalus.Agents.Channels;
-using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -200,7 +200,8 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
             .AddRunScoutStepOutbox()
             .AddRunWriterStepOutbox()
             .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            .WithSystemTextJsonSerializer();
         services.AddScoped<ScheduledRunExecutionStore>();
 
         var provider = services.BuildServiceProvider();

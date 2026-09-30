@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Data.Common;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
@@ -7,8 +9,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
-using System.Collections.Concurrent;
-using System.Data.Common;
 using ZeroAlloc.Outbox;
 using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
@@ -526,7 +526,8 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             .AddRunScoutStepOutbox()
             .AddRunWriterStepOutbox()
             .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            .WithSystemTextJsonSerializer();
         services.AddScoped<ScheduledRunExecutionStore>();
 
         if (wrapChannelWriter is not null)

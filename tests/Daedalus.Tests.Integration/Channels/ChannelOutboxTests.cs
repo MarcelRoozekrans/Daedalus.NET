@@ -127,7 +127,8 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
                 o.RetryBaseDelay = _retryBaseDelay;
             })
             .WithEfCore<ApplicationDbContext>()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            .WithSystemTextJsonSerializer();
 
         // Registered after the chain above: DefaultOutboxDispatcher<ChannelMessageQueued> was only TryAdd-ed, so
         // this unconditional Add wins resolution (DI resolves the last registration for a single-instance ask).
