@@ -72,11 +72,13 @@ public sealed class RunScopedRoslynRoutingTests : IAsyncLifetime
 
         var shipped = McpConfigFile.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, ".mcp.json")))["roslyn"];
         shipped.RunScoped.Should().NotBeNull("the shipped roslyn entry must be run-scoped");
+        shipped.Args.Should().NotBeNull("the shipped roslyn entry names the package it runs");
         var roslyn = new McpServerDefinition
         {
             Type = shipped.Type,
             Command = shipped.Command,
-            Args = ["RoslynCodeLens.Mcp", "--yes", "--", Path.Combine(_hostDirectory, "HostApp.sln")],
+            // The shipped arguments, pinned package version included, with the host solution swapped for this test's own.
+            Args = [.. shipped.Args!.SkipLast(1), Path.Combine(_hostDirectory, "HostApp.sln")],
             Env = shipped.Env,
             Timeout = shipped.Timeout,
             ShutdownTimeout = shipped.ShutdownTimeout,

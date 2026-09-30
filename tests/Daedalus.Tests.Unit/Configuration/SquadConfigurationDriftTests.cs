@@ -200,17 +200,19 @@ public sealed class SquadConfigurationDriftTests
             "a wildcard would silently admit any future write-capable roslyn tool");
         reviewer.Tools.Should().NotContain(t => t.StartsWith("roslyn__apply_", StringComparison.Ordinal));
         reviewer.Tools.Should().NotContain(t => t.StartsWith("roslyn__rename_", StringComparison.Ordinal));
+        // Red: add roslyn__change_signature to the reviewer; it rewrites every call site of a method on disk.
+        reviewer.Tools.Should().NotContain("roslyn__change_signature");
     }
 
     /// <summary>
     ///     The positive half of the enumeration: a reviewer that cannot search symbols or list solutions cannot
-    ///     review code it did not write. Both are read-only tools in the real <c>RoslynCodeLens.Mcp</c> surface,
-    ///     outside the four <c>find_*</c>/<c>get_*</c>/<c>analyze_*</c>/<c>go_to_definition</c> prefixes, so
-    ///     admitting them by name does not weaken the isolation - that rests on <c>apply_code_action</c> being
-    ///     absent, not on the list being short.
+    ///     review code it did not write. Both are read-only tools in the pinned <c>RoslynCodeLens.Mcp</c> surface, named
+    ///     exactly like every other Roslyn tool the reviewer holds; admitting them does not weaken the isolation - that
+    ///     rests on <c>apply_code_action</c>, <c>change_signature</c> and <c>rename_symbol</c> being absent, not on the
+    ///     list being short. <c>RoslynCodeLensToolBoundaryTests</c> holds the whole list against the server's snapshot.
     /// </summary>
     [Fact]
-    public void Reviewer_tool_list_includes_the_two_read_tools_outside_the_four_prefixes()
+    public void Reviewer_tool_list_includes_the_symbol_search_and_solution_list_read_tools()
     {
         var options = new DaedalusAgentsOptions();
         Load(ApiAppSettingsFileName).GetSection(DaedalusAgentsOptions.SectionName).Bind(options);

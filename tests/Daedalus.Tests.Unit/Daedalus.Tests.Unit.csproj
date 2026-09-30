@@ -62,6 +62,10 @@
              project reference; McpConfigOutputTests pins that the two are the same file, so no other host's
              .mcp.json can take its place there. -->
         <None Include="..\..\src\Daedalus.Api\.mcp.json" Link="Daedalus.Api.mcp.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- The Cli's .mcp.json, for RoslynCodeLensToolBoundaryTests' pin check. Never under the plain name: see above. -->
+        <None Include="..\..\src\Daedalus.Cli\.mcp.json" Link="Daedalus.Cli.mcp.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- The pinned RoslynCodeLens server's tools/list, for the same test. -->
+        <None Update="Configuration\RoslynCodeLens.Mcp.tools.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>
