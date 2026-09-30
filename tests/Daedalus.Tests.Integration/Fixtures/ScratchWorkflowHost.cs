@@ -1,4 +1,6 @@
 using System.Data.Async.Adapters;
+using Daedalus.Agents.Workflow;
+using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,6 +39,9 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
     /// <summary>The allow-listed name <see cref="Remote"/> is registered under.</summary>
     public const string Repository = "sandbox";
 
+    /// <summary>How long <see cref="WaitForAsync"/> polls before it fails.</summary>
+    private static readonly TimeSpan WaitTimeout = TimeSpan.FromSeconds(90);
+
     private readonly PostgresFixture _fixture;
     private readonly string _databaseName;
 
@@ -68,11 +73,13 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
     /// <summary>
     ///     Boots a host. <paramref name="seed"/> is the remote's <c>main</c>, on top of <c>README.md</c>; left out, it
     ///     is <c>AGENT.md</c> holding <c>Run dotnet test.</c> and <c>src/A.cs</c> holding <c>class A {}</c>.
-    ///     <paramref name="squadEnabled"/> and <paramref name="configureServices"/> are passed to <see cref="ApiWebApplicationFactory"/> as they are.
+    ///     <paramref name="runtime"/>, <paramref name="squadEnabled"/> and <paramref name="configureServices"/> are passed
+    ///     to <see cref="ApiWebApplicationFactory"/> as they are, so a null <paramref name="runtime"/> keeps the host's
+    ///     own <c>ThalosAgentRuntime</c>.
     /// </summary>
     public static async Task<ScratchWorkflowHost> StartAsync(
         PostgresFixture fixture,
-        IAgentRuntime runtime,
+        IAgentRuntime? runtime,
         IReadOnlyList<(string Path, string Content)>? seed = null,
         IReadOnlyDictionary<string, string?>? settings = null,
         bool? squadEnabled = null,
@@ -131,6 +138,36 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
         client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, string.Join(',', roles));
         return client;
     }
+
+    /// <summary>
+    ///     Polls run <paramref name="runId"/> until <paramref name="until"/> holds, the run fails or is cancelled, or
+    ///     90 seconds pass. The assertion names where the run stopped, so a timeout says which node it stuck on and why.
+    /// </summary>
+    public async Task<WorkflowRun> WaitForAsync(Guid runId, Func<WorkflowRun, bool> until, string what)
+    {
+        var deadline = DateTime.UtcNow + WaitTimeout;
+        WorkflowRun? run;
+        do
+        {
+            run = await Store.FindAsync(runId, CancellationToken.None);
+            if (run is not null && (until(run) || run.Status is WorkflowStatus.Failed or WorkflowStatus.Cancelled))
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
+        while (DateTime.UtcNow < deadline);
+
+        run.Should().NotBeNull($"run {runId} should exist");
+        until(run!).Should().BeTrue(
+            $"the run should have {what}, but stopped with status {run!.Status} at '{run.CurrentNode}', last error: {run.LastError}");
+        return run;
+    }
+
+    /// <summary>The host-written records of run <paramref name="runId"/> of <paramref name="kind"/>, in append order, as the run view reads them.</summary>
+    public async Task<IReadOnlyList<WorkflowRunRecord>> RecordsAsync(Guid runId, string kind) =>
+        await Factory.Services.GetRequiredService<WorkflowRunGateway>().ListRecordsAsync(runId, kind, CancellationToken.None);
 
     /// <summary>The run directories under <see cref="RunsRoot"/>, or none when it does not exist yet.</summary>
     public IReadOnlyList<string> RunDirectories() =>

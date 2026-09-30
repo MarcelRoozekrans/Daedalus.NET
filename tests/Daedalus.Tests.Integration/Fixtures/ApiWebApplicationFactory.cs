@@ -22,7 +22,11 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     before.
 /// </remarks>
 /// <param name="connectionString">The database this host's <c>ConnectionStrings:daedalus</c> is set to.</param>
-/// <param name="runtime">Replaces Thalos' registered <see cref="IAgentRuntime"/> for the life of this host.</param>
+/// <param name="runtime">
+///     Replaces Thalos' registered <see cref="IAgentRuntime"/> for the life of this host. <see langword="null"/> keeps
+///     the host's own <c>ThalosAgentRuntime</c>, for a test that swaps only the model, through
+///     <paramref name="configureServices"/>, so every turn runs through the real tool catalog and authorizer.
+/// </param>
 /// <param name="keycloak">See this type's own remarks.</param>
 /// <param name="workflowEnabled">
 ///     Defaults to <see langword="false"/>, which every existing caller relies on — see the remarks on the
@@ -45,7 +49,7 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     (the default) keeps the shipped configuration.
 /// </param>
 internal sealed class ApiWebApplicationFactory(
-    string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,
+    string connectionString, IAgentRuntime? runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,
     bool? squadEnabled = null, Action<IServiceCollection>? configureServices = null,
     IReadOnlyDictionary<string, string?>? settings = null)
     : WebApplicationFactory<Daedalus.Api.Program>
@@ -96,8 +100,11 @@ internal sealed class ApiWebApplicationFactory(
 
         builder.ConfigureServices(services =>
         {
-            services.RemoveAll<IAgentRuntime>();
-            services.AddSingleton(runtime);
+            if (runtime is not null)
+            {
+                services.RemoveAll<IAgentRuntime>();
+                services.AddSingleton(runtime);
+            }
 
             if (keycloak is null)
             {
