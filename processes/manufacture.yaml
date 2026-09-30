@@ -68,15 +68,15 @@ process: manufacture
 version: 6
 
 nodes:
-  # `outcomes` is new in version 3. Version 2 declared none, so this node completed on any turn output
-  # at all - tolerable while it only wrote a description, not tolerable now it edits the run's worktree
-  # through workspace__*, under the run's write grant. `changed` is an explicit claim that the worktree was edited, and it is the ONLY edge into `review`: the
-  # reviewer is never dispatched except behind an assertion that there is something to read. `blocked`
-  # exists so that claim costs something - with `changed` as the only way out of the node, an agent that
-  # edited nothing would still assert it to escape, and the claim would mean nothing. A run that changed
-  # no code did not manufacture anything, so `blocked` ends it rather than advancing it. `blocked` is also
-  # the honest answer when the work needs a file the grant does not allow, such as a .csproj: the skill tells
-  # the implementer to name the file and the change, for a human to make.
+  # `outcomes` is new in version 3. Version 2 declared none, so this node completed on any turn output at
+  # all - tolerable while it only wrote a description, not tolerable now it edits the run's worktree through
+  # workspace__*, under the run's write grant. `changed` is an explicit claim that the worktree was edited,
+  # and it is the ONLY edge into `review`: the reviewer is never dispatched except behind an assertion that
+  # there is something to read. `blocked` exists so that claim costs something - with `changed` as the only
+  # way out of the node, an agent that edited nothing would still assert it to escape, and the claim would
+  # mean nothing. A run that changed no code did not manufacture anything, so `blocked` ends it rather than
+  # advancing it. `blocked` is also the honest answer when the work needs a file the grant does not allow,
+  # such as a .csproj: the skill tells the implementer to name the file and the change, for a human to make.
   implement:
     agent: implementer
     skill: manufacture-implement

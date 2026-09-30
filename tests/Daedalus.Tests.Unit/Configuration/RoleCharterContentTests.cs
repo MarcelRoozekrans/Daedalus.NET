@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
@@ -8,7 +10,7 @@ namespace Daedalus.Tests.Unit.Configuration;
 ///     contradicts. Reads <c>roles/</c> from the repository root, found by walking up to <c>Daedalus.sln</c> as
 ///     <c>CleanArchitectureTests.FindRepositoryRoot</c> does.
 /// </summary>
-public sealed class RoleCharterContentTests
+public sealed partial class RoleCharterContentTests
 {
     private static string Charter(string role)
     {
@@ -55,14 +57,27 @@ public sealed class RoleCharterContentTests
     }
 
     /// <summary>
-    ///     The reviewer names <c>workspace__write_file</c> only as a tool it does not hold. Red: restoring the phase 2.4
-    ///     body, or dropping the "no" and so claiming the tool.
+    ///     The reviewer names <c>workspace__write_file</c> only as a tool it does not hold. The first assertion shows it
+    ///     is named as withheld; the second, that every mention is, so a charter that also told the reviewer to use it
+    ///     fails. Red: restoring the phase 2.4 body, dropping the "no", or adding a sentence such as "fix typos with
+    ///     workspace__write_file".
     /// </summary>
     [Fact]
     public void The_reviewer_charter_names_the_write_tool_only_as_one_it_does_not_hold()
     {
-        Charter("reviewer").Should().Contain("no workspace__write_file");
+        var charter = Charter("reviewer");
+
+        charter.Should().Contain("no workspace__write_file");
+        var mentions = WriteToolMention().Count(charter);
+        var negated = NegatedWriteToolMention().Count(charter);
+        negated.Should().Be(mentions, "every mention of workspace__write_file must be as a tool the reviewer does not hold");
     }
+
+    [GeneratedRegex(@"\bworkspace__write_file\b", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex WriteToolMention();
+
+    [GeneratedRegex(@"\bno\s+workspace__write_file\b", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex NegatedWriteToolMention();
 
     private static string FindRepositoryRoot()
     {

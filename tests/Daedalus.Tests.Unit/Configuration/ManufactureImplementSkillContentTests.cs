@@ -121,7 +121,10 @@ public sealed partial class ManufactureImplementSkillContentTests
     }
 
     /// <summary>
-    ///     The outcome tool's <c>variables</c> argument is the only channel out of the node. Red: deleting the
+    ///     The outcome tool's <c>variables</c> argument is the only channel out of the node. Each phrase asserted here
+    ///     occurs only in the reporting section, "What you write down, and what the reviewer gets": the bare words
+    ///     <c>variables</c>, <c>summary</c> and <c>files_touched</c> also occur in step 5, the <c>blocked</c> paragraph
+    ///     and the <c>learnings</c> example, so asserting those would survive the section's deletion. Red: deleting the
     ///     reporting section, or asking for <c>files_touched</c> as a string.
     /// </summary>
     [Fact]
@@ -129,9 +132,9 @@ public sealed partial class ManufactureImplementSkillContentTests
     {
         var normalized = Normalize(ImplementSkill());
 
-        normalized.Should().ContainEquivalentOf("variables");
-        normalized.Should().ContainEquivalentOf("summary");
-        normalized.Should().ContainEquivalentOf("files_touched");
+        normalized.Should().ContainEquivalentOf(
+            "Report summary and files_touched, and optionally rationale and learnings, as the variables argument of the same outcome-tool call");
+        normalized.Should().ContainEquivalentOf("That single call is the only read path the engine has");
         normalized.Should().ContainEquivalentOf("json array of paths",
             "an array is element-truncated and a string is character-cut");
         normalized.Should().NotContainEquivalentOf("does not reach the reviewer through the run's variables today");

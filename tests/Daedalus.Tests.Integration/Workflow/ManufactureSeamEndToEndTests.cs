@@ -51,7 +51,9 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     ///     GET shows retrospect's proposal as a diff against it, and a resume with
     ///     <c>applyStandingInstructions</c> writes the proposal and lets the run finish. Red for the file assertion:
     ///     point the writer back at the content root, and the worktree's file still holds the pinned text without the
-    ///     learned line.
+    ///     learned line. Red for the publish assertions: skipping the push leaves no branch on the remote, a second
+    ///     changed file in the worktree makes a second commit, one commit carrying that file with AGENT.md fails the
+    ///     file list, and a fake that does not count its opens reports zero.
     /// </summary>
     [Fact]
     public async Task A_run_pins_the_standing_instructions_and_an_approved_proposal_is_written_on_the_way_to_success()
@@ -79,6 +81,15 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
 
             await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Succeeded, "succeeded");
             host.Runtime.Nodes.Should().NotContain("publish", "v6 publishes through the open-pull-request host action, not an agent turn");
+
+            // The applied AGENT.md change is the only diff, so the action pushes one commit and opens one pull request.
+            var branch = $"manufacture/{runId}";
+            LocalGitRemote.Git(host.Remote.Url, $"branch --list {branch}").Should().Contain(branch,
+                "the action pushes the run's own branch to the run's remote");
+            LocalGitRemote.Git(host.Remote.Url, $"rev-list --count main..{branch}").Should().Be("1",
+                "the scripted implement edits nothing, so only the standing-instructions commit is pushed");
+            host.Remote.Log(branch, 1).Single().Files.Should().ContainSingle().Which.Should().Be("AGENT.md");
+            host.PullRequests.OpenCount.Should().Be(1, "the action opens exactly one pull request for the run");
         });
     }
 
@@ -151,7 +162,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
 
             var run = await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Failed, "failed at adjudicate");
             run.CurrentNode.Should().Be("adjudicate", $"an empty diff is the failed outcome, not a failed action, but the run stopped with: {run.LastError}");
-            run.Variables["publish_error"].Should().Be("nothing to publish");
+            run.Variables.Should().ContainKey("publish_error").WhoseValue.Should().Be("nothing to publish");
 
             var catalog = host.Factory.Services.GetRequiredService<IAgentCatalog>();
             var fallback = catalog.Agents.Single(a => string.Equals(a.Name, "Daedalus Architect", StringComparison.Ordinal)).Id;
@@ -162,7 +173,13 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
     }
 
     private sealed record Host(
-        ApiWebApplicationFactory Factory, HttpClient Client, IWorkflowStore Store, ScriptedRuntime Runtime, string DataRoot)
+        ApiWebApplicationFactory Factory,
+        HttpClient Client,
+        IWorkflowStore Store,
+        ScriptedRuntime Runtime,
+        string DataRoot,
+        LocalGitRemote Remote,
+        FakePullRequestPublisher PullRequests)
     {
         /// <summary>The run's worktree, where the workspace provider puts it under the data root.</summary>
         public string Worktree(Guid runId) => Path.Combine(DataRoot, "runs", runId.ToString());
@@ -225,6 +242,7 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
         }
 
         var runtime = new ScriptedRuntime();
+        var pullRequests = new FakePullRequestPublisher();
         await using var host = await ScratchWorkflowHost.StartAsync(
             fixture,
             runtime,
@@ -237,16 +255,15 @@ public sealed class ManufactureSeamEndToEndTests(PostgresFixture fixture)
 
                 // v6's publish is the open-pull-request host action. The push goes to the LocalGitRemote, which needs
                 // no credentials; the pull request goes to this fake, registered as both interfaces (ruling R28a).
-                var fake = new FakePullRequestPublisher();
                 services.RemoveAll<IPullRequestPublisher>();
                 services.RemoveAll<IOpenPullRequestLookup>();
-                services.AddSingleton<IPullRequestPublisher>(fake);
-                services.AddSingleton<IOpenPullRequestLookup>(fake);
+                services.AddSingleton<IPullRequestPublisher>(pullRequests);
+                services.AddSingleton<IOpenPullRequestLookup>(pullRequests);
             });
 
         using var client = host.Client("a-developer", "developer");
 
-        await body(new Host(host.Factory, client, host.Store, runtime, host.DataRoot));
+        await body(new Host(host.Factory, client, host.Store, runtime, host.DataRoot, host.Remote, pullRequests));
     }
 
     /// <summary>
