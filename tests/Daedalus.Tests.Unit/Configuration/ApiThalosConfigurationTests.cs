@@ -5,6 +5,7 @@ using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Thalos;
@@ -39,17 +40,87 @@ public sealed class ApiThalosConfigurationTests
             .AddJsonFile(fileName, optional: false)
             .Build();
 
-    private static ServiceProvider BuildWithApiConfiguration()
+    private static ServiceProvider BuildWithApiConfiguration() => ComposeWithApiConfiguration().BuildServiceProvider();
+
+    /// <summary>The Api host's registrations over its shipped appsettings, with <paramref name="overrides"/> layered on top.</summary>
+    private static ServiceCollection ComposeWithApiConfiguration(params (string Key, string Value)[] overrides)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(AppContext.BaseDirectory);
         environment.EnvironmentName.Returns("Development");
 
+        var configuration = new ConfigurationBuilder()
+            .AddConfiguration(LoadApiConfiguration())
+            .AddInMemoryCollection(overrides.Select(o => new KeyValuePair<string, string?>(o.Key, o.Value)))
+            .Build();
+
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        services.AddDaedalusAgents(LoadApiConfiguration(), environment);
-        return services.BuildServiceProvider();
+        services.AddDaedalusAgents(configuration, environment);
+        return services;
+    }
+
+    /// <summary>
+    ///     Final review M6: the workflow dispatch lease is bound from <c>Thalos:Workflow:Dispatch</c>, so a turn deadline
+    ///     raised past what the default twenty-minute lease holds behind the ten-minute readiness wait can take a longer
+    ///     lease with it, and the host boots. Red: registering <c>new WorkflowOutboxDispatchOptions()</c> again, as before,
+    ///     ignores the configured lease, and the timing validation then refuses the fifteen-minute deadline at boot.
+    /// </summary>
+    [Fact]
+    public async Task A_configured_dispatch_lease_is_honoured_and_lets_a_longer_turn_deadline_boot()
+    {
+        await using var sp = ComposeWithApiConfiguration(
+                ("DetachedRuns:DeadlineSeconds", "900"),
+                ("Thalos:Workflow:Dispatch:LeaseDuration", "00:40:00"))
+            .BuildServiceProvider();
+
+        sp.GetRequiredService<WorkflowOutboxDispatchOptions>().LeaseDuration.Should().Be(TimeSpan.FromMinutes(40));
+    }
+
+    /// <summary>
+    ///     The existing validation still applies to a bound value. Red: binding without validating registers the
+    ///     too-short lease.
+    /// </summary>
+    [Fact]
+    public void A_configured_dispatch_lease_that_cannot_hold_a_dispatch_fails_the_boot()
+    {
+        var compose = () => ComposeWithApiConfiguration(("Thalos:Workflow:Dispatch:LeaseDuration", "00:05:00"));
+
+        compose.Should().Throw<InvalidOperationException>().WithMessage("*LeaseDuration (00:05:00) must exceed the longest dispatch*");
+    }
+
+    /// <summary>
+    ///     <c>HostId</c> identifies one process's leases, so shared configuration may not set it. Red: binding it like
+    ///     the other values gives every replica reading this file the same one.
+    /// </summary>
+    [Fact]
+    public void A_configured_dispatch_host_id_fails_the_boot()
+    {
+        var compose = () => ComposeWithApiConfiguration(("Thalos:Workflow:Dispatch:HostId", "shared"));
+
+        compose.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Workflow:Dispatch:HostId must not be configured*");
+    }
+
+    /// <summary>
+    ///     Final review M7: the worktree sweeper requires a <see cref="TimeProvider"/>, as the write audit and the lens
+    ///     runner on the same host do, rather than falling back to the system clock. Red: resolving it with
+    ///     <c>GetService&lt;TimeProvider&gt;() ?? TimeProvider.System</c>, as before, resolves the sweeper here.
+    /// </summary>
+    [Fact]
+    public async Task The_worktree_sweeper_requires_a_registered_time_provider()
+    {
+        var services = ComposeWithApiConfiguration();
+        services.RemoveAll<TimeProvider>();
+        // The sweeper's other two dependencies are substituted, so the time provider is the only one missing: the git
+        // worktree provider needs one of its own, and would otherwise fail this resolution whatever the sweeper did.
+        services.Replace(ServiceDescriptor.Singleton(Substitute.For<IRunWorkspaceProvider>()));
+        services.Replace(ServiceDescriptor.Singleton(Substitute.For<IWorkflowStore>()));
+        await using var sp = services.BuildServiceProvider();
+
+        var resolve = () => sp.GetRequiredService<RunWorkspaceSweeper>();
+
+        resolve.Should().Throw<InvalidOperationException>().WithMessage("*TimeProvider*");
     }
 
     [Fact]

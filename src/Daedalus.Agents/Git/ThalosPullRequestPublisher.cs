@@ -63,6 +63,14 @@ public sealed partial class ThalosPullRequestPublisher(
             logger.LogError("No git repository found at {RepositoryPath}", repositoryPath);
             return Result<PullRequestResult, AgentError>.Failure(AgentError.GitRepositoryNotFound(repositoryPath));
         }
+        catch (LibGit2SharpException ex)
+        {
+            // A repository LibGit2Sharp cannot open or read, such as one with an unreadable config, is an expected
+            // failure of this call, not a fault: it fails the publish with a message instead of escaping it.
+            LogRemoteReadFailed(logger, ex, repositoryPath);
+            return Result<PullRequestResult, AgentError>.Failure(
+                AgentError.GitOperationFailed($"Failed to read the 'origin' remote of the repository at {repositoryPath}", ex.Message));
+        }
 
         if (string.IsNullOrEmpty(repositoryUrl))
         {
@@ -111,6 +119,12 @@ public sealed partial class ThalosPullRequestPublisher(
         return Result<PullRequestResult?, AgentError>.Success(
             result.Value is { } found ? new PullRequestResult(found.WebUrl, found.PullRequestId) : null);
     }
+
+    [LoggerMessage(
+        EventId = 2321,
+        Level = LogLevel.Error,
+        Message = "Failed to read the origin remote of the repository at {RepositoryPath}")]
+    private static partial void LogRemoteReadFailed(ILogger logger, Exception exception, string repositoryPath);
 
     [LoggerMessage(
         EventId = 2320,

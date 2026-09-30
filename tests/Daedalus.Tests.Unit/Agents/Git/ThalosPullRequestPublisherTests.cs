@@ -105,6 +105,30 @@ public sealed class ThalosPullRequestPublisherTests : IDisposable
             Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    ///     Final review M4: a repository LibGit2Sharp finds but cannot read, here one whose config does not parse, is a
+    ///     failed result, never an exception out of the publish. Red: catching only <c>RepositoryNotFoundException</c>,
+    ///     as before, lets the <c>LibGit2SharpException</c> escape.
+    /// </summary>
+    [Fact]
+    public async Task A_repository_git_cannot_read_is_a_GitOperationFailed_agent_error_without_calling_the_factory()
+    {
+        InitRepositoryWithOriginRemote("https://github.com/owner/repo.git");
+        await File.WriteAllTextAsync(Path.Combine(_repositoryPath, ".git", "config"), "[core\n\tbroken = = =\n");
+        var factory = Substitute.For<IPullRequestFactory>();
+        var sut = new ThalosPullRequestPublisher(factory, NullLogger<ThalosPullRequestPublisher>.Instance);
+
+        var result = await sut.OpenPullRequestAsync(
+            _repositoryPath, "feature", "main", "title", "body", CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(AgentErrorCode.GitOperationFailed);
+        result.Error.Message.Should().Contain(_repositoryPath);
+        await factory.DidNotReceive().CreatePullRequestAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task A_factory_failure_maps_to_a_GitOperationFailed_agent_error()
     {

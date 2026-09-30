@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Thalos;
@@ -404,6 +405,29 @@ public sealed class DaedalusAgentsRegistrationTests
 
         lookup.Should()
             .BeSameAs(scope.ServiceProvider.GetRequiredService<IPullRequestPublisher>());
+    }
+
+    /// <summary>
+    ///     Final review M3: the lookup maps to the concrete registration, not to a cast of whatever answers
+    ///     <see cref="IPullRequestPublisher"/>, so a host that substitutes the publisher still resolves the lookup. Red:
+    ///     casting <c>IPullRequestPublisher</c> back to <see cref="ThalosPullRequestPublisher"/>, as before, throws
+    ///     <see cref="InvalidCastException"/> here.
+    /// </summary>
+    [Fact]
+    public void A_substituted_publisher_leaves_the_open_pull_request_lookup_resolvable()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddSingleton(Substitute.For<IPullRequestFactory>());
+        services.AddDaedalusAgents(Config(), Environment());
+        var substitute = Substitute.For<IPullRequestPublisher>();
+        services.Replace(ServiceDescriptor.Scoped(_ => substitute));
+        using var sp = services.BuildServiceProvider();
+        using var scope = sp.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IPullRequestPublisher>().Should().BeSameAs(substitute);
+        scope.ServiceProvider.GetRequiredService<IOpenPullRequestLookup>().Should().BeOfType<ThalosPullRequestPublisher>();
     }
 
     /// <summary>The provider end of the chain: records what arrived and answers with one fixed reply.</summary>

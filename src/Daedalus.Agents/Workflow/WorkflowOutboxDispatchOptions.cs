@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+
 namespace Daedalus.Agents.Workflow;
 
 /// <summary>
@@ -9,18 +11,18 @@ namespace Daedalus.Agents.Workflow;
 ///     live here for the same reason.
 /// </summary>
 /// <remarks>
-///     <b>Nothing configures this.</b> <c>DaedalusAgentsServiceCollectionExtensions.AddDaedalusWorkflow</c>
-///     registers a default-constructed instance — no <c>IConfiguration</c> section is bound to it and no callback
-///     mutates it, so every value below is the initializer on its property and nothing in any
-///     <c>appsettings.json</c> can change one. That is deliberate for <see cref="BatchSize"/>, whose immovability
-///     is the point and whose reasoning is on the property itself. It is merely the consequence of the same
-///     registration for the other properties: they are settable, with no setter, and changing one means editing
-///     this file. Binding a configuration section here would make <see cref="BatchSize"/> settable too and reopen
-///     a ruling that was closed on purpose, so the gap is recorded rather than closed. The instance is still
-///     validated at registration, against the turn deadline, by <see cref="WorkflowDispatchTiming.Validate"/>.
+///     <b>Bound from <c>Thalos:Workflow:Dispatch</c></b> by <see cref="Bind"/>, so a host whose turn deadline or
+///     readiness wait outgrows the default lease can raise <see cref="LeaseDuration"/> with them. Every value is still
+///     validated at registration, against the turn deadline and the gate wait, by
+///     <see cref="WorkflowDispatchTiming.Validate"/>, which also keeps <see cref="BatchSize"/> at 1 whatever the
+///     configuration says; the reasoning is on that property. <see cref="HostId"/> is never configured: it identifies
+///     one process's leases, and a value in shared configuration would give every replica the same one.
 /// </remarks>
 internal sealed class WorkflowOutboxDispatchOptions
 {
+    /// <summary>The configuration section <see cref="Bind"/> reads.</summary>
+    internal const string SectionName = "Thalos:Workflow:Dispatch";
+
     /// <summary>The width of the ORM outbox table's <c>LockedBy</c> column, which stores <see cref="HostId"/>.</summary>
     internal const int MaxHostIdLength = 128;
 
@@ -93,5 +95,25 @@ internal sealed class WorkflowOutboxDispatchOptions
 
             return total;
         }
+    }
+
+    /// <summary>
+    ///     The options <paramref name="section"/> configures, over the defaults on each property. The caller validates
+    ///     them with <see cref="WorkflowDispatchTiming.Validate"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The section sets <see cref="HostId"/>, which is per process.</exception>
+    internal static WorkflowOutboxDispatchOptions Bind(IConfigurationSection section)
+    {
+        ArgumentNullException.ThrowIfNull(section);
+        if (section[nameof(HostId)] is not null)
+        {
+            throw new InvalidOperationException(
+                $"{SectionName}:{nameof(HostId)} must not be configured: it identifies one process's leases, and a value in " +
+                "shared configuration would let every replica treat the others' leases as its own.");
+        }
+
+        var options = new WorkflowOutboxDispatchOptions();
+        section.Bind(options);
+        return options;
     }
 }

@@ -210,10 +210,13 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // factory it delegates to is registered by AddCodeAnalysisServices in Daedalus.Infrastructure, not here — a
         // host calling this method alone resolves the publisher fine but only fails, at first use, if it never
         // called that one too. That mirrors how the factory itself already gets consumed across composition roots.
-        services.AddScoped<IPullRequestPublisher, ThalosPullRequestPublisher>();
-        // The same scoped instance answers the open-pull-request lookup. It is its own interface so GitActionTools,
-        // which depends on IPullRequestPublisher only, never gains a read surface through it.
-        services.AddScoped<IOpenPullRequestLookup>(sp => (ThalosPullRequestPublisher)sp.GetRequiredService<IPullRequestPublisher>());
+        // The concrete type is registered once, and both interfaces map to that one scoped instance. The lookup is its
+        // own interface so GitActionTools, which depends on IPullRequestPublisher only, never gains a read surface
+        // through it. Mapped to the concrete registration, not cast back from IPullRequestPublisher, so a host that
+        // substitutes the publisher still resolves the lookup.
+        services.AddScoped<ThalosPullRequestPublisher>();
+        services.AddScoped<IPullRequestPublisher>(sp => sp.GetRequiredService<ThalosPullRequestPublisher>());
+        services.AddScoped<IOpenPullRequestLookup>(sp => sp.GetRequiredService<ThalosPullRequestPublisher>());
 
         ValidateMemoryConfig(options.Memory);
         services.TryAddSingleton(options.Memory);
@@ -415,7 +418,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         if (options.Workflow.Enabled)
         {
-            AddDaedalusWorkflow(services, processesRoot, turnDeadline, options.Workflow, options.ToolPolicies);
+            AddDaedalusWorkflow(
+                services, processesRoot, turnDeadline, options.Workflow, options.ToolPolicies,
+                configuration.GetSection(WorkflowOutboxDispatchOptions.SectionName));
         }
 
         // After the workflow block, whose own lease check is the stricter one on a workflow host, so each check's
@@ -462,7 +467,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     /// </summary>
     private static void AddDaedalusWorkflow(
         IServiceCollection services, string processesRoot, TimeSpan turnDeadline, WorkflowConfig workflow,
-        IEnumerable<ToolPolicyConfig> toolPolicies)
+        IEnumerable<ToolPolicyConfig> toolPolicies, IConfigurationSection dispatchSection)
     {
         // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
         // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
@@ -552,7 +557,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // A dispatch is, at most, the gate's wait followed by the turn: the gate waits up to RoslynReadyTimeout, so the
         // lease must outlast both, and a run healthily waiting on the gate must not look stranded.
         var gateWait = workflow.RoslynReadyTimeout;
-        var dispatchOptions = new WorkflowOutboxDispatchOptions();
+        var dispatchOptions = WorkflowOutboxDispatchOptions.Bind(dispatchSection);
         WorkflowDispatchTiming.Validate(dispatchOptions, turnDeadline, gateWait);
         var strandedAfter = WorkflowDispatchTiming.StrandedAfter(dispatchOptions, turnDeadline, gateWait);
 
@@ -577,18 +582,17 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         // Task B10, rulings R14/R19: the only thing that removes a published run's worktree. Over the undecorated
         // IWorkflowStore, like WorkflowRunGateway and WorkflowRunReconciler above — see
-        // WorkflowNodeDispatcherFactory.Create's remarks for why only the dispatcher's copy is wrapped. A host may
-        // not have registered TimeProvider itself (DaedalusSchedulingServiceCollectionExtensions and
-        // InfrastructureServiceExtensions each TryAddSingleton it, but neither is guaranteed to have run), so this
-        // falls back to TimeProvider.System rather than requiring it.
+        // WorkflowNodeDispatcherFactory.Create's remarks for why only the dispatcher's copy is wrapped. TimeProvider is
+        // required, as it is by the write audit and the review lens runner registered on this same host: a host that
+        // registers none is a composition error, never a silent fall back to the system clock.
         services.AddSingleton(sp => new RunWorkspaceSweeper(
             sp.GetRequiredService<IRunWorkspaceProvider>(),
             sp.GetRequiredService<IWorkflowStore>(),
-            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILogger<RunWorkspaceSweeper>>()));
         services.AddHostedService(sp => new RunWorkspaceSweepService(
             sp.GetRequiredService<RunWorkspaceSweeper>(),
-            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILogger<RunWorkspaceSweepService>>()));
     }
 
