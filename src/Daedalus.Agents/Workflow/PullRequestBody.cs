@@ -171,8 +171,9 @@ internal static class PullRequestBody
     }
 
     /// <summary>
-    ///     The work intent's first non-blank line, on one line, with nested parentheses flattened, cut to
-    ///     <see cref="MaxTitleLineLength"/>.
+    ///     The work intent's first non-blank line, on one line, with nested parentheses flattened. A line longer than
+    ///     <see cref="MaxTitleLineLength"/> is cut at its last word boundary that fits, or mid-word when a single word
+    ///     fills the line, and ends in an ellipsis so the cut is visible.
     /// </summary>
     private static string TitleLine(string workIntent)
     {
@@ -180,7 +181,12 @@ internal static class PullRequestBody
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault(line => line.Length > 0) ?? "";
         var line = FlattenNestedParentheses(OneLine(first)).Trim();
-        return line.Length <= MaxTitleLineLength ? line : CutAt(line, MaxTitleLineLength).TrimEnd();
+        if (line.Length <= MaxTitleLineLength)
+            return line;
+
+        var cut = CutAt(line, MaxTitleLineLength - Ellipsis.Length);
+        var space = line[cut.Length] == ' ' ? cut.Length : cut.LastIndexOf(' ');
+        return (space > 0 ? cut[..space] : cut).TrimEnd() + Ellipsis;
     }
 
     /// <summary>

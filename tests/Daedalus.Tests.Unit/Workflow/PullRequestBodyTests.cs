@@ -235,7 +235,27 @@ public sealed class PullRequestBodyTests
     public void The_title_is_the_first_line_of_the_intent_cut_to_72_characters()
     {
         PullRequestBody.Title("Tighten a guard.\nMore detail here.").Should().Be("manufacture: Tighten a guard.");
-        PullRequestBody.Title("\n  " + new string('a', 100)).Should().Be("manufacture: " + new string('a', 72));
+        PullRequestBody.Title("\n  " + new string('a', 100)).Should().Be("manufacture: " + new string('a', 71) + "…");
+    }
+
+    [Fact]
+    public void A_long_intent_is_cut_at_a_word_boundary_and_marked_as_cut()
+    {
+        // B17's live run: the hard cut at 72 left the commit subject ending "...Celsi".
+        const string intent = "Add a TemperatureConverter with FahrenheitToCelsius and CelsiusToFahrenheit methods";
+
+        var title = PullRequestBody.CodeCommitMessage(intent, RunId).Split('\n')[0]["feat: ".Length..];
+
+        title.Should().Be("Add a TemperatureConverter with FahrenheitToCelsius and…");
+        title.Length.Should().BeLessThanOrEqualTo(PullRequestBody.MaxTitleLineLength);
+    }
+
+    [Fact]
+    public void A_word_that_ends_exactly_at_the_cut_is_kept()
+    {
+        var kept = new string('a', 66) + " bbbb";
+
+        PullRequestBody.Title(kept + " cccc").Should().Be("manufacture: " + kept + "…");
     }
 
     [Fact]
