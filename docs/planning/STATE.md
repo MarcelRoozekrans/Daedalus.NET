@@ -1,6 +1,6 @@
 # Session State
 
-**Last session:** 2026-10-01, with the owner present
+**Last session:** 2026-10-01, with the owner present; paused for a laptop shutdown
 
 ## Current Position - phase 2.5 complete and merged (PR #315, 2026-10-01); phase 2.6 is next
 
@@ -27,11 +27,15 @@ Parts A, B and C are complete and reviewed, and the Part C final review found no
 
 ## Needs the owner
 
-1. **Check release-please** after PR #315: confirm every `fix:` and `feat:` commit is in its release PR.
-2. **The security item reported to the owner directly** is still open.
-3. **Decide:** should developer and admin *chat* turns keep `workspace-write` and `csharp-write`?
-4. **Decide #313:** delete or bind the dead `OpenTelemetry` appsettings sections.
-5. **The Postgres collation mismatch:** the AppHost database was created on collation 2.41, but its
+1. **Merge PR #316**, the phase-close planning docs on `chore/complete-phase-2.5`.
+   `main` requires status checks, so the close went through a PR.
+2. **Cut the release when wanted.** Daedalus release-please is manual dispatch only, see
+   `docs/release.md`. Then confirm every `fix:` and `feat:` commit from #315 is in the release PR.
+   All 77 passed commitlint, with no nested parentheses and no session links.
+3. **The security item reported to the owner directly** is still open.
+4. **Decide:** should developer and admin *chat* turns keep `workspace-write` and `csharp-write`?
+5. **Decide #313:** delete or bind the dead `OpenTelemetry` appsettings sections.
+6. **The Postgres collation mismatch:** the AppHost database was created on collation 2.41, but its
    container provides 2.36. Rebuild the affected indexes or refresh the collation version.
 
 ## Filed or tracked
@@ -41,12 +45,16 @@ Parts A, B and C are complete and reviewed, and the Part C final review found no
   sizing) and #281 (cost aggregation) are all still open.
 - From 2.4's carried list, items 1, 2, 5, 7 and 8 are closed by this phase. Items 3 and 4, token
   sizing and cost aggregation, stay open.
-- Thalos #173 (budget semantics, item 2) and #171 are addressed by this phase but are still open on
-  GitHub. Close them, with a pointer to the rulings doc, after the Daedalus PR merges.
+- Thalos #173 (budget semantics, item 2) and #171 were closed 2026-10-01, with pointers to the
+  rulings doc.
 
 ## Recommended Next Step
 
-1. `start-next-phase`: phase 2.6, sandboxed run pods. Its brainstorm should cover the 35 bogus
+1. After #316 merges, delete the git-ignored execution ledger folder
+   `.superpowers/sdd/2026-09-24-phase-2.5-run-write-authority-plan/`; the rulings doc holds everything
+   in it. Switch the checkout back to `main` and pull. The Thalos checkout is on the merged
+   `feat/workflow-retry`; switch it to `main` too.
+2. `start-next-phase`: phase 2.6, sandboxed run pods. Its brainstorm should cover the 35 bogus
    xunit diagnostics from the never-restored worktree, which B17 observed.
 
 ---
