@@ -218,4 +218,29 @@ public sealed class WorkflowRunGateway(
 
     /// <summary>Cancels <paramref name="runId"/> for <paramref name="reason"/>. A no-op past a terminal status.</summary>
     public ValueTask CancelAsync(Guid runId, string reason, CancellationToken ct) => _store.CancelAsync(runId, reason, ct);
+
+    /// <summary>
+    ///     Retries <paramref name="runId"/> at the host-action node it failed at, as <paramref name="retriedBy"/>.
+    ///     Reads the run first, so the store's seq check is against the run this caller saw, and a second retry
+    ///     of the same run is refused rather than re-running the action. Every refusal is the store's own, except
+    ///     a run that does not exist.
+    /// </summary>
+    /// <remarks>
+    ///     A run whose workspace the sweeper already removed is still retried. Its action then finds no workspace
+    ///     and fails the run again, which costs no tokens. The sweeper keeps the workspace of every Failed run that
+    ///     was approved at a gate, and that is the case retry exists for.
+    /// </remarks>
+    public async ValueTask<Result> RetryAsync(Guid runId, RunPrincipal retriedBy, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(retriedBy);
+
+        var run = await _store.FindAsync(runId, ct).ConfigureAwait(false);
+        if (run is null)
+        {
+            return Result.Failure($"Workflow run '{runId}' was not found.");
+        }
+
+        return await _store.RetryFailedNodeAsync(
+            runId, new WorkflowRetryRequest { ExpectedSeq = run.CurrentSeq, RetriedBy = retriedBy }, ct).ConfigureAwait(false);
+    }
 }

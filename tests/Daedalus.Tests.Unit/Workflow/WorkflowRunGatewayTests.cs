@@ -126,6 +126,77 @@ public sealed class WorkflowRunGatewayTests
         return workspaces;
     }
 
+    /// <summary>
+    ///     Falsifiable: calling the store before the lookup turns this red, because the store would then receive
+    ///     <c>RetryFailedNodeAsync</c> for a run that does not exist.
+    /// </summary>
+    [Fact]
+    public async Task A_retry_of_a_run_that_does_not_exist_fails_without_calling_the_store()
+    {
+        var store = Substitute.For<IWorkflowStore>();
+        store.FindAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>((WorkflowRun?)null));
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For());
+
+        var result = await gateway.RetryAsync(Guid.NewGuid(), Approver, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("was not found");
+        await store.DidNotReceiveWithAnyArgs().RetryFailedNodeAsync(Guid.Empty, default!, default);
+    }
+
+    /// <summary>
+    ///     Falsifiable: passing a fixed or default seq, or a different principal, turns this red, because the
+    ///     predicate pins the seq the run was read at and the identity of the principal. The store's result is
+    ///     returned unchanged.
+    /// </summary>
+    [Fact]
+    public async Task A_retry_passes_the_seq_the_run_was_read_at_and_the_caller_to_the_store()
+    {
+        var run = FailedRunAtSeq(7);
+        var store = Substitute.For<IWorkflowStore>();
+        store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
+        store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result>(Result.Success()));
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For());
+
+        var result = await gateway.RetryAsync(run.Id, Approver, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        await store.Received(1).RetryFailedNodeAsync(
+            run.Id,
+            Arg.Is<WorkflowRetryRequest>(r => r.ExpectedSeq == 7 && ReferenceEquals(r.RetriedBy, Approver)),
+            Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Falsifiable: swallowing the store's error turns this red.</summary>
+    [Fact]
+    public async Task A_store_refusal_of_a_retry_is_returned_with_its_message()
+    {
+        var run = FailedRunAtSeq(7);
+        var store = Substitute.For<IWorkflowStore>();
+        store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
+        store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result>(Result.Failure("x")));
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For());
+
+        var result = await gateway.RetryAsync(run.Id, Approver, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("x");
+    }
+
+    private static WorkflowRun FailedRunAtSeq(long seq) => new()
+    {
+        Id = Guid.NewGuid(),
+        Process = "manufacture",
+        ProcessVersion = 5,
+        CurrentNode = "publish",
+        CurrentSeq = seq,
+        Status = WorkflowStatus.Failed,
+        LastError = "git push refused",
+        Visits = new Dictionary<string, int>(StringComparer.Ordinal) { ["publish"] = 1 },
+    };
+
     private static WorkflowRun RunWith(string pinned, string proposal) => new()
     {
         Id = Guid.NewGuid(),

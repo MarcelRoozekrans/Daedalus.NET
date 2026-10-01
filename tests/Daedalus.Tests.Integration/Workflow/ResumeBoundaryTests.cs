@@ -26,7 +26,7 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     <list type="number">
 ///         <item>
 ///             Resume/cancel are REST endpoints (<c>WorkflowRunsController</c>), never a Thalos tool — see
-///             <see cref="ResumeToolBoundaryTests.Neither_resume_nor_cancel_is_exposed_as_a_tool_on_any_registered_source"/>.
+///             <see cref="ResumeToolBoundaryTests.None_of_resume_cancel_or_retry_is_exposed_as_a_tool_on_any_registered_source"/>.
 ///             This is the structural half: it holds even if the authorization policy below were ever
 ///             misconfigured.
 ///         </item>
@@ -62,20 +62,20 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
     ///     policy says; if it could cancel, it could destroy a run in flight to escape one.
     /// </summary>
     /// <remarks>
-    ///     Both words are tested, because the boundary this file documents covers both endpoints. Testing
-    ///     <c>resume</c> alone would let a <c>workflow__cancel_run</c> tool pass every test in this class while
-    ///     the because-string still claimed cancelling was covered. No tool in the current surface contains
+    ///     All three words are tested, because the boundary this file documents covers all three endpoints. Testing
+    ///     <c>resume</c> alone would let a <c>workflow__cancel_run</c> or <c>workflow__retry_run</c> tool pass every
+    ///     test in this class while the because-string still claimed cancelling and retrying were covered. No tool in the current surface contains
     ///     either word, so this is green today and a real guard the moment one is added.
     /// </remarks>
     [Fact]
-    public async Task Neither_resume_nor_cancel_is_exposed_as_a_tool_on_any_registered_source()
+    public async Task None_of_resume_cancel_or_retry_is_exposed_as_a_tool_on_any_registered_source()
     {
         var toolNames = await ReadToolNamesAsync();
 
         toolNames.Should().NotBeEmpty("otherwise this test passes vacuously");
-        toolNames.Should().NotContain(n => IsResumeOrCancelCapable(n),
-            "resuming or cancelling a run must only be reachable through the authorized " +
-            "POST /api/workflow-runs/{id}/resume|cancel endpoints, never as an agent-callable tool");
+        toolNames.Should().NotContain(n => IsResumeCancelOrRetryCapable(n),
+            "resuming, cancelling or retrying a run must only be reachable through the authorized " +
+            "POST /api/workflow-runs/{id}/resume|cancel|retry endpoints, never as an agent-callable tool");
     }
 
     /// <summary>No tool source is even named <c>workflow</c> — resume has no source to be smuggled into.</summary>
@@ -90,12 +90,12 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
 
     /// <summary>
     ///     Belt and suspenders on top of
-    ///     <see cref="Neither_resume_nor_cancel_is_exposed_as_a_tool_on_any_registered_source"/>: even a
+    ///     <see cref="None_of_resume_cancel_or_retry_is_exposed_as_a_tool_on_any_registered_source"/>: even a
     ///     configured agent whose <c>Tools</c> glob is broad enough to match everything else still cannot resolve
-    ///     a resume- or cancel-capable tool, because none exists to match.
+    ///     a resume-, cancel- or retry-capable tool, because none exists to match.
     /// </summary>
     [Fact]
-    public async Task No_configured_agents_tool_pattern_resolves_a_resume_or_cancel_capable_tool()
+    public async Task No_configured_agents_tool_pattern_resolves_a_resume_cancel_or_retry_capable_tool()
     {
         var toolNames = await ReadToolNamesAsync();
         var agents = _factory.Services.GetRequiredService<IAgentCatalog>().Agents;
@@ -107,20 +107,21 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
             foreach (var pattern in agent.Tools)
             {
                 toolNames.Where(t => Glob.IsMatch(pattern, t))
-                    .Should().NotContain(t => IsResumeOrCancelCapable(t),
-                        $"agent '{agent.Name}' pattern '{pattern}' must not resolve a resume- or cancel-capable tool");
+                    .Should().NotContain(t => IsResumeCancelOrRetryCapable(t),
+                        $"agent '{agent.Name}' pattern '{pattern}' must not resolve a resume-, cancel- or retry-capable tool");
             }
         }
     }
 
     /// <summary>
-    ///     Both halves of the boundary in one predicate, so the two tests above cannot drift apart. Matched on
+    ///     Every endpoint of the boundary in one predicate, so the two tests above cannot drift apart. Matched on
     ///     the tool name rather than on an allow-list of known tools: a tool that does not exist yet is exactly
     ///     what this guard is for.
     /// </summary>
-    private static bool IsResumeOrCancelCapable(string toolName) =>
+    private static bool IsResumeCancelOrRetryCapable(string toolName) =>
         toolName.Contains("resume", StringComparison.OrdinalIgnoreCase)
-        || toolName.Contains("cancel", StringComparison.OrdinalIgnoreCase);
+        || toolName.Contains("cancel", StringComparison.OrdinalIgnoreCase)
+        || toolName.Contains("retry", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     ///     Reads the in-process tool sources registered on the host, qualified the way the runtime does. MCP
@@ -244,6 +245,55 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
         // still perfectly intact. If that happens, the fix is to re-pin this to whatever status a resolvable
         // controller returns for a run id that does not exist (404), NOT to relax the assertion to
         // NotBe(401).And.NotBe(403), which would pass on a renamed route and prove nothing.
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+    }
+
+    /// <summary>
+    ///     Retry is admin-only, narrower than resume and cancel: it re-runs a push on a run someone else approved.
+    ///     A developer clears the controller's WorkflowResume policy but not the action's Admin policy.
+    /// </summary>
+    [Fact]
+    public async Task A_developer_is_denied_retry()
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, "a-developer");
+        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, "developer");
+
+        var response = await client.PostAsync($"/api/workflow-runs/{Guid.NewGuid()}/retry", null);
+
+        // Red if the action's [Authorize(Policy = "Admin")] is removed: the developer passes, and the request
+        // reaches the unresolvable controller and returns 500.
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_caller_with_the_configured_detached_run_roles_is_denied_retry()
+    {
+        var configured = _factory.Services.GetRequiredService<IOptions<DetachedRunOptions>>().Value;
+        configured.Roles.Should().NotBeEmpty("otherwise this test passes vacuously");
+
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, "schedule:daedalus");
+        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, string.Join(',', configured.Roles));
+
+        var response = await client.PostAsync($"/api/workflow-runs/{Guid.NewGuid()}/retry", null);
+
+        // Red if DetachedRuns:Roles gains admin.
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task An_admin_passes_the_retry_policy()
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, "an-admin");
+        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, "admin");
+
+        var response = await client.PostAsync($"/api/workflow-runs/{Guid.NewGuid()}/retry", null);
+
+        // Pinned to 500 for the reason A_developer_caller_passes_the_policy gives: only a request authorization
+        // let through reaches the controller this fixture cannot resolve. Red if the route is missing, which
+        // returns 404, or if Admin is bound to a role admin lacks, which returns 403.
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
     }
 }

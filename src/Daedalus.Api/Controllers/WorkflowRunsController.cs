@@ -11,16 +11,18 @@ using Thalos.Workflow;
 namespace Daedalus.Api.Controllers;
 
 /// <summary>
-///     Starts, resumes, cancels and reads back manufacture runs. Every action on this controller requires the
-///     <c>WorkflowResume</c> authorization policy (<c>Program.cs</c>: <c>developer</c> or <c>admin</c> role) — the
+///     Starts, resumes, cancels, retries and reads back manufacture runs. Every action on this controller requires
+///     the <c>WorkflowResume</c> authorization policy (<c>Program.cs</c>: <c>developer</c> or <c>admin</c> role),
+///     and <see cref="Retry"/> additionally requires the narrower <c>Admin</c> policy — the
 ///     same criterion <c>Thalos:ToolPolicies</c> binds <c>git__*</c>, <c>repoaction__*</c> and <c>manufacture__*</c>
 ///     to, enforced here by ASP.NET Core's own role-based authorization rather than <c>DefaultToolAuthorizer</c>,
 ///     because these are REST endpoints, not Thalos tool calls, and <c>DefaultToolAuthorizer</c> never sees a
 ///     request that never names a tool. Starting a run over REST and starting one through <c>manufacture__start</c>
 ///     are deliberately gated the same way, by two different mechanisms that happen to require the same role.
+///     Retry is narrower than the rest: it re-runs a push on a run another person approved, so it is admin only.
 /// </summary>
 /// <remarks>
-///     <b>Resume and cancel are deliberately not Thalos tools.</b> Resuming a gate is reachable only through this
+///     <b>Resume, cancel and retry are deliberately not Thalos tools.</b> Resuming a gate is reachable only through this
 ///     controller. No agent — including one running as the run's own <c>WorkflowCaller</c> — can call it, because
 ///     it is never registered as a local tool source and therefore never appears in any agent's resolved tool
 ///     list. An agent that could resume its own approval gate would make every gate in the engine decorative. The
@@ -265,6 +267,36 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         }
 
         return NoContent();
+    }
+
+    /// <summary>
+    ///     Re-runs the host-action node <paramref name="id"/> failed at, such as <c>publish</c> after a push was
+    ///     refused. Admin only, narrower than the controller's <c>WorkflowResume</c> policy: it pushes and opens a
+    ///     PR on a run another person approved. 404 when the run does not exist. 409 when the store refuses: not
+    ///     Failed, not at a host-action node, or changed since it was read.
+    /// </summary>
+    [HttpPost("{id:guid}/retry")]
+    [Authorize(Policy = "Admin")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Retry(Guid id, CancellationToken ct)
+    {
+        if (await runs.FindAsync(id, ct) is null)
+        {
+            return NotFound();
+        }
+
+        if (!HttpSecurityContextFactory.TryCreate(User, out var caller))
+        {
+            return Unauthorized();
+        }
+
+        var retriedBy = RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value);
+        var result = await runs.RetryAsync(id, retriedBy, ct);
+        return result.IsSuccess ? NoContent() : Problem(detail: result.Error, statusCode: StatusCodes.Status409Conflict);
     }
 }
 
