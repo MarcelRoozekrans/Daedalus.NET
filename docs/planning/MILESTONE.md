@@ -21,7 +21,7 @@ only once something demonstrably better runs in its place.
 ## Definition of Done
 
 - [ ] **All planned phases complete.** Phases 2.1 through 2.11 are merged.
-- [ ] **One manufacture run proven live from intent to reviewed pull request.** It is started
+- [x] **One manufacture run proven live from intent to reviewed pull request.** It is started
       through `POST /api/workflow-runs`, against a repository the owner chooses. Every step is
       recorded in the run's event log, not asserted:
       - `implement` writes a real change.
@@ -32,6 +32,12 @@ only once something demonstrably better runs in its place.
 
       Phases 2.2 to 2.4 each proved part of this and none proved the whole. The criterion exists
       because "reached `Succeeded`" has twice not meant "did the work".
+
+      **Met 2026-10-01, phase 2.5 B17.** Run `dbf7b675` on `daedalus-sandbox` went through every step
+      above and opened sandbox PR #7. One caveat: the first `publish` failed on a 403, because the
+      token lacked write access. An admin then re-ran only `publish` through the retry that phase 2.5
+      Part C added, so no agent node ran twice. The event log records both: `Failed` at seq 6 and
+      `Retried` at seq 7, naming the admin. See `docs/plans/2026-09-24-phase-2.5-rulings.md`.
 - [ ] **Ralph retired only after that run.** Phase 2.8 deletes the loop only once the live run
       above exists, so the retirement proves the replacement works.
 - [ ] **Agent output cannot execute on the host.** A file an agent writes during a run, including

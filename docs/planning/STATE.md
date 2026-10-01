@@ -1,8 +1,62 @@
 # Session State
 
+**Last session:** 2026-10-01, with the owner present
+
+## Current Position - phase 2.5: all work done, the live proof passed, and the branch waits for the owner's push
+
+**Milestone 2, phase 2.5, run write authority.** Branch `feat/phase-2.5-run-write-authority`, local only
+and **not pushed**. Parts A, B and C are complete and reviewed, and the Part C final review says
+ready to merge. Rulings, the live-proof table and carried items are in
+`docs/plans/2026-09-24-phase-2.5-rulings.md`.
+
+- **B17, the live proof, passed.** Run `dbf7b675` on `daedalus-sandbox` went implement, then 3 approving
+  lenses, then retrospect `none`, then the gate, then an HTTP resume. The first `publish` failed with a
+  403: the fine-grained token had no `Contents: write`, and the owner fixed the token.
+- **Part C was added to recover the run without re-spending tokens.** Thalos 0.12.0, breaking, via PR
+  #228 and release #230, added `IWorkflowStore.RetryFailedNodeAsync`. Daedalus adds the admin-only
+  `POST /api/workflow-runs/{id}/retry`. The live retry recorded Failed@6, Retried@7 by admin,
+  then `Succeeded`, and opened **sandbox PR #7**.
+- Milestone 2 DoD criterion 2 is marked met in `MILESTONE.md`, with that caveat.
+- **Caching works:** 84.9% of the run's input tokens were read from cache. Implement used 291,161 input
+  tokens, down 60.5% from 2.4's 737,634.
+- **Suites:** Unit 664, Unit.Application 439, Unit.Domain 383, Unit.Infrastructure 153, Integration 675.
+  Thalos: all 14 projects green.
+- **The plan forced a dependency bump:** Thalos 0.12.0 requires ZeroAlloc.Mediator 6.0.2, up from 5.1.5.
+  It was reviewed, the generated mediator stays internal, and its only runtime change is an unobserved
+  activity.
+- **Also fixed:** the PR title and commit subject are now cut at a word boundary, in `f2bdb75`.
+
+## Needs the owner
+
+1. **Push the branch and open the Daedalus PR.** This is B17 step 14, an owner checkpoint. After the
+   merge, check that every `fix:` and `feat:` commit appears in the release-please PR.
+2. **The security item reported to the owner directly** is still open.
+3. **Decide:** should developer and admin *chat* turns keep `workspace-write` and `csharp-write`?
+4. **Decide #313:** delete or bind the dead `OpenTelemetry` appsettings sections.
+5. **The Postgres collation mismatch:** the AppHost database was created on collation 2.41, but its
+   container provides 2.36. Rebuild the affected indexes or refresh the collation version.
+
+## Filed or tracked
+- Thalos #229: the Telegram rejected-sender logging test depends on a 2 s wall-clock window, and
+  flakes on Windows CI. Filed 2026-10-01.
+- Thalos #225, Daedalus #313, #314 (phase 2.6 carries), #295 and #312 (format drift), #280 (token
+  sizing) and #281 (cost aggregation) are all still open.
+- From 2.4's carried list, items 1, 2, 5, 7 and 8 are closed by this phase. Items 3 and 4, token
+  sizing and cost aggregation, stay open.
+- Thalos #173 (budget semantics, item 2) and #171 are addressed by this phase but are still open on
+  GitHub. Close them, with a pointer to the rulings doc, after the Daedalus PR merges.
+
+## Recommended Next Step
+
+1. The owner approves the push. Then push, open the PR with no session URL, and after the merge run
+   `complete-phase 2.5` and check release-please.
+2. Then `start-next-phase`: phase 2.6, sandboxed run pods. Its brainstorm should cover the 35 bogus
+   xunit diagnostics from the never-restored worktree, which B17 observed.
+
+---
 **Last session:** 2026-09-30, run overnight and autonomously at the owner's request
 
-## Current Position - phase 2.5: B0-B16 and the final review are done; B17, the live proof, waits for the owner
+## Previous position (2026-09-30) - phase 2.5: B0-B16 and the final review are done; B17, the live proof, waits for the owner
 
 **Milestone 2, phase 2.5, run write authority.** Branch `feat/phase-2.5-run-write-authority`, local only
 and **not pushed**. Part A shipped as Thalos.NET 0.11.0, then 0.11.1. Part B's tasks B0-B16 are complete,
@@ -26,7 +80,7 @@ approved, and the final reviewer ruled the branch **ready for B17**.
   - Minors: the PR body is bounded and neutralised, publish fails closed with no review evidence, and
     there are DI, exception and options fixes.
 
-## Needs the owner - morning
+## Needs the owner (2026-09-30, superseded above)
 
 1. **A security item was reported to the owner directly, not in this public file.** See the session
    handoff message.
@@ -48,14 +102,14 @@ approved, and the final reviewer ruled the branch **ready for B17**.
    - Architect chat turns need `developer` for operator Roslyn tools.
    - Publish refuses a run with no review evidence.
 
-## Filed or tracked 2026-09-30
+## Filed or tracked (2026-09-30)
 - Thalos #225: `workspace__write_file` refuses on Windows while a directory is delete-pending. It is a
   real race that fails closed; B17 does not wait on it.
 - Daedalus #313: the dead OpenTelemetry config.
 - Daedalus #314: the phase 2.6 carries, NFS flock and the resolve-to-move race.
 - The repo-wide `dotnet format` drift was already tracked in #295 and #312.
 
-## Recommended Next Step
+## Recommended Next Step (2026-09-30, done)
 
 1. Handle the security item reported directly to the owner.
 2. Review the branch, then run B17 with the owner present. After B17, close the phase: pre-push review,
