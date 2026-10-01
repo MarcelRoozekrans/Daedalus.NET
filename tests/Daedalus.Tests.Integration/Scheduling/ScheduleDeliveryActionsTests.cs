@@ -145,11 +145,10 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
         services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddOutbox(o => o.PollingInterval = TimeSpan.FromHours(1))
             .WithEfCore<ApplicationDbContext>()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            .WithSystemTextJsonSerializer();
 
-        // Mirrors DaedalusSchedulingServiceCollectionExtensions.AddDaedalusScheduling: WithEfCore only
-        // registers IOutboxStore, so the dashboard seam needs its own TryAdd.
-        services.TryAddScoped<IOutboxDashboardStore, EfCoreOutboxStore<ApplicationDbContext>>();
+        // No IOutboxDashboardStore registration of its own: WithEfCore registers it, the same as on the real hosts.
         services.Configure<ScheduleDiagnosticsOptions>(o => o.DeadLetterLookback = TimeSpan.FromDays(1));
         services.AddScoped<IScheduleDeliveryActions, ScheduleDeliveryActions>();
 

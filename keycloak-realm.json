@@ -115,6 +115,7 @@
   ],
   "users": [
     {
+      "id": "8f0b6c3e-2d4a-4c7e-9b1f-0a5d7e3c1b21",
       "username": "dev",
       "email": "dev@example.com",
       "emailVerified": true,
@@ -128,9 +129,10 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["default-roles-daedalus", "project-manager", "task-manager", "analyst"]
+      "realmRoles": ["default-roles-daedalus", "project-manager", "task-manager", "analyst", "developer"]
     },
     {
+      "id": "3c9e7a14-5b2d-4f8a-a6c0-7d1e2f4b9a53",
       "username": "admin",
       "email": "admin@example.com",
       "emailVerified": true,
@@ -152,6 +154,7 @@
       { "name": "project-manager", "description": "Can manage projects", "composite": false, "clientRole": false, "attributes": {} },
       { "name": "task-manager", "description": "Can manage tasks", "composite": false, "clientRole": false, "attributes": {} },
       { "name": "analyst", "description": "Can run code analysis", "composite": false, "clientRole": false, "attributes": {} },
+      { "name": "developer", "description": "Can start and approve manufacture runs", "composite": false, "clientRole": false, "attributes": {} },
       { "name": "admin", "description": "Full administrative access", "composite": false, "clientRole": false, "attributes": {} }
     ]
   },

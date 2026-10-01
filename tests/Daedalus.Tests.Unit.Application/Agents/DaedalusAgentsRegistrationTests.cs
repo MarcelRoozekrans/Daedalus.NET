@@ -1,20 +1,26 @@
 using AI.Sentinel;
 using AI.Sentinel.Detectors.Security;
 using Daedalus.Agents;
+using Daedalus.Agents.Git;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Skills;
 using Daedalus.Agents.Workflow;
+using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Thalos;
+using Thalos.Caching;
+using Thalos.Git;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
+using Thalos.Sentinel;
 using Thalos.Skills;
 using Thalos.Tools;
 using ZeroAlloc.Authorization;
@@ -62,10 +68,9 @@ public sealed class DaedalusAgentsRegistrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        // A real host (WebApplicationBuilder/HostBuilder) always registers IHostEnvironment itself; this bare
-        // ServiceCollection does not, so StandingInstructionsWriter (task B5, DI-injected IHostEnvironment) fails
-        // to resolve unless the same instance handed to AddDaedalusAgents below is also registered here.
-        services.AddSingleton(environment);
+        // A real host gets the pull request factory from Daedalus.Infrastructure, not from AddDaedalusAgents, and
+        // the pull request publisher needs one to resolve.
+        services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(configuration, environment, embeddings);
         return services.BuildServiceProvider();
     }
@@ -142,12 +147,14 @@ public sealed class DaedalusAgentsRegistrationTests
 
         var sources = sp.GetServices<IToolSource>().ToList();
 
-        // Four local sources: reads live under the prefix agents already allow, and three write sources
+        // Five local sources: reads live under the prefix agents already allow, and three write sources
         // (Daedalus's own repoaction__* and manufacture__*, and Thalos's git__*) under prefixes no daedalus__*
         // glob can reach. manufacture__* -> developer is pinned separately by
         // RepoToolBoundaryTests.Every_manufacture_tool_is_bound_to_the_developer_policy; see RepoToolBoundaryTests
-        // for the write boundary itself.
-        sources.OfType<LocalToolSource>().Select(s => s.Name).Should().Equal("daedalus", "repoaction", "manufacture", "git");
+        // for the write boundary itself. Task B9: on a workflow host, as this one is, Thalos's workspace__* tools over
+        // each run's worktree come first, registered with the workspaces inside the engine block; their writes are
+        // bound to workspace-write in the shipped Thalos:ToolPolicies.
+        sources.OfType<LocalToolSource>().Select(s => s.Name).Should().Equal("workspace", "daedalus", "repoaction", "manufacture", "git");
     }
 
     [Fact]
@@ -182,30 +189,75 @@ public sealed class DaedalusAgentsRegistrationTests
     }
 
     /// <summary>
-    ///     Final review finding I3. The standing-instructions file is overwritten with approved model text, so a
-    ///     path that climbs out of the content root, whether rooted elsewhere or through <c>..</c>, must take the
-    ///     host down at registration. The sibling case is a directory that shares the content root's name as a
-    ///     prefix, which a string prefix check would wrongly accept.
+    ///     Task B6: the write audit and the review lenses resolve the run record store from the host, so a
+    ///     workflow-enabled host must register the EF store, not leave it for each consumer to add.
+    /// </summary>
+    [Fact]
+    public void The_run_record_store_is_registered_when_the_workflow_engine_is_enabled()
+    {
+        using var sp = Build(Config());
+
+        sp.GetService<IWorkflowRunRecordStore>().Should().BeOfType<WorkflowRunRecordStore>();
+    }
+
+    /// <summary>
+    ///     Final review finding I3, moved into the worktree by task B11. The standing-instructions file is overwritten
+    ///     with approved model text in the run's worktree, so a value that could name any file but a tracked markdown
+    ///     file of the repository must take the host down at registration. A rooted value is refused even where it
+    ///     lies under the content root, which phase 2.4 accepted; resolved against a worktree it would name that host
+    ///     file. A <c>..</c> segment is refused even where it would come back inside. Red, per row: drop the rooted
+    ///     check, and the two rooted rows fail; drop the <c>..</c> check, and the three <c>..</c> rows fail; drop the
+    ///     <see cref="Thalos.Workspaces.WorkspacePath.Resolve"/> check, and the three git rows and the NUL row fail. The
+    ///     NUL row also pins that no path API sees the raw value first: <c>Path.GetFullPath</c> would throw
+    ///     <see cref="ArgumentException"/> instead.
     /// </summary>
     [Theory]
-    [InlineData("../AGENT.md")]
-    [InlineData("nested/../../AGENT.md")]
-    [InlineData("SIBLING")]
-    [InlineData("ROOTED")]
-    public void A_standing_instructions_path_outside_the_content_root_fails_fast(string configured)
+    [InlineData("../AGENT.md", "*'..' segment*")]
+    [InlineData("nested/../../AGENT.md", "*'..' segment*")]
+    [InlineData("docs/../AGENT.md", "*'..' segment*")]
+    [InlineData("C:/x/AGENT.md", "*not a relative path*")]
+    [InlineData("ROOTED", "*not a relative path*")]
+    [InlineData(".git/AGENT.md", "*does not permit*git directory*")]
+    [InlineData("docs/.GIT/AGENT.md", "*does not permit*git directory*")]
+    [InlineData("git~1/AGENT.md", "*does not permit*git directory*")]
+    [InlineData("docs/AGENT\0.md", "*does not permit*NUL character*")]
+    public void A_standing_instructions_path_that_is_not_confined_to_the_worktree_fails_fast(string configured, string reason)
     {
-        var contentRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
-        var path = configured switch
-        {
-            "SIBLING" => Path.Combine("..", Path.GetFileName(contentRoot) + "-sibling", "AGENT.md"),
-            "ROOTED" => Path.Combine(Path.GetDirectoryName(contentRoot)!, "AGENT.md"),
-            _ => configured,
-        };
+        var path = string.Equals(configured, "ROOTED", StringComparison.Ordinal)
+            ? Path.Combine(Path.GetTempPath(), "AGENT.md")
+            : configured;
 
         var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", path)));
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*Thalos:Workflow:StandingInstructionsPath*outside the content root*");
+            .WithMessage("*Thalos:Workflow:StandingInstructionsPath*")
+            .WithMessage(reason);
+    }
+
+    /// <summary>
+    ///     Fix round 1 of task B11. A value <see cref="Thalos.Workspaces.WorkspacePath.Resolve"/> refuses on Windows — a
+    ///     reserved device name, or a segment ending in a dot — would boot and then fail every start and remove its
+    ///     worktree, so the boot asks <c>Resolve</c> itself. On Linux these are ordinary names, which <c>Resolve</c>
+    ///     accepts there, so the host boots, and this test pins that the check follows <c>Resolve</c> on each OS rather
+    ///     than a rule of its own. Red: drop the <c>Resolve</c> call, and every row boots on Windows.
+    /// </summary>
+    [Theory]
+    [InlineData("CON/AGENT.md")]
+    [InlineData("NUL.md")]
+    [InlineData("docs/.../AGENT.md")]
+    public void A_standing_instructions_path_the_worktree_refuses_on_windows_fails_fast_there(string configured)
+    {
+        var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", configured)));
+
+        if (OperatingSystem.IsWindows())
+        {
+            act.Should().Throw<InvalidOperationException>()
+                .WithMessage("*Thalos:Workflow:StandingInstructionsPath*does not permit*");
+        }
+        else
+        {
+            act.Should().NotThrow();
+        }
     }
 
     [Theory]
@@ -222,18 +274,15 @@ public sealed class DaedalusAgentsRegistrationTests
 
     /// <summary>
     ///     The mirror cases, without which the two tests above would be satisfied by a check that refused every
-    ///     path. A rooted path is accepted when it is under the content root.
+    ///     path: a relative markdown path, in a folder, in any case, or with a <c>.</c> segment the canonical form drops.
     /// </summary>
     [Theory]
     [InlineData("AGENT.md")]
     [InlineData("docs/STANDING.MD")]
-    [InlineData("docs/../AGENT.md")]
-    [InlineData("ROOTED")]
-    public void A_markdown_standing_instructions_path_under_the_content_root_is_accepted(string configured)
+    [InlineData("./AGENT.md")]
+    public void A_relative_markdown_standing_instructions_path_is_accepted(string configured)
     {
-        var path = string.Equals(configured, "ROOTED", StringComparison.Ordinal) ? Path.Combine(Path.GetTempPath(), "AGENT.md") : configured;
-
-        var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", path)));
+        var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", configured)));
 
         act.Should().NotThrow();
     }
@@ -294,6 +343,117 @@ public sealed class DaedalusAgentsRegistrationTests
         });
 
         seen.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     Spec decision 9: the provider-neutral cache hints are placed on every agent's chat client. Falsifiable:
+    ///     removing <c>.UsePromptCaching()</c> from <c>AddDaedalusAgents</c> leaves no such decorator registered.
+    /// </summary>
+    [Fact]
+    public void The_composed_host_places_prompt_cache_hints_on_every_agents_chat_client()
+    {
+        using var sp = Build(Config());
+
+        sp.GetServices<IChatClientDecorator>().Should().Contain(d => d.GetType().Name == "PromptCachingDecorator",
+            "the Anthropic translator only acts on the hints PromptCachingChatClient places");
+    }
+
+    /// <summary>
+    ///     The hints reach the provider through Sentinel. The chain is composed the way Thalos' <c>AgentFactory</c>
+    ///     composes it, every registered decorator in ascending <see cref="IChatClientDecorator.Order"/> around the
+    ///     provider's client, so a decorator that dropped a message's properties on the way in would strip them here.
+    ///     Falsifiable per assertion: disabling Sentinel in the default configuration fails the first, and removing
+    ///     <c>.UsePromptCaching()</c> fails the second and third.
+    /// </summary>
+    [Fact]
+    public async Task The_cache_hints_survive_sentinel_and_reach_the_provider()
+    {
+        using var sp = Build(Config());
+        var agent = sp.GetRequiredService<IAgentCatalog>().Agents.Single();
+        var provider = new CapturingChatClient();
+
+        var decorators = sp.GetServices<IChatClientDecorator>().OrderBy(d => d.Order).ToList();
+        IChatClient client = provider;
+        foreach (var decorator in decorators)
+        {
+            client = decorator.Decorate(client, agent, sp);
+        }
+
+        await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "List the open tasks.")],
+            new ChatOptions { Instructions = "You are helpful." },
+            CancellationToken.None);
+
+        decorators.Should().Contain(d => d is SentinelChatClientDecorator, "otherwise this proves nothing about Sentinel");
+        var sent = provider.Messages.Should().ContainSingle().Subject;
+        sent.AdditionalProperties.Should().ContainKey(PromptCacheHints.Breakpoint);
+        provider.Options!.AdditionalProperties.Should().ContainKey(PromptCacheHints.InstructionsBreakpoint);
+    }
+
+    /// <summary>
+    ///     Ruling R28a: the publisher answers the open-pull-request lookup too, as one scoped instance. Falsifiable:
+    ///     registering the lookup as its own <c>AddScoped&lt;IOpenPullRequestLookup, ThalosPullRequestPublisher&gt;()</c>
+    ///     fails the same-instance assertion, and leaving the registration out makes the resolution throw.
+    /// </summary>
+    [Fact]
+    public void The_open_pull_request_lookup_is_the_scoped_pull_request_publisher()
+    {
+        using var sp = Build(Config());
+        using var scope = sp.CreateScope();
+
+        var lookup = scope.ServiceProvider.GetRequiredService<IOpenPullRequestLookup>();
+
+        lookup.Should()
+            .BeSameAs(scope.ServiceProvider.GetRequiredService<IPullRequestPublisher>());
+    }
+
+    /// <summary>
+    ///     Final review M3: the lookup maps to the concrete registration, not to a cast of whatever answers
+    ///     <see cref="IPullRequestPublisher"/>, so a host that substitutes the publisher still resolves the lookup. Red:
+    ///     casting <c>IPullRequestPublisher</c> back to <see cref="ThalosPullRequestPublisher"/>, as before, throws
+    ///     <see cref="InvalidCastException"/> here.
+    /// </summary>
+    [Fact]
+    public void A_substituted_publisher_leaves_the_open_pull_request_lookup_resolvable()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddSingleton(Substitute.For<IPullRequestFactory>());
+        services.AddDaedalusAgents(Config(), Environment());
+        var substitute = Substitute.For<IPullRequestPublisher>();
+        services.Replace(ServiceDescriptor.Scoped(_ => substitute));
+        using var sp = services.BuildServiceProvider();
+        using var scope = sp.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IPullRequestPublisher>().Should().BeSameAs(substitute);
+        scope.ServiceProvider.GetRequiredService<IOpenPullRequestLookup>().Should().BeOfType<ThalosPullRequestPublisher>();
+    }
+
+    /// <summary>The provider end of the chain: records what arrived and answers with one fixed reply.</summary>
+    private sealed class CapturingChatClient : IChatClient
+    {
+        public IReadOnlyList<ChatMessage> Messages { get; private set; } = [];
+
+        public ChatOptions? Options { get; private set; }
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            Messages = [.. messages];
+            Options = options;
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "none open")));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using System.Data.Async.Adapters;
+using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
@@ -8,23 +8,15 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Thalos;
 using Thalos.Workflow;
-using Thalos.Workflow.Orm;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>
 ///     End-to-end coverage of <c>POST</c>/<c>GET /api/workflow-runs</c> against a real, migrated Postgres database
-///     with the workflow engine <b>enabled</b> — every other Integration test that boots
-///     <see cref="ApiWebApplicationFactory"/> runs with <c>Thalos:Workflow:Enabled=false</c> (see that class's own
-///     remarks); this is the one surface that needs the engine genuinely on. Follows
-///     <c>ProcessDefinitionSyncEndToEndTests</c> for how to migrate a throwaway database with
-///     Thalos.NET.Workflow.Orm's raw-SQL tables on top of the EF Core schema, and
-///     <c>ResumeSignalMismatchTests</c> for running each test against its own scratch database rather than the
-///     shared <see cref="PostgresFixture"/> one, which is built with <c>EnsureCreatedAsync</c> and has none of
-///     those tables.
+///     with the workflow engine <b>enabled</b>, over <see cref="ScratchWorkflowHost"/>: one throwaway database, one
+///     <see cref="LocalGitRemote"/> allow-listed as <see cref="ScratchWorkflowHost.Repository"/> and one temp data root
+///     per test, so a test that deactivates a skill or creates a worktree can never leak into another.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class StartRunEndpointTests(PostgresFixture fixture)
@@ -32,128 +24,198 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task Posting_a_blank_work_intent_returns_bad_request()
     {
-        await WithRunningHostAsync(async (factory, _) =>
-        {
-            using var client = DeveloperClient(factory);
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        using var client = host.Client("a-developer", "developer");
 
-            var response = await client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "   " });
+        var response = await client.PostAsJsonAsync(
+            "/api/workflow-runs", new { workIntent = "   ", repository = ScratchWorkflowHost.Repository });
 
-            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        });
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>
+    ///     Red: drop the controller's blank-repository check, and the blank name reaches the starter, which answers
+    ///     422 because no repository is named <c>"   "</c>.
+    /// </summary>
+    [Fact]
+    public async Task Posting_a_blank_repository_returns_bad_request()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        using var client = host.Client("a-developer", "developer");
+
+        var response = await client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "anything", repository = "   " });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     /// <summary>
     ///     Controller ruling R5: the pinned nodes are read off the real, loaded, active process definition — never
-    ///     a hardcoded <c>["implement", "review", "retrospect"]</c> list — so this stays correct at the current
-    ///     process version 4 (implement, review, publish) and again once phase 2.4 task B4 adds <c>retrospect</c>
-    ///     at version 5, with no edit to this test.
+    ///     a hardcoded <c>["implement", "review", "retrospect"]</c> list — so this stays correct as the process
+    ///     gains or loses task nodes, with no edit to this test.
     /// </summary>
     [Fact]
     public async Task A_developer_starting_a_run_gets_every_task_node_of_the_active_process_pinned()
     {
-        await WithRunningHostAsync(async (factory, _) =>
-        {
-            var definitions = factory.Services.GetRequiredService<IProcessDefinitionStore>();
-            var version = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
-            version.Should().NotBeNull("otherwise this test proves nothing about the real process");
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        var definitions = host.Factory.Services.GetRequiredService<IProcessDefinitionStore>();
+        var version = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
+        version.Should().NotBeNull("otherwise this test proves nothing about the real process");
 
-            var definition = await definitions.GetAsync("manufacture", version!.Value, CancellationToken.None);
-            definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);
+        var definition = await definitions.GetAsync("manufacture", version!.Value, CancellationToken.None);
+        definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);
 
-            var expectedTaskNodes = definition.Value.Nodes
-                .Where(n => n.Value.Agent is not null)
-                .Select(n => n.Key)
-                .ToList();
-            expectedTaskNodes.Should().NotBeEmpty("otherwise this test passes vacuously");
+        var expectedTaskNodes = definition.Value.Nodes
+            .Where(n => n.Value.Agent is not null)
+            .Select(n => n.Key)
+            .ToList();
+        expectedTaskNodes.Should().NotBeEmpty("otherwise this test passes vacuously");
 
-            using var client = DeveloperClient(factory);
-            const string intent = "add a health check endpoint";
+        const string intent = "add a health check endpoint";
+        var runId = await StartAsync(host, intent);
 
-            var response = await client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = intent });
+        var run = await host.Store.FindAsync(runId, CancellationToken.None);
+        run.Should().NotBeNull("the row must exist once the endpoint has reported 201");
+        run!.Variables["work_intent"].Should().Be(intent);
+        run.Manifest.Should().NotBeNull();
+        run.Manifest!.Nodes.Keys.Should().BeEquivalentTo(expectedTaskNodes,
+            "every task node of the active process must be pinned, derived from the loaded definition");
+    }
 
-            response.StatusCode.Should().Be(HttpStatusCode.Created);
-            var body = await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>();
-            body.Should().NotBeNull();
+    /// <summary>
+    ///     The run records the HTTP caller as its starter. Falsifiable per assertion: passing a constant
+    ///     <c>new RunPrincipal("manufacture-endpoint", [])</c> from the controller fails the id assertion, and
+    ///     dropping the roles, <c>new RunPrincipal(caller.Id, [])</c>, fails the roles assertion.
+    /// </summary>
+    [Fact]
+    public async Task Post_records_the_callers_subject_and_roles_as_the_starter()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        using var client = host.Client("a-developer", "developer");
 
-            var store = factory.Services.GetRequiredService<IWorkflowStore>();
-            var run = await store.FindAsync(body!.RunId, CancellationToken.None);
+        var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("Tighten a guard.", ScratchWorkflowHost.Repository));
 
-            run.Should().NotBeNull("the row must exist once the endpoint has reported 201");
-            run!.Variables["work_intent"].Should().Be(intent);
-            run.Manifest.Should().NotBeNull();
-            run.Manifest!.Nodes.Keys.Should().BeEquivalentTo(expectedTaskNodes,
-                "every task node of the active process must be pinned, derived from the loaded definition");
-        });
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var runId = (await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
+        var run = await host.Store.FindAsync(runId, CancellationToken.None);
+        run!.StartedBy!.Id.Should().Be("a-developer", "HeaderTestAuthHandler puts X-Test-User in the sub claim");
+        run.StartedBy.Roles.Should().Equal("developer");
+    }
+
+    /// <summary>
+    ///     The run gets a worktree of the allow-listed remote on its own branch, and pins the worktree's
+    ///     <c>AGENT.md</c> and the intent. Red, per assertion: name the branch anything else, and the first fails; pin
+    ///     from the host content root, whose <c>AGENT.md</c> is not the seeded text, and the second fails; leave the
+    ///     intent out of the documents, and the last fails.
+    /// </summary>
+    [Fact]
+    public async Task Start_creates_a_worktree_on_the_run_branch_and_pins_its_AGENT_md_and_the_intent()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        var runId = await StartAsync(host, "Tighten a guard.");
+
+        var root = Path.Combine(host.RunsRoot, runId.ToString());
+        LocalGitRemote.Git(root, "rev-parse --abbrev-ref HEAD").Should().Be($"manufacture/{runId}");
+        var run = await host.Store.FindAsync(runId, CancellationToken.None);
+        run!.Manifest!.Documents.Should().ContainKey(ManufactureRunStarter.StandingInstructionsDocument)
+            .WhoseValue.Should().Be("Run dotnet test.");
+        run.Manifest.Documents.Should().ContainKey(ManufactureRunStarter.WorkIntentDocument)
+            .WhoseValue.Should().Be("Tighten a guard.");
+    }
+
+    /// <summary>
+    ///     Ruling R16. Red: resolve an unknown name to <c>config.Repositories[0]</c> instead of failing, and the start
+    ///     succeeds, so the status assertion fails. With the ones before it commented out, a run row appears and
+    ///     fails the count, and a worktree directory appears and fails the last.
+    /// </summary>
+    [Fact]
+    public async Task An_unlisted_repository_is_422_and_leaves_no_run_and_no_worktree()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        using var client = host.Client("a-developer", "developer");
+        var runsBefore = await CountWorkflowRunsAsync(host.ConnectionString);
+        var directoriesBefore = host.RunDirectories();
+
+        var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("x", "not-listed"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await CountWorkflowRunsAsync(host.ConnectionString)).Should().Be(runsBefore);
+        host.RunDirectories().Should().BeEquivalentTo(directoriesBefore, "compared before and after, so no other test's run can decide it");
     }
 
     [Fact]
     public async Task A_deactivated_node_skill_fails_the_start_and_writes_no_row()
     {
-        await WithRunningHostAsync(async (factory, connectionString) =>
-        {
-            await DeactivateSkillAsync(connectionString, "manufacture-implement");
-            var before = await CountWorkflowRunsAsync(connectionString);
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        await DeactivateSkillAsync(host.ConnectionString, "manufacture-implement");
+        var before = await CountWorkflowRunsAsync(host.ConnectionString);
+        using var client = host.Client("a-developer", "developer");
 
-            using var client = DeveloperClient(factory);
-            var response = await client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "anything" });
+        var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("anything", ScratchWorkflowHost.Repository));
 
-            response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-            var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-            problem.Should().NotBeNull();
-            problem!.Detail.Should().Contain("implement", "the failure must name the node whose skill is not active");
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Detail.Should().Contain("implement", "the failure must name the node whose skill is not active");
 
-            var after = await CountWorkflowRunsAsync(connectionString);
-            after.Should().Be(before, "a pin failure must not create a run row");
-        });
+        var after = await CountWorkflowRunsAsync(host.ConnectionString);
+        after.Should().Be(before, "a pin failure must not create a run row");
+    }
+
+    /// <summary>Red: drop the <c>RemoveAsync</c> after a failed start, and the worktree made before the pin failed stays.</summary>
+    [Fact]
+    public async Task A_pin_failure_removes_the_worktree_it_created()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        await DeactivateSkillAsync(host.ConnectionString, "manufacture-implement");
+        using var client = host.Client("a-developer", "developer");
+        var directoriesBefore = host.RunDirectories();
+
+        var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("x", ScratchWorkflowHost.Repository));
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        host.RunDirectories().Should().BeEquivalentTo(directoriesBefore, "the worktree made before the pin failed is removed");
     }
 
     [Fact]
     public async Task Starting_a_run_without_authentication_returns_unauthorized()
     {
-        await WithRunningHostAsync(async (factory, _) =>
-        {
-            using var client = factory.CreateClient();
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        using var client = host.Factory.CreateClient();
 
-            var response = await client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "anything" });
+        var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("anything", ScratchWorkflowHost.Repository));
 
-            response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        });
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
     public async Task A_non_developer_cannot_start_a_run()
     {
-        await WithRunningHostAsync(async (factory, _) =>
-        {
-            using var client = factory.CreateClient();
-            client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, "a-reader");
-            client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, "reader");
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        using var client = host.Client("a-reader", "reader");
 
-            var response = await client.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "anything" });
+        var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("anything", ScratchWorkflowHost.Repository));
 
-            response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        });
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
     public async Task Getting_an_unknown_run_returns_not_found()
     {
-        await WithRunningHostAsync(async (factory, _) =>
-        {
-            using var client = DeveloperClient(factory);
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+        using var client = host.Client("a-developer", "developer");
 
-            var response = await client.GetAsync($"/api/workflow-runs/{Guid.NewGuid()}");
+        var response = await client.GetAsync($"/api/workflow-runs/{Guid.NewGuid()}");
 
-            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        });
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    private static HttpClient DeveloperClient(ApiWebApplicationFactory factory)
+    /// <summary>Posts <paramref name="intent"/> on <see cref="ScratchWorkflowHost.Repository"/> as <c>a-developer</c>, asserts 201 and returns the run id.</summary>
+    private static async Task<Guid> StartAsync(ScratchWorkflowHost host, string intent)
     {
-        var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, "a-developer");
-        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, "developer");
-        return client;
+        using var client = host.Client("a-developer", "developer");
+        var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest(intent, ScratchWorkflowHost.Repository));
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        return (await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
     }
 
     /// <summary>
@@ -176,70 +238,5 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand("SELECT COUNT(*) FROM workflow_run", connection);
         return (long)(await command.ExecuteScalarAsync())!;
-    }
-
-    /// <summary>
-    ///     Creates a throwaway database, applies the same migrations <c>ProcessDefinitionSyncEndToEndTests</c>
-    ///     does (EF Core's model, the <c>vector</c> extension, then Thalos.NET.Workflow.Orm's raw-SQL outbox and
-    ///     workflow tables), boots a real <see cref="ApiWebApplicationFactory"/> against it with the workflow
-    ///     engine enabled, runs <paramref name="body"/>, and tears both down afterward — mirroring
-    ///     <c>ResumeSignalMismatchTests.WithScratchDatabaseAsync</c>, one throwaway database per test rather than
-    ///     one shared across the class, so <see cref="A_deactivated_node_skill_fails_the_start_and_writes_no_row"/>
-    ///     deactivating a skill can never leak into any other test here.
-    /// </summary>
-    private async Task WithRunningHostAsync(Func<ApiWebApplicationFactory, string, Task> body)
-    {
-        var dbName = $"start_run_e2e_{Guid.NewGuid():N}";
-        await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
-        var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = dbName }.ConnectionString;
-
-        ApiWebApplicationFactory? factory = null;
-        try
-        {
-            await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(connectionString)))
-            {
-                await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
-                await db.Database.MigrateAsync();
-            }
-
-            await using (var connection = new NpgsqlConnection(connectionString))
-            {
-                await connection.OpenAsync();
-                var asyncConnection = connection.AsAsync();
-                var dialect = new PostgresMigrationDialect();
-                await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-                await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
-            }
-
-            factory = new ApiWebApplicationFactory(connectionString, Substitute.For<IAgentRuntime>(), workflowEnabled: true);
-
-            // Forces the host to build and start now, synchronously, rather than lazily on the first client or
-            // service resolution a test happens to make. ProcessDefinitionSyncHostedService and Thalos' skill
-            // sync both await their initial sync inline from StartAsync, so once this returns, `manufacture` and
-            // every skills/*/SKILL.md file (including manufacture-implement, which
-            // A_deactivated_node_skill_fails_the_start_and_writes_no_row deactivates before any request is made)
-            // are already seeded.
-            _ = factory.Services;
-
-            await body(factory, connectionString);
-        }
-        finally
-        {
-            if (factory is not null)
-            {
-                await factory.DisposeAsync();
-            }
-
-            NpgsqlConnection.ClearAllPools();
-            await ExecuteOnServerAsync($"DROP DATABASE IF EXISTS \"{dbName}\" WITH (FORCE)");
-        }
-    }
-
-    private async Task ExecuteOnServerAsync(string sql)
-    {
-        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(sql, connection);
-        await command.ExecuteNonQueryAsync();
     }
 }

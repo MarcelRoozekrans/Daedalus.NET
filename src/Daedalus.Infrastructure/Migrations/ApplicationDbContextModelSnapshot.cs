@@ -18,7 +18,7 @@ namespace Daedalus.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.2")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -1098,6 +1098,54 @@ namespace Daedalus.Infrastructure.Migrations
                     b.ToTable("TaskExecutions");
                 });
 
+            modelBuilder.Entity("Daedalus.Domain.Entities.WorkflowRunRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Node")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("PrincipalId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Seq")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StartedById")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId", "Kind", "Seq")
+                        .HasDatabaseName("IX_WorkflowRunRecords_RunId_Kind_Seq");
+
+                    b.ToTable("WorkflowRunRecords", (string)null);
+                });
+
             modelBuilder.Entity("ZeroAlloc.Outbox.EfCore.OutboxMessageEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1108,6 +1156,13 @@ namespace Daedalus.Infrastructure.Migrations
 
                     b.Property<string>("DeadLetterError")
                         .HasColumnType("text");
+
+                    b.Property<string>("LockedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("NextRetryAt")
                         .HasColumnType("timestamp with time zone");

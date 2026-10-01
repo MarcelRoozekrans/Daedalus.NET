@@ -91,6 +91,72 @@ public static class ReviewHandoff
     public const string RetrospectSkillName = "manufacture-retrospect";
 
     /// <summary>
+    ///     Which run variables only one node may write, keyed by the variable, valued by the skill that node is pinned
+    ///     to. <see cref="ReviewHandoffWorkflowStore"/> strips a listed key from the report of every node pinned to any
+    ///     other skill, because Thalos accepts any key name a node reports and a later write wins.
+    ///     <list type="bullet">
+    ///         <item>
+    ///             <see cref="ProposedStandingInstructionsKey"/>: only <see cref="RetrospectSkillName"/>. The gate
+    ///             shows it as retrospect's proposal, and a human's apply writes it to disk (design decision D4).
+    ///         </item>
+    ///         <item>
+    ///             <see cref="SummaryKey"/>: only <see cref="ImplementSkillName"/>. Phase 2.5 task B14:
+    ///             <c>open-pull-request</c> renders it into the pull request body as the implementer's account, so no
+    ///             review lens or retrospect turn may write that account for it.
+    ///         </item>
+    ///     </list>
+    /// </summary>
+    public static readonly FrozenDictionary<string, string> Authors =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [ProposedStandingInstructionsKey] = RetrospectSkillName,
+            [SummaryKey] = ImplementSkillName,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>The pull request URL <c>open-pull-request</c> records once it has published. The run view shows it as a link.</summary>
+    public const string PrUrlKey = "pr_url";
+
+    /// <summary>Why <c>open-pull-request</c> reported its <c>failed</c> outcome, such as "nothing to publish".</summary>
+    public const string PublishErrorKey = "publish_error";
+
+    /// <summary>The <c>open-pull-request</c> host action's name, the only writer of <see cref="PrUrlKey"/> and <see cref="PublishErrorKey"/>.</summary>
+    public const string PublishActionName = "open-pull-request";
+
+    /// <summary>
+    ///     Run variables no agent node may write, keyed by the variable, valued by the host action that writes it, or
+    ///     <see langword="null"/> when only the run's start does. <see cref="ReviewHandoffWorkflowStore"/> strips a listed
+    ///     key from every node's report unless the node is that action.
+    ///     <list type="bullet">
+    ///         <item>
+    ///             <see cref="WorkIntentKey"/>: only the start. The review lenses read it from the bag as what was asked
+    ///             of the run, so a node that rewrote it would choose what its own work is judged against.
+    ///         </item>
+    ///         <item>
+    ///             <see cref="PrUrlKey"/> and <see cref="PublishErrorKey"/>: only <see cref="PublishActionName"/>. The run
+    ///             view shows <c>pr_url</c> as the run's pull request, so an agent that wrote one would point the
+    ///             approver at a link of its own choosing.
+    ///         </item>
+    ///     </list>
+    /// </summary>
+    public static readonly FrozenDictionary<string, string?> HostWritten =
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [WorkIntentKey] = null,
+            [PrUrlKey] = PublishActionName,
+            [PublishErrorKey] = PublishActionName,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    ///     The keys a host action writes, which <see cref="ReviewHandoffWorkflowStore"/> keeps room for in the run's
+    ///     bag: an agent node's report may not take the bag past <c>MaxVariableKeys</c> minus those of these the bag
+    ///     does not hold yet. Thalos checks a host action's report against the key cap only after the action has run,
+    ///     so without the reservation a bag agents had filled would fail <c>open-pull-request</c> after it had pushed
+    ///     and opened the pull request.
+    /// </summary>
+    public static readonly FrozenSet<string> HostActionKeys =
+        HostWritten.Where(kv => kv.Value is not null).Select(kv => kv.Key).ToFrozenSet(StringComparer.Ordinal);
+
+    /// <summary>
     ///     The only keys a <c>review</c> dispatch is given. <see cref="FilesTouchedKey"/> is the sole thing the
     ///     implementer writes that appears here: a pointer travels, an account does not.
     /// </summary>

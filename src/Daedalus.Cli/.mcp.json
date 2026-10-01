@@ -6,7 +6,7 @@
     "roslyn": {
       "type": "stdio",
       "command": "dnx",
-      "args": ["RoslynCodeLens.Mcp", "--yes", "--", "C:/Projects/Prive/daedalus/Daedalus.sln"],
+      "args": ["RoslynCodeLens.Mcp@2.18.1", "--yes", "--", "C:/Projects/Prive/daedalus/Daedalus.sln"],
       "env": { "ROSLYN_CODELENS_OPEN_PROJECT_TIMEOUT_SECONDS": "600" },
       "shutdownTimeout": "00:00:02"
     },

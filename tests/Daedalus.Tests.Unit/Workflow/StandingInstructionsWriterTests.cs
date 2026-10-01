@@ -1,7 +1,7 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
-using Microsoft.Extensions.Hosting;
 using Thalos.Workflow;
+using Thalos.Workspaces;
 
 namespace Daedalus.Tests.Unit.Workflow;
 
@@ -9,32 +9,123 @@ namespace Daedalus.Tests.Unit.Workflow;
 ///     <see cref="StandingInstructionsWriter"/> is the one place anything ever writes
 ///     <c>Thalos:Workflow:StandingInstructionsPath</c> — task B5's trust boundary between a model's proposal and a
 ///     human's decision. Every test here points at a <see cref="TempDirectory"/>, never a real project directory:
-///     see that type's own remarks, and the task brief's "test isolation" note.
+///     see that type's own remarks, and the task brief's "test isolation" note. Since task B11 that directory is the
+///     run's worktree, which a substituted <see cref="IRunWorkspaceProvider"/> reports for the run's id.
 /// </summary>
 public sealed class StandingInstructionsWriterTests
 {
+    /// <summary>
+    ///     Task B11: the proposal lands in the run's worktree. Red: resolve the configured path against the process's
+    ///     own directory instead of the worktree, as phase 2.4 resolved it against the content root, and the first
+    ///     assertion fails, because no file there holds the pinned text.
+    /// </summary>
     [Fact]
     public async Task Writes_the_proposal_when_the_file_still_matches_the_pinned_text()
     {
         using var dir = new TempDirectory();
-        File.WriteAllText(dir.Path("AGENT.md"), "Run dotnet test.");
+        await File.WriteAllTextAsync(dir.Path("AGENT.md"), "Run dotnet test.");
         var run = RunWith(pinned: "Run dotnet test.", proposal: "Run dotnet test.\nIntegration needs Docker.");
 
-        (await Writer(dir).ApplyAsync(run, CancellationToken.None)).IsSuccess.Should().BeTrue();
-        File.ReadAllText(dir.Path("AGENT.md")).Should().Be("Run dotnet test.\nIntegration needs Docker.");
+        (await Writer(dir, run).ApplyAsync(run, CancellationToken.None)).IsSuccess.Should().BeTrue();
+        (await File.ReadAllTextAsync(dir.Path("AGENT.md"))).Should().Be("Run dotnet test.\nIntegration needs Docker.");
     }
 
     [Fact]
     public async Task Refuses_when_the_file_changed_since_the_run_started_and_leaves_it_alone()
     {
         using var dir = new TempDirectory();
-        File.WriteAllText(dir.Path("AGENT.md"), "Someone edited this.");
+        await File.WriteAllTextAsync(dir.Path("AGENT.md"), "Someone edited this.");
         var run = RunWith(pinned: "Run dotnet test.", proposal: "Run dotnet test.\nX.");
 
-        var result = await Writer(dir).ApplyAsync(run, CancellationToken.None);
+        var result = await Writer(dir, run).ApplyAsync(run, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        File.ReadAllText(dir.Path("AGENT.md")).Should().Be("Someone edited this.");
+        (await File.ReadAllTextAsync(dir.Path("AGENT.md"))).Should().Be("Someone edited this.");
+    }
+
+    /// <summary>
+    ///     Task B11: the writer asks the provider for the run's own worktree, and a run without one is refused before
+    ///     anything is resolved. Red, per assertion: report <see cref="ResumeRefusal.NoProposal"/> there, and the first
+    ///     fails; report any other detail, and the second fails.
+    /// </summary>
+    [Fact]
+    public async Task A_run_with_no_workspace_is_refused_as_a_write_failure()
+    {
+        using var dir = new TempDirectory();
+        var run = RunWith(pinned: "", proposal: "New instructions.");
+        var workspaces = Substitute.For<IRunWorkspaceProvider>();
+        workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>((RunWorkspace?)null));
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, workspaces);
+
+        var result = await writer.ApplyAsync(run, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.WriteFailed);
+        result.Error.Detail.Should().Be("run has no workspace");
+    }
+
+    /// <summary>
+    ///     Task B11: a directory link inside the worktree that leads out of it cannot carry the write out. The file
+    ///     outside holds exactly the pinned text, so a writer that followed the link would pass the staleness check and
+    ///     overwrite it. Red: combine the worktree root and the configured path with <see cref="Path.Combine(string,string)"/>
+    ///     instead of <see cref="WorkspacePath.Resolve"/>, and the first assertion fails, with the outside file holding
+    ///     the proposal; report success on that refusal instead, and the second fails; report it as
+    ///     <see cref="ResumeRefusal.InstructionsChangedSinceStart"/>, and the third fails.
+    /// </summary>
+    [Fact]
+    public async Task A_link_that_leads_out_of_the_worktree_is_refused_and_the_file_outside_is_untouched()
+    {
+        using var worktree = new TempDirectory();
+        using var outside = new TempDirectory();
+        await File.WriteAllTextAsync(outside.Path("AGENT.md"), "Run dotnet test.");
+        using var link = DirectoryLink.Create(worktree.Path("docs"), outside.Root);
+        var run = RunWith(pinned: "Run dotnet test.", proposal: "Overwritten through a link.");
+
+        var result = await Writer(worktree, run, "docs/AGENT.md").ApplyAsync(run, CancellationToken.None);
+
+        (await File.ReadAllTextAsync(outside.Path("AGENT.md"))).Should().Be("Run dotnet test.");
+        result.IsFailure.Should().BeTrue();
+        result.Error.Kind.Should().Be(ResumeRefusal.WriteFailed);
+    }
+
+    /// <summary>
+    ///     Task B11: the writer takes the canonical relative path, the one the run starter pins from and the
+    ///     <c>workspace__*</c> tools protect, so <c>./AGENT.md</c> is the worktree's <c>AGENT.md</c>. Red, per
+    ///     assertion: resolve the configured value as it is, and <see cref="WorkspacePath.Resolve"/> refuses its
+    ///     <c>.</c> segment, so the first fails; drop the move of the temp file onto the target, and the second fails.
+    /// </summary>
+    [Fact]
+    public async Task A_non_canonical_path_writes_the_same_file_the_canonical_one_names()
+    {
+        using var dir = new TempDirectory();
+        await File.WriteAllTextAsync(dir.Path("AGENT.md"), "Old instructions.");
+        var run = RunWith(pinned: "Old instructions.", proposal: "New instructions.");
+
+        var result = await Writer(dir, run, "./AGENT.md").ApplyAsync(run, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Detail : null);
+        (await File.ReadAllTextAsync(dir.Path("AGENT.md"))).Should().Be("New instructions.");
+    }
+
+    /// <summary>
+    ///     Task B11: the writer refuses the same values registration refuses, so a writer built outside the composition
+    ///     root cannot be pointed at a host file either. Red: take the configured value without the shared check, and
+    ///     nothing throws.
+    /// </summary>
+    [Theory]
+    [InlineData("../AGENT.md")]
+    [InlineData("C:/x/AGENT.md")]
+    [InlineData(".git/AGENT.md")]
+    [InlineData("ROOTED")]
+    public void A_path_that_is_not_confined_to_the_worktree_is_refused_when_the_writer_is_built(string configured)
+    {
+        var path = string.Equals(configured, "ROOTED", StringComparison.Ordinal)
+            ? Path.Combine(Path.GetTempPath(), "AGENT.md")
+            : configured;
+
+        var act = () => new StandingInstructionsWriter(
+            new WorkflowConfig { StandingInstructionsPath = path }, Substitute.For<IRunWorkspaceProvider>());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Workflow:StandingInstructionsPath*");
     }
 
     /// <summary>
@@ -48,10 +139,10 @@ public sealed class StandingInstructionsWriterTests
     public async Task Reports_the_instructions_changed_refusal_kind()
     {
         using var dir = new TempDirectory();
-        File.WriteAllText(dir.Path("AGENT.md"), "Someone edited this.");
+        await File.WriteAllTextAsync(dir.Path("AGENT.md"), "Someone edited this.");
         var run = RunWith(pinned: "Run dotnet test.", proposal: "Run dotnet test.\nX.");
 
-        var result = await Writer(dir).ApplyAsync(run, CancellationToken.None);
+        var result = await Writer(dir, run).ApplyAsync(run, CancellationToken.None);
 
         result.Error.Kind.Should().Be(ResumeRefusal.InstructionsChangedSinceStart);
     }
@@ -71,7 +162,7 @@ public sealed class StandingInstructionsWriterTests
         using var dir = new TempDirectory();
         var run = RunWith(pinned: "", proposal: null);
 
-        var result = await Writer(dir).ApplyAsync(run, CancellationToken.None);
+        var result = await Writer(dir, run).ApplyAsync(run, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Kind.Should().Be(ResumeRefusal.NoProposal);
@@ -90,7 +181,7 @@ public sealed class StandingInstructionsWriterTests
         using var dir = new TempDirectory();
         var run = RunWith(pinned: "", proposal: "");
 
-        var result = await Writer(dir).ApplyAsync(run, CancellationToken.None);
+        var result = await Writer(dir, run).ApplyAsync(run, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Kind.Should().Be(ResumeRefusal.NoProposal);
@@ -109,17 +200,17 @@ public sealed class StandingInstructionsWriterTests
         using var dir = new TempDirectory();
         var run = RunWith(pinned: "", proposal: "First-ever standing instructions.");
 
-        var result = await Writer(dir).ApplyAsync(run, CancellationToken.None);
+        var result = await Writer(dir, run).ApplyAsync(run, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        File.ReadAllText(dir.Path("AGENT.md")).Should().Be("First-ever standing instructions.");
+        (await File.ReadAllTextAsync(dir.Path("AGENT.md"))).Should().Be("First-ever standing instructions.");
     }
 
     /// <summary>
     ///     Falsifiable: removing the <c>catch (IOException)</c> block in
     ///     <c>StandingInstructionsWriter.ApplyAsync</c> turns this red — the unhandled
     ///     <see cref="DirectoryNotFoundException"/> (an <see cref="IOException"/> subtype)
-    ///     <see cref="File.WriteAllTextAsync(string,string,CancellationToken)"/> throws when the temp file's
+    ///     the temp file's <see cref="FileStream"/> throws when the temp file's
     ///     directory does not exist would then propagate out of <c>ApplyAsync</c> instead of coming back as a
     ///     <see cref="ResumeRefusal.WriteFailed"/> result. The target's parent directory is never created — this
     ///     is what makes the write step itself fail, after the earlier read/staleness check (against a path that
@@ -129,10 +220,8 @@ public sealed class StandingInstructionsWriterTests
     public async Task Reports_write_failed_when_the_target_directory_does_not_exist()
     {
         using var dir = new TempDirectory();
-        var writer = new StandingInstructionsWriter(
-            new WorkflowConfig { StandingInstructionsPath = dir.Path("missing-subdirectory/AGENT.md") },
-            Substitute.For<IHostEnvironment>());
         var run = RunWith(pinned: "", proposal: "New instructions.");
+        var writer = Writer(dir, run, "missing-subdirectory/AGENT.md");
 
         var result = await writer.ApplyAsync(run, CancellationToken.None);
 
@@ -196,7 +285,7 @@ public sealed class StandingInstructionsWriterTests
         Directory.CreateDirectory(dir.Path("AGENT.md"));
         var run = RunWith(pinned: "", proposal: "New instructions.");
 
-        var result = await Writer(dir).ApplyAsync(run, CancellationToken.None);
+        var result = await Writer(dir, run).ApplyAsync(run, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Kind.Should().Be(ResumeRefusal.WriteFailed);
@@ -204,8 +293,14 @@ public sealed class StandingInstructionsWriterTests
             "a failed move must not leave an orphaned temp file behind in the standing-instructions directory");
     }
 
-    private static StandingInstructionsWriter Writer(TempDirectory dir) =>
-        new(new WorkflowConfig { StandingInstructionsPath = dir.Path("AGENT.md") }, Substitute.For<IHostEnvironment>());
+    /// <summary>A writer whose provider knows only <paramref name="run"/>'s worktree, <paramref name="worktree"/>.</summary>
+    private static StandingInstructionsWriter Writer(TempDirectory worktree, WorkflowRun run, string path = "AGENT.md")
+    {
+        var workspaces = Substitute.For<IRunWorkspaceProvider>();
+        workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(
+            new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", worktree.Root, null)));
+        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = path }, workspaces);
+    }
 
     private static WorkflowRun RunWith(string pinned, string? proposal)
     {

@@ -642,7 +642,8 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         });
         services.AddOutbox(o => o.PollingInterval = TimeSpan.FromHours(1))
             .WithEfCore<ApplicationDbContext>()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            .WithSystemTextJsonSerializer();
         services.Configure<ScheduleDiagnosticsOptions>(o =>
         {
             o.StrandedAfter = _strandedAfter;

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
@@ -27,8 +28,10 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using Thalos;
 using Thalos.Anthropic;
+using Thalos.Caching;
 using Thalos.Git;
 using Thalos.Git.LibGit2Sharp;
+using Thalos.Git.Workspaces;
 using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
@@ -37,11 +40,12 @@ using Thalos.Skills;
 using Thalos.Skills.Charters;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
+using Thalos.Workspaces;
 
 namespace Daedalus.Agents;
 
 /// <summary>Composition root for the Thalos-based agent stack. Ralph Loop registrations are untouched (strangler).</summary>
-public static class DaedalusAgentsServiceCollectionExtensions
+public static partial class DaedalusAgentsServiceCollectionExtensions
 {
     /// <summary>The Thalos tool-source name of <see cref="DaedalusKnowledgeTools"/>; tools appear as <c>daedalus__{tool}</c>.</summary>
     public const string KnowledgeToolSourceName = "daedalus";
@@ -192,6 +196,13 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // it is durability laid down for 1.5 proactive pushes. See the design doc, section 9.
         services.AddChannelOutbox();
 
+        // The deadline every detached agent turn runs under: SubagentRunExecutor applies it to the scheduling
+        // steps this outbox dispatches, and BudgetedSubagentRunner to every workflow turn. Read from
+        // configuration here rather than from IOptions<DetachedRunOptions> so both lease checks fail at
+        // registration, like every other configuration check in this method, instead of at first resolution.
+        var turnDeadline = TimeSpan.FromSeconds(
+            configuration.GetSection("DetachedRuns").GetValue<int>(nameof(DetachedRunOptions.DeadlineSeconds)));
+
         AddGitHub(services, configuration);
 
         // Thalos's pull-request publisher abstraction, implemented over Daedalus's existing pull-request-factory
@@ -199,7 +210,13 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // factory it delegates to is registered by AddCodeAnalysisServices in Daedalus.Infrastructure, not here — a
         // host calling this method alone resolves the publisher fine but only fails, at first use, if it never
         // called that one too. That mirrors how the factory itself already gets consumed across composition roots.
-        services.AddScoped<IPullRequestPublisher, ThalosPullRequestPublisher>();
+        // The concrete type is registered once, and both interfaces map to that one scoped instance. The lookup is its
+        // own interface so GitActionTools, which depends on IPullRequestPublisher only, never gains a read surface
+        // through it. Mapped to the concrete registration, not cast back from IPullRequestPublisher, so a host that
+        // substitutes the publisher still resolves the lookup.
+        services.AddScoped<ThalosPullRequestPublisher>();
+        services.AddScoped<IPullRequestPublisher>(sp => sp.GetRequiredService<ThalosPullRequestPublisher>());
+        services.AddScoped<IOpenPullRequestLookup>(sp => sp.GetRequiredService<ThalosPullRequestPublisher>());
 
         ValidateMemoryConfig(options.Memory);
         services.TryAddSingleton(options.Memory);
@@ -222,6 +239,20 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         ValidateContentConfig(options.Content);
 
+        // Checked whether or not the engine is on: Daedalus.Cli ships the same write grant with the engine off, and a
+        // grant that only fails validation once someone flips Enabled is a grant nobody reviewed.
+        ValidateWorkflowWriteConfig(options.Workflow);
+
+        // Phase 2.5, task B9: csharp-write lets a granted workflow turn apply Roslyn code actions. That is only safe
+        // when the MCP source it is bound to is run-scoped, so the turn is served by its own run's server over its own
+        // worktree; bound to a host-scoped source it would change this host's own solution. Checked at boot whenever
+        // the engine is on: with it off there is no workflow caller, and csharp-write admits developer and admin only.
+        var mcpConfigPath = ResolveMcpConfigPath(options.McpConfigPath, environment);
+        if (options.Workflow.Enabled)
+        {
+            ValidateCSharpWriteBindings(options.ToolPolicies, mcpConfigPath);
+        }
+
         // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
         // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
         // per call (Thalos.NET.Workflow.Orm gives it no seam to accept a shared data source instead). Registered
@@ -233,10 +264,15 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // host's container disposes it on shutdown. Gated on Workflow.Enabled — see that option's own remarks
         // for why a host whose database has none of these tables must not wire any of this at all.
         var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
-        var standingInstructionsPath = ResolveStandingInstructionsPath(options.Workflow.StandingInstructionsPath, environment);
+        var dataRoot = ResolveDataRoot(options.Workflow.DataRoot);
+        var standingInstructionsPath = "";
         if (options.Workflow.Enabled)
         {
-            ValidateStandingInstructionsPath(standingInstructionsPath, environment);
+            // Phase 2.5, task B11: relative, inside the run's worktree. ManufactureRunStarter and
+            // StandingInstructionsWriter apply the same check when they are built; this makes a bad value fail the
+            // boot instead of the first run.
+            standingInstructionsPath = StandingInstructionsRelativePath(options.Workflow.StandingInstructionsPath);
+            ValidateDataRootForRunServers(dataRoot);
         }
 
         // Registered unconditionally, the same as options.Memory/options.Skills/options.Squad above: task B5's
@@ -284,10 +320,29 @@ public static class DaedalusAgentsServiceCollectionExtensions
                     o.ConnectionString = connectionString;
                     o.EnsureSchemaOnStartup = false;
                 });
+
+                // Phase 2.5: every run gets a git worktree of its repository under the data root. The credential
+                // source is what lets the provider and the workspace git reach a private remote; without it every
+                // clone, fetch and push is anonymous, which a private repository refuses.
+                thalos.Services.TryAddSingleton<IGitCredentialSource, GitHubGitCredentialSource>();
+                thalos.UseGitWorktreeWorkspaces(o => o.DataRoot = dataRoot);
+
+                // Phase 2.5, ruling R29: the workspace__* tools over each run's worktree. The ceiling is the union of
+                // every write grant's extensions; each granted caller is narrowed to its own entry's list through the
+                // write-extensions claim WorkflowCaller sets. The standing-instructions file stays readable, never
+                // writable, by any run.
+                thalos.UseRunWorkspaceTools(
+                    WriteExtensionCeiling(options.Workflow.WriteGrants),
+                    o => o.ProtectedPaths.Add(standingInstructionsPath));
             }
 
             thalos.UseAnthropic(configuration)
                 .UseSessionStore<PostgresAgentSessionStore>()
+                // Phase 2.5, spec decision 9: the provider-neutral cache hints, placed outermost so Sentinel and every
+                // other decorator further in sees the hinted request. Anthropic's translator
+                // (Thalos:Anthropic:PromptCaching, on by default) turns them into cache_control; a provider without a
+                // translator ignores them.
+                .UsePromptCaching()
                 // Reads join the existing source the scout already allows; writes go in their own, which its
                 // daedalus__* glob cannot name. See RepoActionToolSourceName for why the split is not the boundary.
                 // DaedalusReviewTools joins this source rather than getting its own: report_review_outcome is a
@@ -306,8 +361,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 // Thalos: see GitToolSourceName for why the git__* -> developer binding is what actually holds it.
                 .UseLibGit2SharpGit()
                 .AddLocalTools(GitToolSourceName, typeof(GitActionTools))
-                .AddMcpServersFromFile(ResolveMcpConfigPath(options.McpConfigPath, environment))
-                .AddPolicy<DeveloperPolicy>();
+                .AddMcpServersFromFile(mcpConfigPath)
+                .AddPolicy<DeveloperPolicy>()
+                .AddPolicy<WorkspaceWritePolicy>()
+                .AddPolicy<CSharpWritePolicy>();
 
             foreach (var binding in options.ToolPolicies)
             {
@@ -361,8 +418,14 @@ public static class DaedalusAgentsServiceCollectionExtensions
 
         if (options.Workflow.Enabled)
         {
-            AddDaedalusWorkflow(services, processesRoot, standingInstructionsPath);
+            AddDaedalusWorkflow(
+                services, processesRoot, turnDeadline, options.Workflow, options.ToolPolicies,
+                configuration.GetSection(WorkflowOutboxDispatchOptions.SectionName));
         }
+
+        // After the workflow block, whose own lease check is the stricter one on a workflow host, so each check's
+        // message stays reachable on the host it is written for.
+        ValidateChannelOutboxLease(turnDeadline);
 
         // Off by default: nothing in shipped appsettings sets Thalos:Content:ResyncInterval (see that option's
         // own remarks), so no host pays for this loop until an operator opts in. Registered last, after AddThalos
@@ -402,7 +465,9 @@ public static class DaedalusAgentsServiceCollectionExtensions
     ///     depends on <c>IWorkflowStore</c>/<c>IProcessDefinitionStore</c>, which only exist once <c>AddThalos</c>
     ///     has run, so this is called after it, never on its own.
     /// </summary>
-    private static void AddDaedalusWorkflow(IServiceCollection services, string processesRoot, string standingInstructionsPath)
+    private static void AddDaedalusWorkflow(
+        IServiceCollection services, string processesRoot, TimeSpan turnDeadline, WorkflowConfig workflow,
+        IEnumerable<ToolPolicyConfig> toolPolicies, IConfigurationSection dispatchSection)
     {
         // IAgentCatalog and ISkillStore both come from AddThalos above. Thalos' own resolver is wrapped in
         // SquadWorkflowReferenceResolver so a process file's `agent:` name goes through SquadAgentResolver
@@ -412,7 +477,10 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // ProcessValidator at load time and WorkflowNodeDispatcher at dispatch time, and decorating only one
         // of them would let a process validate against one set of agent names and then run against another.
         services.AddSingleton<IWorkflowReferenceResolver>(sp => new SquadWorkflowReferenceResolver(
-            new WorkflowReferenceResolver(sp.GetRequiredService<IAgentCatalog>(), sp.GetRequiredService<ISkillStore>()),
+            new WorkflowReferenceResolver(
+                sp.GetRequiredService<IAgentCatalog>(),
+                sp.GetRequiredService<ISkillStore>(),
+                sp.GetServices<IWorkflowHostAction>()),
             sp.GetRequiredService<SquadAgentResolver>(),
             sp.GetRequiredService<ILogger<SquadWorkflowReferenceResolver>>()));
 
@@ -423,7 +491,7 @@ public static class DaedalusAgentsServiceCollectionExtensions
         DecorateMemoryServiceWithRecallTierRecording(services);
 
         // Task B5: the one type that ever writes Thalos:Workflow:StandingInstructionsPath, and only from
-        // WorkflowRunGateway's five-argument ResumeAsync overload, on a human's explicit applyStandingInstructions.
+        // WorkflowRunGateway's public ResumeAsync overload, on a human's explicit applyStandingInstructions.
         // Registered here, workflow-enabled hosts only, alongside the gateway it is injected into below.
         services.AddSingleton<StandingInstructionsWriter>();
 
@@ -433,12 +501,28 @@ public static class DaedalusAgentsServiceCollectionExtensions
         // Thalos:ToolPolicies, which DefaultToolAuthorizer only ever evaluates against a tool call).
         services.AddSingleton<WorkflowRunGateway>();
 
+        // Task B6: the host's append-only record of a run, which the write audit and the review lenses append to.
+        // A singleton is safe: the store takes a fresh DbContext from IDbContextFactory on every call.
+        services.AddSingleton<IWorkflowRunRecordStore, WorkflowRunRecordStore>();
+
+        // Task B13: the post-gate publish step. The resolver above and WorkflowNodeDispatcherFactory both receive every
+        // registered IWorkflowHostAction (ruling R27), so this registration is what makes `action: open-pull-request`
+        // validate and dispatch. A singleton: it resolves the scoped PR lookup and publisher from a scope of its own.
+        services.AddSingleton<IWorkflowHostAction, OpenPullRequestAction>();
+
+        // Task B7: every workspace write a run is allowed is recorded in that store before the tool runs, or denied.
+        DecorateToolAuthorizerWithWriteAudit(services, toolPolicies);
+
         // Replaces the DisabledManufactureRunStarter registered unconditionally above, now that WorkflowRunStarter
-        // (from AddWorkflowOrm, inside AddThalos) and IWorkflowReferenceResolver (just above) both resolve.
+        // (from AddWorkflowOrm, inside AddThalos), IWorkflowReferenceResolver (just above) and IRunWorkspaceProvider
+        // (from UseGitWorktreeWorkspaces, inside AddThalos) all resolve.
         // Replace, not TryAdd: TryAddSingleton is first-registration-wins, and the disabled default was already
         // added before this method ever runs.
         services.Replace(ServiceDescriptor.Singleton<IManufactureRunStarter>(sp =>
-            new ManufactureRunStarter(sp.GetRequiredService<WorkflowRunStarter>(), standingInstructionsPath)));
+            new ManufactureRunStarter(
+                sp.GetRequiredService<WorkflowRunStarter>(),
+                sp.GetRequiredService<IRunWorkspaceProvider>(),
+                sp.GetRequiredService<WorkflowConfig>())));
 
         // ISubagentRunner comes from AddThalos; IWorkflowStore/IProcessDefinitionStore from AddWorkflowOrm above.
         // Built via WorkflowNodeDispatcherFactory, not inline here — see that type's remarks for why this needs
@@ -451,15 +535,65 @@ public static class DaedalusAgentsServiceCollectionExtensions
         services.AddSingleton<ProcessDefinitionSync>();
         services.AddHostedService<ProcessDefinitionSyncHostedService>();
 
+        // Task B9: every csharp-write pattern must reach only run-scoped sources. AddDaedalusAgents checked the patterns
+        // and .mcp.json at registration; this checks the sources the container actually built, at host start.
+        string[] csharpWritePatterns =
+        [
+            .. toolPolicies
+                .Where(b => string.Equals(b.Policy, CSharpWritePolicy.PolicyName, StringComparison.Ordinal))
+                .Select(b => b.Pattern),
+        ];
+        services.AddHostedService(sp => new CSharpWriteBindingCheck(sp.GetServices<IToolSource>(), csharpWritePatterns));
+
+        // Task B9: before every task node's turn, the run's workspace must exist when the node holds a write grant,
+        // and the run's own MCP servers must be ready. Registered on every workflow host, not only one whose .mcp.json
+        // declares a runScoped entry: IRunToolServerReadiness is optional, and the workspace check (ruling R9) holds
+        // without it. WorkflowNodeDispatcherFactory hands the dispatcher every registered gate.
+        services.AddSingleton<IWorkflowDispatchGate>(sp => new RunToolServersReadyGate(
+            sp.GetRequiredService<IRunWorkspaceProvider>(),
+            sp.GetRequiredService<WorkflowConfig>(),
+            sp.GetService<IRunToolServerReadiness>()));
+
+        // A dispatch is, at most, the gate's wait followed by the turn: the gate waits up to RoslynReadyTimeout, so the
+        // lease must outlast both, and a run healthily waiting on the gate must not look stranded.
+        var gateWait = workflow.RoslynReadyTimeout;
+        var dispatchOptions = WorkflowOutboxDispatchOptions.Bind(dispatchSection);
+        WorkflowDispatchTiming.Validate(dispatchOptions, turnDeadline, gateWait);
+        var strandedAfter = WorkflowDispatchTiming.StrandedAfter(dispatchOptions, turnDeadline, gateWait);
+
         // The outbox consumer: see WorkflowOutboxDispatchService's remarks for why this is a hand-rolled poller
-        // rather than a second ZeroAlloc.Outbox AddOutbox() call.
+        // rather than a second ZeroAlloc.Outbox AddOutbox() call. The dispatcher is registered as its concrete
+        // type only, never as IOutboxTypeDispatcher: the channel pipeline's OutboxWorkerService enumerates every
+        // IOutboxTypeDispatcher in the container, and must not pick this one up.
         services.AddSingleton<WorkflowDispatchOutboxDispatcher>();
-        services.AddSingleton<WorkflowOutboxDispatchOptions>();
-        services.AddHostedService<WorkflowOutboxDispatchService>();
+        services.AddSingleton(dispatchOptions);
+        services.AddHostedService(sp => new WorkflowOutboxDispatchService(
+            sp.GetRequiredService<NpgsqlDataSource>(),
+            sp.GetRequiredService<WorkflowDispatchOutboxDispatcher>(),
+            sp.GetRequiredService<WorkflowOutboxDispatchOptions>(),
+            sp.GetRequiredService<ILogger<WorkflowOutboxDispatchService>>()));
 
         // The stranded-run sweep: Thalos ships WorkflowRunReconciler with no timer of its own, deliberately.
         services.AddSingleton<WorkflowRunReconciler>();
-        services.AddHostedService<WorkflowStrandedRunSweepService>();
+        services.AddHostedService(sp => new WorkflowStrandedRunSweepService(
+            sp.GetRequiredService<WorkflowRunReconciler>(),
+            strandedAfter,
+            sp.GetRequiredService<ILogger<WorkflowStrandedRunSweepService>>()));
+
+        // Task B10, rulings R14/R19: the only thing that removes a published run's worktree. Over the undecorated
+        // IWorkflowStore, like WorkflowRunGateway and WorkflowRunReconciler above — see
+        // WorkflowNodeDispatcherFactory.Create's remarks for why only the dispatcher's copy is wrapped. TimeProvider is
+        // required, as it is by the write audit and the review lens runner registered on this same host: a host that
+        // registers none is a composition error, never a silent fall back to the system clock.
+        services.AddSingleton(sp => new RunWorkspaceSweeper(
+            sp.GetRequiredService<IRunWorkspaceProvider>(),
+            sp.GetRequiredService<IWorkflowStore>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<RunWorkspaceSweeper>>()));
+        services.AddHostedService(sp => new RunWorkspaceSweepService(
+            sp.GetRequiredService<RunWorkspaceSweeper>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<RunWorkspaceSweepService>>()));
     }
 
     /// <summary>
@@ -492,12 +626,122 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 (IMemoryService)CreateInner(sp, existing),
                 sp.GetRequiredService<WorkflowRecallTierLog>()),
             existing.Lifetime));
-
-        static object CreateInner(IServiceProvider sp, ServiceDescriptor descriptor) =>
-            descriptor.ImplementationInstance
-            ?? descriptor.ImplementationFactory?.Invoke(sp)
-            ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!);
     }
+
+    /// <summary>
+    ///     The policies whose bound patterns write a run's worktree, so every allowed call to one is audited:
+    ///     <c>workspace-write</c> for the <c>workspace__*</c> writes, and <c>csharp-write</c> for Roslyn code actions.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> WriteAuditedPolicies = [WorkspaceWritePolicy.PolicyName, CSharpWritePolicy.PolicyName];
+
+    /// <summary>
+    ///     The host-wide ceiling for the <c>workspace__*</c> tools (ruling R29): the union of every write grant's
+    ///     extensions, lower-cased, compared case-insensitively. Each granted caller is narrowed further, to its own
+    ///     entry's list, by the write-extensions claim <see cref="WorkflowCaller"/> sets.
+    /// </summary>
+    internal static HashSet<string> WriteExtensionCeiling(IEnumerable<WriteGrantConfig> grants) =>
+        grants.SelectMany(g => g.AllowedExtensions)
+            .Where(e => AllowedExtensionPattern().IsMatch(e))
+            .Select(e => string.Create(e.Length, e, static (target, source) => System.Text.Ascii.ToLower(source, target, out _)))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Fails fast when a <c>Thalos:ToolPolicies</c> pattern bound to <see cref="CSharpWritePolicy"/> does not start
+    ///     with a literal <c>&lt;source&gt;__</c>, or reaches an MCP server in <paramref name="mcpConfigPath"/> that is
+    ///     not run-scoped. That policy admits a granted workflow caller, and only a run-scoped source is guaranteed to
+    ///     serve such a caller from its own run's server: a host-scoped one would apply its code actions to this host's
+    ///     own solution. <see cref="CSharpWriteBindingCheck"/> says which sources a pattern reaches, and checks the
+    ///     sources the container builds, at host start, for any not declared in <c>.mcp.json</c>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     A binding does not start with a literal source name, or reaches a server that is not run-scoped.
+    /// </exception>
+    internal static void ValidateCSharpWriteBindings(IEnumerable<ToolPolicyConfig> toolPolicies, string mcpConfigPath)
+    {
+        var patterns = toolPolicies
+            .Where(b => string.Equals(b.Policy, CSharpWritePolicy.PolicyName, StringComparison.Ordinal))
+            .Select(b => b.Pattern)
+            .ToList();
+        var hostScoped = File.Exists(mcpConfigPath)
+            ? McpConfigFile.Load(mcpConfigPath).Where(s => s.Value.RunScoped is null).Select(s => s.Key).ToList()
+            : [];
+        foreach (var pattern in patterns)
+        {
+            var reached = CSharpWriteBindingCheck.SourcesReachedBy(pattern)
+                ?? throw new InvalidOperationException(CSharpWriteBindingCheck.NotLiteral(pattern));
+            if (hostScoped.FirstOrDefault(name => reached.Contains(name, StringComparer.Ordinal)) is { } server)
+            {
+                throw new InvalidOperationException(
+                    $"Thalos:ToolPolicies binds '{pattern}' to {CSharpWritePolicy.PolicyName}, which reaches MCP server " +
+                    $"'{server}' in '{mcpConfigPath}', and that server is not run-scoped. The policy lets a granted " +
+                    "workflow run call the tool, and only a runScoped server serves a run from its own worktree; make the " +
+                    "server run-scoped or bind the pattern to developer instead.");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Fails fast when the resolved workspace data root contains <c>%</c>. Every run's worktree, and so every
+    ///     <c>${run.workspace.root}</c> and <c>${run.workspace.solution}</c> a run-scoped MCP server is started with, lies
+    ///     under it, and on Windows the MCP SDK starts a stdio server through <c>cmd.exe</c>, which would expand a
+    ///     <c>%NAME%</c> in it; Thalos refuses such a start, which would fail every run at its first gate. Checked on every
+    ///     OS so a configuration that works on one works on the others.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The data root contains <c>%</c>.</exception>
+    internal static void ValidateDataRootForRunServers(string resolvedDataRoot)
+    {
+        if (resolvedDataRoot.Contains('%', StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"{WorkflowConfig.SectionName}:DataRoot resolves to '{resolvedDataRoot}', which contains '%'. A run's " +
+                "run-scoped MCP servers are started with paths under it, and cmd.exe would expand the '%' on Windows. " +
+                "Set DataRoot to an absolute path without '%'.");
+        }
+    }
+
+    /// <summary>
+    ///     Replaces the registered <see cref="IToolAuthorizer"/> with <see cref="AuditingToolAuthorizer"/> wrapped around
+    ///     it, auditing every <c>Thalos:ToolPolicies</c> pattern bound to a policy in <see cref="WriteAuditedPolicies"/>.
+    /// </summary>
+    /// <remarks>
+    ///     The descriptor is rewritten, as in <see cref="DecorateMemoryServiceWithRecallTierRecording"/>, so the one
+    ///     authorizer every <c>AuthorizingAIFunction</c> resolves is the auditing one. It wraps the authorizer
+    ///     <c>AddThalos</c> registered, which is the only one: AI.Sentinel screens the chat pipeline and does not
+    ///     decorate <see cref="IToolAuthorizer"/>, so the audit sees the final decision. A host with no authorizer to
+    ///     wrap is a composition error, not a host with nothing to audit, so it throws rather than skip the audit.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">No <see cref="IToolAuthorizer"/> is registered.</exception>
+    private static void DecorateToolAuthorizerWithWriteAudit(IServiceCollection services, IEnumerable<ToolPolicyConfig> toolPolicies)
+    {
+        var existing = services.LastOrDefault(d => d.ServiceType == typeof(IToolAuthorizer))
+            ?? throw new InvalidOperationException("No IToolAuthorizer is registered to audit; AddThalos registers one.");
+        string[] auditedPatterns =
+        [
+            .. toolPolicies
+                .Where(b => WriteAuditedPolicies.Contains(b.Policy, StringComparer.Ordinal))
+                .Select(b => b.Pattern),
+        ];
+
+        services.Remove(existing);
+        services.Add(ServiceDescriptor.Describe(
+            typeof(IToolAuthorizer),
+            sp => new AuditingToolAuthorizer(
+                (IToolAuthorizer)CreateInner(sp, existing),
+                auditedPatterns,
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<AuditingToolAuthorizer>>()),
+            existing.Lifetime));
+    }
+
+    /// <summary>
+    ///     Builds the service a rewritten descriptor wraps, from whichever form it was registered in: an instance, a
+    ///     factory or a type.
+    /// </summary>
+    private static object CreateInner(IServiceProvider sp, ServiceDescriptor descriptor) =>
+        descriptor.ImplementationInstance
+        ?? descriptor.ImplementationFactory?.Invoke(sp)
+        ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!);
 
     /// <summary>
     ///     Ensures <typeparamref name="T"/> is resolvable as a concrete singleton, and that it is the exact
@@ -536,6 +780,22 @@ public static class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     Rejects a turn deadline the channel and scheduling outbox's lease cannot hold: the lease is renewed only
+    ///     right before a dispatch, so a scheduling step whose agent turn outlived it could be claimed and run a
+    ///     second time by the other host polling the same table.
+    /// </summary>
+    private static void ValidateChannelOutboxLease(TimeSpan turnDeadline)
+    {
+        if (turnDeadline >= ChannelOutboxServiceCollectionExtensions.LeaseDuration)
+        {
+            throw new InvalidOperationException(
+                $"DetachedRuns:DeadlineSeconds ({turnDeadline}) must be shorter than the channel and scheduling " +
+                $"outbox's lease ({ChannelOutboxServiceCollectionExtensions.LeaseDuration}): a scheduling step whose " +
+                "agent turn outlives the lease can be claimed and run again by another host.");
+        }
+    }
+
+    /// <summary>
     ///     Fails fast on <c>Thalos:Content</c>: a configured, non-positive <see cref="ContentConfig.ResyncInterval"/>
     ///     would otherwise surface much later, as <see cref="PeriodicTimer"/>'s own
     ///     <see cref="ArgumentOutOfRangeException"/> the first time <see cref="ContentResyncService.ExecuteAsync"/>
@@ -550,6 +810,159 @@ public static class DaedalusAgentsServiceCollectionExtensions
                 $"{interval.ToString(null, CultureInfo.InvariantCulture)}.");
         }
     }
+
+    /// <summary>
+    ///     Fails fast on the phase 2.5 write-authority keys of <c>Thalos:Workflow</c>: <c>Repositories</c>,
+    ///     <c>DataRoot</c>, <c>CommitAuthor</c> and <c>WriteGrants</c>. Together they decide what a run may check out,
+    ///     where it writes, and which files a model turn may change, so a malformed value must stop the host at
+    ///     registration rather than surface at the first run.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     A repository name is malformed or duplicated, a remote is blank, a solution path is blank, rooted or contains
+    ///     <c>..</c> or <c>%</c>, <c>DataRoot</c> is set but not absolute, <c>RoslynReadyTimeout</c> is not positive, a write grant
+    ///     has a blank process or node or repeats another grant's process and node, a write grant has no allowed
+    ///     extensions or a malformed one, or repositories are configured without a full commit author.
+    /// </exception>
+    private static void ValidateWorkflowWriteConfig(WorkflowConfig config)
+    {
+        const string section = WorkflowConfig.SectionName;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < config.Repositories.Count; i++)
+        {
+            var repository = config.Repositories[i];
+            var key = $"{section}:Repositories:{i}";
+            if (!RepositoryNamePattern().IsMatch(repository.Name))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Name '{repository.Name}' must match ^[a-z0-9][a-z0-9-]{{0,63}}$. It becomes a path segment " +
+                    "under the data root and is the name a run start refers to.");
+            }
+
+            if (!names.Add(repository.Name))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Name '{repository.Name}' is declared more than once. A run start names its repository, so " +
+                    "two entries with one name would make the target ambiguous.");
+            }
+
+            if (string.IsNullOrWhiteSpace(repository.Remote))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Remote must not be blank: it is the git remote the run's worktree is cloned from and pushed to.");
+            }
+
+            if (repository.Solution is { } blankSolution && string.IsNullOrWhiteSpace(blankSolution))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Solution must name a solution file or be left out: a blank value would hand the run's " +
+                    "Roslyn server the worktree directory itself.");
+            }
+
+            if (repository.Solution is { } solution
+                && (Path.IsPathRooted(solution) || solution.Contains("..", StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Solution '{solution}' must be a repository-relative path with no '..': the run's Roslyn " +
+                    "server loads it from inside the worktree and nowhere else.");
+            }
+
+            if (repository.Solution is { } percentSolution && percentSolution.Contains('%', StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"{key}:Solution '{percentSolution}' must not contain '%': the run's Roslyn server is started with " +
+                    "its path, and cmd.exe would expand the '%' on Windows.");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(config.DataRoot) && !Path.IsPathFullyQualified(config.DataRoot))
+        {
+            throw new InvalidOperationException(
+                $"{section}:DataRoot '{config.DataRoot}' must be an absolute path, or blank for " +
+                "%LOCALAPPDATA%/Daedalus/workflow-data. A relative data root would move with the working directory.");
+        }
+
+        if (config.RoslynReadyTimeout <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                $"{section}:RoslynReadyTimeout must be greater than zero, but was " +
+                $"{config.RoslynReadyTimeout.ToString(null, CultureInfo.InvariantCulture)}. A run waits this long for its " +
+                "Roslyn server, so zero or less would fail every run before the server could start.");
+        }
+
+        var grantedNodes = new HashSet<(string Process, string Node)>();
+        for (var i = 0; i < config.WriteGrants.Count; i++)
+        {
+            var grant = config.WriteGrants[i];
+            var key = $"{section}:WriteGrants:{i}";
+            if (string.IsNullOrWhiteSpace(grant.Process))
+            {
+                throw new InvalidOperationException($"{key}:Process must not be blank: a write grant names the process it applies to.");
+            }
+
+            if (string.IsNullOrWhiteSpace(grant.Node))
+            {
+                throw new InvalidOperationException($"{key}:Node must not be blank: a write grant names the node it applies to.");
+            }
+
+            if (!grantedNodes.Add((grant.Process, grant.Node)))
+            {
+                throw new InvalidOperationException(
+                    $"{key} grants '{grant.Process}'/'{grant.Node}' more than once. Only one grant may apply to a node, " +
+                    "or which extension list wins would depend on the order of the entries.");
+            }
+
+            if (grant.AllowedExtensions.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"{key}:AllowedExtensions must list at least one extension, such as \".cs\". It is an allow-list " +
+                    "(ruling R29), and a missing key is not a supported configuration.");
+            }
+
+            if (grant.AllowedExtensions.FirstOrDefault(e => !AllowedExtensionPattern().IsMatch(e)) is { } malformed)
+            {
+                throw new InvalidOperationException(
+                    $"{key}:AllowedExtensions entry '{malformed}' must be a dot followed by letters and digits only, " +
+                    "such as \".cs\" (ruling R29).");
+            }
+        }
+
+        if (config.Repositories.Count > 0)
+        {
+            if (string.IsNullOrWhiteSpace(config.CommitAuthor.Name))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:CommitAuthor:Name must not be blank while {section}:Repositories is configured: " +
+                    "every run commit is written as this author.");
+            }
+
+            if (string.IsNullOrWhiteSpace(config.CommitAuthor.Email))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:CommitAuthor:Email must not be blank while {section}:Repositories is configured: " +
+                    "every run commit is written as this author.");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     The workspace data root: the configured <c>Thalos:Workflow:DataRoot</c> when set, which
+    ///     <see cref="ValidateWorkflowWriteConfig"/> has already checked is absolute, otherwise
+    ///     <c>%LOCALAPPDATA%/Daedalus/workflow-data</c>.
+    /// </summary>
+    internal static string ResolveDataRoot(string configured) =>
+        string.IsNullOrEmpty(configured)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Daedalus", "workflow-data")
+            : configured;
+
+    // \z rather than $: in .NET, $ also matches just before a trailing newline, so "sandbox\n" would pass.
+    [GeneratedRegex(@"^[a-z0-9][a-z0-9-]{0,63}\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
+    private static partial Regex RepositoryNamePattern();
+
+    // \z rather than $, for the same reason: ".cs\n" is not an extension.
+    [GeneratedRegex(@"^\.[A-Za-z0-9]+\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
+    // Internal because WorkflowCaller filters a grant's extensions with this same pattern before they reach the
+    // write-extension claim.
+    internal static partial Regex AllowedExtensionPattern();
 
     /// <summary>
     ///     Memory-only registration for hosts that run Ralph but <b>no</b> Thalos agents — the console worker. Registers the
@@ -956,60 +1369,86 @@ public static class DaedalusAgentsServiceCollectionExtensions
         Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
 
     /// <summary>
-    ///     Resolves <c>Thalos:Workflow:StandingInstructionsPath</c> against the content root, the same rule
-    ///     <see cref="ResolveMcpConfigPath"/> applies to <c>Thalos:McpConfigPath</c> — a single file, not a
-    ///     directory, so unlike <see cref="ResolveContentRoot"/> there is no assembly-directory fallback to fall
-    ///     back to: a missing file is not this method's problem to solve, see
-    ///     <see cref="Workflow.ManufactureRunStarter.StartAsync"/>.
+    ///     Validates <c>Thalos:Workflow:StandingInstructionsPath</c> and returns it in canonical worktree-relative form:
+    ///     forward-slash separated, with no <c>.</c> segment and no empty segment. That one form is what
+    ///     <see cref="Workflow.ManufactureRunStarter"/> reads the run's pinned text from,
+    ///     <see cref="Workflow.StandingInstructionsWriter"/> writes an approved proposal to, both through
+    ///     <see cref="WorkspacePath.Resolve"/> inside the run's worktree, and the <c>workspace__*</c> tools protect in
+    ///     <see cref="RunWorkspaceToolOptions.ProtectedPaths"/>, which they compare exactly, ignoring case only. So
+    ///     <c>./AGENT.md</c> is protected as the <c>AGENT.md</c> a run would write.
     /// </summary>
     /// <remarks>
-    ///     <c>internal</c>, not <c>private</c>: <see cref="Workflow.StandingInstructionsWriter"/> reuses this same
-    ///     resolution rule for its own path rather than restating it, per task B5. Two independently-maintained
-    ///     copies of "how a configured, possibly-relative path resolves against the content root" is exactly the
-    ///     kind of drift this method's own doc comment already warns against for <see cref="ResolveContentRoot"/>.
+    ///     <para>
+    ///     The file is overwritten with model-authored text that a human approved at the gate, so the check fails the
+    ///     host at registration, rather than at every run, for a value that is blank; is
+    ///     rooted, or carries a <c>:</c>, which on Linux is how a Windows-rooted <c>C:/x/AGENT.md</c> reads; climbs with
+    ///     a <c>..</c> segment; is not a <c>.md</c> file; or is refused by <see cref="WorkspacePath.Resolve"/> itself. A
+    ///     rooted value used to be accepted when it lay under the content root, and after the move into the worktree
+    ///     <c>Path.Combine(worktree, rooted)</c> would have read and written that host file instead.
+    ///     </para>
+    ///     <para>
+    ///     <b>Resolve is asked, not restated.</b> The canonical value is resolved against a fresh, empty stand-in
+    ///     directory, so every rule <see cref="WorkspacePath.Resolve"/> applies to the value alone — the <c>.git</c>
+    ///     directory and its <c>git~N</c> alias, a NUL character, and on Windows a reserved device name such as <c>CON</c> or a segment
+    ///     ending in a dot or space — refuses the boot rather than every start, and cannot drift from the rule the
+    ///     reader and writer meet at run time. The canonical form is built lexically, not with
+    ///     <c>Path.GetFullPath</c>, which on Windows trims a trailing dot and would hide <c>docs/.../AGENT.md</c> from
+    ///     that check, and which throws <see cref="ArgumentException"/> on a NUL character.
+    ///     <see cref="WorkspacePath.Resolve"/> applies these rules again, and its link checks, at every
+    ///     read and write, so a value that passes here still cannot leave the worktree through a link inside it.
+    ///     </para>
     /// </remarks>
-    internal static string ResolveStandingInstructionsPath(string configured, IHostEnvironment environment) =>
-        Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured);
-
-    /// <summary>
-    ///     Fails fast unless the resolved <c>Thalos:Workflow:StandingInstructionsPath</c> is a <c>.md</c> file
-    ///     under the content root.
-    /// </summary>
-    /// <remarks>
-    ///     <see cref="Workflow.StandingInstructionsWriter"/> overwrites this file with model-authored text that a
-    ///     human approved at the gate. Resolution accepts a rooted path and a <c>..</c> segment as given, so without
-    ///     this check a misconfigured value such as <c>appsettings.json</c> or <c>../other-host/appsettings.json</c>
-    ///     would let an approved proposal replace the host's own configuration. The comparison runs on full,
-    ///     normalised paths and asks whether the path relative to the content root climbs out of it, so a sibling
-    ///     directory that merely shares the root's name as a prefix is outside too. Only checked when the workflow
-    ///     engine is enabled, the only case in which a writer is registered at all.
-    /// </remarks>
-    internal static void ValidateStandingInstructionsPath(string resolvedPath, IHostEnvironment environment)
+    /// <exception cref="InvalidOperationException">The configured value breaks one of the rules above.</exception>
+    internal static string StandingInstructionsRelativePath(string configured)
     {
-        var contentRoot = Path.GetFullPath(environment.ContentRootPath);
-        var fullPath = Path.GetFullPath(resolvedPath);
-        var relative = Path.GetRelativePath(contentRoot, fullPath);
-
-        var outside = Path.IsPathRooted(relative)
-            || string.Equals(relative, ".", StringComparison.Ordinal)
-            || string.Equals(relative, "..", StringComparison.Ordinal)
-            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
-        if (outside)
+        const string Key = WorkflowConfig.SectionName + ":StandingInstructionsPath";
+        if (string.IsNullOrWhiteSpace(configured))
         {
-            throw new InvalidOperationException(
-                $"{WorkflowConfig.SectionName}:StandingInstructionsPath resolves to '{fullPath}', which is outside the " +
-                $"content root '{contentRoot}'. The standing-instructions file is overwritten with approved model text, " +
-                "so it must live under the content root.");
+            throw new InvalidOperationException($"{Key} is blank. It must name a .md file relative to the repository root.");
         }
 
-        if (!string.Equals(Path.GetExtension(fullPath), ".md", StringComparison.OrdinalIgnoreCase))
+        if (Path.IsPathRooted(configured) || configured.Contains(':', StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                $"{WorkflowConfig.SectionName}:StandingInstructionsPath resolves to '{fullPath}', which is not a .md file. " +
-                "The standing-instructions file is overwritten with approved model text, so it must be a markdown file " +
-                "and never a configuration or code file.");
+                $"{Key} is '{configured}', which is not a relative path. The standing-instructions file is read from and " +
+                "written to each run's worktree, so the path must be relative to the repository root.");
         }
+
+        var segments = configured.Split(['/', '\\']);
+        if (segments.Any(segment => string.Equals(segment, "..", StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                $"{Key} is '{configured}', which climbs with a '..' segment. The standing-instructions file is overwritten " +
+                "with approved model text, so it must stay inside the run's worktree.");
+        }
+
+        // Lexical on purpose: only empty and '.' segments are dropped, so a segment Resolve refuses reaches it as written.
+        var canonical = string.Join(
+            '/', segments.Where(segment => segment.Length > 0 && !string.Equals(segment, ".", StringComparison.Ordinal)));
+        if (!string.Equals(Path.GetExtension(canonical), ".md", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{Key} is '{configured}', which is not a .md file. The standing-instructions file is overwritten with " +
+                "approved model text, so it must be a markdown file and never a configuration or code file.");
+        }
+
+        var standIn = Directory.CreateTempSubdirectory("daedalus-standing-instructions-check-");
+        try
+        {
+            var resolved = WorkspacePath.Resolve(standIn.FullName, canonical);
+            if (resolved.IsFailure)
+            {
+                throw new InvalidOperationException(
+                    $"{Key} is '{configured}', which a run's worktree does not permit: {resolved.Error.Message} Every run " +
+                    "reads and writes the standing-instructions file there, so every run would fail.");
+            }
+        }
+        finally
+        {
+            standIn.Delete(recursive: true);
+        }
+
+        return canonical;
     }
 
     private static AgentDefinition ToDefinition(AgentConfig agent) => new()

@@ -47,4 +47,29 @@ public sealed class ProcessDefinitionDriftTests
         process.Nodes["retrospect"].Skill.Should().Be(ReviewHandoff.RetrospectSkillName);
         process.Nodes["retrospect"].Agent.Should().Be("reviewer");
     }
+
+    /// <summary>
+    ///     Phase 2.5 task B14: <see cref="ReviewHandoffWorkflowStore"/>'s authorship table lets only a node pinned to
+    ///     <see cref="ReviewHandoff.ImplementSkillName"/> write <see cref="ReviewHandoff.SummaryKey"/>, which
+    ///     <c>open-pull-request</c> renders into the pull request body. Falsifiable: renaming <c>implement</c>'s
+    ///     <c>skill:</c> in the process file turns this red, and without this guard it would silently strip the
+    ///     implementer's own summary from every run.
+    /// </summary>
+    [Fact]
+    public void The_shipped_implement_node_uses_the_skill_the_summary_authorship_keys_on()
+    {
+        var process = LoadManufactureProcess();
+
+        process.Nodes["implement"].Skill.Should().Be(ReviewHandoff.ImplementSkillName);
+    }
+
+    /// <summary>
+    ///     The <c>publish</c> node names the action <see cref="OpenPullRequestAction"/> registers under. Falsifiable:
+    ///     renaming the action in the process file or <see cref="OpenPullRequestAction.ActionName"/> turns this red.
+    /// </summary>
+    [Fact]
+    public void The_shipped_publish_node_names_the_open_pull_request_action()
+    {
+        LoadManufactureProcess().Nodes["publish"].Action.Should().Be(OpenPullRequestAction.ActionName);
+    }
 }

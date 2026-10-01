@@ -99,11 +99,9 @@ public static class DaedalusSchedulingServiceCollectionExtensions
         services.AddScoped<IScheduleDiagnostics, ScheduleDiagnostics>();
         services.Configure<ScheduleDiagnosticsOptions>(configuration.GetSection(ScheduleDiagnosticsOptions.SectionName));
 
-        // TryAdd: EfCoreOutboxStore<ApplicationDbContext> implements both IOutboxStore and IOutboxDashboardStore,
-        // but AddChannelOutbox's WithEfCore<ApplicationDbContext>() call only registers the former. This fills
-        // the dashboard seam without risking a second, conflicting registration if a future ZeroAlloc.Outbox
-        // version starts registering it itself.
-        services.TryAddScoped<IOutboxDashboardStore, EfCoreOutboxStore<ApplicationDbContext>>();
+        // IOutboxDashboardStore, which ScheduleDiagnostics and ScheduleDeliveryActions read, needs no registration
+        // here: AddChannelOutbox's WithEfCore<ApplicationDbContext>() registers it as the same scoped
+        // EfCoreOutboxStore instance as IOutboxStore since ZeroAlloc.Outbox.EfCore 3.0.
 
         // Scoped, same rule as ScheduleDiagnostics: ScheduleDeliveryActions also takes ApplicationDbContext
         // directly. Deliberately its own registration rather than added to IScheduleDiagnostics — see

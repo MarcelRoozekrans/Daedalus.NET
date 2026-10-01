@@ -1,9 +1,11 @@
 using Daedalus.Agents.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Skills;
 using Thalos.Workflow;
+using ZeroAlloc.Authorization;
 
 namespace Daedalus.Agents.Workflow;
 
@@ -39,16 +41,17 @@ internal static class WorkflowNodeDispatcherFactory
         // The store the DISPATCHER sees, not the one everything else does. WorkflowRunModeStore stamps the
         // squad mode and the turn's recall tier onto every transition it records; ReviewHandoffWorkflowStore
         // cuts the implementer's narrative out of the bag before a review node's task text is built from it,
-        // and re-checks that node's report against the bag the run really holds, because the cut takes
-        // Thalos' own key-cap check out of the loop on exactly that node. Only the dispatcher's copy is
+        // and checks every agent node's report against the bag the run really holds, less the room kept for
+        // open-pull-request's keys: the cut takes Thalos' own key-cap check out of the loop on a review node, and
+        // Thalos checks a host action's keys only after it ran. Only the dispatcher's copy is
         // wrapped deliberately: WorkflowRunGateway, WorkflowRunReconciler and the sweeper all keep the
         // undecorated store, so a human reading a run still sees everything it holds.
         //
         // ORDER IS LOAD-BEARING on CompleteNodeAsync, and it was not before the re-check existed. With
         // ReviewHandoffWorkflowStore outermost, the report it counts is the node's own; reversing the two
         // would hand it a report WorkflowRunModeStore had already added squad_mode and recall_tier to, and a
-        // node would be failed for two keys it never reported. Those two keys are deliberately outside the
-        // cap - see WorkflowRunModeStore's own remarks.
+        // node would be failed for keys it never reported. The check counts those keys as the host's, never as the
+        // node's - see WorkflowRunModeStore's own remarks.
         new ReviewHandoffWorkflowStore(
             new WorkflowRunModeStore(
                 sp.GetRequiredService<IWorkflowStore>(),
@@ -66,9 +69,31 @@ internal static class WorkflowNodeDispatcherFactory
         new StandingInstructionsRunner(
             new ReviewLensRunner(
                 new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
-                sp.GetRequiredService<IProcessDefinitionStore>())),
+                sp.GetRequiredService<IProcessDefinitionStore>(),
+                // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
+                // dependency.
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
         sp.GetRequiredService<ISkillStore>(),
-        resolveCaller: run => new WorkflowCaller(run));
+        resolveCaller: CreateCallerResolver(sp),
+        // The real registrations, empty until the dispatch gate and the open-pull-request action are registered.
+        // The host actions are the same GetServices sequence AddDaedalusWorkflow hands WorkflowReferenceResolver,
+        // so an action node that validates at load time is the one this dispatcher can run.
+        gates: sp.GetServices<IWorkflowDispatchGate>(),
+        hostActions: sp.GetServices<IWorkflowHostAction>());
+
+    /// <summary>
+    ///     The one caller resolver: the dispatcher's <c>resolveCaller</c>, and what the write-boundary tests call. Each
+    ///     turn's <see cref="WorkflowCaller"/> carries the <c>Thalos:Workflow:WriteGrants</c> entry that grants the run's
+    ///     current node, or none; see <see cref="WorkspaceWriteGrant.GrantFor"/>. The grants are read once, from the
+    ///     startup-validated config, and never from a run variable.
+    /// </summary>
+    internal static Func<WorkflowRun, ISecurityContext> CreateCallerResolver(IServiceProvider sp)
+    {
+        var grants = sp.GetRequiredService<WorkflowConfig>().WriteGrants;
+        return run => new WorkflowCaller(run, WorkspaceWriteGrant.GrantFor(grants, run));
+    }
 }

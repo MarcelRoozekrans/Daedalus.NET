@@ -12,7 +12,7 @@ namespace Daedalus.Tests.Integration.Fixtures;
 /// <summary>
 ///     Boots the real <c>Daedalus.Api</c> <c>Program</c> in-process (TestServer) against the fixture database, with the
 ///     JWT scheme swapped for <see cref="HeaderTestAuthHandler"/> and Thalos' <see cref="IAgentRuntime"/> replaced by the
-///     supplied fake. Everything else — controllers, ProblemDetails, response compression, rate limiting, JSON context,
+///     supplied fake, or left as the host's own <c>ThalosAgentRuntime</c> when none is supplied. Everything else — controllers, ProblemDetails, response compression, rate limiting, JSON context,
 ///     the Postgres session store and the crash-recovery hosted service — is the production wiring.
 /// </summary>
 /// <remarks>
@@ -22,7 +22,11 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     before.
 /// </remarks>
 /// <param name="connectionString">The database this host's <c>ConnectionStrings:daedalus</c> is set to.</param>
-/// <param name="runtime">Replaces Thalos' registered <see cref="IAgentRuntime"/> for the life of this host.</param>
+/// <param name="runtime">
+///     Replaces Thalos' registered <see cref="IAgentRuntime"/> for the life of this host. <see langword="null"/> keeps
+///     the host's own <c>ThalosAgentRuntime</c>, for a test that swaps only the model, through
+///     <paramref name="configureServices"/>, so every turn runs through the real tool catalog and authorizer.
+/// </param>
 /// <param name="keycloak">See this type's own remarks.</param>
 /// <param name="workflowEnabled">
 ///     Defaults to <see langword="false"/>, which every existing caller relies on — see the remarks on the
@@ -30,15 +34,6 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     against a <paramref name="connectionString"/> already migrated with Thalos.NET.Workflow.Orm's raw-SQL
 ///     migrations (see <c>StartRunEndpointTests</c>), never against the shared <c>PostgresFixture</c> database,
 ///     which is built with EF Core's <c>EnsureCreatedAsync</c> and has none of those tables.
-/// </param>
-/// <param name="standingInstructionsPath">
-///     Task B5. When supplied, overrides <c>Thalos:Workflow:StandingInstructionsPath</c> so
-///     <c>StandingInstructionsWriter</c> reads and writes there instead of the default <c>AGENT.md</c> resolved
-///     against this factory's content root — <c>src/Daedalus.Api</c>, per this class's own remarks above, a real
-///     project directory whose tracked files a test must never touch. <c>AddDaedalusAgents</c> refuses a path
-///     outside the content root, so pass a path relative to it from <c>TempDirectory.NewContentRootRelative</c>,
-///     which lands under the project's git-ignored <c>obj</c> folder. <see langword="null"/> (the default) leaves
-///     the shipped configuration in place, for hosts that never touch the standing-instructions file at all.
 /// </param>
 /// <param name="squadEnabled">
 ///     When supplied, overrides <c>Thalos:Squad:Enabled</c>. <see langword="null"/> (the default) keeps the shipped
@@ -48,9 +43,15 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     Runs after this factory's own service replacements, for a test that needs one more, such as a faster
 ///     workflow outbox poll. <see langword="null"/> (the default) adds nothing.
 /// </param>
+/// <param name="settings">
+///     Host settings applied after every setting this factory makes itself, so a test can set any key, including
+///     one this factory already sets, such as <c>Thalos:Workflow:Repositories:0:Remote</c>. <see langword="null"/>
+///     (the default) keeps the shipped configuration.
+/// </param>
 internal sealed class ApiWebApplicationFactory(
-    string connectionString, IAgentRuntime runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,
-    string? standingInstructionsPath = null, bool? squadEnabled = null, Action<IServiceCollection>? configureServices = null)
+    string connectionString, IAgentRuntime? runtime, KeycloakFixture? keycloak = null, bool workflowEnabled = false,
+    bool? squadEnabled = null, Action<IServiceCollection>? configureServices = null,
+    IReadOnlyDictionary<string, string?>? settings = null)
     : WebApplicationFactory<Daedalus.Api.Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -79,11 +80,6 @@ internal sealed class ApiWebApplicationFactory(
         // that opts into the engine against a database it migrated itself.
         builder.UseSetting("Thalos:Workflow:Enabled", workflowEnabled ? "true" : "false");
 
-        if (standingInstructionsPath is not null)
-        {
-            builder.UseSetting("Thalos:Workflow:StandingInstructionsPath", standingInstructionsPath);
-        }
-
         if (squadEnabled is { } squad)
         {
             builder.UseSetting("Thalos:Squad:Enabled", squad ? "true" : "false");
@@ -97,10 +93,18 @@ internal sealed class ApiWebApplicationFactory(
             builder.UseSetting("Authentication:Audience", "daedalus-api");
         }
 
+        foreach (var (key, value) in settings ?? new Dictionary<string, string?>(StringComparer.Ordinal))
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureServices(services =>
         {
-            services.RemoveAll<IAgentRuntime>();
-            services.AddSingleton(runtime);
+            if (runtime is not null)
+            {
+                services.RemoveAll<IAgentRuntime>();
+                services.AddSingleton(runtime);
+            }
 
             if (keycloak is null)
             {

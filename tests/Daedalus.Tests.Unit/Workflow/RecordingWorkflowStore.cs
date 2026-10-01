@@ -29,12 +29,11 @@ internal sealed class RecordingWorkflowStore(WorkflowRun run) : IWorkflowStore
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask<Guid> StartAsync(string process, int version, string correlationKey, string startNode, IReadOnlyDictionary<string, object?>? initialVariables, CancellationToken ct) =>
-        throw new NotSupportedException();
+    public ValueTask<Result<Guid>> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
 
-    public ValueTask<Guid> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
+    public ValueTask<Result> ResumeAsync(Guid runId, WorkflowResumeRequest request, CancellationToken ct) => throw new NotSupportedException();
 
-    public ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct) => throw new NotSupportedException();
+    public ValueTask<Result> RetryFailedNodeAsync(Guid runId, WorkflowRetryRequest request, CancellationToken ct) => throw new NotSupportedException();
 
     public ValueTask<bool> FailStrandedAsync(Guid runId, long expectedSeq, string errorMessage, CancellationToken ct) => throw new NotSupportedException();
 

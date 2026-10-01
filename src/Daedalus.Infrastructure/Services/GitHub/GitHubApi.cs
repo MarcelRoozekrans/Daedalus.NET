@@ -1,16 +1,16 @@
 #pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute — JsonSerializer.Serialize
-                               // over small anonymous write payloads; accepted risk, matching GitHubPullRequestFactory
-                               // and AzureDevOpsPullRequestFactory elsewhere in this project.
+// over small anonymous write payloads; accepted risk, matching GitHubPullRequestFactory
+// and AzureDevOpsPullRequestFactory elsewhere in this project.
 
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using ZeroAlloc.Results;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.GitHub;
 
@@ -25,7 +25,7 @@ namespace Daedalus.Infrastructure.Services.GitHub;
 ///     a confusing category error later. Writes carry no retry: a failure is returned to the caller as-is, because a
 ///     retried comment or label is a visible action taken twice.
 /// </summary>
-public sealed class GitHubApi : IGitHubReader, IGitHubWriter
+public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
 {
     private const string ApiVersion = "2022-11-28";
 
@@ -132,6 +132,73 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
         {
             PullRequestId = content.GetProperty("number").GetInt32().ToString(CultureInfo.InvariantCulture),
             PullRequestUrl = content.GetProperty("url").GetString() ?? string.Empty,
+            WebUrl = content.GetProperty("html_url").GetString() ?? string.Empty,
+            Status = PullRequestStatus.Open,
+        });
+    }
+
+    /// <summary>
+    ///     The open pull request whose head is <paramref name="headBranch"/> in <paramref name="repo"/>, or
+    ///     <see langword="null"/> when none is open. GitHub's <c>head</c> filter takes <c>owner:branch</c>; the whole
+    ///     value is URL-encoded, so a branch such as <c>manufacture/&lt;run-id&gt;</c> is sent as
+    ///     <c>manufacture%2F&lt;run-id&gt;</c> rather than splitting the query.
+    /// </summary>
+    /// <remarks>
+    ///     Every expected fault is a failed result, never an exception: a network or DNS fault, a timeout of the
+    ///     client's own, a body that is not JSON (a proxy's HTML page on a 200), and an element missing
+    ///     <c>number</c> or <c>html_url</c>. Only a cancellation of <paramref name="ct"/> itself propagates.
+    /// </remarks>
+    public async Task<Result<PullRequestResult?>> FindOpenPullRequestAsync(RepoRef repo, string headBranch, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        ArgumentException.ThrowIfNullOrWhiteSpace(headBranch);
+
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<PullRequestResult?>.Failure(token.Error);
+
+        try
+        {
+            return await QueryOpenPullRequestAsync(repo, headBranch, token.Value, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            return Result<PullRequestResult?>.Failure($"Looking up an open pull request on GitHub timed out: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or KeyNotFoundException
+                                       or InvalidOperationException or FormatException)
+        {
+            LogOpenPullRequestLookupFailed(_logger, ex, repo.ToString());
+            return Result<PullRequestResult?>.Failure($"Looking up an open pull request on GitHub failed: {ex.Message}");
+        }
+    }
+
+    private async Task<Result<PullRequestResult?>> QueryOpenPullRequestAsync(
+        RepoRef repo, string headBranch, string token, CancellationToken ct)
+    {
+        var url = $"{RepoUrl(repo)}/pulls?state=open&head={Uri.EscapeDataString($"{repo.Owner}:{headBranch}")}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplyHeaders(request, token);
+
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+            return Result<PullRequestResult?>.Failure(MapError(response, body));
+
+        using var doc = JsonDocument.Parse(body);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            return Result<PullRequestResult?>.Failure($"GitHub returned {doc.RootElement.ValueKind} for a pull request list, not an array.");
+
+        if (doc.RootElement.GetArrayLength() == 0)
+            return Result<PullRequestResult?>.Success(null);
+
+        var content = doc.RootElement[0];
+        return Result<PullRequestResult?>.Success(new PullRequestResult
+        {
+            PullRequestId = content.GetProperty("number").GetInt32().ToString(CultureInfo.InvariantCulture),
+            PullRequestUrl = content.TryGetProperty("url", out var apiUrl) ? apiUrl.GetString() ?? string.Empty : string.Empty,
             WebUrl = content.GetProperty("html_url").GetString() ?? string.Empty,
             Status = PullRequestStatus.Open,
         });
@@ -452,6 +519,10 @@ public sealed class GitHubApi : IGitHubReader, IGitHubWriter
 
         return $"GitHub request failed with status {(int)response.StatusCode} {response.StatusCode}. GitHub said: {message}";
     }
+
+    [LoggerMessage(EventId = 510, Level = LogLevel.Warning,
+        Message = "Looking up an open pull request for {Repository} failed")]
+    private static partial void LogOpenPullRequestLookupFailed(ILogger logger, Exception exception, string repository);
 
     private static string ExtractMessage(string body)
     {

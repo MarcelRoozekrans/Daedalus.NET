@@ -50,7 +50,7 @@ public sealed class StandingInstructionsRunnerTests
         {
             AgentId = AgentId.New(),
             Task = "do the thing",
-            Caller = new WorkflowCaller(run),
+            Caller = new WorkflowCaller(run, grant: null),
         };
 
         await runner.RunAsync(request, CancellationToken.None);
@@ -158,7 +158,7 @@ public sealed class StandingInstructionsRunnerTests
         {
             AgentId = AgentId.New(),
             Task = "do the thing",
-            Caller = new WorkflowCaller(run),
+            Caller = new WorkflowCaller(run, grant: null),
         };
 
         await runner.RunAsync(request, CancellationToken.None);

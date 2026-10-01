@@ -3,8 +3,12 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Daedalus.Agents.Tools;
+using Daedalus.Domain.Entities;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Thalos;
 using Thalos.Workflow;
+using ZeroAlloc.Authorization;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Workflow;
@@ -39,11 +43,39 @@ namespace Daedalus.Agents.Workflow;
 ///     does not use the rubric pass straight through to the inner runner with their request unmodified, so this
 ///     decorator is inert everywhere except the node that asked for it.
 ///     </para>
+///     <para>
+///     <b>Every accepted pass leaves a record the model cannot write.</b> Once a pass's evidence has been read
+///     back and validated, one <see cref="WorkflowRunRecord.ReviewEvidenceKind"/> record is appended to
+///     <see cref="IWorkflowRunRecordStore"/>, before the next pass runs. Its payload is
+///     <c>{ lens, verdict, checked, findings }</c>, built from the validated <see cref="ReviewEvidence"/> and never
+///     from the raw call arguments or the run's variables, so it holds what this runner accepted and nothing an
+///     agent can add to or overwrite later. <see cref="ReviewEvidence.Validate"/> bounds every list and every
+///     entry, so the payload is bounded too. A pass that fails validation is not recorded.
+///     </para>
+///     <para>
+///     <b>A pass whose evidence cannot be recorded fails the node.</b> The record is what later shows a review
+///     ran and what it looked at, so a review that silently lost it would read the same as one that never ran.
+///     An invalid record or a failed append is logged and returned as a failure, and no further pass runs; the
+///     exception never escapes. Cancellation of <c>ct</c> itself still propagates.
+///     </para>
 /// </remarks>
-internal sealed class ReviewLensRunner(ISubagentRunner inner, IProcessDefinitionStore definitions) : ISubagentRunner
+/// <param name="inner">The runner each lens pass is sent to.</param>
+/// <param name="definitions">Where the current node's <c>lenses:</c> declaration is read from.</param>
+/// <param name="scopes">Creates the scope each append resolves <see cref="IWorkflowRunRecordStore"/> from.</param>
+/// <param name="clock">Timestamps each record.</param>
+/// <param name="logger">Logs evidence that could not be recorded.</param>
+internal sealed partial class ReviewLensRunner(
+    ISubagentRunner inner,
+    IProcessDefinitionStore definitions,
+    IServiceScopeFactory scopes,
+    TimeProvider clock,
+    ILogger<ReviewLensRunner> logger) : ISubagentRunner
 {
     private readonly ISubagentRunner _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     private readonly IProcessDefinitionStore _definitions = definitions ?? throw new ArgumentNullException(nameof(definitions));
+    private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
+    private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    private readonly ILogger<ReviewLensRunner> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
     public async ValueTask<Result<AgentTurnResult, AgentError>> RunAsync(SubagentRunRequest request, CancellationToken ct = default)
@@ -88,6 +120,7 @@ internal sealed class ReviewLensRunner(ISubagentRunner inner, IProcessDefinition
     {
         var projected = ReviewHandoff.ProjectForReview(run.Variables);
         Result<AgentTurnResult, AgentError> last = default;
+        TurnUsage spent = default;
 
         for (var i = 0; i < lenses.Length; i++)
         {
@@ -98,18 +131,83 @@ internal sealed class ReviewLensRunner(ISubagentRunner inner, IProcessDefinition
             if (last.IsFailure)
                 return last;
 
+            spent = i == 0 ? last.Value.Usage : spent + last.Value.Usage;
+
             var evidence = ReadEvidence(last.Value, lens, request.RequiredOutcome);
             if (evidence.IsFailure)
                 return Result<AgentTurnResult, AgentError>.Failure(AgentError.Validation(evidence.Error));
 
+            var recorded = await RecordAsync(request.Caller, run, lens, evidence.Value, ct);
+            if (recorded.IsFailure)
+                return Result<AgentTurnResult, AgentError>.Failure(recorded.Error);
+
             // Short-circuit. The remaining lenses are not run: a rejection already sends the run back to
             // implement, so confirming it costs turns and changes nothing.
             if (!evidence.Value.IsApproval)
-                return last;
+                return WithUsage(last.Value, spent);
         }
 
-        return last;
+        return WithUsage(last.Value, spent);
     }
+
+    /// <summary>
+    ///     <paramref name="turn"/> with its usage replaced by <paramref name="spent"/>, the sum over every pass that ran.
+    ///     Only the usage changes: the text and the tool calls, and so the outcome the dispatcher reads, stay that
+    ///     pass's own.
+    /// </summary>
+    private static Result<AgentTurnResult, AgentError> WithUsage(AgentTurnResult turn, TurnUsage spent) =>
+        Result<AgentTurnResult, AgentError>.Success(turn with { Usage = spent });
+
+    /// <summary>
+    ///     Appends one <see cref="WorkflowRunRecord.ReviewEvidenceKind"/> record for an accepted pass, at the run's
+    ///     current sequence number and node, as <paramref name="caller"/>. See the type's remarks for why a failure
+    ///     here fails the node.
+    /// </summary>
+    private async ValueTask<UnitResult<AgentError>> RecordAsync(
+        ISecurityContext caller, WorkflowRun run, ReviewLens lens, ReviewEvidence evidence, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            lens = lens.Name,
+            verdict = evidence.Verdict,
+            @checked = evidence.Checked,
+            findings = evidence.Findings,
+        });
+
+        var record = WorkflowRunRecord.Create(
+            run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.ReviewEvidenceKind, caller.Id,
+            run.StartedBy?.Id, payload, _clock.GetUtcNow().UtcDateTime);
+        if (record.IsFailure)
+        {
+            LogEvidenceRejected(_logger, lens.Name, run.Id, record.Error);
+            return UnitResult<AgentError>.Failure(AgentError.StoreError(NotRecorded(lens), record.Error));
+        }
+
+        try
+        {
+            await using var scope = _scopes.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>()
+                .AppendAsync(record.Value, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // Any failure other than this call's own cancellation, including a timeout surfacing as a
+            // cancellation nobody asked for, is evidence that was not recorded, so the pass is not accepted.
+            LogEvidenceWriteFailed(_logger, ex, lens.Name, run.Id);
+            return UnitResult<AgentError>.Failure(AgentError.StoreError(NotRecorded(lens), ex.Message));
+        }
+
+        return UnitResult<AgentError>.Success();
+    }
+
+    private static string NotRecorded(ReviewLens lens) =>
+        $"The '{lens.Name}' review pass's evidence could not be recorded, so the pass is not accepted.";
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Review evidence for lens {Lens} in run {RunId} could not be written; the node fails")]
+    private static partial void LogEvidenceWriteFailed(ILogger logger, Exception exception, string lens, Guid runId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Review evidence for lens {Lens} in run {RunId} was invalid ({Reason}); the node fails")]
+    private static partial void LogEvidenceRejected(ILogger logger, string lens, Guid runId, string reason);
 
     /// <summary>
     ///     Builds the task text for one lens pass: the dispatcher's own instruction, then this lens and only

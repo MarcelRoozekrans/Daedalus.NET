@@ -1,5 +1,9 @@
+using System.Text.Json;
 using Asp.Versioning;
+using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
+using Daedalus.Api.Agents;
+using Daedalus.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Thalos.Workflow;
@@ -7,16 +11,18 @@ using Thalos.Workflow;
 namespace Daedalus.Api.Controllers;
 
 /// <summary>
-///     Starts, resumes, cancels and reads back manufacture runs. Every action on this controller requires the
-///     <c>WorkflowResume</c> authorization policy (<c>Program.cs</c>: <c>developer</c> or <c>admin</c> role) — the
-///     same criterion <c>Thalos:ToolPolicies</c> binds <c>git__*</c>, <c>repoaction__*</c> and <c>manufacture__*</c>
-///     to, enforced here by ASP.NET Core's own role-based authorization rather than <c>DefaultToolAuthorizer</c>,
+///     Starts, resumes, cancels, retries and reads back manufacture runs. Every action on this controller requires
+///     the <c>WorkflowResume</c> authorization policy (<c>Program.cs</c>: <c>developer</c> or <c>admin</c> role),
+///     the same criterion <c>Thalos:ToolPolicies</c> binds <c>git__*</c>, <c>repoaction__*</c> and <c>manufacture__*</c>
+///     to. It is enforced here by ASP.NET Core's own role-based authorization rather than <c>DefaultToolAuthorizer</c>,
 ///     because these are REST endpoints, not Thalos tool calls, and <c>DefaultToolAuthorizer</c> never sees a
 ///     request that never names a tool. Starting a run over REST and starting one through <c>manufacture__start</c>
 ///     are deliberately gated the same way, by two different mechanisms that happen to require the same role.
+///     Retry is narrower than the rest: it re-runs a push on a run another person approved, so <see cref="Retry"/> additionally requires the
+///     narrower <c>Admin</c> policy.
 /// </summary>
 /// <remarks>
-///     <b>Resume and cancel are deliberately not Thalos tools.</b> Resuming a gate is reachable only through this
+///     <b>Resume, cancel and retry are deliberately not Thalos tools.</b> Resuming a gate is reachable only through this
 ///     controller. No agent — including one running as the run's own <c>WorkflowCaller</c> — can call it, because
 ///     it is never registered as a local tool source and therefore never appears in any agent's resolved tool
 ///     list. An agent that could resume its own approval gate would make every gate in the engine decorative. The
@@ -41,9 +47,11 @@ namespace Daedalus.Api.Controllers;
 public sealed class WorkflowRunsController(WorkflowRunGateway runs) : ControllerBase
 {
     /// <summary>
-    ///     Starts a new manufacture run for <paramref name="request"/>'s <see cref="StartWorkflowRunRequest.WorkIntent"/>.
-    ///     A blank intent fails with 400 before <see cref="IManufactureRunStarter.StartAsync"/> is even called. Past
-    ///     that, every failure the starter reports is a 422 <em>except</em> the specific, constant message
+    ///     Starts a new manufacture run for <paramref name="request"/>'s <see cref="StartWorkflowRunRequest.WorkIntent"/>
+    ///     on the allow-listed repository its <see cref="StartWorkflowRunRequest.Repository"/> names. A blank intent or
+    ///     a blank repository fails with 400 before <see cref="IManufactureRunStarter.StartAsync"/> is even called.
+    ///     Past that, every failure the starter reports is a 422, including a repository that is not allow-listed,
+    ///     <em>except</em> the specific, constant message
     ///     <see cref="Daedalus.Agents.Workflow.DisabledManufactureRunStarter.DisabledMessage"/>, which means the
     ///     workflow engine is off on this host and is reported as 503 instead — that one failure is a host
     ///     configuration fact, not something about this particular request.
@@ -59,6 +67,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     [HttpPost]
     [ProducesResponseType(typeof(StartWorkflowRunResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Start(
@@ -69,7 +78,19 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             return Problem(detail: "WorkIntent must not be blank.", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var result = await starter.StartAsync(request.WorkIntent, ct);
+        if (string.IsNullOrWhiteSpace(request.Repository))
+        {
+            return Problem(detail: "Repository must not be blank.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!HttpSecurityContextFactory.TryCreate(User, out var caller))
+        {
+            return Unauthorized();
+        }
+
+        var startRequest = new ManufactureStartRequest(
+            request.WorkIntent, request.Repository, RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value));
+        var result = await starter.StartAsync(startRequest, ct);
         if (result.IsFailure)
         {
             return string.Equals(result.Error, DisabledManufactureRunStarter.DisabledMessage, StringComparison.Ordinal)
@@ -87,19 +108,83 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     {
         var run = await runs.FindAsync(id, ct);
-        return run is null ? NotFound() : Ok(ToView(run));
+        return run is null ? NotFound() : Ok(await ToViewAsync(run, ct));
     }
 
-    private static WorkflowRunView ToView(WorkflowRun run) => new(
-        run.Id,
-        run.Process,
-        run.ProcessVersion,
-        run.Status.ToString(),
-        run.CurrentNode,
-        run.AwaitingSignal,
-        run.LastError,
-        run.Manifest?.Nodes,
-        StandingInstructionsDiff: StandingInstructionsWriter.Diff(run));
+    /// <summary>
+    ///     Builds the view. Node usage comes from the run's completion events, never from its variables, which no
+    ///     node's usage is written to. The write audit comes from the host-written records, which no agent can add
+    ///     to or change.
+    /// </summary>
+    private async Task<WorkflowRunView> ToViewAsync(WorkflowRun run, CancellationToken ct)
+    {
+        var events = await runs.ListEventsAsync(run.Id, ct);
+        var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
+
+        var (prUrl, unreadableLink) = ReadPrUrl(run);
+        return new WorkflowRunView(
+            run.Id,
+            run.Process,
+            run.ProcessVersion,
+            run.Status.ToString(),
+            run.CurrentNode,
+            run.AwaitingSignal,
+            run.LastError,
+            run.Manifest?.Nodes,
+            StandingInstructionsDiff: StandingInstructionsWriter.Diff(run),
+            NodeUsage: [.. events.Where(e => e.Usage is not null && e.FromNode is not null).Select(ToUsageView)],
+            PrUrl: prUrl,
+            UnreadablePullRequestLink: unreadableLink,
+            StartedBy: run.StartedBy?.Id,
+            WriteAudit: [.. writes.Select(ToWriteAuditView)]);
+    }
+
+    private static NodeUsageView ToUsageView(WorkflowRunEvent completion)
+    {
+        var usage = completion.Usage!.Value;
+        return new NodeUsageView(
+            completion.Seq, completion.FromNode!, usage.InputTokens, usage.OutputTokens,
+            usage.CacheReadTokens, usage.CacheWriteTokens, usage.ModelId ?? "");
+    }
+
+    /// <summary>
+    ///     The run's <c>pr_url</c> variable as a link, or, when it is not an absolute http or https URL, as the text it
+    ///     holds; both <see langword="null"/> when the run has none yet. <c>OpenPullRequestAction</c> is its only writer
+    ///     and writes only such a URL, and no agent node can write it, but a value that does not read as one is still
+    ///     reported as data on the view rather than failing the request: the view is what a human at the gate reads.
+    /// </summary>
+    private static (Uri? Link, string? Unreadable) ReadPrUrl(WorkflowRun run)
+    {
+        if (!run.Variables.TryGetValue(ReviewHandoff.PrUrlKey, out var value) || value?.ToString() is not { } text)
+        {
+            return (null, null);
+        }
+
+        return Uri.TryCreate(text, UriKind.Absolute, out var link)
+            && (string.Equals(link.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)
+                || string.Equals(link.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal))
+            ? (link, null)
+            : (null, text);
+    }
+
+    /// <summary>
+    ///     Reads one write-audit record. Its payload is <c>{ tool, path }</c> as <c>AuditingToolAuthorizer</c> wrote
+    ///     it, read as parsed JSON, since <c>jsonb</c> keeps the value and not the text.
+    /// </summary>
+    private static WriteAuditView ToWriteAuditView(WorkflowRunRecord record)
+    {
+        using var payload = JsonDocument.Parse(record.PayloadJson);
+        var root = payload.RootElement;
+        return new WriteAuditView(
+            record.Seq, record.Node, ReadString(root, "tool") ?? "", ReadString(root, "path"), record.StartedById);
+    }
+
+    private static string? ReadString(JsonElement root, string name) =>
+        root.ValueKind == JsonValueKind.Object
+        && root.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     /// <summary>
     ///     Resumes <paramref name="id"/> if — and only if — it is parked awaiting exactly
@@ -114,6 +199,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     [HttpPost("{id:guid}/resume")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
@@ -129,7 +215,14 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             return NotFound();
         }
 
-        var result = await runs.ResumeAsync(id, request.Signal, request.Payload, request.ApplyStandingInstructions, ct);
+        // After the 404 check, not before it: a resume of a run that does not exist is a 404 whoever asks.
+        if (!HttpSecurityContextFactory.TryCreate(User, out var caller))
+        {
+            return Unauthorized();
+        }
+
+        var approver = RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value);
+        var result = await runs.ResumeAsync(id, request.Signal, request.Payload, request.ApplyStandingInstructions, approver, ct);
         if (result.IsSuccess)
         {
             return NoContent();
@@ -175,6 +268,36 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 
         return NoContent();
     }
+
+    /// <summary>
+    ///     Re-runs the host-action node <paramref name="id"/> failed at, such as <c>publish</c> after a push was
+    ///     refused. Admin only, narrower than the controller's <c>WorkflowResume</c> policy: it pushes and opens a
+    ///     PR on a run another person approved. 404 when the run does not exist. 409 when the store refuses: not
+    ///     Failed, not at a host-action node, or changed since it was read.
+    /// </summary>
+    [HttpPost("{id:guid}/retry")]
+    [Authorize(Policy = "Admin")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Retry(Guid id, CancellationToken ct)
+    {
+        if (await runs.FindAsync(id, ct) is null)
+        {
+            return NotFound();
+        }
+
+        if (!HttpSecurityContextFactory.TryCreate(User, out var caller))
+        {
+            return Unauthorized();
+        }
+
+        var retriedBy = RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value);
+        var result = await runs.RetryAsync(id, retriedBy, ct);
+        return result.IsSuccess ? NoContent() : Problem(detail: result.Error, statusCode: StatusCodes.Status409Conflict);
+    }
 }
 
 /// <summary>Request body for <see cref="WorkflowRunsController.Resume"/>.</summary>
@@ -193,7 +316,11 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 
 /// <summary>Request body for <see cref="WorkflowRunsController.Start"/>.</summary>
 /// <param name="WorkIntent">What the run should manufacture, in the requester's own words. Must not be blank.</param>
-public sealed record StartWorkflowRunRequest(string WorkIntent);
+/// <param name="Repository">
+///     The name of an entry in <c>Thalos:Workflow:Repositories</c>, such as <c>sandbox</c>. Must not be blank. Only a
+///     name, never a URL: a name that is not allow-listed is a 422, so no request can point a run at another remote.
+/// </param>
+public sealed record StartWorkflowRunRequest(string WorkIntent, string Repository);
 
 /// <summary>Response body for <see cref="WorkflowRunsController.Start"/>.</summary>
 /// <param name="RunId">The id of the run that was just started.</param>
@@ -217,6 +344,17 @@ public sealed record StartWorkflowRunResponse(Guid RunId);
 ///     <see langword="null"/> when the run carries no proposal — including every run started before phase 2.4
 ///     task B4 added the <c>retrospect</c> node at all.
 /// </param>
+/// <param name="NodeUsage">
+///     Each completed agent node's token and cache usage, in seq order, read off the run's completion events and never
+///     off its variables. A node that ran no agent turn, such as a gate or a host action, has no entry.
+/// </param>
+/// <param name="PrUrl">The run's <c>pr_url</c> variable, which the <c>open-pull-request</c> action writes, or <see langword="null"/> before it has.</param>
+/// <param name="UnreadablePullRequestLink">
+///     The run's <c>pr_url</c> as stored when it is not an absolute http or https URL, and so is not shown as
+///     <paramref name="PrUrl"/>; otherwise <see langword="null"/>.
+/// </param>
+/// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
+/// <param name="WriteAudit">Every workspace write the run was allowed, from its write-audit records, in seq order.</param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
@@ -226,4 +364,27 @@ public sealed record WorkflowRunView(
     string? AwaitingSignal,
     string? LastError,
     IReadOnlyDictionary<string, NodePin>? Pins,
-    string? StandingInstructionsDiff);
+    string? StandingInstructionsDiff,
+    IReadOnlyList<NodeUsageView> NodeUsage,
+    Uri? PrUrl,
+    string? UnreadablePullRequestLink,
+    string? StartedBy,
+    IReadOnlyList<WriteAuditView> WriteAudit);
+
+/// <summary>The token usage one completed agent node reported, read off its completion event.</summary>
+/// <param name="Seq">The seq of the node execution the completion event closes.</param>
+/// <param name="Node">The node that completed.</param>
+/// <param name="InputTokens">Input tokens, cache reads and writes included.</param>
+/// <param name="OutputTokens">Output tokens.</param>
+/// <param name="CacheReadTokens">Input tokens read from a prompt cache.</param>
+/// <param name="CacheWriteTokens">Input tokens written to a prompt cache.</param>
+/// <param name="ModelId">The model that served the node, or empty when the turn reported none.</param>
+public sealed record NodeUsageView(long Seq, string Node, int InputTokens, int OutputTokens, int CacheReadTokens, int CacheWriteTokens, string ModelId);
+
+/// <summary>One workspace write the tool authorizer allowed and recorded, read off the run's write-audit records.</summary>
+/// <param name="Seq">The run's seq when the write was allowed.</param>
+/// <param name="Node">The node the run was on.</param>
+/// <param name="Tool">The qualified name of the write tool.</param>
+/// <param name="Path">The path the call named, or <see langword="null"/> when it named none.</param>
+/// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
+public sealed record WriteAuditView(long Seq, string Node, string Tool, string? Path, string? StartedBy);

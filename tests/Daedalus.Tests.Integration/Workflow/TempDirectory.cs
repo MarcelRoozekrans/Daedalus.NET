@@ -22,16 +22,6 @@ internal sealed class TempDirectory : IDisposable
         Directory.CreateDirectory(_root);
     }
 
-    /// <summary>
-    ///     A fresh path, relative to a host's content root, for a booted host's standing-instructions file.
-    ///     <c>AddDaedalusAgents</c> refuses a <c>Thalos:Workflow:StandingInstructionsPath</c> outside the content
-    ///     root, and <c>ApiWebApplicationFactory</c>'s content root is the real <c>src/Daedalus.Api</c> project
-    ///     directory. So a test puts its file under that project's <c>obj</c> folder, which git ignores and the
-    ///     build owns, in a directory of its own that <see cref="Dispose"/> deletes. No tracked file is touched.
-    /// </summary>
-    public static string NewContentRootRelative() =>
-        global::System.IO.Path.Combine("obj", "standing-instructions-tests", Guid.NewGuid().ToString("N"));
-
     /// <summary>This directory's own root path, for listing its contents directly (e.g. checking for orphaned temp files).</summary>
     public string Root => _root;
 

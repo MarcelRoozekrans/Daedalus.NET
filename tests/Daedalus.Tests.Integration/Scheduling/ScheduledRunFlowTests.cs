@@ -470,7 +470,8 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
             .AddRunScoutStepOutbox()
             .AddRunWriterStepOutbox()
             .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            .WithSystemTextJsonSerializer();
         services.AddScoped<ScheduledRunExecutionStore>();
 
         if (wrapRunWriterStepWriter is not null)

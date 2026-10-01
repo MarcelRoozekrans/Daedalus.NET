@@ -1,10 +1,11 @@
-using Microsoft.Extensions.Hosting;
+using Thalos;
 using Thalos.Workflow;
+using Thalos.Workspaces;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Workflow;
 
-/// <summary>Why <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,bool,CancellationToken)"/> refused a resume.</summary>
+/// <summary>Why <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,bool,Thalos.Workflow.RunPrincipal,CancellationToken)"/> refused a resume.</summary>
 public enum ResumeRefusal
 {
     /// <summary>The run's <c>retrospect</c> step reported no <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/> — there is nothing to apply.</summary>
@@ -13,7 +14,10 @@ public enum ResumeRefusal
     /// <summary>The standing-instructions file on disk no longer holds exactly the text pinned when the run started.</summary>
     InstructionsChangedSinceStart,
 
-    /// <summary>The write itself failed at the filesystem level.</summary>
+    /// <summary>
+    ///     The write could not be made: the run has no worktree, the path is not permitted inside it, or the write
+    ///     itself failed at the filesystem level.
+    /// </summary>
     WriteFailed,
 
     /// <summary>The workflow engine's own resume refused — e.g. the run is not awaiting the given signal.</summary>
@@ -35,34 +39,46 @@ public readonly record struct ResumeFailure(ResumeRefusal Kind, string Detail);
 ///     trust boundary the phase 2.4 design draws between "the model proposes" and "a human decides".
 /// </summary>
 /// <remarks>
+///     <para>
+///     <b>The file is the run's own, in its worktree.</b> Phase 2.5, task B11: the path is resolved inside the worktree
+///     <see cref="IRunWorkspaceProvider"/> holds for the run, the file <see cref="ManufactureRunStarter"/> pinned the
+///     run's text from, through the same canonical relative path and the same <see cref="WorkspacePath.Resolve"/>.
+///     That confinement replaces phase 2.4's content-root check: the host's own files are out of reach, and a link
+///     inside the worktree that leads out of it is refused. The write is host code applying an approved change, so it
+///     goes through this type's own file IO, not through the <c>workspace__*</c> tools, which refuse the file to a run.
+///     </para>
+///     <para>
 ///     <b>The staleness check is a compare-then-write, not a lock.</b> Between the read of the file below and the
 ///     temp-file write further down, nothing stops a concurrent editor from changing the file again — the design
 ///     accepts that race because the actor who could lose it is a human editing <c>AGENT.md</c> by hand at the
 ///     same moment an operator resumes a gate, which is rare enough that a lock would cost more than it protects
 ///     against. What the check does guarantee is the common case: an editor who touched the file <em>before</em>
 ///     the resume request arrived is never silently overwritten by a proposal pinned against an older version.
+///     </para>
+///     <para>
+///     <b>Resolve and open are two steps.</b> <see cref="WorkspacePath.Resolve"/> does not close the window in which
+///     a link could be swapped in after it returns. Nothing a run can do opens that window: the run is parked at the
+///     gate, so no turn of its own is in flight; the <c>workspace__*</c> tools write regular files only; and the
+///     worktree is checked out with <c>core.symlinks=false</c>, so a link committed to the repository arrives as a
+///     text file. The temp file is opened with <see cref="FileMode.CreateNew"/>, so it is never an existing entry,
+///     link or not, and the rename replaces the target's directory entry rather than writing through it.
+///     </para>
 /// </remarks>
-public sealed class StandingInstructionsWriter(WorkflowConfig config, IHostEnvironment env)
+public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorkspaceProvider workspaces)
 {
-    private readonly string _path = ResolvePath(config, env);
+    private readonly string _path = DaedalusAgentsServiceCollectionExtensions.StandingInstructionsRelativePath(
+        (config ?? throw new ArgumentNullException(nameof(config))).StandingInstructionsPath);
 
-    private static string ResolvePath(WorkflowConfig config, IHostEnvironment env)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        ArgumentNullException.ThrowIfNull(env);
-
-        // Same resolution rule ManufactureRunStarter's own path is built with (Daedalus.Agents' composition
-        // root) — reused, not restated, so the two can never resolve the same configured value differently.
-        return DaedalusAgentsServiceCollectionExtensions.ResolveStandingInstructionsPath(config.StandingInstructionsPath, env);
-    }
+    private readonly IRunWorkspaceProvider _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
 
     /// <summary>
-    ///     Writes <paramref name="run"/>'s proposed standing instructions to disk, iff the file still holds
+    ///     Writes <paramref name="run"/>'s proposed standing instructions to its worktree, iff the file still holds
     ///     exactly the text pinned into the run's manifest when it started. Refuses without touching the file for
-    ///     every other case: no proposal was ever reported, or the file has since changed. A successful write goes
-    ///     through a temp file in the same directory, then <see cref="File.Move(string,string,bool)"/> with
-    ///     <c>overwrite: true</c> — the rename is what keeps a reader of the file from ever observing a partial
-    ///     write.
+    ///     every other case: no proposal was ever reported, the run has no worktree, the path is not permitted inside
+    ///     it, or the file has since changed. A successful write goes through a temp file in the same directory, then
+    ///     <see cref="File.Move(string,string,bool)"/> with <c>overwrite: true</c> — the rename is what keeps a reader
+    ///     of the file from ever observing a partial write. The target and the temp file are each resolved through
+    ///     <see cref="WorkspacePath.Resolve"/>, so neither can lie outside the worktree.
     /// </summary>
     /// <remarks>
     ///     <b>Fix round 1.</b> The staleness read moved inside the <c>try</c>, so a locked or otherwise
@@ -86,25 +102,52 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IHostEnvir
                 $"Workflow run '{run.Id}' carries no '{ReviewHandoff.ProposedStandingInstructionsKey}' proposal to apply."));
         }
 
-        var directory = Path.GetDirectoryName(_path);
-        var tempPath = string.IsNullOrEmpty(directory)
-            ? $"{_path}.{Guid.NewGuid():N}.tmp"
-            : Path.Combine(directory, $"{Path.GetFileName(_path)}.{Guid.NewGuid():N}.tmp");
+        var workspace = await _workspaces.FindAsync(run.Id, ct).ConfigureAwait(false);
+        if (workspace is null)
+        {
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.WriteFailed, "run has no workspace"));
+        }
 
+        var target = WorkspacePath.Resolve(workspace.Root, _path);
+        if (target.IsFailure)
+        {
+            return NotPermitted(run, _path, target.Error);
+        }
+
+        // Next to the configured path, so the rename stays within one directory of the worktree.
+        var tempRelative = $"{_path}.{Guid.NewGuid():N}.tmp";
+        var temp = WorkspacePath.Resolve(workspace.Root, tempRelative);
+        if (temp.IsFailure)
+        {
+            return NotPermitted(run, tempRelative, temp.Error);
+        }
+
+        var targetPath = target.Value;
+        var tempPath = temp.Value;
         var moved = false;
         try
         {
             var pinned = PinnedText(run);
-            var current = File.Exists(_path) ? await File.ReadAllTextAsync(_path, ct).ConfigureAwait(false) : "";
+            var current = File.Exists(targetPath) ? await File.ReadAllTextAsync(targetPath, ct).ConfigureAwait(false) : "";
             if (!string.Equals(current, pinned, StringComparison.Ordinal))
             {
                 return UnitResult<ResumeFailure>.Failure(new ResumeFailure(
                     ResumeRefusal.InstructionsChangedSinceStart,
-                    $"'{_path}' no longer holds the text pinned when run '{run.Id}' started; refusing to overwrite an edit made since."));
+                    $"'{_path}' in the worktree of run '{run.Id}' no longer holds the text pinned when the run started; " +
+                    "refusing to overwrite an edit made since."));
             }
 
-            await File.WriteAllTextAsync(tempPath, proposal, ct).ConfigureAwait(false);
-            File.Move(tempPath, _path, overwrite: true);
+            var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);
+            await using (stream.ConfigureAwait(false))
+            {
+                var writer = new StreamWriter(stream);
+                await using (writer.ConfigureAwait(false))
+                {
+                    await writer.WriteAsync(proposal.AsMemory(), ct).ConfigureAwait(false);
+                }
+            }
+
+            File.Move(tempPath, targetPath, overwrite: true);
             moved = true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -150,6 +193,14 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IHostEnvir
         var proposal = ProposalOrNull(run);
         return proposal is null ? null : LineDiff.Compute(PinnedText(run), proposal);
     }
+
+    /// <summary>
+    ///     A refusal for a path <see cref="WorkspacePath.Resolve"/> would not confine to the run's worktree. Its message
+    ///     is generic by design, so the detail names the configured path, never a host path.
+    /// </summary>
+    private static UnitResult<ResumeFailure> NotPermitted(WorkflowRun run, string path, AgentError error) =>
+        UnitResult<ResumeFailure>.Failure(new ResumeFailure(
+            ResumeRefusal.WriteFailed, $"'{path}' is not writable in the worktree of run '{run.Id}': {error.Message}"));
 
     /// <summary>
     ///     <paramref name="run"/>'s reported <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/>, or

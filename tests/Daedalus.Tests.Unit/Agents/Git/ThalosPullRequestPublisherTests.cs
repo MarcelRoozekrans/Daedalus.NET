@@ -1,11 +1,11 @@
 #pragma warning disable CA1054 // URI-like parameters should not be strings — matches ThalosPullRequestPublisher's own convention
 
-using LibGit2Sharp;
-using Thalos;
-using Thalos.Git;
 using Daedalus.Agents.Git;
 using Daedalus.Application.Services.CodeAnalysis;
+using LibGit2Sharp;
 using Microsoft.Extensions.Logging.Abstractions;
+using Thalos;
+using Thalos.Git;
 
 namespace Daedalus.Tests.Unit.Agents.Git;
 
@@ -105,6 +105,30 @@ public sealed class ThalosPullRequestPublisherTests : IDisposable
             Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    ///     Final review M4: a repository LibGit2Sharp finds but cannot read, here one whose config does not parse, is a
+    ///     failed result, never an exception out of the publish. Red: catching only <c>RepositoryNotFoundException</c>,
+    ///     as before, lets the <c>LibGit2SharpException</c> escape.
+    /// </summary>
+    [Fact]
+    public async Task A_repository_git_cannot_read_is_a_GitOperationFailed_agent_error_without_calling_the_factory()
+    {
+        InitRepositoryWithOriginRemote("https://github.com/owner/repo.git");
+        await File.WriteAllTextAsync(Path.Combine(_repositoryPath, ".git", "config"), "[core\n\tbroken = = =\n");
+        var factory = Substitute.For<IPullRequestFactory>();
+        var sut = new ThalosPullRequestPublisher(factory, NullLogger<ThalosPullRequestPublisher>.Instance);
+
+        var result = await sut.OpenPullRequestAsync(
+            _repositoryPath, "feature", "main", "title", "body", CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(AgentErrorCode.GitOperationFailed);
+        result.Error.Message.Should().Contain(_repositoryPath);
+        await factory.DidNotReceive().CreatePullRequestAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task A_factory_failure_maps_to_a_GitOperationFailed_agent_error()
     {
@@ -122,6 +146,49 @@ public sealed class ThalosPullRequestPublisherTests : IDisposable
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be(AgentErrorCode.GitOperationFailed);
         result.Error.Detail.Should().Be("platform rejected the request");
+    }
+
+    /// <summary>
+    ///     The lookup takes the configured remote and never opens a working tree: nothing on disk exists for this
+    ///     test. Falsifiable per assertion: passing a hard-coded URL, or reading <c>origin</c> from a repository
+    ///     instead of <c>remoteUrl</c>, fails the <c>Received</c> check, and mapping <c>PullRequestUrl</c> instead of
+    ///     <c>WebUrl</c> fails the URL assertion.
+    /// </summary>
+    [Fact]
+    public async Task The_open_pull_request_lookup_asks_the_factory_for_the_given_remote_and_branch()
+    {
+        var factory = Substitute.For<IPullRequestFactory>();
+        factory.FindOpenPullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?>.Success(
+                new Daedalus.Domain.CodeAnalysis.PullRequestResult
+                {
+                    PullRequestId = "7",
+                    PullRequestUrl = "https://api.github.com/repos/o/r/pulls/7",
+                    WebUrl = "https://github.com/o/r/pull/7",
+                }));
+        var sut = new ThalosPullRequestPublisher(factory, NullLogger<ThalosPullRequestPublisher>.Instance);
+
+        var result = await sut.FindOpenPullRequestAsync("https://github.com/o/r.git", "manufacture/abc", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Url.Should().Be("https://github.com/o/r/pull/7");
+        await factory.Received(1).FindOpenPullRequestAsync(
+            "https://github.com/o/r.git", "manufacture/abc", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Falsifiable: mapping a factory's "none open" to a failure, or to an empty result, turns this red.</summary>
+    [Fact]
+    public async Task No_open_pull_request_maps_to_null()
+    {
+        var factory = Substitute.For<IPullRequestFactory>();
+        factory.FindOpenPullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?>.Success(null));
+        var sut = new ThalosPullRequestPublisher(factory, NullLogger<ThalosPullRequestPublisher>.Instance);
+
+        var result = await sut.FindOpenPullRequestAsync("https://github.com/o/r.git", "manufacture/abc", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().BeNull();
     }
 
     private void InitRepositoryWithOriginRemote(string remoteUrl)

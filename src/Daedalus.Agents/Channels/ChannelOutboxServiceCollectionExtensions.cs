@@ -26,6 +26,12 @@ namespace Daedalus.Agents.Channels;
 public static class ChannelOutboxServiceCollectionExtensions
 {
     /// <summary>
+    ///     How long a claim on a channel or scheduling message lasts. See <see cref="AddChannelOutbox"/> for why
+    ///     it must outlast one detached agent turn.
+    /// </summary>
+    internal static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(20);
+
+    /// <summary>
     ///     Registers the outbox pipeline described on the type — the channel message type and the scheduling
     ///     message types together, over the single poller below. Configuration is explicit rather than left at
     ///     the library defaults (5 s / 50 / 5) because a default that changes in a future ZeroAlloc.Outbox version
@@ -52,16 +58,37 @@ public static class ChannelOutboxServiceCollectionExtensions
     ///             the exponential backoff (1 s, 2 s, 4 s, 8 s, 16 s, 32 s, 64 s) still reaches minutes-scale for a
     ///             sustained outage before dead-lettering.
     ///         </description></item>
+    ///         <item><description>
+    ///             <see cref="OutboxOptions.LeaseDuration"/> = <see cref="LeaseDuration"/>, 20 minutes (default 5):
+    ///             <see cref="RunScoutStep"/> and <see cref="RunWriterStep"/> each dispatch a detached agent turn
+    ///             bounded by <c>DetachedRuns:DeadlineSeconds</c> (300 s today), and every host that calls
+    ///             <c>AddDaedalusAgents</c> — the Api and the Cli — runs this worker against the same table. The
+    ///             lease is renewed once per message, right before its dispatch, so it must outlast one whole turn;
+    ///             the default equals the deadline, and a turn that ran to it would let the other host claim the
+    ///             step and pay for the same turn again. <c>AddDaedalusAgents</c> rejects a deadline that is not
+    ///             shorter than this lease.
+    ///             The lease is shared by every message type on this pipeline, so it has a cost for chat: a host
+    ///             that crashes while holding a batch leaves those replies unclaimable for up to 20 minutes, not 5,
+    ///             which outweighs the 2 s <see cref="OutboxOptions.PollingInterval"/> above for that case. A
+    ///             graceful stop releases unfinished leases at once; only a crash pays this.
+    ///         </description></item>
     ///     </list>
+    ///     <see cref="OutboxOptions.HostId"/> is left at its default, the machine name plus a value random per
+    ///     process, which is unique per host as long as one process builds one host.
     /// </summary>
     public static IServiceCollection AddChannelOutbox(this IServiceCollection services)
     {
+        // ZeroAlloc.Outbox 4.x has no default serializer, and without one the worker fails the host start. The
+        // reflection-based System.Text.Json serializer is chosen explicitly at the end of this chain. No
+        // ISerializerDispatcher is registered, and the rows already in the table were written by the 3.x fallback,
+        // which is the same serializer and writes the same bytes, so those rows still deserialize.
         services.AddOutbox(o =>
             {
                 o.PollingInterval = TimeSpan.FromSeconds(2);
                 o.BatchSize = 20;
                 o.MaxAttempts = 8;
                 o.RetryBaseDelay = TimeSpan.FromSeconds(1);
+                o.LeaseDuration = LeaseDuration;
             })
             .WithEfCore<ApplicationDbContext>()
             .AddChannelMessageQueuedOutbox()
@@ -72,7 +99,8 @@ public static class ChannelOutboxServiceCollectionExtensions
             .AddScheduledRunDueOutbox()
             .AddRunScoutStepOutbox()
             .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox();
+            .AddDeliverDigestOutbox()
+            .WithSystemTextJsonSerializer();
 
         return services;
     }

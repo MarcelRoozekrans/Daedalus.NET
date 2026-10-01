@@ -232,7 +232,7 @@ public sealed class RepoToolBoundaryTests(PostgresFixture fixture) : IAsyncLifet
             Status = WorkflowStatus.Running,
             Visits = new Dictionary<string, int>(StringComparer.Ordinal),
         };
-        var caller = new WorkflowCaller(run);
+        var caller = new WorkflowCaller(run, grant: null);
 
         var result = await new DeveloperPolicy().EvaluateAsync(caller, CancellationToken.None);
 

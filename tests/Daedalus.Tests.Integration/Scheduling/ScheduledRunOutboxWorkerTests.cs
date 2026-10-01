@@ -136,7 +136,8 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
             .AddRunScoutStepOutbox()
             .AddRunWriterStepOutbox()
             .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox();
+            .AddChannelMessageQueuedOutbox()
+            .WithSystemTextJsonSerializer();
 
         services.AddScoped<ScheduledRunExecutionStore>();
         services.AddSingleton(executor);

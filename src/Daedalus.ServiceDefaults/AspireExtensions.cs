@@ -14,21 +14,36 @@ namespace Daedalus.ServiceDefaults;
 public static class AspireExtensions
 {
     /// <summary>
+    ///     The configuration key naming the OTLP collector endpoint, the standard OpenTelemetry environment variable. Aspire
+    ///     sets it for every project it runs.
+    /// </summary>
+    public const string OtlpEndpointKey = "OTEL_EXPORTER_OTLP_ENDPOINT";
+
+    /// <summary>
     ///     Adds Aspire service defaults to the distributed application builder.
     /// </summary>
     public static IDistributedApplicationBuilder AddServiceDefaults(
         this IDistributedApplicationBuilder builder)
     {
-        builder.Services.AddServiceDefaults();
+        builder.Services.AddServiceDefaults(builder.Configuration);
         return builder;
     }
 
     /// <summary>
     ///     Adds standard service configuration with OpenTelemetry integration.
     /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">Read for <see cref="OtlpEndpointKey"/>.</param>
     public static IServiceCollection AddServiceDefaults(
-        this IServiceCollection services)
+        this IServiceCollection services, IConfiguration configuration)
     {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        // Export over OTLP only where a collector is configured, as Aspire's own service defaults do. Without one the
+        // exporter still targets the default endpoint, and on every shutdown the batch processor spends about 4 seconds
+        // on a final export to a collector that is not there.
+        var exportOtlp = !string.IsNullOrWhiteSpace(configuration[OtlpEndpointKey]);
+
         // Configure OpenTelemetry
         services.AddOpenTelemetry()
             .WithLogging()
@@ -43,7 +58,10 @@ public static class AspireExtensions
             {
                 options.IncludeScopes = true;
                 options.IncludeFormattedMessage = true;
-                options.AddOtlpExporter();
+                if (exportOtlp)
+                {
+                    options.AddOtlpExporter();
+                }
             });
             logging.AddConsole();
         });

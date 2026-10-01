@@ -2,6 +2,7 @@ using Daedalus.Agents.Workflow;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Thalos;
+using Thalos.Caching;
 using Thalos.Memory;
 using Thalos.Testing;
 using Thalos.Workflow;
@@ -48,8 +49,8 @@ public sealed class WorkflowCallerMemoryScopingTests
         var run1 = NewRun("manufacture-recall-carryover");
         var run2 = NewRun("manufacture-recall-carryover"); // same process, a later run
 
-        await harness.RunAsync(ReviewerId, "Remember something for later runs.", new WorkflowCaller(run1));
-        var second = await harness.RunAsync(ReviewerId, "Recall the carryover marker.", new WorkflowCaller(run2));
+        await harness.RunAsync(ReviewerId, "Remember something for later runs.", new WorkflowCaller(run1, grant: null));
+        var second = await harness.RunAsync(ReviewerId, "Recall the carryover marker.", new WorkflowCaller(run2, grant: null));
 
         var recall = second.ToolCalls.Should().ContainSingle(tc => tc.ToolName == "memory__recall").Which;
         recall.ResultPreview.Should().Contain(marker,
@@ -78,7 +79,7 @@ public sealed class WorkflowCallerMemoryScopingTests
 
         await using var harness = BuildHarness(scripted);
         var run = NewRun("manufacture-role-partition");
-        var caller = new WorkflowCaller(run); // same run for both roles
+        var caller = new WorkflowCaller(run, grant: null); // same run for both roles
 
         await harness.RunAsync(ImplementerId, "Remember something only the implementer should see.", caller);
         var implementerRecall = await harness.RunAsync(ImplementerId, "Recall your own marker.", caller);
@@ -125,7 +126,7 @@ public sealed class WorkflowCallerMemoryScopingTests
 
         await using var harness = BuildHarness(scripted);
         var run = NewRun("manufacture-own-plus-shared");
-        var caller = new WorkflowCaller(run);
+        var caller = new WorkflowCaller(run, grant: null);
 
         await harness.SeedAsync(caller.MemoryOwnerId, ReviewerId, reviewerMarker);
         await harness.SeedAsync(caller.MemoryOwnerId, agentId: null, sharedMarker);
@@ -160,19 +161,31 @@ public sealed class WorkflowCallerMemoryScopingTests
         var run1 = NewRun("manufacture-autorecall-parity");
         var run2 = NewRun("manufacture-autorecall-parity");
 
-        await harness.RunAsync(ReviewerId, "Remember something for the agenda.", new WorkflowCaller(run1));
-        await harness.RunAsync(ReviewerId, "What is on the agenda?", new WorkflowCaller(run2));
+        // A decoy in the per-run scope run2 would read if its memory owner were its per-run Id. It gives the
+        // regression below a transient message of its own, so the marker clause is what catches it, not the
+        // message's absence.
+        var caller2 = new WorkflowCaller(run2, grant: null);
+        await harness.SeedAsync(caller2.Id, agentId: null, "PER-RUN-DECOY-7c1e93");
 
-        // The last request is run2's only model call. Its Options.Instructions come solely from
-        // MemoryContextProvider (auto-recall) — the script never gives the model a chance to call
-        // memory__recall in this turn — so the marker's presence here proves auto-recall resolved the
-        // same owner an explicit memory__recall call would (Part A's own fix-round bug: the two read
-        // paths disagreeing because only one of them was updated to honour IMemoryOwner). Auto-recall's
-        // query is the user text above, which shares no tokens with the marker, so this exercises the
-        // Recency-tier fallback rather than semantic ranking — irrelevant here since ChatOptions.Instructions
-        // carries the full MemoryRecallBlock.Render() output, never trimmed the way a tool result is.
+        await harness.RunAsync(ReviewerId, "Remember something for the agenda.", new WorkflowCaller(run1, grant: null));
+        await harness.RunAsync(ReviewerId, "What is on the agenda?", caller2);
+
+        // The last request is run2's only model call. Since Thalos 0.11.0 MemoryContextProvider (auto-recall)
+        // places the recalled memories in one transient message after the stored history, not in the
+        // instructions, so the instructions stay a cacheable prefix. The script never gives the model a chance
+        // to call memory__recall in this turn, so that message is the only way the marker can reach the model,
+        // and its presence proves auto-recall resolved the same owner an explicit memory__recall call would
+        // (Part A's own fix-round bug: the two read paths disagreeing because only one of them was updated to
+        // honour IMemoryOwner). Auto-recall's query is the user text above, which shares no tokens with the
+        // marker, so this exercises the Recency-tier fallback rather than semantic ranking — irrelevant here
+        // since the message carries the full MemoryRecallBlock.Render() output, never trimmed the way a tool
+        // result is. Falsifiable per clause: making WorkflowCaller.MemoryOwnerId its per-run Id puts run1's note
+        // out of run2's scope, so run2 recalls only the decoy and the marker clause fails; an owner no note is
+        // stored under recalls nothing, so no transient message is sent and the ContainSingle clause fails.
         var lastRequest = scripted.Requests[^1];
-        lastRequest.Options?.Instructions.Should().Contain(marker);
+        lastRequest.Messages.Should().ContainSingle(m =>
+                m.AdditionalProperties != null && m.AdditionalProperties.ContainsKey(PromptCacheHints.Transient))
+            .Which.Text.Should().Contain(marker);
     }
 
     private static WorkflowRun NewRun(string process) => new()

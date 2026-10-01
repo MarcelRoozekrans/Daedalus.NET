@@ -58,14 +58,13 @@ public sealed class RunRecordAnnotationTests
             return ValueTask.CompletedTask;
         }
 
-        public ValueTask<Guid> StartAsync(string process, int version, string correlationKey, string startNode, IReadOnlyDictionary<string, object?>? initialVariables, CancellationToken ct) =>
-            throw new NotSupportedException();
-
-        public ValueTask<Guid> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public ValueTask<Result<Guid>> StartAsync(WorkflowStartRequest request, CancellationToken ct) => throw new NotSupportedException();
 
         public ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) => new(RunToFind);
 
-        public ValueTask<Result> ResumeAsync(Guid runId, string signal, string? payload, CancellationToken ct) => throw new NotSupportedException();
+        public ValueTask<Result> ResumeAsync(Guid runId, WorkflowResumeRequest request, CancellationToken ct) => throw new NotSupportedException();
+
+        public ValueTask<Result> RetryFailedNodeAsync(Guid runId, WorkflowRetryRequest request, CancellationToken ct) => throw new NotSupportedException();
 
         public ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct) => throw new NotSupportedException();
 
@@ -90,7 +89,7 @@ public sealed class RunRecordAnnotationTests
         var log = new WorkflowRecallTierLog();
         if (tier is { } answered)
         {
-            var caller = new WorkflowCaller(Run(runId));
+            var caller = new WorkflowCaller(Run(runId), grant: null);
             var memory = new RecallTierRecordingMemoryService(ServiceAnswering(answered), log, () => caller);
             await memory.RecallAsync("anything", new MemoryScope(caller.MemoryOwnerId, Reviewer, "daedalus"), new RecallOptions(), CancellationToken.None);
         }
@@ -101,6 +100,28 @@ public sealed class RunRecordAnnotationTests
 
         store.Written.Should().NotBeNull();
         return store.Written!;
+    }
+
+    /// <summary>
+    ///     The mode annotation rebuilds the report, and must carry the node's token usage across. Falsifiable:
+    ///     dropping the <c>Usage</c> copy in <see cref="WorkflowRunModeStore.CompleteNodeAsync"/> leaves it null.
+    /// </summary>
+    [Fact]
+    public async Task The_nodes_token_usage_survives_the_mode_annotation()
+    {
+        var usage = new TurnUsage(1000, 50, "m") { CacheReadTokens = 800, CacheWriteTokens = 100 };
+        var store = new CapturingStore();
+        var decorated = new WorkflowRunModeStore(
+            store, new SquadOptions { Enabled = true, FallbackAgentName = "x" }, new WorkflowRecallTierLog());
+
+        await decorated.CompleteNodeAsync(
+            Guid.NewGuid(),
+            4,
+            AnyTransition(),
+            new NodeResult("approved", new Dictionary<string, object?>(StringComparer.Ordinal)) { Usage = usage },
+            CancellationToken.None);
+
+        store.Written!.Usage.Should().Be(usage);
     }
 
     [Fact]
@@ -151,7 +172,7 @@ public sealed class RunRecordAnnotationTests
     {
         var runId = Guid.NewGuid();
         var log = new WorkflowRecallTierLog();
-        var caller = new WorkflowCaller(Run(runId));
+        var caller = new WorkflowCaller(Run(runId), grant: null);
         var memory = new RecallTierRecordingMemoryService(ServiceAnswering(MemoryRecallTier.Semantic), log, () => caller);
         await memory.RecallAsync("anything", new MemoryScope(caller.MemoryOwnerId, Reviewer, "daedalus"), new RecallOptions(), CancellationToken.None);
 
@@ -173,7 +194,7 @@ public sealed class RunRecordAnnotationTests
     {
         var log = new WorkflowRecallTierLog();
         var otherRun = Guid.NewGuid();
-        var caller = new WorkflowCaller(Run(otherRun));
+        var caller = new WorkflowCaller(Run(otherRun), grant: null);
         var memory = new RecallTierRecordingMemoryService(ServiceAnswering(MemoryRecallTier.Recency), log, () => caller);
         await memory.RecallAsync("anything", new MemoryScope(caller.MemoryOwnerId, Reviewer, "daedalus"), new RecallOptions(), CancellationToken.None);
 
@@ -212,7 +233,7 @@ public sealed class RunRecordAnnotationTests
     {
         var log = new WorkflowRecallTierLog();
         var runId = Guid.NewGuid();
-        var caller = new WorkflowCaller(Run(runId));
+        var caller = new WorkflowCaller(Run(runId), grant: null);
         var inner = Substitute.For<IMemoryService>();
         inner.RecallAsync(Arg.Any<string>(), Arg.Any<MemoryScope>(), Arg.Any<RecallOptions>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result<MemoryRecallResult, AgentError>>(

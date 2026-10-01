@@ -70,10 +70,9 @@ namespace Daedalus.Agents.Workflow;
 ///     Thalos makes for a report it
 ///     rejects and for the same reason — a failed run carries a message a process author can read back out of
 ///     <c>WorkflowRun.LastError</c>, and a throw here would escape the dispatcher and dead-letter the dispatch
-///     instead. What this check does <em>not</em> count is the three keys <see cref="WorkflowRunModeStore"/>
-///     is about to add below it, on this same transition; see that type for why they escape only this one
-///     check, once, and count against the cap like any other key on every transition after — exactly as
-///     <c>IWorkflowStore.ResumeAsync</c>'s engine-minted payload key already does in Thalos' own derivation.
+///     instead. The check also counts the three keys <see cref="WorkflowRunModeStore"/> adds below it on every
+///     transition, and keeps room for the keys <c>open-pull-request</c> writes, on every agent node rather than only a
+///     projected one; see <see cref="DescribeKeyLimitBreach"/>.
 ///     </para>
 /// </remarks>
 internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessDefinitionStore definitions)
@@ -112,18 +111,20 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
 
     /// <inheritdoc />
     /// <remarks>
-    ///     <b>Two jobs, on every transition.</b> The first is <see cref="EnforceProposalAuthorship"/>: only a node
-    ///     pinned to <see cref="ReviewHandoff.RetrospectSkillName"/> may write
-    ///     <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/>, and when it completes, the key holds exactly
-    ///     what that completion proposed, or nothing. That rule has to see every node, because the node that would
-    ///     plant the key is any node but retrospect. So this method now reads the run and its definition on every
-    ///     transition, not only on a projected one.
+    ///     <b>Two jobs, on every transition.</b> The first is <see cref="EnforceAuthorship"/>: each key in
+    ///     <see cref="ReviewHandoff.Authors"/> is written only by the node pinned to its author skill, and when
+    ///     retrospect completes, <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/> holds exactly what that
+    ///     completion proposed, or nothing. That rule has to see every node, because the node that would plant a key
+    ///     is any node but its author. So this method reads the run and its definition on every transition, not only
+    ///     on a projected one.
     ///     <para>
-    ///     The second job is the key-cap re-check, and it still runs only on a projected node. Every other node was
-    ///     already counted by the dispatcher against the same bag this would read, so a second check there would be
-    ///     a second place for the same rule to live. The check counts the report <em>after</em> the authorship rule
-    ///     has rewritten it. That rule only ever removes a key or overwrites one the run already holds, so it can
-    ///     never be the reason a report crosses the cap.
+    ///     The second job is the key-cap check with the host's reservation, on every agent node: see
+    ///     <see cref="DescribeKeyLimitBreach"/>. The dispatcher counted a node that is not projected against the full
+    ///     cap, but not against the room <see cref="ReviewHandoff.HostActionKeys"/> needs, and a projected node against
+    ///     neither. A host action node is not checked here: Thalos checks its report itself, and its keys are the ones
+    ///     the reservation holds room for. The check counts the report <em>after</em> the authorship rule has rewritten
+    ///     it. That rule only ever removes a key or overwrites one the run already holds, so it can never be the reason
+    ///     a report crosses the cap.
     ///     </para>
     /// </remarks>
     public override async ValueTask CompleteNodeAsync(
@@ -139,9 +140,9 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         }
 
         var node = await NodeForAsync(run, ct).ConfigureAwait(false);
-        var authored = EnforceProposalAuthorship(run, node, result);
+        var authored = EnforceAuthorship(run, node, result);
 
-        if (ProjectionFor(node) is not null)
+        if (node is { Action: null })
         {
             var breach = DescribeKeyLimitBreach(run, authored.Variables);
             if (breach is not null)
@@ -155,50 +156,85 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
     }
 
     /// <summary>
-    ///     Enforces design decision D4 on the write path: the <c>retrospect</c> node is the only author of a
-    ///     standing-instructions proposal. Returns <paramref name="result"/> unchanged when there is nothing to
-    ///     enforce, or a copy with <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/> removed or set to
-    ///     <see langword="null"/>.
+    ///     Enforces <see cref="ReviewHandoff.Authors"/> on the write path: each listed key is written only by the node
+    ///     pinned to its author skill. Returns <paramref name="result"/> unchanged when there is nothing to enforce, or a
+    ///     copy with the foreign keys removed and, for retrospect, <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/>
+    ///     removed or set to <see langword="null"/>.
     /// </summary>
     /// <remarks>
     ///     <b>Why this is needed.</b> Thalos merges each node's reported variables into the run's bag. A later
     ///     write wins, and a report that leaves a key out leaves the earlier value in place. The dispatcher accepts
     ///     any key name a node reports. So without this rule, <c>implement</c> or <c>review</c> could report the
-    ///     key, <c>retrospect</c> could then report <c>none</c> with no variables as its skill tells it to, and the
-    ///     planted value would reach the gate. There, <c>GET</c> would show it as retrospect's diff and an apply
-    ///     would write it to disk.
+    ///     proposal key, <c>retrospect</c> could then report <c>none</c> with no variables as its skill tells it to,
+    ///     and the planted value would reach the gate. There, <c>GET</c> would show it as retrospect's diff and an
+    ///     apply would write it to disk. In the same way a review lens could overwrite the implementer's
+    ///     <c>summary</c>, which <c>open-pull-request</c> renders into the pull request body as the implementer's own
+    ///     account (phase 2.5 task B14).
     ///     <list type="bullet">
     ///         <item>
-    ///             <b>Any node that is not retrospect</b> has the key removed from its report. The rest of the
-    ///             report is kept.
+    ///             <b>A node not pinned to a key's author skill</b> has that key removed from its report. The rest of
+    ///             the report is kept.
     ///         </item>
     ///         <item>
-    ///             <b>A retrospect completion</b> keeps a reported key only when its outcome is
+    ///             <b>A retrospect completion</b> keeps a reported proposal only when its outcome is
     ///             <see cref="ReviewHandoff.RetrospectProposedOutcome"/>. On any other outcome, or when
     ///             <c>proposed</c> arrives without the key, the key is set to <see langword="null"/> if the report
     ///             or the run's bag holds it. <see cref="StandingInstructionsWriter"/> already treats null as no
     ///             proposal. A null is written only over a key the run already holds, so this never adds a key to the
-    ///             bag and never moves it toward the key cap.
+    ///             bag and never moves it toward the key cap. <c>summary</c> has no such rule: implement's report of
+    ///             it is kept as it stands, on either outcome.
     ///         </item>
     ///     </list>
     ///     <para>
-    ///     Retrospect is identified the same way <see cref="ProjectionFor"/> identifies it: by the skill its node
-    ///     declares on the run's own pinned process version, not by the node's name. A node whose definition
-    ///     cannot be resolved is treated as not being retrospect, so its report is stripped. The dispatcher fails
-    ///     such a run anyway.
+    ///     A node is identified the same way <see cref="ProjectionFor"/> identifies it: by the skill it declares on
+    ///     the run's own pinned process version, not by the node's name. A node whose definition cannot be resolved
+    ///     authors nothing, so every listed key is stripped from its report. The dispatcher fails such a run anyway.
     ///     </para>
     /// </remarks>
-    private static NodeResult EnforceProposalAuthorship(WorkflowRun run, ProcessNode? node, NodeResult result)
+    private static NodeResult EnforceAuthorship(WorkflowRun run, ProcessNode? node, NodeResult result)
+    {
+        var authored = StripForeignKeys(node, result);
+        return IsRetrospect(node) ? SettleProposal(run, authored) : authored;
+    }
+
+    /// <summary>
+    ///     Removes every <see cref="ReviewHandoff.Authors"/> key <paramref name="node"/> is not the author of, and every
+    ///     <see cref="ReviewHandoff.HostWritten"/> key unless <paramref name="node"/> is the host action that writes it.
+    ///     An agent node is never that action, so no agent can write <c>work_intent</c>, <c>pr_url</c> or
+    ///     <c>publish_error</c>.
+    /// </summary>
+    private static NodeResult StripForeignKeys(ProcessNode? node, NodeResult result)
+    {
+        Dictionary<string, object?>? copy = null;
+        foreach (var (key, author) in ReviewHandoff.Authors)
+        {
+            if (result.Variables.ContainsKey(key) && !string.Equals(node?.Skill, author, StringComparison.Ordinal))
+            {
+                copy ??= new Dictionary<string, object?>(result.Variables, StringComparer.Ordinal);
+                copy.Remove(key);
+            }
+        }
+
+        foreach (var (key, action) in ReviewHandoff.HostWritten)
+        {
+            if (result.Variables.ContainsKey(key) && (action is null || !string.Equals(node?.Action, action, StringComparison.Ordinal)))
+            {
+                copy ??= new Dictionary<string, object?>(result.Variables, StringComparer.Ordinal);
+                copy.Remove(key);
+            }
+        }
+
+        return copy is null ? result : new NodeResult(result.Outcome, copy) { Usage = result.Usage };
+    }
+
+    /// <summary>
+    ///     On a retrospect completion, leaves <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/> holding exactly
+    ///     what a <c>proposed</c> outcome reported, or <see langword="null"/>.
+    /// </summary>
+    private static NodeResult SettleProposal(WorkflowRun run, NodeResult result)
     {
         const string key = ReviewHandoff.ProposedStandingInstructionsKey;
         var reported = result.Variables.ContainsKey(key);
-
-        if (!IsRetrospect(node))
-        {
-            return reported
-                ? new NodeResult(result.Outcome, Without(result.Variables, key))
-                : result;
-        }
 
         if (reported && string.Equals(result.Outcome, ReviewHandoff.RetrospectProposedOutcome, StringComparison.Ordinal))
         {
@@ -211,48 +247,64 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         }
 
         var cleared = new Dictionary<string, object?>(result.Variables, StringComparer.Ordinal) { [key] = null };
-        return new NodeResult(result.Outcome, cleared);
-    }
-
-    private static Dictionary<string, object?> Without(IReadOnlyDictionary<string, object?> variables, string key)
-    {
-        var copy = new Dictionary<string, object?>(variables, StringComparer.Ordinal);
-        copy.Remove(key);
-        return copy;
+        return new NodeResult(result.Outcome, cleared) { Usage = result.Usage };
     }
 
     private static bool IsRetrospect(ProcessNode? node) =>
         node is not null && string.Equals(node.Skill, ReviewHandoff.RetrospectSkillName, StringComparison.Ordinal);
 
     /// <summary>
-    ///     The failure message for a report that would take the run's real bag past
-    ///     <see cref="MaxVariableKeys"/> distinct keys, or <see langword="null"/> when it would not.
+    ///     The keys <see cref="WorkflowRunModeStore"/> adds to every transition below this store. Counted by
+    ///     <see cref="DescribeKeyLimitBreach"/> as if already in the bag, so the first transition, before they are, is
+    ///     held to the same room as every later one.
+    /// </summary>
+    private static readonly string[] ModeKeys =
+        [WorkflowRunModeStore.SquadModeKey, WorkflowRunModeStore.PinningKey, WorkflowRunModeStore.RecallTierKey];
+
+    /// <summary>
+    ///     The failure message for an agent node's report that mints a key and would take the run's real bag, together
+    ///     with the <see cref="ModeKeys"/> and the <see cref="ReviewHandoff.HostActionKeys"/> the host still has to
+    ///     write, past <see cref="MaxVariableKeys"/> distinct keys; or <see langword="null"/> when it would not.
     /// </summary>
     /// <remarks>
+    ///     <para>
     ///     Distinct keys after the merge, so overwriting a key the run already holds never moves the count and
-    ///     a capped loop can overwrite the same few keys lap after lap — the same rule Thalos applies, stated
-    ///     the same way, because a review node that obeyed a different one would be a worse surprise than one
-    ///     that obeyed none.
+    ///     a capped loop can overwrite the same few keys lap after lap, the same rule Thalos applies. A report that
+    ///     mints no new key is never refused, even over a bag already past the limit.
+    ///     </para>
+    ///     <para>
+    ///     <b>Counted against the real bag.</b> A review or retrospect dispatch is narrowed to a declared read
+    ///     projection, so the bag the dispatcher counted that node against is not what the run holds.
+    ///     </para>
+    ///     <para>
+    ///     <b>Room kept for the host.</b> <c>open-pull-request</c> writes <c>pr_url</c> or <c>publish_error</c> after
+    ///     it has pushed and opened the pull request, and Thalos checks those keys against the cap only then. A bag
+    ///     agents had filled would fail the run after its side effects, so no agent node may take that room.
+    ///     </para>
     /// </remarks>
     private static string? DescribeKeyLimitBreach(WorkflowRun run, IReadOnlyDictionary<string, object?> reported)
     {
-        if (reported.Count == 0)
+        if (reported.Keys.All(run.Variables.ContainsKey))
         {
             return null;
         }
 
         var merged = new HashSet<string>(run.Variables.Keys, StringComparer.Ordinal);
         merged.UnionWith(reported.Keys);
+        var reachedByReport = merged.Count;
+        merged.UnionWith(ModeKeys);
+        merged.UnionWith(ReviewHandoff.HostActionKeys);
         if (merged.Count <= MaxVariableKeys)
         {
             return null;
         }
 
         return $"Node '{run.CurrentNode}' reported {reported.Count} variable(s), which would take the run's variable bag to " +
-            $"{merged.Count} distinct keys, past the limit of {MaxVariableKeys}. Counted against the run's real bag of " +
-            $"{run.Variables.Count} key(s): this node's dispatch is narrowed to a declared read projection, so the bag " +
-            "the dispatcher was given is not what the run actually holds. Overwrite an existing key instead of minting " +
-            "a new one, or report fewer, larger-grained variables.";
+            $"{reachedByReport} distinct keys, and to {merged.Count} with the keys the host adds on every transition " +
+            $"({string.Join(", ", ModeKeys)}) and the room it keeps for {ReviewHandoff.PublishActionName} " +
+            $"({string.Join(", ", ReviewHandoff.HostActionKeys)}): past the limit of {MaxVariableKeys}. Counted against " +
+            $"the run's real bag of {run.Variables.Count} key(s). Overwrite an existing key instead of minting a new one, " +
+            "or report fewer, larger-grained variables.";
     }
 
     /// <summary>

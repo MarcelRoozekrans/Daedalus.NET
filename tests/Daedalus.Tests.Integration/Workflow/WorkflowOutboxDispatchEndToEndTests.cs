@@ -1,4 +1,5 @@
 using System.Data.Async.Adapters;
+using AwesomeAssertions.Execution;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -17,14 +18,14 @@ namespace Daedalus.Tests.Integration.Workflow;
 /// <summary>
 ///     Drives <see cref="WorkflowOutboxDispatchService"/> — the workflow engine's outbox poller — against a real
 ///     Postgres outbox table, end to end: a real
-///     <see cref="OrmWorkflowStore.StartAsync(string,int,string,string,System.Collections.Generic.IReadOnlyDictionary{string,object},System.Threading.CancellationToken)"/>
+///     <see cref="OrmWorkflowStore.StartAsync(WorkflowStartRequest,System.Threading.CancellationToken)"/>
 ///     enqueues a real
-///     dispatch row, the poller's own <see cref="WorkflowOutboxDispatchService.ProcessBatchAsync"/> fetches and
+///     dispatch row, the poller's own <see cref="WorkflowOutboxDispatchService.ProcessBatchAsync"/> claims and
 ///     dispatches it through a real <see cref="WorkflowNodeDispatcher"/>, and the run and the outbox table are
 ///     both asserted afterward. Before this test <see cref="WorkflowOutboxDispatchService"/> had no functional
 ///     coverage anywhere — <c>WorkflowNodeDispatcherFactoryTests</c> exercises the dispatcher, and
 ///     <c>WorkflowOrmMigrationTests</c> exercises the schema and the stores, but nothing drove the poller's own
-///     fetch/dispatch/mark-succeeded loop against a real table.
+///     claim/dispatch/mark-succeeded loop against a real table.
 /// </summary>
 /// <remarks>
 ///     The only substitute is <see cref="ISubagentRunner"/> — nothing about the outbox, the store, or the
@@ -75,7 +76,8 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
                 .Returns(Result<AgentTurnResult, AgentError>.Success(
                     new AgentTurnResult(TurnId.New(), new SessionId(Guid.Empty), "done", default, [], TimeSpan.Zero)));
 
-            var nodeDispatcher = new WorkflowNodeDispatcher(store, runner, resolver, definitions, Substitute.For<ISkillStore>(), run => new WorkflowCaller(run));
+            var nodeDispatcher = new WorkflowNodeDispatcher(
+                store, runner, resolver, definitions, Substitute.For<ISkillStore>(), run => new WorkflowCaller(run, grant: null), gates: [], hostActions: []);
             var outboxDispatcher = new WorkflowDispatchOutboxDispatcher(nodeDispatcher);
 
             await using var dataSource = NpgsqlDataSource.Create(connectionString);
@@ -83,8 +85,18 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
             var poller = new WorkflowOutboxDispatchService(
                 dataSource, outboxDispatcher, pollerOptions, NullLogger<WorkflowOutboxDispatchService>.Instance);
 
-            var runId = await store.StartAsync(
-                "e2e-smoke-test", 1, $"e2e-test:{Guid.NewGuid()}", "start", initialVariables: null, CancellationToken.None);
+            var started = await store.StartAsync(
+                new WorkflowStartRequest
+                {
+                    Process = "e2e-smoke-test",
+                    Version = 1,
+                    CorrelationKey = $"e2e-test:{Guid.NewGuid()}",
+                    StartNode = "start",
+                    StartedBy = TestPrincipals.Starter,
+                },
+                CancellationToken.None);
+            started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : null);
+            var runId = started.Value;
 
             // First tick: dispatches "start" (a real agent turn through the substituted ISubagentRunner) and
             // transitions the run to "finish" — which OrmWorkflowStore.CompleteNodeAsync enqueues its own
@@ -107,16 +119,25 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
             await runner.Received(1).RunAsync(Arg.Any<SubagentRunRequest>(), Arg.Any<CancellationToken>());
 
             // Both outbox rows this run ever produced were dispatched and marked succeeded, not left pending.
-            await using var verifyConnection = await dataSource.OpenConnectionAsync(CancellationToken.None);
-            var outboxStore = new OrmOutboxStore(verifyConnection.AsAsync());
-            var stillPending = await outboxStore.FetchPendingAsync(10, CancellationToken.None);
-            stillPending.Should().BeEmpty("both dispatch rows for this run should have been fetched and marked succeeded");
+            // Counted with raw SQL, not ClaimPendingAsync, which would lease every row it returns as a side effect.
+            var succeeded = await CountRowsAsync(dataSource, "status = 1");
+            var pending = await CountRowsAsync(dataSource, "status = 0");
+            using var scope = new AssertionScope();
+            succeeded.Should().Be(2,
+                "both dispatch rows for this run should have been claimed, dispatched and marked succeeded");
+            pending.Should().Be(0, "no dispatch row may be left pending");
         }
         finally
         {
             NpgsqlConnection.ClearAllPools();
             await ExecuteOnServerAsync($"DROP DATABASE IF EXISTS \"{dbName}\" WITH (FORCE)");
         }
+    }
+
+    private static async Task<long> CountRowsAsync(NpgsqlDataSource dataSource, string where)
+    {
+        await using var command = dataSource.CreateCommand($"SELECT COUNT(*) FROM outboxmessages WHERE {where}");
+        return (long)(await command.ExecuteScalarAsync())!;
     }
 
     private static async Task MigrateAsync(string connectionString)

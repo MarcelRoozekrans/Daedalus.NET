@@ -58,6 +58,14 @@
         <None Include="..\..\src\Daedalus.Api\appsettings.json" Link="Daedalus.Api.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
         <None Include="..\..\src\Daedalus.Cli\appsettings.json" Link="Daedalus.Cli.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
         <None Include="..\..\src\Daedalus.Console\appsettings.json" Link="Daedalus.Console.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- The Api's .mcp.json under an unambiguous name. It also reaches this output as .mcp.json, through the Api
+             project reference; McpConfigOutputTests pins that the two are the same file, so no other host's
+             .mcp.json can take its place there. -->
+        <None Include="..\..\src\Daedalus.Api\.mcp.json" Link="Daedalus.Api.mcp.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- The Cli's .mcp.json, for RoslynCodeLensToolBoundaryTests' pin check. Never under the plain name: see above. -->
+        <None Include="..\..\src\Daedalus.Cli\.mcp.json" Link="Daedalus.Cli.mcp.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- The pinned RoslynCodeLens server's tools/list, for the same test. -->
+        <None Update="Configuration\RoslynCodeLens.Mcp.tools.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>

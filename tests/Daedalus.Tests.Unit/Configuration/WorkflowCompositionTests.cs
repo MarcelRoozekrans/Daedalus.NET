@@ -21,6 +21,11 @@ namespace Daedalus.Tests.Unit.Configuration;
 /// </summary>
 public sealed class WorkflowCompositionTests
 {
+    /// <summary>
+    ///     The real Api container. Callers dispose it with <c>await using</c>: resolving the workflow resolver builds every
+    ///     registered host action, and open-pull-request pulls in the workspace provider and its observers, one of which,
+    ///     <c>RunMcpServerRegistry</c>, is only <see cref="IAsyncDisposable"/>.
+    /// </summary>
     private static ServiceProvider BuildRealApiContainer()
     {
         var environment = Substitute.For<IHostEnvironment>();
@@ -40,9 +45,9 @@ public sealed class WorkflowCompositionTests
     }
 
     [Fact]
-    public void The_memory_service_the_host_resolves_records_workflow_recall_tiers()
+    public async Task The_memory_service_the_host_resolves_records_workflow_recall_tiers()
     {
-        using var sp = BuildRealApiContainer();
+        await using var sp = BuildRealApiContainer();
 
         sp.GetRequiredService<IMemoryService>().Should().BeOfType<RecallTierRecordingMemoryService>(
             "MemoryContextProvider and the memory__* tools both resolve IMemoryService by interface, so an " +
@@ -50,9 +55,9 @@ public sealed class WorkflowCompositionTests
     }
 
     [Fact]
-    public void The_workflow_reference_resolver_the_host_resolves_applies_the_squad_flag()
+    public async Task The_workflow_reference_resolver_the_host_resolves_applies_the_squad_flag()
     {
-        using var sp = BuildRealApiContainer();
+        await using var sp = BuildRealApiContainer();
 
         sp.GetRequiredService<IWorkflowReferenceResolver>().Should().BeOfType<SquadWorkflowReferenceResolver>(
             "without the wrapper Thalos:Squad:Enabled changes nothing at all, which is the state task B4 left " +
@@ -65,9 +70,9 @@ public sealed class WorkflowCompositionTests
     ///     whichever a caller happened to get would decide whether a tier was recorded.
     /// </summary>
     [Fact]
-    public void Only_one_memory_service_is_registered()
+    public async Task Only_one_memory_service_is_registered()
     {
-        using var sp = BuildRealApiContainer();
+        await using var sp = BuildRealApiContainer();
 
         sp.GetServices<IMemoryService>().Should().ContainSingle();
     }

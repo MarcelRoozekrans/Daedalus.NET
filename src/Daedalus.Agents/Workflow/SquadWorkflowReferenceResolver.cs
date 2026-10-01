@@ -78,6 +78,13 @@ internal sealed partial class SquadWorkflowReferenceResolver(
     /// <inheritdoc />
     public ValueTask<bool> SkillExistsAsync(string name, CancellationToken ct) => _inner.SkillExistsAsync(name, ct);
 
+    /// <inheritdoc />
+    /// <remarks>
+    ///     Delegates untouched, like <see cref="SkillExistsAsync"/>: a node's <c>action:</c> names a host action,
+    ///     not an agent, and the squad flag has no opinion about it.
+    /// </remarks>
+    public ValueTask<bool> HostActionExistsAsync(string name, CancellationToken ct) => _inner.HostActionExistsAsync(name, ct);
+
     [LoggerMessage(
         EventId = 2310,
         Level = LogLevel.Error,

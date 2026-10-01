@@ -101,6 +101,25 @@ public sealed class SquadAgentResolverTests
     }
 
     /// <summary>
+    ///     A node's <c>action:</c> names a host action, not an agent, so it goes to the wrapped resolver
+    ///     untouched. Answering anything but the wrapped resolver's answer would make every process that names
+    ///     <c>open-pull-request</c> fail validation, and the previous process version would silently stay active.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Host_action_existence_is_asked_of_the_wrapped_resolver(bool squadEnabled)
+    {
+        var inner = Substitute.For<IWorkflowReferenceResolver>();
+        inner.HostActionExistsAsync("open-pull-request", Arg.Any<CancellationToken>()).Returns(new ValueTask<bool>(true));
+
+        var resolver = new SquadWorkflowReferenceResolver(
+            inner, new SquadAgentResolver(new SquadOptions { Enabled = squadEnabled, FallbackAgentName = "Daedalus Architect" }), new CapturingLogger());
+
+        (await resolver.HostActionExistsAsync("open-pull-request", CancellationToken.None)).Should().BeTrue();
+    }
+
+    /// <summary>
     ///     The diagnosability half of the final review's finding 2. Nothing downstream of this resolver knows
     ///     the squad remapped the name: <c>ProcessValidator</c> reports the name it read out of the process
     ///     file, and <c>WorkflowNodeDispatcher.ResolveAgentAsync</c> fails the run naming

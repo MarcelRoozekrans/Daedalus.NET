@@ -39,10 +39,10 @@ namespace Daedalus.Agents.Workflow;
 ///     <b>The mode keys count against the cap; they only dodge one specific check, once each.</b> All three —
 ///     <see cref="SquadModeKey"/>, <see cref="RecallTierKey"/> and, from task B4, <see cref="PinningKey"/> — are
 ///     added <em>after</em> the check of a node's report against Thalos' sixteen-key limit for <em>that one
-///     transition</em> — the dispatcher's own <c>CheckKeyLimits</c>, and
-///     <see cref="ReviewHandoffWorkflowStore"/>'s own <c>DescribeKeyLimitBreach</c> re-check on a projected node
-///     — so a node can never be failed for a key this type is about to add on its
-///     own completing transition. That is the entire exemption. Both of those checks read
+///     transition</em> — the dispatcher's own <c>CheckKeyLimits</c> — so a node can never be failed there for a
+///     key this type is about to add on its own completing transition. That is the entire exemption.
+///     <see cref="ReviewHandoffWorkflowStore"/>'s <c>DescribeKeyLimitBreach</c>, on every agent node, counts the three
+///     as present from the first transition on, with the room it keeps for <c>open-pull-request</c>. Both checks read
 ///     <see cref="WorkflowRun.Variables"/> fresh from the store on every call, so from the run's <em>next</em>
 ///     transition onward the three keys are already sitting in that bag and are counted like any other key —
 ///     the persisted bag holds at most sixteen keys <em>total</em>, of which up to three are permanently these,
@@ -62,7 +62,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <em>total</em>, and <c>review</c>'s own outcome-tool call carries no variables at all (its evidence goes
 ///     through a separate tool). So <see cref="PinningKey"/> is recorded on every transition, the same as
 ///     <see cref="SquadModeKey"/>, rather than only on the run's opening event — the fallback the design
-///     considered for a process shape that would actually threaten the cap, which this one does not.
+///     considered for a process shape that would actually threaten the cap, which this one does not. Phase 2.5 adds
+///     <c>pr_url</c> and <c>publish_error</c>, which only <c>open-pull-request</c> writes and for which
+///     <see cref="ReviewHandoffWorkflowStore"/> keeps room.
 ///     </para>
 /// </remarks>
 internal sealed class WorkflowRunModeStore(IWorkflowStore inner, SquadOptions squad, WorkflowRecallTierLog tiers)
@@ -136,6 +138,6 @@ internal sealed class WorkflowRunModeStore(IWorkflowStore inner, SquadOptions sq
             annotated[RecallTierKey] = tier.ToString();
         }
 
-        await Inner.CompleteNodeAsync(runId, seq, transition, new NodeResult(result.Outcome, annotated), ct).ConfigureAwait(false);
+        await Inner.CompleteNodeAsync(runId, seq, transition, new NodeResult(result.Outcome, annotated) { Usage = result.Usage }, ct).ConfigureAwait(false);
     }
 }

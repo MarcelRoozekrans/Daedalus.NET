@@ -58,17 +58,18 @@ public sealed class ProcessNodeSkillAllowlistTests
         await using var sp = await BuildWithApiConfigurationAndSyncedChartersAsync();
         var agentsByName = sp.GetRequiredService<IAgentCatalog>().Agents.ToDictionary(a => a.Name, StringComparer.Ordinal);
 
-        var pins = definition.Nodes.Values
-            .Where(n => n.Agent is not null && n.Skill is not null)
-            .Select(n => (Agent: n.Agent!, Skill: n.Skill!))
+        var pinned = definition.Nodes
+            .Where(n => n.Value.Agent is not null && n.Value.Skill is not null)
             .ToList();
 
         // Falsifiability guard against a vacuous pass: an assertion over an empty sequence would be trivially
-        // true and would prove nothing. processes/manufacture.yaml pins a skill to an agent on three of its six
-        // nodes today (implement, review, publish) - if that ever dropped to zero, this must fail loudly rather
-        // than silently pass.
-        pins.Should().NotBeEmpty("processes/manufacture.yaml must pin at least one node's skill to an agent");
+        // true and would prove nothing. processes/manufacture.yaml pins a skill to an agent on exactly three of its
+        // seven nodes: implement, review and retrospect. Version 6 (phase 2.5 task B14) made publish a host action,
+        // which pins neither. Falsifiable: putting `agent:` and `skill:` back on publish turns this red.
+        pinned.Select(n => n.Key).Should().BeEquivalentTo(["implement", "review", "retrospect"],
+            "these are the task nodes of processes/manufacture.yaml");
 
+        var pins = pinned.Select(n => (Agent: n.Value.Agent!, Skill: n.Value.Skill!)).ToList();
         foreach (var (agentName, skill) in pins)
         {
             agentsByName.Should().ContainKey(agentName,

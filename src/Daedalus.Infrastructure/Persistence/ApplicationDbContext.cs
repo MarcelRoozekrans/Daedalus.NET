@@ -47,6 +47,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     /// <summary>One row per firing of a <see cref="ScheduledRun"/>; see <see cref="ScheduledRunExecution"/>.</summary>
     public DbSet<ScheduledRunExecution> ScheduledRunExecutions => Set<ScheduledRunExecution>();
 
+    /// <summary>Insert-only log of what host code observed during a workflow run; see <see cref="WorkflowRunRecord"/>.</summary>
+    public DbSet<WorkflowRunRecord> WorkflowRunRecords => Set<WorkflowRunRecord>();
+
     /// <summary>The ZeroAlloc.Outbox durable-delivery table (<c>OutboxMessages</c>); see <see cref="OutboxDbContextExtensions.AddOutboxMessages"/>.</summary>
     public DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
 

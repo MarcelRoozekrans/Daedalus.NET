@@ -1,16 +1,21 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
+using Daedalus.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Workflow;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
-///     Pins the shape <c>processes/manufacture.yaml</c> has at version 5: both manufacturing nodes on their
+///     Pins the shape <c>processes/manufacture.yaml</c> has at version 6: both manufacturing nodes on their
 ///     squad roles, <c>implement</c> carrying an outcome set it did not have at version 2, <c>review</c>
 ///     declaring the three lenses <see cref="ReviewLens"/> knows how to run, and — from phase 2.4 task B4 — a
-///     <c>retrospect</c> node between <c>review</c> and the human gate. Reads the real, deployed file through the
+///     <c>retrospect</c> node between <c>review</c> and the human gate, and - from phase 2.5 task B14 - a <c>publish</c>
+///     node that is the <c>open-pull-request</c> host action rather than an agent turn. Reads the real, deployed file through the
 ///     same <see cref="ProcessLoader"/> production uses, and validates it through the same
 ///     <see cref="ProcessValidator"/> <c>ProcessDefinitionSync</c> runs before activating anything.
 /// </summary>
@@ -45,18 +50,43 @@ public sealed class ManufactureProcessDefinitionTests
     }
 
     [Fact]
-    public void The_process_is_at_version_five()
+    public void The_process_is_at_version_six()
     {
         var definition = LoadManufactureProcess();
 
         definition.Name.Should().Be("manufacture");
 
-        // Falsifiable: setting `version:` back to 4 in processes/manufacture.yaml turns this red. The number is
+        // Falsifiable: setting `version:` back to 5 in processes/manufacture.yaml turns this red. The number is
         // load-bearing rather than cosmetic - phase 2.2's content-hash immutability refuses a same-version
-        // content change, so a v5 body still labelled v4 is not a cosmetic slip, it is a file the store will
-        // refuse to activate while an older v4 keeps running. Version 5 (phase 2.4, task B4) adds the
-        // `retrospect` node between `review` and `gate`.
-        definition.Version.Should().Be(5);
+        // content change, so a v6 body still labelled v5 is not a cosmetic slip, it is a file the store will
+        // refuse to activate while the older v5 keeps running. Version 6 (phase 2.5, task B14) turns `publish`
+        // into the `open-pull-request` host action.
+        definition.Version.Should().Be(6);
+    }
+
+    /// <summary>
+    ///     Phase 2.5 task B14: publishing is host code run after the human gate, not an agent turn. An action node
+    ///     names no agent and no skill, so no model is dispatched there, and its two outcomes are the two
+    ///     <see cref="OpenPullRequestAction"/> reports.
+    /// </summary>
+    [Fact]
+    public void Publish_is_the_open_pull_request_action_with_published_and_failed()
+    {
+        var publish = LoadManufactureProcess().Nodes["publish"];
+
+        // Falsifiable: keeping `agent:` or `skill:` on publish turns these red.
+        publish.Agent.Should().BeNull("no agent turn runs at publish any more");
+        publish.Skill.Should().BeNull("no skill is loaded at publish any more");
+        publish.Action.Should().Be(OpenPullRequestAction.ActionName);
+        publish.Outcomes.Should().BeEquivalentTo(["published", "failed"]);
+
+        // Falsifiable: pointing `failed` at `done`, or dropping either edge, turns this red. A publish that failed
+        // must never end the run as succeeded.
+        publish.Branch.Should().BeEquivalentTo(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["published"] = "done",
+            ["failed"] = "adjudicate",
+        });
     }
 
     [Fact]
@@ -70,9 +100,10 @@ public sealed class ManufactureProcessDefinitionTests
             .Select(n => (Node: n.Key, Agent: n.Value.Agent!))
             .ToList();
 
-        // Guard against a vacuous pass: an assertion over an empty sequence proves nothing. Four nodes name an
-        // agent today - implement, review, retrospect and publish.
-        named.Should().HaveCount(4, "implement, review, retrospect and publish each run an agent");
+        // Guard against a vacuous pass: an assertion over an empty sequence proves nothing. Three nodes name an
+        // agent today - implement, review and retrospect. Version 6 took publish off the list: it is a host action.
+        // Falsifiable: putting `agent:` back on publish turns this red.
+        named.Should().HaveCount(3, "implement, review and retrospect each run an agent, and publish runs none");
 
         foreach (var (node, agent) in named)
         {
@@ -178,18 +209,56 @@ public sealed class ManufactureProcessDefinitionTests
         // "not found" for everything and this test would fail for the wrong reason - or, with a permissive
         // resolver, pass for the wrong reason. Assert both are populated before relying on them.
         agentNames.Should().NotBeEmpty();
-        skillNames.Should().Contain(["manufacture-implement", "manufacture-review", "manufacture-retrospect", "manufacture-publish"]);
+        skillNames.Should().Contain(["manufacture-implement", "manufacture-review", "manufacture-retrospect"]);
+
+        // Version 6 pins manufacture-publish nowhere. The skill stays on disk because v5 runs pin it, but the active
+        // graph must not reach it. Falsifiable: pinning publish back to the skill turns this red.
+        definition.Nodes.Values.Select(n => n.Skill).Should().NotContain("manufacture-publish");
+
+        // The host actions come from the composed host rather than a list restated here, so the action publish names
+        // must be one the host registers. Falsifiable: a resolver built without actions answers false for every
+        // name, and the validation below fails with the validator's own message.
+        var actionNames = await RegisteredHostActionNamesAsync();
+        actionNames.Should().NotBeEmpty("the engine-on Api host registers open-pull-request");
 
         var resolver = Substitute.For<IWorkflowReferenceResolver>();
         resolver.ResolveAgentIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ci => new ValueTask<AgentId?>(agentNames.Contains(ci.Arg<string>()) ? new AgentId(Guid.NewGuid()) : null));
         resolver.SkillExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ci => new ValueTask<bool>(skillNames.Contains(ci.Arg<string>())));
+        resolver.HostActionExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new ValueTask<bool>(actionNames.Contains(ci.Arg<string>())));
 
         var result = await ProcessValidator.ValidateAsync(definition, resolver, CancellationToken.None);
 
         // Falsifiable: pointing review's `rejected` branch at a node that does not exist, or removing
         // `onExceeded` while keeping `maxVisits`, turns this red with the validator's own message.
         result.IsSuccess.Should().BeTrue(result.IsFailure ? $"processes/manufacture.yaml must validate, or nothing can run it: {result.Error}" : "");
+    }
+
+    /// <summary>
+    ///     The names of every <see cref="IWorkflowHostAction"/> the shipped Api host registers, composed through the
+    ///     same internal <c>AddDaedalusAgents</c> seam <c>WorkflowWriteConfigTests</c> uses.
+    /// </summary>
+    private static async Task<HashSet<string>> RegisteredHostActionNamesAsync()
+    {
+        var environment = Substitute.For<IHostEnvironment>();
+        environment.ContentRootPath.Returns(AppContext.BaseDirectory);
+        environment.EnvironmentName.Returns("Development");
+
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("Daedalus.Api.appsettings.json", optional: false)
+            .Build();
+        var options = new DaedalusAgentsOptions();
+        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddDaedalusAgents(options, configuration, environment);
+
+        await using var sp = services.BuildServiceProvider();
+        return sp.GetServices<IWorkflowHostAction>().Select(a => a.Name).ToHashSet(StringComparer.Ordinal);
     }
 }

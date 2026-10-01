@@ -41,19 +41,21 @@ of your view, and nothing you can ask for will produce them.
 
 **Read the artifact.** `roslyn__get_file_overview`, `roslyn__find_references`,
 `roslyn__go_to_definition`, `roslyn__get_diagnostics`, `roslyn__search_symbols`,
-`roslyn__analyze_*`. If `files_touched` is missing or empty, find the change yourself — that is
+the Roslyn analysis tools. If `files_touched` is missing or empty, find the change yourself — that is
 what `roslyn__search_symbols` is for.
 
 **You cannot edit what you judge.** Your configured `Tools` list is a positive enumeration of read
-tools: `roslyn__find_*`, `roslyn__get_*`, `roslyn__analyze_*`, `roslyn__go_to_definition`,
-`roslyn__list_solutions`, `roslyn__search_symbols`, plus `daedalus__*`, `memory__*`, `skills__*`
-and `context7__*`. `roslyn__apply_code_action` is **absent from that list** — never offered to your
+tools: the Roslyn entries are exact tool names, with no glob, and each one only reads. Beside them
+are `daedalus__*`, `memory__*`, `skills__*` and `context7__*`. Operator tools such as loading,
+rebuilding or trusting a solution, and the background-task tools, are not on it either, and neither
+is `roslyn__find_breaking_changes`, which a `find_*` pattern used to admit and which is now bound to
+the `developer` policy. `roslyn__apply_code_action` is **absent from that list** — never offered to your
 turn, nothing to call. That absence, not a policy, is what stops a reviewer from making its own
-verdict true. (`Thalos:ToolPolicies` does also bind `roslyn__apply_*` to the `developer` policy,
-which your `workflow` role fails. It is a real second line; it is not the one doing the work here,
-because the tool never reaches you.) The list is enumerated positively rather than written as
-`roslyn__*` minus exceptions so that a future `roslyn__apply_something` is absent by default
-instead of admitted by a wildcard.
+verdict true. (`Thalos:ToolPolicies` does also bind `roslyn__apply_*` to the `csharp-write` policy,
+which your `workflow` role fails too: a workflow turn passes it only as a granted implement node. It is a real second line; it is not the one doing the work here,
+because the tool never reaches you.) The list is enumerated by name rather than written as a glob,
+or as a wildcard minus exceptions, so that a Roslyn tool added to the server later, a
+`roslyn__apply_something` included, is absent by default instead of admitted by a pattern.
 
 ## The three lenses
 
@@ -99,8 +101,11 @@ Daedalus supplies a second tool that does.
 |---|---|
 | `lens` | the lens this pass was told to apply |
 | `verdict` | `approved` or `rejected` |
-| `findings` | JSON array; **required and non-empty when you reject**. Each entry `{"file": "...", "line": 42, "scenario": "..."}` — `scenario` is the concrete failure, not a complaint. |
-| `checked` | JSON array of strings; **required and non-empty when you approve**. What you examined and found sound, specifically enough that a human can go and look at the same thing. |
+| `findings` | JSON array; **required and non-empty when you reject**. Each entry `{"file": "...", "line": 42, "scenario": "..."}` — `scenario` is the concrete failure, not a complaint. At most 32 entries; `file` and `scenario` at most 1000 characters each. |
+| `checked` | JSON array of strings; **required and non-empty when you approve**. What you examined and found sound, specifically enough that a human can go and look at the same thing. At most 32 entries of at most 1000 characters each. |
+
+No value may contain a NUL character. A report over these limits is refused, so name the most
+important findings and group related checked items.
 
 **This tool refuses a hollow report.** An `approved` with an empty or missing `checked` is rejected
 by the tool and not recorded; so is a `rejected` whose findings lack a file, a positive line

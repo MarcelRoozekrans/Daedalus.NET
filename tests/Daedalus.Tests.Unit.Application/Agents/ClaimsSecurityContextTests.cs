@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Daedalus.Agents.Security;
+using Thalos.Workspaces;
 using ZeroAlloc.Authorization;
 
 namespace Daedalus.Tests.Unit.Application.Agents;
@@ -56,6 +57,44 @@ public sealed class ClaimsSecurityContextTests
 
         ctx.Claims["sub"].Should().Be("u");
         ctx.Claims["roles"].Should().Be("a");
+    }
+
+    /// <summary>
+    ///     Only host code sets a <c>thalos.*</c> claim: a token carrying <c>thalos.run_id</c> would otherwise steer the
+    ///     chat user's <c>workspace__*</c> and <c>roslyn__*</c> calls into that run's worktree and server.
+    /// </summary>
+    [Fact]
+    public void Inbound_thalos_claims_are_dropped_and_other_claims_kept()
+    {
+        var ctx = new ClaimsSecurityContext(Principal(
+            new Claim("sub", "u"),
+            new Claim("roles", "developer"),
+            new Claim(RunWorkspaceClaims.RunId, Guid.NewGuid().ToString()),
+            new Claim(RunWorkspaceClaims.WriteExtensions, ".cs;.props"),
+            new Claim("THALOS.Run_Id", Guid.NewGuid().ToString())));
+
+        // Red: removing the strip in ClaimsSecurityContext.
+        ctx.Claims.Should().NotContainKey(RunWorkspaceClaims.RunId);
+        // Red: same change; also red if the strip is narrowed to thalos.run_id alone.
+        ctx.Claims.Should().NotContainKey(RunWorkspaceClaims.WriteExtensions);
+        // Red: matching the prefix case-sensitively.
+        ctx.Claims.Should().NotContainKey("THALOS.Run_Id");
+        // Red: a strip that drops every claim instead of only the thalos.* ones.
+        ctx.Claims.Should().ContainKey("sub");
+    }
+
+    /// <summary>The role only a granted workflow caller holds never names a human, whatever the realm issues.</summary>
+    [Fact]
+    public void An_inbound_workspace_writer_role_is_dropped()
+    {
+        var ctx = new ClaimsSecurityContext(Principal(
+            new Claim("sub", "u"),
+            new Claim("roles", "workspace-writer"),
+            new Claim(ClaimTypes.Role, "Workspace-Writer"),
+            new Claim("roles", "viewer")));
+
+        // Red: removing the role filter in ClaimsSecurityContext, or making it case-sensitive.
+        ctx.Roles.Should().BeEquivalentTo(["viewer"]);
     }
 
     [Fact]

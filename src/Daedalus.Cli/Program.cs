@@ -1,7 +1,7 @@
-using Daedalus.Cli;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Application.Abstractions;
+using Daedalus.Cli;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.ServiceDefaults;
@@ -45,7 +45,7 @@ namespace Daedalus.Cli
         internal static void ConfigureServices(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
         {
             // Add service defaults (OpenTelemetry, logging)
-            services.AddServiceDefaults();
+            services.AddServiceDefaults(configuration);
 
             // Add core infrastructure services (system clock, etc.)
             services.AddCoreInfrastructureServices();

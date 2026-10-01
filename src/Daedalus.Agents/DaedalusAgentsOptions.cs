@@ -258,12 +258,11 @@ public sealed class WorkflowConfig
     ///     which is <c>Daedalus.Api</c> alone: that ordering is what guarantees <c>Daedalus.Migrations</c> has
     ///     already applied <c>WorkflowOrmMigrations</c>/<c>OutboxOrmMigrations</c> before the host starts (see
     ///     <c>EnsureSchemaOnStartup</c>'s remarks in <c>AddDaedalusAgents</c>). <c>Daedalus.Cli</c> also calls
-    ///     <c>AddDaedalusAgents</c> but is an interactive tool with no such ordering guarantee, and — even where
-    ///     the tables do exist — a second poller against the same outbox table as the Api host only buys
-    ///     duplicate paid agent turns, since <c>FetchPendingAsync</c> has no <c>FOR UPDATE SKIP LOCKED</c>: both
-    ///     hosts can fetch and dispatch the same row, and both pay for the turn, even though the run row's
-    ///     <c>xmin</c> check means only one transition commits. <c>Daedalus.Cli/appsettings.json</c> sets this
-    ///     <see langword="false"/> for exactly that reason. Integration tests that boot the real Api host against
+    ///     <c>AddDaedalusAgents</c> but is an interactive tool with no such ordering guarantee, so
+    ///     <c>Daedalus.Cli/appsettings.json</c> sets this <see langword="false"/>. A second poller is no longer a
+    ///     duplicate-dispatch risk — <c>WorkflowOutboxDispatchService</c> claims each message under a row-locked
+    ///     lease — but whether the Cli may run the engine alongside the Api host is an open owner decision, so the
+    ///     setting stays until that is made. Integration tests that boot the real Api host against
     ///     <c>PostgresFixture</c>'s <c>EnsureCreatedAsync</c> schema — which builds only the EF Core model, never
     ///     these raw-SQL tables — set this <see langword="false"/> too, via <c>ApiWebApplicationFactory</c>, or
     ///     every one of the workflow engine's hosted services (the outbox poller, the stranded-run sweep, the
@@ -279,13 +278,41 @@ public sealed class WorkflowConfig
     public string ProcessesRoot { get; set; } = "processes";
 
     /// <summary>
-    ///     The standing-instructions file <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter"/> pins into
-    ///     every new manufacture run's manifest as <c>standing_instructions</c>. Relative paths resolve against
-    ///     the host content root, the same as <see cref="ProcessesRoot"/> — unlike that folder, a missing file is
-    ///     not an error: the run simply starts with an empty standing-instructions document (see
+    ///     The standing-instructions file. <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter"/> reads it from
+    ///     the run's own worktree, at this path relative to the repository root, and pins it into every new
+    ///     manufacture run's manifest as <c>standing_instructions</c>. A missing file is not an error: the run simply
+    ///     starts with an empty standing-instructions document (see
     ///     <see cref="Daedalus.Agents.Workflow.ManufactureRunStarter.StartAsync"/>).
+    ///     <see cref="Daedalus.Agents.Workflow.StandingInstructionsWriter"/> writes an approved proposal to the same file
+    ///     in the same worktree. It must be relative, with no <c>..</c> segment, outside <c>.git</c>, and a <c>.md</c>
+    ///     file; with the engine on, any other value fails the host at registration.
     /// </summary>
     public string StandingInstructionsPath { get; set; } = "AGENT.md";
+
+    /// <summary>
+    ///     Phase 2.5: the only repositories a manufacture run may target (<c>Thalos:Workflow:Repositories:N</c>).
+    ///     Empty by default because the binder appends to a pre-filled list.
+    /// </summary>
+    public IList<RepositoryConfig> Repositories { get; } = [];
+
+    /// <summary>
+    ///     Where run workspaces live: mirrors under <c>&lt;DataRoot&gt;/mirrors</c>, worktrees under
+    ///     <c>&lt;DataRoot&gt;/runs</c>. Absolute, or blank for <c>%LOCALAPPDATA%/Daedalus/workflow-data</c>; a relative
+    ///     value fails at registration.
+    /// </summary>
+    public string DataRoot { get; set; } = "";
+
+    /// <summary>The git author every manufacture-run commit is written as (<c>Thalos:Workflow:CommitAuthor</c>).</summary>
+    public CommitAuthorConfig CommitAuthor { get; } = new();
+
+    /// <summary>
+    ///     The process nodes whose turns may write into their run's workspace, and which file extensions each may write
+    ///     (<c>Thalos:Workflow:WriteGrants:N</c>). Empty by default because the binder appends to a pre-filled list.
+    /// </summary>
+    public IList<WriteGrantConfig> WriteGrants { get; } = [];
+
+    /// <summary>How long a run waits for its run-scoped Roslyn server to report ready. Default 10 minutes.</summary>
+    public TimeSpan RoslynReadyTimeout { get; set; } = TimeSpan.FromMinutes(10);
 }
 
 /// <summary>

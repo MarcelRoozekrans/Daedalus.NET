@@ -125,7 +125,8 @@ public sealed class ScheduleSweeperServiceTests(PostgresFixture fixture) : IAsyn
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddOutbox(o => { })
             .WithEfCore<ApplicationDbContext>()
-            .AddScheduledRunDueOutbox();
+            .AddScheduledRunDueOutbox()
+            .WithSystemTextJsonSerializer();
         services.AddScoped<ScheduledRunStore>();
 
         if (wrapWriter is not null)

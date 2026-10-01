@@ -69,6 +69,8 @@ public sealed class ApiHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
         hosted.Should().NotContain(h => h is WorkflowOutboxDispatchService);
         hosted.Should().NotContain(h => h is WorkflowStrandedRunSweepService);
         hosted.Should().NotContain(h => h is ProcessDefinitionSyncHostedService);
+        hosted.Should().NotContain(h => h is RunWorkspaceSweepService,
+            "task B10: with the engine off, nothing registers IRunWorkspaceProvider or IWorkflowStore for it to resolve");
     }
 
     [Fact]

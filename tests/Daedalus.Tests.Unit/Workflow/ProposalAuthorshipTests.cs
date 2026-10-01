@@ -1,4 +1,5 @@
 using Daedalus.Agents.Workflow;
+using Thalos;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 
@@ -161,5 +162,62 @@ public sealed class ProposalAuthorshipTests
         var completed = await CompleteAsync(RunAt("reflect"), "none", new(StringComparer.Ordinal));
 
         completed.Variables.Should().BeEmpty("clearing must never add a key the run does not hold, or it would count toward the cap");
+    }
+
+    /// <summary>
+    ///     Phase 2.5 task B14: <see cref="ReviewHandoff.SummaryKey"/> joins the authorship table, because
+    ///     <c>open-pull-request</c> renders it into the pull request body as the implementer's account. A node that is
+    ///     not implement, such as a review lens, must not be able to write that account for it. Red: removing the
+    ///     <c>summary</c> row from the table lets the forged value through on every row.
+    /// </summary>
+    [Theory]
+    [InlineData("review", "approved")]
+    [InlineData("reflect", "none")]
+    public async Task A_summary_reported_by_a_node_that_is_not_implement_is_stripped(string node, string outcome)
+    {
+        var completed = await CompleteAsync(RunAt(node), outcome, new(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.SummaryKey] = "forged",
+        });
+
+        completed.Variables.Should().NotContainKey(ReviewHandoff.SummaryKey,
+            "only implement may write the summary the pull request body carries");
+    }
+
+    /// <summary>
+    ///     The other half: implement's own summary survives the table. Red: keying the <c>summary</c> row on any skill
+    ///     but <see cref="ReviewHandoff.ImplementSkillName"/> strips it here.
+    /// </summary>
+    [Fact]
+    public async Task An_implement_report_keeps_its_own_summary()
+    {
+        var completed = await CompleteAsync(RunAt("implement"), "changed", new(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.SummaryKey] = "filtered cancelled tasks",
+        });
+
+        completed.Variables.Should().ContainKey(ReviewHandoff.SummaryKey).WhoseValue.Should().Be("filtered cancelled tasks");
+    }
+
+    /// <summary>
+    ///     Both rebuilds of the report carry the node's token usage across. Falsifiable per row: dropping the
+    ///     <c>Usage</c> copy on the stripped rebuild turns the <c>implement</c> row red, and dropping it on the
+    ///     cleared rebuild turns the <c>reflect</c> row red.
+    /// </summary>
+    [Theory]
+    [InlineData("implement", "changed")] // not retrospect, so the key is stripped
+    [InlineData("reflect", "none")] // retrospect without "proposed", so the key is cleared to null
+    public async Task The_nodes_token_usage_survives_a_rewritten_report(string node, string outcome)
+    {
+        var usage = new TurnUsage(1000, 50, "m") { CacheReadTokens = 800 };
+        var reported = new Dictionary<string, object?>(StringComparer.Ordinal) { [Key] = Planted };
+        var run = RunAt(node);
+        var inner = new RecordingWorkflowStore(run);
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+
+        await store.CompleteNodeAsync(
+            run.Id, 3, AnyTransition(), new NodeResult(outcome, reported) { Usage = usage }, CancellationToken.None);
+
+        inner.Completed!.Usage.Should().Be(usage);
     }
 }

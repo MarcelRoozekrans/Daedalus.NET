@@ -1,5 +1,5 @@
-using ZeroAlloc.Results;
 using Daedalus.Domain.CodeAnalysis;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Services.CodeAnalysis;
 
@@ -16,4 +16,11 @@ public interface IPullRequestFactory
         string title,
         string description,
         CancellationToken ct = default);
+
+    /// <summary>
+    ///     The open pull request from <paramref name="featureBranch"/> on the repository hosted at
+    ///     <paramref name="repositoryUrl"/>, or <see langword="null"/> when none is open. Dispatches on the hosting
+    ///     URL alone, so a caller never needs a working tree to ask.
+    /// </summary>
+    Task<Result<PullRequestResult?>> FindOpenPullRequestAsync(string repositoryUrl, string featureBranch, CancellationToken ct = default);
 }
