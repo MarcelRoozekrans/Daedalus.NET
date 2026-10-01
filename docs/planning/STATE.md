@@ -2,11 +2,10 @@
 
 **Last session:** 2026-10-01, with the owner present
 
-## Current Position - phase 2.5: all work done, the live proof passed, and the branch waits for the owner's push
+## Current Position - phase 2.5 complete and merged (PR #315, 2026-10-01); phase 2.6 is next
 
-**Milestone 2, phase 2.5, run write authority.** Branch `feat/phase-2.5-run-write-authority`, local only
-and **not pushed**. Parts A, B and C are complete and reviewed, and the Part C final review says
-ready to merge. Rulings, the live-proof table and carried items are in
+**Milestone 2, phase 2.5, run write authority.** Merged to `main` as PR #315 (`aac31a9`) on 2026-10-01.
+Parts A, B and C are complete and reviewed, and the Part C final review found nothing to fix. Rulings, the live-proof table and carried items are in
 `docs/plans/2026-09-24-phase-2.5-rulings.md`.
 
 - **B17, the live proof, passed.** Run `dbf7b675` on `daedalus-sandbox` went implement, then 3 approving
@@ -28,8 +27,7 @@ ready to merge. Rulings, the live-proof table and carried items are in
 
 ## Needs the owner
 
-1. **Push the branch and open the Daedalus PR.** This is B17 step 14, an owner checkpoint. After the
-   merge, check that every `fix:` and `feat:` commit appears in the release-please PR.
+1. **Check release-please** after PR #315: confirm every `fix:` and `feat:` commit is in its release PR.
 2. **The security item reported to the owner directly** is still open.
 3. **Decide:** should developer and admin *chat* turns keep `workspace-write` and `csharp-write`?
 4. **Decide #313:** delete or bind the dead `OpenTelemetry` appsettings sections.
@@ -48,9 +46,7 @@ ready to merge. Rulings, the live-proof table and carried items are in
 
 ## Recommended Next Step
 
-1. The owner approves the push. Then push, open the PR with no session URL, and after the merge run
-   `complete-phase 2.5` and check release-please.
-2. Then `start-next-phase`: phase 2.6, sandboxed run pods. Its brainstorm should cover the 35 bogus
+1. `start-next-phase`: phase 2.6, sandboxed run pods. Its brainstorm should cover the 35 bogus
    xunit diagnostics from the never-restored worktree, which B17 observed.
 
 ---
