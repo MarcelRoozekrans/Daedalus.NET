@@ -25,14 +25,15 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     Task 10: the resume boundary. Three layers:
 ///     <list type="number">
 ///         <item>
-///             Resume/cancel are REST endpoints (<c>WorkflowRunsController</c>), never a Thalos tool — see
+///             Resume, cancel and retry are REST endpoints (<c>WorkflowRunsController</c>), never a Thalos tool — see
 ///             <see cref="ResumeToolBoundaryTests.None_of_resume_cancel_or_retry_is_exposed_as_a_tool_on_any_registered_source"/>.
 ///             This is the structural half: it holds even if the authorization policy below were ever
 ///             misconfigured.
 ///         </item>
 ///         <item>
-///             Both endpoints require the <c>WorkflowResume</c> ASP.NET Core policy (<c>developer</c> or
-///             <c>admin</c> role) — see <see cref="ResumeAuthorizationBoundaryTests"/>, which denies a caller
+///             All three endpoints require the <c>WorkflowResume</c> ASP.NET Core policy (<c>developer</c> or
+///             <c>admin</c> role), and retry also requires the <c>Admin</c> policy — see
+///             <see cref="ResumeAuthorizationBoundaryTests"/>, which denies a caller
 ///             carrying the real, configured <c>DetachedRuns:Roles</c>.
 ///         </item>
 ///         <item>
@@ -57,15 +58,16 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
 
     /// <summary>
     ///     The structural half of the boundary: no local tool source — the only kind an agent's <c>Tools</c> list
-    ///     can ever resolve to — exposes anything resume-capable or cancel-capable. If an agent could resume its
+    ///     can ever resolve to — exposes anything resume-, cancel- or retry-capable. If an agent could resume its
     ///     own approval gate, every gate in the engine would be decorative regardless of what any authorization
     ///     policy says; if it could cancel, it could destroy a run in flight to escape one.
     /// </summary>
     /// <remarks>
     ///     All three words are tested, because the boundary this file documents covers all three endpoints. Testing
     ///     <c>resume</c> alone would let a <c>workflow__cancel_run</c> or <c>workflow__retry_run</c> tool pass every
-    ///     test in this class while the because-string still claimed cancelling and retrying were covered. No tool in the current surface contains
-    ///     either word, so this is green today and a real guard the moment one is added.
+    ///     test in this class while the because-string still claimed cancelling and retrying were covered.
+    ///     No tool in the current surface contains any of the three words, so this is green today and a real guard
+    ///     the moment one is added.
     /// </remarks>
     [Fact]
     public async Task None_of_resume_cancel_or_retry_is_exposed_as_a_tool_on_any_registered_source()

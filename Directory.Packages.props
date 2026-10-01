@@ -98,7 +98,9 @@
     <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="$(ZeroAllocValidationVersion)" />
     <PackageVersion Include="ZeroAlloc.Validation.Testing" Version="$(ZeroAllocValidationVersion)" />
     <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.1" />
-    <!-- 5.1.5 → 6.0.2: floor set by Thalos.NET.Abstractions 0.12.0 (5.1.1 → 5.1.5 earlier: floor set by 0.6.0) -->
+    <!-- 5.1.5 → 6.0.2: floor set by Thalos.NET.Abstractions 0.12.0 (5.1.1 → 5.1.5 earlier: floor set by 0.6.0).
+         Runtime behaviour change in Daedalus.Application: Mediator 6 opens an Activity span on every dispatch,
+         even without WithTelemetry. -->
     <PackageVersion Include="ZeroAlloc.Mediator" Version="6.0.2" />
     <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="6.0.2" />
     <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.2.2" />

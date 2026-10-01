@@ -13,13 +13,13 @@ namespace Daedalus.Api.Controllers;
 /// <summary>
 ///     Starts, resumes, cancels, retries and reads back manufacture runs. Every action on this controller requires
 ///     the <c>WorkflowResume</c> authorization policy (<c>Program.cs</c>: <c>developer</c> or <c>admin</c> role),
-///     and <see cref="Retry"/> additionally requires the narrower <c>Admin</c> policy — the
-///     same criterion <c>Thalos:ToolPolicies</c> binds <c>git__*</c>, <c>repoaction__*</c> and <c>manufacture__*</c>
-///     to, enforced here by ASP.NET Core's own role-based authorization rather than <c>DefaultToolAuthorizer</c>,
+///     the same criterion <c>Thalos:ToolPolicies</c> binds <c>git__*</c>, <c>repoaction__*</c> and <c>manufacture__*</c>
+///     to. It is enforced here by ASP.NET Core's own role-based authorization rather than <c>DefaultToolAuthorizer</c>,
 ///     because these are REST endpoints, not Thalos tool calls, and <c>DefaultToolAuthorizer</c> never sees a
 ///     request that never names a tool. Starting a run over REST and starting one through <c>manufacture__start</c>
 ///     are deliberately gated the same way, by two different mechanisms that happen to require the same role.
-///     Retry is narrower than the rest: it re-runs a push on a run another person approved, so it is admin only.
+///     Retry is narrower than the rest: it re-runs a push on a run another person approved, so <see cref="Retry"/> additionally requires the
+///     narrower <c>Admin</c> policy.
 /// </summary>
 /// <remarks>
 ///     <b>Resume, cancel and retry are deliberately not Thalos tools.</b> Resuming a gate is reachable only through this

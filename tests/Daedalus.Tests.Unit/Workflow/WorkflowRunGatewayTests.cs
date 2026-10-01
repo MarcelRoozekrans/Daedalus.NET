@@ -176,13 +176,13 @@ public sealed class WorkflowRunGatewayTests
         var store = Substitute.For<IWorkflowStore>();
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
         store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new ValueTask<Result>(Result.Failure("x")));
+            .Returns(new ValueTask<Result>(Result.Failure("run changed since it was read")));
         var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For());
 
         var result = await gateway.RetryAsync(run.Id, Approver, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("x");
+        result.Error.Should().Be("run changed since it was read");
     }
 
     private static WorkflowRun FailedRunAtSeq(long seq) => new()
