@@ -162,11 +162,22 @@ public sealed partial class ManufactureImplementSkillContentTests
     {
         var normalized = Normalize(ImplementSkill());
 
-        normalized.Should().ContainEquivalentOf("named roslyn__ read tools plus roslyn__apply_code_action");
+        normalized.Should().ContainEquivalentOf("named Roslyn read tools plus roslyn__apply_code_action");
         normalized.Should().ContainEquivalentOf("exact names with no glob");
         normalized.Should().ContainEquivalentOf("operator tools such as loading, rebuilding or trusting a solution");
         normalized.Should().ContainEquivalentOf("background-task tools, are not in it either");
-        normalized.Should().NotContainEquivalentOf("Tools list is roslyn__, daedalus__");
-        normalized.Should().NotContainEquivalentOf("Use roslyn__ to understand the code");
     }
+
+    /// <summary>
+    ///     The skill offers no Roslyn glob at all: the implementer's envelope is exact names. Red: pasting back the old
+    ///     <c>roslyn__*</c> Tools sentence, or any <c>roslyn__get_*</c> style pattern, anywhere in the skill.
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_names_no_roslyn_glob()
+    {
+        RoslynGlob().Matches(ImplementSkill()).Select(m => m.Value).Should().BeEmpty();
+    }
+
+    [GeneratedRegex(@"roslyn__[a-z_]*\*", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex RoslynGlob();
 }

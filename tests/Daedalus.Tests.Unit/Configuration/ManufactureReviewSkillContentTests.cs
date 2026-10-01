@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Configuration;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
@@ -106,7 +107,7 @@ public sealed partial class ManufactureReviewSkillContentTests
 
     /// <summary>
     ///     The reviewer's envelope is an exact list of Roslyn names, no glob, and <c>find_breaking_changes</c> is not on
-    ///     it: a <c>find_*</c> pattern used to admit it, and it is now bound to the <c>developer</c> policy. Red: pasting the
+    ///     it: a <c>find_*</c> pattern used to admit it, and it is now bound to a policy. Red: pasting the
     ///     old glob list back trips the absences; deleting the no-glob clause, the operator clause or the
     ///     <c>find_breaking_changes</c> sentence trips its positive.
     /// </summary>
@@ -118,9 +119,49 @@ public sealed partial class ManufactureReviewSkillContentTests
         normalized.Should().ContainEquivalentOf("the Roslyn entries are exact tool names, with no glob");
         normalized.Should().ContainEquivalentOf("operator tools such as loading, rebuilding or trusting a solution");
         normalized.Should().ContainEquivalentOf("neither is roslyn__find_breaking_changes");
-        normalized.Should().ContainEquivalentOf("bound to the developer policy");
         normalized.Should().ContainEquivalentOf("enumerated by name rather than written as a glob");
-        normalized.Should().NotContainEquivalentOf("roslyn__find_, roslyn__get_, roslyn__analyze_");
         normalized.Should().NotContainEquivalentOf("enumerated positively rather than");
     }
+
+    /// <summary>
+    ///     The policies the skill names are read from the shipped appsettings, so prose and configuration cannot drift:
+    ///     <c>roslyn__apply_*</c> is bound to <c>csharp-write</c>, not <c>developer</c>, and a skill that said otherwise
+    ///     was wrong once already. Red: changing either policy name in the skill, or either binding in appsettings.
+    /// </summary>
+    [Fact]
+    public void The_review_skill_names_the_policies_the_shipped_appsettings_binds()
+    {
+        var normalized = Normalize(ReviewSkill());
+
+        normalized.Should().ContainEquivalentOf($"bind roslyn__apply_ to the {PolicyFor("roslyn__apply_*")} policy");
+        normalized.Should().ContainEquivalentOf(
+            $"which is now bound to the {PolicyFor("roslyn__find_breaking_changes")} policy");
+    }
+
+    private static string PolicyFor(string pattern)
+    {
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("Daedalus.Api.appsettings.json", optional: false)
+            .Build();
+        return configuration.GetSection("Thalos:ToolPolicies").GetChildren()
+            .Single(c => string.Equals(c["Pattern"], pattern, StringComparison.Ordinal))["Policy"]!;
+    }
+
+    /// <summary>
+    ///     No envelope glob is offered as a tools claim. The one glob the text may name is the <c>roslyn__apply_*</c>
+    ///     policy binding. Red: pasting back <c>roslyn__find_*</c>, <c>roslyn__get_*</c>, <c>roslyn__analyze_*</c> or a bare
+    ///     <c>roslyn__*</c> anywhere in the skill.
+    /// </summary>
+    [Fact]
+    public void The_review_skill_names_no_roslyn_glob_except_the_apply_binding()
+    {
+        var globs = RoslynGlob().Matches(ReviewSkill()).Select(m => m.Value).ToList();
+
+        globs.Should().Contain("roslyn__apply_*", "the binding is named, and an empty match set would pass vacuously");
+        globs.Where(g => !string.Equals(g, "roslyn__apply_*", StringComparison.Ordinal)).Should().BeEmpty();
+    }
+
+    [GeneratedRegex(@"roslyn__[a-z_]*\*", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex RoslynGlob();
 }
