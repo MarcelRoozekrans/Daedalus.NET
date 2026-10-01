@@ -33,6 +33,8 @@ internal sealed class RecordingWorkflowStore(WorkflowRun run) : IWorkflowStore
 
     public ValueTask<Result> ResumeAsync(Guid runId, WorkflowResumeRequest request, CancellationToken ct) => throw new NotSupportedException();
 
+    public ValueTask<Result> RetryFailedNodeAsync(Guid runId, WorkflowRetryRequest request, CancellationToken ct) => throw new NotSupportedException();
+
     public ValueTask<bool> FailStrandedAsync(Guid runId, long expectedSeq, string errorMessage, CancellationToken ct) => throw new NotSupportedException();
 
     public ValueTask CancelAsync(Guid runId, string reason, CancellationToken ct) => throw new NotSupportedException();

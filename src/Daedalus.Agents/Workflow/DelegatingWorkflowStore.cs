@@ -35,6 +35,10 @@ internal abstract class DelegatingWorkflowStore(IWorkflowStore inner) : IWorkflo
         Inner.ResumeAsync(runId, request, ct);
 
     /// <inheritdoc />
+    public virtual ValueTask<Result> RetryFailedNodeAsync(Guid runId, WorkflowRetryRequest request, CancellationToken ct) =>
+        Inner.RetryFailedNodeAsync(runId, request, ct);
+
+    /// <inheritdoc />
     public virtual ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct) => Inner.FailAsync(runId, errorMessage, ct);
 
     /// <inheritdoc />

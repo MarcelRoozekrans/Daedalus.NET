@@ -64,6 +64,8 @@ public sealed class RunRecordAnnotationTests
 
         public ValueTask<Result> ResumeAsync(Guid runId, WorkflowResumeRequest request, CancellationToken ct) => throw new NotSupportedException();
 
+        public ValueTask<Result> RetryFailedNodeAsync(Guid runId, WorkflowRetryRequest request, CancellationToken ct) => throw new NotSupportedException();
+
         public ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct) => throw new NotSupportedException();
 
         public ValueTask<bool> FailStrandedAsync(Guid runId, long expectedSeq, string errorMessage, CancellationToken ct) => throw new NotSupportedException();
