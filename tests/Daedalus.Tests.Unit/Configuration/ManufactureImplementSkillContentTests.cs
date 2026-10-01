@@ -150,4 +150,23 @@ public sealed partial class ManufactureImplementSkillContentTests
     {
         Normalize(ImplementSkill()).Should().ContainEquivalentOf("preview: false");
     }
+
+    /// <summary>
+    ///     The implementer's envelope names its Roslyn tools one by one, with no glob, and holds none of the operator
+    ///     tools. A skill that still said the list was <c>roslyn__*</c> would tell the model it may call
+    ///     <c>load_solution</c> or <c>trust_solution</c>. Red: pasting the old "Tools list is roslyn__*" sentence back
+    ///     trips the absence; deleting the no-glob clause or the operator-tool clause trips its positive.
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_describes_the_enumerated_roslyn_envelope_not_a_wildcard()
+    {
+        var normalized = Normalize(ImplementSkill());
+
+        normalized.Should().ContainEquivalentOf("named roslyn__ read tools plus roslyn__apply_code_action");
+        normalized.Should().ContainEquivalentOf("exact names with no glob");
+        normalized.Should().ContainEquivalentOf("operator tools such as loading, rebuilding or trusting a solution");
+        normalized.Should().ContainEquivalentOf("background-task tools, are not in it either");
+        normalized.Should().NotContainEquivalentOf("Tools list is roslyn__, daedalus__");
+        normalized.Should().NotContainEquivalentOf("Use roslyn__ to understand the code");
+    }
 }

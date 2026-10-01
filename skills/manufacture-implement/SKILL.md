@@ -14,8 +14,12 @@ disk; host code commits and publishes it after a human approves.
 
 ## What you may and may not touch
 
-Your configured `Tools` list is `roslyn__*`, `daedalus__*`, `memory__*`, `skills__*`, `context7__*`
-and `workspace__*`. Read it as an allow-list, because that is what it is.
+Your configured `Tools` list holds named `roslyn__*` read tools plus `roslyn__apply_code_action`, and
+`daedalus__*`, `memory__*`, `skills__*`, `context7__*` and `workspace__*`. The Roslyn entries are
+exact names with **no glob**: a Roslyn tool that is not named in your list is not offered to your
+turn, whatever the server exposes. Operator tools such as loading, rebuilding or trusting a solution,
+and the background-task tools, are not in it either, so you cannot call them; the run's solution is
+already loaded for you. Read the list as an allow-list, because that is what it is.
 
 - **You edit files with the four workspace tools.** `workspace__read_file` reads a file and
   `workspace__list_files` lists a directory. `workspace__write_file` creates or replaces a whole file.
@@ -31,8 +35,8 @@ and `workspace__*`. Read it as an allow-list, because that is what it is.
   server loads the solution, and that can run code on the host. If the work needs one of them, do not
   work around it, for example by moving the change into a `.cs` file it does not belong in: report
   `blocked`, naming the file and the change it needs, so a human can make it.
-- **Use `roslyn__*` to understand the code, and `roslyn__get_diagnostics` after editing.** The Roslyn
-  server you reach is this run's own, over the same worktree.
+- **Use the named `roslyn__*` read tools to understand the code, and `roslyn__get_diagnostics` after
+  editing.** The Roslyn server you reach is this run's own, over the same worktree.
   `roslyn__get_code_actions` lists the refactorings and fixes Roslyn offers at a position, and
   `roslyn__apply_code_action` applies one by its title. That tool **defaults to `preview: true`**,
   which returns a diff and writes nothing: pass `preview: false` when you mean it to write, then read

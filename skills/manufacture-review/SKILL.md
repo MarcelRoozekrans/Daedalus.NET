@@ -41,19 +41,21 @@ of your view, and nothing you can ask for will produce them.
 
 **Read the artifact.** `roslyn__get_file_overview`, `roslyn__find_references`,
 `roslyn__go_to_definition`, `roslyn__get_diagnostics`, `roslyn__search_symbols`,
-`roslyn__analyze_*`. If `files_touched` is missing or empty, find the change yourself — that is
+the `roslyn__analyze_*` tools. If `files_touched` is missing or empty, find the change yourself — that is
 what `roslyn__search_symbols` is for.
 
 **You cannot edit what you judge.** Your configured `Tools` list is a positive enumeration of read
-tools: `roslyn__find_*`, `roslyn__get_*`, `roslyn__analyze_*`, `roslyn__go_to_definition`,
-`roslyn__list_solutions`, `roslyn__search_symbols`, plus `daedalus__*`, `memory__*`, `skills__*`
-and `context7__*`. `roslyn__apply_code_action` is **absent from that list** — never offered to your
+tools: the Roslyn entries are exact tool names, with no glob, and each one only reads. Beside them
+are `daedalus__*`, `memory__*`, `skills__*` and `context7__*`. Operator tools such as loading,
+rebuilding or trusting a solution, and the background-task tools, are not on it either, and neither
+is `roslyn__find_breaking_changes`, which a `find_*` pattern used to admit and which is now bound to
+the `developer` policy. `roslyn__apply_code_action` is **absent from that list** — never offered to your
 turn, nothing to call. That absence, not a policy, is what stops a reviewer from making its own
 verdict true. (`Thalos:ToolPolicies` does also bind `roslyn__apply_*` to the `developer` policy,
 which your `workflow` role fails. It is a real second line; it is not the one doing the work here,
-because the tool never reaches you.) The list is enumerated positively rather than written as
-`roslyn__*` minus exceptions so that a future `roslyn__apply_something` is absent by default
-instead of admitted by a wildcard.
+because the tool never reaches you.) The list is enumerated by name rather than written as a glob,
+or as `roslyn__*` minus exceptions, so that a Roslyn tool added to the server later, a
+`roslyn__apply_something` included, is absent by default instead of admitted by a pattern.
 
 ## The three lenses
 

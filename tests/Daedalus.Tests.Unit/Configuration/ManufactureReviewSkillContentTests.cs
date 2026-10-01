@@ -103,4 +103,24 @@ public sealed partial class ManufactureReviewSkillContentTests
         normalized.Should().ContainEquivalentOf("absence, not restraint",
             "naming the mechanism that actually withholds the narrative is the Mechanism lens applied to this file");
     }
+
+    /// <summary>
+    ///     The reviewer's envelope is an exact list of Roslyn names, no glob, and <c>find_breaking_changes</c> is not on
+    ///     it: a <c>find_*</c> pattern used to admit it, and it is now bound to the <c>developer</c> policy. Red: pasting the
+    ///     old glob list back trips the absences; deleting the no-glob clause, the operator clause or the
+    ///     <c>find_breaking_changes</c> sentence trips its positive.
+    /// </summary>
+    [Fact]
+    public void The_review_skill_describes_the_enumerated_roslyn_envelope_not_globs()
+    {
+        var normalized = Normalize(ReviewSkill());
+
+        normalized.Should().ContainEquivalentOf("the Roslyn entries are exact tool names, with no glob");
+        normalized.Should().ContainEquivalentOf("operator tools such as loading, rebuilding or trusting a solution");
+        normalized.Should().ContainEquivalentOf("neither is roslyn__find_breaking_changes");
+        normalized.Should().ContainEquivalentOf("bound to the developer policy");
+        normalized.Should().ContainEquivalentOf("enumerated by name rather than written as a glob");
+        normalized.Should().NotContainEquivalentOf("roslyn__find_, roslyn__get_, roslyn__analyze_");
+        normalized.Should().NotContainEquivalentOf("enumerated positively rather than");
+    }
 }

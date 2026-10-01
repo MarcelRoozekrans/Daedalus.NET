@@ -90,4 +90,19 @@ public sealed partial class RoleCharterContentTests
         return dir?.FullName
             ?? throw new InvalidOperationException($"Could not find Daedalus.sln walking up from {AppContext.BaseDirectory}.");
     }
+
+    /// <summary>
+    ///     The charters' Roslyn sentences match the shipped envelopes: named read tools, not the <c>roslyn__*</c>
+    ///     wildcard those envelopes dropped. Red: restoring either old sentence.
+    /// </summary>
+    [Theory]
+    [InlineData("implementer", "Use the named roslyn__* read tools to understand the solution", "Use roslyn__* to understand the solution")]
+    [InlineData("reviewer", "and with the named roslyn__* read tools", "and with the roslyn__* read tools")]
+    public void The_charters_describe_named_roslyn_read_tools_not_the_wildcard(string role, string current, string stale)
+    {
+        var charter = Charter(role);
+
+        charter.Should().Contain(current);
+        charter.Should().NotContain(stale);
+    }
 }
