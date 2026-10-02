@@ -15,9 +15,10 @@ public sealed class WriteGrantConfig
 
     /// <summary>
     ///     The file extensions this grant may write, each with its leading dot, for example <c>.cs</c> (ruling R29). An
-    ///     allow-list, never a deny-list. Empty after binding means the key is missing, which
-    ///     <c>ValidateWorkflowWriteConfig</c> rejects: absence is not a supported configuration. Empty by default
-    ///     because the binder appends to a pre-filled list.
+    ///     allow-list, never a deny-list. <see langword="null"/>, the key left out, means any extension (phase 2.6), which
+    ///     <c>ValidateWorkflowWriteConfig</c> allows only with <c>Thalos:Workflow:Sandbox:Enabled</c> (S6): a run's MSBuild
+    ///     files are then evaluated only inside its sandbox, never on the host. A listed but empty value is refused.
+    ///     <see langword="null"/> by default, so a configured list binds as it is: the binder appends to a pre-filled list.
     /// </summary>
-    public IList<string> AllowedExtensions { get; } = [];
+    public IReadOnlyList<string>? AllowedExtensions { get; set; }
 }

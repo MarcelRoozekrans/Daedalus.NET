@@ -1,3 +1,4 @@
+using Daedalus.Agents.Workflow;
 using Thalos.Workspaces;
 using ZeroAlloc.Authorization;
 using ZeroAlloc.Results;
@@ -8,7 +9,9 @@ namespace Daedalus.Agents.Security;
 ///     Tool policy <c>csharp-write</c>, bound in <c>Thalos:ToolPolicies</c> to <c>roslyn__apply_*</c> on a host whose
 ///     <c>roslyn</c> server is run-scoped. Passes for <c>developer</c> or <c>admin</c>, and for a
 ///     <see cref="WorkspaceWritePolicy.WorkspaceWriterRole"/> caller only when its
-///     <see cref="RunWorkspaceClaims.WriteExtensions"/> claim includes <c>.cs</c>.
+///     <see cref="RunWorkspaceClaims.WriteExtensions"/> claim includes <c>.cs</c>, or when it is a
+///     <see cref="WorkflowCaller"/> whose grant lists no extensions at all, which writes any extension and is allowed only
+///     under the run sandbox (S6).
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -55,7 +58,7 @@ public sealed class CSharpWritePolicy : IAuthorizationPolicy
                 new AuthorizationFailure("role", "workspace-writer, developer or admin role required")));
         }
 
-        return new(GrantsCSharp(ctx)
+        return new(GrantsCSharp(ctx) || ctx is WorkflowCaller { WritesAnyExtension: true }
             ? UnitResult<AuthorizationFailure>.Success()
             : UnitResult<AuthorizationFailure>.Failure(
                 new AuthorizationFailure("extension", "this node's write grant does not include .cs")));
@@ -63,8 +66,10 @@ public sealed class CSharpWritePolicy : IAuthorizationPolicy
 
     /// <summary>
     ///     Whether the caller's write-extension claim lists <c>.cs</c>, parsed by the same Thalos reader the
-    ///     <c>workspace__*</c> tools use. An absent claim grants nothing here, unlike there: a workspace writer with no
-    ///     extension list is a caller built outside <c>WorkflowCaller</c>, and fails closed.
+    ///     <c>workspace__*</c> tools use. An absent claim grants nothing here, unlike there: apart from a
+    ///     <see cref="WorkflowCaller"/> whose grant writes any extension, which the caller says itself rather than through
+    ///     a claim, a workspace writer with no extension list is a caller built outside <c>WorkflowCaller</c>, and fails
+    ///     closed.
     /// </summary>
     private static bool GrantsCSharp(ISecurityContext ctx) =>
         RunWorkspaceClaims.WriteExtensionsOf(ctx) is { } extensions && extensions.Contains(CSharpExtension);

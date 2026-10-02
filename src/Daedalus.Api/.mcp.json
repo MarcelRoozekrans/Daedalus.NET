@@ -16,6 +16,8 @@
       // Loading and rebuilding evaluate MSBuild, which can run code; that is safe only because
       // WriteGrants[*].AllowedExtensions keeps every project, props and targets file unwritable by a run, so a reload
       // evaluates only repository-owned MSBuild files. See docs/plans/2026-09-25-phase-2.5-msbuild-execution-spike.md.
+      // This block describes local mode. With Thalos:Workflow:Sandbox:Enabled, McpServersLoader replaces it with
+      // runScoped.remote, so a run's calls go to the Roslyn server inside the run's own sandbox and no copy starts here.
       "runScoped": {
         "args": ["RoslynCodeLens.Mcp@2.18.1", "--yes", "--", "${run.workspace.solution}"],
         "readyTool": "list_solutions",

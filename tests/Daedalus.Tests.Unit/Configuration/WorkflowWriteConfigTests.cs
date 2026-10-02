@@ -10,6 +10,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Git.Workspaces;
+using Thalos.Mcp;
+using Thalos.Sandbox;
 using Thalos.Workflow;
 using Thalos.Workspaces;
 
@@ -84,18 +86,32 @@ public sealed class WorkflowWriteConfigTests
     }
 
     /// <summary>
-    ///     Ruling R29: the grant reads the same on both hosts, so neither can drift to a wider list. Leaving the key out
-    ///     binds an empty list, which fails this too.
+    ///     Phase 2.6: the Api's runs are sandboxed, so its implement grant lists no extensions and may write any file a
+    ///     run needs (S6 allows that only with the sandbox on). Red: restore <c>"AllowedExtensions": [".cs", ".md"]</c>
+    ///     in the Api file, or turn its sandbox off.
     /// </summary>
-    [Theory]
-    [InlineData(ApiAppSettingsFileName)]
-    [InlineData(CliAppSettingsFileName)]
-    public void Both_shipped_files_allow_implement_to_write_exactly_cs_and_md(string fileName)
+    [Fact]
+    public void The_shipped_Api_grant_lists_no_extensions_under_the_sandbox()
     {
-        var workflow = Bind(Load(fileName)).Workflow;
+        var workflow = Bind(Load(ApiAppSettingsFileName)).Workflow;
+
+        var grant = workflow.WriteGrants.Should().ContainSingle(g => g.Process == "manufacture" && g.Node == "implement").Subject;
+        grant.AllowedExtensions.Should().BeNull();
+        workflow.Sandbox.Enabled.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     Ruling R29, kept for the host with no sandbox: the Cli's grant stays exactly <c>.cs</c> and <c>.md</c>, so it
+    ///     cannot drift to a wider list. Red: add an extension to, or drop the list from, the Cli file.
+    /// </summary>
+    [Fact]
+    public void The_shipped_Cli_grant_allows_implement_to_write_exactly_cs_and_md()
+    {
+        var workflow = Bind(Load(CliAppSettingsFileName)).Workflow;
 
         var grant = workflow.WriteGrants.Should().ContainSingle(g => g.Process == "manufacture" && g.Node == "implement").Subject;
         grant.AllowedExtensions.Should().Equal(".cs", ".md");
+        workflow.Sandbox.Enabled.Should().BeFalse();
     }
 
     [Theory]
@@ -160,9 +176,7 @@ public sealed class WorkflowWriteConfigTests
                 workflow.RoslynReadyTimeout = TimeSpan.Zero;
                 break;
             case "grant-duplicated":
-                var duplicate = new WriteGrantConfig { Process = grant.Process, Node = grant.Node };
-                duplicate.AllowedExtensions.Add(".md");
-                workflow.WriteGrants.Add(duplicate);
+                workflow.WriteGrants.Add(new WriteGrantConfig { Process = grant.Process, Node = grant.Node, AllowedExtensions = [".md"] });
                 break;
             case "data-root-relative":
                 workflow.DataRoot = "workflow-data";
@@ -174,19 +188,19 @@ public sealed class WorkflowWriteConfigTests
                 grant.Node = "";
                 break;
             case "grant-no-extensions":
-                grant.AllowedExtensions.Clear();
+                grant.AllowedExtensions = [];
                 break;
             case "grant-extension-without-dot":
-                grant.AllowedExtensions.Add("cs");
+                grant.AllowedExtensions = [".cs", "cs"];
                 break;
             case "grant-extension-dot-only":
-                grant.AllowedExtensions.Add(".");
+                grant.AllowedExtensions = [".cs", "."];
                 break;
             case "grant-extension-path":
-                grant.AllowedExtensions.Add("./x");
+                grant.AllowedExtensions = [".cs", "./x"];
                 break;
             case "grant-extension-trailing-newline":
-                grant.AllowedExtensions.Add(".cs\n");
+                grant.AllowedExtensions = [".cs", ".cs\n"];
                 break;
             case "author-name-blank":
                 workflow.CommitAuthor.Name = "";
@@ -310,13 +324,15 @@ public sealed class WorkflowWriteConfigTests
     }
 
     /// <summary>
-    ///     The control for the start check: the shipped bindings over a run-scoped <c>roslyn</c> pass it. Red: treat
-    ///     every source as not run-scoped.
+    ///     The control for the start check in local mode: the shipped bindings over a run-scoped <c>roslyn</c>, a
+    ///     <see cref="RunScopedMcpToolSource"/>, pass it. Red: treat every source as not run-scoped. The sandbox-mode
+    ///     control is <c>SandboxConfigTests.The_shipped_api_host_in_sandbox_mode_passes_the_csharp_write_start_check</c>.
     /// </summary>
     [Fact]
     public async Task The_shipped_csharp_write_binding_passes_the_host_start_check()
     {
         var (services, options, configuration, environment) = LoadShippedApi();
+        UseLocalMode(options);
         using var mcp = new TempMcpConfig("run-scoped");
         options.McpConfigPath = mcp.Path;
         services.AddDaedalusAgents(options, configuration, environment);
@@ -341,11 +357,13 @@ public sealed class WorkflowWriteConfigTests
     public async Task A_non_canonical_standing_instructions_path_is_protected_in_its_canonical_form(string configured)
     {
         var (services, options, configuration, environment) = LoadShippedApi();
+        UseLocalMode(options);
         options.Workflow.StandingInstructionsPath = configured;
         services.AddDaedalusAgents(options, configuration, environment);
         await using var sp = services.BuildServiceProvider();
 
-        sp.GetRequiredService<RunWorkspaceToolOptions>().ProtectedPaths.Should().Equal("AGENT.md");
+        IEnumerable<string> expected = [.. SandboxOptions.DefaultProtectedPaths, "AGENT.md"];
+        sp.GetRequiredService<RunWorkspaceToolOptions>().ProtectedPaths.Should().Equal(expected);
     }
 
     private static Action RegisterWithCSharpWrite(string mcpShape, string pattern)
@@ -436,7 +454,8 @@ public sealed class WorkflowWriteConfigTests
     {
         var (services, options, configuration, environment) = LoadShipped(CliAppSettingsFileName);
         options.Workflow.Enabled.Should().BeFalse("this test is about the engine-off host");
-        options.Workflow.WriteGrants.Should().ContainSingle().Subject.AllowedExtensions.Add("./x");
+        var grant = options.Workflow.WriteGrants.Should().ContainSingle().Subject;
+        grant.AllowedExtensions = [.. grant.AllowedExtensions!, "./x"];
 
         var act = () => services.AddDaedalusAgents(options, configuration, environment);
 
@@ -495,6 +514,7 @@ public sealed class WorkflowWriteConfigTests
     public async Task With_the_engine_on_the_host_resolves_git_worktree_workspaces_with_GitHub_credentials()
     {
         var (services, options, configuration, environment) = LoadShippedApi();
+        UseLocalMode(options);
         services.AddDaedalusAgents(options, configuration, environment);
         await using var sp = services.BuildServiceProvider();
 
@@ -542,6 +562,16 @@ public sealed class WorkflowWriteConfigTests
             sp.GetService<IGitCredentialSource>().Should().BeNull();
             sp.GetService<IRunWorkspaceProvider>().Should().BeNull();
         }
+    }
+
+    /// <summary>
+    ///     Turns the shipped Api options into local mode, phase 2.5's wiring: the sandbox off, and the implement grant given
+    ///     the extension list S6 then requires.
+    /// </summary>
+    private static void UseLocalMode(DaedalusAgentsOptions options)
+    {
+        options.Workflow.Sandbox.Enabled = false;
+        options.Workflow.WriteGrants.Should().ContainSingle().Subject.AllowedExtensions = [".cs", ".md"];
     }
 
     /// <summary>A temporary <c>.mcp.json</c> in one of four shapes, deleted on dispose.</summary>

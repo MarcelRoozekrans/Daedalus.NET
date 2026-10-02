@@ -72,6 +72,22 @@ public sealed class CSharpWritePolicyTests
     }
 
     /// <summary>
+    ///     Phase 2.6: a grant with no extension list writes any extension, <c>.cs</c> included, and is allowed only under
+    ///     the run sandbox (S6), where <c>roslyn</c> is served inside the run's own container. It carries no
+    ///     write-extensions claim, so the policy asks the <see cref="WorkflowCaller"/> itself. Red: drop the
+    ///     <c>WritesAnyExtension</c> branch; the shipped sandboxed implement node then loses <c>roslyn__apply_*</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_granted_caller_whose_grant_lists_no_extensions_passes()
+    {
+        var caller = new WorkflowCaller(Run(), new WriteGrantConfig { Process = "manufacture", Node = "implement" });
+
+        var result = await Policy.EvaluateAsync(caller, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    /// <summary>
     ///     A human's chat turn keeps <c>roslyn__apply_*</c> against the host's own solution, as the <c>developer</c>
     ///     binding allowed before. Red: remove the developer and admin pass.
     /// </summary>
@@ -102,16 +118,8 @@ public sealed class CSharpWritePolicyTests
         result.IsFailure.Should().BeTrue();
     }
 
-    private static WorkflowCaller Granted(string[] extensions)
-    {
-        var grant = new WriteGrantConfig { Process = "manufacture", Node = "implement" };
-        foreach (var extension in extensions)
-        {
-            grant.AllowedExtensions.Add(extension);
-        }
-
-        return new WorkflowCaller(Run(), grant);
-    }
+    private static WorkflowCaller Granted(string[] extensions) =>
+        new(Run(), new WriteGrantConfig { Process = "manufacture", Node = "implement", AllowedExtensions = extensions });
 
     private static WorkflowRun Run() => new()
     {

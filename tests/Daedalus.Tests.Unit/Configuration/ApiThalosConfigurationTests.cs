@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Mcp;
 using Thalos.Memory.RagNet;
+using Thalos.Sandbox;
 using Thalos.Skills;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -319,23 +320,27 @@ public sealed class ApiThalosConfigurationTests
     }
 
     /// <summary>
-    ///     Phase 2.5, task B9: the composed Api host registers the <c>workspace__*</c> tools with the union of its write
-    ///     grants as the ceiling, the standing-instructions file protected, and the readiness gate before task nodes.
+    ///     Phase 2.5, task B9, as phase 2.6 changes it: the composed Api host runs every run sandboxed, with the
+    ///     standing-instructions file protected and, because the implement grant lists no extensions, no host-wide
+    ///     extension ceiling; and it keeps the readiness gate before task nodes.
     /// </summary>
     [Fact]
     public async Task The_api_host_registers_the_workspace_tools_and_the_readiness_gate()
     {
         await using var sp = BuildWithApiConfiguration();
 
-        var options = sp.GetRequiredService<RunWorkspaceToolOptions>();
-        // Red: omit the ProtectedPaths.Add in UseRunWorkspaceTools' configure.
+        var options = sp.GetRequiredService<SandboxOptions>();
+        // Red: omit the standing-instructions path from UseSandboxRunWorkspaces' ProtectedPaths.
         options.ProtectedPaths.Should().Contain("AGENT.md");
-        // Red: pass an empty set, or one built from something other than WriteGrants, as the ceiling.
-        options.AllowedWriteExtensions.Should().BeEquivalentTo(".cs", ".md");
+        // Red: restore "AllowedExtensions": [".cs", ".md"] on the shipped implement grant, or pass WriteExtensionCeiling
+        // instead of WriteExtensionCeilingOrAny; the ceiling is then .cs and .md.
+        options.AllowedWriteExtensions.Should().BeNull();
+        // Red: call UseRunWorkspaceTools in sandbox mode too; local workspace tools would serve a run's writes on the host.
+        sp.GetService<RunWorkspaceToolOptions>().Should().BeNull();
         // Red: remove the gate's registration.
         sp.GetServices<IWorkflowDispatchGate>().Should().ContainSingle().Which.Should().BeOfType<RunToolServersReadyGate>();
-        // Red: remove the runScoped block from .mcp.json and rebind roslyn__apply_* to developer, since with csharp-write
-        // bound the boot guard refuses the host first; nothing then registers the readiness the gate waits on.
+        // Red: drop the UseSandboxRunWorkspaces call and the runScoped block from .mcp.json; nothing then registers the
+        // readiness the gate waits on.
         sp.GetService<IRunToolServerReadiness>().Should().NotBeNull();
     }
 

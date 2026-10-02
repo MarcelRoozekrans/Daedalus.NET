@@ -95,6 +95,13 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
     /// </remarks>
     public bool PinMemoriesToAgent => true;
 
+    /// <summary>
+    ///     Whether this caller's grant lists no extensions, so it may write any extension: phase 2.6, allowed only under
+    ///     the run sandbox (S6). Such a grant carries no write-extensions claim, so <see cref="CSharpWritePolicy"/> asks
+    ///     the caller instead. A property of this host-built type, never a claim, so no inbound identity can set it.
+    /// </summary>
+    public bool WritesAnyExtension => grant is { AllowedExtensions: null };
+
     /// <inheritdoc />
     /// <remarks><c>{workflow}</c>, plus <see cref="WorkspaceWritePolicy.WorkspaceWriterRole"/> only when granted.</remarks>
     public IReadOnlySet<string> Roles { get; } = grant is not null
@@ -104,10 +111,11 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
     /// <inheritdoc />
     /// <remarks>
     ///     <see cref="RunWorkspaceClaims.RunId"/>, <c>node</c> and <c>started_by</c> (empty for a run with no starter),
-    ///     and <see cref="RunWorkspaceClaims.WriteExtensions"/> only when granted: the granting entry's extensions,
-    ///     lower-cased and joined with <c>';'</c>. The workspace tools intersect it with their host-wide ceiling
-    ///     (ruling R29). Absent rather than blank for an ungranted caller, because a present blank claim is a grant
-    ///     of zero extensions, not the absence of one.
+    ///     and <see cref="RunWorkspaceClaims.WriteExtensions"/> only when granted with an extension list: the granting
+    ///     entry's extensions, lower-cased and joined with <c>';'</c>. The workspace tools intersect it with their
+    ///     host-wide ceiling (ruling R29). Absent rather than blank for an ungranted caller, and for a grant with no list,
+    ///     which under the sandbox allows any extension: a present blank claim is a grant of zero extensions, not the
+    ///     absence of one.
     /// </remarks>
     public IReadOnlyDictionary<string, string> Claims { get; } = BuildClaims(run, grant);
 
@@ -119,9 +127,11 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
             ["node"] = run.CurrentNode,
             ["started_by"] = run.StartedBy?.Id ?? "",
         };
-        if (grant is not null)
+        // A grant with no extension list writes any extension (phase 2.6, sandbox only, S6), so it carries no claim and
+        // the sandbox's ceiling alone applies. A present claim, even a blank one, would narrow it instead.
+        if (grant is { AllowedExtensions: { } extensions })
         {
-            claims[RunWorkspaceClaims.WriteExtensions] = string.Join(';', grant.AllowedExtensions
+            claims[RunWorkspaceClaims.WriteExtensions] = string.Join(';', extensions
                 .Where(e => DaedalusAgentsServiceCollectionExtensions.AllowedExtensionPattern().IsMatch(e))
                 .Select(AsciiLower));
         }

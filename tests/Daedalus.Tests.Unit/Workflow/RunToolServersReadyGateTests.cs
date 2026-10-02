@@ -108,8 +108,7 @@ public sealed class RunToolServersReadyGateTests
                 ? new RunWorkspace(call.Arg<Guid>(), "sandbox", "https://example.invalid/r.git", "main", "b", "/w", "/w/S.sln")
                 : null));
         var config = new WorkflowConfig { RoslynReadyTimeout = ReadyTimeout };
-        var grant = new WriteGrantConfig { Process = grantProcess, Node = "implement" };
-        grant.AllowedExtensions.Add(".cs");
+        var grant = new WriteGrantConfig { Process = grantProcess, Node = "implement", AllowedExtensions = [".cs"] };
         config.WriteGrants.Add(grant);
         return new RunToolServersReadyGate(workspaces, config, readiness);
     }

@@ -313,6 +313,71 @@ public sealed class WorkflowConfig
 
     /// <summary>How long a run waits for its run-scoped Roslyn server to report ready. Default 10 minutes.</summary>
     public TimeSpan RoslynReadyTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    ///     Phase 2.6: whether every run is sandboxed (<c>Thalos:Workflow:Sandbox</c>). Off by default, which keeps
+    ///     today's local mode: a git worktree on the host and the <c>workspace__*</c> tools served in-process.
+    /// </summary>
+    public SandboxConfig Sandbox { get; } = new();
+}
+
+/// <summary>
+///     <c>Thalos:Workflow:Sandbox</c>. When <see cref="Enabled"/>, every run gets its own Docker container: the run's
+///     files, its <c>workspace__*</c> and <c>sandbox__*</c> tools and its Roslyn server live in it, and the host only
+///     ever applies the patch the run exports into its own clean worktree. Only then may a write grant leave
+///     <see cref="WriteGrantConfig.AllowedExtensions"/> out (security invariant S6).
+/// </summary>
+public sealed class SandboxConfig
+{
+    /// <summary>Whether runs are sandboxed. Off by default.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>The run container image, for example <c>daedalus-sandbox:dev</c>. Required when <see cref="Enabled"/>.</summary>
+    public string Image { get; set; } = "";
+
+    /// <summary>CPUs per sandbox.</summary>
+    public double Cpus { get; set; } = 2;
+
+    /// <summary>Memory per sandbox, in MiB.</summary>
+    public int MemoryMb { get; set; } = 4096;
+
+    /// <summary>The process limit per sandbox.</summary>
+    public int Pids { get; set; } = 512;
+
+    /// <summary>
+    ///     Extra protected path entries, protected in addition to Thalos's <c>SandboxOptions.DefaultProtectedPaths</c>
+    ///     (<c>.git/</c>, <c>.gitattributes</c>, <c>.gitmodules</c>, <c>.github/</c> and the CI definitions), which
+    ///     every run gets whatever this lists, and to the standing-instructions file, which is added from
+    ///     <see cref="WorkflowConfig.StandingInstructionsPath"/>. Empty by default because the binder appends to a
+    ///     pre-filled list, and because a list here can only add: it can never drop a default. Applies in both modes.
+    /// </summary>
+    public IList<string> ProtectedPaths { get; } = [];
+
+    /// <summary>The Docker runtime's settings (<c>Thalos:Workflow:Sandbox:Docker</c>).</summary>
+    public SandboxDockerConfig Docker { get; } = new();
+}
+
+/// <summary><c>Thalos:Workflow:Sandbox:Docker</c>: where the Docker engine is and what the sandbox infrastructure runs.</summary>
+public sealed class SandboxDockerConfig
+{
+    /// <summary>The Docker engine endpoint. Blank for the platform default (the named pipe on Windows, the socket elsewhere).</summary>
+    public string? Endpoint { get; set; }
+
+    /// <summary>
+    ///     The internal network every sandbox joins. It also scopes the runtime to its own sandboxes and names the
+    ///     gateway and egress containers, <c>&lt;Network&gt;-gateway</c> and <c>&lt;Network&gt;-egress</c>, so two hosts
+    ///     on different networks never share or fight over them.
+    /// </summary>
+    public string Network { get; set; } = "daedalus-sandboxes";
+
+    /// <summary>The gateway image. Pinned by digest in the shipped <c>appsettings.json</c>. Required when the sandbox is enabled.</summary>
+    public string GatewayImage { get; set; } = "";
+
+    /// <summary>The egress proxy image. Pinned by digest in the shipped <c>appsettings.json</c>. Required when the sandbox is enabled.</summary>
+    public string EgressImage { get; set; } = "";
+
+    /// <summary>The loopback port the gateway publishes; 0 picks a free one.</summary>
+    public int GatewayPort { get; set; }
 }
 
 /// <summary>

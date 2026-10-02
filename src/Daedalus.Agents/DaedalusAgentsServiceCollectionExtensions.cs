@@ -35,6 +35,8 @@ using Thalos.Git.Workspaces;
 using Thalos.Mcp;
 using Thalos.Memory;
 using Thalos.Memory.RagNet;
+using Thalos.Sandbox;
+using Thalos.Sandbox.Docker;
 using Thalos.Sentinel;
 using Thalos.Skills;
 using Thalos.Skills.Charters;
@@ -321,19 +323,18 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                     o.EnsureSchemaOnStartup = false;
                 });
 
-                // Phase 2.5: every run gets a git worktree of its repository under the data root. The credential
-                // source is what lets the provider and the workspace git reach a private remote; without it every
-                // clone, fetch and push is anonymous, which a private repository refuses.
+                // Phase 2.5: the credential source is what lets the provider and the workspace git reach a private
+                // remote; without it every clone, fetch and push is anonymous, which a private repository refuses. The
+                // sandboxed provider's mirror and publish worktrees use it too.
                 thalos.Services.TryAddSingleton<IGitCredentialSource, GitHubGitCredentialSource>();
-                thalos.UseGitWorktreeWorkspaces(o => o.DataRoot = dataRoot);
-
-                // Phase 2.5, ruling R29: the workspace__* tools over each run's worktree. The ceiling is the union of
-                // every write grant's extensions; each granted caller is narrowed to its own entry's list through the
-                // write-extensions claim WorkflowCaller sets. The standing-instructions file stays readable, never
-                // writable, by any run.
-                thalos.UseRunWorkspaceTools(
-                    WriteExtensionCeiling(options.Workflow.WriteGrants),
-                    o => o.ProtectedPaths.Add(standingInstructionsPath));
+                if (options.Workflow.Sandbox.Enabled)
+                {
+                    ConfigureSandboxMode(thalos, options.Workflow, dataRoot, standingInstructionsPath);
+                }
+                else
+                {
+                    ConfigureLocalMode(thalos, options.Workflow, dataRoot, standingInstructionsPath);
+                }
             }
 
             thalos.UseAnthropic(configuration)
@@ -361,7 +362,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 // Thalos: see GitToolSourceName for why the git__* -> developer binding is what actually holds it.
                 .UseLibGit2SharpGit()
                 .AddLocalTools(GitToolSourceName, typeof(GitActionTools))
-                .AddMcpServersFromFile(mcpConfigPath)
+                // One .mcp.json serves both modes: in sandbox mode the loader makes every run-scoped entry remote, so
+                // a run's Roslyn server is the one inside its sandbox. See McpServersLoader.
+                .AddMcpServers(McpServersLoader.Load(mcpConfigPath, options.Workflow.Sandbox.Enabled))
                 .AddPolicy<DeveloperPolicy>()
                 .AddPolicy<WorkspaceWritePolicy>()
                 .AddPolicy<CSharpWritePolicy>();
@@ -637,13 +640,104 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     /// <summary>
     ///     The host-wide ceiling for the <c>workspace__*</c> tools (ruling R29): the union of every write grant's
     ///     extensions, lower-cased, compared case-insensitively. Each granted caller is narrowed further, to its own
-    ///     entry's list, by the write-extensions claim <see cref="WorkflowCaller"/> sets.
+    ///     entry's list, by the write-extensions claim <see cref="WorkflowCaller"/> sets. A grant with no list adds
+    ///     nothing, so local mode never sees "any"; S6 refuses such a grant at boot without the sandbox anyway.
     /// </summary>
     internal static HashSet<string> WriteExtensionCeiling(IEnumerable<WriteGrantConfig> grants) =>
-        grants.SelectMany(g => g.AllowedExtensions)
+        grants.SelectMany(g => g.AllowedExtensions ?? [])
             .Where(e => AllowedExtensionPattern().IsMatch(e))
             .Select(e => string.Create(e.Length, e, static (target, source) => System.Text.Ascii.ToLower(source, target, out _)))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     The sandbox's host-wide write ceiling: null (any extension) when any grant lists no extensions, which S6 allows
+    ///     only with the sandbox enabled; otherwise the union of the grants' lists, as <see cref="WriteExtensionCeiling"/>
+    ///     computes it. Each grant still narrows its own caller through the write-extensions claim.
+    /// </summary>
+    internal static IReadOnlySet<string>? WriteExtensionCeilingOrAny(IEnumerable<WriteGrantConfig> grants)
+    {
+        var list = grants.ToList();
+        return list.Exists(g => g.AllowedExtensions is null) ? null : WriteExtensionCeiling(list);
+    }
+
+    /// <summary>
+    ///     The protected path entries a run gets on top of Thalos's <see cref="SandboxOptions.DefaultProtectedPaths"/>:
+    ///     the configured extras of <see cref="SandboxConfig.ProtectedPaths"/>, then the standing-instructions file.
+    ///     Sandbox mode passes only these, because <see cref="SandboxOptions"/> always adds its defaults itself; local
+    ///     mode passes the defaults too, so both modes protect the same set from one source.
+    /// </summary>
+    internal static IEnumerable<string> ExtraProtectedPaths(WorkflowConfig workflow, string standingInstructionsPath) =>
+        [.. workflow.Sandbox.ProtectedPaths, standingInstructionsPath];
+
+    /// <summary>
+    ///     Local mode, phase 2.5's: every run gets a git worktree of its repository under the data root, and the
+    ///     <c>workspace__*</c> tools serve it in-process. The ceiling is the union of every write grant's extensions;
+    ///     each granted caller is narrowed to its own entry's list through the write-extensions claim
+    ///     <see cref="WorkflowCaller"/> sets (ruling R29). The protected set is the sandbox's: Thalos's defaults, the
+    ///     configured extras and the standing-instructions file, which stays readable, never writable, by any run.
+    /// </summary>
+    private static void ConfigureLocalMode(ThalosBuilder thalos, WorkflowConfig workflow, string dataRoot, string standingInstructionsPath)
+    {
+        thalos.UseGitWorktreeWorkspaces(o => o.DataRoot = dataRoot);
+        thalos.UseRunWorkspaceTools(
+            WriteExtensionCeiling(workflow.WriteGrants),
+            o =>
+            {
+                foreach (var path in SandboxOptions.DefaultProtectedPaths.Concat(ExtraProtectedPaths(workflow, standingInstructionsPath)))
+                {
+                    o.ProtectedPaths.Add(path);
+                }
+            });
+    }
+
+    /// <summary>
+    ///     Sandbox mode, phase 2.6: every run gets its own Docker container. <c>UseSandboxRunWorkspaces</c> registers the
+    ///     remote <c>workspace</c> and <c>sandbox</c> tool sources and replaces the run workspace provider and its
+    ///     companions, so neither <c>UseGitWorktreeWorkspaces</c> nor <c>UseRunWorkspaceTools</c> is called: local
+    ///     workspace tools would serve a run's writes on the host. Only <see cref="IRunWorkspaceGit"/>, which publish
+    ///     needs and the sandbox does not register, is added here, over the sandbox's publish data root.
+    /// </summary>
+    private static void ConfigureSandboxMode(ThalosBuilder thalos, WorkflowConfig workflow, string dataRoot, string standingInstructionsPath)
+    {
+        var sandbox = workflow.Sandbox;
+        thalos.UseDockerSandboxRuntime(d => ConfigureDockerSandbox(d, sandbox.Docker));
+        thalos.UseSandboxRunWorkspaces(o =>
+        {
+            o.DataRoot = dataRoot;
+            o.Image = sandbox.Image;
+            o.Limits = new SandboxLimits(sandbox.Cpus, sandbox.MemoryMb * 1024L * 1024, sandbox.Pids);
+            o.AllowedWriteExtensions = WriteExtensionCeilingOrAny(workflow.WriteGrants);
+            foreach (var path in ExtraProtectedPaths(workflow, standingInstructionsPath))
+            {
+                o.ProtectedPaths.Add(path);
+            }
+        });
+
+        // Publish commits and pushes in the trusted publish worktree the handoff cuts under <DataRoot>/publish, from the
+        // mirror UseSandboxRunWorkspaces keeps there; UseSandboxRunWorkspaces registers no IRunWorkspaceGit of its own,
+        // and OpenPullRequestAction needs one. Same data root, spelled as Thalos spells it, and the same credentials.
+        var publish = new GitWorkspaceOptions { DataRoot = Path.Combine(Path.GetFullPath(dataRoot), "publish") };
+        thalos.Services.Replace(ServiceDescriptor.Singleton<IRunWorkspaceGit>(sp => new GitCliRunWorkspaceGit(
+            publish,
+            sp.GetRequiredService<ILogger<GitCliRunWorkspaceGit>>(),
+            sp.GetService<IGitCredentialSource>())));
+    }
+
+    /// <summary>
+    ///     Sets <see cref="DockerSandboxOptions"/> from <c>Thalos:Workflow:Sandbox:Docker</c>. The gateway and egress
+    ///     container names are derived from the network: with Thalos's fixed defaults, two hosts on different networks
+    ///     sharing one engine would take over each other's infrastructure containers.
+    /// </summary>
+    internal static void ConfigureDockerSandbox(DockerSandboxOptions d, SandboxDockerConfig docker)
+    {
+        d.Endpoint = docker.Endpoint is { Length: > 0 } e ? new Uri(e) : null;
+        d.InternalNetwork = docker.Network;
+        d.GatewayContainerName = $"{docker.Network}-gateway";
+        d.EgressContainerName = $"{docker.Network}-egress";
+        d.GatewayImage = docker.GatewayImage;
+        d.EgressImage = docker.EgressImage;
+        d.GatewayPort = docker.GatewayPort;
+    }
 
     /// <summary>
     ///     Fails fast when a <c>Thalos:ToolPolicies</c> pattern bound to <see cref="CSharpWritePolicy"/> does not start
@@ -820,8 +914,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     /// <exception cref="InvalidOperationException">
     ///     A repository name is malformed or duplicated, a remote is blank, a solution path is blank, rooted or contains
     ///     <c>..</c> or <c>%</c>, <c>DataRoot</c> is set but not absolute, <c>RoslynReadyTimeout</c> is not positive, a write grant
-    ///     has a blank process or node or repeats another grant's process and node, a write grant has no allowed
-    ///     extensions or a malformed one, or repositories are configured without a full commit author.
+    ///     has a blank process or node or repeats another grant's process and node, a write grant lists no extensions or a
+    ///     malformed one, a write grant leaves its extensions out without the sandbox (S6), the sandbox is enabled
+    ///     without its images or with a repository that names no solution, or repositories are configured without a full
+    ///     commit author.
     /// </exception>
     private static void ValidateWorkflowWriteConfig(WorkflowConfig config)
     {
@@ -911,11 +1007,25 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                     "or which extension list wins would depend on the order of the entries.");
             }
 
+            if (grant.AllowedExtensions is null)
+            {
+                // S6: with no list the ceiling is "any", so a run may write project, props and targets files. Only a run
+                // sandbox keeps MSBuild's evaluation of them off the host.
+                if (!config.Sandbox.Enabled)
+                {
+                    throw new InvalidOperationException(
+                        $"{section}:WriteGrants entry '{grant.Process}/{grant.Node}' allows every extension, which is only " +
+                        $"safe inside a run sandbox; set {section}:Sandbox:Enabled or list AllowedExtensions.");
+                }
+
+                continue;
+            }
+
             if (grant.AllowedExtensions.Count == 0)
             {
                 throw new InvalidOperationException(
-                    $"{key}:AllowedExtensions must list at least one extension, such as \".cs\". It is an allow-list " +
-                    "(ruling R29), and a missing key is not a supported configuration.");
+                    $"{key}:AllowedExtensions must list at least one extension, such as \".cs\", or be left out under a " +
+                    "run sandbox. It is an allow-list (ruling R29), and an empty one is not a supported configuration.");
             }
 
             if (grant.AllowedExtensions.FirstOrDefault(e => !AllowedExtensionPattern().IsMatch(e)) is { } malformed)
@@ -925,6 +1035,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                     "such as \".cs\" (ruling R29).");
             }
         }
+
+        ValidateSandboxConfig(config);
 
         if (config.Repositories.Count > 0)
         {
@@ -941,6 +1053,43 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                     $"{section}:CommitAuthor:Email must not be blank while {section}:Repositories is configured: " +
                     "every run commit is written as this author.");
             }
+        }
+    }
+
+    /// <summary>
+    ///     Fails fast on <c>Thalos:Workflow:Sandbox</c> when it is enabled, in Daedalus's words and before Thalos's own
+    ///     registration checks: the run image and both infrastructure images must be set, and every repository must name
+    ///     its solution, because a sandboxed run's Roslyn server is started on it (ruling R33). A disabled sandbox is not
+    ///     checked: nothing reads it. The data root needs no check here: <c>ValidateWorkflowWriteConfig</c> already
+    ///     refuses a relative one, and a blank one resolves to an absolute default.
+    /// </summary>
+    private static void ValidateSandboxConfig(WorkflowConfig config)
+    {
+        const string section = WorkflowConfig.SectionName + ":Sandbox";
+        var sandbox = config.Sandbox;
+        if (!sandbox.Enabled)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(sandbox.Image))
+        {
+            throw new InvalidOperationException(
+                $"{section}:Image must not be blank while the sandbox is enabled: it is the image every run's container is created from.");
+        }
+
+        if (string.IsNullOrWhiteSpace(sandbox.Docker.GatewayImage) || string.IsNullOrWhiteSpace(sandbox.Docker.EgressImage))
+        {
+            throw new InvalidOperationException(
+                $"{section}:Docker:GatewayImage and {section}:Docker:EgressImage must not be blank while the sandbox is " +
+                "enabled: they run the gateway every run's tools are reached through and the only proxy a run reaches the network by.");
+        }
+
+        if (config.Repositories.FirstOrDefault(r => string.IsNullOrWhiteSpace(r.Solution)) is { } unsolved)
+        {
+            throw new InvalidOperationException(
+                $"{WorkflowConfig.SectionName}:Repositories entry '{unsolved.Name}' must name its Solution while the sandbox " +
+                "is enabled: a sandboxed run's Roslyn server is started on that solution inside the run's container.");
         }
     }
 
