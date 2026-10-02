@@ -32,16 +32,17 @@ already loaded for you. Read the list as an allow-list, because that is what it 
   the protected paths below. `AGENT.md` holds this project's standing instructions; a change to it is
   proposed by a later step and applied only by a human, so if you learned something durable, report
   it as `learnings` (below) instead of writing it there.
-- **Protected paths are not yours to change, in either mode.** These are protected: `.git/`, `AGENT.md`,
+- **Protected paths are not yours to change.** These are protected: `.git/`, `AGENT.md`,
   `.gitattributes`, `.gitmodules`, `.github/`, `.gitlab-ci.yml`, `azure-pipelines.yml`,
   `.azure-pipelines/`, `.circleci/` and `Jenkinsfile`. A trailing `/` protects the whole directory. The
-  list is fixed by the host and no configuration removes an entry. The write tools refuse these paths,
-  and publish refuses them again whatever the sandbox allowed, so a run that needs one is blocked.
-  Publish also refuses a `.gitattributes` or a `.gitmodules` at any depth, so `sub/.gitattributes` is as
-  refused as the root one, and it refuses symlinks and git submodule pointers wherever they are. Do not
-  create any of them. If the work needs one, do not work around it, for example by moving the change
-  into a file it does not belong in: report `blocked`, naming the file and the change it needs, so a
-  human can make it.
+  list is fixed by the host and no configuration removes an entry. In both modes the write tools refuse
+  these paths, so a run that needs one is blocked. In a sandbox, publish also refuses them again whatever
+  the sandbox allowed, and it refuses a `.gitattributes` or a `.gitmodules` at any depth, so
+  `sub/.gitattributes` is as refused as the root one, and symlinks and git submodule pointers wherever
+  they are. In local mode only `.cs` and `.md` files are writable, so none of those can be written.
+  Do not create any of them. If the work needs one, do not work around it, for example by moving the
+  change into a file it does not belong in: report `blocked`, naming the file and the change it needs,
+  so a human can make it.
 - **In a sandbox any other file extension is writable**, project files and config files included.
 - **Local mode (no `sandbox__*` tools in your list) narrows that further.** Only `.cs` and `.md` files
   are writable there, and project files, props, targets, `.json`, `.yml` and files with no extension
@@ -63,8 +64,8 @@ That last distinction is not pedantry, and getting it backwards is a defect this
 shipped repeatedly. A *denied* tool is offered, called, and comes back as `Tool call denied:
 <reason>`: you spend budget and learn something. An *absent* tool is never offered at all.
 
-**Do not attempt to work around any of this.** There is no shell in either mode, and the sandbox tools take
-no command of yours, and there is no "just this once" path. A write the workspace tools refuse is a
+**Do not attempt to work around any of this.** There is no shell in either mode. The sandbox tools
+take no command of yours. There is no "just this once" path: a write the workspace tools refuse is a
 `blocked` outcome, not a reason to improvise.
 
 ## What your run leaves behind
