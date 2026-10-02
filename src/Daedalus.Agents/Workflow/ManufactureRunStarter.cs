@@ -165,8 +165,9 @@ public sealed class ManufactureRunStarter(
             return Result<Guid, ManufactureStartFailure>.Success(started.Value);
         }
 
-        // The run starter reports a string, so there is no code to tell a refusal from an outage: it is the host's.
-        return await RemoveAfterFailureAsync(runId, ManufactureStartFailureKind.Failed, started.Error).ConfigureAwait(false);
+        // The run starter's string channel carries only its fixed refusals, and real outages throw, so every failure here
+        // is one the caller can read and fix: no active version, an unloadable definition, an unpinnable node.
+        return await RemoveAfterFailureAsync(runId, ManufactureStartFailureKind.Unstartable, started.Error).ConfigureAwait(false);
     }
 
     private static Result<Guid, ManufactureStartFailure> Fail(ManufactureStartFailureKind kind, string message) =>

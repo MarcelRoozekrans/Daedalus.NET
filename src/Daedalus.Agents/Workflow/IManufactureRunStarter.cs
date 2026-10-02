@@ -43,9 +43,20 @@ public enum ManufactureStartFailureKind
     /// <summary>The request itself is refused: a blank or over-long intent, a repository that is not allow-listed, or a workspace the provider rejected as invalid.</summary>
     Invalid,
 
-    /// <summary>The runtime a start needs is not available right now, such as the sandbox engine or a disabled workflow engine; retrying later may succeed.</summary>
+    /// <summary>The runtime a start needs is transiently unreachable, such as the sandbox engine being down, so a retry later may succeed. The endpoint answers 503 with Retry-After.</summary>
     Unavailable,
 
-    /// <summary>Anything else: the request was fine and the host failed it.</summary>
+    /// <summary>The workflow engine is switched off by a host setting that no retry gets past. The endpoint answers 503 without Retry-After.</summary>
+    Disabled,
+
+    /// <summary>
+    ///     The workflow run starter refused the start with one of its fixed refusals: no active version of the process, a
+    ///     definition that does not load, a task node that cannot be pinned such as one whose skill is deactivated, or a
+    ///     caller-input check of the store. The message names the node. The endpoint answers 422; real outages throw
+    ///     instead of arriving here.
+    /// </summary>
+    Unstartable,
+
+    /// <summary>Anything else: the request was fine and the host failed it with an error code that is neither a validation nor a provider error. The endpoint answers 500.</summary>
     Failed,
 }

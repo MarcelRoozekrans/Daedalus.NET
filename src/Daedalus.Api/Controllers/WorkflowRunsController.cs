@@ -55,8 +55,10 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     ///     a blank repository fails with 400 before <see cref="IManufactureRunStarter.StartAsync"/> is even called.
     ///     Past that, a failure the starter reports is mapped by its
     ///     <see cref="ManufactureStartFailureKind"/>: <c>Invalid</c>, such as a repository that is not allow-listed, is
-    ///     400; <c>Unavailable</c>, such as the workflow engine being off or the sandbox runtime being down, is 503 with
-    ///     <c>Retry-After: 30</c>; anything else is 500.
+    ///     400; <c>Unstartable</c>, such as a deactivated skill on a task node, is 422 naming the node; <c>Unavailable</c>,
+    ///     a transient outage such as the sandbox runtime being down, is 503 with <c>Retry-After: 30</c>; <c>Disabled</c>,
+    ///     the workflow engine being off, is 503 without Retry-After because no retry gets past a host setting; anything
+    ///     else is 500.
     /// </summary>
     /// <param name="request">The request body.</param>
     /// <param name="starter">
@@ -68,9 +70,10 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     /// <param name="ct">Cancellation token.</param>
     [HttpPost]
     [ProducesResponseType(typeof(StartWorkflowRunResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Start(
         [FromBody] StartWorkflowRunRequest request, [FromServices] IManufactureRunStarter starter, CancellationToken ct)
@@ -100,8 +103,12 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             {
                 case ManufactureStartFailureKind.Invalid:
                     return Problem(detail: failure.Message, statusCode: StatusCodes.Status400BadRequest);
+                case ManufactureStartFailureKind.Unstartable:
+                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status422UnprocessableEntity);
                 case ManufactureStartFailureKind.Unavailable:
                     Response.Headers.RetryAfter = RetryAfterSeconds;
+                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+                case ManufactureStartFailureKind.Disabled:
                     return Problem(detail: failure.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
                 default:
                     return Problem(detail: failure.Message, statusCode: StatusCodes.Status500InternalServerError);

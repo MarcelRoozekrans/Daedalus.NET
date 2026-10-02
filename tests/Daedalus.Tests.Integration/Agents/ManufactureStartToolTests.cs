@@ -95,6 +95,21 @@ public sealed class ManufactureStartToolTests
             "the bound ISecurityContext parameter must never appear in the schema a model can see or forge");
     }
 
+    /// <summary>
+    ///     The tool renders every failure kind as exactly <c>Could not start a manufacture run: Message</c>, so the model
+    ///     reads the text and not a record dump. Red: render the failure record instead of <c>.Message</c>, and the
+    ///     text carries <c>ManufactureStartFailure { Kind = ... }</c>, so both cases fail.
+    /// </summary>
+    [Theory]
+    [InlineData(ManufactureStartFailureKind.Invalid, "repository 'x' is not allow-listed")]
+    [InlineData(ManufactureStartFailureKind.Unavailable, "could not prepare the run's workspace: the engine is down.")]
+    public async Task A_failed_start_is_rendered_as_the_message_alone(ManufactureStartFailureKind kind, string message)
+    {
+        var tool = new DaedalusManufactureTools(new FailingManufactureRunStarter(new ManufactureStartFailure(kind, message)));
+        var line = await tool.Start(new ClaimsSecurityContext(Principal(new Claim("sub", "u-1"))), "x", "x");
+        line.Should().Be($"Could not start a manufacture run: {message}");
+    }
+
     private static ClaimsPrincipal Principal(params Claim[] claims) =>
         new(new ClaimsIdentity(claims, authenticationType: "Bearer", nameType: ClaimTypes.Name, roleType: ClaimTypes.Role));
 
@@ -143,6 +158,13 @@ public sealed class ManufactureStartToolTests
             Request = request;
             return new(Result<Guid, ManufactureStartFailure>.Success(Guid.NewGuid()));
         }
+    }
+
+    /// <summary>Fails every start with the failure it was given.</summary>
+    private sealed class FailingManufactureRunStarter(ManufactureStartFailure failure) : IManufactureRunStarter
+    {
+        public ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct) =>
+            new(Result<Guid, ManufactureStartFailure>.Failure(failure));
     }
 
     private sealed class Harness(ServiceProvider provider) : IAsyncDisposable

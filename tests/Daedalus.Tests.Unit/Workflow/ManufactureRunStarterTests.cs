@@ -80,8 +80,8 @@ public sealed class ManufactureRunStarterTests
 
     /// <summary>
     ///     The worktree is created under the run id the start then uses, and the undo removes that same one, and a start
-    ///     the run starter refuses is the host's failure, not the caller's. Red, per assertion: map the run starter's
-    ///     failure to <c>Invalid</c>, and the first fails; pass <c>Guid.NewGuid()</c> to <c>RemoveAsync</c>, and the
+    ///     the run starter refuses is <c>Unstartable</c>, which the endpoint answers with 422. Red, per assertion: map the
+    ///     run starter's failure to <c>Failed</c>, and the first fails; pass <c>Guid.NewGuid()</c> to <c>RemoveAsync</c>, and the
     ///     received id differs.
     /// </summary>
     [Fact]
@@ -89,7 +89,7 @@ public sealed class ManufactureRunStarterTests
     {
         var result = await CreateStarter().StartAsync(Request("sandbox"), CancellationToken.None);
 
-        result.Error.Kind.Should().Be(ManufactureStartFailureKind.Failed);
+        result.Error.Kind.Should().Be(ManufactureStartFailureKind.Unstartable);
         var created = (RunWorkspaceRequest)_workspaces.ReceivedCalls()
             .Single(c => string.Equals(c.GetMethodInfo().Name, nameof(IRunWorkspaceProvider.CreateAsync), StringComparison.Ordinal)).GetArguments()[0]!;
         await _workspaces.Received(1).RemoveAsync(created.RunId, Arg.Any<CancellationToken>());
@@ -344,6 +344,20 @@ public sealed class ManufactureRunStarterTests
 
         captured.Should().NotBeNull("the start must reach the manifest resolver for the documents to be pinned");
         return captured!;
+    }
+
+    /// <summary>
+    ///     A disabled engine is a host setting, reported as <c>Disabled</c> with its fixed message, so the endpoint can
+    ///     answer 503 without Retry-After. Red, per assertion: return <c>Unavailable</c>, and the kind fails; change the
+    ///     text, and the message fails.
+    /// </summary>
+    [Fact]
+    public async Task A_disabled_engine_is_Disabled_with_its_message()
+    {
+        var result = await new DisabledManufactureRunStarter().StartAsync(Request("sandbox"), CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ManufactureStartFailureKind.Disabled);
+        result.Error.Message.Should().Be(DisabledManufactureRunStarter.DisabledMessage);
     }
 
     private void ReaderThrows() =>

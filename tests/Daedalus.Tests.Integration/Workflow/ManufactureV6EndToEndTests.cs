@@ -49,6 +49,8 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
 
     private const string LearnedLine = "Integration tests need Docker running.";
 
+    // The final newline is there because Thalos's base-file reader adds one (Thalos issue #245); the no-final-newline
+    // and CRLF cases stay untested until #245 is fixed.
     private const string PinnedStandingInstructions = "Run dotnet test.\n";
 
     private const string EditedA = "class A\n{\n    // guard: refuse a null argument before it reaches the body.\n    public static void Check(object? value) => System.ArgumentNullException.ThrowIfNull(value);\n}\n";
