@@ -54,6 +54,9 @@ internal sealed class ApiWebApplicationFactory(
     IReadOnlyDictionary<string, string?>? settings = null)
     : WebApplicationFactory<Daedalus.Api.Program>
 {
+    /// <summary>The shipped implement grant's extension list, entry 0 of <c>Thalos:Workflow:WriteGrants</c>.</summary>
+    private const string ImplementGrantExtensionsKey = "Thalos:Workflow:WriteGrants:0:AllowedExtensions";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -83,11 +86,18 @@ internal sealed class ApiWebApplicationFactory(
         // Local mode, phase 2.5's wiring, by default: these suites test the workflow, not the container, so no host built
         // here needs a Docker engine or the sandbox image. The shipped implement grant lists no extensions, which S6
         // allows only under the sandbox, so local mode gets the list it needs, the Cli's. Both are set before the
-        // caller's settings, so a test can still turn the sandbox on or grant another list. The sandbox-mode suite is
-        // phase 2.6 task B8's.
+        // caller's settings, so a test can still turn the sandbox on. The sandbox-mode suite is phase 2.6 task B8's.
+        //
+        // Configuration merges list entries by index, so pre-setting entries 0 and 1 would leave this .md under a test
+        // that sets only AllowedExtensions:0. The default list is therefore set only when the caller sets no entry of
+        // the implement grant's AllowedExtensions at all: a test that sets any entry sets the whole list.
         builder.UseSetting("Thalos:Workflow:Sandbox:Enabled", "false");
-        builder.UseSetting("Thalos:Workflow:WriteGrants:0:AllowedExtensions:0", ".cs");
-        builder.UseSetting("Thalos:Workflow:WriteGrants:0:AllowedExtensions:1", ".md");
+        if (!(settings ?? new Dictionary<string, string?>(StringComparer.Ordinal)).Keys.Any(k =>
+                k.StartsWith(ImplementGrantExtensionsKey, StringComparison.OrdinalIgnoreCase)))
+        {
+            builder.UseSetting(ImplementGrantExtensionsKey + ":0", ".cs");
+            builder.UseSetting(ImplementGrantExtensionsKey + ":1", ".md");
+        }
 
         if (squadEnabled is { } squad)
         {

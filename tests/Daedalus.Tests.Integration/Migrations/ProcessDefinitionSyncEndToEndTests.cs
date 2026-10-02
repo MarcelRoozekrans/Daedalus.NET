@@ -40,6 +40,7 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
         var dbName = $"process_sync_e2e_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
         var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = dbName }.ConnectionString;
+        var dataRoot = Directory.CreateTempSubdirectory("daedalus-process-sync-e2e-").FullName;
         try
         {
             // Same migration order Daedalus.Migrations/Program.cs runs in production, and
@@ -70,6 +71,12 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 ["ConnectionStrings:daedalus"] = connectionString,
                 // Deliberately NOT set here - Thalos:Workflow:Enabled stays at its real appsettings.json/code
                 // default (true), which is the entire point of this test.
+                //
+                // The shipped file runs every run sandboxed, so this host starts the sandbox reconcile service. Its own
+                // data root and network keep that pass off the developer's real data root and off the shared
+                // daedalus-sandboxes network, whose sandboxes belong to whatever real host is running.
+                ["Thalos:Workflow:DataRoot"] = dataRoot,
+                ["Thalos:Workflow:Sandbox:Docker:Network"] = $"daedalus-test-{Guid.NewGuid():N}",
             });
 
             builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(o => o.UseNpgsql(connectionString));
@@ -111,6 +118,7 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
         {
             NpgsqlConnection.ClearAllPools();
             await ExecuteOnServerAsync($"DROP DATABASE IF EXISTS \"{dbName}\" WITH (FORCE)");
+            Directory.Delete(dataRoot, recursive: true);
         }
     }
 
