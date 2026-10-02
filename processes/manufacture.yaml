@@ -12,20 +12,20 @@
 #
 #      Phase 2.6 moves that worktree into a per-run container, the sandbox, when
 #      `Thalos:Workflow:Sandbox` is enabled. There any file extension is writable except the protected
-#      paths, which hold in both modes: `.git/`, `.gitattributes`, `.gitmodules`, `.github/`,
-#      `.gitlab-ci.yml`, `azure-pipelines.yml`, `.azure-pipelines/`, `.circleci/`, `Jenkinsfile` and the
-#      standing-instructions file `AGENT.md`. Publish also refuses a `.gitattributes` or `.gitmodules` at
-#      any depth, and symlinks and git submodule pointers. `implement` may also build and test the
-#      change, through `sandbox__build` and `sandbox__test`, which run a fixed command in a throwaway
-#      copy of the worktree inside the sandbox, so neither changes the files under review. `review` holds
-#      only `sandbox__test`. Nothing in the sandbox reaches the host's tree: `publish` exports the run's
-#      change as a patch and applies it to the API's own clean worktree after a protected-path check, and
-#      a change to a protected path is refused there, whatever the sandbox allowed. With the sandbox off,
-#      the local mode of development hosts, the worktree is the host's own, only the grant's allowed
-#      extensions, `.cs` and `.md` by default (ruling R29), are writable, the protected paths are still
-#      refused on top, and the node holds no `sandbox__*` tool. In both modes paths resolve inside the
-#      worktree and `..` and absolute paths are refused. The Roslyn server the node reaches is the run's
-#      own, over the same worktree.
+#      paths, which the write tools refuse in both modes: `.git/`, `.gitattributes`, `.gitmodules`,
+#      `.github/`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `.azure-pipelines/`, `.circleci/`,
+#      `Jenkinsfile` and the standing-instructions file `AGENT.md`. When a sandboxed run is published,
+#      publish also refuses a `.gitattributes` or `.gitmodules` at any depth, and symlinks and git
+#      submodule pointers. `implement` may also build and test the change, through `sandbox__build` and
+#      `sandbox__test`, which run a fixed command in a throwaway copy of the worktree inside the sandbox,
+#      so neither changes the files under review. `review` holds only `sandbox__test`. Nothing in the
+#      sandbox reaches the host's tree: `publish` exports the run's change as a patch and applies it to
+#      the API's own clean worktree after a protected-path check, and a change to a protected path is
+#      refused there, whatever the sandbox allowed. With the sandbox off, the local mode of development
+#      hosts, the worktree is the host's own, only the grant's allowed extensions, `.cs` and `.md` by
+#      default (ruling R29), are writable, the protected paths are still refused on top, and the node
+#      holds no `sandbox__*` tool. In both modes paths resolve inside the worktree and `..` and absolute
+#      paths are refused. The Roslyn server the node reaches is the run's own, over the same worktree.
 #
 #      The implementer still holds no `git__*` and no `repoaction__*` tool: both families are absent from
 #      its configured `Tools` list, so neither is ever offered to one of its turns. It edits files; it

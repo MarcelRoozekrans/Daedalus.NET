@@ -49,6 +49,28 @@ public sealed class ManufactureProcessDefinitionTests
         return agents;
     }
 
+    /// <summary>
+    ///     The header comment says the publish-side refusals of <c>.gitattributes</c> or <c>.gitmodules</c> at any depth,
+    ///     symlinks and submodule pointers apply when a sandboxed run is published, never to publish in general, since
+    ///     local mode commits the worktree directly. The yaml is only read as text here; the comment is the content
+    ///     the version bump covers. Red: dropping "When a sandboxed run is published," from the comment turns the
+    ///     first assertion red; deleting the "symlinks and git submodule pointers" clause the second; rewording the
+    ///     comment to say "Publish also refuses" with no sandbox scoping turns the third red.
+    /// </summary>
+    [Fact]
+    public void The_header_scopes_the_publish_side_refusals_to_a_sandboxed_run()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "processes", "manufacture.yaml");
+        var comment = string.Join(' ', File.ReadAllLines(path)
+            .Where(l => l.TrimStart().StartsWith('#'))
+            .Select(l => l.TrimStart().TrimStart('#').Trim()));
+        comment = string.Join(' ', comment.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+        comment.Should().Contain("When a sandboxed run is published, publish also refuses a `.gitattributes` or `.gitmodules` at any depth");
+        comment.Should().Contain("and symlinks and git submodule pointers");
+        comment.Should().NotContain("Publish also refuses");
+    }
+
     [Fact]
     public void The_process_is_at_version_seven()
     {

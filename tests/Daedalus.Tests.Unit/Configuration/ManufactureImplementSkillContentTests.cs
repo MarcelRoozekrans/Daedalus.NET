@@ -75,24 +75,31 @@ public sealed partial class ManufactureImplementSkillContentTests
     }
 
     /// <summary>
-    ///     Phase 2.6: the protected paths hold in both modes, the write tools refuse them and publish refuses them
-    ///     again, and a run that needs one is blocked naming the file. Each assertion has its own Red, applied to
-    ///     <c>skills/manufacture-implement/SKILL.md</c>:
+    ///     Phase 2.6: the write tools refuse the protected paths in both modes; publish refuses them again, and refuses
+    ///     <c>.gitattributes</c> or <c>.gitmodules</c> at any depth, symlinks and submodule pointers, only for a
+    ///     sandboxed run. A run that needs a protected path is blocked naming the file. Each assertion has its own Red,
+    ///     applied to <c>skills/manufacture-implement/SKILL.md</c>:
     ///     <list type="bullet">
-    ///         <item>".github/" in the list - Red: delete <c>.github/</c> from the list; the literal also occurs in the local-mode example, so the whole list run is asserted.</item>
-    ///         <item>"in either mode" - Red: change the bullet's heading back to "in a sandbox".</item>
-    ///         <item>"The write tools refuse these paths, and publish refuses them again" - Red: delete the
-    ///             sentence, or reword it to say publish alone refuses.</item>
-    ///         <item>"a run that needs one is blocked" - Red: delete that clause.</item>
-    ///         <item>"sub/.gitattributes" - Red: delete the any-depth sentence, leaving the root names alone.</item>
-    ///         <item>"symlinks and git submodule pointers" - Red: delete that clause.</item>
+    ///         <item>The list run ".gitmodules, .github/, .gitlab-ci.yml" - Red: delete <c>.github/</c> from the
+    ///             list. The bare literal also occurs in the local-mode example, so the list run is asserted.</item>
+    ///         <item>"In both modes the write tools refuse these paths" - Red: delete the sentence, or say only
+    ///             publish refuses them.</item>
+    ///         <item>"so a run that needs one is blocked" - Red: delete that clause.</item>
+    ///         <item>"In a sandbox, publish also refuses them again" - Red: drop "In a sandbox," so the publish
+    ///             refusal reads as unscoped, or move it under an "in either mode" heading.</item>
+    ///         <item>"so sub/.gitattributes is as refused as the root one" - Red: delete the any-depth clause.</item>
+    ///         <item>"symlinks and git submodule pointers wherever they are" - Red: delete that clause.</item>
+    ///         <item>"In local mode only .cs and .md files are writable, so none of those can be written" - Red:
+    ///             delete the sentence, leaving local mode's publish unstated.</item>
+    ///         <item>The protected bullet does not say "in either mode" - Red: restore the heading "in either mode".</item>
     ///         <item>"report blocked, naming the file and the change it needs" - Red: delete the instruction.</item>
-    ///         <item>"any other file extension is writable" - Red: delete the sandbox extension bullet.</item>
-    ///         <item>"Only .cs and .md files are writable there" - Red: delete the local-mode bullet, or drop "there".</item>
-    ///         <item>".github/x.md is not writable in local mode either" - Red: delete the sentence saying the
+    ///         <item>"In a sandbox any other file extension is writable" - Red: delete the sandbox extension bullet.</item>
+    ///         <item>"Only .cs and .md files are writable there" - Red: delete the local-mode bullet, or drop
+    ///             "there".</item>
+    ///         <item>"so .github/x.md is not writable in local mode either" - Red: delete the sentence saying the
     ///             protected list still applies in local mode.</item>
     ///         <item>The absences and the bullet check - Red: paste back the old "Only .cs and .md files are writable
-    ///             in this phase" sentence, or add any bullet that mentions ".cs and .md" without "Local mode".</item>
+    ///             in this phase" sentence, or add any bullet that mentions ".cs and .md" without "local mode".</item>
     ///     </list>
     /// </summary>
     [Fact]
@@ -101,11 +108,13 @@ public sealed partial class ManufactureImplementSkillContentTests
         var normalized = Normalize(ImplementSkill());
 
         normalized.Should().ContainEquivalentOf(".gitmodules, .github/, .gitlab-ci.yml");
-        normalized.Should().ContainEquivalentOf("Protected paths are not yours to change, in either mode");
-        normalized.Should().ContainEquivalentOf("The write tools refuse these paths, and publish refuses them again whatever the sandbox allowed");
+        normalized.Should().ContainEquivalentOf("In both modes the write tools refuse these paths");
         normalized.Should().ContainEquivalentOf("so a run that needs one is blocked");
+        normalized.Should().ContainEquivalentOf("In a sandbox, publish also refuses them again whatever the sandbox allowed");
         normalized.Should().ContainEquivalentOf("so sub/.gitattributes is as refused as the root one");
-        normalized.Should().ContainEquivalentOf("it refuses symlinks and git submodule pointers wherever they are");
+        normalized.Should().ContainEquivalentOf("and symlinks and git submodule pointers wherever they are");
+        normalized.Should().ContainEquivalentOf("In local mode only .cs and .md files are writable, so none of those can be written");
+        normalized.Should().NotContainEquivalentOf("Protected paths are not yours to change, in either mode");
         normalized.Should().ContainEquivalentOf("report blocked, naming the file and the change it needs");
         normalized.Should().ContainEquivalentOf("In a sandbox any other file extension is writable");
         normalized.Should().ContainEquivalentOf("Only .cs and .md files are writable there");
@@ -150,7 +159,7 @@ public sealed partial class ManufactureImplementSkillContentTests
     ///     The skill is shared by both modes, so it must say there is no shell in either, not credit the absence to
     ///     the sandbox tools alone, which local mode does not have. Red: restoring "There is no shell, because
     ///     sandbox__build and sandbox__test each run one fixed command" turns the absence red; deleting "in either
-    ///     mode" turns the first positive red; deleting "the sandbox tools take no command of yours" the second.
+    ///     mode" turns the first positive red; deleting "The sandbox tools take no command of yours" the second.
     /// </summary>
     [Fact]
     public void The_implement_skill_says_there_is_no_shell_in_either_mode()
@@ -158,7 +167,7 @@ public sealed partial class ManufactureImplementSkillContentTests
         var normalized = Normalize(ImplementSkill());
 
         normalized.Should().ContainEquivalentOf("There is no shell in either mode");
-        normalized.Should().ContainEquivalentOf("the sandbox tools take no command of yours");
+        normalized.Should().ContainEquivalentOf("The sandbox tools take no command of yours");
         normalized.Should().NotContainEquivalentOf("There is no shell, because");
     }
 
