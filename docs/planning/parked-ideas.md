@@ -228,3 +228,27 @@ and a cheap check that skips `retrospect` when the implementer reported no learn
 
 Sources: browserbase.com/blog/what-is-jev; dev.to/ohalay/scoring-a2a-agent-skills-with-system-one-jev-in-net-k1n;
 gist.github.com/pjburnhill/adf8d28efcad9df037bfdece178ef965.
+
+---
+
+## OpenBao secret store for Daedalus's runtime secrets
+
+**Raised:** 2026-10-02, while phase 2.6 was in progress. **Status:** parked. Promote to a phase when it is scheduled, ideally next to the Kubernetes sandbox backend that phase 2.6 deferred.
+
+**The idea.** Daedalus's own runtime secrets would come from an [OpenBao](https://openbao.org) secret store instead of Aspire parameters, user-secrets and plain environment variables. The secrets in scope are `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, the Telegram bot token and the database password. OpenBao is the open-source fork of HashiCorp Vault and has the same API.
+
+### Shape
+
+- **API side.** An `IConfiguration` provider backed by the OpenBao KV v2 engine, using VaultSharp, which speaks the Vault and OpenBao API.
+  - It authenticates with AppRole locally and with Kubernetes auth on a cluster.
+  - Secrets reach the existing options through configuration keys, not environment variables.
+  - Leases are renewed, so a rotated token takes effect without a redeploy.
+  - Every read appears in OpenBao's audit log.
+- **AppHost.** An OpenBao container in dev mode, seeded from a local, git-ignored file. A parameter source then feeds the api resource, so local development no longer depends on user-secrets.
+- **Scope boundary.** This changes how the *trusted API side* gets its secrets. The run sandbox still never holds any of them. That is invariant S1 of phase 2.6, and nothing here may weaken it.
+
+### What it does not cover
+
+The root `.mcp.json` is Claude Code's developer config, not a Daedalus host config, and it is out of scope here. A key in it must be referenced as `${VAR}` and never committed. Reading it from OpenBao is only a matter of how the developer's shell sets that variable.
+
+**Origin.** On 2026-10-02 a context7 API key turned out to be committed in plaintext in the public repository's root `.mcp.json`, where it had been since 2026-08-17. The owner asked whether a key vault could prevent this. Rotating that key is still required regardless, because it remains in git history.
