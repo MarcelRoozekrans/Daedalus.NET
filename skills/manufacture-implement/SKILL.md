@@ -1,6 +1,6 @@
 ---
 name: manufacture-implement
-description: Make one small, scoped change in this run's own worktree through workspace__*, build and test it in the sandbox when the tools exist, and report which files it touched.
+description: Make one small, scoped change in this run's worktree through workspace__*, build and test it, report the files.
 tags: [workflow, manufacture]
 ---
 
@@ -32,17 +32,21 @@ already loaded for you. Read the list as an allow-list, because that is what it 
   the protected paths below. `AGENT.md` holds this project's standing instructions; a change to it is
   proposed by a later step and applied only by a human, so if you learned something durable, report
   it as `learnings` (below) instead of writing it there.
-- **Protected paths are not yours to change.** In a sandbox any file extension is writable, project
-  files and config files included, except these protected paths: `.git/`, `AGENT.md`, `.gitattributes`,
-  `.gitmodules`, `.github/`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `.azure-pipelines/`, `.circleci/`
-  and `Jenkinsfile`. A trailing `/` protects the whole directory. The list is fixed by the host and no
-  configuration removes an entry. A change to a protected path is refused at publish, so the run
-  fails after a human has approved it. If the work needs one, do not work around it, for example by
-  moving the change into a file it does not belong in: report `blocked`, naming the file and the
-  change it needs, so a human can make it.
-- **Local mode (no `sandbox__*` tools in your list) is narrower.** Only `.cs` and `.md` files are
-  writable there, and project files, props, targets, `.json`, `.yml` and files with no extension are
-  refused; the same `blocked` report applies, naming the file and the change.
+- **Protected paths are not yours to change, in either mode.** These are protected: `.git/`, `AGENT.md`,
+  `.gitattributes`, `.gitmodules`, `.github/`, `.gitlab-ci.yml`, `azure-pipelines.yml`,
+  `.azure-pipelines/`, `.circleci/` and `Jenkinsfile`. A trailing `/` protects the whole directory. The
+  list is fixed by the host and no configuration removes an entry. The write tools refuse these paths,
+  and publish refuses them again whatever the sandbox allowed, so a run that needs one is blocked.
+  Publish also refuses a `.gitattributes` or a `.gitmodules` at any depth, so `sub/.gitattributes` is as
+  refused as the root one, and it refuses symlinks and git submodule pointers wherever they are. Do not
+  create any of them. If the work needs one, do not work around it, for example by moving the change
+  into a file it does not belong in: report `blocked`, naming the file and the change it needs, so a
+  human can make it.
+- **In a sandbox any other file extension is writable**, project files and config files included.
+- **Local mode (no `sandbox__*` tools in your list) narrows that further.** Only `.cs` and `.md` files
+  are writable there, and project files, props, targets, `.json`, `.yml` and files with no extension
+  are refused. The protected paths still apply on top, so `.github/x.md` is not writable in local
+  mode either. The same `blocked` report applies, naming the file and the change.
 - **Use the named Roslyn read tools to understand the code, and `roslyn__get_diagnostics` after
   editing.** The Roslyn server you reach is this run's own, over the same worktree.
   `roslyn__get_code_actions` lists the refactorings and fixes Roslyn offers at a position, and
@@ -59,9 +63,9 @@ That last distinction is not pedantry, and getting it backwards is a defect this
 shipped repeatedly. A *denied* tool is offered, called, and comes back as `Tool call denied:
 <reason>`: you spend budget and learn something. An *absent* tool is never offered at all.
 
-**Do not attempt to work around any of this.** There is no shell, because `sandbox__build` and `sandbox__test` each run one fixed command and take
-no command of yours, and there is no "just this once" path. A
-write the workspace tools refuse is a `blocked` outcome, not a reason to improvise.
+**Do not attempt to work around any of this.** There is no shell in either mode, and the sandbox tools take
+no command of yours, and there is no "just this once" path. A write the workspace tools refuse is a
+`blocked` outcome, not a reason to improvise.
 
 ## What your run leaves behind
 
@@ -104,8 +108,13 @@ summary that reports failed tests or build errors.
 - If either fails, fix the cause in the worktree with the workspace tools and run it again. Do
   not claim `changed` while the build or the tests fail.
 - If you cannot make them pass, report `blocked` with the failure as `summary`.
-- Restore ran once on the real worktree when the sandbox started, with network access only to NuGet.
-  A change that needs another package source or any other network access will not build.
+- Each tool runs plain `dotnet build` or `dotnet test` with no `--no-restore`, so it restores inside its
+  throwaway copy, and the only network it reaches is NuGet. A `PackageReference` you add from nuget.org
+  restores at build time; a package from any other source fails the build.
+- `roslyn__get_diagnostics` runs on the real worktree, which was restored once when the sandbox started
+  and not again. After a project file change it can report a missing package or type that
+  `sandbox__build` resolves. **`sandbox__build` is the authority on whether the change builds**: when
+  they disagree, trust the build.
 - Mention the result in `summary`, for example the test count, and put a durable fact you learned
   from running them in `learnings`.
 
@@ -123,11 +132,11 @@ compile check and the claim you make is only that the edit landed.
 you wrote the change and then read the file back and saw it. If you hold the sandbox tools, it also
 means the last `sandbox__build` and `sandbox__test` you ran passed.
 
-Report `blocked`, with the reason as `summary`, if you did not: the work needs a protected path or, in local mode, a file you may not
-write, the change was larger than one scoped edit, the code was not what the work described, or you
-could not confirm the edit landed. Ending the run as failed is the correct outcome for a
-manufacturing run that manufactured nothing, and it is a far better result than a false `changed`
-that sends a reviewer to read a change that is not there.
+Report `blocked`, with the reason as `summary`, if you did not: the work needs a protected path or, in local
+mode, a file you may not write, the change was larger than one scoped edit, the code was not what the work
+described, or you could not confirm the edit landed. Ending the run as failed is the correct outcome for a
+manufacturing run that manufactured nothing, and it is a far better result than a false `changed` that
+sends a reviewer to read a change that is not there.
 
 ## What you write down, and what the reviewer gets
 
