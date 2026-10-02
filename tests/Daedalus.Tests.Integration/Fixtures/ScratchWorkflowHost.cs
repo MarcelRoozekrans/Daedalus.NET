@@ -72,7 +72,7 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
 
     /// <summary>
     ///     Boots a host. <paramref name="seed"/> is the remote's <c>main</c>, on top of <c>README.md</c>; left out, it
-    ///     is <c>AGENT.md</c> holding <c>Run dotnet test.</c> plus a final newline, as an editor leaves it, and <c>src/A.cs</c> holding <c>class A {}</c>.
+    ///     is <c>AGENT.md</c> holding <c>Run dotnet test.</c> plus a final newline, which is there because Thalos's base-file reader adds one (Thalos issue #245), and <c>src/A.cs</c> holding <c>class A {}</c>.
     ///     <paramref name="runtime"/>, <paramref name="squadEnabled"/> and <paramref name="configureServices"/> are passed
     ///     to <see cref="ApiWebApplicationFactory"/> as they are, so a null <paramref name="runtime"/> keeps the host's
     ///     own <c>ThalosAgentRuntime</c>.
@@ -96,6 +96,8 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
         {
             await MigrateAsync(connectionString);
 
+            // The AGENT.md final newline is there because Thalos's base-file reader adds one (Thalos issue #245); the
+            // no-final-newline and CRLF cases stay untested until #245 is fixed.
             remote = LocalGitRemote.Create([.. seed ?? [("AGENT.md", "Run dotnet test.\n"), ("src/A.cs", "class A {}")]]);
             dataRoot = Directory.CreateTempSubdirectory("daedalus-workflow-data-").FullName;
 

@@ -146,8 +146,8 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     A pin failure is the host's, not the caller's, so 500 problem details that still name the node. Red, per
-    ///     assertion: map the run starter's failure to <c>Invalid</c>, and the status fails; drop the message from the
+    ///     A pin failure is a fixed refusal of the run starter, the 2.4 contract: 422 problem details that name the node.
+    ///     Red, per assertion: map the run starter's failure to <c>Failed</c>, and the status fails; drop the message from the
     ///     problem, and the detail fails; write the row before the pin, and the count fails.
     /// </summary>
     [Fact]
@@ -160,7 +160,7 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
 
         var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("anything", ScratchWorkflowHost.Repository));
 
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem.Should().NotBeNull();
         problem!.Detail.Should().Contain("implement", "the failure must name the node whose skill is not active");
@@ -171,7 +171,7 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
 
     /// <summary>
     ///     Red, per assertion: drop the <c>RemoveAsync</c> after a failed start, and the worktree made before the pin
-    ///     failed stays; map the run starter's failure to <c>Invalid</c>, and the status fails.
+    ///     failed stays; map the run starter's failure to <c>Failed</c>, and the status fails.
     /// </summary>
     [Fact]
     public async Task A_pin_failure_removes_the_worktree_it_created()
@@ -183,7 +183,7 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
 
         var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("x", ScratchWorkflowHost.Repository));
 
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
         host.RunDirectories().Should().BeEquivalentTo(directoriesBefore, "the worktree made before the pin failed is removed");
     }
 
@@ -259,7 +259,7 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
             (await CountWorkflowRunsAsync(host.ConnectionString)).Should().Be(runsBefore);
 
             // Asked of the provider, not of the disk: git for Windows removes the worktree but leaves the directory
-            // that holds the junction, so the directory outlives a removal that did happen.
+            // that holds the junction, so the directory outlives a removal that did happen. Thalos issue #252 tracks it.
             var workspaces = await host.Factory.Services.GetRequiredService<IRunWorkspaceProvider>().ListAsync(CancellationToken.None);
             workspaces.Should().BeEmpty("the worktree made before the read was refused is removed");
         }
