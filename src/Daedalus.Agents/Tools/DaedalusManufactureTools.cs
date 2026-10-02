@@ -56,6 +56,6 @@ public sealed class DaedalusManufactureTools(IManufactureRunStarter starter)
             .ConfigureAwait(false);
         return result.IsSuccess
             ? $"Started manufacture run {result.Value}."
-            : $"Could not start a manufacture run: {result.Error}";
+            : $"Could not start a manufacture run: {result.Error.Message}";
     }
 }

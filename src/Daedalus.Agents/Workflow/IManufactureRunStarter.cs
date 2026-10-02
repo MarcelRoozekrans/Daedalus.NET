@@ -26,7 +26,26 @@ public interface IManufactureRunStarter
     ///     <see cref="ManufactureStartRequest.StartedBy"/> as the principal that started it. Failure text is safe
     ///     to show a caller — a blank or over-long work intent, a repository that is not allow-listed, a worktree
     ///     that could not be prepared, a disabled engine, and a pin failure (an unresolvable agent or an inactive
-    ///     skill on a task node) are all reported through <see cref="Result{T}.Error"/> rather than thrown.
+    ///     skill on a task node) are all reported through <see cref="Result{T,E}.Error"/> as a <see cref="ManufactureStartFailure"/> whose kind says
+    ///     whose fault it is, rather than thrown.
     /// </summary>
-    ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct);
+    ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct);
+}
+
+/// <summary>Why a manufacture start failed, in terms a caller maps to a response: see <see cref="ManufactureStartFailureKind"/>.</summary>
+/// <param name="Kind">Whose fault the failure is.</param>
+/// <param name="Message">Text that is safe to show a caller.</param>
+public sealed record ManufactureStartFailure(ManufactureStartFailureKind Kind, string Message);
+
+/// <summary>Whose fault a failed manufacture start is.</summary>
+public enum ManufactureStartFailureKind
+{
+    /// <summary>The request itself is refused: a blank or over-long intent, a repository that is not allow-listed, or a workspace the provider rejected as invalid.</summary>
+    Invalid,
+
+    /// <summary>The runtime a start needs is not available right now, such as the sandbox engine or a disabled workflow engine; retrying later may succeed.</summary>
+    Unavailable,
+
+    /// <summary>Anything else: the request was fine and the host failed it.</summary>
+    Failed,
 }

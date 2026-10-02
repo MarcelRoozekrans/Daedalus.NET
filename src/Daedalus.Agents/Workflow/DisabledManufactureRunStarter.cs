@@ -13,12 +13,13 @@ namespace Daedalus.Agents.Workflow;
 public sealed class DisabledManufactureRunStarter : IManufactureRunStarter
 {
     /// <summary>
-    ///     The exact failure text <c>WorkflowRunsController.Start</c> matches to map this specific failure to 503
-    ///     rather than the 422 every other <see cref="IManufactureRunStarter.StartAsync"/> failure gets.
+    ///     The failure text of a disabled engine. It is reported as <see cref="ManufactureStartFailureKind.Unavailable"/>,
+    ///     which <c>WorkflowRunsController.Start</c> maps to 503.
     /// </summary>
     public const string DisabledMessage = "The manufacturing workflow engine is disabled on this host.";
 
     /// <inheritdoc />
-    public ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct) =>
-        new(Result<Guid>.Failure(DisabledMessage));
+    public ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct) =>
+        new(Result<Guid, ManufactureStartFailure>.Failure(
+            new ManufactureStartFailure(ManufactureStartFailureKind.Unavailable, DisabledMessage)));
 }

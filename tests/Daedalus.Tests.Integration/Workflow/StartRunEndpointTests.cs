@@ -8,6 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Thalos;
 using Thalos.Workflow;
+using Thalos.Workspaces;
+using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
@@ -117,18 +119,19 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
         LocalGitRemote.Git(root, "rev-parse --abbrev-ref HEAD").Should().Be($"manufacture/{runId}");
         var run = await host.Store.FindAsync(runId, CancellationToken.None);
         run!.Manifest!.Documents.Should().ContainKey(ManufactureRunStarter.StandingInstructionsDocument)
-            .WhoseValue.Should().Be("Run dotnet test.");
+            .WhoseValue.Should().Be("Run dotnet test.\n");
         run.Manifest.Documents.Should().ContainKey(ManufactureRunStarter.WorkIntentDocument)
             .WhoseValue.Should().Be("Tighten a guard.");
     }
 
     /// <summary>
-    ///     Ruling R16. Red: resolve an unknown name to <c>config.Repositories[0]</c> instead of failing, and the start
-    ///     succeeds, so the status assertion fails. With the ones before it commented out, a run row appears and
+    ///     Ruling R16. A name that is not allow-listed is the caller's mistake, so 400. Red, per assertion: resolve an
+    ///     unknown name to <c>config.Repositories[0]</c> instead of failing, and the start succeeds, so the status
+    ///     assertion fails; map <c>Invalid</c> to 422 or 500, and it fails too. With the ones before it commented out, a run row appears and
     ///     fails the count, and a worktree directory appears and fails the last.
     /// </summary>
     [Fact]
-    public async Task An_unlisted_repository_is_422_and_leaves_no_run_and_no_worktree()
+    public async Task An_unlisted_repository_is_400_and_leaves_no_run_and_no_worktree()
     {
         await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
         using var client = host.Client("a-developer", "developer");
@@ -137,11 +140,16 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
 
         var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("x", "not-listed"));
 
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await CountWorkflowRunsAsync(host.ConnectionString)).Should().Be(runsBefore);
         host.RunDirectories().Should().BeEquivalentTo(directoriesBefore, "compared before and after, so no other test's run can decide it");
     }
 
+    /// <summary>
+    ///     A pin failure is the host's, not the caller's, so 500 problem details that still name the node. Red, per
+    ///     assertion: map the run starter's failure to <c>Invalid</c>, and the status fails; drop the message from the
+    ///     problem, and the detail fails; write the row before the pin, and the count fails.
+    /// </summary>
     [Fact]
     public async Task A_deactivated_node_skill_fails_the_start_and_writes_no_row()
     {
@@ -152,7 +160,7 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
 
         var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("anything", ScratchWorkflowHost.Repository));
 
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem.Should().NotBeNull();
         problem!.Detail.Should().Contain("implement", "the failure must name the node whose skill is not active");
@@ -161,7 +169,10 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
         after.Should().Be(before, "a pin failure must not create a run row");
     }
 
-    /// <summary>Red: drop the <c>RemoveAsync</c> after a failed start, and the worktree made before the pin failed stays.</summary>
+    /// <summary>
+    ///     Red, per assertion: drop the <c>RemoveAsync</c> after a failed start, and the worktree made before the pin
+    ///     failed stays; map the run starter's failure to <c>Invalid</c>, and the status fails.
+    /// </summary>
     [Fact]
     public async Task A_pin_failure_removes_the_worktree_it_created()
     {
@@ -172,8 +183,101 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
 
         var response = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("x", ScratchWorkflowHost.Repository));
 
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
         host.RunDirectories().Should().BeEquivalentTo(directoriesBefore, "the worktree made before the pin failed is removed");
+    }
+
+    /// <summary>
+    ///     Task B4: a sandbox runtime that is down is 503 with <c>Retry-After: 30</c> and problem details, not a 500, and
+    ///     it leaves no run row. The host's provider is overridden with a substitute whose create fails the way the
+    ///     sandbox provider's does when the engine is unreachable, a provider error. The substitute having received the
+    ///     create shows the starter resolved the override and not the host's git provider. Red, per assertion: map
+    ///     <c>Unavailable</c> to 400, and the status fails; leave the header out, and the header fails; answer without
+    ///     problem details, and the detail fails; resolve the host's own provider in the starter, and the substitute
+    ///     receives nothing and the start succeeds with 201; start the run before the create, and the count fails.
+    /// </summary>
+    [Fact]
+    public async Task An_unavailable_sandbox_is_a_503_with_retry_after()
+    {
+        var provider = Substitute.For<IRunWorkspaceProvider, IRunBaseFileReader>();
+        provider.CreateAsync(Arg.Any<RunWorkspaceRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+                Result<RunWorkspace, AgentError>.Failure(AgentError.ProviderError("the container engine is not reachable."))));
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture, Substitute.For<IAgentRuntime>(), configureServices: WorkspaceProviderOverrides.Replace(provider));
+        using var client = host.Client("a-developer", "developer");
+        var runsBefore = await CountWorkflowRunsAsync(host.ConnectionString);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/workflow-runs", new StartWorkflowRunRequest("Tighten a guard.", ScratchWorkflowHost.Repository));
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.Headers.RetryAfter.Should().NotBeNull();
+        response.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(30));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Status.Should().Be((int)HttpStatusCode.ServiceUnavailable);
+        problem.Detail.Should().Contain("the container engine is not reachable.");
+        await provider.ReceivedWithAnyArgs(1).CreateAsync(default!, default);
+        (await CountWorkflowRunsAsync(host.ConnectionString)).Should().Be(runsBefore);
+    }
+
+    /// <summary>
+    ///     Task B4, local mode, the 2.5 link-escape guarantee through the real git provider's reader: a worktree that holds
+    ///     a directory link out of itself, named by the standing-instructions path, fails the start instead of pinning the
+    ///     text of the host file the link leads to, and the worktree is removed. The link is made after the provider
+    ///     creates the worktree, by a wrapper around the host's own provider. A refusal of the path is the caller's, so
+    ///     400. Red, per assertion: read the file without resolving the path through <c>WorkspacePath.Resolve</c> in the
+    ///     provider's reader, and the start succeeds with 201, so the status fails; pin from the host, and the problem
+    ///     detail fails with it; drop the removal after the refusal, and the workspace list assertion fails; leave no link,
+    ///     and the start succeeds, so the status fails.
+    /// </summary>
+    [Fact]
+    public async Task A_link_that_leads_out_of_the_worktree_fails_the_start_and_removes_the_worktree()
+    {
+        var outside = Directory.CreateTempSubdirectory("daedalus-link-target-");
+        await File.WriteAllTextAsync(Path.Combine(outside.FullName, "AGENT.md"), "A host file.");
+        var links = new List<IDisposable>();
+        ScratchWorkflowHost? host = null;
+        try
+        {
+            host = await ScratchWorkflowHost.StartAsync(
+                fixture,
+                Substitute.For<IAgentRuntime>(),
+                settings: new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:StandingInstructionsPath"] = "docs/AGENT.md" },
+                configureServices: WorkspaceProviderOverrides.LinkOutOfEveryWorkspace("docs", outside.FullName, links));
+            using var client = host.Client("a-developer", "developer");
+            var runsBefore = await CountWorkflowRunsAsync(host.ConnectionString);
+
+            var response = await client.PostAsJsonAsync(
+                "/api/workflow-runs", new StartWorkflowRunRequest("Tighten a guard.", ScratchWorkflowHost.Repository));
+
+            links.Should().HaveCount(1, "the wrapper must have linked the worktree this start created, or the test proves nothing");
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+            problem!.Detail.Should().Contain("the standing instructions 'docs/AGENT.md' cannot be read");
+            (await CountWorkflowRunsAsync(host.ConnectionString)).Should().Be(runsBefore);
+
+            // Asked of the provider, not of the disk: git for Windows removes the worktree but leaves the directory
+            // that holds the junction, so the directory outlives a removal that did happen.
+            var workspaces = await host.Factory.Services.GetRequiredService<IRunWorkspaceProvider>().ListAsync(CancellationToken.None);
+            workspaces.Should().BeEmpty("the worktree made before the read was refused is removed");
+        }
+        finally
+        {
+            // The links go first: deleting a directory that holds a junction is refused on Windows.
+            foreach (var link in links)
+            {
+                link.Dispose();
+            }
+
+            if (host is not null)
+            {
+                await host.DisposeAsync();
+            }
+
+            outside.Delete(recursive: true);
+        }
     }
 
     [Fact]

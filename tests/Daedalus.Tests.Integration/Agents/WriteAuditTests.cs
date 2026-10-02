@@ -248,7 +248,7 @@ public sealed class WriteAuditTests(PostgresFixture fixture) : IAsyncLifetime
         var starter = host.Factory.Services.GetRequiredService<IManufactureRunStarter>();
         var started = await starter.StartAsync(
             new ManufactureStartRequest("Tighten a guard.", ScratchWorkflowHost.Repository, Admin), CancellationToken.None);
-        started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : null);
+        started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error.Message : null);
         var run = await host.Store.FindAsync(started.Value, CancellationToken.None);
         return run! with { CurrentNode = node };
     }

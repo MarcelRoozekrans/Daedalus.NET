@@ -150,7 +150,7 @@ public sealed class RunToolServersReadyGateTests(PostgresFixture fixture)
             var started = await scratch.Factory.Services.GetRequiredService<IManufactureRunStarter>().StartAsync(
                 new ManufactureStartRequest("Tighten a guard.", ScratchWorkflowHost.Repository, new RunPrincipal("u-dev", ["developer"])),
                 CancellationToken.None);
-            started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : null);
+            started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error.Message : null);
             return started.Value;
         }
 
