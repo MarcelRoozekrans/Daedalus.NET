@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <!-- The per-run sandbox host. Built into its own container image and referenced by no other project. -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>Daedalus.Sandbox</RootNamespace>
+        <!-- Never trimmed or single-file: the image runs `dotnet Daedalus.Sandbox.dll`, and the Thalos host discovers its
+             tool methods by reflection, which a trimmed app could not keep. The trim analyzer is therefore off for this
+             project only, as in Daedalus.Migrations; the repo-wide defaults are AOT-oriented. -->
+        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+        <EnableSingleFilePublish>false</EnableSingleFilePublish>
+        <TrimMode>none</TrimMode>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Thalos.NET.Sandbox.Host" />
+    </ItemGroup>
+
+</Project>

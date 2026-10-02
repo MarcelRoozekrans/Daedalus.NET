@@ -1,0 +1,11 @@
+# Allow-list for `docker build -f src/Daedalus.Sandbox/Dockerfile .` from the repository root: exclude everything, then
+# allow exactly what the build stage copies. Directory.Build.props imports nothing else; .editorconfig is read by the
+# analyzers (EnforceCodeStyleInBuild), so the build stage needs it.
+*
+!Directory.Build.props
+!Directory.Packages.props
+!nuget.config
+!.editorconfig
+!src/Daedalus.Sandbox/
+**/bin/
+**/obj/

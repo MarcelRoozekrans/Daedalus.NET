@@ -64,6 +64,8 @@
         <None Include="..\..\src\Daedalus.Api\.mcp.json" Link="Daedalus.Api.mcp.json" CopyToOutputDirectory="PreserveNewest"/>
         <!-- The Cli's .mcp.json, for RoslynCodeLensToolBoundaryTests' pin check. Never under the plain name: see above. -->
         <None Include="..\..\src\Daedalus.Cli\.mcp.json" Link="Daedalus.Cli.mcp.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- The sandbox image's Dockerfile, for SandboxImagePinTests' RoslynCodeLens pin check. -->
+        <None Include="..\..\src\Daedalus.Sandbox\Dockerfile" Link="Daedalus.Sandbox.Dockerfile" CopyToOutputDirectory="PreserveNewest"/>
         <!-- The pinned RoslynCodeLens server's tools/list, for the same test. -->
         <None Update="Configuration\RoslynCodeLens.Mcp.tools.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
