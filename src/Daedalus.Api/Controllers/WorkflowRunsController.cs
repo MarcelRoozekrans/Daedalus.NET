@@ -40,6 +40,7 @@ namespace Daedalus.Api.Controllers;
 ///     </para>
 /// </remarks>
 [ApiController]
+[WorkflowEngineEnabled]
 [ApiVersion("1.0")]
 [Route("api/workflow-runs")]
 [Authorize(Policy = "WorkflowResume")]
