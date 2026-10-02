@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
@@ -61,7 +62,7 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
 
     /// <summary>
     ///     Task B9: Roslyn is run-scoped, so a granted implement turn may apply code actions, in its own run's worktree.
-    ///     Its shipped grant includes <c>.cs</c>. Red: leave <c>roslyn__apply_*</c> on <c>developer</c>.
+    ///     Its local-mode grant, <c>.cs</c> and <c>.md</c> from <c>ApiWebApplicationFactory</c>, includes <c>.cs</c>. Red: leave <c>roslyn__apply_*</c> on <c>developer</c>.
     /// </summary>
     [Fact]
     public async Task A_granted_implement_turn_whose_grant_includes_cs_may_apply_code_actions() =>
@@ -86,6 +87,24 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
         (await Authorize(host, caller, "roslyn__apply_code_action")).Allowed.Should().BeFalse();
         // The control: the same caller still holds its workspace grant, so the refusal above is the missing .cs.
         (await Authorize(host, caller, "workspace__write_file")).Allowed.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     A test that sets one entry of the implement grant's list gets exactly that list, not the factory's local-mode
+    ///     default merged in by index. Red: have <c>ApiWebApplicationFactory</c> pre-set its <c>.cs</c> and <c>.md</c>
+    ///     whatever the caller sets; the list is then <c>.txt</c> and <c>.md</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_test_that_sets_one_extension_gets_exactly_that_list()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture, Substitute.For<IAgentRuntime>(), settings: new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["Thalos:Workflow:WriteGrants:0:AllowedExtensions:0"] = ".txt",
+            });
+
+        host.Factory.Services.GetRequiredService<WorkflowConfig>().WriteGrants
+            .Should().ContainSingle().Which.AllowedExtensions.Should().Equal(".txt");
     }
 
     /// <summary>
