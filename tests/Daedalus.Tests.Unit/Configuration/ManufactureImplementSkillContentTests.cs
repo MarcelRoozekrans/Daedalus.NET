@@ -54,7 +54,7 @@ public sealed partial class ManufactureImplementSkillContentTests
     [Fact]
     public void The_implement_skill_says_AGENT_md_is_a_protected_path()
     {
-        Normalize(ImplementSkill()).Should().ContainEquivalentOf("these protected paths: .git/, AGENT.md,");
+        Normalize(ImplementSkill()).Should().ContainEquivalentOf("These are protected: .git/, AGENT.md,");
     }
 
     /// <summary>
@@ -75,32 +75,63 @@ public sealed partial class ManufactureImplementSkillContentTests
     }
 
     /// <summary>
-    ///     Phase 2.6: in a sandbox any extension is writable except the protected paths, and a change there is refused
-    ///     at publish, so the implementer reports <c>blocked</c> naming the file. The skill is shared with local mode,
-    ///     where only <c>.cs</c> and <c>.md</c> are writable, so it must say both and name the tools only as present
-    ///     when offered. Red: leaving the old "Only .cs and .md files are writable in this phase" bullet in place trips
-    ///     the first absence; deleting <c>.github/</c> from the list, the publish-refusal sentence, the blocked
-    ///     instruction, the sandbox__test mention or the local-mode sentence trips its own positive.
+    ///     Phase 2.6: the protected paths hold in both modes, the write tools refuse them and publish refuses them
+    ///     again, and a run that needs one is blocked naming the file. Each assertion has its own Red, applied to
+    ///     <c>skills/manufacture-implement/SKILL.md</c>:
+    ///     <list type="bullet">
+    ///         <item>".github/" in the list - Red: delete <c>.github/</c> from the list; the literal also occurs in the local-mode example, so the whole list run is asserted.</item>
+    ///         <item>"in either mode" - Red: change the bullet's heading back to "in a sandbox".</item>
+    ///         <item>"The write tools refuse these paths, and publish refuses them again" - Red: delete the
+    ///             sentence, or reword it to say publish alone refuses.</item>
+    ///         <item>"a run that needs one is blocked" - Red: delete that clause.</item>
+    ///         <item>"sub/.gitattributes" - Red: delete the any-depth sentence, leaving the root names alone.</item>
+    ///         <item>"symlinks and git submodule pointers" - Red: delete that clause.</item>
+    ///         <item>"report blocked, naming the file and the change it needs" - Red: delete the instruction.</item>
+    ///         <item>"any other file extension is writable" - Red: delete the sandbox extension bullet.</item>
+    ///         <item>"Only .cs and .md files are writable there" - Red: delete the local-mode bullet, or drop "there".</item>
+    ///         <item>".github/x.md is not writable in local mode either" - Red: delete the sentence saying the
+    ///             protected list still applies in local mode.</item>
+    ///         <item>The absences and the bullet check - Red: paste back the old "Only .cs and .md files are writable
+    ///             in this phase" sentence, or add any bullet that mentions ".cs and .md" without "Local mode".</item>
+    ///     </list>
     /// </summary>
     [Fact]
     public void The_implement_skill_names_the_protected_paths_and_no_longer_forbids_project_files()
     {
         var normalized = Normalize(ImplementSkill());
 
-        normalized.Should().ContainEquivalentOf(".github/");
-        normalized.Should().ContainEquivalentOf("any file extension is writable, project files and config files included");
-        normalized.Should().ContainEquivalentOf("A change to a protected path is refused at publish");
+        normalized.Should().ContainEquivalentOf(".gitmodules, .github/, .gitlab-ci.yml");
+        normalized.Should().ContainEquivalentOf("Protected paths are not yours to change, in either mode");
+        normalized.Should().ContainEquivalentOf("The write tools refuse these paths, and publish refuses them again whatever the sandbox allowed");
+        normalized.Should().ContainEquivalentOf("so a run that needs one is blocked");
+        normalized.Should().ContainEquivalentOf("so sub/.gitattributes is as refused as the root one");
+        normalized.Should().ContainEquivalentOf("it refuses symlinks and git submodule pointers wherever they are");
         normalized.Should().ContainEquivalentOf("report blocked, naming the file and the change it needs");
-        normalized.Should().ContainEquivalentOf("sandbox__test");
-        normalized.Should().ContainEquivalentOf("Local mode (no sandbox__ tools in your list) is narrower");
+        normalized.Should().ContainEquivalentOf("In a sandbox any other file extension is writable");
         normalized.Should().ContainEquivalentOf("Only .cs and .md files are writable there");
+        normalized.Should().ContainEquivalentOf("so .github/x.md is not writable in local mode either");
+
+        // The old bullet, in its exact words or reworded: every bullet that says .cs and .md must be the local-mode one,
+        // never a stand-alone rule for every mode.
         normalized.Should().NotContainEquivalentOf("Only .cs and .md files are writable in this phase");
+        var csMdBullets = ImplementSkill().Split("\n- ", StringSplitOptions.None)
+            .Where(b => Normalize(b).Contains(".cs and .md", StringComparison.OrdinalIgnoreCase)).ToList();
+        csMdBullets.Should().NotBeEmpty();
+        csMdBullets.Should().OnlyContain(b => Normalize(b).Contains("Local mode", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
-    ///     The implementer must run <c>sandbox__build</c> and <c>sandbox__test</c> before claiming <c>changed</c>, and
-    ///     must not claim it over a failure. Red: deleting the "Building and testing in the sandbox" section, or its
-    ///     do-not-claim sentence.
+    ///     The implementer runs <c>sandbox__build</c> and <c>sandbox__test</c> before claiming <c>changed</c>, reads
+    ///     the result, trusts the build over Roslyn diagnostics, and knows the restore facts. Each assertion has its
+    ///     own Red, applied to <c>skills/manufacture-implement/SKILL.md</c>:
+    ///     <list type="bullet">
+    ///         <item>"run sandbox__build and then sandbox__test ..." - Red: delete the section's lead sentence.</item>
+    ///         <item>"Read the exit code and the summary in each result" - Red: delete that sentence.</item>
+    ///         <item>"Do not claim changed while the build or the tests fail" - Red: delete that sentence.</item>
+    ///         <item>"with no --no-restore" - Red: delete the plain-dotnet bullet.</item>
+    ///         <item>"sandbox__build is the authority on whether the change builds" - Red: delete that sentence.</item>
+    ///         <item>"a package from any other source fails the build" - Red: delete that clause.</item>
+    ///     </list>
     /// </summary>
     [Fact]
     public void The_implement_skill_says_to_build_and_test_before_claiming_changed()
@@ -108,8 +139,27 @@ public sealed partial class ManufactureImplementSkillContentTests
         var normalized = Normalize(ImplementSkill());
 
         normalized.Should().ContainEquivalentOf("run sandbox__build and then sandbox__test after your edits and before you report changed");
-        normalized.Should().ContainEquivalentOf("Do not claim changed while the build or the tests fail");
         normalized.Should().ContainEquivalentOf("Read the exit code and the summary in each result");
+        normalized.Should().ContainEquivalentOf("Do not claim changed while the build or the tests fail");
+        normalized.Should().ContainEquivalentOf("plain dotnet build or dotnet test with no --no-restore");
+        normalized.Should().ContainEquivalentOf("sandbox__build is the authority on whether the change builds");
+        normalized.Should().ContainEquivalentOf("a package from any other source fails the build");
+    }
+
+    /// <summary>
+    ///     The skill is shared by both modes, so it must say there is no shell in either, not credit the absence to
+    ///     the sandbox tools alone, which local mode does not have. Red: restoring "There is no shell, because
+    ///     sandbox__build and sandbox__test each run one fixed command" turns the absence red; deleting "in either
+    ///     mode" turns the first positive red; deleting "the sandbox tools take no command of yours" the second.
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_says_there_is_no_shell_in_either_mode()
+    {
+        var normalized = Normalize(ImplementSkill());
+
+        normalized.Should().ContainEquivalentOf("There is no shell in either mode");
+        normalized.Should().ContainEquivalentOf("the sandbox tools take no command of yours");
+        normalized.Should().NotContainEquivalentOf("There is no shell, because");
     }
 
     /// <summary>

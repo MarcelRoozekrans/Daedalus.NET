@@ -10,19 +10,22 @@
 #      allow-listed repository, and the `implementer` agent holds workspace__read_file,
 #      workspace__list_files, workspace__write_file and workspace__edit_file over it.
 #
-#      Phase 2.6 moves that worktree into a per-run container, the sandbox, when `Thalos:Workflow:Sandbox`
-#      is enabled. There any file extension is writable except the protected paths: `.git/`, `.gitattributes`,
-#      `.gitmodules`, `.github/`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `.azure-pipelines/`, `.circleci/`,
-#      `Jenkinsfile` and the standing-instructions file `AGENT.md`. `implement` may also build and test the
-#      change, through `sandbox__build` and `sandbox__test`, which run a fixed command in a throwaway copy of
-#      the worktree inside the sandbox, so neither changes the files under review. `review` holds only
-#      `sandbox__test`. Nothing in the sandbox reaches the host's tree: `publish` exports the run's change as
-#      a patch and applies it to the API's own clean worktree after a protected-path check, and a change to a
-#      protected path is refused there, whatever the sandbox allowed. With the sandbox off, the local mode of
-#      development hosts, the worktree is the host's own, only the grant's allowed extensions, `.cs` and `.md`
-#      by default (ruling R29), are writable, and the node holds no `sandbox__*` tool. In both modes paths
-#      resolve inside the worktree and `..` and absolute paths are refused. The Roslyn server the node
-#      reaches is the run's own, over the same worktree.
+#      Phase 2.6 moves that worktree into a per-run container, the sandbox, when
+#      `Thalos:Workflow:Sandbox` is enabled. There any file extension is writable except the protected
+#      paths, which hold in both modes: `.git/`, `.gitattributes`, `.gitmodules`, `.github/`,
+#      `.gitlab-ci.yml`, `azure-pipelines.yml`, `.azure-pipelines/`, `.circleci/`, `Jenkinsfile` and the
+#      standing-instructions file `AGENT.md`. Publish also refuses a `.gitattributes` or `.gitmodules` at
+#      any depth, and symlinks and git submodule pointers. `implement` may also build and test the
+#      change, through `sandbox__build` and `sandbox__test`, which run a fixed command in a throwaway
+#      copy of the worktree inside the sandbox, so neither changes the files under review. `review` holds
+#      only `sandbox__test`. Nothing in the sandbox reaches the host's tree: `publish` exports the run's
+#      change as a patch and applies it to the API's own clean worktree after a protected-path check, and
+#      a change to a protected path is refused there, whatever the sandbox allowed. With the sandbox off,
+#      the local mode of development hosts, the worktree is the host's own, only the grant's allowed
+#      extensions, `.cs` and `.md` by default (ruling R29), are writable, the protected paths are still
+#      refused on top, and the node holds no `sandbox__*` tool. In both modes paths resolve inside the
+#      worktree and `..` and absolute paths are refused. The Roslyn server the node reaches is the run's
+#      own, over the same worktree.
 #
 #      The implementer still holds no `git__*` and no `repoaction__*` tool: both families are absent from
 #      its configured `Tools` list, so neither is ever offered to one of its turns. It edits files; it
@@ -77,7 +80,8 @@ process: manufacture
 # version bumped 6 -> 7 (phase 2.6, task B7): the run's worktree can live in a per-run sandbox container, where
 # any extension is writable except the protected paths and `implement` may build and test with `sandbox__build`
 # and `sandbox__test`. Constraint 1 above is rewritten for it, and the implement and review skills with it. The
-# graph is unchanged; content-hash immutability makes a comment and skill-prose change a version bump all the same.
+# graph is unchanged; content-hash immutability makes a comment and skill-prose change a version bump all the
+# same.
 version: 7
 
 nodes:
@@ -89,7 +93,8 @@ nodes:
   # way out of the node, an agent that edited nothing would still assert it to escape, and the claim would
   # mean nothing. A run that changed no code did not manufacture anything, so `blocked` ends it rather than
   # advancing it. `blocked` is also the honest answer when the work needs a file the grant does not allow,
-  # such as one on the protected-path list, or in local mode a .csproj: the skill tells the implementer to name the file and the change, for a human to make.
+  # such as one on the protected-path list, or in local mode a .csproj: the skill tells the implementer to
+  # name the file and the change, for a human to make.
   implement:
     agent: implementer
     skill: manufacture-implement

@@ -41,9 +41,16 @@ public sealed partial class ManufactureReviewSkillContentTests
 
     /// <summary>
     ///     The reviewer may run <c>sandbox__test</c> and must put the result in <c>checked</c>, never an entry for a run
-    ///     it did not make; and it holds no build tool. The skill is shared with local mode, so it must say what to do
-    ///     without the tool. Red: deleting the "Running the tests" section, its example entry, or its local-mode
-    ///     sentence turns the matching assertion red.
+    ///     it did not make; it has no build tool; and the skill, shared with local mode, says what to do without the
+    ///     tool. Each assertion has its own Red, applied to <c>skills/manufacture-review/SKILL.md</c>:
+    ///     <list type="bullet">
+    ///         <item>"If your tool list has sandbox__test, you may run it" - Red: delete that sentence.</item>
+    ///         <item>"You have no sandbox__build" - Red: delete the sentence, or tell the reviewer it may build.</item>
+    ///         <item>"Put what you ran in checked" - Red: delete that bold lead.</item>
+    ///         <item>The "sandbox__test: Passed! 11 tests" example - Red: delete the example entry.</item>
+    ///         <item>"Do not write such an entry for a run you did not make" - Red: delete that sentence.</item>
+    ///         <item>"local mode and there is nothing to run" - Red: delete the local-mode sentence.</item>
+    ///     </list>
     /// </summary>
     [Fact]
     public void The_review_skill_asks_for_test_evidence_in_checked()
@@ -51,6 +58,7 @@ public sealed partial class ManufactureReviewSkillContentTests
         var normalized = Normalize(ReviewSkill());
 
         normalized.Should().ContainEquivalentOf("If your tool list has sandbox__test, you may run it");
+        normalized.Should().ContainEquivalentOf("You have no sandbox__build");
         normalized.Should().ContainEquivalentOf("Put what you ran in checked");
         normalized.Should().ContainEquivalentOf("\"sandbox__test: Passed! 11 tests\"");
         normalized.Should().ContainEquivalentOf("Do not write such an entry for a run you did not make");
