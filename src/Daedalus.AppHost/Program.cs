@@ -101,6 +101,12 @@ builder.AddProject("console", consolePath)
     .WaitForCompletion(migrations)
     .WaitFor(keycloak);
 
+// Phase 2.6: the per-run sandbox image, built from this checkout before the api starts, so a run always uses the code
+// in the tree. A one-shot executable, like `migrations`; the api waits for it to exit 0.
+var sandboxImage = builder.AddExecutable(
+        "sandbox-image", "docker", repoRoot,
+        "build", "-t", "daedalus-sandbox:dev", "-f", "src/Daedalus.Sandbox/Dockerfile", ".");
+
 // Add the API service (depends on migrations and Keycloak)
 // Override Authentication:Authority with the host-reachable Keycloak URL
 // (appsettings.json uses Docker hostname "keycloak" which doesn't resolve on the host)
@@ -116,6 +122,9 @@ var api = builder.AddProject("api", apiPath)
     .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
     .WithEnvironment("Thalos__Channels__Telegram__BotToken", telegramBotToken)
     .WithEnvironment("GITHUB_TOKEN", gitHubToken)
+    .WithEnvironment("Thalos__Workflow__Sandbox__Enabled", "true")
+    .WithEnvironment("Thalos__Workflow__Sandbox__Image", "daedalus-sandbox:dev")
+    .WaitForCompletion(sandboxImage)
     .WaitForCompletion(migrations)
     .WaitFor(keycloak);
 
