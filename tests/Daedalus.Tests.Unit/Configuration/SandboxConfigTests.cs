@@ -13,6 +13,7 @@ using Thalos.Git.Workspaces;
 using Thalos.Mcp;
 using Thalos.Sandbox;
 using Thalos.Sandbox.Docker;
+using Thalos.Tools;
 using Thalos.Workspaces;
 
 namespace Daedalus.Tests.Unit.Configuration;
@@ -39,8 +40,9 @@ public sealed partial class SandboxConfigTests : IDisposable
 
     /// <summary>
     ///     S6: a grant with no extension list lets a run write project, props and targets files, which MSBuild evaluates,
-    ///     so without the sandbox it would run a run's code on the host. Red: delete rule 1 in
-    ///     <c>ValidateWorkflowWriteConfig</c>; the host then registers.
+    ///     so without the sandbox it would run a run's code on the host. The exact S6 message is asserted, so the red is
+    ///     the missing refusal and nothing else. Red: delete the S6 throw in <c>ValidateWorkflowWriteConfig</c>, leaving
+    ///     the null-list <c>continue</c>; the host then registers and nothing is thrown.
     /// </summary>
     [Fact]
     public void A_grant_allowing_any_extension_fails_boot_without_the_sandbox()
@@ -54,6 +56,104 @@ public sealed partial class SandboxConfigTests : IDisposable
         act.Should().Throw<InvalidOperationException>().WithMessage(
             "Thalos:Workflow:WriteGrants entry 'manufacture/implement' allows every extension, which is only safe inside a " +
             "run sandbox; set Thalos:Workflow:Sandbox:Enabled or list AllowedExtensions.");
+    }
+
+    /// <summary>
+    ///     Probe for ruling R48: the JSON provider keeps an explicit empty <c>AllowedExtensions</c> apart from a missing
+    ///     one, an empty array being the key with an empty value and a missing key having none, although the binder maps
+    ///     both to <see langword="null"/>. The raw check depends on that difference. Red: remove <c>[]</c> from the first
+    ///     grant in the probe document; its key then reads <see langword="null"/> like the second's.
+    /// </summary>
+    [Fact]
+    public void The_json_provider_keeps_an_empty_extension_list_apart_from_a_missing_one()
+    {
+        var configuration = LoadJson("""
+            { "Thalos": { "Workflow": { "WriteGrants": [
+                { "Process": "manufacture", "Node": "implement", "AllowedExtensions": [] },
+                { "Process": "manufacture", "Node": "review" } ] } } }
+            """);
+
+        using (new AssertionScope())
+        {
+            configuration["Thalos:Workflow:WriteGrants:0:AllowedExtensions"].Should().Be("");
+            configuration["Thalos:Workflow:WriteGrants:1:AllowedExtensions"].Should().BeNull();
+            Bind(configuration).Workflow.WriteGrants.Select(g => g.AllowedExtensions).Should().AllSatisfy(e => e.Should().BeNull());
+        }
+    }
+
+    /// <summary>
+    ///     Ruling R48: <c>"AllowedExtensions": []</c> binds as null, which under the sandbox means any extension; an
+    ///     explicit empty list must instead fail closed, whatever the sandbox says. Layered over the shipped, sandboxed Api
+    ///     file through the JSON provider, as a deploy would write it. Red: delete the R48 check in
+    ///     <c>ValidateWorkflowWriteConfig</c>; the host then registers, the grant writing any extension.
+    /// </summary>
+    [Fact]
+    public void An_explicitly_empty_extension_list_fails_boot_even_under_the_sandbox()
+    {
+        // Two JSON sources on one builder, as a host stacks its files. Not AddConfiguration: a chained configuration
+        // reads an empty value as absent, which would hide the very key this test is about.
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile(ApiAppSettingsFileName, optional: false)
+            .AddJsonStream(JsonStream("""{ "Thalos": { "Workflow": { "WriteGrants": [ { "AllowedExtensions": [] } ] } } }"""))
+            .Build();
+        var (services, options, _, environment) = LoadShipped(ApiAppSettingsFileName);
+        options = Bind(configuration);
+        options.McpConfigPath = ApiMcpConfigPath;
+        options.Workflow.DataRoot = _dataRoot;
+        options.Workflow.Sandbox.Enabled.Should().BeTrue();
+        options.Workflow.WriteGrants.Should().ContainSingle().Which.AllowedExtensions.Should().BeNull();
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage(
+            "Thalos:Workflow:WriteGrants:0:AllowedExtensions is present but lists no extensions. An empty list would make " +
+            "nothing writable, so it is refused*remove the key to allow any extension*");
+    }
+
+    /// <summary>
+    ///     Inside a run sandbox every write runs as the sandbox's own caller under the host-wide ceiling, so a grant cannot
+    ///     narrow its own node (Thalos issue #251), and differing lists would silently all get the widest. Sandbox mode
+    ///     therefore refuses them. Red: delete the uniformity check in <c>ValidateSandboxConfig</c>; the host then
+    ///     registers with implement at any extension and review at <c>.md</c>.
+    /// </summary>
+    [Fact]
+    public void Sandboxed_write_grants_with_different_extension_lists_fail_boot()
+    {
+        var (services, options, configuration, environment) = LoadShipped(ApiAppSettingsFileName);
+        options.Workflow.WriteGrants.Add(new WriteGrantConfig { Process = "manufacture", Node = "review", AllowedExtensions = [".md"] });
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage(
+            "Thalos:Workflow:WriteGrants entries 'manufacture/implement' and 'manufacture/review' list different " +
+            "AllowedExtensions, but per-node narrowing is not available inside a run sandbox (Thalos issue #251)*");
+    }
+
+    /// <summary>
+    ///     The controls for <see cref="Sandboxed_write_grants_with_different_extension_lists_fail_boot"/>: grants that all
+    ///     list no extensions, or all list the same set compared as the ceiling compares it, ignoring case and order,
+    ///     register. Red: compare the lists case-sensitively, or by order; the second row then fails.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Sandboxed_write_grants_with_the_same_extension_lists_register(bool listed)
+    {
+        var (services, options, configuration, environment) = LoadShipped(ApiAppSettingsFileName);
+        var implement = options.Workflow.WriteGrants.Should().ContainSingle().Subject;
+        var review = new WriteGrantConfig { Process = "manufacture", Node = "review" };
+        if (listed)
+        {
+            implement.AllowedExtensions = [".cs", ".md"];
+            review.AllowedExtensions = [".MD", ".CS"];
+        }
+
+        options.Workflow.WriteGrants.Add(review);
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().NotThrow();
     }
 
     /// <summary>
@@ -179,6 +279,53 @@ public sealed partial class SandboxConfigTests : IDisposable
     }
 
     /// <summary>
+    ///     The publish git works in the sandbox's publish mirror and worktrees, under <c>&lt;DataRoot&gt;/publish</c>, the
+    ///     root <c>UseSandboxRunWorkspaces</c> keeps them in. Observed through the git's own construction, which isolates
+    ///     its git configuration in <c>.git-isolation</c> under its data root; the git is resolved first, so nothing else
+    ///     has built a git over either root. Red: root the registration at <c>&lt;DataRoot&gt;</c> itself; the isolation
+    ///     directory then appears there and not under <c>publish</c>.
+    /// </summary>
+    [Fact]
+    public async Task In_sandbox_mode_the_publish_git_is_rooted_at_the_publish_data_root()
+    {
+        await using var sp = BuildShippedApi();
+
+        _ = sp.GetRequiredService<IRunWorkspaceGit>();
+
+        using (new AssertionScope())
+        {
+            Directory.Exists(Path.Combine(_dataRoot, "publish", ".git-isolation")).Should().BeTrue();
+            Directory.Exists(Path.Combine(_dataRoot, ".git-isolation")).Should().BeFalse();
+        }
+    }
+
+    /// <summary>
+    ///     <see cref="SandboxConfig.ProtectedPaths"/> extras reach both modes: the sandbox's own list in sandbox mode, and
+    ///     the in-process workspace tools' list in local mode. Red: drop <c>workflow.Sandbox.ProtectedPaths</c> from
+    ///     <c>ExtraProtectedPaths</c>; neither list then holds the extra.
+    /// </summary>
+    [Fact]
+    public async Task Configured_protected_path_extras_reach_both_modes()
+    {
+        var (sandboxServices, sandboxOptions, sandboxConfiguration, sandboxEnvironment) = LoadShipped(ApiAppSettingsFileName);
+        sandboxOptions.Workflow.Sandbox.ProtectedPaths.Add("deploy/");
+        sandboxServices.AddDaedalusAgents(sandboxOptions, sandboxConfiguration, sandboxEnvironment);
+        await using var sandboxed = sandboxServices.BuildServiceProvider();
+
+        var (localServices, localOptions, localConfiguration, localEnvironment) = LoadShipped(ApiAppSettingsFileName);
+        UseLocalMode(localOptions);
+        localOptions.Workflow.Sandbox.ProtectedPaths.Add("deploy/");
+        localServices.AddDaedalusAgents(localOptions, localConfiguration, localEnvironment);
+        await using var local = localServices.BuildServiceProvider();
+
+        using (new AssertionScope())
+        {
+            sandboxed.GetRequiredService<SandboxOptions>().ProtectedPaths.Should().Contain("deploy/");
+            local.GetRequiredService<RunWorkspaceToolOptions>().ProtectedPaths.Should().Contain("deploy/");
+        }
+    }
+
+    /// <summary>
     ///     Local mode is phase 2.5's wiring, unchanged except for the shared protected set: a git worktree provider, the
     ///     <c>workspace__*</c> tools in-process, <c>roslyn</c> started per run on the host, and no sandbox at all. Red:
     ///     wire sandbox mode whatever <c>Sandbox:Enabled</c> says.
@@ -220,27 +367,29 @@ public sealed partial class SandboxConfigTests : IDisposable
     }
 
     /// <summary>
-    ///     Only the two workflow roles may build or test a run: <c>implementer</c> gets <c>sandbox__build</c> and
-    ///     <c>sandbox__test</c>, <c>reviewer</c> only <c>sandbox__test</c>, and no other agent or tool list in the shipped
-    ///     file names a <c>sandbox__</c> tool. Red: add <c>sandbox__test</c> to the architect's tools, or remove it from
+    ///     Only the two workflow roles may build or test a run: <c>implementer</c> reaches <c>sandbox__build</c> and
+    ///     <c>sandbox__test</c>, <c>reviewer</c> only <c>sandbox__test</c>, and no other agent reaches either. Each
+    ///     agent's patterns are matched with <see cref="Glob"/>, the matcher the host's tool catalog uses, and an empty
+    ///     list counts as <c>*</c>, as the agent mapping treats it, so <c>sand*</c> or <c>*</c> is caught as surely as
+    ///     a literal name. Red: add <c>sand*</c> to the architect's tools; separately, remove <c>sandbox__test</c> from
     ///     the reviewer's.
     /// </summary>
     [Fact]
     public void No_chat_agent_lists_a_sandbox_tool()
     {
-        var configuration = Load(ApiAppSettingsFileName);
-        var options = Bind(configuration);
+        var options = Bind(Load(ApiAppSettingsFileName));
+        string[] sandboxTools = ["sandbox__build", "sandbox__test"];
 
-        var sandboxTools = configuration.AsEnumerable()
-            .Where(kv => kv.Value?.StartsWith("sandbox__", StringComparison.Ordinal) == true)
-            .Select(kv => (Agent: AgentNameOf(configuration, kv.Key), Tool: kv.Value!))
-            .ToList();
+        var reach = options.Agents.ToDictionary(
+            a => a.Name,
+            a => sandboxTools.Where(tool => (a.Tools.Count == 0 ? ["*"] : a.Tools).Any(p => Glob.IsMatch(p, tool))).ToList(),
+            StringComparer.Ordinal);
 
         using (new AssertionScope())
         {
-            sandboxTools.Select(t => t.Agent).Distinct(StringComparer.Ordinal).Should().BeEquivalentTo(["implementer", "reviewer"]);
-            ToolsOf(options, "implementer").Where(IsSandboxTool).Should().BeEquivalentTo(["sandbox__build", "sandbox__test"]);
-            ToolsOf(options, "reviewer").Where(IsSandboxTool).Should().BeEquivalentTo(["sandbox__test"]);
+            reach.Where(r => r.Value.Count > 0).Select(r => r.Key).Should().BeEquivalentTo(["implementer", "reviewer"]);
+            reach["implementer"].Should().BeEquivalentTo(["sandbox__build", "sandbox__test"]);
+            reach["reviewer"].Should().BeEquivalentTo(["sandbox__test"]);
         }
     }
 
@@ -265,9 +414,10 @@ public sealed partial class SandboxConfigTests : IDisposable
     }
 
     /// <summary>
-    ///     Carry from Part A: in sandbox mode <c>roslyn</c> is a <see cref="RemoteRunToolSource"/>, which refuses a call
-    ///     with no run claim and sends a run's call only to that run's sandbox, so the shipped <c>csharp-write</c>
-    ///     bindings pass the host-start check. Red: accept only <see cref="RunScopedMcpToolSource"/> in
+    ///     Carry from Part A: in sandbox mode <c>roslyn</c> is a <see cref="RemoteRunToolSource"/> made from the host
+    ///     MCP server, which sends a run's call only to that run's sandbox and, like <see cref="RunScopedMcpToolSource"/>,
+    ///     serves a caller with no run claim from the host server; so the shipped <c>csharp-write</c> bindings pass the
+    ///     host-start check. Red: accept only <see cref="RunScopedMcpToolSource"/> in
     ///     <see cref="CSharpWriteBindingCheck"/>; the sandboxed Api then fails to start.
     /// </summary>
     [Fact]
@@ -373,18 +523,6 @@ public sealed partial class SandboxConfigTests : IDisposable
         }
     }
 
-    private static bool IsSandboxTool(string tool) => tool.StartsWith("sandbox__", StringComparison.Ordinal);
-
-    private static IEnumerable<string> ToolsOf(DaedalusAgentsOptions options, string agent) =>
-        options.Agents.Should().ContainSingle(a => a.Name == agent).Subject.Tools;
-
-    /// <summary>The agent name of a <c>Thalos:Agents:N:Tools:M</c> key, or the key itself for any other list.</summary>
-    private static string AgentNameOf(IConfiguration configuration, string key)
-    {
-        var match = AgentToolKey().Match(key);
-        return match.Success ? configuration[$"Thalos:Agents:{match.Groups["n"].Value}:Name"] ?? key : key;
-    }
-
     private ServiceProvider BuildShippedApi()
     {
         var (services, options, configuration, environment) = LoadShipped(ApiAppSettingsFileName);
@@ -416,6 +554,10 @@ public sealed partial class SandboxConfigTests : IDisposable
         return (services, options, configuration, environment);
     }
 
+    private static IConfiguration LoadJson(string json) => new ConfigurationBuilder().AddJsonStream(JsonStream(json)).Build();
+
+    private static MemoryStream JsonStream(string json) => new(System.Text.Encoding.UTF8.GetBytes(json));
+
     private static IConfiguration Load(string fileName) =>
         new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
@@ -431,7 +573,4 @@ public sealed partial class SandboxConfigTests : IDisposable
 
     [GeneratedRegex(@"^[a-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex DigestPinned();
-
-    [GeneratedRegex(@"^Thalos:Agents:(?<n>[0-9]+):Tools:[0-9]+\z", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
-    private static partial Regex AgentToolKey();
 }

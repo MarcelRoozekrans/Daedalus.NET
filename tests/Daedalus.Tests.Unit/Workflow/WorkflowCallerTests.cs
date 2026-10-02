@@ -142,6 +142,22 @@ public sealed class WorkflowCallerTests
         new WorkflowCaller(NewRun("manufacture", Guid.NewGuid()), grant: null).WritesAnyExtension.Should().BeFalse();
     }
 
+    /// <summary>
+    ///     The grant is a shared configuration object, so the caller fixes what it read when it was built, as its roles
+    ///     and claims are. Red: compute <c>WritesAnyExtension</c> from the grant on every read; it then follows the later
+    ///     change to the grant.
+    /// </summary>
+    [Fact]
+    public void WritesAnyExtension_is_fixed_when_the_caller_is_built()
+    {
+        var grant = new WriteGrantConfig { Process = "manufacture", Node = "implement" };
+        var caller = new WorkflowCaller(NewRun("manufacture", Guid.NewGuid()), grant);
+
+        grant.AllowedExtensions = [".md"];
+
+        caller.WritesAnyExtension.Should().BeTrue();
+    }
+
     private static WorkflowRun NewRun(string process, Guid runId) => new()
     {
         Id = runId,

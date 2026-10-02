@@ -100,7 +100,8 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
     ///     the run sandbox (S6). Such a grant carries no write-extensions claim, so <see cref="CSharpWritePolicy"/> asks
     ///     the caller instead. A property of this host-built type, never a claim, so no inbound identity can set it.
     /// </summary>
-    public bool WritesAnyExtension => grant is { AllowedExtensions: null };
+    /// <remarks>Fixed when the caller is built, like <see cref="Roles"/> and <see cref="Claims"/>: the grant is a shared config object.</remarks>
+    public bool WritesAnyExtension { get; } = grant is { AllowedExtensions: null };
 
     /// <inheritdoc />
     /// <remarks><c>{workflow}</c>, plus <see cref="WorkspaceWritePolicy.WorkspaceWriterRole"/> only when granted.</remarks>
@@ -112,8 +113,10 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
     /// <remarks>
     ///     <see cref="RunWorkspaceClaims.RunId"/>, <c>node</c> and <c>started_by</c> (empty for a run with no starter),
     ///     and <see cref="RunWorkspaceClaims.WriteExtensions"/> only when granted with an extension list: the granting
-    ///     entry's extensions, lower-cased and joined with <c>';'</c>. The workspace tools intersect it with their
-    ///     host-wide ceiling (ruling R29). Absent rather than blank for an ungranted caller, and for a grant with no list,
+    ///     entry's extensions, lower-cased and joined with <c>';'</c>. In local mode the workspace tools intersect it with
+    ///     their host-wide ceiling (ruling R29). In sandbox mode it narrows nothing: the sandbox runs every write as its
+    ///     own caller under the host-wide ceiling alone, which is why sandbox mode requires every grant to list the same
+    ///     extensions (Thalos issue #251); <see cref="CSharpWritePolicy"/> still reads it. Absent rather than blank for an ungranted caller, and for a grant with no list,
     ///     which under the sandbox allows any extension: a present blank claim is a grant of zero extensions, not the
     ///     absence of one.
     /// </remarks>
@@ -127,8 +130,8 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
             ["node"] = run.CurrentNode,
             ["started_by"] = run.StartedBy?.Id ?? "",
         };
-        // A grant with no extension list writes any extension (phase 2.6, sandbox only, S6), so it carries no claim and
-        // the sandbox's ceiling alone applies. A present claim, even a blank one, would narrow it instead.
+        // A grant with no extension list writes any extension (phase 2.6, sandbox only, S6), so it carries no claim. A
+        // present claim, even a blank one, reads as a narrower grant, to CSharpWritePolicy among others.
         if (grant is { AllowedExtensions: { } extensions })
         {
             claims[RunWorkspaceClaims.WriteExtensions] = string.Join(';', extensions
