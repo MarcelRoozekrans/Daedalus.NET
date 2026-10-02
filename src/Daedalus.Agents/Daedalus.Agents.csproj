@@ -39,6 +39,7 @@
         <!-- Phase 2.2 Part B: the durable workflow engine (Task 9). -->
         <PackageReference Include="Thalos.NET.Workflow" />
         <PackageReference Include="Thalos.NET.Workflow.Orm" />
+        <!-- Phase 2.6: per-run sandboxes and their Docker runtime. -->
         <PackageReference Include="Thalos.NET.Sandbox" />
         <PackageReference Include="Thalos.NET.Sandbox.Docker" />
         <PackageReference Include="ZeroAlloc.Mapping" />

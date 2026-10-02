@@ -48,7 +48,7 @@
 
     <!-- Thalos.NET (nuget.org). 0.10.0 → 0.11.0 across the whole family: Thalos.NET.Workflow/.Orm pin
          Thalos.NET and Thalos.NET.Skills at exactly their own version, and all eighteen packages release
-         together (see Thalos.NET/docs/release.md, "The next release ships fifteen packages", now eighteen).
+         together (see Thalos.NET/docs/release.md, "0.14.0 ships eighteen packages").
          0.11.0 is BREAKING and is consumed by phase 2.5 task B1, run write authority: a run's start and
          every resume carry the principal that asked for them (WorkflowStartRequest.StartedBy and
          WorkflowResumeRequest.ResumedBy are required, the positional overloads are gone), StartAsync
