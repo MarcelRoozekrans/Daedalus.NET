@@ -38,7 +38,8 @@ public sealed class McpEnvironmentTests
             var passed = new List<string?>();
             var envTexts = new List<string>();
             Collect(server.Value, passed, envTexts);
-            passed.Should().NotIntersectWith(Secrets, $"{fileName} server '{server.Name}' passEnvironment");
+            passed.Where(p => p is not null && Secrets.Contains(p, StringComparer.OrdinalIgnoreCase))
+                .Should().BeEmpty($"{fileName} server '{server.Name}' passEnvironment must not list a secret");
             envTexts.Where(v => Secrets.Any(s => v.Contains(s, StringComparison.OrdinalIgnoreCase)))
                 .Should().BeEmpty($"{fileName} server '{server.Name}' env must not name or reference a secret");
         }
