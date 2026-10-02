@@ -1,3 +1,4 @@
+using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
 using ZeroAlloc.Results;
@@ -45,7 +46,8 @@ namespace Daedalus.Agents.Workflow;
 ///     make a run's correlation key human-readable in a query, not to partition it from any other process's keys.
 ///     </para>
 /// </remarks>
-public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorkspaceProvider workspaces, WorkflowConfig config) : IManufactureRunStarter
+public sealed class ManufactureRunStarter(
+    WorkflowRunStarter starter, IRunWorkspaceProvider workspaces, IRunBaseFileReader baseFiles, WorkflowConfig config) : IManufactureRunStarter
 {
     /// <summary>The manifest document key the worktree's standing instructions file is pinned under.</summary>
     public const string StandingInstructionsDocument = "standing_instructions";
@@ -73,6 +75,7 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
 
     private readonly WorkflowRunStarter _starter = starter ?? throw new ArgumentNullException(nameof(starter));
     private readonly IRunWorkspaceProvider _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
+    private readonly IRunBaseFileReader _baseFiles = baseFiles ?? throw new ArgumentNullException(nameof(baseFiles));
     private readonly WorkflowConfig _config = config ?? throw new ArgumentNullException(nameof(config));
 
     // Task B11: the same canonical relative path StandingInstructionsWriter writes, so the text a run pins and the
@@ -81,26 +84,27 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
         (config ?? throw new ArgumentNullException(nameof(config))).StandingInstructionsPath);
 
     /// <inheritdoc />
-    public async ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
+    public async ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var workIntent = request.WorkIntent;
         if (string.IsNullOrWhiteSpace(workIntent))
         {
-            return Result<Guid>.Failure("workIntent must not be blank.");
+            return Fail(ManufactureStartFailureKind.Invalid, "workIntent must not be blank.");
         }
 
         if (workIntent.Length > MaxWorkIntentLength)
         {
-            return Result<Guid>.Failure(
+            return Fail(
+                ManufactureStartFailureKind.Invalid,
                 $"workIntent must be at most {MaxWorkIntentLength} characters, but was {workIntent.Length}.");
         }
 
         var repository = FindRepository(request.Repository);
         if (repository is null)
         {
-            return Result<Guid>.Failure($"repository '{request.Repository}' is not allow-listed");
+            return Fail(ManufactureStartFailureKind.Invalid, $"repository '{request.Repository}' is not allow-listed");
         }
 
         var runId = Guid.NewGuid();
@@ -110,17 +114,17 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
             ct).ConfigureAwait(false);
         if (created.IsFailure)
         {
-            return Result<Guid>.Failure($"could not prepare the run's workspace: {created.Error.Message}");
+            return Fail(KindOf(created.Error), $"could not prepare the run's workspace: {created.Error.Message}");
         }
 
-        Result<string> standingInstructions;
+        Result<string?, AgentError> standingInstructions;
         try
         {
-            standingInstructions = await ReadStandingInstructionsAsync(created.Value, ct).ConfigureAwait(false);
+            standingInstructions = await _baseFiles.ReadBaseFileAsync(runId, _standingInstructionsPath, ct).ConfigureAwait(false);
         }
         catch (Exception readFault)
         {
-            // No run row can exist yet, so the worktree is certainly an orphan: remove it now rather than leave it to
+            // No run row can exist yet, so the workspace is certainly an orphan: remove it now rather than leave it to
             // the sweeper, then rethrow the read fault itself, unchanged, whatever the removal did.
             await RemoveOrphanAsync(runId, readFault).ConfigureAwait(false);
             throw;
@@ -128,16 +132,21 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
 
         if (standingInstructions.IsFailure)
         {
-            // Refused before any start, so no run row exists: the worktree is removed the same way a reported start
+            // Refused before any start, so no run row exists: the workspace is removed the same way a reported start
             // failure removes it.
-            return await RemoveAfterFailureAsync(runId, standingInstructions.Error).ConfigureAwait(false);
+            return await RemoveAfterFailureAsync(
+                runId,
+                KindOf(standingInstructions.Error),
+                $"the standing instructions '{_standingInstructionsPath}' cannot be read from the run's base commit: " +
+                standingInstructions.Error.Message).ConfigureAwait(false);
         }
 
         var variables = new Dictionary<string, object?>(StringComparer.Ordinal) { ["work_intent"] = workIntent };
         var documents = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [WorkIntentDocument] = workIntent,
-            [StandingInstructionsDocument] = standingInstructions.Value,
+            // A null value is a file absent at the base commit: the run pins the empty text.
+            [StandingInstructionsDocument] = standingInstructions.Value ?? "",
         };
 
         var started = await _starter.StartAsync(
@@ -153,29 +162,44 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
             ct).ConfigureAwait(false);
         if (started.IsSuccess)
         {
-            return started;
+            return Result<Guid, ManufactureStartFailure>.Success(started.Value);
         }
 
-        return await RemoveAfterFailureAsync(runId, started.Error).ConfigureAwait(false);
+        // The run starter reports a string, so there is no code to tell a refusal from an outage: it is the host's.
+        return await RemoveAfterFailureAsync(runId, ManufactureStartFailureKind.Failed, started.Error).ConfigureAwait(false);
     }
 
+    private static Result<Guid, ManufactureStartFailure> Fail(ManufactureStartFailureKind kind, string message) =>
+        Result<Guid, ManufactureStartFailure>.Failure(new ManufactureStartFailure(kind, message));
+
     /// <summary>
-    ///     Removes the worktree of a start that reported <paramref name="error"/> before any run row was written, so the
-    ///     worktree belongs to no run, and returns that failure, naming a removal failure too when there is one.
-    ///     <see cref="CancellationToken.None"/>: the undo must run even when the caller has given up, or the worktree
+    ///     A provider error is the runtime being unreachable, such as the sandbox engine being down, so a retry may
+    ///     succeed. A validation error is a request the provider refused. Anything else is the host's failure.
+    /// </summary>
+    private static ManufactureStartFailureKind KindOf(AgentError error) => error.Code switch
+    {
+        AgentErrorCode.ProviderError => ManufactureStartFailureKind.Unavailable,
+        AgentErrorCode.Validation => ManufactureStartFailureKind.Invalid,
+        _ => ManufactureStartFailureKind.Failed,
+    };
+
+    /// <summary>
+    ///     Removes the workspace of a start that reported <paramref name="error"/> before any run row was written, so the
+    ///     workspace belongs to no run, and returns that failure, naming a removal failure too when there is one.
+    ///     <see cref="CancellationToken.None"/>: the undo must run even when the caller has given up, or the workspace
     ///     waits out the sweeper's grace period.
     /// </summary>
-    private async Task<Result<Guid>> RemoveAfterFailureAsync(Guid runId, string error)
+    private async Task<Result<Guid, ManufactureStartFailure>> RemoveAfterFailureAsync(
+        Guid runId, ManufactureStartFailureKind kind, string error)
     {
         var removed = await _workspaces.RemoveAsync(runId, CancellationToken.None).ConfigureAwait(false);
         return removed.IsSuccess
-            ? Result<Guid>.Failure(error)
-            : Result<Guid>.Failure(
-                $"{error} The run's workspace could not be removed and is left for the sweeper: {removed.Error.Message}");
+            ? Fail(kind, error)
+            : Fail(kind, $"{error} The run's workspace could not be removed and is left for the sweeper: {removed.Error.Message}");
     }
 
     /// <summary>
-    ///     Removes the worktree of a start whose standing-instructions read threw, never letting the removal replace
+    ///     Removes the workspace of a start whose standing-instructions read threw, never letting the removal replace
     ///     <paramref name="readFault"/>. A removal that fails or throws is recorded on the read fault under
     ///     <see cref="WorkspaceRemovalFailureKey"/>, the exception counterpart of the start-failure path naming both
     ///     failures in its error text. The read fault keeps its own type, so a caller that handles an
@@ -200,24 +224,4 @@ public sealed class ManufactureRunStarter(WorkflowRunStarter starter, IRunWorksp
 
     private RepositoryConfig? FindRepository(string? name) =>
         _config.Repositories.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal));
-
-    /// <summary>
-    ///     The worktree's standing instructions, or <c>""</c> when the file does not exist, resolved through
-    ///     <see cref="WorkspacePath.Resolve"/> exactly as <see cref="StandingInstructionsWriter"/> resolves the file it
-    ///     writes. A path the resolution refuses, such as one through a link that leads out of the worktree, fails the
-    ///     start rather than pinning a host file's text.
-    /// </summary>
-    private async Task<Result<string>> ReadStandingInstructionsAsync(RunWorkspace workspace, CancellationToken ct)
-    {
-        var resolved = WorkspacePath.Resolve(workspace.Root, _standingInstructionsPath);
-        if (resolved.IsFailure)
-        {
-            return Result<string>.Failure(
-                $"the standing instructions '{_standingInstructionsPath}' cannot be read from the run's worktree: " +
-                resolved.Error.Message);
-        }
-
-        var path = resolved.Value;
-        return Result<string>.Success(File.Exists(path) ? await File.ReadAllTextAsync(path, ct).ConfigureAwait(false) : "");
-    }
 }

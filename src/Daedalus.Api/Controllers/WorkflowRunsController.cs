@@ -46,15 +46,17 @@ namespace Daedalus.Api.Controllers;
 [Produces("application/json")]
 public sealed class WorkflowRunsController(WorkflowRunGateway runs) : ControllerBase
 {
+    /// <summary>The seconds a client is told to wait before retrying a start the host could not serve.</summary>
+    private const string RetryAfterSeconds = "30";
+
     /// <summary>
     ///     Starts a new manufacture run for <paramref name="request"/>'s <see cref="StartWorkflowRunRequest.WorkIntent"/>
     ///     on the allow-listed repository its <see cref="StartWorkflowRunRequest.Repository"/> names. A blank intent or
     ///     a blank repository fails with 400 before <see cref="IManufactureRunStarter.StartAsync"/> is even called.
-    ///     Past that, every failure the starter reports is a 422, including a repository that is not allow-listed,
-    ///     <em>except</em> the specific, constant message
-    ///     <see cref="Daedalus.Agents.Workflow.DisabledManufactureRunStarter.DisabledMessage"/>, which means the
-    ///     workflow engine is off on this host and is reported as 503 instead — that one failure is a host
-    ///     configuration fact, not something about this particular request.
+    ///     Past that, a failure the starter reports is mapped by its
+    ///     <see cref="ManufactureStartFailureKind"/>: <c>Invalid</c>, such as a repository that is not allow-listed, is
+    ///     400; <c>Unavailable</c>, such as the workflow engine being off or the sandbox runtime being down, is 503 with
+    ///     <c>Retry-After: 30</c>; anything else is 500.
     /// </summary>
     /// <param name="request">The request body.</param>
     /// <param name="starter">
@@ -66,9 +68,9 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     /// <param name="ct">Cancellation token.</param>
     [HttpPost]
     [ProducesResponseType(typeof(StartWorkflowRunResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Start(
         [FromBody] StartWorkflowRunRequest request, [FromServices] IManufactureRunStarter starter, CancellationToken ct)
@@ -93,9 +95,17 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var result = await starter.StartAsync(startRequest, ct);
         if (result.IsFailure)
         {
-            return string.Equals(result.Error, DisabledManufactureRunStarter.DisabledMessage, StringComparison.Ordinal)
-                ? Problem(detail: result.Error, statusCode: StatusCodes.Status503ServiceUnavailable)
-                : Problem(detail: result.Error, statusCode: StatusCodes.Status422UnprocessableEntity);
+            var failure = result.Error;
+            switch (failure.Kind)
+            {
+                case ManufactureStartFailureKind.Invalid:
+                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status400BadRequest);
+                case ManufactureStartFailureKind.Unavailable:
+                    Response.Headers.RetryAfter = RetryAfterSeconds;
+                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+                default:
+                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status500InternalServerError);
+            }
         }
 
         return CreatedAtAction(nameof(Get), new { id = result.Value }, new StartWorkflowRunResponse(result.Value));
@@ -318,7 +328,7 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 /// <param name="WorkIntent">What the run should manufacture, in the requester's own words. Must not be blank.</param>
 /// <param name="Repository">
 ///     The name of an entry in <c>Thalos:Workflow:Repositories</c>, such as <c>sandbox</c>. Must not be blank. Only a
-///     name, never a URL: a name that is not allow-listed is a 422, so no request can point a run at another remote.
+///     name, never a URL: a name that is not allow-listed is a 400, so no request can point a run at another remote.
 /// </param>
 public sealed record StartWorkflowRunRequest(string WorkIntent, string Repository);
 

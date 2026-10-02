@@ -49,7 +49,7 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
 
     private const string LearnedLine = "Integration tests need Docker running.";
 
-    private const string PinnedStandingInstructions = "Run dotnet test.";
+    private const string PinnedStandingInstructions = "Run dotnet test.\n";
 
     private const string EditedA = "class A\n{\n    // guard: refuse a null argument before it reaches the body.\n    public static void Check(object? value) => System.ArgumentNullException.ThrowIfNull(value);\n}\n";
 

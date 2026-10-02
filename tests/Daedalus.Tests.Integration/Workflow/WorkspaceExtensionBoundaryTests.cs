@@ -53,7 +53,7 @@ public sealed class WorkspaceExtensionBoundaryTests(PostgresFixture fixture) : I
     {
         var started = await host.Factory.Services.GetRequiredService<IManufactureRunStarter>().StartAsync(
             new ManufactureStartRequest("Tighten a guard.", ScratchWorkflowHost.Repository, startedBy), CancellationToken.None);
-        started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error : null);
+        started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error.Message : null);
         var run = await host.Store.FindAsync(started.Value, CancellationToken.None);
         return run! with { CurrentNode = "implement" };
     }

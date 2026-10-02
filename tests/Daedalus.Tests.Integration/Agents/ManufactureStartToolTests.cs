@@ -138,10 +138,10 @@ public sealed class ManufactureStartToolTests
     {
         public ManufactureStartRequest? Request { get; private set; }
 
-        public ValueTask<Result<Guid>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
+        public ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
         {
             Request = request;
-            return new(Result<Guid>.Success(Guid.NewGuid()));
+            return new(Result<Guid, ManufactureStartFailure>.Success(Guid.NewGuid()));
         }
     }
 

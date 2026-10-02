@@ -525,6 +525,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             new ManufactureRunStarter(
                 sp.GetRequiredService<WorkflowRunStarter>(),
                 sp.GetRequiredService<IRunWorkspaceProvider>(),
+                sp.GetRequiredService<IRunBaseFileReader>(),
                 sp.GetRequiredService<WorkflowConfig>())));
 
         // ISubagentRunner comes from AddThalos; IWorkflowStore/IProcessDefinitionStore from AddWorkflowOrm above.
