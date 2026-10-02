@@ -109,12 +109,13 @@
          3.0.1, not 3.0.0: it fixes an EF Core 10 crash in ZeroAlloc.Outbox.EfCore. The EF table's lease columns
          come from the AddOutboxLease migration; the ORM table's from OutboxOrmMigrations migration 2, applied by
          Daedalus.Migrations. The live RepoDigest scheduling chain runs on ZeroAlloc.Outbox.EfCore.
-         3.0.1 → 4.2.0, all three together: floor set by Thalos.NET.Workflow.Orm 0.13.0 (4.0.1 earlier, by 0.11.1). 4.0 drops the default
+         3.0.1 → 4.0.1, all three together: floor set by Thalos.NET.Workflow.Orm 0.11.1. ZeroAlloc.Outbox alone then moved 4.0.1 → 4.2.0: floor set by Thalos.NET.Workflow.Orm 0.13.0; EfCore and Orm stay 4.0.1.
+         4.0 drops the default
          serializer, so AddChannelOutbox calls WithSystemTextJsonSerializer, which writes the same bytes 3.x did;
          and it rejects a second, different store, which Daedalus never registers. No schema change. -->
     <PackageVersion Include="ZeroAlloc.Outbox" Version="4.2.0" />
     <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="4.0.1" />
-    <!-- Moves with ZeroAlloc.Outbox above. Thalos.NET.Workflow.Orm 0.13.0 declares >= 4.2.0. -->
+    <!-- Stays 4.0.1: only the core ZeroAlloc.Outbox package moved to 4.2.0. -->
     <PackageVersion Include="ZeroAlloc.Outbox.Orm" Version="4.0.1" />
 
     <!-- ASP.NET Core / Blazor -->
