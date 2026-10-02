@@ -80,6 +80,15 @@ internal sealed class ApiWebApplicationFactory(
         // that opts into the engine against a database it migrated itself.
         builder.UseSetting("Thalos:Workflow:Enabled", workflowEnabled ? "true" : "false");
 
+        // Local mode, phase 2.5's wiring, by default: these suites test the workflow, not the container, so no host built
+        // here needs a Docker engine or the sandbox image. The shipped implement grant lists no extensions, which S6
+        // allows only under the sandbox, so local mode gets the list it needs, the Cli's. Both are set before the
+        // caller's settings, so a test can still turn the sandbox on or grant another list. The sandbox-mode suite is
+        // phase 2.6 task B8's.
+        builder.UseSetting("Thalos:Workflow:Sandbox:Enabled", "false");
+        builder.UseSetting("Thalos:Workflow:WriteGrants:0:AllowedExtensions:0", ".cs");
+        builder.UseSetting("Thalos:Workflow:WriteGrants:0:AllowedExtensions:1", ".md");
+
         if (squadEnabled is { } squad)
         {
             builder.UseSetting("Thalos:Squad:Enabled", squad ? "true" : "false");

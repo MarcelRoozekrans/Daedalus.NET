@@ -108,6 +108,10 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
                 ["Thalos:Workflow:CommitAuthor:Name"] = "Daedalus Test",
                 ["Thalos:Workflow:CommitAuthor:Email"] = "daedalus-test@example.invalid",
                 ["Thalos:McpConfigPath"] = Path.Combine(AppContext.BaseDirectory, "no-run-scoped.mcp.json"),
+                // Local mode: these suites test the workflow, not the container. ApiWebApplicationFactory defaults to it
+                // too, and gives the implement grant the extension list local mode requires; stated here as well
+                // because this host is the one that runs the engine.
+                ["Thalos:Workflow:Sandbox:Enabled"] = "false",
             };
             foreach (var (key, value) in settings ?? new Dictionary<string, string?>(StringComparer.Ordinal))
             {

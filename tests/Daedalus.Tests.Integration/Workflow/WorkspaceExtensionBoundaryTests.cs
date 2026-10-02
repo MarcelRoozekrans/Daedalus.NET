@@ -28,8 +28,8 @@ public sealed class WorkspaceExtensionBoundaryTests(PostgresFixture fixture) : I
     public async Task DisposeAsync() => await _host.DisposeAsync();
 
     /// <summary>
-    ///     Red for the refusal and the file: add <c>".props"</c> to the shipped <c>AllowedExtensions</c> in
-    ///     <c>src/Daedalus.Api/appsettings.json</c>. Red for the last line: pass an empty set, or one built from something
+    ///     Local mode. Red for the refusal and the file: add <c>".props"</c> to the local-mode <c>AllowedExtensions</c>
+    ///     <c>ApiWebApplicationFactory</c> sets on the implement grant. Red for the last line: pass an empty set, or one built from something
     ///     other than <c>WriteGrants</c>, as the ceiling in <c>UseRunWorkspaceTools</c>.
     /// </summary>
     [Fact]

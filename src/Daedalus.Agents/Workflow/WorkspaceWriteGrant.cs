@@ -15,7 +15,8 @@ internal static class WorkspaceWriteGrant
     ///     <c>(process, node)</c> pair is configured; the run's starter holds <c>developer</c> or <c>admin</c>; the node
     ///     is a task node, pinned in the manifest. A run with no starter or no manifest, which is every run from before
     ///     phase 2.5, never qualifies. The entry rather than a bool, so its <see cref="WriteGrantConfig.AllowedExtensions"/>
-    ///     reach the workspace tools (ruling R29).
+    ///     reach the workspace tools (ruling R29); a <see langword="null"/> list, allowed only under the run sandbox (S6),
+    ///     reaches them as no write-extensions claim at all.
     /// </summary>
     public static WriteGrantConfig? GrantFor(IEnumerable<WriteGrantConfig> grants, WorkflowRun run)
     {

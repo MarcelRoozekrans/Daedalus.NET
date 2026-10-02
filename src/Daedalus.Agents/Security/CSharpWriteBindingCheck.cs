@@ -7,8 +7,11 @@ namespace Daedalus.Agents.Security;
 /// <summary>
 ///     Refuses to start a workflow host on which a <c>Thalos:ToolPolicies</c> pattern bound to
 ///     <see cref="CSharpWritePolicy"/> reaches a tool source that is not run-scoped. That policy admits a granted
-///     workflow caller, and only a <see cref="RunScopedMcpToolSource"/> is guaranteed to serve such a caller from its
-///     own run's server; any other source would apply the call to this host's own checkout.
+///     workflow caller, and only two sources are guaranteed to serve such a caller from its own run's server: a
+///     <see cref="RunScopedMcpToolSource"/> in local mode, which routes the call to the run's own server over its
+///     worktree, and a <see cref="RemoteRunToolSource"/> in sandbox mode, which refuses any call without a run claim and
+///     sends a run's call only to that run's own sandbox. Any other source would apply the call to this host's own
+///     checkout.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -48,7 +51,10 @@ internal sealed class CSharpWriteBindingCheck(IEnumerable<IToolSource> sources, 
     }
 
     /// <inheritdoc />
-    /// <exception cref="InvalidOperationException">A pattern reaches a source that is not run-scoped.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     A pattern reaches a source that is neither a <see cref="RunScopedMcpToolSource"/> nor a
+    ///     <see cref="RemoteRunToolSource"/>.
+    /// </exception>
     public Task StartAsync(CancellationToken cancellationToken)
     {
         var built = sources.ToList();
@@ -56,12 +62,13 @@ internal sealed class CSharpWriteBindingCheck(IEnumerable<IToolSource> sources, 
         {
             var reached = SourcesReachedBy(pattern)
                 ?? throw new InvalidOperationException(NotLiteral(pattern));
-            if (built.FirstOrDefault(s => reached.Contains(s.Name, StringComparer.Ordinal) && s is not RunScopedMcpToolSource) is { } source)
+            if (built.FirstOrDefault(s => reached.Contains(s.Name, StringComparer.Ordinal) && s is not (RunScopedMcpToolSource or RemoteRunToolSource)) is { } source)
             {
                 throw new InvalidOperationException(
                     $"Thalos:ToolPolicies binds '{pattern}' to {CSharpWritePolicy.PolicyName}, which reaches tool source " +
                     $"'{source.Name}', and that source is not a run-scoped MCP server. The policy lets a granted workflow " +
-                    "run call the tool, and only a runScoped server serves a run from its own worktree.");
+                    "run call the tool, and only a runScoped server, local or remote, serves a run from its own worktree " +
+                    "or its own sandbox.");
             }
         }
 

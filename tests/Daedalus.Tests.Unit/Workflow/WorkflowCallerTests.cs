@@ -77,9 +77,7 @@ public sealed class WorkflowCallerTests
     [Fact]
     public void A_granted_caller_holds_workspace_writer_and_the_lower_cased_extensions()
     {
-        var grant = new WriteGrantConfig { Process = "manufacture", Node = "implement" };
-        grant.AllowedExtensions.Add(".CS");
-        grant.AllowedExtensions.Add(".md");
+        var grant = new WriteGrantConfig { Process = "manufacture", Node = "implement", AllowedExtensions = [".CS", ".md"] };
 
         var caller = new WorkflowCaller(NewRun("manufacture", Guid.NewGuid()), grant);
 
@@ -104,13 +102,44 @@ public sealed class WorkflowCallerTests
     [InlineData(".cs;.props")]
     public void An_entry_the_config_pattern_rejects_is_left_out_of_the_claim(string entry)
     {
-        var grant = new WriteGrantConfig { Process = "manufacture", Node = "implement" };
-        grant.AllowedExtensions.Add(".CS");
-        grant.AllowedExtensions.Add(entry);
+        var grant = new WriteGrantConfig { Process = "manufacture", Node = "implement", AllowedExtensions = [".CS", entry] };
 
         var caller = new WorkflowCaller(NewRun("manufacture", Guid.NewGuid()), grant);
 
         caller.Claims.Should().ContainKey(RunWorkspaceClaims.WriteExtensions).WhoseValue.Should().Be(".cs");
+    }
+
+    /// <summary>
+    ///     Phase 2.6: a grant that lists no extensions, allowed only under the run sandbox (S6), writes any extension, so
+    ///     the caller carries no write-extensions claim at all and the sandbox's ceiling alone applies. It still holds
+    ///     workspace-writer, and says it writes any extension itself, for <c>csharp-write</c>.
+    /// </summary>
+    [Fact]
+    public void A_null_extension_grant_emits_no_extension_claim()
+    {
+        var grant = new WriteGrantConfig { Process = "manufacture", Node = "implement" };
+
+        var caller = new WorkflowCaller(NewRun("manufacture", Guid.NewGuid()), grant);
+
+        // Red: emit an empty claim for a null list, which the workspace tools read as a grant of nothing writable.
+        caller.Claims.Should().NotContainKey(RunWorkspaceClaims.WriteExtensions);
+        // Red: grant workspace-writer only to a grant with a list.
+        caller.Roles.Should().BeEquivalentTo(["workflow", "workspace-writer"]);
+        // Red: make WritesAnyExtension true only when the list is empty rather than null.
+        caller.WritesAnyExtension.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     The control for <see cref="A_null_extension_grant_emits_no_extension_claim"/>: a grant with a list, and no grant
+    ///     at all, never write any extension. Red: make WritesAnyExtension true for every granted caller, or for a null grant.
+    /// </summary>
+    [Fact]
+    public void Only_a_grant_without_a_list_writes_any_extension()
+    {
+        var listed = new WriteGrantConfig { Process = "manufacture", Node = "implement", AllowedExtensions = [".cs"] };
+
+        new WorkflowCaller(NewRun("manufacture", Guid.NewGuid()), listed).WritesAnyExtension.Should().BeFalse();
+        new WorkflowCaller(NewRun("manufacture", Guid.NewGuid()), grant: null).WritesAnyExtension.Should().BeFalse();
     }
 
     private static WorkflowRun NewRun(string process, Guid runId) => new()
