@@ -39,6 +39,24 @@ public sealed partial class ManufactureReviewSkillContentTests
     [GeneratedRegex(@"\s+", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
     private static partial Regex Whitespace();
 
+    /// <summary>
+    ///     The reviewer may run <c>sandbox__test</c> and must put the result in <c>checked</c>, never an entry for a run
+    ///     it did not make; and it holds no build tool. The skill is shared with local mode, so it must say what to do
+    ///     without the tool. Red: deleting the "Running the tests" section, its example entry, or its local-mode
+    ///     sentence turns the matching assertion red.
+    /// </summary>
+    [Fact]
+    public void The_review_skill_asks_for_test_evidence_in_checked()
+    {
+        var normalized = Normalize(ReviewSkill());
+
+        normalized.Should().ContainEquivalentOf("If your tool list has sandbox__test, you may run it");
+        normalized.Should().ContainEquivalentOf("Put what you ran in checked");
+        normalized.Should().ContainEquivalentOf("\"sandbox__test: Passed! 11 tests\"");
+        normalized.Should().ContainEquivalentOf("Do not write such an entry for a run you did not make");
+        normalized.Should().ContainEquivalentOf("local mode and there is nothing to run");
+    }
+
     [Fact]
     public void The_review_skill_is_substantial_and_carries_its_rubric()
     {

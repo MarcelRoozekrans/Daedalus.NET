@@ -11,7 +11,7 @@ using Thalos.Workflow;
 namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
-///     Pins the shape <c>processes/manufacture.yaml</c> has at version 6: both manufacturing nodes on their
+///     Pins the shape <c>processes/manufacture.yaml</c> has at version 7: both manufacturing nodes on their
 ///     squad roles, <c>implement</c> carrying an outcome set it did not have at version 2, <c>review</c>
 ///     declaring the three lenses <see cref="ReviewLens"/> knows how to run, and — from phase 2.4 task B4 — a
 ///     <c>retrospect</c> node between <c>review</c> and the human gate, and - from phase 2.5 task B14 - a <c>publish</c>
@@ -50,18 +50,18 @@ public sealed class ManufactureProcessDefinitionTests
     }
 
     [Fact]
-    public void The_process_is_at_version_six()
+    public void The_process_is_at_version_seven()
     {
         var definition = LoadManufactureProcess();
 
         definition.Name.Should().Be("manufacture");
 
-        // Falsifiable: setting `version:` back to 5 in processes/manufacture.yaml turns this red. The number is
+        // Falsifiable: setting `version:` back to 6 in processes/manufacture.yaml turns this red. The number is
         // load-bearing rather than cosmetic - phase 2.2's content-hash immutability refuses a same-version
-        // content change, so a v6 body still labelled v5 is not a cosmetic slip, it is a file the store will
-        // refuse to activate while the older v5 keeps running. Version 6 (phase 2.5, task B14) turns `publish`
-        // into the `open-pull-request` host action.
-        definition.Version.Should().Be(6);
+        // content change, so a v7 body still labelled v6 is not a cosmetic slip, it is a file the store will
+        // refuse to activate while the older v6 keeps running. Version 7 (phase 2.6, task B7) rewrites constraint 1 and the two
+        // skills for sandbox mode and leaves the graph unchanged.
+        definition.Version.Should().Be(7);
     }
 
     /// <summary>
