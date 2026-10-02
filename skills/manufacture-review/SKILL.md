@@ -57,6 +57,21 @@ because the tool never reaches you.) The list is enumerated by name rather than 
 or as a wildcard minus exceptions, so that a Roslyn tool added to the server later, a
 `roslyn__apply_something` included, is absent by default instead of admitted by a pattern.
 
+## Running the tests
+
+If your tool list has `sandbox__test`, you may run it: it runs a fixed command in a throwaway copy of
+the run's worktree inside its sandbox, so it never changes the files you are judging. You have no
+`sandbox__build` and no way to run any other command. If your list has no `sandbox__test`, this
+host is in local mode and there is nothing to run; judge from the code alone. Read the result's exit
+code and summary, and do not treat a pass as approval: a green run says the tests that exist pass,
+not that the change is right or that it has a test at all. A failing run is evidence for a
+rejection, and a finding should name the failing test.
+
+**Put what you ran in `checked`.** When you ran `sandbox__test` and are approving, include an entry that
+names the tool and its result, for example `"sandbox__test: Passed! 11 tests"`. The host also records
+the call, but an entry in `checked` is what lets a human see which lens relied on it. Do not
+write such an entry for a run you did not make.
+
 ## The three lenses
 
 The `review` node runs **one turn per lens, in this order**. You are told which lens this pass is.

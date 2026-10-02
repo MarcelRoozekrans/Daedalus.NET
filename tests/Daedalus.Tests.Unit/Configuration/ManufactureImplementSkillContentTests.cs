@@ -47,14 +47,14 @@ public sealed partial class ManufactureImplementSkillContentTests
     }
 
     /// <summary>
-    ///     The write tools refuse <c>AGENT.md</c>, and the skill has to say so, or an implementer that learned
-    ///     something spends its turn on a refused write instead of reporting <c>learnings</c>. Red: deleting
-    ///     <c>AGENT.md</c> from the refused-paths sentence.
+    ///     <c>AGENT.md</c> is a protected path, and the skill has to say so, or an implementer that learned something
+    ///     spends its turn on a refused write instead of reporting <c>learnings</c>. Red: deleting <c>AGENT.md</c>
+    ///     from the protected-path sentence.
     /// </summary>
     [Fact]
-    public void The_implement_skill_says_AGENT_md_is_refused_for_writing()
+    public void The_implement_skill_says_AGENT_md_is_a_protected_path()
     {
-        Normalize(ImplementSkill()).Should().ContainEquivalentOf("and AGENT.md are refused for writing");
+        Normalize(ImplementSkill()).Should().ContainEquivalentOf("these protected paths: .git/, AGENT.md,");
     }
 
     /// <summary>
@@ -75,19 +75,41 @@ public sealed partial class ManufactureImplementSkillContentTests
     }
 
     /// <summary>
-    ///     Ruling R29: only <c>.cs</c> and <c>.md</c> are writable, and work that needs a project, props, targets or
-    ///     config file is a <c>blocked</c> naming the file, never a workaround. Red: deleting the extension sentence, or
-    ///     the blocked instruction.
+    ///     Phase 2.6: in a sandbox any extension is writable except the protected paths, and a change there is refused
+    ///     at publish, so the implementer reports <c>blocked</c> naming the file. The skill is shared with local mode,
+    ///     where only <c>.cs</c> and <c>.md</c> are writable, so it must say both and name the tools only as present
+    ///     when offered. Red: leaving the old "Only .cs and .md files are writable in this phase" bullet in place trips
+    ///     the first absence; deleting <c>.github/</c> from the list, the publish-refusal sentence, the blocked
+    ///     instruction, the sandbox__test mention or the local-mode sentence trips its own positive.
     /// </summary>
     [Fact]
-    public void The_implement_skill_says_only_cs_and_md_are_writable_and_other_files_report_blocked()
+    public void The_implement_skill_names_the_protected_paths_and_no_longer_forbids_project_files()
     {
         var normalized = Normalize(ImplementSkill());
 
-        normalized.Should().ContainEquivalentOf("Only .cs and .md files are writable");
-        normalized.Should().ContainEquivalentOf(".csproj");
-        normalized.Should().ContainEquivalentOf("Directory.Build.props");
+        normalized.Should().ContainEquivalentOf(".github/");
+        normalized.Should().ContainEquivalentOf("any file extension is writable, project files and config files included");
+        normalized.Should().ContainEquivalentOf("A change to a protected path is refused at publish");
         normalized.Should().ContainEquivalentOf("report blocked, naming the file and the change it needs");
+        normalized.Should().ContainEquivalentOf("sandbox__test");
+        normalized.Should().ContainEquivalentOf("Local mode (no sandbox__ tools in your list) is narrower");
+        normalized.Should().ContainEquivalentOf("Only .cs and .md files are writable there");
+        normalized.Should().NotContainEquivalentOf("Only .cs and .md files are writable in this phase");
+    }
+
+    /// <summary>
+    ///     The implementer must run <c>sandbox__build</c> and <c>sandbox__test</c> before claiming <c>changed</c>, and
+    ///     must not claim it over a failure. Red: deleting the "Building and testing in the sandbox" section, or its
+    ///     do-not-claim sentence.
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_says_to_build_and_test_before_claiming_changed()
+    {
+        var normalized = Normalize(ImplementSkill());
+
+        normalized.Should().ContainEquivalentOf("run sandbox__build and then sandbox__test after your edits and before you report changed");
+        normalized.Should().ContainEquivalentOf("Do not claim changed while the build or the tests fail");
+        normalized.Should().ContainEquivalentOf("Read the exit code and the summary in each result");
     }
 
     /// <summary>

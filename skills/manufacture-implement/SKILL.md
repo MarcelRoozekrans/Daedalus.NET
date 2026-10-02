@@ -1,6 +1,6 @@
 ---
 name: manufacture-implement
-description: Make one small, scoped change in this run's own worktree through workspace__* and report which files it touched.
+description: Make one small, scoped change in this run's own worktree through workspace__*, build and test it in the sandbox when the tools exist, and report which files it touched.
 tags: [workflow, manufacture]
 ---
 
@@ -15,7 +15,10 @@ disk; host code commits and publishes it after a human approves.
 ## What you may and may not touch
 
 Your configured `Tools` list holds named Roslyn read tools plus `roslyn__apply_code_action`, and
-`daedalus__*`, `memory__*`, `skills__*`, `context7__*` and `workspace__*`. The Roslyn entries are
+`daedalus__*`, `memory__*`, `skills__*`, `context7__*`, `workspace__*` and the two sandbox tools
+`sandbox__build` and `sandbox__test`. The sandbox tools are offered only when this host runs its runs in
+a sandbox; if your tool list has no `sandbox__build` or `sandbox__test`, this host is in local mode:
+skip every step below that names them, and the rules marked "local mode" apply. The Roslyn entries are
 exact names with **no glob**: a Roslyn tool that is not named in your list is not offered to your
 turn, whatever the server exposes. Operator tools such as loading, rebuilding or trusting a solution,
 and the background-task tools, are not in it either, so you cannot call them; the run's solution is
@@ -25,16 +28,21 @@ already loaded for you. Read the list as an allow-list, because that is what it 
   `workspace__list_files` lists a directory. `workspace__write_file` creates or replaces a whole file.
   `workspace__edit_file` replaces an exact piece of text with another, and the text you name must
   occur **exactly once** in the file: read the file first and quote enough of it to be unique.
-- **Paths are relative to the repository root.** `..`, absolute paths, `.git/` and `AGENT.md` are
-  refused for writing. `AGENT.md` holds this project's standing instructions; a change to it is
+- **Paths are relative to the repository root.** `..` and absolute paths are refused, and so are
+  the protected paths below. `AGENT.md` holds this project's standing instructions; a change to it is
   proposed by a later step and applied only by a human, so if you learned something durable, report
   it as `learnings` (below) instead of writing it there.
-- **Only `.cs` and `.md` files are writable in this phase.** Project files, props, targets and config
-  files are not: `.csproj`, `Directory.Build.props`, `Directory.Packages.props`, `.targets`, `.json`,
-  `.yml` and files with no extension are all refused. MSBuild evaluates those files when the Roslyn
-  server loads the solution, and that can run code on the host. If the work needs one of them, do not
-  work around it, for example by moving the change into a `.cs` file it does not belong in: report
-  `blocked`, naming the file and the change it needs, so a human can make it.
+- **Protected paths are not yours to change.** In a sandbox any file extension is writable, project
+  files and config files included, except these protected paths: `.git/`, `AGENT.md`, `.gitattributes`,
+  `.gitmodules`, `.github/`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `.azure-pipelines/`, `.circleci/`
+  and `Jenkinsfile`. A trailing `/` protects the whole directory. The list is fixed by the host and no
+  configuration removes an entry. A change to a protected path is refused at publish, so the run
+  fails after a human has approved it. If the work needs one, do not work around it, for example by
+  moving the change into a file it does not belong in: report `blocked`, naming the file and the
+  change it needs, so a human can make it.
+- **Local mode (no `sandbox__*` tools in your list) is narrower.** Only `.cs` and `.md` files are
+  writable there, and project files, props, targets, `.json`, `.yml` and files with no extension are
+  refused; the same `blocked` report applies, naming the file and the change.
 - **Use the named Roslyn read tools to understand the code, and `roslyn__get_diagnostics` after
   editing.** The Roslyn server you reach is this run's own, over the same worktree.
   `roslyn__get_code_actions` lists the refactorings and fixes Roslyn offers at a position, and
@@ -51,7 +59,8 @@ That last distinction is not pedantry, and getting it backwards is a defect this
 shipped repeatedly. A *denied* tool is offered, called, and comes back as `Tool call denied:
 <reason>`: you spend budget and learn something. An *absent* tool is never offered at all.
 
-**Do not attempt to work around any of this.** There is no shell and no "just this once" path. A
+**Do not attempt to work around any of this.** There is no shell, because `sandbox__build` and `sandbox__test` each run one fixed command and take
+no command of yours, and there is no "just this once" path. A
 write the workspace tools refuse is a `blocked` outcome, not a reason to improvise.
 
 ## What your run leaves behind
@@ -77,11 +86,31 @@ clearly enough that a person can act on it without reading your tool calls.
 3. **Confirm it landed, and that it compiles.** Re-read the changed region with
    `workspace__read_file`, and run `roslyn__get_diagnostics` on the files you touched. A tool response
    is not the file; only the file is. Fix any error your change introduced before you report.
+   If you hold `sandbox__build` and `sandbox__test`, also run them, as below.
 4. **Record what you touched** with one `memory__remember` call, under a key starting with
    `manufacture:`: the file paths you changed, and one line each on what changed in them.
 5. **Report your outcome, and your variables, on the same call.** See below. The outcome tool the
    engine gave you for this turn is the only channel out of this node; nothing else you write is
    carried forward.
+
+## Building and testing in the sandbox
+
+If your tool list has them, run `sandbox__build` and then `sandbox__test` after your edits and before you
+report `changed`. Each takes no command: it runs a fixed command in a throwaway copy of this run's
+worktree inside the sandbox, so a build or a test never changes the files the reviewer will read.
+Read the exit code and the summary in each result. A non-zero exit code is a failure, and so is a
+summary that reports failed tests or build errors.
+
+- If either fails, fix the cause in the worktree with the workspace tools and run it again. Do
+  not claim `changed` while the build or the tests fail.
+- If you cannot make them pass, report `blocked` with the failure as `summary`.
+- Restore ran once on the real worktree when the sandbox started, with network access only to NuGet.
+  A change that needs another package source or any other network access will not build.
+- Mention the result in `summary`, for example the test count, and put a durable fact you learned
+  from running them in `learnings`.
+
+Without those tools, local mode, you cannot build or test; `roslyn__get_diagnostics` is your
+compile check and the claim you make is only that the edit landed.
 
 ## The outcome you report
 
@@ -91,9 +120,10 @@ clearly enough that a person can act on it without reading your tool calls.
 | `blocked` | You changed nothing that answers the work. | `adjudicate`, which ends the run as failed |
 
 `changed` is a **claim about the worktree**, not a claim that you produced output. Report it only if
-you wrote the change and then read the file back and saw it.
+you wrote the change and then read the file back and saw it. If you hold the sandbox tools, it also
+means the last `sandbox__build` and `sandbox__test` you ran passed.
 
-Report `blocked`, with the reason as `summary`, if you did not: the work needs a file you may not
+Report `blocked`, with the reason as `summary`, if you did not: the work needs a protected path or, in local mode, a file you may not
 write, the change was larger than one scoped edit, the code was not what the work described, or you
 could not confirm the edit landed. Ending the run as failed is the correct outcome for a
 manufacturing run that manufactured nothing, and it is a far better result than a false `changed`
