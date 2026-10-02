@@ -243,7 +243,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         // Checked whether or not the engine is on: Daedalus.Cli ships the same write grant with the engine off, and a
         // grant that only fails validation once someone flips Enabled is a grant nobody reviewed.
-        ValidateWorkflowWriteConfig(options.Workflow);
+        ValidateWorkflowWriteConfig(options.Workflow, configuration.GetSection(WorkflowConfig.SectionName + ":WriteGrants"));
 
         // Phase 2.5, task B9: csharp-write lets a granted workflow turn apply Roslyn code actions. That is only safe
         // when the MCP source it is bound to is run-scoped, so the turn is served by its own run's server over its own
@@ -639,8 +639,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
     /// <summary>
     ///     The host-wide ceiling for the <c>workspace__*</c> tools (ruling R29): the union of every write grant's
-    ///     extensions, lower-cased, compared case-insensitively. Each granted caller is narrowed further, to its own
-    ///     entry's list, by the write-extensions claim <see cref="WorkflowCaller"/> sets. A grant with no list adds
+    ///     extensions, lower-cased, compared case-insensitively. In local mode each granted caller is narrowed further,
+    ///     to its own entry's list, by the write-extensions claim <see cref="WorkflowCaller"/> sets. A grant with no list adds
     ///     nothing, so local mode never sees "any"; S6 refuses such a grant at boot without the sandbox anyway.
     /// </summary>
     internal static HashSet<string> WriteExtensionCeiling(IEnumerable<WriteGrantConfig> grants) =>
@@ -652,7 +652,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     /// <summary>
     ///     The sandbox's host-wide write ceiling: null (any extension) when any grant lists no extensions, which S6 allows
     ///     only with the sandbox enabled; otherwise the union of the grants' lists, as <see cref="WriteExtensionCeiling"/>
-    ///     computes it. Each grant still narrows its own caller through the write-extensions claim.
+    ///     computes it. Nothing narrows it per node: inside the sandbox every write runs as the sandbox's own caller,
+    ///     with no write-extensions claim, so this ceiling is all a run is held to. That is why
+    ///     <c>ValidateSandboxConfig</c> requires every grant to list the same extensions, or none (Thalos issue #251).
     /// </summary>
     internal static IReadOnlySet<string>? WriteExtensionCeilingOrAny(IEnumerable<WriteGrantConfig> grants)
     {
@@ -716,6 +718,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // Publish commits and pushes in the trusted publish worktree the handoff cuts under <DataRoot>/publish, from the
         // mirror UseSandboxRunWorkspaces keeps there; UseSandboxRunWorkspaces registers no IRunWorkspaceGit of its own,
         // and OpenPullRequestAction needs one. Same data root, spelled as Thalos spells it, and the same credentials.
+        // Thalos issue #250 tracks moving this registration into UseSandboxRunWorkspaces, over its own publish options.
         var publish = new GitWorkspaceOptions { DataRoot = Path.Combine(Path.GetFullPath(dataRoot), "publish") };
         thalos.Services.Replace(ServiceDescriptor.Singleton<IRunWorkspaceGit>(sp => new GitCliRunWorkspaceGit(
             publish,
@@ -919,7 +922,12 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     without its images or with a repository that names no solution, or repositories are configured without a full
     ///     commit author.
     /// </exception>
-    private static void ValidateWorkflowWriteConfig(WorkflowConfig config)
+    /// <param name="config">The bound <c>Thalos:Workflow</c> section.</param>
+    /// <param name="rawGrants">
+    ///     The raw <c>Thalos:Workflow:WriteGrants</c> section, read only to tell an explicit empty
+    ///     <c>AllowedExtensions</c> from a missing one (ruling R48).
+    /// </param>
+    private static void ValidateWorkflowWriteConfig(WorkflowConfig config, IConfigurationSection rawGrants)
     {
         const string section = WorkflowConfig.SectionName;
         var names = new HashSet<string>(StringComparer.Ordinal);
@@ -1007,7 +1015,18 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                     "or which extension list wins would depend on the order of the entries.");
             }
 
-            if (grant.AllowedExtensions is null)
+            // Ruling R48: the binder reads an explicit "AllowedExtensions": [] exactly as a missing key, null, which means
+            // any extension. The JSON provider keeps the two apart, an empty array being the key with an empty value, so
+            // the raw section decides: a key that is present but holds no list fails closed.
+            if (grant.AllowedExtensions is null && rawGrants.GetSection($"{i}:AllowedExtensions") is { Value: not null })
+            {
+                throw new InvalidOperationException(
+                    $"{key}:AllowedExtensions is present but lists no extensions. An empty list would make nothing " +
+                    "writable, so it is refused; list the extensions this node may write, or remove the key to allow any " +
+                    $"extension, which needs {section}:Sandbox:Enabled.");
+            }
+
+            if (grant.AllowedExtensions is not { } extensions)
             {
                 // S6: with no list the ceiling is "any", so a run may write project, props and targets files. Only a run
                 // sandbox keeps MSBuild's evaluation of them off the host.
@@ -1021,14 +1040,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 continue;
             }
 
-            if (grant.AllowedExtensions.Count == 0)
+            if (extensions.Count == 0)
             {
                 throw new InvalidOperationException(
                     $"{key}:AllowedExtensions must list at least one extension, such as \".cs\", or be left out under a " +
                     "run sandbox. It is an allow-list (ruling R29), and an empty one is not a supported configuration.");
             }
 
-            if (grant.AllowedExtensions.FirstOrDefault(e => !AllowedExtensionPattern().IsMatch(e)) is { } malformed)
+            if (extensions.FirstOrDefault(e => !AllowedExtensionPattern().IsMatch(e)) is { } malformed)
             {
                 throw new InvalidOperationException(
                     $"{key}:AllowedExtensions entry '{malformed}' must be a dot followed by letters and digits only, " +
@@ -1091,7 +1110,32 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 $"{WorkflowConfig.SectionName}:Repositories entry '{unsolved.Name}' must name its Solution while the sandbox " +
                 "is enabled: a sandboxed run's Roslyn server is started on that solution inside the run's container.");
         }
+
+        // Inside a run sandbox every workspace__* call runs as the sandbox's own caller, which carries the run id and no
+        // write-extensions claim, under the host-wide ceiling alone; the host forwards a call without checking the
+        // caller's claim. So a grant cannot narrow its own node there, and grants with different lists would silently
+        // all get the widest. Thalos issue #251 tracks per-node narrowing in the sandbox.
+        if (config.WriteGrants.Count > 1)
+        {
+            var first = config.WriteGrants[0];
+            var firstSet = ExtensionSetOf(first);
+            if (config.WriteGrants.Skip(1).FirstOrDefault(g => !SameExtensions(firstSet, ExtensionSetOf(g))) is { } other)
+            {
+                throw new InvalidOperationException(
+                    $"{WorkflowConfig.SectionName}:WriteGrants entries '{first.Process}/{first.Node}' and " +
+                    $"'{other.Process}/{other.Node}' list different AllowedExtensions, but per-node narrowing is not " +
+                    "available inside a run sandbox (Thalos issue #251): every sandboxed write is held to the host-wide " +
+                    "ceiling alone. Give every grant the same AllowedExtensions, or leave the key out of every grant.");
+            }
+        }
     }
+
+    /// <summary>A grant's extensions as the ceiling compares them, or <see langword="null"/> for a grant with no list.</summary>
+    private static HashSet<string>? ExtensionSetOf(WriteGrantConfig grant) =>
+        grant.AllowedExtensions is null ? null : WriteExtensionCeiling([grant]);
+
+    private static bool SameExtensions(HashSet<string>? a, HashSet<string>? b) =>
+        a is null || b is null ? a is null && b is null : a.SetEquals(b);
 
     /// <summary>
     ///     The workspace data root: the configured <c>Thalos:Workflow:DataRoot</c> when set, which

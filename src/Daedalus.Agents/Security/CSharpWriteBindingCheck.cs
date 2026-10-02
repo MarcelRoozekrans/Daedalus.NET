@@ -9,9 +9,12 @@ namespace Daedalus.Agents.Security;
 ///     <see cref="CSharpWritePolicy"/> reaches a tool source that is not run-scoped. That policy admits a granted
 ///     workflow caller, and only two sources are guaranteed to serve such a caller from its own run's server: a
 ///     <see cref="RunScopedMcpToolSource"/> in local mode, which routes the call to the run's own server over its
-///     worktree, and a <see cref="RemoteRunToolSource"/> in sandbox mode, which refuses any call without a run claim and
-///     sends a run's call only to that run's own sandbox. Any other source would apply the call to this host's own
-///     checkout.
+///     worktree, and a <see cref="RemoteRunToolSource"/> in sandbox mode, which sends a run's call only to that run's own
+///     sandbox. Both serve a caller with no run claim, such as a developer's chat turn, from the host-wide server, as
+///     <c>roslyn</c>, a remote source made from a host MCP server, does; only a remote source made from local schemas,
+///     such as <c>workspace</c> or <c>sandbox</c>, refuses such a caller. A workflow caller always carries its run
+///     claim, so either way it never reaches the host's server. Any other source would apply a granted run's call to
+///     this host's own checkout.
 /// </summary>
 /// <remarks>
 ///     <para>
