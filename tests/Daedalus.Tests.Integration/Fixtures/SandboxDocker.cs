@@ -137,16 +137,18 @@ internal static class SandboxDockerCleanup
     /// </summary>
     public static async Task RemoveNetworkScopeAsync(string network)
     {
-        if (TestcontainersSettings.OS.DockerEndpointAuthConfig is not { } engine)
-        {
-            return;
-        }
-
         // Three passes, two seconds apart. A host stopped while its sandbox infrastructure was being set up cancels that
         // set-up client-side, but a create request the engine already received still completes: seen as an egress
         // container in Created state, on the default bridge only, appearing after a first pass had found nothing.
+        // The engine is resolved inside the bounded step: a malformed DOCKER_HOST makes that lookup throw, and this runs
+        // from a finally, where a throw would replace the test's own failure.
         await BoundedAsync(async ct =>
         {
+            if (TestcontainersSettings.OS.DockerEndpointAuthConfig is not { } engine)
+            {
+                return;
+            }
+
             using var docker = SandboxEngineProbe.Connect(engine);
             for (var pass = 0; pass < 3; pass++)
             {
