@@ -15,17 +15,26 @@ public enum ResumeRefusal
     InstructionsChangedSinceStart,
 
     /// <summary>
-    ///     The write could not be made: no worktree could be handed off for the run, the path is not permitted inside
-    ///     it, or the write itself failed at the filesystem level.
+    ///     The write could not be made: the handoff failed for a reason that is not a refusal (a git, store or provider
+    ///     failure), the path is not permitted inside the worktree, or the write itself failed at the filesystem level.
     /// </summary>
     WriteFailed,
+
+    /// <summary>
+    ///     Phase 2.6, ruling R57: the handoff refused to hand off a worktree to publish from, with
+    ///     <see cref="Thalos.AgentErrorCode.Validation"/>. In sandbox mode that is above all the publish-side
+    ///     protected-path check (S5) refusing the run's patch, whose detail names the refused path; it also covers the
+    ///     handoff's other refusals of the run's state, such as a run with no workspace or sandbox, or one another call is
+    ///     creating or removing. A policy refusal, not a server fault.
+    /// </summary>
+    PublishRefused,
 
     /// <summary>The workflow engine's own resume refused — e.g. the run is not awaiting the given signal.</summary>
     EngineRefused,
 }
 
 /// <summary>A resume refusal's kind plus a human-readable detail, carried by <see cref="UnitResult{E}"/>.</summary>
-/// <param name="Kind">Which of the four refusal shapes this is.</param>
+/// <param name="Kind">Which of the refusal shapes this is.</param>
 /// <param name="Detail">Safe to show a human operator directly — never a stack trace or a raw exception dump.</param>
 public readonly record struct ResumeFailure(ResumeRefusal Kind, string Detail);
 
@@ -110,7 +119,10 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorksp
         var handedOff = await _handoff.CheckoutForPublishAsync(run.Id, ct).ConfigureAwait(false);
         if (handedOff.IsFailure)
         {
-            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.WriteFailed, handedOff.Error.Message));
+            // Thalos answers Validation for every refusal on this path, the applier's "publish refused" included, and a
+            // git, store or provider code for a failure; the detail is kept, since a refusal's names the refused path.
+            var refusal = handedOff.Error.Code == AgentErrorCode.Validation ? ResumeRefusal.PublishRefused : ResumeRefusal.WriteFailed;
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(refusal, Describe(handedOff.Error)));
         }
 
         var workspace = handedOff.Value;
@@ -200,6 +212,9 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorksp
         var proposal = ProposalOrNull(run);
         return proposal is null ? null : LineDiff.Compute(PinnedText(run), proposal);
     }
+
+    private static string Describe(AgentError error) =>
+        string.IsNullOrWhiteSpace(error.Detail) ? error.Message : $"{error.Message} {error.Detail}";
 
     /// <summary>
     ///     A refusal for a path <see cref="WorkspacePath.Resolve"/> would not confine to the run's worktree. Its message

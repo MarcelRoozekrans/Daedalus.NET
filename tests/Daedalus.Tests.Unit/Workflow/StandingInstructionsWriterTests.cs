@@ -48,23 +48,48 @@ public sealed class StandingInstructionsWriterTests
 
     /// <summary>
     ///     Task B11, then phase 2.6 task B5: the writer asks the handoff for the worktree the run publishes from, and a
-    ///     run the handoff refuses, such as one with no workspace, is refused before anything is resolved, carrying the
-    ///     handoff's message. Red, per assertion: report <see cref="ResumeRefusal.NoProposal"/> there, and the first
-    ///     fails; report any other detail than the handoff's message, and the second fails.
+    ///     handoff that fails, here because the stored patch cannot be read, is a write failure before anything is
+    ///     resolved, carrying the handoff's message and its detail. Red, per assertion: classify every handoff failure as
+    ///     <see cref="ResumeRefusal.PublishRefused"/>, and the first fails; drop the detail, keeping only the message, and
+    ///     the second fails.
     /// </summary>
     [Fact]
-    public async Task A_run_the_handoff_refuses_is_refused_as_a_write_failure_with_its_message()
+    public async Task A_handoff_failure_is_a_write_failure_carrying_its_message_and_detail()
     {
         var run = RunWith(pinned: "", proposal: "New instructions.");
-        var handoff = Substitute.For<IRunWorkspaceHandoff>();
-        handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
-            Result<RunWorkspace, AgentError>.Failure(AgentError.Validation($"Run '{run.Id}' has no workspace."))));
-        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff);
+        var writer = WriterRefusedWith(run, AgentError.StoreError("Could not read the patch.", "the disk is gone"));
 
         var result = await writer.ApplyAsync(run, CancellationToken.None);
 
         result.Error.Kind.Should().Be(ResumeRefusal.WriteFailed);
-        result.Error.Detail.Should().Be($"Run '{run.Id}' has no workspace.");
+        result.Error.Detail.Should().Be("Could not read the patch. the disk is gone");
+    }
+
+    /// <summary>
+    ///     Ruling R57: in sandbox mode the handoff runs the publish-side protected-path check (S5), and its refusal,
+    ///     which Thalos answers with <see cref="AgentErrorCode.Validation"/>, is a policy refusal, not a write failure,
+    ///     carrying the message that names the refused path, and any detail. Red, per assertion: classify it as
+    ///     <see cref="ResumeRefusal.WriteFailed"/>, and the first fails; drop the detail, and the second fails.
+    /// </summary>
+    [Fact]
+    public async Task A_patch_the_publish_side_check_refuses_is_a_publish_refusal_naming_the_path()
+    {
+        var run = RunWith(pinned: "", proposal: "New instructions.");
+        var writer = WriterRefusedWith(run, new AgentError(
+            AgentErrorCode.Validation, "the change touches protected path '.github/workflows/ci.yml'; publish refused", "1 file"));
+
+        var result = await writer.ApplyAsync(run, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.PublishRefused);
+        result.Error.Detail.Should().Be("the change touches protected path '.github/workflows/ci.yml'; publish refused 1 file");
+    }
+
+    private static StandingInstructionsWriter WriterRefusedWith(WorkflowRun run, AgentError error)
+    {
+        var handoff = Substitute.For<IRunWorkspaceHandoff>();
+        handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+            Result<RunWorkspace, AgentError>.Failure(error)));
+        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff);
     }
 
     /// <summary>

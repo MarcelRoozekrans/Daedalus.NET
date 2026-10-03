@@ -99,21 +99,23 @@ public sealed class OpenPullRequestActionTests : IDisposable
     /// <summary>
     ///     Phase 2.6, task B5: publish works from the worktree the handoff checks out, and a handoff that refuses, for a
     ///     run with no workspace or a sandboxed patch the protected-path check refused, fails the node with the handoff's
-    ///     message before anything is committed. The provider still finds the run's workspace here, as it would find a
-    ///     sandboxed run's <c>sandbox://</c> one. Red: fall back to <see cref="IRunWorkspaceProvider.FindAsync"/> when the
-    ///     handoff fails; the action then commits, so the last assertion fails, and succeeds, so the first fails.
+    ///     message and its detail before anything is committed. The provider still finds the run's workspace here, as it
+    ///     would find a sandboxed run's <c>sandbox://</c> one. Red: fall back to <see cref="IRunWorkspaceProvider.FindAsync"/>
+    ///     when the handoff fails; the action then commits, so the last assertion fails, and succeeds, so the first fails.
+    ///     Red: report the message alone, dropping the detail; the second fails.
     /// </summary>
     [Fact]
     public async Task A_handoff_failure_fails_publish_before_any_commit()
     {
         Workspaces.FindAsync(RunId, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(_ws));
         _handoff.CheckoutForPublishAsync(RunId, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
-            Result<RunWorkspace, AgentError>.Failure(AgentError.Validation("The patch touches a protected path; publish refused."))));
+            Result<RunWorkspace, AgentError>.Failure(new AgentError(
+                AgentErrorCode.Validation, "The patch touches a protected path; publish refused.", "'.github/workflows/ci.yml'"))));
 
         var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Be("The patch touches a protected path; publish refused.");
+        result.Error.Should().Be("The patch touches a protected path; publish refused. '.github/workflows/ci.yml'");
         await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
     }
 

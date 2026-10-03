@@ -1,6 +1,7 @@
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -8,6 +9,7 @@ using Thalos;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 using Thalos.Workspaces;
+using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
@@ -225,6 +227,42 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
         });
     }
 
+    /// <summary>
+    ///     Ruling R57: in sandbox mode the writer's handoff runs the publish-side protected-path check (S5) inside this
+    ///     request, and a refused patch is a policy refusal: 422 problem details naming the refused path, with the run
+    ///     left awaiting and nothing written. The host's handoff is replaced by one that refuses as Thalos's applier does,
+    ///     with <see cref="AgentErrorCode.Validation"/>. Red: map <see cref="ResumeRefusal.PublishRefused"/> to 500 in the
+    ///     controller, and the status fails; classify the refusal as <see cref="ResumeRefusal.WriteFailed"/> in the
+    ///     writer, and it fails too. Red for the run: call the engine's resume before the write; the run then leaves
+    ///     <see cref="WorkflowStatus.Awaiting"/>.
+    /// </summary>
+    [Fact]
+    public async Task Resuming_with_the_flag_when_the_publish_side_check_refuses_the_patch_is_a_422()
+    {
+        var handoff = Substitute.For<IRunWorkspaceHandoff>();
+        handoff.CheckoutForPublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+            Result<RunWorkspace, AgentError>.Failure(
+                AgentError.Validation("the change touches protected path '.github/workflows/ci.yml'; publish refused"))));
+        await WithHostAsync(pinned: null, async host =>
+        {
+            var runId = await SeedParkedRunAsync(host, "publish-refused", proposal: "Some proposal.");
+
+            using var client = host.Client("a-developer", "developer");
+            var response = await client.PostAsJsonAsync(
+                $"/api/workflow-runs/{runId}/resume",
+                new { signal = Signal, payload = (string?)null, applyStandingInstructions = true });
+
+            response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+            (await response.Content.ReadFromJsonAsync<ProblemDetails>())!.Detail.Should().Contain("'.github/workflows/ci.yml'");
+            (await host.Store.FindAsync(runId, CancellationToken.None))!.Status.Should().Be(WorkflowStatus.Awaiting);
+            File.Exists(AgentMd(host, runId)).Should().BeFalse();
+        }, services =>
+        {
+            services.RemoveAll<IRunWorkspaceHandoff>();
+            services.AddSingleton(handoff);
+        });
+    }
+
     [Fact]
     public async Task Get_on_the_parked_run_shows_the_proposed_diff()
     {
@@ -347,9 +385,10 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
     /// <summary>
     ///     Boots a <see cref="ScratchWorkflowHost"/> whose remote's <c>main</c> holds <paramref name="pinned"/> as
     ///     <c>AGENT.md</c>, or no such file when it is <see langword="null"/>, with a quarter-second outbox poll, runs
-    ///     <paramref name="body"/>, and tears the host down.
+    ///     <paramref name="body"/>, and tears the host down. <paramref name="configure"/> runs after the host's own
+    ///     registrations, to replace one.
     /// </summary>
-    private async Task WithHostAsync(string? pinned, Func<ScratchWorkflowHost, Task> body)
+    private async Task WithHostAsync(string? pinned, Func<ScratchWorkflowHost, Task> body, Action<IServiceCollection>? configure = null)
     {
         await using var host = await ScratchWorkflowHost.StartAsync(
             fixture,
@@ -359,6 +398,7 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
             {
                 services.RemoveAll<WorkflowOutboxDispatchOptions>();
                 services.AddSingleton(new WorkflowOutboxDispatchOptions { PollingInterval = TimeSpan.FromMilliseconds(250) });
+                configure?.Invoke(services);
             });
 
         await body(host);

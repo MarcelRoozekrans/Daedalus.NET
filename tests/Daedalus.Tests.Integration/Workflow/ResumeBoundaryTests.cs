@@ -223,7 +223,14 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
-    /// <summary>The other direction: a caller who actually carries the developer role is let through the policy.</summary>
+    /// <summary>
+    ///     The other direction: a caller who actually carries the developer role is let through the policy. This
+    ///     fixture disables the workflow engine, so a request authorization lets through is answered 503 by the
+    ///     controller's <c>[WorkflowEngineEnabled]</c> resource filter, which ASP.NET Core runs only after authorization
+    ///     has passed. A refused caller gets 401 or 403 and never reaches it, and a missing route gets 404, so 503 is
+    ///     reachable only once the policy has let the developer through. Red: drop <c>developer</c> from the
+    ///     <c>WorkflowResume</c> policy in <c>Program.cs</c>; the test then gets 403.
+    /// </summary>
     [Fact]
     public async Task A_developer_caller_passes_the_policy()
     {
@@ -234,20 +241,12 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
         var response = await client.PostAsJsonAsync(
             $"/api/workflow-runs/{Guid.NewGuid()}/resume", new { signal = "human_approval", payload = (string?)null });
 
-        // Pinned to exactly 500, not merely "not 401/403": NotBe on both would also pass on a 404 from a
-        // missing or renamed route, which proves nothing about this policy. The controller's constructor
-        // requires WorkflowRunGateway, never registered on this fixture because ApiWebApplicationFactory
-        // always disables the workflow engine (see that class's own remarks) - so a request the policy lets
-        // through fails DI resolution deterministically, and 500 is the one status that is only reachable
-        // once authorization has already passed.
-        //
-        // The trade-off, stated rather than hidden: this pins a broken host as the expected state. Registering
-        // WorkflowRunGateway unconditionally - a reasonable future change, and the obvious way to stop every
-        // Integration host disabling the workflow engine - turns this red while the property it guards is
-        // still perfectly intact. If that happens, the fix is to re-pin this to whatever status a resolvable
-        // controller returns for a run id that does not exist (404), NOT to relax the assertion to
-        // NotBe(401).And.NotBe(403), which would pass on a renamed route and prove nothing.
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        // Pinned to exactly 503, not merely "not 401/403": NotBe on both would also pass on a 404 from a missing or
+        // renamed route, which proves nothing about this policy. ApiWebApplicationFactory always disables the workflow
+        // engine (see that class's own remarks), and the [WorkflowEngineEnabled] filter answers 503 only for a request
+        // authorization already let through. If a future fixture enables the engine, re-pin this to the status a
+        // resolvable controller returns for a run id that does not exist (404), NOT to NotBe(401).And.NotBe(403).
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
     }
 
     /// <summary>
@@ -264,7 +263,7 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
         var response = await client.PostAsync($"/api/workflow-runs/{Guid.NewGuid()}/retry", null);
 
         // Red if the action's [Authorize(Policy = "Admin")] is removed: the developer passes, and the request
-        // reaches the unresolvable controller and returns 500.
+        // reaches the [WorkflowEngineEnabled] filter and gets 503.
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
@@ -284,6 +283,12 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    /// <summary>
+    ///     An admin passes retry's Admin policy. As for <see cref="A_developer_caller_passes_the_policy"/>, 503 comes
+    ///     from the <c>[WorkflowEngineEnabled]</c> filter, which runs only after authorization has passed, so it proves
+    ///     the policy let the admin through. Red: bind the <c>Admin</c> policy in <c>Program.cs</c> to a role admin
+    ///     lacks; the test then gets 403. A missing route would get 404.
+    /// </summary>
     [Fact]
     public async Task An_admin_passes_the_retry_policy()
     {
@@ -293,10 +298,9 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
 
         var response = await client.PostAsync($"/api/workflow-runs/{Guid.NewGuid()}/retry", null);
 
-        // Pinned to 500 for the reason A_developer_caller_passes_the_policy gives: only a request authorization
-        // let through reaches the controller this fixture cannot resolve. Red if the route is missing, which
-        // returns 404, or if Admin is bound to a role admin lacks, which returns 403.
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        // Pinned to 503 for the reason A_developer_caller_passes_the_policy gives: only a request authorization let
+        // through reaches the [WorkflowEngineEnabled] filter.
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
     }
 }
 
