@@ -1,7 +1,9 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
+using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Tests.Unit.Workflow;
 
@@ -10,7 +12,8 @@ namespace Daedalus.Tests.Unit.Workflow;
 ///     <c>Thalos:Workflow:StandingInstructionsPath</c> — task B5's trust boundary between a model's proposal and a
 ///     human's decision. Every test here points at a <see cref="TempDirectory"/>, never a real project directory:
 ///     see that type's own remarks, and the task brief's "test isolation" note. Since task B11 that directory is the
-///     run's worktree, which a substituted <see cref="IRunWorkspaceProvider"/> reports for the run's id.
+///     run's worktree, which, since phase 2.6 task B5, a substituted <see cref="IRunWorkspaceHandoff"/> hands off for
+///     the run's id.
 /// </summary>
 public sealed class StandingInstructionsWriterTests
 {
@@ -44,23 +47,52 @@ public sealed class StandingInstructionsWriterTests
     }
 
     /// <summary>
-    ///     Task B11: the writer asks the provider for the run's own worktree, and a run without one is refused before
-    ///     anything is resolved. Red, per assertion: report <see cref="ResumeRefusal.NoProposal"/> there, and the first
-    ///     fails; report any other detail, and the second fails.
+    ///     Task B11, then phase 2.6 task B5: the writer asks the handoff for the worktree the run publishes from, and a
+    ///     run the handoff refuses, such as one with no workspace, is refused before anything is resolved, carrying the
+    ///     handoff's message. Red, per assertion: report <see cref="ResumeRefusal.NoProposal"/> there, and the first
+    ///     fails; report any other detail than the handoff's message, and the second fails.
     /// </summary>
     [Fact]
-    public async Task A_run_with_no_workspace_is_refused_as_a_write_failure()
+    public async Task A_run_the_handoff_refuses_is_refused_as_a_write_failure_with_its_message()
     {
-        using var dir = new TempDirectory();
         var run = RunWith(pinned: "", proposal: "New instructions.");
-        var workspaces = Substitute.For<IRunWorkspaceProvider>();
-        workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>((RunWorkspace?)null));
-        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, workspaces);
+        var handoff = Substitute.For<IRunWorkspaceHandoff>();
+        handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+            Result<RunWorkspace, AgentError>.Failure(AgentError.Validation($"Run '{run.Id}' has no workspace."))));
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff);
 
         var result = await writer.ApplyAsync(run, CancellationToken.None);
 
         result.Error.Kind.Should().Be(ResumeRefusal.WriteFailed);
-        result.Error.Detail.Should().Be("run has no workspace");
+        result.Error.Detail.Should().Be($"Run '{run.Id}' has no workspace.");
+    }
+
+    /// <summary>
+    ///     Phase 2.6, task B5: in sandbox mode the run's own worktree is in its container, and the provider's
+    ///     <see cref="IRunWorkspaceProvider.FindAsync"/> answers a <c>sandbox://</c> root. The writer writes into the
+    ///     host worktree the handoff checks out instead, the one publish commits. The substitute is both, as the sandbox
+    ///     provider is. Red: keep using <see cref="IRunWorkspaceProvider.FindAsync"/>; <see cref="WorkspacePath.Resolve"/>
+    ///     refuses the <c>sandbox://</c> root, so the first assertion fails, and nothing reaches the handoff worktree, so
+    ///     the second fails.
+    /// </summary>
+    [Fact]
+    public async Task The_writer_writes_into_the_handoff_worktree()
+    {
+        using var publish = new TempDirectory();
+        await File.WriteAllTextAsync(publish.Path("AGENT.md"), "Run dotnet test.");
+        var run = RunWith(pinned: "Run dotnet test.", proposal: "Run dotnet test.\nRestore needs the proxy.");
+        var sandbox = Substitute.For<IRunWorkspaceHandoff, IRunWorkspaceProvider>();
+        ((IRunWorkspaceProvider)sandbox).FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(
+            new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", $"sandbox://{run.Id:N}", null)));
+        sandbox.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+            Result<RunWorkspace, AgentError>.Success(
+                new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", publish.Root, null))));
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, sandbox);
+
+        var result = await writer.ApplyAsync(run, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Detail : null);
+        (await File.ReadAllTextAsync(publish.Path("AGENT.md"))).Should().Be("Run dotnet test.\nRestore needs the proxy.");
     }
 
     /// <summary>
@@ -123,7 +155,7 @@ public sealed class StandingInstructionsWriterTests
             : configured;
 
         var act = () => new StandingInstructionsWriter(
-            new WorkflowConfig { StandingInstructionsPath = path }, Substitute.For<IRunWorkspaceProvider>());
+            new WorkflowConfig { StandingInstructionsPath = path }, Substitute.For<IRunWorkspaceHandoff>());
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Workflow:StandingInstructionsPath*");
     }
@@ -293,13 +325,14 @@ public sealed class StandingInstructionsWriterTests
             "a failed move must not leave an orphaned temp file behind in the standing-instructions directory");
     }
 
-    /// <summary>A writer whose provider knows only <paramref name="run"/>'s worktree, <paramref name="worktree"/>.</summary>
+    /// <summary>A writer whose handoff knows only <paramref name="run"/>'s worktree, <paramref name="worktree"/>.</summary>
     private static StandingInstructionsWriter Writer(TempDirectory worktree, WorkflowRun run, string path = "AGENT.md")
     {
-        var workspaces = Substitute.For<IRunWorkspaceProvider>();
-        workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(
-            new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", worktree.Root, null)));
-        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = path }, workspaces);
+        var handoff = Substitute.For<IRunWorkspaceHandoff>();
+        handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+            Result<RunWorkspace, AgentError>.Success(
+                new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", worktree.Root, null))));
+        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = path }, handoff);
     }
 
     private static WorkflowRun RunWith(string pinned, string? proposal)

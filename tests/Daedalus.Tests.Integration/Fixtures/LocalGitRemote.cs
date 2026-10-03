@@ -100,6 +100,12 @@ internal sealed class LocalGitRemote : IDisposable
     public static string Git(string workingDirectory, string arguments) =>
         RunGit(workingDirectory, arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
+    /// <summary>
+    ///     As <see cref="Git(string,string)"/>, with each argument passed as it is, so an argument may hold a path with a
+    ///     space.
+    /// </summary>
+    public static string GitArgs(string workingDirectory, params string[] arguments) => RunGit(workingDirectory, arguments);
+
     /// <inheritdoc />
     public void Dispose() => DeleteReadOnly(_path);
 

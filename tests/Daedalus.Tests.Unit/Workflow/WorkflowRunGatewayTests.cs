@@ -1,7 +1,9 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
+using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Tests.Unit.Workflow;
 
@@ -117,13 +119,13 @@ public sealed class WorkflowRunGatewayTests
             Arg.Any<CancellationToken>());
     }
 
-    /// <summary>A provider whose only worktree is <paramref name="dir"/>, reported for <paramref name="run"/>'s id.</summary>
-    private static IRunWorkspaceProvider Workspaces(WorkflowRun run, TempDirectory dir)
+    /// <summary>A handoff whose only worktree is <paramref name="dir"/>, handed off for <paramref name="run"/>'s id.</summary>
+    private static IRunWorkspaceHandoff Workspaces(WorkflowRun run, TempDirectory dir)
     {
-        var workspaces = Substitute.For<IRunWorkspaceProvider>();
-        workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(
-            new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", dir.Root, null)));
-        return workspaces;
+        var handoff = Substitute.For<IRunWorkspaceHandoff>();
+        handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+            Result<RunWorkspace, AgentError>.Success(new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", dir.Root, null))));
+        return handoff;
     }
 
     /// <summary>

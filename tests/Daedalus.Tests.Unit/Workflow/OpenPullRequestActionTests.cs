@@ -18,6 +18,8 @@ namespace Daedalus.Tests.Unit.Workflow;
 ///     Task B13: the paths of <see cref="OpenPullRequestAction"/> the real-git Integration suite cannot reach cheaply:
 ///     a missing workspace, a collaborator answering null, the cancellation contract, an existing pull request, and the
 ///     allow-list and evidence checks. Every collaborator is a substitute, so each test states exactly what it answers.
+///     Since phase 2.6 task B5 the worktree comes from <see cref="IRunWorkspaceHandoff"/>; the substitute is a workspace
+///     provider too, as both real handoffs are, so a test can tell the handoff's worktree from the provider's.
 /// </summary>
 public sealed class OpenPullRequestActionTests : IDisposable
 {
@@ -26,7 +28,7 @@ public sealed class OpenPullRequestActionTests : IDisposable
     private static readonly string[] CanonicalStandingPath = ["docs/AGENT.md"];
     private static readonly ProcessNode PublishNode = new() { Action = OpenPullRequestAction.ActionName, Outcomes = ["published", "failed"] };
 
-    private readonly IRunWorkspaceProvider _workspaces = Substitute.For<IRunWorkspaceProvider>();
+    private readonly IRunWorkspaceHandoff _handoff = Substitute.For<IRunWorkspaceHandoff, IRunWorkspaceProvider>();
     private readonly IRunWorkspaceGit _git = Substitute.For<IRunWorkspaceGit>();
     private readonly IOpenPullRequestLookup _lookup = Substitute.For<IOpenPullRequestLookup>();
     private readonly IPullRequestPublisher _publisher = Substitute.For<IPullRequestPublisher>();
@@ -47,7 +49,8 @@ public sealed class OpenPullRequestActionTests : IDisposable
         services.AddSingleton(_records);
         _services = services.BuildServiceProvider();
 
-        _workspaces.FindAsync(RunId, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(_ws));
+        _handoff.CheckoutForPublishAsync(RunId, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<RunWorkspace, AgentError>>(Result<RunWorkspace, AgentError>.Success(_ws)));
         _git.CommitAsync(_ws, Arg.Any<GitCommitRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result<GitCommitResult, AgentError>>(Result<GitCommitResult, AgentError>.Success(new GitCommitResult("abc", Created: true))));
         _git.DiffStatAsync(_ws, Arg.Any<CancellationToken>())
@@ -70,7 +73,9 @@ public sealed class OpenPullRequestActionTests : IDisposable
     public void Dispose() => _services.Dispose();
 
     private OpenPullRequestAction Action() =>
-        new(_workspaces, _git, _services.GetRequiredService<IServiceScopeFactory>(), _config);
+        new(_handoff, _git, _services.GetRequiredService<IServiceScopeFactory>(), _config);
+
+    private IRunWorkspaceProvider Workspaces => (IRunWorkspaceProvider)_handoff;
 
     private static WorkflowRun Run(string? workIntent = "Tighten a guard.", IReadOnlyDictionary<string, object?>? variables = null) => new()
     {
@@ -91,15 +96,25 @@ public sealed class OpenPullRequestActionTests : IDisposable
         },
     };
 
+    /// <summary>
+    ///     Phase 2.6, task B5: publish works from the worktree the handoff checks out, and a handoff that refuses, for a
+    ///     run with no workspace or a sandboxed patch the protected-path check refused, fails the node with the handoff's
+    ///     message before anything is committed. The provider still finds the run's workspace here, as it would find a
+    ///     sandboxed run's <c>sandbox://</c> one. Red: fall back to <see cref="IRunWorkspaceProvider.FindAsync"/> when the
+    ///     handoff fails; the action then commits, so the last assertion fails, and succeeds, so the first fails.
+    /// </summary>
     [Fact]
-    public async Task A_run_with_no_workspace_is_refused()
+    public async Task A_handoff_failure_fails_publish_before_any_commit()
     {
-        _workspaces.FindAsync(RunId, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>((RunWorkspace?)null));
+        Workspaces.FindAsync(RunId, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(_ws));
+        _handoff.CheckoutForPublishAsync(RunId, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+            Result<RunWorkspace, AgentError>.Failure(AgentError.Validation("The patch touches a protected path; publish refused."))));
 
         var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("has no workspace to publish from");
+        result.Error.Should().Be("The patch touches a protected path; publish refused.");
+        await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
     }
 
     [Fact]
@@ -120,11 +135,51 @@ public sealed class OpenPullRequestActionTests : IDisposable
         await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
 
         await _git.Received(1).CommitAsync(_ws, Arg.Is<GitCommitRequest>(r =>
-            r.Author == new GitAuthor("Daedalus", "daedalus@roozekrans.nl") && r.Paths == null
+            r.Author == new GitAuthor("Daedalus", "daedalus@roozekrans.nl") && r.Paths == null && !r.CommitStagedIndex
             && r.ExcludePaths != null && r.ExcludePaths.SequenceEqual(CanonicalStandingPath)), Arg.Any<CancellationToken>());
         await _git.Received(1).CommitAsync(_ws, Arg.Is<GitCommitRequest>(r =>
-            r.Author == new GitAuthor("Daedalus", "daedalus@roozekrans.nl") && r.ExcludePaths == null
+            r.Author == new GitAuthor("Daedalus", "daedalus@roozekrans.nl") && r.ExcludePaths == null && !r.CommitStagedIndex
             && r.Paths != null && r.Paths.SequenceEqual(CanonicalStandingPath)), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     Phase 2.6, task B5: a sandboxed run's handoff worktree holds the run's change staged, as the protected-path
+    ///     check passed it, so the code commit takes that index as it stands, less the standing-instructions file, and
+    ///     that file's own commit stays path-scoped. Local mode's commits, above, stage from disk. Red, per call: commit
+    ///     the code without <see cref="GitCommitRequest.CommitStagedIndex"/> in sandbox mode, and the first fails; set it
+    ///     on the standing-instructions commit too, and the second fails.
+    /// </summary>
+    [Fact]
+    public async Task In_sandbox_mode_the_code_commit_takes_the_staged_index_and_the_standing_instructions_commit_stays_path_scoped()
+    {
+        _config.Sandbox.Enabled = true;
+        _config.StandingInstructionsPath = "./docs//AGENT.md";
+
+        await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        await _git.Received(1).CommitAsync(_ws, Arg.Is<GitCommitRequest>(r =>
+            r.CommitStagedIndex && r.Paths == null
+            && r.ExcludePaths != null && r.ExcludePaths.SequenceEqual(CanonicalStandingPath)), Arg.Any<CancellationToken>());
+        await _git.Received(1).CommitAsync(_ws, Arg.Is<GitCommitRequest>(r =>
+            !r.CommitStagedIndex && r.ExcludePaths == null
+            && r.Paths != null && r.Paths.SequenceEqual(CanonicalStandingPath)), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     Phase 2.6, task B5: a sandboxed run's worktree is in its container, and its handoff worktree is Thalos's to
+    ///     rebuild, so a failure names no host path. Red, per assertion: keep the local message, and both fail.
+    /// </summary>
+    [Fact]
+    public async Task A_sandboxed_runs_failure_names_no_host_path()
+    {
+        _config.Sandbox.Enabled = true;
+        _git.PushAsync(_ws, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<UnitResult<AgentError>>(UnitResult<AgentError>.Failure(AgentError.GitOperationFailed("gone"))));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.Error.Should().Be("push failed: gone; the run's changes are kept for a retry");
+        result.Error.Should().NotContain(_ws.Root);
     }
 
     [Fact]
@@ -373,6 +428,11 @@ public sealed class OpenPullRequestActionTests : IDisposable
         result.Error.Should().Contain("HttpClient.Timeout").And.Contain(_ws.Root);
     }
 
+    /// <summary>
+    ///     Rulings R14 and R19. The action holds only the handoff, which cannot remove, but both real handoffs are
+    ///     workspace providers too, as the substitute is. Red: remove the workspace through a cast of the handoff to
+    ///     <see cref="IRunWorkspaceProvider"/> after either outcome.
+    /// </summary>
     [Fact]
     public async Task No_path_removes_the_workspace()
     {
@@ -381,6 +441,6 @@ public sealed class OpenPullRequestActionTests : IDisposable
             .Returns(new ValueTask<UnitResult<AgentError>>(UnitResult<AgentError>.Failure(AgentError.GitOperationFailed("gone"))));
         await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
 
-        await _workspaces.DidNotReceiveWithAnyArgs().RemoveAsync(Guid.Empty, default);
+        await Workspaces.DidNotReceiveWithAnyArgs().RemoveAsync(Guid.Empty, default);
     }
 }

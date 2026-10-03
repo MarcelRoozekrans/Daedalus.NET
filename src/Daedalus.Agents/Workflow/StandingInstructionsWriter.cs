@@ -15,8 +15,8 @@ public enum ResumeRefusal
     InstructionsChangedSinceStart,
 
     /// <summary>
-    ///     The write could not be made: the run has no worktree, the path is not permitted inside it, or the write
-    ///     itself failed at the filesystem level.
+    ///     The write could not be made: no worktree could be handed off for the run, the path is not permitted inside
+    ///     it, or the write itself failed at the filesystem level.
     /// </summary>
     WriteFailed,
 
@@ -41,8 +41,12 @@ public readonly record struct ResumeFailure(ResumeRefusal Kind, string Detail);
 /// <remarks>
 ///     <para>
 ///     <b>The file is the run's own, in its worktree.</b> Phase 2.5, task B11: the path is resolved inside the worktree
-///     <see cref="IRunWorkspaceProvider"/> holds for the run, the file <see cref="ManufactureRunStarter"/> pinned the
-///     run's text from, through the same canonical relative path and the same <see cref="WorkspacePath.Resolve"/>.
+///     the run publishes from, through the same canonical relative path <see cref="ManufactureRunStarter"/> pinned the
+///     run's text from and the same <see cref="WorkspacePath.Resolve"/>. Phase 2.6, task B5: that worktree comes from
+///     <see cref="IRunWorkspaceHandoff.CheckoutForPublishAsync"/>. In local mode it is the run's own worktree. In
+///     sandbox mode the run's worktree lives in its container, and <see cref="IRunWorkspaceProvider.FindAsync"/>
+///     answers a <c>sandbox://</c> root that is no host directory, so the write goes to the trusted publish worktree
+///     the run's checked patch was applied to, the one <c>OpenPullRequestAction</c> then commits.
 ///     That confinement replaces phase 2.4's content-root check: the host's own files are out of reach, and a link
 ///     inside the worktree that leads out of it is refused. The write is host code applying an approved change, so it
 ///     goes through this type's own file IO, not through the <c>workspace__*</c> tools, which refuse the file to a run.
@@ -64,18 +68,18 @@ public readonly record struct ResumeFailure(ResumeRefusal Kind, string Detail);
 ///     link or not, and the rename replaces the target's directory entry rather than writing through it.
 ///     </para>
 /// </remarks>
-public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorkspaceProvider workspaces)
+public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorkspaceHandoff handoff)
 {
     private readonly string _path = DaedalusAgentsServiceCollectionExtensions.StandingInstructionsRelativePath(
         (config ?? throw new ArgumentNullException(nameof(config))).StandingInstructionsPath);
 
-    private readonly IRunWorkspaceProvider _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
+    private readonly IRunWorkspaceHandoff _handoff = handoff ?? throw new ArgumentNullException(nameof(handoff));
 
     /// <summary>
     ///     Writes <paramref name="run"/>'s proposed standing instructions to its worktree, iff the file still holds
     ///     exactly the text pinned into the run's manifest when it started. Refuses without touching the file for
-    ///     every other case: no proposal was ever reported, the run has no worktree, the path is not permitted inside
-    ///     it, or the file has since changed. A successful write goes through a temp file in the same directory, then
+    ///     every other case: no proposal was ever reported, no worktree could be handed off for the run, the path is
+    ///     not permitted inside it, or the file has since changed. A successful write goes through a temp file in the same directory, then
     ///     <see cref="File.Move(string,string,bool)"/> with <c>overwrite: true</c> — the rename is what keeps a reader
     ///     of the file from ever observing a partial write. The target and the temp file are each resolved through
     ///     <see cref="WorkspacePath.Resolve"/>, so neither can lie outside the worktree.
@@ -102,11 +106,14 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorksp
                 $"Workflow run '{run.Id}' carries no '{ReviewHandoff.ProposedStandingInstructionsKey}' proposal to apply."));
         }
 
-        var workspace = await _workspaces.FindAsync(run.Id, ct).ConfigureAwait(false);
-        if (workspace is null)
+        // The worktree the run publishes from: its own in local mode, the trusted publish worktree in sandbox mode.
+        var handedOff = await _handoff.CheckoutForPublishAsync(run.Id, ct).ConfigureAwait(false);
+        if (handedOff.IsFailure)
         {
-            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.WriteFailed, "run has no workspace"));
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.WriteFailed, handedOff.Error.Message));
         }
+
+        var workspace = handedOff.Value;
 
         var target = WorkspacePath.Resolve(workspace.Root, _path);
         if (target.IsFailure)

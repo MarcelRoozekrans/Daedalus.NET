@@ -27,8 +27,21 @@ namespace Daedalus.Agents.Workflow;
 ///     <para>
 ///     <b>The worktree is never removed here (rulings R14 and R19).</b> Removing it after the pull request would leave a
 ///     crash before the run's advance with a redelivery that finds no workspace and fails a run whose pull request is
-///     open. <c>RunWorkspaceSweeper</c> removes it once the run is <c>Succeeded</c>; on a failure it stays for a human,
-///     and every failure message names it.
+///     open. <c>RunWorkspaceSweeper</c> removes it once the run is <c>Succeeded</c>; on a failure it stays for a human.
+///     In local mode every failure message names it. A sandboxed run's message names no host path: its changes are kept
+///     as the stored patch and the publish worktree cut from it, which a retry checks out again.
+///     </para>
+///     <para>
+///     <b>Where it publishes from, and how it commits (phase 2.6, task B5).</b> The worktree comes from
+///     <see cref="IRunWorkspaceHandoff.CheckoutForPublishAsync"/>. In local mode that is the run's own worktree, whose
+///     agent wrote files that were never staged, so the code commit stages from disk as it always has. In sandbox mode
+///     it is the trusted publish worktree into which Thalos applied the run's patch with <c>git apply --index</c>, and
+///     that index is exactly what the publish-side protected-path check (S5) passed. The code commit then takes the
+///     index as it stands, with <see cref="GitCommitRequest.CommitStagedIndex"/>: restaging from disk would drop an
+///     added file the worktree's <c>.gitignore</c> matches and, under <c>core.fileMode=false</c>, a mode change, so
+///     the commit would differ from what was checked. The standing-instructions commit is path-scoped in both modes, and
+///     comes second, after the staged change is committed. The mode is <see cref="SandboxConfig.Enabled"/>, the same
+///     flag that chooses which handoff the host registers, so the two cannot disagree.
 ///     </para>
 ///     <para>
 ///     <b>What the push already guarantees.</b> <see cref="IRunWorkspaceGit.PushAsync"/> checks that HEAD is the
@@ -54,7 +67,7 @@ namespace Daedalus.Agents.Workflow;
 ///     </para>
 /// </remarks>
 internal sealed class OpenPullRequestAction(
-    IRunWorkspaceProvider workspaces, IRunWorkspaceGit git, IServiceScopeFactory scopes, WorkflowConfig config) : IWorkflowHostAction
+    IRunWorkspaceHandoff handoff, IRunWorkspaceGit git, IServiceScopeFactory scopes, WorkflowConfig config) : IWorkflowHostAction
 {
     /// <summary>The name a process node references with <c>action: open-pull-request</c>.</summary>
     public const string ActionName = ReviewHandoff.PublishActionName;
@@ -66,6 +79,8 @@ internal sealed class OpenPullRequestAction(
     private readonly string _standingInstructionsPath = DaedalusAgentsServiceCollectionExtensions.StandingInstructionsRelativePath(
         (config ?? throw new ArgumentNullException(nameof(config))).StandingInstructionsPath);
 
+    private readonly bool _sandboxed = config.Sandbox.Enabled;
+
     /// <inheritdoc />
     public string Name => ActionName;
 
@@ -74,9 +89,13 @@ internal sealed class OpenPullRequestAction(
     {
         ArgumentNullException.ThrowIfNull(run);
 
-        // Dispatch gates do not run before an action node, so the missing workspace is refused here (A13).
-        if (await workspaces.FindAsync(run.Id, ct).ConfigureAwait(false) is not { } ws)
-            return Result<HostActionResult>.Failure($"run '{run.Id}' has no workspace to publish from.");
+        // Dispatch gates do not run before an action node, so a run with nothing to hand off is refused here (A13), and
+        // so is a sandboxed run whose patch the publish-side protected-path check refused (S5): before any commit.
+        var handedOff = await handoff.CheckoutForPublishAsync(run.Id, ct).ConfigureAwait(false);
+        if (handedOff.IsFailure)
+            return Result<HostActionResult>.Failure(Describe(handedOff.Error));
+
+        var ws = handedOff.Value;
 
         try
         {
@@ -127,7 +146,10 @@ internal sealed class OpenPullRequestAction(
 
         var author = new GitAuthor(config.CommitAuthor.Name, config.CommitAuthor.Email);
 
-        // 1. Commit. Each call is a no-op when nothing is staged, so a redelivery commits nothing twice.
+        // 1. Commit. Each call is a no-op when nothing is staged, so a redelivery commits nothing twice. In sandbox mode
+        // the code commit takes the checked index as it stands; see the remarks. The standing-instructions file is
+        // excluded either way, and committed on its own, path-scoped, second: its commit resets the index to HEAD first,
+        // which after the code commit drops nothing.
         var code = await git.CommitAsync(
             ws,
             new GitCommitRequest
@@ -135,6 +157,7 @@ internal sealed class OpenPullRequestAction(
                 Message = PullRequestBody.CodeCommitMessage(workIntent, run.Id),
                 Author = author,
                 ExcludePaths = [_standingInstructionsPath],
+                CommitStagedIndex = _sandboxed,
             },
             ct).ConfigureAwait(false);
         if (code.IsFailure)
@@ -308,6 +331,12 @@ internal sealed class OpenPullRequestAction(
         && (string.Equals(parsed.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)
             || string.Equals(parsed.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal));
 
-    private static Result<HostActionResult> Failed(string what, RunWorkspace ws) =>
-        Result<HostActionResult>.Failure($"{what}; the worktree is kept at {ws.Root}");
+    /// <summary>
+    ///     A failure after the handoff. A local run's message names the worktree kept for a human. A sandboxed run's
+    ///     names no host path: its worktree is in its container, and the publish worktree is Thalos's to rebuild.
+    /// </summary>
+    private Result<HostActionResult> Failed(string what, RunWorkspace ws) =>
+        Result<HostActionResult>.Failure(_sandboxed
+            ? $"{what}; the run's changes are kept for a retry"
+            : $"{what}; the worktree is kept at {ws.Root}");
 }
