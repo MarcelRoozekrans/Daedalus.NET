@@ -3,8 +3,10 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
-    <!-- 1.7.5 → 1.7.8: floor set by Thalos.NET.Abstractions 0.11.0 -->
-    <ZeroAllocValidationVersion>1.7.8</ZeroAllocValidationVersion>
+    <!-- 1.7.5 → 1.7.8: floor set by Thalos.NET.Abstractions 0.11.0.
+         1.7.8 → 2.1.0, Validation and Testing: floor set by Thalos.NET.Abstractions 0.14.2. 2.0 bundles its source
+         generator, so the separate ZeroAlloc.Validation.Generator reference is gone: with both, ZV9001 fails the build. -->
+    <ZeroAllocValidationVersion>2.1.0</ZeroAllocValidationVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -61,27 +63,30 @@
          0.11.1 → 0.12.0 (Thalos PR #228): IWorkflowStore.RetryFailedNodeAsync, a required member that moves a Failed
          run back to Running at a host-action node, records a Retried event with its actor and re-dispatches that node.
          0.12.0 → 0.14.0 (phase 2.6): 0.13.0 fixed environment inheritance. 0.14.0 adds the run sandbox packages
-         Thalos.NET.Sandbox, .Sandbox.Docker and .Sandbox.Host, which takes the family to eighteen packages. -->
-    <PackageVersion Include="Thalos.NET" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Git" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Memory" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Skills" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Channels" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.14.0" />
+         Thalos.NET.Sandbox, .Sandbox.Docker and .Sandbox.Host, which takes the family to eighteen packages.
+         0.14.0 → 0.14.2 (phase 2.6 task B5): 0.14.1 adds GitCommitRequest.CommitStagedIndex, which publish needs
+         to commit a sandboxed run's checked index as it stands, and registers IRunWorkspaceGit in
+         UseSandboxRunWorkspaces (Thalos #250); 0.14.2 fixes the HTTP MCP connect, with no API change here. -->
+    <PackageVersion Include="Thalos.NET" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Git" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Skills" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Channels" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.14.2" />
     <!-- Phase 2.2 Part B: consume the durable workflow engine Part A shipped. -->
-    <PackageVersion Include="Thalos.NET.Workflow" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.14.0" />
+    <PackageVersion Include="Thalos.NET.Workflow" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.14.2" />
     <!-- Phase 2.6: the per-run Docker sandbox packages, net10.0 only, shipped from 0.14.0. -->
-    <PackageVersion Include="Thalos.NET.Sandbox" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.14.0" />
-    <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.14.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.14.2" />
+    <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.14.2" />
     <!-- ZeroAlloc.ORM 1.7.1 → 2.0.1 (#310): ZeroAlloc.Outbox.Orm 3.0.1 declares >= 2.0.0. 2.0.1 → 2.1.1: floor
          set by Thalos.NET.Workflow.Orm 0.11.1, the version it is built against.
          2.0 rejects a migration version collision instead of skipping it: the outbox schema is versions 1-2
@@ -96,22 +101,23 @@
     <PackageVersion Include="ZeroAlloc.Results" Version="1.2.4" />
     <!-- 2.0.10 → 2.0.12: floor set by Thalos.NET.Abstractions 0.13.0 -->
     <PackageVersion Include="ZeroAlloc.ValueObjects" Version="2.0.12" />
-    <!-- 2.4.4 → 2.5.0: floor set by ZeroAlloc.Outbox 4.2.0 -->
-    <PackageVersion Include="ZeroAlloc.Serialisation" Version="2.5.0" />
+    <!-- 2.4.4 → 2.5.0: floor set by ZeroAlloc.Outbox 4.2.0. 2.5.0 → 2.5.1: floor set by AI.Sentinel 2.3.1, via
+         Thalos.NET.Sentinel 0.14.2. -->
+    <PackageVersion Include="ZeroAlloc.Serialisation" Version="2.5.1" />
     <!-- 2.1.3 → 2.1.5: floor set by Thalos.NET.Abstractions 0.13.0 -->
     <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.5" />
     <PackageVersion Include="ZeroAlloc.Validation" Version="$(ZeroAllocValidationVersion)" />
-    <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="$(ZeroAllocValidationVersion)" />
     <PackageVersion Include="ZeroAlloc.Validation.Testing" Version="$(ZeroAllocValidationVersion)" />
     <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.1" />
     <!-- 5.1.5 → 6.0.2: floor set by Thalos.NET.Abstractions 0.12.0 (5.1.1 → 5.1.5 earlier: floor set by 0.6.0).
          Runtime behaviour change in Daedalus.Application: Mediator 6 opens an Activity span on every dispatch,
          even without WithTelemetry. -->
-    <!-- 6.0.2 → 6.1.0, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.14.0. -->
-    <PackageVersion Include="ZeroAlloc.Mediator" Version="6.1.0" />
-    <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="6.1.0" />
-    <!-- 1.2.2 → 1.3.0: floor set by ZeroAlloc.Mediator 6.1.0. -->
-    <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.3.0" />
+    <!-- 6.0.2 → 6.1.0, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.14.0.
+         6.1.0 → 6.1.1, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.14.2. -->
+    <PackageVersion Include="ZeroAlloc.Mediator" Version="6.1.1" />
+    <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="6.1.1" />
+    <!-- 1.2.2 → 1.3.0: floor set by ZeroAlloc.Mediator 6.1.0. 1.3.0 → 1.4.0: floor set by ZeroAlloc.Validation 2.1.0. -->
+    <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.4.0" />
     <!-- 2.7.1 → 3.0.1 (#310), all three together: 3.0 replaces FetchPendingAsync with a lease-based claim,
          row-locked on Postgres, so several hosts can poll one outbox table without dispatching a message twice.
          3.0.1, not 3.0.0: it fixes an EF Core 10 crash in ZeroAlloc.Outbox.EfCore. The EF table's lease columns
