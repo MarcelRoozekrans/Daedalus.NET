@@ -1,4 +1,10 @@
+using System.Text.Json;
+using Daedalus.Domain.Entities;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Thalos;
 using Thalos.Mcp;
+using Thalos.Sandbox;
 using Thalos.Workflow;
 using Thalos.Workspaces;
 using ZeroAlloc.Results;
@@ -23,6 +29,16 @@ namespace Daedalus.Agents.Workflow;
 ///     escaped the wait for any other reason would be retried by the outbox as a failed attempt and strand the run with
 ///     no message, so it is turned into a refusal here (the contract on <see cref="IWorkflowDispatchGate"/>).
 ///     </para>
+///     <para>
+///     <b>A failed sandbox restore is recorded, not refused (phase 2.6, task B5).</b> In sandbox mode a ready sandbox
+///     has attempted its package restore, and a failed one does not fail the wait: the run's agent may be the one to fix
+///     it. Once the wait succeeds, the gate reads the sandbox's readiness once per run, through
+///     <paramref name="sandboxReadiness"/>, and a failed restore appends one <see cref="WorkflowRunRecord.SandboxRestoreKind"/>
+///     record with the restore's output tail; the run proceeds either way. <paramref name="restores"/> keeps the read to
+///     one per run while its sandbox lives, and the record store keeps the record to one per run. Nothing about the read
+///     or the record can refuse the dispatch: a read or a write that fails is logged and given back, so the next node
+///     tries again.
+///     </para>
 /// </remarks>
 /// <param name="workspaces">Finds the run's workspace.</param>
 /// <param name="config">The write grants and the readiness timeout.</param>
@@ -30,11 +46,41 @@ namespace Daedalus.Agents.Workflow;
 ///     <see langword="null"/> when no run-scoped MCP server is configured on this host, so a run has nothing to wait for
 ///     (rulings R24 and R27). The missing-workspace check still applies.
 /// </param>
-internal sealed class RunToolServersReadyGate(IRunWorkspaceProvider workspaces, WorkflowConfig config, IRunToolServerReadiness? readiness)
+/// <param name="sandboxReadiness">
+///     The sandbox provider's <see cref="SandboxRunWorkspaceProvider.ReadinessAsync"/> when the host's workspace provider
+///     is a <see cref="SandboxRunWorkspaceProvider"/>, and <see langword="null"/> in local mode, which has no restore to
+///     record.
+/// </param>
+/// <param name="restores">Which runs' restore state was already read.</param>
+/// <param name="scopes">Creates the scope the record store is resolved from.</param>
+/// <param name="clock">Timestamps the record.</param>
+/// <param name="logger">Logs a restore state that could not be read or recorded.</param>
+internal sealed partial class RunToolServersReadyGate(
+    IRunWorkspaceProvider workspaces,
+    WorkflowConfig config,
+    IRunToolServerReadiness? readiness,
+    Func<Guid, CancellationToken, ValueTask<Result<SandboxReadiness, AgentError>>>? sandboxReadiness,
+    SandboxRestoreLedger restores,
+    IServiceScopeFactory scopes,
+    TimeProvider clock,
+    ILogger<RunToolServersReadyGate> logger)
     : IWorkflowDispatchGate
 {
+    /// <summary>What <see cref="SandboxReadiness.Restore"/> says when the sandbox's restore failed.</summary>
+    internal const string RestoreFailed = "failed";
+
+    /// <summary>
+    ///     The <see cref="WorkflowRunRecord.PrincipalId"/> of a restore record: the run's sandbox restored, and no caller
+    ///     asked for it.
+    /// </summary>
+    internal const string SandboxPrincipalId = "sandbox";
+
     private readonly IRunWorkspaceProvider _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
     private readonly WorkflowConfig _config = config ?? throw new ArgumentNullException(nameof(config));
+    private readonly SandboxRestoreLedger _restores = restores ?? throw new ArgumentNullException(nameof(restores));
+    private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
+    private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    private readonly ILogger<RunToolServersReadyGate> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
     public async ValueTask<Result> BeforeTaskNodeAsync(WorkflowRun run, string node, CancellationToken ct)
@@ -69,6 +115,104 @@ internal sealed class RunToolServersReadyGate(IRunWorkspaceProvider workspaces, 
             return Result.Failure($"run tool servers not ready: the wait was cancelled without the dispatch being cancelled ({ex.Message})");
         }
 
-        return ready.IsSuccess ? Result.Success() : Result.Failure($"run tool servers not ready: {ready.Error.Message}");
+        if (!ready.IsSuccess)
+        {
+            return Result.Failure($"run tool servers not ready: {ready.Error.Message}");
+        }
+
+        if (sandboxReadiness is not null)
+        {
+            await RecordFailedRestoreOnceAsync(sandboxReadiness, run, node, ct).ConfigureAwait(false);
+        }
+
+        return Result.Success();
     }
+
+    /// <summary>
+    ///     Reads the run's sandbox readiness, if no node of the run has yet, and records a failed restore. Never fails the
+    ///     dispatch: only the dispatch's own cancellation leaves this method as an exception.
+    /// </summary>
+    private async ValueTask RecordFailedRestoreOnceAsync(
+        Func<Guid, CancellationToken, ValueTask<Result<SandboxReadiness, AgentError>>> read, WorkflowRun run, string node, CancellationToken ct)
+    {
+        if (!_restores.TryClaim(run.Id))
+        {
+            return;
+        }
+
+        var settled = false;
+        try
+        {
+            settled = await ReadAndRecordAsync(read, run, node, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // Any failure other than the dispatch's own cancellation, including a database error from the append: the
+            // run proceeds, and the claim is given back below so the next node tries again.
+            LogRestoreNotRecorded(_logger, ex, run.Id);
+        }
+        finally
+        {
+            if (!settled)
+            {
+                _restores.Release(run.Id);
+            }
+        }
+    }
+
+    /// <summary>True once the run's restore state was read, and recorded when it failed; false to read it again.</summary>
+    private async ValueTask<bool> ReadAndRecordAsync(
+        Func<Guid, CancellationToken, ValueTask<Result<SandboxReadiness, AgentError>>> read, WorkflowRun run, string node, CancellationToken ct)
+    {
+        var state = await read(run.Id, ct).ConfigureAwait(false);
+        if (state.IsFailure)
+        {
+            LogRestoreUnread(_logger, run.Id, state.Error.Message);
+            return false;
+        }
+
+        if (!string.Equals(state.Value.Restore, RestoreFailed, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        await using var scope = _scopes.CreateAsyncScope();
+        var records = scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>();
+
+        // Once per run across host restarts and sandboxes too: the ledger is in memory and forgets a parked sandbox.
+        var recorded = await records.ListAsync(run.Id, WorkflowRunRecord.SandboxRestoreKind, ct).ConfigureAwait(false);
+        if (recorded is { Count: > 0 })
+        {
+            return true;
+        }
+
+        // jsonb refuses a NUL even escaped, and the tail is the sandbox's own process output.
+        var detail = state.Value.RestoreDetail?.Replace("\0", "", StringComparison.Ordinal);
+        var payload = JsonSerializer.Serialize(new { restore = RestoreFailed, detail });
+        var record = WorkflowRunRecord.Create(
+            run.Id, run.CurrentSeq, node, WorkflowRunRecord.SandboxRestoreKind, SandboxPrincipalId, run.StartedBy?.Id, payload,
+            _clock.GetUtcNow().UtcDateTime);
+        if (record.IsFailure)
+        {
+            // Not transient: the same values would be refused at the next node, so the claim is kept.
+            LogRestoreRejected(_logger, run.Id, record.Error);
+            return true;
+        }
+
+        await records.AppendAsync(record.Value, ct).ConfigureAwait(false);
+        LogRestoreFailedRecorded(_logger, run.Id);
+        return true;
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Run {RunId}'s sandbox failed to restore; recorded, and the run proceeds")]
+    private static partial void LogRestoreFailedRecorded(ILogger logger, Guid runId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Run {RunId}'s sandbox restore state could not be read ({Reason}); the next node tries again")]
+    private static partial void LogRestoreUnread(ILogger logger, Guid runId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}'s failed sandbox restore could not be recorded; the next node tries again")]
+    private static partial void LogRestoreNotRecorded(ILogger logger, Exception exception, Guid runId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}'s failed sandbox restore record was invalid ({Reason}); it is not recorded")]
+    private static partial void LogRestoreRejected(ILogger logger, Guid runId, string reason);
 }

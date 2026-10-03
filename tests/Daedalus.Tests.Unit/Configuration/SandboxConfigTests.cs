@@ -265,9 +265,10 @@ public sealed partial class SandboxConfigTests : IDisposable
 
     /// <summary>
     ///     Publish commits and pushes in the sandbox's trusted publish worktree, so sandbox mode still registers the git
-    ///     the publish action needs, and the host's every workflow host action resolves. Red: drop the
-    ///     <see cref="IRunWorkspaceGit"/> registration from <c>ConfigureSandboxMode</c>; resolving the host actions
-    ///     then fails on <c>OpenPullRequestAction</c>.
+    ///     the publish action needs, and the host's every workflow host action resolves. Since Thalos 0.14.1 (issue #250)
+    ///     <c>UseSandboxRunWorkspaces</c> registers that git itself; Daedalus adds none. Red: remove every
+    ///     <see cref="IRunWorkspaceGit"/> registration after <c>UseSandboxRunWorkspaces</c> in <c>ConfigureSandboxMode</c>;
+    ///     resolving the git then answers null, and the host actions fail on <c>OpenPullRequestAction</c>.
     /// </summary>
     [Fact]
     public async Task In_sandbox_mode_publish_has_its_git_and_every_host_action_resolves()
@@ -280,9 +281,11 @@ public sealed partial class SandboxConfigTests : IDisposable
 
     /// <summary>
     ///     The publish git works in the sandbox's publish mirror and worktrees, under <c>&lt;DataRoot&gt;/publish</c>, the
-    ///     root <c>UseSandboxRunWorkspaces</c> keeps them in. Observed through the git's own construction, which isolates
-    ///     its git configuration in <c>.git-isolation</c> under its data root; the git is resolved first, so nothing else
-    ///     has built a git over either root. Red: root the registration at <c>&lt;DataRoot&gt;</c> itself; the isolation
+    ///     root <c>UseSandboxRunWorkspaces</c> keeps them in. Since Thalos 0.14.1 (issue #250) that registration is
+    ///     Thalos's own, over its own publish options, and this pins that Daedalus's data root reaches it. Observed
+    ///     through the git's own construction, which isolates its git configuration in <c>.git-isolation</c> under its
+    ///     data root; the git is resolved first, so nothing else has built a git over either root. Red: replace the
+    ///     registration in <c>ConfigureSandboxMode</c> with one rooted at <c>&lt;DataRoot&gt;</c> itself; the isolation
     ///     directory then appears there and not under <c>publish</c>.
     /// </summary>
     [Fact]

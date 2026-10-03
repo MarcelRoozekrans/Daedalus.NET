@@ -553,10 +553,24 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // and the run's own MCP servers must be ready. Registered on every workflow host, not only one whose .mcp.json
         // declares a runScoped entry: IRunToolServerReadiness is optional, and the workspace check (ruling R9) holds
         // without it. WorkflowNodeDispatcherFactory hands the dispatcher every registered gate.
-        services.AddSingleton<IWorkflowDispatchGate>(sp => new RunToolServersReadyGate(
-            sp.GetRequiredService<IRunWorkspaceProvider>(),
-            sp.GetRequiredService<WorkflowConfig>(),
-            sp.GetService<IRunToolServerReadiness>()));
+        // In sandbox mode the gate also records a failed restore once per run (task B5). The ledger that keeps the read
+        // to one per run forgets a run when its sandbox is removed or parked, as an observer of the provider; it has no
+        // dependencies, so the provider resolving its observers does not reach back to the gate.
+        services.AddSingleton<SandboxRestoreLedger>();
+        services.AddSingleton<IRunWorkspaceObserver>(sp => sp.GetRequiredService<SandboxRestoreLedger>());
+        services.AddSingleton<IWorkflowDispatchGate>(sp =>
+        {
+            var workspaces = sp.GetRequiredService<IRunWorkspaceProvider>();
+            return new RunToolServersReadyGate(
+                workspaces,
+                sp.GetRequiredService<WorkflowConfig>(),
+                sp.GetService<IRunToolServerReadiness>(),
+                workspaces is SandboxRunWorkspaceProvider sandbox ? sandbox.ReadinessAsync : null,
+                sp.GetRequiredService<SandboxRestoreLedger>(),
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<RunToolServersReadyGate>>());
+        });
 
         // A dispatch is, at most, the gate's wait followed by the turn: the gate waits up to RoslynReadyTimeout, so the
         // lease must outlast both, and a run healthily waiting on the gate must not look stranded.
@@ -697,8 +711,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     Sandbox mode, phase 2.6: every run gets its own Docker container. <c>UseSandboxRunWorkspaces</c> registers the
     ///     remote <c>workspace</c> and <c>sandbox</c> tool sources and replaces the run workspace provider and its
     ///     companions, so neither <c>UseGitWorktreeWorkspaces</c> nor <c>UseRunWorkspaceTools</c> is called: local
-    ///     workspace tools would serve a run's writes on the host. Only <see cref="IRunWorkspaceGit"/>, which publish
-    ///     needs and the sandbox does not register, is added here, over the sandbox's publish data root.
+    ///     workspace tools would serve a run's writes on the host. It also registers the <see cref="IRunWorkspaceGit"/>
+    ///     publish commits and pushes with, over the trusted publish worktrees under <c>&lt;DataRoot&gt;/publish</c>
+    ///     (Thalos 0.14.1, issue #250), so nothing is added here.
     /// </summary>
     private static void ConfigureSandboxMode(ThalosBuilder thalos, WorkflowConfig workflow, string dataRoot, string standingInstructionsPath)
     {
@@ -715,16 +730,6 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 o.ProtectedPaths.Add(path);
             }
         });
-
-        // Publish commits and pushes in the trusted publish worktree the handoff cuts under <DataRoot>/publish, from the
-        // mirror UseSandboxRunWorkspaces keeps there; UseSandboxRunWorkspaces registers no IRunWorkspaceGit of its own,
-        // and OpenPullRequestAction needs one. Same data root, spelled as Thalos spells it, and the same credentials.
-        // Thalos issue #250 tracks moving this registration into UseSandboxRunWorkspaces, over its own publish options.
-        var publish = new GitWorkspaceOptions { DataRoot = Path.Combine(Path.GetFullPath(dataRoot), "publish") };
-        thalos.Services.Replace(ServiceDescriptor.Singleton<IRunWorkspaceGit>(sp => new GitCliRunWorkspaceGit(
-            publish,
-            sp.GetRequiredService<ILogger<GitCliRunWorkspaceGit>>(),
-            sp.GetService<IGitCredentialSource>())));
     }
 
     /// <summary>

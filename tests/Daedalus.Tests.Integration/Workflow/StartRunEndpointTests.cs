@@ -199,7 +199,7 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task An_unavailable_sandbox_is_a_503_with_retry_after()
     {
-        var provider = Substitute.For<IRunWorkspaceProvider, IRunBaseFileReader>();
+        var provider = Substitute.For<IRunWorkspaceProvider, IRunBaseFileReader, IRunWorkspaceHandoff>();
         provider.CreateAsync(Arg.Any<RunWorkspaceRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
                 Result<RunWorkspace, AgentError>.Failure(AgentError.ProviderError("the container engine is not reachable."))));

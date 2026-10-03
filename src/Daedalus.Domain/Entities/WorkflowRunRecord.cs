@@ -34,6 +34,12 @@ public sealed class WorkflowRunRecord
     /// <summary>The <see cref="Kind"/> of a record for the evidence one review lens returned.</summary>
     public const string ReviewEvidenceKind = "review-evidence";
 
+    /// <summary>
+    ///     The <see cref="Kind"/> of a record that a sandboxed run's package restore failed: the design's
+    ///     <c>SandboxRestoreFailed</c>. The run proceeds, since its agent may be the one to fix the restore.
+    /// </summary>
+    public const string SandboxRestoreKind = "sandbox-restore";
+
     /// <summary>Maximum length of <see cref="Node"/>; the column is <c>varchar(128)</c>.</summary>
     public const int MaxNodeLength = 128;
 

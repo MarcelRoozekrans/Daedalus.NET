@@ -16,10 +16,11 @@ internal static class WorkspaceProviderOverrides
 {
     /// <summary>
     ///     Replaces the provider with <paramref name="provider"/>, so every create, find, list and remove goes to it
-    ///     instead of the host's git provider. The host registers its <see cref="IRunBaseFileReader"/> as a cast of the
-    ///     provider it resolves, so <paramref name="provider"/> must implement it too, such as
-    ///     <c>Substitute.For&lt;IRunWorkspaceProvider, IRunBaseFileReader&gt;()</c>, or resolving the manufacture run
-    ///     starter fails with an <see cref="InvalidCastException"/>.
+    ///     instead of the host's git provider. The host registers its <see cref="IRunBaseFileReader"/> and its
+    ///     <see cref="IRunWorkspaceHandoff"/> as casts of the provider it resolves, so <paramref name="provider"/> must
+    ///     implement both too, such as
+    ///     <c>Substitute.For&lt;IRunWorkspaceProvider, IRunBaseFileReader, IRunWorkspaceHandoff&gt;()</c>, or resolving
+    ///     the manufacture run starter or the publish action fails with an <see cref="InvalidCastException"/>.
     /// </summary>
     public static Action<IServiceCollection> Replace(IRunWorkspaceProvider provider) => services =>
     {
@@ -31,7 +32,7 @@ internal static class WorkspaceProviderOverrides
     ///     Keeps the host's own provider and makes it, after every successful create, leave a directory link named
     ///     <paramref name="linkName"/> inside the new workspace that points at <paramref name="target"/>: a checkout that
     ///     holds a link out of itself, as a hostile repository's could. Base-file reads go to the host's own provider,
-    ///     which is its reader, so the real reader meets the link.
+    ///     which is its reader, so the real reader meets the link; so do handoffs, to the provider that is its handoff.
     /// </summary>
     public static Action<IServiceCollection> LinkOutOfEveryWorkspace(string linkName, string target, ICollection<IDisposable> links) =>
         services =>
@@ -52,7 +53,7 @@ internal static class WorkspaceProviderOverrides
         };
 
     private sealed class LinkingProvider(IRunWorkspaceProvider inner, string linkName, string target, ICollection<IDisposable> links)
-        : IRunWorkspaceProvider, IRunBaseFileReader
+        : IRunWorkspaceProvider, IRunBaseFileReader, IRunWorkspaceHandoff
     {
         public async ValueTask<Result<RunWorkspace, AgentError>> CreateAsync(RunWorkspaceRequest request, CancellationToken ct)
         {
@@ -73,5 +74,8 @@ internal static class WorkspaceProviderOverrides
 
         public ValueTask<Result<string?, AgentError>> ReadBaseFileAsync(Guid runId, string relativePath, CancellationToken ct) =>
             ((IRunBaseFileReader)inner).ReadBaseFileAsync(runId, relativePath, ct);
+
+        public ValueTask<Result<RunWorkspace, AgentError>> CheckoutForPublishAsync(Guid runId, CancellationToken ct) =>
+            ((IRunWorkspaceHandoff)inner).CheckoutForPublishAsync(runId, ct);
     }
 }
