@@ -25,6 +25,12 @@ namespace Daedalus.Tests.Integration.Workflow;
 /// </summary>
 /// <remarks>
 ///     <para>
+///     <b>Local mode.</b> The host is pinned to <c>Thalos:Workflow:Sandbox:Enabled=false</c>, phase 2.5's wiring, where
+///     the implement grant's extension list is the boundary and the <c>.csproj</c> write is refused. That refusal
+///     applies in local mode only: under the sandbox any extension is writable, and
+///     <see cref="ManufactureSandboxEndToEndTests"/> (phase 2.6 task B8) proves sandbox mode instead.
+///     </para>
+///     <para>
 ///     The script is one queue for the whole run, consumed in dispatch order: implement, three review lens passes,
 ///     retrospect. Every turn ends with a text reply, because the model is asked again after each tool result.
 ///     </para>
@@ -156,9 +162,9 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
     /// <summary>
     ///     Boots a <see cref="ScratchWorkflowHost"/> with its own runtime, the scripted model, a fast outbox poll, and one
     ///     <see cref="FakePullRequestPublisher"/> as both pull-request interfaces (ruling R28a). The default seed gives
-    ///     <c>main</c> <c>AGENT.md</c> and <c>src/A.cs</c>. The write grant is the shipped one in
-    ///     <c>src/Daedalus.Api/appsettings.json</c>, implement over <c>.cs</c> and <c>.md</c>: the test sets none of its
-    ///     own, because configuration arrays merge by index, so a test entry could only add to that grant, never narrow it.
+    ///     <c>main</c> <c>AGENT.md</c> and <c>src/A.cs</c>. The host is pinned to local mode. The write grant is the shipped
+    ///     implement grant with the local-mode extension list <see cref="ApiWebApplicationFactory"/> gives it, <c>.cs</c> and
+    ///     <c>.md</c>: the test sets none of its own.
     /// </summary>
     private async Task WithV6HostAsync(Func<V6Host, Task> body)
     {
@@ -167,6 +173,7 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
         await using var host = await ScratchWorkflowHost.StartAsync(
             fixture,
             runtime: null,
+            settings: new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Enabled"] = "false" },
             configureServices: services =>
             {
                 services.Replace(ServiceDescriptor.Singleton<IChatClientProvider>(new ScriptedChatClientProvider(chat)));

@@ -17,13 +17,21 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     own <see cref="WorkspaceTools"/>, over the registered <see cref="RunWorkspaceToolOptions"/>. MSBuild evaluates
 ///     <c>Directory.Build.props</c> when the run's Roslyn server loads or rebuilds the worktree, so a run that could write
 ///     it could run code on the host.
+///     <para>
+///     <b>Local mode only.</b> The host is pinned to <c>Thalos:Workflow:Sandbox:Enabled=false</c>, where the grant's extension
+///     list is what keeps <c>Directory.Build.props</c> off the host. In sandbox mode the file is writable and MSBuild runs
+///     only inside the run's container; <c>ManufactureSandboxEndToEndTests</c> (phase 2.6 task B8) proves that instead.
+///     </para>
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class WorkspaceExtensionBoundaryTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private ScratchWorkflowHost _host = null!;
 
-    public async Task InitializeAsync() => _host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+    public async Task InitializeAsync() => _host = await ScratchWorkflowHost.StartAsync(
+        fixture,
+        Substitute.For<IAgentRuntime>(),
+        settings: new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Enabled"] = "false" });
 
     public async Task DisposeAsync() => await _host.DisposeAsync();
 

@@ -26,6 +26,12 @@ internal sealed class FakePullRequestPublisher : IPullRequestPublisher, IOpenPul
     /// <summary>The body of the most recent <see cref="OpenPullRequestAsync"/> call, or null when none was made.</summary>
     public string? LastBody { get; private set; }
 
+    /// <summary>
+    ///     How many of the next <see cref="OpenPullRequestAsync"/> calls fail, as a pull-request host that is down would,
+    ///     before one succeeds. A failed call is counted in <see cref="OpenCount"/> but opens nothing. Zero by default.
+    /// </summary>
+    public int FailuresLeft { get; set; }
+
     /// <summary>The title of the most recent <see cref="OpenPullRequestAsync"/> call, or null when none was made.</summary>
     public string? LastTitle { get; private set; }
 
@@ -37,6 +43,12 @@ internal sealed class FakePullRequestPublisher : IPullRequestPublisher, IOpenPul
         string repositoryPath, string sourceBranch, string targetBranch, string title, string body, CancellationToken ct)
     {
         Interlocked.Increment(ref _openCount);
+        if (FailuresLeft > 0)
+        {
+            FailuresLeft--;
+            return ValueTask.FromResult(Result<PullRequestResult, AgentError>.Failure(AgentError.ProviderError("the pull request host is unavailable")));
+        }
+
         LastBody = body;
         LastTitle = title;
         LastTargetBranch = targetBranch;
