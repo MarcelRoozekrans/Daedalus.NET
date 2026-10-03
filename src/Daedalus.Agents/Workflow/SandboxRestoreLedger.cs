@@ -13,8 +13,9 @@ namespace Daedalus.Agents.Workflow;
 ///     forgets a run when its workspace is about to be removed: when the sweeper removes a finished run's sandbox, and
 ///     when a run is parked, which deletes its container. So a long-lived host holds at most one entry per live sandbox,
 ///     never one per run it ever dispatched. A run's next sandbox, after a park, restores again, so the gate reads it
-///     again; the run record store, not this ledger, is what keeps the record to one per run, across sandboxes and
-///     host restarts alike.
+///     again; the gate's check of the run record store, not this ledger, is what keeps the record to one per run within
+///     a host, and across sandboxes and restarts. That check is a list-then-append, so two hosts racing on one run can
+///     each append one.
 ///     </para>
 ///     <para>
 ///     No dependencies of its own on purpose: the sandbox provider resolves every observer when it is built, and the

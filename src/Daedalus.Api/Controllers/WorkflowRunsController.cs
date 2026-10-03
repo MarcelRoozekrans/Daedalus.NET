@@ -211,8 +211,11 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     ///     learn two conventions for "no such run" on one controller. A mismatched or absent signal fails with
     ///     409 and a message naming what the run is actually awaiting; it never silently no-ops the run's status.
     ///     <see cref="ResumeWorkflowRunRequest.ApplyStandingInstructions"/>, task B5's own addition, maps
-    ///     <see cref="ResumeRefusal.WriteFailed"/> to 500 — a filesystem fault, not a bad request — and every
-    ///     other <see cref="ResumeRefusal"/> to the same 409 an engine-level mismatch already used.
+    ///     <see cref="ResumeRefusal.WriteFailed"/> to 500, a filesystem fault and not a bad request;
+    ///     <see cref="ResumeRefusal.PublishRefused"/> to 422 (ruling R57: in sandbox mode the publish-side protected-path
+    ///     check runs inside this request, and its refusal, whose detail names the refused path, is a policy refusal as
+    ///     R50's pin refusals are), and every other <see cref="ResumeRefusal"/> to the same 409 an engine-level mismatch
+    ///     already used.
     /// </summary>
     [HttpPost("{id:guid}/resume")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -220,6 +223,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Resume(Guid id, [FromBody] ResumeWorkflowRunRequest request, CancellationToken ct)
     {
@@ -246,9 +250,12 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             return NoContent();
         }
 
-        var statusCode = result.Error.Kind == ResumeRefusal.WriteFailed
-            ? StatusCodes.Status500InternalServerError
-            : StatusCodes.Status409Conflict;
+        var statusCode = result.Error.Kind switch
+        {
+            ResumeRefusal.WriteFailed => StatusCodes.Status500InternalServerError,
+            ResumeRefusal.PublishRefused => StatusCodes.Status422UnprocessableEntity,
+            _ => StatusCodes.Status409Conflict,
+        };
         return Problem(detail: result.Error.Detail, statusCode: statusCode);
     }
 

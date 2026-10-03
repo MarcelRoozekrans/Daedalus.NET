@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using AwesomeAssertions.Execution;
 using Daedalus.Agents;
 using Daedalus.Agents.Security;
+using Daedalus.Agents.Workflow;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -14,6 +15,7 @@ using Thalos.Mcp;
 using Thalos.Sandbox;
 using Thalos.Sandbox.Docker;
 using Thalos.Tools;
+using Thalos.Workflow;
 using Thalos.Workspaces;
 
 namespace Daedalus.Tests.Unit.Configuration;
@@ -277,6 +279,43 @@ public sealed partial class SandboxConfigTests : IDisposable
 
         sp.GetService<IRunWorkspaceGit>().Should().BeOfType<GitCliRunWorkspaceGit>();
         sp.GetServices<Thalos.Workflow.IWorkflowHostAction>().Should().ContainSingle().Which.Name.Should().Be("open-pull-request");
+    }
+
+    /// <summary>
+    ///     Task B5, carry 3, as the shipped Api wires it in sandbox mode: the ledger the gate keeps its once-per-run read
+    ///     in is the same instance the sandbox provider tells when a sandbox is removed or parked, and the gate reads and
+    ///     records sandbox restores. Red for the first: register the observer as a new <see cref="SandboxRestoreLedger"/>
+    ///     instead of the singleton; the gate's ledger then never forgets a run. Red for the second: pass no readiness
+    ///     reader to the gate; it then records nothing.
+    /// </summary>
+    [Fact]
+    public async Task In_sandbox_mode_the_gate_records_restores_and_its_ledger_observes_the_provider()
+    {
+        await using var sp = BuildShippedApi();
+
+        var ledger = sp.GetRequiredService<SandboxRestoreLedger>();
+        var gate = sp.GetServices<IWorkflowDispatchGate>().OfType<RunToolServersReadyGate>().Single();
+
+        using (new AssertionScope())
+        {
+            sp.GetServices<IRunWorkspaceObserver>().Should().Contain(o => ReferenceEquals(o, ledger));
+            gate.RecordsSandboxRestores.Should().BeTrue();
+        }
+    }
+
+    /// <summary>
+    ///     Task B5, carry 3: a local-mode host has no sandbox, so its gate records no restore. Red: pass the gate a
+    ///     readiness reader whatever the provider is; it then claims to record restores.
+    /// </summary>
+    [Fact]
+    public async Task In_local_mode_the_gate_records_no_restores()
+    {
+        var (services, options, configuration, environment) = LoadShipped(ApiAppSettingsFileName);
+        UseLocalMode(options);
+        services.AddDaedalusAgents(options, configuration, environment);
+        await using var sp = services.BuildServiceProvider();
+
+        sp.GetServices<IWorkflowDispatchGate>().OfType<RunToolServersReadyGate>().Single().RecordsSandboxRestores.Should().BeFalse();
     }
 
     /// <summary>

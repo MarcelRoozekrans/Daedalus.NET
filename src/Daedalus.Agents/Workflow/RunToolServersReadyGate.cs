@@ -35,9 +35,10 @@ namespace Daedalus.Agents.Workflow;
 ///     it. Once the wait succeeds, the gate reads the sandbox's readiness once per run, through
 ///     <paramref name="sandboxReadiness"/>, and a failed restore appends one <see cref="WorkflowRunRecord.SandboxRestoreKind"/>
 ///     record with the restore's output tail; the run proceeds either way. <paramref name="restores"/> keeps the read to
-///     one per run while its sandbox lives, and the record store keeps the record to one per run. Nothing about the read
-///     or the record can refuse the dispatch: a read or a write that fails is logged and given back, so the next node
-///     tries again.
+///     one per run while its sandbox lives, and a check of the record store keeps the record to one per run within a
+///     host, and across restarts. It is a list-then-append, not a constraint: two hosts that dispatch the same run's
+///     nodes at once can each append one. Nothing about the read or the record can refuse the dispatch: a read or a
+///     write that fails is logged and given back, so the next node tries again.
 ///     </para>
 /// </remarks>
 /// <param name="workspaces">Finds the run's workspace.</param>
@@ -66,6 +67,9 @@ internal sealed partial class RunToolServersReadyGate(
     ILogger<RunToolServersReadyGate> logger)
     : IWorkflowDispatchGate
 {
+    /// <summary>Whether this gate reads and records a sandbox's restore state: only on a host whose provider is a sandbox.</summary>
+    internal bool RecordsSandboxRestores => sandboxReadiness is not null;
+
     /// <summary>What <see cref="SandboxReadiness.Restore"/> says when the sandbox's restore failed.</summary>
     internal const string RestoreFailed = "failed";
 
@@ -179,7 +183,8 @@ internal sealed partial class RunToolServersReadyGate(
         await using var scope = _scopes.CreateAsyncScope();
         var records = scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>();
 
-        // Once per run across host restarts and sandboxes too: the ledger is in memory and forgets a parked sandbox.
+        // Once per run within a host, and across restarts and sandboxes too: the ledger is in memory and forgets a parked
+        // sandbox. A list-then-append, so two hosts racing on one run can each append one; no unique index enforces it.
         var recorded = await records.ListAsync(run.Id, WorkflowRunRecord.SandboxRestoreKind, ct).ConfigureAwait(false);
         if (recorded is { Count: > 0 })
         {
