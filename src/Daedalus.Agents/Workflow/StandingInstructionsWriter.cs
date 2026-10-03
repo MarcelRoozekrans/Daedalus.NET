@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -77,12 +78,15 @@ public readonly record struct ResumeFailure(ResumeRefusal Kind, string Detail);
 ///     link or not, and the rename replaces the target's directory entry rather than writing through it.
 ///     </para>
 /// </remarks>
-public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorkspaceHandoff handoff)
+public sealed partial class StandingInstructionsWriter(
+    WorkflowConfig config, IRunWorkspaceHandoff handoff, ILogger<StandingInstructionsWriter> logger)
 {
     private readonly string _path = DaedalusAgentsServiceCollectionExtensions.StandingInstructionsRelativePath(
         (config ?? throw new ArgumentNullException(nameof(config))).StandingInstructionsPath);
 
     private readonly IRunWorkspaceHandoff _handoff = handoff ?? throw new ArgumentNullException(nameof(handoff));
+
+    private readonly ILogger<StandingInstructionsWriter> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <summary>
     ///     Writes <paramref name="run"/>'s proposed standing instructions to its worktree, iff the file still holds
@@ -120,9 +124,17 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorksp
         if (handedOff.IsFailure)
         {
             // Thalos answers Validation for every refusal on this path, the applier's "publish refused" included, and a
-            // git, store or provider code for a failure; the detail is kept, since a refusal's names the refused path.
-            var refusal = handedOff.Error.Code == AgentErrorCode.Validation ? ResumeRefusal.PublishRefused : ResumeRefusal.WriteFailed;
-            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(refusal, Describe(handedOff.Error)));
+            // git, store or provider code for a failure. A refusal is shown to the approving human whole, since it names
+            // the refused repository-relative path. A failure's detail can be raw git stderr or a store exception, with
+            // host paths in it, so the human gets the message alone and the detail is logged on the server.
+            var error = handedOff.Error;
+            if (error.Code == AgentErrorCode.Validation)
+            {
+                return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.PublishRefused, Describe(error)));
+            }
+
+            LogHandoffFailed(_logger, run.Id, error.Code, error.Message, error.Detail);
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.WriteFailed, error.Message));
         }
 
         var workspace = handedOff.Value;
@@ -240,4 +252,7 @@ public sealed class StandingInstructionsWriter(WorkflowConfig config, IRunWorksp
         run.Manifest is not null && run.Manifest.Documents.TryGetValue(ManufactureRunStarter.StandingInstructionsDocument, out var text)
             ? text
             : "";
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}'s publish worktree could not be handed off for the standing-instructions write ({Code}): {Error} {Detail}")]
+    private static partial void LogHandoffFailed(ILogger logger, Guid runId, AgentErrorCode code, string error, string? detail);
 }

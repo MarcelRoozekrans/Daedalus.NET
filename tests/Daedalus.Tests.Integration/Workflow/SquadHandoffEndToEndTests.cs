@@ -512,7 +512,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         handoff.CheckoutForPublishAsync(result.FinalRun.Id, Arg.Any<CancellationToken>()).Returns(
             new ValueTask<Result<RunWorkspace, AgentError>>(Result<RunWorkspace, AgentError>.Success(new RunWorkspace(
                 result.FinalRun.Id, "sandbox", "unused", "main", $"manufacture/{result.FinalRun.Id}", dir.Root, null))));
-        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff);
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff, NullLogger<StandingInstructionsWriter>.Instance);
         var applied = await writer.ApplyAsync(result.FinalRun, CancellationToken.None);
 
         applied.IsFailure.Should().BeTrue("an apply must have nothing to write");

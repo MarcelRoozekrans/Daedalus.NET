@@ -1,5 +1,6 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
+using Microsoft.Extensions.Logging.Abstractions;
 using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -54,7 +55,7 @@ public sealed class WorkflowRunGatewayTests
         store.ResumeAsync(run.Id, Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal), Arg.Any<CancellationToken>())
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
-        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir));
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir), NullLogger<StandingInstructionsWriter>.Instance);
         var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), writer);
 
         var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
@@ -83,7 +84,7 @@ public sealed class WorkflowRunGatewayTests
         store.ResumeAsync(run.Id, Arg.Is<WorkflowResumeRequest>(r => r.Signal == Signal), Arg.Any<CancellationToken>())
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
-        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir));
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir), NullLogger<StandingInstructionsWriter>.Instance);
         var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), writer);
 
         await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, Approver, CancellationToken.None);
