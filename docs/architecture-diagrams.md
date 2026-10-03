@@ -2208,6 +2208,64 @@ entities cannot support without `ExecuteUpdateAsync`'s where-clause trick instea
 
 ---
 
+## 22. Run Sandboxes
+
+Phase 2.6. In sandbox mode (`Thalos:Workflow:Sandbox:Enabled`, on by default for `Daedalus.Api`) every manufacture run
+works inside its own Docker container, so code the model wrote is never built, restored or tested on the API host. Data
+crosses the boundary twice and only as files: a git bundle goes in, a patch comes out.
+
+```mermaid
+flowchart LR
+    Remote[("Git remote")]
+
+    subgraph Host["API host"]
+        Api["Daedalus.Api<br/>manufacture run"]
+        Mirror[("Mirror<br/>DataRoot/mirrors")]
+        Store[("Sandbox record and patch<br/>DataRoot/sandboxes")]
+        Pub["Clean publish worktree<br/>DataRoot/publish"]
+    end
+
+    subgraph Net["Internal Docker network daedalus-sandboxes"]
+        Gw["Gateway nginx<br/>daedalus-sandboxes-gateway"]
+        Sb["Run sandbox<br/>thalos.run_id label"]
+        Eg["Egress proxy squid<br/>daedalus-sandboxes-egress"]
+    end
+
+    Nuget["nuget.org only"]
+
+    Remote -->|"fetch"| Mirror
+    Mirror -->|"1 bundle"| Api
+    Api -->|"2 bundle in, loopback port"| Gw
+    Gw --> Sb
+    Sb -->|"NuGet restore"| Eg
+    Eg -->|"allow-listed hosts"| Nuget
+    Sb -->|"3 patch out, at the review gate"| Gw
+    Gw --> Api
+    Api -->|"4 store"| Store
+    Store -->|"5 GitPatchApplier, protected paths checked"| Pub
+    Pub -->|"6 commit the staged index, then push"| Remote
+```
+
+**Reading the diagram**
+
+- **Bundle in.** The API cuts a git bundle of the run's commit from its own mirror and posts it to the sandbox through the
+  gateway, whose only job is to publish one loopback port. The sandbox clones it, restores and builds.
+- **No other way out.** The sandbox's network is internal, so its only route off the host is the egress proxy, and the proxy
+  allows `api.nuget.org`, `*.nuget.org` and `globalcdn.nuget.org` only (S2).
+- **Patch out.** At the review gate the sandbox exports a patch, the API stores it and the sandbox can be removed. The API
+  never checks out a tree a sandboxed process touched (S4): it applies the patch with Thalos's `GitPatchApplier` into a
+  clean worktree under `<DataRoot>/publish`, commits the staged index as it stands, and pushes. `AGENT.md` is committed
+  separately.
+- **The publish check is the control.** A patch touching a protected path fails there (S5), and in sandbox mode so do
+  `.gitattributes`, `.gitmodules`, symlinks and submodule pointers. A refused patch on resume answers 422.
+- **Environment.** A sandbox's environment holds only the keys its spec lists (S1).
+- **Test results.** `sandbox__test` and `sandbox__build` results are recorded as `test-result` records, and the pull request
+  body's `## Tests` section states them as reported by the sandbox, not verified.
+
+See `docs/development-guide.md`, "Run sandboxes", for configuration, boot checks, inspection and clean-up.
+
+---
+
 ## Key Architectural Principles
 
 ### 🏗️ **Layered Architecture**

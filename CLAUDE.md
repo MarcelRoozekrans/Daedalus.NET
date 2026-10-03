@@ -113,6 +113,14 @@ fails.
   `tests/Daedalus.Tests.Unit/Architecture/CleanArchitectureTests.cs` and the
   Integration-project counterpart.
 
+## Run sandboxes
+
+`Thalos:Workflow:Sandbox:Enabled` picks the mode. Sandbox (the API default): each run's code builds and tests in its own
+Docker container, and publish applies the exported patch into a clean worktree. Local (`Daedalus.Cli`, dev hosts without
+Docker): host worktree, `.cs`/`.md` only. S6 boot check: a write grant with no `AllowedExtensions` needs the sandbox
+enabled; an explicit empty list is refused. Publish refuses `.github/` and the other protected paths, plus
+`.gitattributes`, `.gitmodules`, symlinks and submodule pointers. Details: `docs/development-guide.md`, "Run sandboxes".
+
 ## Central package management
 
 `Directory.Packages.props` owns every version. `PackageReference` entries in
