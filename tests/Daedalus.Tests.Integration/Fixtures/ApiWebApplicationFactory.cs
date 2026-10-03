@@ -91,9 +91,14 @@ internal sealed class ApiWebApplicationFactory(
         // Configuration merges list entries by index, so pre-setting entries 0 and 1 would leave this .md under a test
         // that sets only AllowedExtensions:0. The default list is therefore set only when the caller sets no entry of
         // the implement grant's AllowedExtensions at all: a test that sets any entry sets the whole list.
+        //
+        // A test that turns the sandbox on, task B8's, gets the shipped grant as it is, with no extension list, the way a
+        // sandboxed deployment runs: the local list here would refuse every write a sandbox exists to allow.
         builder.UseSetting("Thalos:Workflow:Sandbox:Enabled", "false");
-        if (!(settings ?? new Dictionary<string, string?>(StringComparer.Ordinal)).Keys.Any(k =>
-                k.StartsWith(ImplementGrantExtensionsKey, StringComparison.OrdinalIgnoreCase)))
+        var given = settings ?? new Dictionary<string, string?>(StringComparer.Ordinal);
+        var sandboxed = given.TryGetValue("Thalos:Workflow:Sandbox:Enabled", out var enabled)
+            && bool.TryParse(enabled, out var on) && on;
+        if (!sandboxed && !given.Keys.Any(k => k.StartsWith(ImplementGrantExtensionsKey, StringComparison.OrdinalIgnoreCase)))
         {
             builder.UseSetting(ImplementGrantExtensionsKey + ":0", ".cs");
             builder.UseSetting(ImplementGrantExtensionsKey + ":1", ".md");
