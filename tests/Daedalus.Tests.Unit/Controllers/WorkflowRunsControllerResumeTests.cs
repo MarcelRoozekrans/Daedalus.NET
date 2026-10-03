@@ -6,6 +6,7 @@ using Daedalus.Tests.Unit.Workflow;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -29,7 +30,7 @@ public sealed class WorkflowRunsControllerResumeTests
 
     public WorkflowRunsControllerResumeTests()
     {
-        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, _handoff);
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, _handoff, NullLogger<StandingInstructionsWriter>.Instance);
         var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), writer);
         var services = new ServiceCollection();
         services.AddLogging();
@@ -67,9 +68,10 @@ public sealed class WorkflowRunsControllerResumeTests
     }
 
     /// <summary>
-    ///     A handoff that fails for a reason that is not a refusal, here a git failure, is still a server fault: 500.
-    ///     Red: map every handoff failure to <see cref="ResumeRefusal.PublishRefused"/> in the writer; the status is
-    ///     then 422.
+    ///     A handoff that fails for a reason that is not a refusal, here a git failure, is still a server fault: 500,
+    ///     whose problem detail is the message alone, never the git stderr with its host paths (fix round 2). Red: map
+    ///     every handoff failure to <see cref="ResumeRefusal.PublishRefused"/> in the writer; the status is then 422.
+    ///     Red: include the detail in the writer's refusal; the problem detail assertion fails.
     /// </summary>
     [Fact]
     public async Task A_handoff_that_fails_is_still_a_500()
@@ -81,6 +83,7 @@ public sealed class WorkflowRunsControllerResumeTests
 
         var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
         objectResult.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        objectResult.Value.Should().BeOfType<ProblemDetails>().Subject.Detail.Should().Be("git apply failed.");
         await _store.DidNotReceiveWithAnyArgs().ResumeAsync(Guid.Empty, default!, default);
     }
 

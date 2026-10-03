@@ -1,5 +1,7 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -49,27 +51,33 @@ public sealed class StandingInstructionsWriterTests
     /// <summary>
     ///     Task B11, then phase 2.6 task B5: the writer asks the handoff for the worktree the run publishes from, and a
     ///     handoff that fails, here because the stored patch cannot be read, is a write failure before anything is
-    ///     resolved, carrying the handoff's message and its detail. Red, per assertion: classify every handoff failure as
-    ///     <see cref="ResumeRefusal.PublishRefused"/>, and the first fails; drop the detail, keeping only the message, and
-    ///     the second fails.
+    ///     resolved. Fix round 2: the human gets the handoff's message alone, because a failure's detail can be raw git
+    ///     stderr or a store exception holding host paths, and the detail is logged on the server instead. Red, per
+    ///     assertion: classify every handoff failure as <see cref="ResumeRefusal.PublishRefused"/>, and the first fails;
+    ///     include the detail in the refusal, and the second fails; drop the log, and the third fails.
     /// </summary>
     [Fact]
-    public async Task A_handoff_failure_is_a_write_failure_carrying_its_message_and_detail()
+    public async Task A_handoff_failure_is_a_write_failure_carrying_its_message_and_logging_its_detail()
     {
         var run = RunWith(pinned: "", proposal: "New instructions.");
-        var writer = WriterRefusedWith(run, AgentError.StoreError("Could not read the patch.", "the disk is gone"));
+        var logger = new CapturingLogger();
+        var writer = WriterRefusedWith(run, AgentError.StoreError("Could not read the patch.", @"C:\data\sandboxes\r1.patch: the disk is gone"), logger);
 
         var result = await writer.ApplyAsync(run, CancellationToken.None);
 
         result.Error.Kind.Should().Be(ResumeRefusal.WriteFailed);
-        result.Error.Detail.Should().Be("Could not read the patch. the disk is gone");
+        result.Error.Detail.Should().Be("Could not read the patch.");
+        logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error
+            && e.Message.Contains(@"C:\data\sandboxes\r1.patch: the disk is gone", StringComparison.Ordinal)
+            && e.Message.Contains(run.Id.ToString(), StringComparison.Ordinal));
     }
 
     /// <summary>
     ///     Ruling R57: in sandbox mode the handoff runs the publish-side protected-path check (S5), and its refusal,
     ///     which Thalos answers with <see cref="AgentErrorCode.Validation"/>, is a policy refusal, not a write failure,
-    ///     carrying the message that names the refused path, and any detail. Red, per assertion: classify it as
-    ///     <see cref="ResumeRefusal.WriteFailed"/>, and the first fails; drop the detail, and the second fails.
+    ///     carrying the message that names the refused path, and any detail; fix round 2 keeps the detail for a refusal
+    ///     only. Red, per assertion: classify it as <see cref="ResumeRefusal.WriteFailed"/>, and the first fails; drop the
+    ///     detail, and the second fails.
     /// </summary>
     [Fact]
     public async Task A_patch_the_publish_side_check_refuses_is_a_publish_refusal_naming_the_path()
@@ -84,12 +92,27 @@ public sealed class StandingInstructionsWriterTests
         result.Error.Detail.Should().Be("the change touches protected path '.github/workflows/ci.yml'; publish refused 1 file");
     }
 
-    private static StandingInstructionsWriter WriterRefusedWith(WorkflowRun run, AgentError error)
+    private static StandingInstructionsWriter WriterRefusedWith(WorkflowRun run, AgentError error, ILogger<StandingInstructionsWriter>? logger = null)
     {
         var handoff = Substitute.For<IRunWorkspaceHandoff>();
         handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
             Result<RunWorkspace, AgentError>.Failure(error)));
-        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff);
+        return new StandingInstructionsWriter(
+            new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff, logger ?? NullLogger<StandingInstructionsWriter>.Instance);
+    }
+
+    /// <summary>Records each entry's level and formatted message.</summary>
+    private sealed class CapturingLogger : ILogger<StandingInstructionsWriter>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
     }
 
     /// <summary>
@@ -112,7 +135,7 @@ public sealed class StandingInstructionsWriterTests
         sandbox.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
             Result<RunWorkspace, AgentError>.Success(
                 new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", publish.Root, null))));
-        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, sandbox);
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, sandbox, NullLogger<StandingInstructionsWriter>.Instance);
 
         var result = await writer.ApplyAsync(run, CancellationToken.None);
 
@@ -180,7 +203,7 @@ public sealed class StandingInstructionsWriterTests
             : configured;
 
         var act = () => new StandingInstructionsWriter(
-            new WorkflowConfig { StandingInstructionsPath = path }, Substitute.For<IRunWorkspaceHandoff>());
+            new WorkflowConfig { StandingInstructionsPath = path }, Substitute.For<IRunWorkspaceHandoff>(), NullLogger<StandingInstructionsWriter>.Instance);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Workflow:StandingInstructionsPath*");
     }
@@ -357,7 +380,7 @@ public sealed class StandingInstructionsWriterTests
         handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
             Result<RunWorkspace, AgentError>.Success(
                 new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", worktree.Root, null))));
-        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = path }, handoff);
+        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = path }, handoff, NullLogger<StandingInstructionsWriter>.Instance);
     }
 
     private static WorkflowRun RunWith(string pinned, string? proposal)
