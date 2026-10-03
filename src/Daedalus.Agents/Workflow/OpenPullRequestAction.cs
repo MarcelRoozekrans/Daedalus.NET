@@ -322,8 +322,8 @@ internal sealed class OpenPullRequestAction(
         foreach (var record in records)
         {
             var read = ReadTestResult(record)
-                ?? new TestResultFacts(record.Node, "test", SandboxCallRecorder.UnknownExit, SandboxCallRecorder.UnknownSummary);
-            if (string.Equals(read.Tool, "test", StringComparison.Ordinal))
+                ?? new TestResultFacts(record.Node, SandboxCallRecorder.TestTool, SandboxCallRecorder.UnknownExit, SandboxCallRecorder.UnknownSummary);
+            if (string.Equals(read.Tool, SandboxCallRecorder.TestTool, StringComparison.Ordinal))
                 last = read;
         }
 
