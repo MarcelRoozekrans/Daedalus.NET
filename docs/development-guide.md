@@ -74,6 +74,130 @@ dotnet test tests/Daedalus.Tests.Integration
 dotnet format
 ```
 
+## Run sandboxes
+
+Phase 2.6. A manufacture run edits, builds and tests code the model wrote, so the API never does that on the host:
+each run gets its own Docker container, and the host only applies the run's exported patch. The diagram is section 22
+of `docs/architecture-diagrams.md`.
+
+### The two modes
+
+`Thalos:Workflow:Sandbox:Enabled` picks the mode.
+
+| Mode | Used by | What a run may write |
+|---|---|---|
+| Sandbox (`true`) | `Daedalus.Api`, which ships it on, and the AppHost | Whatever each write grant lists, or any file when a grant lists no extensions. MSBuild evaluates project, props and targets files inside the run's container, never on the host. |
+| Local (`false`) | `Daedalus.Cli` and dev hosts without Docker | A git worktree on the host, and only `.cs` and `.md`. A grant that lists no extensions is refused at boot. |
+
+Boot-time checks, all in `DaedalusAgentsServiceCollectionExtensions` (a failure is an `InvalidOperationException` at
+startup, never a runtime surprise):
+
+- **S6.** A write grant with no `AllowedExtensions` needs `Sandbox:Enabled`. Without the sandbox it is refused.
+- **Uniform grants.** In sandbox mode every grant's extension list must be the same. Per-node narrowing does not exist
+  inside a sandbox, because every `workspace__*` call there runs as the sandbox's own caller (Thalos issue #251).
+- **No empty list.** An explicit `AllowedExtensions: []` is refused. The binder reads it as a missing key, which would
+  mean "any extension" under the sandbox, so the raw configuration section decides.
+- **Do not chain workflow configuration through `ConfigurationBuilder.AddConfiguration`.** A chained configuration turns
+  an empty list into a missing key, which defeats the check above. Stack JSON sources on one builder instead, as
+  `SandboxConfigTests` does.
+- **Solution required.** Every `Repositories` entry needs `Solution` set, because a sandboxed run's Roslyn server starts
+  on that solution inside the container.
+- **Images required.** `Sandbox:Image`, `Sandbox:Docker:GatewayImage` and `Sandbox:Docker:EgressImage` must not be blank.
+  `appsettings.json` pins the gateway (nginx) and egress (squid) images by digest.
+
+### Running the AppHost
+
+```bash
+dotnet run --project src/Daedalus.AppHost
+```
+
+The AppHost needs Docker with Linux containers. It builds `daedalus-sandbox:dev` from `src/Daedalus.Sandbox/Dockerfile`
+before the API starts, then starts the API with `Thalos__Workflow__Sandbox__Enabled=true` and
+`Thalos__Workflow__Sandbox__Image=daedalus-sandbox:dev`. The sandbox image is the .NET SDK plus git and RoslynCodeLens,
+because a run restores, builds and tests inside it.
+
+Without Docker the API still boots in sandbox mode: start-up reconciliation logs the problem and deletes nothing, and
+starting a run answers 503. Start-run answers: invalid 400, unstartable 422, unavailable 503 with `Retry-After: 30`,
+engine disabled 503 without `Retry-After`, anything else 500.
+
+A `DOCKER_HOST` that needs TLS client credentials is not supported: Thalos's Docker options carry no TLS settings. Use
+`Sandbox:Docker:Endpoint` for a socket, pipe or plain TCP endpoint.
+
+### Inspecting a run's sandbox
+
+The Thalos 0.14.2 Docker runtime labels everything it creates: `thalos.sandbox=true`, `thalos.sandbox.network=<network>`,
+`thalos.sandbox.role` (`run`, `gateway` or `egress`) and, on a run's container and volume, `thalos.run_id=<run id>`.
+
+```bash
+docker ps --filter label=thalos.run_id=<run-id>        # the run's container
+docker ps -a --filter label=thalos.sandbox=true        # every sandbox object, infrastructure included
+docker logs <container>                                # the sandbox host's log
+docker exec -it <container> bash                       # look at /work/repo, the run's checkout
+```
+
+The infrastructure containers are named `<network>-gateway` and `<network>-egress`; the network defaults to
+`daedalus-sandboxes` (`Sandbox:Docker:Network`). Each run's volume is `thalos-sandbox-<id>-work`.
+
+### Where files live
+
+Everything below is under `Thalos:Workflow:DataRoot`, which is `%LOCALAPPDATA%/Daedalus/workflow-data` when blank.
+
+| Path | Holds |
+|---|---|
+| `mirrors/<repository>` | The API's mirror of each repository. A run's input bundle is cut from it. |
+| `sandboxes/<run-id>.patch` | The patch a parked run exported, with the sandbox record next to it. |
+| `publish/` | Publish worktrees: clean trees the API applies a patch into. |
+| `runs/` | Worktrees of local-mode runs. |
+| `patches/` | Short-lived copies of a patch while Thalos applies it. |
+
+### Publish and protected paths
+
+The sandbox exports a patch. At the review gate the API applies it with Thalos's `GitPatchApplier` into a clean worktree
+under `<DataRoot>/publish`, commits the staged index exactly as it stands, then pushes. `AGENT.md` is committed
+separately. A patch the API refuses on resume answers 422.
+
+Protected paths cannot be written: Thalos's fixed defaults (`.git/`, `.gitattributes`, `.gitmodules`, `.github/`,
+`.gitlab-ci.yml`, `azure-pipelines.yml`, `.azure-pipelines/`, `.circleci/`, `Jenkinsfile`), which configuration cannot
+remove, plus the extras in `Sandbox:ProtectedPaths` and the standing-instructions file, `AGENT.md` by default. The
+publish-side check is the control; the sandbox-side refusal is only a convenience. In sandbox mode publish also refuses
+`.gitattributes` and `.gitmodules` at any depth, symlinks and submodule pointers.
+
+### Test results in the pull request
+
+A run's `sandbox__test` and `sandbox__build` results are recorded as `test-result` run records. The pull request body's
+`## Tests` section states them as reported by the run's sandbox and not verified, because the sandbox runs the change's
+own code.
+
+### Cleaning up
+
+Run these in Git Bash. `$(...)` is not PowerShell syntax.
+
+```bash
+docker rm -f $(docker ps -aq --filter label=thalos.sandbox=true)
+docker network rm daedalus-sandboxes
+```
+
+The first removes every Thalos sandbox container on the engine, other hosts' included. To touch only this host's
+network, add `--filter label=thalos.sandbox.network=daedalus-sandboxes`. Remove leftover volumes with
+`docker volume rm $(docker volume ls -q --filter label=thalos.sandbox=true)`. The network cannot go while a container is
+attached, so remove containers first.
+
+### Known limitations
+
+- A host stopped mid-setup can leave a `Created` egress container and its network (Thalos #243). The cleanup above
+  clears it.
+- MCP stdio servers pin thread-pool threads on Windows (Thalos #257).
+- The HTTP discover probe has a workaround (Thalos #260).
+- Publish-path error codes are coarse (Thalos #263).
+
+### The sandbox suite
+
+`ManufactureSandboxEndToEndTests` and its fixture run manufacture end to end against real Docker. They need Docker with
+Linux containers, plus nuget.org and Docker Hub reachable: the suite builds the real sandbox image, and a run restores
+NuGet packages through the egress proxy. The suite skips when Docker is missing or runs Windows containers
+(`SandboxEngineProbeTests` pins that). Each host in the suite gets its own network, named `daedalus-b8-*`, so a developer's
+own `daedalus-sandboxes` network is left alone.
+
 ## ZeroAlloc.Results — full pattern catalogue
 
 `ZeroAlloc.Results` (not CSharpFunctionalExtensions — that package was removed
