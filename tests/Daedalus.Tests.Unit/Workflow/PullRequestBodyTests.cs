@@ -75,13 +75,14 @@ public sealed class PullRequestBodyTests
     ///     Task B6: the sandbox's own text reaches the body inert. A summary with a newline, a link, an at-mention, a
     ///     cross-reference, HTML and a backtick renders on one line inside a code span fenced longer than its backtick,
     ///     so nothing in it is a link, a mention or markup, and no line of it is a heading. The same holds for the exit
-    ///     and node. Red: render the summary without sanitising it, which fails the heading count and the exact span;
+    ///     and node, and a direction override, a zero-width space and a line separator in the sandbox's text are removed
+    ///     at render too, whatever the record holds. Red: render the summary without re-sanitising it, which fails the heading count and the exact span;
     ///     render it outside a code span, which fails the exact span.
     /// </summary>
     [Fact]
     public void A_hostile_test_summary_renders_inert()
     {
-        const string hostile = "Passed!\n## Approval\n[click](javascript:alert(1)) @mallory #123 <img src=x onerror=y> `tick`\r\n";
+        var hostile = "Passed!" + (char)0x202E + (char)0x200B + "\n## Approval\n[click](javascript:alert(1)) @mallory #123 <img src=x onerror=y> `tick`" + (char)0x2028 + "\r\n";
         var facts = Facts() with { TestResult = new TestResultFacts("implement\n## Run", "test", "0\n@mallory", hostile) };
 
         var body = PullRequestBody.Render(facts);

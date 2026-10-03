@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AwesomeAssertions.Execution;
 using Daedalus.Agents.Workflow;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Thalos;
@@ -35,8 +36,21 @@ public sealed class SandboxCallRecorderTests
             .Returns(ValueTask.CompletedTask);
     }
 
-    private SandboxCallRecorder Recorder() => new(
-        _store, RecordStoreScopes.For(_records), new FakeTimeProvider(Now), NullLogger<SandboxCallRecorder>.Instance);
+    private SandboxCallRecorder Recorder(ILogger<SandboxCallRecorder>? logger = null) => new(
+        _store, RecordStoreScopes.For(_records), new FakeTimeProvider(Now), logger ?? NullLogger<SandboxCallRecorder>.Instance);
+
+    private sealed class CapturingLogger : ILogger<SandboxCallRecorder>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
+    }
 
     private static WorkflowRun Run() => new()
     {
@@ -222,16 +236,45 @@ public sealed class SandboxCallRecorderTests
         await FluentActions.Awaiting(() => Record(Call("sandbox", "test", PassedResult))).Should().NotThrowAsync();
     }
 
-    /// <summary>Only the call's own cancellation leaves the observer as an exception. Red: catch every exception.</summary>
+    /// <summary>
+    ///     A cancelled token, which is what Thalos's observer timeout cancels, drops the record and says so in the log
+    ///     before the cancellation is rethrown. Red: rethrow without logging, which fails the log assertion; swallow it,
+    ///     which fails the throw.
+    /// </summary>
     [Fact]
-    public async Task The_calls_own_cancellation_propagates()
+    public async Task The_calls_own_cancellation_is_logged_as_a_dropped_record_and_rethrown()
     {
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
         _store.FindAsync(RunId, Arg.Any<CancellationToken>())
             .Returns<ValueTask<WorkflowRun?>>(call => throw new OperationCanceledException(call.Arg<CancellationToken>()));
+        var logger = new CapturingLogger();
 
-        await FluentActions.Awaiting(() => Record(Call("sandbox", "test", PassedResult), cts.Token))
+        await FluentActions.Awaiting(() => Recorder(logger).OnCompletedAsync(Call("sandbox", "test", PassedResult), cts.Token).AsTask())
             .Should().ThrowAsync<OperationCanceledException>();
+
+        logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning && e.Message.Contains("dropped", StringComparison.Ordinal)
+            && e.Message.Contains("observer timeout", StringComparison.Ordinal));
+        _appended.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     A cut at the cap never leaves half a surrogate pair: with the 500th character the first half of an emoji, the
+    ///     pair is dropped whole and the ellipsis follows. Red: remove the back-off in <c>SingleLine</c>, which leaves a
+    ///     lone high surrogate.
+    /// </summary>
+    [Fact]
+    public void A_cut_at_the_cap_does_not_split_a_surrogate_pair()
+    {
+        var text = new string('a', 498) + char.ConvertFromUtf32(0x1F600) + " and more text";
+
+        var line = SandboxCallRecorder.SingleLine(text, 500);
+
+        using (new AssertionScope())
+        {
+            line.Length.Should().BeLessThanOrEqualTo(500);
+            line.Where(char.IsSurrogate).Should().BeEmpty("the emoji is dropped whole, not halved");
+            line.Should().Be(new string('a', 498) + "…");
+        }
     }
 }

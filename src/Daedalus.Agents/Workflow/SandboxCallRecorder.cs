@@ -29,9 +29,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <see cref="MaxSummaryLength"/> characters (see <see cref="SingleLine"/>).
 ///     </para>
 ///     <para>
-///     <b>Never throws into the call.</b> The observer's result changes nothing and Thalos waits for it only as long as
+///     <b>Failures are dropped, a cancellation is rethrown.</b> The observer's result changes nothing and Thalos waits for it only as long as
 ///     <c>RemoteRunToolOptions.ObserverTimeout</c>, so a failure to find the run or to append is logged and dropped.
-///     Only the call's own cancellation leaves as an exception.
+///     A cancellation, which includes the observer timeout, is logged as a dropped record and rethrown.
 ///     </para>
 ///     <para>
 ///     A singleton: the scoped record store is resolved from a scope of its own per call (ruling R28a). The run is read
@@ -47,6 +47,12 @@ internal sealed partial class SandboxCallRecorder(
 {
     /// <summary>The tool source whose calls are recorded.</summary>
     public const string SandboxSource = "sandbox";
+
+    /// <summary>The sandbox tool that runs the tests; the pull request body states this tool's last record.</summary>
+    public const string TestTool = "test";
+
+    /// <summary>The sandbox tool that builds; recorded, but never taken for a test result.</summary>
+    public const string BuildTool = "build";
 
     /// <summary>The longest summary recorded, and rendered, in characters, ellipsis included.</summary>
     public const int MaxSummaryLength = 500;
@@ -78,7 +84,7 @@ internal sealed partial class SandboxCallRecorder(
     {
         if (completed is null
             || !string.Equals(completed.Source, SandboxSource, StringComparison.Ordinal)
-            || completed.Tool is not ("test" or "build"))
+            || completed.Tool is not (TestTool or BuildTool))
         {
             return;
         }
@@ -114,10 +120,17 @@ internal sealed partial class SandboxCallRecorder(
             await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>()
                 .AppendAsync(record.Value, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
         {
-            // The call has already returned its result to the agent, and this observer changes nothing about it, so a
-            // failure here is logged and dropped. A timeout surfacing as a cancellation nobody asked for lands here too.
+            // Thalos cancels this token when RemoteRunToolOptions.ObserverTimeout passes, or when the call is cancelled.
+            // Either way the record is dropped, which is logged here, and the cancellation is rethrown for Thalos to see.
+            LogDroppedOnCancellation(_logger, ex, completed.RunId, completed.Tool);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The call has already returned its result to the agent, and this observer changes nothing about it, so any
+            // other failure is logged and dropped.
             LogNotRecorded(_logger, ex, completed.RunId, completed.Tool);
         }
     }
@@ -214,6 +227,9 @@ internal sealed partial class SandboxCallRecorder(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}'s sandbox {Tool} result was not recorded: the record was invalid ({Reason})")]
     private static partial void LogRejected(ILogger logger, Guid runId, string tool, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Run {RunId}'s sandbox {Tool} result was dropped: the observer was cancelled, as it is when the observer timeout passes")]
+    private static partial void LogDroppedOnCancellation(ILogger logger, Exception exception, Guid runId, string tool);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}'s sandbox {Tool} result could not be recorded")]
     private static partial void LogNotRecorded(ILogger logger, Exception exception, Guid runId, string tool);
