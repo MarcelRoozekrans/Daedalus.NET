@@ -109,8 +109,8 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
     ///     <paramref name="runtime"/>, <paramref name="squadEnabled"/> and <paramref name="configureServices"/> are passed
     ///     to <see cref="ApiWebApplicationFactory"/> as they are, so a null <paramref name="runtime"/> keeps the host's
     ///     own <c>ThalosAgentRuntime</c>. <paramref name="sandboxImage"/>, when given, boots the host in sandbox mode over
-    ///     that image, on <paramref name="sandboxNetwork"/> or, when that is null, on a network name of its own; see the
-    ///     type's remarks.
+    ///     that image, on <paramref name="sandboxNetwork"/>, which is then required: a network the caller names is one its
+    ///     clean-up covers, so no host makes Docker objects outside it. See the type's remarks.
     /// </summary>
     public static async Task<ScratchWorkflowHost> StartAsync(
         PostgresFixture fixture,
@@ -122,6 +122,11 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
         string? sandboxImage = null,
         string? sandboxNetwork = null)
     {
+        if (sandboxImage is not null && string.IsNullOrWhiteSpace(sandboxNetwork))
+        {
+            throw new ArgumentException("A sandbox-mode host needs the sandbox network its caller cleans up.", nameof(sandboxNetwork));
+        }
+
         var databaseName = $"scratch_workflow_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync(fixture, $"CREATE DATABASE \"{databaseName}\"");
         var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = databaseName }.ConnectionString;
@@ -156,7 +161,6 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
 
             if (sandboxImage is not null)
             {
-                sandboxNetwork ??= $"{SandboxImageFixture.NetworkPrefix}{Guid.NewGuid():N}"[..40];
                 hostToolsRoot = Directory.CreateTempSubdirectory("daedalus-sandbox-host-").FullName;
                 all["Thalos:Workflow:Sandbox:Enabled"] = "true";
                 all["Thalos:Workflow:Sandbox:Image"] = sandboxImage;

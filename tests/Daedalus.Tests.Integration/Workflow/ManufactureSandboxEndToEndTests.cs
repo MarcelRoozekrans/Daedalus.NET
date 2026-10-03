@@ -43,7 +43,7 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     </para>
 /// </remarks>
 [Collection(ManufactureSandboxCollection.Name)]
-public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, SandboxImageFixture docker)
+public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
 {
     private const string OutcomeToolName = "workflow__report_outcome";
 
@@ -68,6 +68,12 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
     private const string DescribeLine = "    public static string Describe(int x) => Newtonsoft.Json.JsonConvert.SerializeObject(new { x });\n";
 
     private const string ProtectedPath = ".github/workflows/x.yml";
+
+    /// <summary>
+    ///     How the recorded summary of a run of the seed's tests begins: dotnet test's <c>Passed!</c> line for its one test,
+    ///     as the recorder stores it, on one line with runs of spaces collapsed.
+    /// </summary>
+    private const string SeedTestSummary = "Passed! - Failed: 0, Passed: 1, Skipped: 0, Total: 1,";
 
     /// <summary>
     ///     What the S3 marker target writes. MSBuild computes it, so the text appears only where MSBuild ran: the
@@ -109,6 +115,7 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
             [Xunit.MemberData(nameof(Marker))]
             public void Marker_inside(string marker)
             {
+                var unused = 0; // CS0219: a warning the run's Roslyn server reports, naming this file.
                 Xunit.Assert.NotEqual("absent", marker);
                 Xunit.Assert.Fail("fails on purpose, so the quiet output names this test and its argument");
             }
@@ -199,7 +206,7 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
     [SkippableFact]
     public async Task A_v7_run_writes_a_csproj_in_its_sandbox_parks_at_the_gate_and_publishes_it()
     {
-        Skip.IfNot(docker.Available, SandboxImageFixture.SkipReason);
+        Skip.IfNot(docker.Available, docker.SkipReason);
 
         var chat = new ScriptedChatClient();
         ScriptChangingImplement(chat);
@@ -215,8 +222,8 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
             "the sandbox refuses a write under .github/, and only that one");
         var tests = TestResults(await host.RecordsAsync(runId, WorkflowRunRecord.TestResultKind));
         tests.Should().Contain(
-            t => string.Equals(t.Tool, "test", StringComparison.Ordinal) && string.Equals(t.Exit, "0", StringComparison.Ordinal) && t.Summary.StartsWith("Passed!", StringComparison.Ordinal),
-            "implement's sandbox__test ran the seed's test, passed, and was recorded");
+            t => string.Equals(t.Tool, "test", StringComparison.Ordinal) && string.Equals(t.Exit, "0", StringComparison.Ordinal) && t.Summary.StartsWith(SeedTestSummary, StringComparison.Ordinal),
+            "implement's sandbox__test ran the seed's one test, which passed, and was recorded");
 
         await SweepUntilNoContainerAsync(host, runId);
         (await docker.RunContainersAsync(host.SandboxNetwork!, runId)).Should().BeEmpty("a run at its gate has its sandbox parked and deleted");
@@ -232,7 +239,7 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
             .And.NotContain("AGENT.md");
         host.Remote.Show(commits[1].Sha, "src/Lib/Lib.csproj").Should().Contain("Newtonsoft.Json", "the code commit holds implement's .csproj, not the seed's");
         publisher.LastBody.Should().Contain("## Tests").And.Contain(PullRequestBody.TestsLabel)
-            .And.Contain("- Exit: `0`").And.Contain("- Summary: `Passed!", "the Tests section states the sandbox's own test summary");
+            .And.Contain("- Exit: `0`").And.Contain("- Summary: `" + SeedTestSummary, "the Tests section states the sandbox's own test summary");
     }
 
     /// <summary>
@@ -241,21 +248,39 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
     ///     evaluate the solution, and runs a test that finds the marker; nothing on this host ever holds the marker.
     /// </summary>
     /// <remarks>
+    ///     <para>
+    ///     Where the host is searched: the host's <c>DataRoot</c>, the directory where the host-wide Roslyn server evaluates
+    ///     MSBuild and the remote, every file; and the whole of <see cref="Path.GetTempPath"/>, every file written since the
+    ///     test started, skipping what this user cannot read and links out of the tree.
+    ///     </para>
+    ///     <para>
     ///     Reds, per assertion:
+    ///     </para>
     ///     <list type="bullet">
     ///         <item>no <c>marker.txt</c> and no marker text on this host: start the host in local mode with the same
     ///         script and a local grant widened to <c>.props</c>, and the marker appears under <c>DataRoot</c>, written by
-    ///         the run's local Roslyn server (done once in review, not kept; see the task B8 report);</item>
+    ///         the run's local Roslyn server (done once in review, not kept; see the task B8 report). The temp-directory search fails the same way, with the searches before it set aside;</item>
+    ///         <item>the Roslyn answer is the run's own server's, over <c>/work/repo</c>: drop the
+    ///         <c>thalos.run_id</c> claim from <c>WorkflowCaller</c>, and the call is served by the
+    ///         host-wide server, whose answer names no <c>/work/repo</c> file (see the task B8 report, fix round 1, for what
+    ///         dropping <c>runScoped</c> from the generated configuration does instead);</item>
     ///         <item>the stored patch holds <c>Directory.Build.props</c>: protect <c>Directory.Build.props</c> through
     ///         <c>Thalos:Workflow:Sandbox:ProtectedPaths</c>, and the write is refused and absent from the patch;</item>
-    ///         <item>the marker text is in a <c>sandbox__test</c> result and in no other result: make the target write
-    ///         nothing, by turning its <c>WriteLinesToFile</c> into a <c>Message</c>, and no result holds it.</item>
+    ///         <item>the marker text is in a <c>sandbox__test</c> result: make the target write nothing, by turning its
+    ///         <c>WriteLinesToFile</c> into a <c>Message</c>, and no result holds it.</item>
     ///     </list>
+    ///     <para>
+    ///     Only <c>sandbox__test</c> results are expected to hold the text, but that is not asserted: every tool a run calls
+    ///     is served inside its sandbox, so no change in Daedalus would make a different tool's result hold it while the
+    ///     test's result still does, and an assertion without such a change would prove nothing. The host searches above
+    ///     are what S3 rests on.
+    ///     </para>
     /// </remarks>
     [SkippableFact]
     public async Task An_agent_build_target_never_runs_on_the_api_host()
     {
-        Skip.IfNot(docker.Available, SandboxImageFixture.SkipReason);
+        Skip.IfNot(docker.Available, docker.SkipReason);
+        var started = DateTime.UtcNow.AddSeconds(-1);
 
         var chat = new ScriptedChatClient();
         chat.ThenToolCall("workspace__write_file", new { path = "Directory.Build.props", content = MarkerProps });
@@ -279,13 +304,21 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
                 .Should().BeEmpty($"the marker text is only written where the target ran, and nothing under {root} may hold it");
         }
 
+        var recent = FilesWrittenSince(Path.GetTempPath(), started);
+        recent.Where(f => string.Equals(Path.GetFileName(f), "marker.txt", StringComparison.OrdinalIgnoreCase))
+            .Should().BeEmpty("no marker.txt may be written anywhere under the temp directory while the run is on");
+        recent.Where(f => Holds(f, MarkerText)).Should().BeEmpty("no file written under the temp directory during the run may hold the marker text");
+
+        var diagnostics = ToolResults(chat, "roslyn__get_diagnostics").Should().ContainSingle().Subject;
+        diagnostics.Should().NotStartWith("error:", "the call reached a Roslyn server")
+            .And.Contain("/work/repo/tests/Lib.Tests/MarkerTests.cs", "the run's own server, inside its sandbox, evaluated the run's solution, which holds the warning the script wrote");
+
         var patch = Path.Combine(host.DataRoot, "sandboxes", runId.ToString("N") + ".patch");
         File.Exists(patch).Should().BeTrue("parking stores the run's change on the trusted side");
         (await File.ReadAllTextAsync(patch)).Should().Contain("Directory.Build.props", "the agent's props file is part of the run's change");
 
-        var withMarker = AllToolResults(chat).Where(r => r.Result.Contains(MarkerText, StringComparison.Ordinal)).ToList();
-        withMarker.Should().NotBeEmpty($"the test run inside the sandbox found the marker its build wrote; the results were: {string.Join(" | ", AllToolResults(chat).Select(r => $"{r.Tool}: {r.Result}"))}");
-        withMarker.Should().OnlyContain(r => string.Equals(r.Tool, "sandbox__test", StringComparison.Ordinal), "only a sandbox test run, inside the container, sees the marker");
+        ToolResults(chat, "sandbox__test").Should().Contain(r => r.Contains(MarkerText, StringComparison.Ordinal),
+            $"the test run inside the sandbox found the marker its build wrote; the results were: {string.Join(" | ", AllToolResults(chat).Select(r => $"{r.Tool}: {r.Result}"))}");
     }
 
     /// <summary>
@@ -298,17 +331,19 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
     ///         <item>Failed after the resume: let the fake publisher succeed the first time, and the run succeeds;</item>
     ///         <item>no container of the run, after the park and again after the failure: skip the sweep, and the
     ///         container is there;</item>
-    ///         <item>the publish succeeding on the retry: remove the stored patch in park, the brief's red. The park is
-    ///         inside the pinned Thalos package, so the suite deletes <c>&lt;DataRoot&gt;/sandboxes/&lt;run&gt;.patch</c>
-    ///         right after the park instead; the resume is then refused with 422, the patch "is not a regular file", and
-    ///         the run never publishes. Deleting it only before the retry changes nothing, because the first publish
-    ///         already applied it to the publish worktree, which a retry reuses (task B5).</item>
+    ///         <item>the publish succeeding on the retry, from stored state only: after the failed publish, take away both
+    ///         things a retry could publish from, the stored patch <c>&lt;DataRoot&gt;/sandboxes/&lt;run&gt;.patch</c> and the
+    ///         run's publish worktree under <c>&lt;DataRoot&gt;/publish/runs</c>. The worktree goes through Thalos's own
+    ///         path, by marking the record's <c>patchApplied</c> false, so the checkout removes it and rebuilds from the
+    ///         patch; the retry then fails, "is not a regular file; publish refused", and the wait for it to publish is
+    ///         what fails. With the sandbox long gone, nothing else could have supplied the change. (Deleting the worktree
+    ///         directory by hand instead fails the retry too, on its leftover branch, which proves less.)</item>
     ///     </list>
     /// </remarks>
     [SkippableFact]
     public async Task A_retry_after_the_sandbox_is_gone_still_publishes()
     {
-        Skip.IfNot(docker.Available, SandboxImageFixture.SkipReason);
+        Skip.IfNot(docker.Available, docker.SkipReason);
 
         var chat = new ScriptedChatClient();
         ScriptChangingImplement(chat);
@@ -344,20 +379,22 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
     ///     "The same sandbox id" is held as the same Docker container id: Thalos names a run's sandbox after its run id, so
     ///     the recorded sandbox id is the same by construction even for a sandbox made anew, and only the container id
     ///     tells the two apart.
-    ///     Reds, per assertion. The brief's red, having <c>ReconcileAsync</c> delete a sandbox whose record is
-    ///     <c>Ready</c>, is inside the pinned Thalos package; it is applied instead as a hosted service on the second host
-    ///     that does exactly that at boot, through the registered <c>ISandboxRuntime</c>.
+    ///     Reds, per assertion:
     ///     <list type="bullet">
-    ///         <item>the same container, the only run container on the network, when review resumes: that red, and the
-    ///         run fails at review with no sandbox, so no review turn starts and the hold is never entered;</item>
-    ///         <item>the reviewer reads implement's edit, and Awaiting: the same red, under which the run fails at review
-    ///         before either is reached.</item>
+    ///         <item>the same container, the only run container on the network, when review resumes: a hosted service on
+    ///         the second host that, at boot, removes the run's container but not its volume and creates a new one with the
+    ///         same name, configuration, labels, volume and network aliases. The new host serves the run from it, the review
+    ///         request is held as before, and the container-id assertion fails. The brief's red, a <c>ReconcileAsync</c>
+    ///         that deletes a <c>Ready</c> sandbox, was applied in the first round the same way and fails the run at
+    ///         review before the hold;</item>
+    ///         <item>the reviewer reads implement's edit, and Awaiting: that deleting red, under which the run fails at
+    ///         review before either is reached.</item>
     ///     </list>
     /// </remarks>
     [SkippableFact]
     public async Task A_restarted_api_reattaches_to_a_running_sandbox()
     {
-        Skip.IfNot(docker.Available, SandboxImageFixture.SkipReason);
+        Skip.IfNot(docker.Available, docker.SkipReason);
 
         var first = new ScriptedChatClient();
         first.ThenToolCall("workspace__edit_file", new { path = "src/Lib/A.cs", oldText = AddLine, newText = AddLine + "    public static int Twice(int a) => a * 2;\n" });
@@ -402,7 +439,7 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
     [SkippableFact]
     public async Task A_docker_outage_at_start_is_a_503_and_leaves_nothing()
     {
-        Skip.IfNot(docker.Available, SandboxImageFixture.SkipReason);
+        Skip.IfNot(docker.Available, docker.SkipReason);
 
         var endpoint = OperatingSystem.IsWindows()
             ? "npipe://./pipe/daedalus_b8_no_engine"
@@ -498,16 +535,29 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
 
     // ---------- host and helpers ----------
 
+    /// <summary>
+    ///     A sandbox-mode host on a network of its own, pointed at the engine the fixture probed, so the probe, Postgres, the
+    ///     image and the sandboxes are on one engine whatever <c>DOCKER_HOST</c> says. <paramref name="settings"/> come after,
+    ///     so a test can still point the host elsewhere.
+    /// </summary>
     private Task<ScratchWorkflowHost> StartHostAsync(
-        IChatClient chat, FakePullRequestPublisher publisher, IReadOnlyDictionary<string, string?>? settings = null) =>
-        ScratchWorkflowHost.StartAsync(
-            postgres,
+        IChatClient chat, FakePullRequestPublisher publisher, IReadOnlyDictionary<string, string?>? settings = null)
+    {
+        var all = new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Docker:Endpoint"] = docker.EngineEndpoint };
+        foreach (var (key, value) in settings ?? new Dictionary<string, string?>(StringComparer.Ordinal))
+        {
+            all[key] = value;
+        }
+
+        return ScratchWorkflowHost.StartAsync(
+            docker.Postgres,
             runtime: null,
             seed: Seed,
-            settings: settings,
+            settings: all,
             configureServices: Services(chat, publisher),
             sandboxImage: docker.ImageTag,
             sandboxNetwork: docker.NewNetwork());
+    }
 
     /// <summary>The scripted model, a fast outbox poll, and one fake as both pull-request interfaces (ruling R28a).</summary>
     private static Action<IServiceCollection> Services(IChatClient chat, FakePullRequestPublisher publisher) => services =>
@@ -589,13 +639,50 @@ public sealed class ManufactureSandboxEndToEndTests(PostgresFixture postgres, Sa
         return (long)(await command.ExecuteScalarAsync())!;
     }
 
+    /// <summary>
+    ///     Every file under <paramref name="root"/> last written at or after <paramref name="since"/>, walking one directory at
+    ///     a time so a directory this user cannot read, or one that disappears mid-walk, is skipped rather than ending the
+    ///     walk, and never following a link or junction out of the tree.
+    /// </summary>
+    private static List<string> FilesWrittenSince(string root, DateTime since)
+    {
+        var found = new List<string>();
+        var pending = new Stack<string>([root]);
+        var options = new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint, RecurseSubdirectories = false };
+        while (pending.TryPop(out var directory))
+        {
+            try
+            {
+                foreach (var entry in new DirectoryInfo(directory).EnumerateFileSystemInfos("*", options))
+                {
+                    if (entry is DirectoryInfo sub)
+                    {
+                        pending.Push(sub.FullName);
+                    }
+                    else if (entry.LastWriteTimeUtc >= since)
+                    {
+                        found.Add(entry.FullName);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                // Another user's or a locked system tree, or one removed mid-walk: not this run's to search.
+            }
+        }
+
+        return found;
+    }
+
     private static bool Holds(string file, string text)
     {
         try
         {
-            return Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(text, StringComparison.Ordinal);
+            // A file this large is no marker and no log a run of minutes writes; reading it whole would only cost memory.
+            return new FileInfo(file).Length <= 256L * 1024 * 1024
+                && Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(text, StringComparison.Ordinal);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }

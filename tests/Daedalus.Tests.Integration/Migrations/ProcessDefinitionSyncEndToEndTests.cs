@@ -41,6 +41,7 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
         var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = dbName }.ConnectionString;
         var dataRoot = Directory.CreateTempSubdirectory("daedalus-process-sync-e2e-").FullName;
+        var sandboxNetwork = $"daedalus-test-{Guid.NewGuid():N}";
         try
         {
             // Same migration order Daedalus.Migrations/Program.cs runs in production, and
@@ -76,7 +77,7 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 // data root and network keep that pass off the developer's real data root and off the shared
                 // daedalus-sandboxes network, whose sandboxes belong to whatever real host is running.
                 ["Thalos:Workflow:DataRoot"] = dataRoot,
-                ["Thalos:Workflow:Sandbox:Docker:Network"] = $"daedalus-test-{Guid.NewGuid():N}",
+                ["Thalos:Workflow:Sandbox:Docker:Network"] = sandboxNetwork,
             });
 
             builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(o => o.UseNpgsql(connectionString));
@@ -116,6 +117,9 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
         }
         finally
         {
+            // The sandbox reconcile service this host starts sets up the sandbox infrastructure on its network: the network
+            // and an egress container, which declares anonymous volumes. Removed here by that network's label.
+            await SandboxDockerCleanup.RemoveNetworkScopeAsync(sandboxNetwork);
             NpgsqlConnection.ClearAllPools();
             await ExecuteOnServerAsync($"DROP DATABASE IF EXISTS \"{dbName}\" WITH (FORCE)");
             Directory.Delete(dataRoot, recursive: true);
