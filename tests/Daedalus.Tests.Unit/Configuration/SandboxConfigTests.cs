@@ -319,6 +319,33 @@ public sealed partial class SandboxConfigTests : IDisposable
     }
 
     /// <summary>
+    ///     Task B6: in sandbox mode the shipped Api registers the recorder as the run tool call observer Thalos calls
+    ///     after each remote call. Red: drop the registration from <c>ConfigureSandboxMode</c>; no observer is found.
+    /// </summary>
+    [Fact]
+    public async Task In_sandbox_mode_the_sandbox_call_recorder_observes_run_tool_calls()
+    {
+        await using var sp = BuildShippedApi();
+
+        sp.GetServices<Thalos.Workspaces.IRunToolCallObserver>().Should().ContainSingle().Which.Should().BeOfType<SandboxCallRecorder>();
+    }
+
+    /// <summary>
+    ///     Task B6: local mode has no sandbox tools, so it registers no recorder. Red: register the recorder whatever the
+    ///     mode, which finds one here.
+    /// </summary>
+    [Fact]
+    public async Task In_local_mode_there_is_no_sandbox_call_recorder()
+    {
+        var (services, options, configuration, environment) = LoadShipped(ApiAppSettingsFileName);
+        UseLocalMode(options);
+        services.AddDaedalusAgents(options, configuration, environment);
+        await using var sp = services.BuildServiceProvider();
+
+        sp.GetServices<Thalos.Workspaces.IRunToolCallObserver>().Should().NotContain(o => o is SandboxCallRecorder);
+    }
+
+    /// <summary>
     ///     The publish git works in the sandbox's publish mirror and worktrees, under <c>&lt;DataRoot&gt;/publish</c>, the
     ///     root <c>UseSandboxRunWorkspaces</c> keeps them in. Since Thalos 0.14.1 (issue #250) that registration is
     ///     Thalos's own, over its own publish options, and this pins that Daedalus's data root reaches it. Observed

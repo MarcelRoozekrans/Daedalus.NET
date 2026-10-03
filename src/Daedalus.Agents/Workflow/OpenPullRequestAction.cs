@@ -144,6 +144,12 @@ internal sealed class OpenPullRequestAction(
         if (reviewed.Value.Count == 0)
             return Outcome("failed", ReviewHandoff.PublishErrorKey, NoReviewEvidence);
 
+        // The last test run the run's sandbox reported, read before any side effect like the evidence above, so an
+        // unreadable store fails the run once rather than after a push.
+        var tested = await LastTestResultAsync(run.Id, scope.ServiceProvider, ct).ConfigureAwait(false);
+        if (tested.IsFailure)
+            return Failed(tested.Error, ws);
+
         var author = new GitAuthor(config.CommitAuthor.Name, config.CommitAuthor.Email);
 
         // 1. Commit. Each call is a no-op when nothing is staged, so a redelivery commits nothing twice. In sandbox mode
@@ -210,7 +216,8 @@ internal sealed class OpenPullRequestAction(
                 run.Id,
                 run.Process,
                 run.ProcessVersion,
-                run.Variables.GetValueOrDefault(ReviewHandoff.SummaryKey) as string));
+                run.Variables.GetValueOrDefault(ReviewHandoff.SummaryKey) as string,
+                tested.Value));
 
             var opened = await publisher.OpenPullRequestAsync(
                 ws.Root, ws.Branch, ws.DefaultBranch, PullRequestBody.Title(workIntent), body, ct).ConfigureAwait(false);
@@ -294,6 +301,55 @@ internal sealed class OpenPullRequestAction(
         }
 
         return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Success([.. lenses.Select(l => (l.Lens, l.Checked))]);
+    }
+
+    /// <summary>
+    ///     The run's last <c>test</c> call as its <see cref="WorkflowRunRecord.TestResultKind"/> record holds it, or null
+    ///     when none was recorded. Records list in append order, so the last <c>test</c> record is the last run. A
+    ///     <c>build</c> record is not a test result and is not taken for one. A record whose payload cannot be read is
+    ///     still reported, as unreadable, so the section never silently claims that no test ran. What it holds is what
+    ///     the run's sandbox reported, which ran code from the change; it is not verified.
+    /// </summary>
+    private static async ValueTask<Result<TestResultFacts?>> LastTestResultAsync(
+        Guid runId, IServiceProvider services, CancellationToken ct)
+    {
+        var records = await services.GetRequiredService<IWorkflowRunRecordStore>()
+            .ListAsync(runId, WorkflowRunRecord.TestResultKind, ct).ConfigureAwait(false);
+        if (records is null)
+            return Result<TestResultFacts?>.Failure("the run record store answered with no test result list");
+
+        TestResultFacts? last = null;
+        foreach (var record in records)
+        {
+            var read = ReadTestResult(record)
+                ?? new TestResultFacts(record.Node, "test", SandboxCallRecorder.UnknownExit, SandboxCallRecorder.UnknownSummary);
+            if (string.Equals(read.Tool, "test", StringComparison.Ordinal))
+                last = read;
+        }
+
+        return Result<TestResultFacts?>.Success(last);
+    }
+
+    private static TestResultFacts? ReadTestResult(WorkflowRunRecord record)
+    {
+        try
+        {
+            using var payload = JsonDocument.Parse(record.PayloadJson);
+            var root = payload.RootElement;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("tool", out var tool) && tool.ValueKind == JsonValueKind.String
+                && root.TryGetProperty("exit", out var exit) && exit.ValueKind == JsonValueKind.String
+                && root.TryGetProperty("summary", out var summary) && summary.ValueKind == JsonValueKind.String)
+            {
+                return new TestResultFacts(record.Node, tool.GetString()!, exit.GetString()!, summary.GetString()!);
+            }
+        }
+        catch (JsonException)
+        {
+            // Reported as unreadable by the caller, the same as a payload of the wrong shape.
+        }
+
+        return null;
     }
 
     private static Result<(string Lens, bool Approved, IReadOnlyList<string> Checked)> ReadEvidence(WorkflowRunRecord record)

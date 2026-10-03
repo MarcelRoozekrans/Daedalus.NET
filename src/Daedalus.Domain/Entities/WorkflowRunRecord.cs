@@ -40,6 +40,14 @@ public sealed class WorkflowRunRecord
     /// </summary>
     public const string SandboxRestoreKind = "sandbox-restore";
 
+    /// <summary>
+    ///     The <see cref="Kind"/> of a record that a sandboxed run called <c>sandbox__test</c> or <c>sandbox__build</c>.
+    ///     Its payload carries <c>tool</c>, <c>exit</c>, <c>summary</c> and <c>elapsedMs</c>. The host writes the record,
+    ///     but what it holds is <b>reported by the run's sandbox</b>, which ran code the agent wrote, so it is not
+    ///     verified: a test can print its own passing line or exit with 0. No output tail is recorded.
+    /// </summary>
+    public const string TestResultKind = "test-result";
+
     /// <summary>Maximum length of <see cref="Node"/>; the column is <c>varchar(128)</c>.</summary>
     public const int MaxNodeLength = 128;
 

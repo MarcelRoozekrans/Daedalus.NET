@@ -1,3 +1,4 @@
+using AwesomeAssertions.Execution;
 using Daedalus.Agents.Workflow;
 using Thalos.Git;
 
@@ -35,6 +36,80 @@ public sealed class PullRequestBodyTests
         summaryAt.Should().BeGreaterThan(0);
         body.IndexOf("Added a null check.", StringComparison.Ordinal).Should().BeGreaterThan(summaryAt, "agent text appears only in its labelled section");
         body.Should().Contain("not verified by host code");
+    }
+
+    /// <summary>
+    ///     Task B6: the body states the last recorded test result, the node that ran it, and that the figures were
+    ///     reported by the run's sandbox, which ran code from the change. Red: drop the node line, which fails the first
+    ///     assertion; call the result verified in place of the label, which fails the label assertion.
+    /// </summary>
+    [Fact]
+    public void The_body_states_the_last_recorded_test_result_and_its_node()
+    {
+        var facts = Facts() with { TestResult = new TestResultFacts("review", "test", "0", "Passed! - Failed: 0, Passed: 12") };
+
+        var body = PullRequestBody.Render(facts);
+
+        body.Should().Contain(
+            "## Tests\n\n> Reported by the run's sandbox, which ran code from this change; a reviewer should run the tests.\n\n"
+            + "- Node: `review`\n- Tool: `test`\n- Exit: `0`\n- Summary: `Passed! - Failed: 0, Passed: 12`\n");
+        body.Should().NotContainEquivalentOf("verified by the sandbox");
+        body.IndexOf("## Tests", StringComparison.Ordinal).Should().BeGreaterThan(body.IndexOf("## Review", StringComparison.Ordinal))
+            .And.BeLessThan(body.IndexOf("## Approval", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    ///     Task B6: a run with no recorded test still gets the section, and it says so. Red: omit the section when there
+    ///     is no record.
+    /// </summary>
+    [Fact]
+    public void The_body_says_so_when_no_test_ran()
+    {
+        var body = PullRequestBody.Render(Facts());
+
+        body.Should().Contain("## Tests\n\nNo test run was recorded for this change.\n");
+        body.Should().NotContain("Reported by the run's sandbox");
+    }
+
+    /// <summary>
+    ///     Task B6: the sandbox's own text reaches the body inert. A summary with a newline, a link, an at-mention, a
+    ///     cross-reference, HTML and a backtick renders on one line inside a code span fenced longer than its backtick,
+    ///     so nothing in it is a link, a mention or markup, and no line of it is a heading. The same holds for the exit
+    ///     and node. Red: render the summary without sanitising it, which fails the heading count and the exact span;
+    ///     render it outside a code span, which fails the exact span.
+    /// </summary>
+    [Fact]
+    public void A_hostile_test_summary_renders_inert()
+    {
+        const string hostile = "Passed!\n## Approval\n[click](javascript:alert(1)) @mallory #123 <img src=x onerror=y> `tick`\r\n";
+        var facts = Facts() with { TestResult = new TestResultFacts("implement\n## Run", "test", "0\n@mallory", hostile) };
+
+        var body = PullRequestBody.Render(facts);
+
+        var lines = body.Split('\n');
+        using (new AssertionScope())
+        {
+            lines.Count(l => l.StartsWith("## ", StringComparison.Ordinal)).Should().Be(7, "only the host writes a heading");
+            lines.Should().Contain(
+                "- Summary: `` Passed! ## Approval [click](javascript:alert(1)) @mallory #123 <img src=x onerror=y> `tick` ``");
+            lines.Should().Contain("- Node: `implement ## Run`").And.Contain("- Exit: `0 @mallory`");
+            lines.Count(l => l.Contains("javascript:", StringComparison.Ordinal)).Should().Be(1, "only inside the one code span");
+        }
+    }
+
+    /// <summary>
+    ///     Task B6: a record written by another writer is capped at render too, whatever the recorder did. Red: drop the
+    ///     render-side cap.
+    /// </summary>
+    [Fact]
+    public void A_test_summary_is_capped_in_the_body_whatever_the_record_holds()
+    {
+        var facts = Facts() with { TestResult = new TestResultFacts("implement", "test", "0", new string('z', 5000)) };
+
+        var body = PullRequestBody.Render(facts);
+
+        var summaryLine = body.Split('\n').Single(l => l.StartsWith("- Summary: ", StringComparison.Ordinal));
+        summaryLine.Length.Should().BeLessThan(520);
     }
 
     [Fact]
@@ -127,7 +202,7 @@ public sealed class PullRequestBodyTests
 
         var body = PullRequestBody.Render(facts);
 
-        body.Split('\n').Count(line => line.StartsWith("## ", StringComparison.Ordinal)).Should().Be(6);
+        body.Split('\n').Count(line => line.StartsWith("## ", StringComparison.Ordinal)).Should().Be(7, "the six sections and Tests");
     }
 
     [Fact]
