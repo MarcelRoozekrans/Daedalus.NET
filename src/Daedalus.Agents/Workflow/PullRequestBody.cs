@@ -63,6 +63,12 @@ internal static class PullRequestBody
     /// <summary>The first line of the agent-written section.</summary>
     public const string AgentTextLabel = "> Written by the implement agent; not verified by host code.";
 
+    /// <summary>The line the Tests section opens with: the figures come from inside the sandbox, from code the change wrote.</summary>
+    public const string TestsLabel = "> Reported by the run's sandbox, which ran code from this change; a reviewer should run the tests.";
+
+    /// <summary>What the Tests section says when the run recorded no test run.</summary>
+    public const string NoTestsLine = "No test run was recorded for this change.\n";
+
     private const string Ellipsis = "…";
 
     /// <summary>The longest line <see cref="AppendBudgeted"/> writes in place of the lines it leaves out.</summary>
@@ -110,7 +116,10 @@ internal static class PullRequestBody
                 review.Add(string.Create(CultureInfo.InvariantCulture, $"  - and {items.Count - MaxCheckedItemsPerLens} more checked items not shown\n"));
         }
 
-        var tail = new StringBuilder("\n## Approval\n\n");
+        var tail = new StringBuilder("\n## Tests\n\n");
+        AppendTests(tail, facts.TestResult);
+
+        tail.Append("\n## Approval\n\n");
         tail.Append(facts is { ApprovedBy: { } by, ApprovedAt: { } at }
             ? string.Create(CultureInfo.InvariantCulture, $"Approved at the gate by {Entry(by)} at {at.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC.\n")
             : "No gate approval is recorded for this run.\n");
@@ -136,6 +145,27 @@ internal static class PullRequestBody
         AppendBudgeted(body, review, budget, "lines of review evidence");
         body.Append(tail);
         return body.ToString();
+    }
+
+    /// <summary>
+    ///     The Tests section's body. The section is always written. Every value is the sandbox's own report, so each is
+    ///     sanitised to one line, capped, and rendered as a code span: it cannot start a line, a link, a mention, a
+    ///     cross-reference or HTML of its own.
+    /// </summary>
+    private static void AppendTests(StringBuilder body, TestResultFacts? result)
+    {
+        if (result is null)
+        {
+            body.Append(NoTestsLine);
+            return;
+        }
+
+        body.Append(TestsLabel).Append("\n\n");
+        body.Append("- Node: ").Append(CodeSpan(SandboxCallRecorder.SingleLine(result.Node, MaxListEntryLength))).Append('\n');
+        body.Append("- Tool: ").Append(CodeSpan(SandboxCallRecorder.SingleLine(result.Tool, MaxListEntryLength))).Append('\n');
+        body.Append("- Exit: ").Append(CodeSpan(SandboxCallRecorder.SingleLine(result.Exit, SandboxCallRecorder.MaxExitLength))).Append('\n');
+        body.Append("- Summary: ")
+            .Append(CodeSpan(SandboxCallRecorder.SingleLine(result.Summary, SandboxCallRecorder.MaxSummaryLength))).Append('\n');
     }
 
     /// <summary>

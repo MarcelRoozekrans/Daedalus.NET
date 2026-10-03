@@ -730,6 +730,15 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 o.ProtectedPaths.Add(path);
             }
         });
+
+        // Task B6: the run's sandbox__test and sandbox__build calls become test-result run records, which the pull
+        // request body states. Sandbox mode only: local mode has no sandbox tools. Over the undecorated IWorkflowStore,
+        // as the sweeper is, since it reads only the run's current node and sequence number.
+        thalos.Services.AddSingleton<IRunToolCallObserver>(sp => new SandboxCallRecorder(
+            sp.GetRequiredService<IWorkflowStore>(),
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<SandboxCallRecorder>>()));
     }
 
     /// <summary>

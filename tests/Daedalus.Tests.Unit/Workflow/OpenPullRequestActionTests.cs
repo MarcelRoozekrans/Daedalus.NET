@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
@@ -64,6 +65,9 @@ public sealed class OpenPullRequestActionTests : IDisposable
             .Returns(new ValueTask<Result<PullRequestResult, AgentError>>(Result<PullRequestResult, AgentError>.Success(new PullRequestResult("https://x/pr/7", "7"))));
         _records.ListAsync(RunId, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([Evidence("correctness", "approved")]));
+        // A run that recorded no sandbox test, unless a test says otherwise.
+        _records.ListAsync(RunId, WorkflowRunRecord.TestResultKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
     }
 
     private static WorkflowRunRecord Evidence(string lens, string verdict) =>
@@ -182,6 +186,87 @@ public sealed class OpenPullRequestActionTests : IDisposable
 
         result.Error.Should().Be("push failed: gone; the run's changes are kept for a retry");
         result.Error.Should().NotContain(_ws.Root);
+    }
+
+    private static WorkflowRunRecord TestRecord(string node, string tool, string exit, string summary) =>
+        WorkflowRunRecord.Create(RunId, 5, node, WorkflowRunRecord.TestResultKind, "workflow:run/" + node, null,
+            JsonSerializer.Serialize(new { tool, exit, summary, elapsedMs = 10 }), DateTime.UtcNow).Value;
+
+    private async Task<string> PublishedBodyAsync()
+    {
+        string? body = null;
+        _publisher.OpenPullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Do<string>(b => body = b), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<PullRequestResult, AgentError>>(Result<PullRequestResult, AgentError>.Success(new PullRequestResult("https://x/pr/7", "7"))));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        return body.Should().NotBeNull().And.Subject!;
+    }
+
+    /// <summary>
+    ///     Task B6: the body carries the run's last recorded test result and the node that ran it, and a build recorded
+    ///     after it is not taken for a test result. Red: take the first record, which fails the node; take the last
+    ///     record whatever its tool, which fails the summary.
+    /// </summary>
+    [Fact]
+    public async Task The_body_carries_the_last_test_result_and_not_a_later_build()
+    {
+        _records.ListAsync(RunId, WorkflowRunRecord.TestResultKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>(
+            [
+                TestRecord("implement", "test", "1", "Failed! - Failed: 2"),
+                TestRecord("review", "test", "0", "Passed! - Failed: 0, Passed: 12"),
+                TestRecord("review", "build", "0", "errors: 0"),
+            ]));
+
+        var body = await PublishedBodyAsync();
+
+        body.Should().Contain("- Node: `review`\n- Tool: `test`\n- Exit: `0`\n- Summary: `Passed! - Failed: 0, Passed: 12`\n");
+        body.Should().NotContain("errors: 0").And.NotContain("Failed! - Failed: 2");
+    }
+
+    /// <summary>Task B6: a run that recorded no test says so in its body. Red: omit the section when no record exists.</summary>
+    [Fact]
+    public async Task A_run_with_no_test_record_says_so_in_its_body()
+    {
+        var body = await PublishedBodyAsync();
+
+        body.Should().Contain("## Tests\n\nNo test run was recorded for this change.\n");
+    }
+
+    /// <summary>
+    ///     Task B6: a test record whose payload cannot be read is reported as unreadable, never as no test. Red: skip an
+    ///     unreadable record, which fails both assertions.
+    /// </summary>
+    [Fact]
+    public async Task An_unreadable_test_record_is_reported_as_unreadable()
+    {
+        var unreadable = WorkflowRunRecord.Create(RunId, 5, "implement", WorkflowRunRecord.TestResultKind, "workflow:run/implement", null,
+            """{ "tool": 1 }""", DateTime.UtcNow).Value;
+        _records.ListAsync(RunId, WorkflowRunRecord.TestResultKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([unreadable]));
+
+        var body = await PublishedBodyAsync();
+
+        body.Should().Contain("- Exit: `unknown`").And.NotContain("No test run was recorded");
+    }
+
+    /// <summary>
+    ///     Task B6: a record store that answers no list fails the run before anything is committed or pushed, as an
+    ///     unreadable review evidence list does. Red: treat a null list as no record, which publishes.
+    /// </summary>
+    [Fact]
+    public async Task A_record_store_answering_no_test_result_list_is_refused_before_it_commits_or_pushes()
+    {
+        _records.ListAsync(RunId, WorkflowRunRecord.TestResultKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>((IReadOnlyList<WorkflowRunRecord>)null!));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        await _git.DidNotReceiveWithAnyArgs().CommitAsync(default!, default!, default);
+        await _git.DidNotReceiveWithAnyArgs().PushAsync(default!, default);
     }
 
     [Fact]
