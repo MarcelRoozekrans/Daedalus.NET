@@ -114,6 +114,8 @@ jobs:
       # Category=AuthenticationFlow tests drive a *running* API at localhost:8080 through a Keycloak
       # container — an end-to-end check for a developer machine with the stack up, not something a
       # test runner can satisfy; every other integration test brings its own Testcontainers.
+      # --blame-hang-timeout turns a test that blocks forever into a failure naming that test, instead of a silent
+      # job-level cancellation at timeout-minutes; the console logger shows each test as it finishes.
       - name: Run Integration Tests
         run: |
           dotnet test Daedalus.sln \
@@ -122,6 +124,9 @@ jobs:
             --filter "FullyQualifiedName~Integration&FullyQualifiedName!~Playwright&Category!=AuthenticationFlow" \
             --collect:"XPlat Code Coverage" \
             --results-directory ./TestResults/Integration \
+            --blame-hang-timeout 15m \
+            --blame-hang-dump-type none \
+            --logger "console;verbosity=normal" \
             --logger "trx;LogFileName=integration-tests.trx" \
             -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
 
