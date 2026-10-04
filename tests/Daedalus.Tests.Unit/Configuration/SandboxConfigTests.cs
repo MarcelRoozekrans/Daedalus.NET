@@ -38,7 +38,16 @@ public sealed partial class SandboxConfigTests : IDisposable
     /// <summary>A data root of this test's own, so building a provider never touches the user's real one.</summary>
     private readonly string _dataRoot = Directory.CreateTempSubdirectory("daedalus-sandbox-config-").FullName;
 
-    public void Dispose() => Directory.Delete(_dataRoot, recursive: true);
+    /// <summary>Clears the read-only attribute git sets under <c>.git/objects</c> first, which a plain delete refuses on Windows.</summary>
+    public void Dispose()
+    {
+        foreach (var file in Directory.EnumerateFiles(_dataRoot, "*", SearchOption.AllDirectories))
+        {
+            File.SetAttributes(file, FileAttributes.Normal);
+        }
+
+        Directory.Delete(_dataRoot, recursive: true);
+    }
 
     /// <summary>
     ///     S6: a grant with no extension list lets a run write project, props and targets files, which MSBuild evaluates,
@@ -431,8 +440,84 @@ public sealed partial class SandboxConfigTests : IDisposable
         services.AddDaedalusAgents(options, configuration, environment);
         await using var sp = services.BuildServiceProvider();
 
-        IEnumerable<string> expected = [.. SandboxOptions.DefaultProtectedPaths, "AGENT.md"];
+        IEnumerable<string> expected = [.. SandboxOptions.DefaultProtectedPaths, "AGENT.md", "AGENT.md/"];
         sp.GetRequiredService<RunWorkspaceToolOptions>().ProtectedPaths.Should().Equal(expected);
+    }
+
+    /// <summary>
+    ///     Thalos issue #265: <see cref="ProtectedPathSet"/> matches a file entry exactly, so the standing-instructions file
+    ///     alone leaves <c>AGENT.md/x</c> writable, and publish would then commit it as the approved standing-instructions
+    ///     change. The real <see cref="GitPatchApplier"/> the shipped, sandboxed Api registers refuses a patch adding
+    ///     <c>AGENT.md/x</c>, checked against the effective set the sandbox provider builds: Thalos's defaults plus the
+    ///     host's <see cref="SandboxOptions.ProtectedPaths"/> (Thalos 0.14.2, <c>SandboxOptions.EffectiveProtectedPaths</c>,
+    ///     which is internal, so it is rebuilt here the same way). Red: drop the <c>"&lt;path&gt;/"</c> entry from
+    ///     <c>ExtraProtectedPaths</c>; the applier then applies the patch, and the first assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task In_sandbox_mode_the_publish_side_check_refuses_a_path_under_the_standing_instructions_name()
+    {
+        await using var sp = BuildShippedApi();
+        var options = sp.GetRequiredService<SandboxOptions>();
+        var applier = sp.GetRequiredService<GitPatchApplier>();
+        var effective = new ProtectedPathSet([.. SandboxOptions.DefaultProtectedPaths, .. options.ProtectedPaths]);
+
+        var repo = Path.Combine(_dataRoot, "publish-worktree");
+        Directory.CreateDirectory(repo);
+        Git(repo, "init", "-q", "--initial-branch=main");
+        await File.WriteAllTextAsync(Path.Combine(repo, "README.md"), "# base\n");
+        Git(repo, "add", "-A");
+        Git(repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "base");
+        var baseCommit = Git(repo, "rev-parse", "HEAD");
+        var patch = Path.Combine(_dataRoot, "agent-dir.patch");
+        await File.WriteAllTextAsync(patch, NewFilePatch("AGENT.md/x", "notes\n"));
+        var workspace = new RunWorkspace(Guid.NewGuid(), "sandbox", repo, "main", "manufacture/x", repo, null) { BaseCommit = baseCommit };
+
+        var applied = await applier.ApplyAsync(workspace, patch, effective, new PatchApplyLimits(), CancellationToken.None);
+
+        applied.IsFailure.Should().BeTrue("a path under the standing-instructions name is protected");
+        applied.Error.Code.Should().Be(AgentErrorCode.Validation);
+        applied.Error.Message.Should().Contain("protected path 'AGENT.md/x'");
+        File.Exists(Path.Combine(repo, "AGENT.md", "x")).Should().BeFalse("a refused patch writes nothing");
+    }
+
+
+    /// <summary>
+    ///     A <c>git diff --full-index</c> style patch that adds one text file, its blob id computed the way git computes
+    ///     it, so <c>git apply</c> reads it as the sandbox's own export.
+    /// </summary>
+    private static string NewFilePatch(string path, string content)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+        var header = System.Text.Encoding.ASCII.GetBytes($"blob {bytes.Length}\0");
+#pragma warning disable CA5350 // git's object id is SHA-1 by definition; nothing here is a security use.
+        var blob = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData([.. header, .. bytes]));
+#pragma warning restore CA5350
+        var lines = content.TrimEnd('\n').Split('\n');
+        return $"diff --git a/{path} b/{path}\nnew file mode 100644\nindex 0000000000000000000000000000000000000000..{blob}\n" +
+            $"--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{lines.Length} @@\n" + string.Concat(lines.Select(l => "+" + l + "\n"));
+    }
+
+    private static string Git(string workingDirectory, params string[] args)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("git")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in args)
+        {
+            start.ArgumentList.Add(arg);
+        }
+
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var stdOut = process.StandardOutput.ReadToEnd();
+        var stdErr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        process.ExitCode.Should().Be(0, $"git {string.Join(' ', args)} failed: {stdErr}");
+        return stdOut.Trim();
     }
 
     /// <summary>

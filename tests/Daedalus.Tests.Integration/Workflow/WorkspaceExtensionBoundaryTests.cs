@@ -56,6 +56,27 @@ public sealed class WorkspaceExtensionBoundaryTests(PostgresFixture fixture) : I
         (await tools.WriteFile(caller, "src/A.cs", "class A { }")).Should().StartWith("wrote", "the same caller may still write code");
     }
 
+    /// <summary>
+    ///     Local mode, Thalos issue #265: the host's own workspace tools refuse a path under the standing-instructions
+    ///     name, not only the file itself, since publish would commit such a path as the approved standing-instructions
+    ///     change. <c>.md</c> is in the local grant, so only the protected check can refuse it. The seed's <c>AGENT.md</c>
+    ///     file is deleted from the worktree first, as a repository without one would have it, so nothing but the check
+    ///     stands between the write and the file system. Red: drop the <c>"&lt;path&gt;/"</c> entry from
+    ///     <c>ExtraProtectedPaths</c>; the write then succeeds, and both assertions fail.
+    /// </summary>
+    [Fact]
+    public async Task Implement_cannot_write_a_path_under_the_standing_instructions_name()
+    {
+        var run = await StartedRunAsync(_host, new RunPrincipal("u-dev", ["developer"]));
+        var caller = WorkflowNodeDispatcherFactory.CreateCallerResolver(_host.Factory.Services)(run);
+        var tools = ActivatorUtilities.CreateInstance<WorkspaceTools>(_host.Factory.Services);
+        var root = Path.Combine(_host.RunsRoot, run.Id.ToString());
+        File.Delete(Path.Combine(root, "AGENT.md"));
+
+        (await tools.WriteFile(caller, "AGENT.md/x.md", "notes")).Should().Be("error: 'AGENT.md/x.md' is protected and cannot be written.");
+        File.Exists(Path.Combine(root, "AGENT.md", "x.md")).Should().BeFalse("a refused write writes nothing");
+    }
+
     /// <summary>A run started through the registered starter, positioned at <c>implement</c>, its first node.</summary>
     private static async Task<WorkflowRun> StartedRunAsync(ScratchWorkflowHost host, RunPrincipal startedBy)
     {

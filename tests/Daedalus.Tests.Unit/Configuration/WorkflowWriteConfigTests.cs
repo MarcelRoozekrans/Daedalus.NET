@@ -362,7 +362,7 @@ public sealed class WorkflowWriteConfigTests
         services.AddDaedalusAgents(options, configuration, environment);
         await using var sp = services.BuildServiceProvider();
 
-        IEnumerable<string> expected = [.. SandboxOptions.DefaultProtectedPaths, "AGENT.md"];
+        IEnumerable<string> expected = [.. SandboxOptions.DefaultProtectedPaths, "AGENT.md", "AGENT.md/"];
         sp.GetRequiredService<RunWorkspaceToolOptions>().ProtectedPaths.Should().Equal(expected);
     }
 

@@ -679,12 +679,20 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
     /// <summary>
     ///     The protected path entries a run gets on top of Thalos's <see cref="SandboxOptions.DefaultProtectedPaths"/>:
-    ///     the configured extras of <see cref="SandboxConfig.ProtectedPaths"/>, then the standing-instructions file.
-    ///     Sandbox mode passes only these, because <see cref="SandboxOptions"/> always adds its defaults itself; local
-    ///     mode passes the defaults too, so both modes protect the same set from one source.
+    ///     the configured extras of <see cref="SandboxConfig.ProtectedPaths"/>, then the standing-instructions file, as a
+    ///     file and as a directory. Sandbox mode passes only these, because <see cref="SandboxOptions"/> always adds its
+    ///     defaults itself; local mode passes the defaults too, so both modes protect the same set from one source.
     /// </summary>
+    /// <remarks>
+    ///     <b>Why the directory entry.</b> <see cref="ProtectedPathSet"/> matches an entry without a trailing <c>/</c>
+    ///     exactly, so the file entry alone leaves <c>AGENT.md/x</c> writable. Publish would then sweep such a path into
+    ///     the approved standing-instructions commit: the code commit excludes the pathspec <c>AGENT.md</c>, which
+    ///     matches everything under a directory of that name, and the path-scoped standing-instructions commit adds
+    ///     it. The <c>&lt;path&gt;/</c> entry protects the name as a directory too. The root fix is Thalos issue #265,
+    ///     a protected file entry that also covers the name used as a directory; this entry stays correct after it.
+    /// </remarks>
     internal static IEnumerable<string> ExtraProtectedPaths(WorkflowConfig workflow, string standingInstructionsPath) =>
-        [.. workflow.Sandbox.ProtectedPaths, standingInstructionsPath];
+        [.. workflow.Sandbox.ProtectedPaths, standingInstructionsPath, standingInstructionsPath + "/"];
 
     /// <summary>
     ///     Local mode, phase 2.5's: every run gets a git worktree of its repository under the data root, and the
