@@ -858,8 +858,14 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
     {
         try
         {
-            // A file this large is no marker and no log a run of minutes writes; reading it whole would only cost memory.
-            return new FileInfo(file).Length <= 256L * 1024 * 1024
+            // Only a regular file with content is opened. Linux temp holds FIFOs, such as the .NET runtime's
+            // clr-debug-pipe-<pid>-in/out that every new .NET process creates, and opening a FIFO for reading blocks until
+            // a writer appears: that hung this test on CI. A FIFO, socket or device reports a length of 0, and a file
+            // holding the marker text is never empty, so skipping length 0 loses nothing. A file this large is no marker
+            // and no log a run of minutes writes; reading it whole would only cost memory.
+            var info = new FileInfo(file);
+            return (info.Attributes & (FileAttributes.Device | FileAttributes.ReparsePoint)) == default
+                && info.Length is > 0 and <= 256L * 1024 * 1024
                 && Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(text, StringComparison.Ordinal);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
