@@ -40,9 +40,17 @@ only once something demonstrably better runs in its place.
       `Retried` at seq 7, naming the admin. See `docs/plans/2026-09-24-phase-2.5-rulings.md`.
 - [ ] **Ralph retired only after that run.** Phase 2.8 deletes the loop only once the live run
       above exists, so the retirement proves the replacement works.
-- [ ] **Agent output cannot execute on the host.** A file an agent writes during a run, including
+- [x] **Agent output cannot execute on the host.** A file an agent writes during a run, including
       MSBuild project, props and targets files, is only ever evaluated inside that run's sandbox
       (phase 2.6), never on the API host. Added 2026-09-25 after the MSBuild spike proved the risk.
+
+      **Met 2026-10-04, phase 2.6 B10.** Two tests plant an MSBuild target that writes a marker file and
+      assert it exists only inside the container: Thalos A12,
+      `An_agent_written_build_target_runs_only_inside_the_container`, and Daedalus B8,
+      `An_agent_build_target_never_runs_on_the_api_host`. Run `ac684402` on `daedalus-sandbox` edited a
+      `.csproj` and tested it in its sandbox, which was gone about 33 s after the run parked at the
+      gate. It opened sandbox PR #8. The earlier run `f6ee2bc2` failed because the agent misread its run
+      mode, which process v8 now states. See `docs/plans/2026-10-04-phase-2.6-rulings.md`.
 - [ ] **A run is traceable.** A manufacture run emits spans, per phase 2.9, and a failed run can be
       diagnosed from them and the event log without reading agent transcripts.
 - [ ] **Spend is visible and bounded.** Agent-turn token usage is aggregated into cost analytics.
