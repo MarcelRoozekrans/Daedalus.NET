@@ -203,9 +203,10 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
     ///         <item>the Tests section: the recorder red above, with the test-result assertion set aside, and the body says
     ///         no test run was recorded;</item>
     ///         <item>ruling R61, <c>run_mode</c> is <c>sandbox</c> and implement's task and every lens pass's task state
-    ///         "Run mode: sandbox": take <c>RunModeRunner</c> out of <c>WorkflowNodeDispatcherFactory</c>, and both task
-    ///         assertions fail while the variable assertion holds; have the starter write <c>local</c>, and all three
-    ///         fail.</item>
+    ///         "Run mode: sandbox", in one assertion scope so a red reports every assertion it breaks: take
+    ///         <c>RunModeRunner</c> out of <c>WorkflowNodeDispatcherFactory</c>, and the implement and lens-pass assertions
+    ///         fail while the variable assertion holds; have the starter write <c>local</c>, and all three fail. Each was
+    ///         applied once and observed in fix round 1 of the run-mode fix.</item>
     ///     </list>
     /// </remarks>
     [SkippableFact]
@@ -223,10 +224,14 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
         var runId = await StartRunAsync(admin);
         var parked = await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate", RunGuard);
 
-        parked.Variables.Should().ContainKey(RunMode.Key).WhoseValue.Should().Be(RunMode.Sandbox, "the start states the mode it chose the workspace by");
-        TurnTasks(chat)[0].Split('\n').Should().Contain("Run mode: sandbox", "implement's task states the run mode, so it never infers it from its tools");
-        TurnTasks(chat).Where(t => t.Contains("## Review pass", StringComparison.Ordinal)).Should().HaveCount(3)
-            .And.OnlyContain(t => t.Contains("\nRun mode: sandbox\n", StringComparison.Ordinal), "every review lens pass's task states the run mode");
+        using (new AssertionScope("ruling R61"))
+        {
+            parked.Variables.Should().ContainKey(RunMode.Key).WhoseValue.Should().Be(RunMode.Sandbox, "the start states the mode it chose the workspace by");
+            TurnTasks(chat)[0].Split('\n').Should().Contain("Run mode: sandbox", "implement's task states the run mode, so it never infers it from its tools");
+            TurnTasks(chat).Where(t => t.Contains("## Review pass", StringComparison.Ordinal)).Should().HaveCount(3)
+                .And.OnlyContain(t => t.Contains("\nRun mode: sandbox\n", StringComparison.Ordinal), "every review lens pass's task states the run mode");
+        }
+
         ToolResults(chat, "workspace__write_file").Should().ContainSingle(r => r.Contains($"'{ProtectedPath}' is protected", StringComparison.Ordinal),
             "the sandbox refuses a write under .github/, and only that one");
         var tests = TestResults(await host.RecordsAsync(runId, WorkflowRunRecord.TestResultKind));

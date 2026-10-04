@@ -33,7 +33,8 @@
 #      line reading "Run mode: sandbox" or "Run mode: local", outside the block of agent-written
 #      variables. Thalos gives a node no prompt field of its own, so this file cannot carry that line;
 #      Daedalus' RunModeRunner writes it from the variable. The skills key their mode-dependent rules off
-#      the stated mode, and a node whose tools disagree with it reports `blocked` naming the discrepancy.
+#      the stated mode. When a node's tools disagree with it, `implement` reports `blocked` and `review`
+#      rejects, which has no `blocked` outcome; each names the discrepancy.
 #
 #      The implementer still holds no `git__*` and no `repoaction__*` tool: both families are absent from
 #      its configured `Tools` list, so neither is ever offered to one of its turns. It edits files; it

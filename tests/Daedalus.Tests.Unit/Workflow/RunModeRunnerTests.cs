@@ -1,3 +1,4 @@
+using AwesomeAssertions.Execution;
 using Daedalus.Agents.Workflow;
 using Thalos;
 using Thalos.Workflow;
@@ -52,9 +53,17 @@ public sealed class RunModeRunnerTests
     }
 
     /// <summary>
-    ///     Both nodes, in both modes, are told the mode on a line of its own, after the engine's task. Red, applied once:
-    ///     drop <see cref="ReviewHandoff.ReviewSkillName"/> from the runner's eligible skills, and the review rows fail;
-    ///     write a constant instead of the variable's value, and the rows of the other mode fail.
+    ///     Both nodes, in both modes, are told the mode on a line of its own, after the engine's task. The three
+    ///     assertions share one scope. Reds, each applied once:
+    ///     <list type="bullet">
+    ///         <item>the mode line - Red: drop <see cref="ReviewHandoff.ReviewSkillName"/> from the runner's eligible
+    ///             skills, and the review rows fail; write a constant instead of the variable's value, and the rows of the
+    ///             other mode fail;</item>
+    ///         <item>the task starting with the engine's task - Red: prepend the section to the task instead of
+    ///             appending it, and every row fails;</item>
+    ///         <item>the heading line - Red: drop <see cref="RunModeRunner.Heading"/> from <c>Section</c>, and every row
+    ///             fails.</item>
+    ///     </list>
     /// </summary>
     [Theory]
     [InlineData("implement", ReviewHandoff.ImplementSkillName, "sandbox")]
@@ -65,9 +74,12 @@ public sealed class RunModeRunnerTests
     {
         var task = await TaskSentAsync(RunAt(node, skill, mode));
 
-        task.Should().StartWith("the engine's task");
-        task.Split('\n').Should().Contain($"Run mode: {mode}");
-        task.Should().Contain(RunModeRunner.Heading);
+        using (new AssertionScope())
+        {
+            task.Should().StartWith("the engine's task");
+            task.Split('\n').Should().Contain($"Run mode: {mode}");
+            task.Split('\n').Should().Contain(RunModeRunner.Heading);
+        }
     }
 
     /// <summary>
