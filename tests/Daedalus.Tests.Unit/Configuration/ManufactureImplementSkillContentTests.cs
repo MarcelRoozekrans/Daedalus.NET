@@ -156,6 +156,42 @@ public sealed partial class ManufactureImplementSkillContentTests
     }
 
     /// <summary>
+    ///     Ruling R61: the implementer follows the run mode its task states and never infers it from its tool list. The
+    ///     phase 2.6 live proof's implementer misread a long tool list, decided it was in local mode, and reported
+    ///     <c>blocked</c> on a <c>.csproj</c> change the sandbox allowed, because version 7 of this skill told it to infer
+    ///     the mode from whether <c>sandbox__build</c> was offered. Each assertion has its own Red, applied once to
+    ///     <c>skills/manufacture-implement/SKILL.md</c>:
+    ///     <list type="bullet">
+    ///         <item>the absences - Red: restore the old sentence "if your tool list has no sandbox__build or
+    ///             sandbox__test, this host is in local mode", or any of the other three tool-presence conditions;</item>
+    ///         <item>"Your task states the mode this run executes in" - Red: delete the run-mode section's lead;</item>
+    ///         <item>"Run mode: sandbox" and "Run mode: local" - Red: delete either mode's bullet;</item>
+    ///         <item>"follows that stated run mode" and "Do not work the mode out from your tool list" - Red: delete
+    ///             either sentence;</item>
+    ///         <item>the disagreement sentence - Red: delete it, or tell the implementer to trust its tools instead.</item>
+    ///     </list>
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_keys_off_the_stated_run_mode_never_off_tool_presence()
+    {
+        var normalized = Normalize(ImplementSkill());
+
+        normalized.Should().NotContainEquivalentOf("if your tool list has no sandbox__build");
+        normalized.Should().NotContainEquivalentOf("If your tool list has them");
+        normalized.Should().NotContainEquivalentOf("If you hold sandbox__build");
+        normalized.Should().NotContainEquivalentOf("If you hold the sandbox tools");
+        normalized.Should().NotContainEquivalentOf(Normalize("no `sandbox__*` tools in your list"));
+
+        normalized.Should().ContainEquivalentOf("Your task states the mode this run executes in");
+        normalized.Should().ContainEquivalentOf("Run mode: sandbox");
+        normalized.Should().ContainEquivalentOf("Run mode: local");
+        normalized.Should().ContainEquivalentOf("Every rule below that differs by mode follows that stated run mode");
+        normalized.Should().ContainEquivalentOf("Do not work the mode out from your tool list");
+        normalized.Should().ContainEquivalentOf("If the stated mode and your tools disagree, do not guess");
+        normalized.Should().ContainEquivalentOf("report blocked with a summary naming the discrepancy");
+    }
+
+    /// <summary>
     ///     The skill is shared by both modes, so it must say there is no shell in either, not credit the absence to
     ///     the sandbox tools alone, which local mode does not have. Red: restoring "There is no shell, because
     ///     sandbox__build and sandbox__test each run one fixed command" turns the absence red; deleting "in either

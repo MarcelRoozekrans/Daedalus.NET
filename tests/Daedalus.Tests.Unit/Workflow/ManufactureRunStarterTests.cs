@@ -347,6 +347,56 @@ public sealed class ManufactureRunStarterTests
     }
 
     /// <summary>
+    ///     Ruling R61: the host knows the mode, so the start states it. The run opens with <c>run_mode</c> set from
+    ///     <see cref="SandboxConfig.Enabled"/>, beside <c>work_intent</c>. Red, applied once: hard-code
+    ///     <c>RunMode.Sandbox</c> in the starter, and the <c>false</c> row fails; hard-code <c>RunMode.Local</c>, and the
+    ///     <c>true</c> row fails.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "sandbox")]
+    [InlineData(false, "local")]
+    public async Task The_run_opens_with_the_run_mode_the_sandbox_setting_names(bool sandboxEnabled, string expected)
+    {
+        _config.Sandbox.Enabled = sandboxEnabled;
+
+        var variables = await InitialVariablesAsync();
+
+        variables.Should().ContainKey(RunMode.Key).WhoseValue.Should().Be(expected);
+        variables.Should().ContainKey(ReviewHandoff.WorkIntentKey).WhoseValue.Should().Be("Tighten a guard.");
+    }
+
+    /// <summary>
+    ///     Lets the real <see cref="WorkflowRunStarter"/> reach the store, through a resolver that pins an empty manifest,
+    ///     and returns the opening variables it handed the store.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, object?>> InitialVariablesAsync()
+    {
+        _definitions.GetActiveVersionAsync("manufacture", Arg.Any<CancellationToken>()).Returns(new ValueTask<int?>(1));
+        _definitions.GetAsync("manufacture", 1, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<ProcessDefinition>>(Result<ProcessDefinition>.Success(new ProcessDefinition
+            {
+                Name = "manufacture",
+                Version = 1,
+                StartNode = "done",
+                Nodes = new Dictionary<string, ProcessNode>(StringComparer.Ordinal) { ["done"] = new() },
+            })));
+        _manifests.ResolveAsync(Arg.Any<ProcessDefinition>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<CancellationToken>())
+            .Returns(call => new ValueTask<Result<RunManifest>>(Result<RunManifest>.Success(new RunManifest
+            {
+                Nodes = new Dictionary<string, NodePin>(StringComparer.Ordinal),
+                Documents = call.Arg<IReadOnlyDictionary<string, string>>(),
+            })));
+        var store = Substitute.For<IWorkflowStore>();
+        WorkflowStartRequest? captured = null;
+        store.StartAsync(Arg.Do<WorkflowStartRequest>(r => captured = r), Arg.Any<CancellationToken>());
+
+        var starter = new ManufactureRunStarter(new WorkflowRunStarter(_definitions, _manifests, store), _workspaces, _baseFiles, _config);
+        await starter.StartAsync(Request("sandbox"), CancellationToken.None);
+
+        captured.Should().NotBeNull("the start must reach the store for the opening variables to be read");
+        return captured!.InitialVariables!;
+    }
+    /// <summary>
     ///     A disabled engine is a host setting, reported as <c>Disabled</c> with its fixed message, so the endpoint can
     ///     answer 503 without Retry-After. Red, per assertion: return <c>Unavailable</c>, and the kind fails; change the
     ///     text, and the message fails.

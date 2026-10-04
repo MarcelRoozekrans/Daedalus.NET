@@ -5,7 +5,7 @@ namespace Daedalus.Agents.Workflow;
 /// <summary>
 ///     The one seam both <c>WorkflowRunsController</c> and <see cref="Tools.DaedalusManufactureTools"/> use to
 ///     start a new <c>manufacture</c> run — never <see cref="Thalos.Workflow.WorkflowRunStarter"/> directly, so
-///     REST and the <c>manufacture__start</c> tool cannot drift apart on what a run's opening variable or pinned
+///     REST and the <c>manufacture__start</c> tool cannot drift apart on what a run's opening variables or pinned
 ///     document is called.
 /// </summary>
 /// <remarks>
@@ -20,7 +20,8 @@ public interface IManufactureRunStarter
     /// <summary>
     ///     Starts one manufacture run on the allow-listed repository <paramref name="request"/> names, in a git
     ///     worktree of its own, with <see cref="ManufactureStartRequest.WorkIntent"/> as its opening variable
-    ///     (<c>work_intent</c>) and pinned, together with the worktree's standing instructions, as manifest
+    ///     (<c>work_intent</c>), beside the host's own <c>run_mode</c> (see <see cref="RunMode"/>), and pinned, together with
+    ///     the worktree's standing instructions, as manifest
     ///     documents (<see cref="ManufactureRunStarter.WorkIntentDocument"/> and
     ///     <see cref="ManufactureRunStarter.StandingInstructionsDocument"/>). The run records
     ///     <see cref="ManufactureStartRequest.StartedBy"/> as the principal that started it. Failure text is safe

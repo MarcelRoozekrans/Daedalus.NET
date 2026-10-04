@@ -12,7 +12,8 @@ namespace Daedalus.Agents.Workflow;
 ///     <see langword="true"/>. Resolves the request's repository against <see cref="WorkflowConfig.Repositories"/>,
 ///     prepares the run's git worktree through <see cref="IRunWorkspaceProvider"/>, and then shapes one call onto
 ///     <see cref="WorkflowRunStarter.StartAsync"/> under the same run id: the process is always <c>manufacture</c>,
-///     the opening variable is always <c>work_intent</c>, and the work intent and the worktree's standing
+///     the opening variables are always <c>work_intent</c> and <c>run_mode</c> (see <see cref="RunMode"/>, ruling
+///     R61), and the work intent and the worktree's standing
 ///     instructions file are pinned into the manifest as <see cref="WorkIntentDocument"/> and
 ///     <see cref="StandingInstructionsDocument"/>.
 /// </summary>
@@ -141,7 +142,13 @@ public sealed class ManufactureRunStarter(
                 standingInstructions.Error.Message).ConfigureAwait(false);
         }
 
-        var variables = new Dictionary<string, object?>(StringComparer.Ordinal) { ["work_intent"] = workIntent };
+        var variables = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.WorkIntentKey] = workIntent,
+            // Ruling R61: the host knows the mode, so it states it. Read from the same setting that chose this run's
+            // workspace provider, never left for an agent to infer from the tools it is offered.
+            [RunMode.Key] = RunMode.For(_config.Sandbox),
+        };
         var documents = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [WorkIntentDocument] = workIntent,

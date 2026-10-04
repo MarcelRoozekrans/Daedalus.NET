@@ -27,6 +27,14 @@
 #      holds no `sandbox__*` tool. In both modes paths resolve inside the worktree and `..` and absolute
 #      paths are refused. The Roslyn server the node reaches is the run's own, over the same worktree.
 #
+#      The node is told which mode it is in; it never works it out. The run's start writes the variable
+#      `run_mode`, `sandbox` or `local`, from `Thalos:Workflow:Sandbox:Enabled`, and only the start may
+#      write it. The host states it in the task text of `implement` and of every `review` lens pass, as a
+#      line reading "Run mode: sandbox" or "Run mode: local", outside the block of agent-written
+#      variables. Thalos gives a node no prompt field of its own, so this file cannot carry that line;
+#      Daedalus' RunModeRunner writes it from the variable. The skills key their mode-dependent rules off
+#      the stated mode, and a node whose tools disagree with it reports `blocked` naming the discrepancy.
+#
 #      The implementer still holds no `git__*` and no `repoaction__*` tool: both families are absent from
 #      its configured `Tools` list, so neither is ever offered to one of its turns. It edits files; it
 #      cannot commit, push or open a pull request.
@@ -82,7 +90,13 @@ process: manufacture
 # and `sandbox__test`. Constraint 1 above is rewritten for it, and the implement and review skills with it. The
 # graph is unchanged; content-hash immutability makes a comment and skill-prose change a version bump all the
 # same.
-version: 7
+#
+# version bumped 7 -> 8 (phase 2.6, ruling R61): the run's mode is stated, not inferred. Version 7's skills told
+# `implement` and `review` to work out sandbox or local mode from whether `sandbox__build` or `sandbox__test` was in
+# their tool list, and the live proof's implementer misread a 74-tool list, decided it was in local mode, and
+# reported `blocked` on a `.csproj` change the sandbox allowed. The start now writes `run_mode`, the host states it in
+# both nodes' task text, and both skills key off the stated mode. Constraint 1 above says how. The graph is unchanged.
+version: 8
 
 nodes:
   # `outcomes` is new in version 3. Version 2 declared none, so this node completed on any turn output at

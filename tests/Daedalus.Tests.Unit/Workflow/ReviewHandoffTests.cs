@@ -97,7 +97,9 @@ public sealed class ReviewHandoffTests
     {
         // Falsifiable: adding a key turns this red, which is the point - the set decides what the reviewer is
         // given, and it is meant to change deliberately and visibly rather than by a passing edit.
-        ReviewHandoff.ReviewReads.Should().BeEquivalentTo(["work_intent", "files_touched"]);
+        // Ruling R61 added run_mode: RunModeRunner states the mode to the reviewer from this projected bag, so without
+        // it the review prompt would state no mode. Red, applied once: drop RunModeKey from ReviewReads.
+        ReviewHandoff.ReviewReads.Should().BeEquivalentTo(["work_intent", "files_touched", "run_mode"]);
 
         // files_touched is the only thing the implementer writes that the reviewer reads. Stated as an assertion
         // because it is the whole shape of the handoff: a pointer travels, an account does not.

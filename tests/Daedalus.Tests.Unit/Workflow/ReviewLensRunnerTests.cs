@@ -232,6 +232,25 @@ public sealed class ReviewLensRunnerTests
         inner.Tasks[0].Should().Contain("never approve on an absence");
     }
 
+    /// <summary>
+    ///     Ruling R61 puts <c>run_mode</c> in the review projection so the host can state it, but it says nothing about
+    ///     the change: a bag holding only the mode is still a reviewer given nothing to start from. Red, applied once:
+    ///     go back to <c>projected.Count == 0</c>, and the pass is told the block carries run_mode instead.
+    /// </summary>
+    [Fact]
+    public async Task A_run_whose_only_review_variable_is_the_run_mode_is_still_told_it_was_given_nothing()
+    {
+        var inner = new RecordingRunner(_ => Approves("correctness"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness"), RecordStoreScopes.For(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
+
+        await runner.RunAsync(
+            ReviewRequest(ReviewRun(new Dictionary<string, object?>(StringComparer.Ordinal) { [RunMode.Key] = RunMode.Sandbox })),
+            CancellationToken.None);
+
+        inner.Tasks.Should().ContainSingle();
+        inner.Tasks[0].Should().Contain("No review variables were supplied");
+    }
+
     [Fact]
     public async Task A_pass_that_reports_an_approval_with_no_evidence_fails_the_node()
     {

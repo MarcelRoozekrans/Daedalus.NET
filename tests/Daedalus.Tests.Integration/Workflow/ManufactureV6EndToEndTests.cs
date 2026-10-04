@@ -78,7 +78,19 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
             start.StatusCode.Should().Be(HttpStatusCode.Created);
             var runId = (await start.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
 
-            await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
+            var parked = await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
+
+            // Ruling R61, through the real starter and dispatcher: the start writes run_mode from the sandbox setting,
+            // and the host states it in implement's task and in every review lens pass's task. Red, applied once: take
+            // RunModeRunner out of WorkflowNodeDispatcherFactory, and the implement and lens assertions fail; drop
+            // run_mode from ReviewReads, and the lens assertion fails; hard-code the starter to sandbox, and all fail.
+            parked.Variables.Should().ContainKey(RunMode.Key).WhoseValue.Should().Be(RunMode.Local);
+            var turns = host.TurnTasks();
+            turns[0].Split('\n').Should().Contain("Run mode: local", "implement's task states the run mode");
+            var lensPasses = turns.Where(t => t.Contains("## Review pass", StringComparison.Ordinal)).ToList();
+            lensPasses.Should().HaveCount(3);
+            lensPasses.Should().OnlyContain(t => t.Contains("\nRun mode: local\n", StringComparison.Ordinal), "every review lens pass's task states the run mode");
+
             (await File.ReadAllTextAsync(Path.Combine(host.DataRoot, "runs", runId.ToString(), "src", "A.cs"))).Should().Contain("guard", "implement really edited the worktree");
             File.Exists(Path.Combine(host.DataRoot, "runs", runId.ToString(), "Sandbox.csproj")).Should().BeFalse("the .csproj write was refused by the extension allow-list");
             host.ToolResults("workspace__write_file").Should().ContainSingle(r => r.Contains("extension '.csproj'"));
@@ -206,6 +218,17 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
             host.WaitForAsync(runId, until, what);
 
         public Task<IReadOnlyList<WorkflowRunRecord>> Records(Guid runId, string kind) => host.RecordsAsync(runId, kind);
+
+        /// <summary>
+        ///     The task text of each turn, in dispatch order: the user message each turn's requests open with, once per
+        ///     distinct text. Implement's turn is first, then the review lens passes, then retrospect.
+        /// </summary>
+        public IReadOnlyList<string> TurnTasks() =>
+            [.. chat.Requests
+                .Select(r => string.Join('\n', r.Messages.Where(m => m.Role == ChatRole.User).Select(m => m.Text)))
+                .Where(t => t.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .Select(t => t.ReplaceLineEndings("\n"))];
 
         /// <summary>
         ///     The result text of every call the model made to <paramref name="toolName"/>, in call order, as the model

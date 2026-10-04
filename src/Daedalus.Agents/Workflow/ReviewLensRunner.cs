@@ -253,7 +253,9 @@ internal sealed partial class ReviewLensRunner(
 
         text.AppendLine("## What you were given");
         text.AppendLine();
-        if (projected.Count == 0)
+        // run_mode is in the projection only so RunModeRunner can state it; it is not evidence about the change, so a
+        // bag holding nothing else is still a reviewer given nothing to start from.
+        if (!projected.Keys.Any(k => !string.Equals(k, ReviewHandoff.RunModeKey, StringComparison.Ordinal)))
         {
             // Said out loud rather than left as an empty section. A reviewer that silently receives nothing is
             // how phase 2.2's approval-on-absence happened; the skill's rule is that an absence is a rejection,

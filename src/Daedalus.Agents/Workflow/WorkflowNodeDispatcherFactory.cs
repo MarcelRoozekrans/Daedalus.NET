@@ -65,16 +65,18 @@ internal static class WorkflowNodeDispatcherFactory
         // StandingInstructionsRunner is outermost: a review node's pinned skill never matches its eligible set
         // (manufacture-implement, manufacture-retrospect), so it is inert on every lens pass regardless of where
         // it sits, but sitting outside means the eligibility check runs once per node dispatch rather than once
-        // per lens pass.
-        new StandingInstructionsRunner(
-            new ReviewLensRunner(
-                new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
-                sp.GetRequiredService<IProcessDefinitionStore>(),
-                // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
-                // dependency.
-                sp.GetRequiredService<IServiceScopeFactory>(),
-                sp.GetRequiredService<TimeProvider>(),
-                sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
+        // per lens pass. RunModeRunner sits outside it for the same reason: it states the run's mode once per node
+        // dispatch, and every lens pass ReviewLensRunner composes from the request it was handed carries the statement.
+        new RunModeRunner(
+            new StandingInstructionsRunner(
+                new ReviewLensRunner(
+                    new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+                    sp.GetRequiredService<IProcessDefinitionStore>(),
+                    // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
+                    // dependency.
+                    sp.GetRequiredService<IServiceScopeFactory>(),
+                    sp.GetRequiredService<TimeProvider>(),
+                    sp.GetRequiredService<ILogger<ReviewLensRunner>>()))),
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
         sp.GetRequiredService<ISkillStore>(),

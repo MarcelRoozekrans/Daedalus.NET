@@ -7,7 +7,7 @@ namespace Daedalus.Agents.Workflow;
 ///     the projection that enforces it:
 ///     <code>
 ///     implement  writes  { summary, files_touched, rationale }
-///     review     reads   { work_intent, files_touched }
+///     review     reads   { work_intent, files_touched, run_mode }
 ///                writes  { verdict, findings[], checked[] }
 ///     </code>
 /// </summary>
@@ -87,6 +87,12 @@ public static class ReviewHandoff
     /// <summary>The skill name <c>implement</c> is pinned to. Named here so it sits beside <see cref="RetrospectSkillName"/> rather than as a bare literal at the one other call site that needs it, <see cref="StandingInstructionsRunner"/>.</summary>
     public const string ImplementSkillName = "manufacture-implement";
 
+    /// <summary>The skill name <c>review</c> is pinned to, which <see cref="RunModeRunner"/> keys off beside <see cref="ImplementSkillName"/>.</summary>
+    public const string ReviewSkillName = "manufacture-review";
+
+    /// <summary>The mode the run executes in, <c>sandbox</c> or <c>local</c>, written only by the run's start. See <see cref="RunMode"/>.</summary>
+    public const string RunModeKey = RunMode.Key;
+
     /// <summary>The skill name a <c>retrospect</c> node is pinned to — what <see cref="ReviewHandoffWorkflowStore.ProjectionForAsync"/> and <see cref="StandingInstructionsRunner"/> both key off.</summary>
     public const string RetrospectSkillName = "manufacture-retrospect";
 
@@ -132,6 +138,11 @@ public static class ReviewHandoff
     ///             of the run, so a node that rewrote it would choose what its own work is judged against.
     ///         </item>
     ///         <item>
+    ///             <see cref="RunModeKey"/>: only the start. <see cref="RunModeRunner"/> states it to <c>implement</c> and
+    ///             <c>review</c> as the mode the run executes in, and their skills key their mode-dependent rules off it,
+    ///             so a node that rewrote it would choose the rules a later node follows (ruling R61).
+    ///         </item>
+    ///         <item>
     ///             <see cref="PrUrlKey"/> and <see cref="PublishErrorKey"/>: only <see cref="PublishActionName"/>. The run
     ///             view shows <c>pr_url</c> as the run's pull request, so an agent that wrote one would point the
     ///             approver at a link of its own choosing.
@@ -142,6 +153,7 @@ public static class ReviewHandoff
         new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             [WorkIntentKey] = null,
+            [RunModeKey] = null,
             [PrUrlKey] = PublishActionName,
             [PublishErrorKey] = PublishActionName,
         }.ToFrozenDictionary(StringComparer.Ordinal);
@@ -158,10 +170,12 @@ public static class ReviewHandoff
 
     /// <summary>
     ///     The only keys a <c>review</c> dispatch is given. <see cref="FilesTouchedKey"/> is the sole thing the
-    ///     implementer writes that appears here: a pointer travels, an account does not.
+    ///     implementer writes that appears here: a pointer travels, an account does not. <see cref="RunModeKey"/> is
+    ///     here because the dispatch's caller carries this projected bag, and <see cref="RunModeRunner"/> reads the mode
+    ///     it states to the reviewer from that bag: left out, the review prompt would state no mode at all.
     /// </summary>
     public static readonly FrozenSet<string> ReviewReads =
-        new[] { WorkIntentKey, FilesTouchedKey }.ToFrozenSet(StringComparer.Ordinal);
+        new[] { WorkIntentKey, FilesTouchedKey, RunModeKey }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>
     ///     The only keys a <c>retrospect</c> dispatch is given: the implementer's <see cref="LearningsKey"/>.

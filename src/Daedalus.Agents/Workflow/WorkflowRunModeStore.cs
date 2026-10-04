@@ -56,8 +56,8 @@ namespace Daedalus.Agents.Workflow;
 ///     </para>
 ///     <para>
 ///     <b>Task B4 checked, rather than assumed, that three permanent keys still leave room on a review node.</b>
-///     The shipped <c>manufacture.yaml</c> carries at most nine distinct keys across a run's whole life —
-///     <c>work_intent</c>, <c>files_touched</c>, <c>summary</c>, <c>rationale</c>, <c>learnings</c>,
+///     The shipped <c>manufacture.yaml</c> carries at most ten distinct keys across a run's whole life —
+///     <c>work_intent</c>, <c>run_mode</c>, <c>files_touched</c>, <c>summary</c>, <c>rationale</c>, <c>learnings</c>,
 ///     <c>proposed_standing_instructions</c>, plus the three mode keys — nowhere near the real cap of sixteen
 ///     <em>total</em>, and <c>review</c>'s own outcome-tool call carries no variables at all (its evidence goes
 ///     through a separate tool). So <see cref="PinningKey"/> is recorded on every transition, the same as

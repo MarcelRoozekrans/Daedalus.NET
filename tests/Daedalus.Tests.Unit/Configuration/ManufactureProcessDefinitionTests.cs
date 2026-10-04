@@ -72,18 +72,19 @@ public sealed class ManufactureProcessDefinitionTests
     }
 
     [Fact]
-    public void The_process_is_at_version_seven()
+    public void The_process_is_at_version_eight()
     {
         var definition = LoadManufactureProcess();
 
         definition.Name.Should().Be("manufacture");
 
-        // Falsifiable: setting `version:` back to 6 in processes/manufacture.yaml turns this red. The number is
+        // Falsifiable: setting `version:` back to 7 in processes/manufacture.yaml turns this red. The number is
         // load-bearing rather than cosmetic - phase 2.2's content-hash immutability refuses a same-version
-        // content change, so a v7 body still labelled v6 is not a cosmetic slip, it is a file the store will
-        // refuse to activate while the older v6 keeps running. Version 7 (phase 2.6, task B7) rewrites constraint 1 and the two
-        // skills for sandbox mode and leaves the graph unchanged.
-        definition.Version.Should().Be(7);
+        // content change, so a v8 body still labelled v7 is not a cosmetic slip, it is a file the store will
+        // refuse to activate while the older v7 keeps running. Version 7 (phase 2.6, task B7) rewrites constraint 1 and the two
+        // skills for sandbox mode and leaves the graph unchanged. Version 8 (phase 2.6, ruling R61) states the run mode
+        // to implement and review instead of leaving them to infer it from their tool lists, and leaves the graph unchanged.
+        definition.Version.Should().Be(8);
     }
 
     /// <summary>

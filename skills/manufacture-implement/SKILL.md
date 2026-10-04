@@ -12,13 +12,31 @@ on its own branch, `manufacture/<run-id>`. Nothing you write reaches another run
 default branch or any remote while you work. You make the change; the reviewer reads what is on
 disk; host code commits and publishes it after a human approves.
 
+## Your run mode
+
+**Your task states the mode this run executes in**, in a section headed `## Run mode` whose line reads
+`Run mode: sandbox` or `Run mode: local`. The host wrote it when the run started, from its own
+configuration. Every rule below that differs by mode follows that stated run mode. Do not work the
+mode out from your tool list: the stated run mode is the authority, and a long tool list is easy to
+misread.
+
+- **Sandbox mode** (`Run mode: sandbox`): the worktree lives in this run's own container. Any file
+  extension is writable except the protected paths below, and you build and test the change with
+  `sandbox__build` and `sandbox__test`.
+- **Local mode** (`Run mode: local`): the worktree is the host's own. Only `.cs` and `.md` files are
+  writable, and you hold no `sandbox__*` tool, so you cannot build or test.
+
+**If the stated mode and your tools disagree, do not guess.** If the task states sandbox mode but
+`sandbox__build` or `sandbox__test` is not in your tool list, or it states local mode but you hold
+either one, or it states no run mode at all, report `blocked` with a `summary` naming the
+discrepancy, for example "Run mode: sandbox is stated, but sandbox__test is not in my tool list".
+
 ## What you may and may not touch
 
 Your configured `Tools` list holds named Roslyn read tools plus `roslyn__apply_code_action`, and
-`daedalus__*`, `memory__*`, `skills__*`, `context7__*`, `workspace__*` and the two sandbox tools
-`sandbox__build` and `sandbox__test`. The sandbox tools are offered only when this host runs its runs in
-a sandbox; if your tool list has no `sandbox__build` or `sandbox__test`, this host is in local mode:
-skip every step below that names them, and the rules marked "local mode" apply. The Roslyn entries are
+`daedalus__*`, `memory__*`, `skills__*`, `context7__*`, `workspace__*` and, in sandbox mode, the two
+sandbox tools `sandbox__build` and `sandbox__test`. In local mode skip every step below that names
+them, and the rules marked "local mode" apply. The Roslyn entries are
 exact names with **no glob**: a Roslyn tool that is not named in your list is not offered to your
 turn, whatever the server exposes. Operator tools such as loading, rebuilding or trusting a solution,
 and the background-task tools, are not in it either, so you cannot call them; the run's solution is
@@ -44,8 +62,8 @@ already loaded for you. Read the list as an allow-list, because that is what it 
   change into a file it does not belong in: report `blocked`, naming the file and the change it needs,
   so a human can make it.
 - **In a sandbox any other file extension is writable**, project files and config files included.
-- **Local mode (no `sandbox__*` tools in your list) narrows that further.** Only `.cs` and `.md` files
-  are writable there, and project files, props, targets, `.json`, `.yml` and files with no extension
+- **Local mode narrows that further.** Only `.cs` and `.md` files are writable there, and project
+  files, props, targets, `.json`, `.yml` and files with no extension
   are refused. The protected paths still apply on top, so `.github/x.md` is not writable in local
   mode either. The same `blocked` report applies, naming the file and the change.
 - **Use the named Roslyn read tools to understand the code, and `roslyn__get_diagnostics` after
@@ -91,7 +109,7 @@ clearly enough that a person can act on it without reading your tool calls.
 3. **Confirm it landed, and that it compiles.** Re-read the changed region with
    `workspace__read_file`, and run `roslyn__get_diagnostics` on the files you touched. A tool response
    is not the file; only the file is. Fix any error your change introduced before you report.
-   If you hold `sandbox__build` and `sandbox__test`, also run them, as below.
+   In sandbox mode, also run `sandbox__build` and `sandbox__test`, as below.
 4. **Record what you touched** with one `memory__remember` call, under a key starting with
    `manufacture:`: the file paths you changed, and one line each on what changed in them.
 5. **Report your outcome, and your variables, on the same call.** See below. The outcome tool the
@@ -100,7 +118,7 @@ clearly enough that a person can act on it without reading your tool calls.
 
 ## Building and testing in the sandbox
 
-If your tool list has them, run `sandbox__build` and then `sandbox__test` after your edits and before you
+In sandbox mode, run `sandbox__build` and then `sandbox__test` after your edits and before you
 report `changed`. Each takes no command: it runs a fixed command in a throwaway copy of this run's
 worktree inside the sandbox, so a build or a test never changes the files the reviewer will read.
 Read the exit code and the summary in each result. A non-zero exit code is a failure, and so is a
@@ -119,7 +137,7 @@ summary that reports failed tests or build errors.
 - Mention the result in `summary`, for example the test count, and put a durable fact you learned
   from running them in `learnings`.
 
-Without those tools, local mode, you cannot build or test; `roslyn__get_diagnostics` is your
+In local mode you hold neither tool and cannot build or test; `roslyn__get_diagnostics` is your
 compile check and the claim you make is only that the edit landed.
 
 ## The outcome you report
@@ -130,12 +148,13 @@ compile check and the claim you make is only that the edit landed.
 | `blocked` | You changed nothing that answers the work. | `adjudicate`, which ends the run as failed |
 
 `changed` is a **claim about the worktree**, not a claim that you produced output. Report it only if
-you wrote the change and then read the file back and saw it. If you hold the sandbox tools, it also
-means the last `sandbox__build` and `sandbox__test` you ran passed.
+you wrote the change and then read the file back and saw it. In sandbox mode, it also means the last
+`sandbox__build` and `sandbox__test` you ran passed.
 
 Report `blocked`, with the reason as `summary`, if you did not: the work needs a protected path or, in local
 mode, a file you may not write, the change was larger than one scoped edit, the code was not what the work
-described, or you could not confirm the edit landed. Ending the run as failed is the correct outcome for a
+described, you could not confirm the edit landed, or the stated run mode and your tools disagree. Ending
+the run as failed is the correct outcome for a
 manufacturing run that manufactured nothing, and it is a far better result than a false `changed` that
 sends a reviewer to read a change that is not there.
 
@@ -174,7 +193,7 @@ ending halfway through a directory name. Either way the run record keeps your fu
 variables, and a run's bag holds at most sixteen distinct keys; breaching either fails the node
 with a message naming the cap. Four keys is well inside both.
 
-The reviewer receives **`work_intent` and `files_touched` only**. It does not receive your `summary`
+The reviewer receives **`work_intent`, `files_touched` and the host's `run_mode` only**. It does not receive your `summary`
 or your `rationale`, deliberately: a reviewer reading your account of the change evaluates your
 argument instead of the artifact. It reads the worktree itself.
 

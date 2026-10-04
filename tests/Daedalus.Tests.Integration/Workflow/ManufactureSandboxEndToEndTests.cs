@@ -201,7 +201,11 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
     ///         <item>the separate <c>AGENT.md</c> commit: resume without applying the standing instructions, and the newest
     ///         commit is the code commit;</item>
     ///         <item>the Tests section: the recorder red above, with the test-result assertion set aside, and the body says
-    ///         no test run was recorded.</item>
+    ///         no test run was recorded;</item>
+    ///         <item>ruling R61, <c>run_mode</c> is <c>sandbox</c> and implement's task and every lens pass's task state
+    ///         "Run mode: sandbox": take <c>RunModeRunner</c> out of <c>WorkflowNodeDispatcherFactory</c>, and both task
+    ///         assertions fail while the variable assertion holds; have the starter write <c>local</c>, and all three
+    ///         fail.</item>
     ///     </list>
     /// </remarks>
     [SkippableFact]
@@ -217,8 +221,12 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
         using var admin = Client(host, "a-admin", "admin");
 
         var runId = await StartRunAsync(admin);
-        await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate", RunGuard);
+        var parked = await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate", RunGuard);
 
+        parked.Variables.Should().ContainKey(RunMode.Key).WhoseValue.Should().Be(RunMode.Sandbox, "the start states the mode it chose the workspace by");
+        TurnTasks(chat)[0].Split('\n').Should().Contain("Run mode: sandbox", "implement's task states the run mode, so it never infers it from its tools");
+        TurnTasks(chat).Where(t => t.Contains("## Review pass", StringComparison.Ordinal)).Should().HaveCount(3)
+            .And.OnlyContain(t => t.Contains("\nRun mode: sandbox\n", StringComparison.Ordinal), "every review lens pass's task states the run mode");
         ToolResults(chat, "workspace__write_file").Should().ContainSingle(r => r.Contains($"'{ProtectedPath}' is protected", StringComparison.Ordinal),
             "the sandbox refuses a write under .github/, and only that one");
         var tests = TestResults(await host.RecordsAsync(runId, WorkflowRunRecord.TestResultKind));
@@ -866,6 +874,17 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
             return new TestResult(root.GetProperty("tool").GetString()!, root.GetProperty("exit").GetString()!, root.GetProperty("summary").GetString()!);
         }),
     ];
+
+    /// <summary>
+    ///     The task text of each turn, in dispatch order: the user message each turn's requests open with, once per distinct
+    ///     text. Implement's turn is first.
+    /// </summary>
+    private static List<string> TurnTasks(ScriptedChatClient chat) =>
+        [.. chat.Requests
+            .Select(r => string.Join('\n', r.Messages.Where(m => m.Role == ChatRole.User).Select(m => m.Text)))
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .Select(t => t.ReplaceLineEndings("\n"))];
 
     /// <summary>The result text of every call the model made to <paramref name="toolName"/>, in call order.</summary>
     private static IReadOnlyList<string> ToolResults(ScriptedChatClient chat, string toolName) =>
