@@ -205,6 +205,40 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
     }
 
     /// <summary>
+    ///     The Tests section states the last test run, and when the run recorded a workspace write after it, as a rework
+    ///     edit is, it says so in one sentence, because that test ran code the change no longer is. Red: never set
+    ///     <see cref="TestResultFacts.EditedAfter"/>; the sentence is then missing.
+    /// </summary>
+    [Fact]
+    public async Task A_write_after_the_last_test_run_is_stated_in_the_Tests_section()
+    {
+        var store = _services.GetRequiredService<IWorkflowRunRecordStore>();
+        await store.AppendAsync(TestRun(4, "Passed! - 1 test"), CancellationToken.None);
+        await store.AppendAsync(Write(4, "src/A.cs"), CancellationToken.None);
+
+        await _action.RunAsync(_run, PublishNode, CancellationToken.None);
+
+        _publisher.LastBody.Should().Contain("- Summary: `Passed! - 1 test`").And.Contain(PullRequestBody.EditedAfterTestsLine);
+    }
+
+    /// <summary>
+    ///     A write before the last test run is covered by it, so the section says nothing more. Records at the same
+    ///     sequence number are ordered by append. Red: set <see cref="TestResultFacts.EditedAfter"/> whenever the run has
+    ///     any write record; the sentence then appears.
+    /// </summary>
+    [Fact]
+    public async Task A_write_before_the_last_test_run_adds_nothing_to_the_Tests_section()
+    {
+        var store = _services.GetRequiredService<IWorkflowRunRecordStore>();
+        await store.AppendAsync(Write(4, "src/A.cs"), CancellationToken.None);
+        await store.AppendAsync(TestRun(4, "Passed! - 1 test"), CancellationToken.None);
+
+        await _action.RunAsync(_run, PublishNode, CancellationToken.None);
+
+        _publisher.LastBody.Should().Contain("- Summary: `Passed! - 1 test`").And.NotContain(PullRequestBody.EditedAfterTestsLine);
+    }
+
+    /// <summary>
     ///     A failed git step's detail, raw stderr that can hold host paths, is logged, not stored in the run's error,
     ///     which the run view shows over HTTP; the message stays. Red, per assertion: describe the error with its detail
     ///     again, and the first fails on git's <c>fatal:</c> line; drop the log, and the second fails.
@@ -327,6 +361,18 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
         WorkflowRunRecord.Create(
             _run.Id, seq, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", "u-admin",
             $$"""{ "lens": "{{lens}}", "verdict": "{{verdict}}", "checked": ["{{item}}"], "findings": [] }""",
+            DateTime.UtcNow).Value;
+
+    private WorkflowRunRecord TestRun(long seq, string summary) =>
+        WorkflowRunRecord.Create(
+            _run.Id, seq, "implement", WorkflowRunRecord.TestResultKind, "workflow:run/implement", "u-admin",
+            $$"""{ "tool": "test", "exit": "0", "summary": "{{summary}}", "elapsedMs": 1 }""",
+            DateTime.UtcNow).Value;
+
+    private WorkflowRunRecord Write(long seq, string path) =>
+        WorkflowRunRecord.Create(
+            _run.Id, seq, "implement", WorkflowRunRecord.WorkspaceWriteKind, "workflow:run/implement", "u-admin",
+            $$"""{ "tool": "workspace__write_file", "path": "{{path}}" }""",
             DateTime.UtcNow).Value;
 
     /// <summary>Records each entry's level, formatted message and exception.</summary>

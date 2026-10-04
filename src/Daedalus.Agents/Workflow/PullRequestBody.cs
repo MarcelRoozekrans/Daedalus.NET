@@ -69,6 +69,9 @@ internal static class PullRequestBody
     /// <summary>What the Tests section says when the run recorded no test run.</summary>
     public const string NoTestsLine = "No test run was recorded for this change.\n";
 
+    /// <summary>What the Tests section adds when the run recorded a workspace write after the test run it states.</summary>
+    public const string EditedAfterTestsLine = "The run was allowed a workspace write after this test run, so the change may differ from what was tested.\n";
+
     private const string Ellipsis = "…";
 
     /// <summary>The longest line <see cref="AppendBudgeted"/> writes in place of the lines it leaves out.</summary>
@@ -166,6 +169,8 @@ internal static class PullRequestBody
         body.Append("- Exit: ").Append(CodeSpan(SandboxCallRecorder.SingleLine(result.Exit, SandboxCallRecorder.MaxExitLength))).Append('\n');
         body.Append("- Summary: ")
             .Append(CodeSpan(SandboxCallRecorder.SingleLine(result.Summary, SandboxCallRecorder.MaxSummaryLength))).Append('\n');
+        if (result.EditedAfter)
+            body.Append('\n').Append(EditedAfterTestsLine);
     }
 
     /// <summary>

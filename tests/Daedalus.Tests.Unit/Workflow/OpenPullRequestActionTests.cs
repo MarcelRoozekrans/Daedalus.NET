@@ -68,7 +68,7 @@ public sealed class OpenPullRequestActionTests : IDisposable
         _records.ListAsync(RunId, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([Evidence("correctness", "approved")]));
         // A run that recorded no sandbox test, unless a test says otherwise.
-        _records.ListAsync(RunId, WorkflowRunRecord.TestResultKind, Arg.Any<CancellationToken>())
+        _records.ListAsync(RunId, null, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
     }
 
@@ -214,7 +214,7 @@ public sealed class OpenPullRequestActionTests : IDisposable
     [Fact]
     public async Task The_body_carries_the_last_test_result_and_not_a_later_build()
     {
-        _records.ListAsync(RunId, WorkflowRunRecord.TestResultKind, Arg.Any<CancellationToken>())
+        _records.ListAsync(RunId, null, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>(
             [
                 TestRecord("implement", "test", "1", "Failed! - Failed: 2"),
@@ -246,7 +246,7 @@ public sealed class OpenPullRequestActionTests : IDisposable
     {
         var unreadable = WorkflowRunRecord.Create(RunId, 5, "implement", WorkflowRunRecord.TestResultKind, "workflow:run/implement", null,
             """{ "tool": 1 }""", DateTime.UtcNow).Value;
-        _records.ListAsync(RunId, WorkflowRunRecord.TestResultKind, Arg.Any<CancellationToken>())
+        _records.ListAsync(RunId, null, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([unreadable]));
 
         var body = await PublishedBodyAsync();
@@ -261,7 +261,7 @@ public sealed class OpenPullRequestActionTests : IDisposable
     [Fact]
     public async Task A_record_store_answering_no_test_result_list_is_refused_before_it_commits_or_pushes()
     {
-        _records.ListAsync(RunId, WorkflowRunRecord.TestResultKind, Arg.Any<CancellationToken>())
+        _records.ListAsync(RunId, null, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>((IReadOnlyList<WorkflowRunRecord>)null!));
 
         var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);

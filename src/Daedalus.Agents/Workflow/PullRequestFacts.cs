@@ -43,4 +43,8 @@ internal sealed record PullRequestFacts(
 /// <param name="Tool">The sandbox tool called, <c>test</c> or <c>build</c>.</param>
 /// <param name="Exit">The exit code the sandbox reported, <c>timed out ...</c>, or <c>error</c>.</param>
 /// <param name="Summary">The one-line summary the sandbox reported.</param>
-internal sealed record TestResultFacts(string Node, string Tool, string Exit, string Summary);
+/// <param name="EditedAfter">
+///     True when the run recorded a workspace write after this test run, so the change may have been edited since it was
+///     tested. Host code reads it from the order of the run's records.
+/// </param>
+internal sealed record TestResultFacts(string Node, string Tool, string Exit, string Summary, bool EditedAfter = false);
