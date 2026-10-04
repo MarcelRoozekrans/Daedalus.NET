@@ -41,6 +41,8 @@
         <PackageReference Include="TngTech.ArchUnitNET.xUnit"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
         <PackageReference Include="ZeroAlloc.TestHelpers"/>
+        <!-- The host the sandbox image runs, for SandboxImagePinTests to read the Roslyn server environment it sets. -->
+        <PackageReference Include="Thalos.NET.Sandbox.Host"/>
     </ItemGroup>
 
     <ItemGroup>
