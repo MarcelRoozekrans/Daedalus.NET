@@ -319,24 +319,44 @@ internal sealed partial class OpenPullRequestAction(
     ///     still reported, as unreadable, so the section never silently claims that no test ran. What it holds is what
     ///     the run's sandbox reported, which ran code from the change; it is not verified.
     /// </summary>
+    /// <remarks>
+    ///     <see cref="TestResultFacts.EditedAfter"/> is set when a <see cref="WorkflowRunRecord.WorkspaceWriteKind"/>
+    ///     record comes after that last test record, such as a rework edit after the test ran. Both kinds are read from one
+    ///     list, in the order <see cref="IWorkflowRunRecordStore.ListAsync"/> guarantees: by sequence number, then append
+    ///     order. A write record is written when the write is allowed, before the tool runs, so a write the tool then
+    ///     refused still counts; the body's sentence says the change may have been edited, not that it was.
+    /// </remarks>
     private static async ValueTask<Result<TestResultFacts?>> LastTestResultAsync(
         Guid runId, IServiceProvider services, CancellationToken ct)
     {
         var records = await services.GetRequiredService<IWorkflowRunRecordStore>()
-            .ListAsync(runId, WorkflowRunRecord.TestResultKind, ct).ConfigureAwait(false);
+            .ListAsync(runId, kind: null, ct).ConfigureAwait(false);
         if (records is null)
             return Result<TestResultFacts?>.Failure("the run record store answered with no test result list");
 
         TestResultFacts? last = null;
+        var editedAfter = false;
         foreach (var record in records)
         {
+            if (string.Equals(record.Kind, WorkflowRunRecord.WorkspaceWriteKind, StringComparison.Ordinal))
+            {
+                editedAfter = last is not null;
+                continue;
+            }
+
+            if (!string.Equals(record.Kind, WorkflowRunRecord.TestResultKind, StringComparison.Ordinal))
+                continue;
+
             var read = ReadTestResult(record)
                 ?? new TestResultFacts(record.Node, SandboxCallRecorder.TestTool, SandboxCallRecorder.UnknownExit, SandboxCallRecorder.UnknownSummary);
             if (string.Equals(read.Tool, SandboxCallRecorder.TestTool, StringComparison.Ordinal))
+            {
                 last = read;
+                editedAfter = false;
+            }
         }
 
-        return Result<TestResultFacts?>.Success(last);
+        return Result<TestResultFacts?>.Success(last is null ? null : last with { EditedAfter = editedAfter });
     }
 
     private static TestResultFacts? ReadTestResult(WorkflowRunRecord record)
