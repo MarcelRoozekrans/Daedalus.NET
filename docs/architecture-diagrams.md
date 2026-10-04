@@ -2220,9 +2220,9 @@ flowchart LR
 
     subgraph Host["API host"]
         Api["Daedalus.Api<br/>manufacture run"]
-        Mirror[("Mirror<br/>DataRoot/mirrors")]
+        Mirror[("Mirror<br/>DataRoot/publish/mirrors")]
         Store[("Sandbox record and patch<br/>DataRoot/sandboxes")]
-        Pub["Clean publish worktree<br/>DataRoot/publish"]
+        Pub["Clean publish worktree<br/>DataRoot/publish/runs"]
     end
 
     subgraph Net["Internal Docker network daedalus-sandboxes"]
@@ -2239,10 +2239,10 @@ flowchart LR
     Gw --> Sb
     Sb -->|"NuGet restore"| Eg
     Eg -->|"allow-listed hosts"| Nuget
-    Sb -->|"3 patch out, at the review gate"| Gw
+    Sb -->|"3 patch out, when the run parks at its gate"| Gw
     Gw --> Api
     Api -->|"4 store"| Store
-    Store -->|"5 GitPatchApplier, protected paths checked"| Pub
+    Store -->|"5 at resume: GitPatchApplier, protected paths checked"| Pub
     Pub -->|"6 commit the staged index, then push"| Remote
 ```
 
@@ -2252,12 +2252,14 @@ flowchart LR
   gateway, whose only job is to publish one loopback port. The sandbox clones it, restores and builds.
 - **No other way out.** The sandbox's network is internal, so its only route off the host is the egress proxy, and the proxy
   allows `api.nuget.org`, `*.nuget.org` and `globalcdn.nuget.org` only (S2).
-- **Patch out.** At the review gate the sandbox exports a patch, the API stores it and the sandbox can be removed. The API
-  never checks out a tree a sandboxed process touched (S4): it applies the patch with Thalos's `GitPatchApplier` into a
-  clean worktree under `<DataRoot>/publish`, commits the staged index as it stands, and pushes. `AGENT.md` is committed
-  separately.
+- **Patch out.** When a run parks at its review gate, the sandbox exports a patch, the API stores it under
+  `<DataRoot>/sandboxes` and the sandbox is removed. Nothing is applied at the gate. The API never checks out a tree a
+  sandboxed process touched (S4): when the run is resumed, it applies the patch with Thalos's `GitPatchApplier` into a
+  clean worktree under `<DataRoot>/publish/runs`, cut from the run's base commit, commits the staged index as it stands,
+  and pushes. `AGENT.md` is committed separately.
 - **The publish check is the control.** A patch touching a protected path fails there (S5), and in sandbox mode so do
-  `.gitattributes`, `.gitmodules`, symlinks and submodule pointers. A refused patch on resume answers 422.
+  `.gitattributes`, `.gitmodules`, symlinks and submodule pointers. A resume with `applyStandingInstructions: true` applies
+  the patch first and answers 422 for a refused one; a resume without it answers 204, and the run fails at `publish`.
 - **Environment.** A sandbox's environment holds only the keys its spec lists (S1).
 - **Test results.** `sandbox__test` and `sandbox__build` results are recorded as `test-result` records, and the pull request
   body's `## Tests` section states them as reported by the sandbox, not verified.
