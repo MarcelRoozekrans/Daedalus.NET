@@ -209,7 +209,9 @@ public sealed class DaedalusAgentsRegistrationTests
     ///     check, and the two rooted rows fail; drop the <c>..</c> check, and the three <c>..</c> rows fail; drop the
     ///     <see cref="Thalos.Workspaces.WorkspacePath.Resolve"/> check, and the three git rows and the NUL row fail. The
     ///     NUL row also pins that no path API sees the raw value first: <c>Path.GetFullPath</c> would throw
-    ///     <see cref="ArgumentException"/> instead.
+    ///     <see cref="ArgumentException"/> instead. Drop the protected-path check, and the <c>docs/.../AGENT.md</c> row
+    ///     fails: on Windows Resolve then refuses it with a different message, and elsewhere the host throws Thalos's own
+    ///     <see cref="ArgumentException"/> instead of failing fast with this key.
     /// </summary>
     [Theory]
     [InlineData("../AGENT.md", "*'..' segment*")]
@@ -221,6 +223,7 @@ public sealed class DaedalusAgentsRegistrationTests
     [InlineData("docs/.GIT/AGENT.md", "*does not permit*git directory*")]
     [InlineData("git~1/AGENT.md", "*does not permit*git directory*")]
     [InlineData("docs/AGENT\0.md", "*does not permit*NUL character*")]
+    [InlineData("docs/.../AGENT.md", "*cannot be a protected path*")]
     public void A_standing_instructions_path_that_is_not_confined_to_the_worktree_fails_fast(string configured, string reason)
     {
         var path = string.Equals(configured, "ROOTED", StringComparison.Ordinal)
@@ -240,11 +243,12 @@ public sealed class DaedalusAgentsRegistrationTests
     ///     worktree, so the boot asks <c>Resolve</c> itself. On Linux these are ordinary names, which <c>Resolve</c>
     ///     accepts there, so the host boots, and this test pins that the check follows <c>Resolve</c> on each OS rather
     ///     than a rule of its own. Red: drop the <c>Resolve</c> call, and every row boots on Windows.
+    ///     <c>docs/.../AGENT.md</c> used to be a row here. It is a protected path too now, and the protected-path set
+    ///     refuses a segment of only dots on every OS, so it fails fast everywhere and is a row of the test above.
     /// </summary>
     [Theory]
     [InlineData("CON/AGENT.md")]
     [InlineData("NUL.md")]
-    [InlineData("docs/.../AGENT.md")]
     public void A_standing_instructions_path_the_worktree_refuses_on_windows_fails_fast_there(string configured)
     {
         var act = () => Build(Config(("Thalos:Workflow:StandingInstructionsPath", configured)));

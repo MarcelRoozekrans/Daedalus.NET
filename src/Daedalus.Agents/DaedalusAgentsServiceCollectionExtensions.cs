@@ -1647,6 +1647,20 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 "approved model text, so it must be a markdown file and never a configuration or code file.");
         }
 
+        // The path is also protected, as a file and as a directory, in both modes, so the protected-path set is asked
+        // first: it refuses a segment of only dots and spaces on every OS, while Resolve refuses it on Windows only, so
+        // asking it before Resolve gives every OS the same refusal for the same rule.
+        try
+        {
+            _ = new ProtectedPathSet([canonical, canonical + "/"]);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidOperationException(
+                $"{Key} is '{configured}', which cannot be a protected path: {ex.Message} The standing-instructions file " +
+                "is protected from every run's writes, so a path that cannot be protected is refused.", ex);
+        }
+
         var standIn = Directory.CreateTempSubdirectory("daedalus-standing-instructions-check-");
         try
         {
