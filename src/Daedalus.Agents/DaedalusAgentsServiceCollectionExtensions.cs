@@ -558,19 +558,18 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // dependencies, so the provider resolving its observers does not reach back to the gate.
         services.AddSingleton<SandboxRestoreLedger>();
         services.AddSingleton<IRunWorkspaceObserver>(sp => sp.GetRequiredService<SandboxRestoreLedger>());
-        services.AddSingleton<IWorkflowDispatchGate>(sp =>
-        {
-            var workspaces = sp.GetRequiredService<IRunWorkspaceProvider>();
-            return new RunToolServersReadyGate(
-                workspaces,
-                sp.GetRequiredService<WorkflowConfig>(),
-                sp.GetService<IRunToolServerReadiness>(),
-                workspaces is SandboxRunWorkspaceProvider sandbox ? sandbox.ReadinessAsync : null,
-                sp.GetRequiredService<SandboxRestoreLedger>(),
-                sp.GetRequiredService<IServiceScopeFactory>(),
-                sp.GetRequiredService<TimeProvider>(),
-                sp.GetRequiredService<ILogger<RunToolServersReadyGate>>());
-        });
+        // The restore reader is the concrete SandboxRunWorkspaceProvider, which only sandbox mode registers, resolved as
+        // that type rather than found by testing what IRunWorkspaceProvider resolves to: a decorator on the interface
+        // would otherwise turn restore recording off without a word.
+        services.AddSingleton<IWorkflowDispatchGate>(sp => new RunToolServersReadyGate(
+            sp.GetRequiredService<IRunWorkspaceProvider>(),
+            sp.GetRequiredService<WorkflowConfig>(),
+            sp.GetService<IRunToolServerReadiness>(),
+            sp.GetService<SandboxRunWorkspaceProvider>() is { } sandbox ? sandbox.ReadinessAsync : null,
+            sp.GetRequiredService<SandboxRestoreLedger>(),
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<RunToolServersReadyGate>>()));
 
         // A dispatch is, at most, the gate's wait followed by the turn: the gate waits up to RoslynReadyTimeout, so the
         // lease must outlast both, and a run healthily waiting on the gate must not look stranded.
