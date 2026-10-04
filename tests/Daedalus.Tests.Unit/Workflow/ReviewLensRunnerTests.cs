@@ -233,6 +233,31 @@ public sealed class ReviewLensRunnerTests
     }
 
     /// <summary>
+    ///     Ruling R61: the host wrote <c>run_mode</c> and states it in its own section, so the lens must not list it among
+    ///     the keys it calls another agent's output. Red, applied once: list <c>projected.Keys</c> again instead of the
+    ///     filtered keys, and the absence fails. The positive is the other keys still being listed.
+    /// </summary>
+    [Fact]
+    public async Task The_lens_does_not_list_the_run_mode_as_another_agents_output()
+    {
+        var inner = new RecordingRunner(_ => Approves("correctness"));
+        var runner = new ReviewLensRunner(inner, DefinitionsWith("correctness"), RecordStoreScopes.For(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
+
+        await runner.RunAsync(
+            ReviewRequest(ReviewRun(new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [ReviewHandoff.WorkIntentKey] = "Do the thing",
+                [ReviewHandoff.FilesTouchedKey] = "src/A.cs",
+                [RunMode.Key] = RunMode.Sandbox,
+            })),
+            CancellationToken.None);
+
+        inner.Tasks.Should().ContainSingle();
+        inner.Tasks[0].Should().Contain("The workflow-variables block above carries").And.Contain("work_intent").And.Contain("files_touched");
+        inner.Tasks[0].Should().NotContain(RunMode.Key, "the host wrote the run mode; it is not listed as another agent's output");
+    }
+
+    /// <summary>
     ///     Ruling R61 puts <c>run_mode</c> in the review projection so the host can state it, but it says nothing about
     ///     the change: a bag holding only the mode is still a reviewer given nothing to start from. Red, applied once:
     ///     go back to <c>projected.Count == 0</c>, and the pass is told the block carries run_mode instead.

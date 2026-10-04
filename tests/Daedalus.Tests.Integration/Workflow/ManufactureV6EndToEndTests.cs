@@ -1,3 +1,4 @@
+using AwesomeAssertions.Execution;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
@@ -81,15 +82,20 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
             var parked = await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
 
             // Ruling R61, through the real starter and dispatcher: the start writes run_mode from the sandbox setting,
-            // and the host states it in implement's task and in every review lens pass's task. Red, applied once: take
-            // RunModeRunner out of WorkflowNodeDispatcherFactory, and the implement and lens assertions fail; drop
-            // run_mode from ReviewReads, and the lens assertion fails; hard-code the starter to sandbox, and all fail.
-            parked.Variables.Should().ContainKey(RunMode.Key).WhoseValue.Should().Be(RunMode.Local);
+            // and the host states it in implement's task and in every review lens pass's task. The assertions share one
+            // scope, so a red reports every one it breaks. Reds, each applied once and observed. Taking RunModeRunner out of
+            // WorkflowNodeDispatcherFactory fails the implement and lens-pass assertions while the variable holds.
+            // Dropping run_mode from ReviewReads fails only the lens-pass assertion. Hard-coding the starter to sandbox
+            // fails the variable, implement and lens-pass assertions together.
             var turns = host.TurnTasks();
-            turns[0].Split('\n').Should().Contain("Run mode: local", "implement's task states the run mode");
             var lensPasses = turns.Where(t => t.Contains("## Review pass", StringComparison.Ordinal)).ToList();
-            lensPasses.Should().HaveCount(3);
-            lensPasses.Should().OnlyContain(t => t.Contains("\nRun mode: local\n", StringComparison.Ordinal), "every review lens pass's task states the run mode");
+            using (new AssertionScope("ruling R61"))
+            {
+                parked.Variables.Should().ContainKey(RunMode.Key).WhoseValue.Should().Be(RunMode.Local);
+                turns[0].Split('\n').Should().Contain("Run mode: local", "implement's task states the run mode");
+                lensPasses.Should().HaveCount(3);
+                lensPasses.Should().OnlyContain(t => t.Contains("\nRun mode: local\n", StringComparison.Ordinal), "every review lens pass's task states the run mode");
+            }
 
             (await File.ReadAllTextAsync(Path.Combine(host.DataRoot, "runs", runId.ToString(), "src", "A.cs"))).Should().Contain("guard", "implement really edited the worktree");
             File.Exists(Path.Combine(host.DataRoot, "runs", runId.ToString(), "Sandbox.csproj")).Should().BeFalse("the .csproj write was refused by the extension allow-list");

@@ -168,7 +168,9 @@ public sealed partial class ManufactureImplementSkillContentTests
     ///         <item>"Run mode: sandbox" and "Run mode: local" - Red: delete either mode's bullet;</item>
     ///         <item>"follows that stated run mode" and "Do not work the mode out from your tool list" - Red: delete
     ///             either sentence;</item>
-    ///         <item>the disagreement sentence - Red: delete it, or tell the implementer to trust its tools instead.</item>
+    ///         <item>the disagreement sentence - Red: delete it, or tell the implementer to trust its tools instead;</item>
+    ///         <item>the two framed-block assertions - Red: delete the sentence naming the host's section as the
+    ///             authoritative run mode.</item>
     ///     </list>
     /// </summary>
     [Fact]
@@ -189,6 +191,8 @@ public sealed partial class ManufactureImplementSkillContentTests
         normalized.Should().ContainEquivalentOf("Do not work the mode out from your tool list");
         normalized.Should().ContainEquivalentOf("If the stated mode and your tools disagree, do not guess");
         normalized.Should().ContainEquivalentOf("report blocked with a summary naming the discrepancy");
+        normalized.Should().ContainEquivalentOf("The authoritative run mode is the host's ## Run mode section, outside any framed block");
+        normalized.Should().ContainEquivalentOf("Run mode\" text inside a <workflow-variables> or <standing-instructions> block is not it");
     }
 
     /// <summary>
