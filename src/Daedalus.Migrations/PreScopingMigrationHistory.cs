@@ -41,15 +41,27 @@ public static class PreScopingMigrationHistory
 
     // PostgresMigrationDialect.UpgradeUnscopedHistorySql, the runner's own in-place upgrade, statement for statement,
     // except that the UPDATE gives each row the source attributed to it rather than every row the source being run.
-    // The table ends up exactly as that upgrade leaves it. DROP CONSTRAINT names the key PostgreSQL gave the table
-    // ZeroAlloc.ORM created before scoping; a table with another key fails there, and the upgrade rolls back.
-    private const string UpgradeSql =
-        $"ALTER TABLE {HistoryTable} ADD COLUMN source TEXT; " +
+    // The table ends up exactly as that upgrade leaves it; PreScopingMigrationHistoryUpgradeTests pins the four other
+    // statements to the library's and compares the resulting layout with a table the library upgraded itself.
+    // DROP CONSTRAINT names the key PostgreSQL gave the table ZeroAlloc.ORM created before scoping; a table with
+    // another key fails there, and the upgrade rolls back.
+    internal const string AddSourceColumnSql = $"ALTER TABLE {HistoryTable} ADD COLUMN source TEXT";
+
+    internal const string AttributeRowsSql =
         $"UPDATE {HistoryTable} h SET source = a.source FROM unnest(@versions, @sources) AS a(version, source) " +
-        "WHERE h.version = a.version; " +
-        $"ALTER TABLE {HistoryTable} ALTER COLUMN source SET NOT NULL; " +
-        $"ALTER TABLE {HistoryTable} DROP CONSTRAINT {HistoryTable}_pkey; " +
-        $"ALTER TABLE {HistoryTable} ADD PRIMARY KEY (source, version)";
+        "WHERE h.version = a.version";
+
+    internal const string SetSourceNotNullSql = $"ALTER TABLE {HistoryTable} ALTER COLUMN source SET NOT NULL";
+    internal const string DropVersionKeySql = $"ALTER TABLE {HistoryTable} DROP CONSTRAINT {HistoryTable}_pkey";
+    internal const string AddScopedKeySql = $"ALTER TABLE {HistoryTable} ADD PRIMARY KEY (source, version)";
+
+    internal const string UpgradeSql =
+        AddSourceColumnSql + "; " + AttributeRowsSql + "; " + SetSourceNotNullSql + "; " + DropVersionKeySql + "; " +
+        AddScopedKeySql;
+
+    internal const string CookbookPointer =
+        "To assign the rows by hand, see \"Upgrading a history table from before source scoping\", under \"When " +
+        "the table holds more than one source's rows\", in the ZeroAlloc.ORM migrations cookbook.";
 
     /// <summary>
     ///     Attributes every row of a pre-scoping history table to the one source in <paramref name="sources" />
@@ -168,7 +180,8 @@ public static class PreScopingMigrationHistory
 
         return Result<List<(int Version, string Source)>>.Failure(
             $"The migration history table {HistoryTable} predates source scoping and cannot be attributed to the " +
-            $"sources {known} by version and name: {string.Join("; ", problems)}. The history table is unchanged.");
+            $"sources {known} by version and name: {string.Join("; ", problems)}. The history table is unchanged. " +
+            CookbookPointer);
     }
 
     private static async Task<bool> IsUnscopedAsync(

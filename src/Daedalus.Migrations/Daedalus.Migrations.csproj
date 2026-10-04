@@ -17,6 +17,11 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!-- PreScopingMigrationHistoryUpgradeTests pins PreScopingMigrationHistory's upgrade statements to the library's. -->
+        <InternalsVisibleTo Include="Daedalus.Tests.Integration" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="../Daedalus.Domain/Daedalus.Domain.csproj"/>
         <ProjectReference Include="../Daedalus.Infrastructure/Daedalus.Infrastructure.csproj"/>
         <ProjectReference Include="../Daedalus.ServiceDefaults/Daedalus.ServiceDefaults.csproj"/>
