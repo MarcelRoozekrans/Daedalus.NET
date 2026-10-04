@@ -1,11 +1,8 @@
-using System.Data.Async.Adapters;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Migrations;
 using Daedalus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Thalos.Workflow.Orm;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -53,15 +50,22 @@ try
     await using (var workflowConnection = new NpgsqlConnection(connectionString))
     {
         await workflowConnection.OpenAsync();
-        var asyncConnection = workflowConnection.AsAsync();
-        var dialect = new PostgresMigrationDialect();
 
-        // Outbox schema first: OrmWorkflowStore enqueues into it in the same transaction as the workflow tables
-        // it writes, starting with the very first StartAsync call, so neither table can be missing — mirrors
-        // WorkflowOrmSchemaInitializer's own ordering (Thalos.NET.Workflow.Orm), which this replaces with an
-        // explicit step rather than relying on EnsureSchemaOnStartup at host boot.
-        await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-        await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
+        // WorkflowEngineMigrator runs the outbox schema first: OrmWorkflowStore enqueues into it in the same
+        // transaction as the workflow tables it writes, starting with the very first StartAsync call, so neither
+        // table can be missing. That mirrors WorkflowOrmSchemaInitializer's own ordering in
+        // Thalos.NET.Workflow.Orm, which this replaces with an explicit step rather than relying on
+        // EnsureSchemaOnStartup at host boot. Before either source runs, it attributes the rows of a history table
+        // from before ZeroAlloc.ORM scoped versions by source to the source that wrote each one: both sources
+        // shared that table, and the runner's own upgrade refuses it from either. See PreScopingMigrationHistory.
+        var outcome = await WorkflowEngineMigrator.ApplyAsync(workflowConnection);
+        if (outcome.IsFailure)
+        {
+            logger.WorkflowEngineMigrationRefused(outcome.Error);
+            Environment.Exit(1);
+        }
+
+        logger.WorkflowEngineMigrationApplied(outcome.Value.UpgradedHistoryRows, outcome.Value.Applied.Count);
     }
 
     logger.LogInformation("Workflow engine migration completed successfully");

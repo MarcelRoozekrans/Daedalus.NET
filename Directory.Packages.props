@@ -90,7 +90,10 @@
     <!-- ZeroAlloc.ORM 1.7.1 → 2.0.1 (#310): ZeroAlloc.Outbox.Orm 3.0.1 declares >= 2.0.0. 2.0.1 → 2.1.1: floor
          set by Thalos.NET.Workflow.Orm 0.11.1, the version it is built against.
          2.0 rejects a migration version collision instead of skipping it: the outbox schema is versions 1-2
-         and the workflow schema 1001+, so the two sources Daedalus.Migrations runs never collide. -->
+         and the workflow schema 1001+, so the two sources Daedalus.Migrations runs never collide.
+         2.1.1 → 2.2.0: floor set by ZeroAlloc.Outbox.Orm 4.2.0 and Thalos.NET.Workflow.Orm 0.14.x. 2.2 scopes the
+         history table's versions by source, and its own upgrade of an older table refuses one both sources wrote,
+         so Daedalus.Migrations attributes the rows first: see PreScopingMigrationHistory. -->
     <PackageVersion Include="ZeroAlloc.ORM" Version="2.2.0" />
     <!-- AdoNet.Async.Adapters: floor set by Thalos.NET.Workflow.Orm 0.7.0's own nuspec (1.4.1) — NOT the
          1.4.0 ZeroAlloc.Outbox.Orm 2.6.0 itself declares; Workflow.Orm's direct pin is the higher one and
