@@ -62,6 +62,9 @@
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>
+        <!-- Migrations tests run Daedalus.Migrations' own workflow engine step, WorkflowEngineMigrator, rather than a
+             copy of its wiring. -->
+        <ProjectReference Include="..\..\src\Daedalus.Migrations\Daedalus.Migrations.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

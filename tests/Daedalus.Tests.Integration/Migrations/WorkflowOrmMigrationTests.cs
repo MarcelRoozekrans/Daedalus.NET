@@ -1,13 +1,11 @@
-using System.Data.Async.Adapters;
 using System.Globalization;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Migrations;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Migrations;
@@ -133,13 +131,12 @@ public sealed class WorkflowOrmMigrationTests(PostgresFixture fixture)
 
             await using var connection = new NpgsqlConnection(connectionString);
             await connection.OpenAsync();
-            var asyncConnection = connection.AsAsync();
-            var dialect = new PostgresMigrationDialect();
 
-            // Outbox schema first, mirroring WorkflowOrmSchemaInitializer's own ordering (see its remarks):
-            // OrmWorkflowStore enqueues into it in the same transaction as the workflow tables it writes.
-            await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-            await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
+            // Daedalus.Migrations' own step, not a copy of its wiring: the outbox source first, mirroring
+            // WorkflowOrmSchemaInitializer's own ordering, because OrmWorkflowStore enqueues into it in the same
+            // transaction as the workflow tables it writes.
+            var outcome = await WorkflowEngineMigrator.ApplyAsync(connection);
+            outcome.IsSuccess.Should().BeTrue(outcome.IsFailure ? outcome.Error : null);
 
             await assert(connection, connectionString);
         }
