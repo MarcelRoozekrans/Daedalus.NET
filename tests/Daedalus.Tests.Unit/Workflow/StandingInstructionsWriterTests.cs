@@ -104,7 +104,7 @@ public sealed class StandingInstructionsWriterTests
     /// <summary>Records each entry's level and formatted message.</summary>
     private sealed class CapturingLogger : ILogger<StandingInstructionsWriter>
     {
-        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+        public List<(LogLevel Level, string Message, Exception? Exception)> Entries { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
@@ -112,7 +112,7 @@ public sealed class StandingInstructionsWriterTests
         public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            Entries.Add((logLevel, formatter(state, exception)));
+            Entries.Add((logLevel, formatter(state, exception), exception));
     }
 
     /// <summary>
@@ -373,14 +373,39 @@ public sealed class StandingInstructionsWriterTests
             "a failed move must not leave an orphaned temp file behind in the standing-instructions directory");
     }
 
+    /// <summary>
+    ///     A write that fails on the file system is a write failure whose detail names only the configured path and the
+    ///     run: the exception's own text holds host paths, and the detail is the resume response's, so the exception is
+    ///     logged instead. The move fails because the target is a directory. Red, per assertion: return the exception's
+    ///     message as the detail, as before, and the first fails, since it names the worktree's host path; drop the log,
+    ///     and the second fails.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_write_names_no_host_path_and_logs_the_exception()
+    {
+        using var dir = new TempDirectory();
+        Directory.CreateDirectory(dir.Path("AGENT.md"));
+        var run = RunWith(pinned: "", proposal: "New instructions.");
+        var logger = new CapturingLogger();
+
+        var result = await Writer(dir, run, logger: logger).ApplyAsync(run, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.WriteFailed);
+        result.Error.Detail.Should().Be($"'AGENT.md' could not be written in the worktree of run '{run.Id}'; the server log has the details.");
+        logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error
+            && (e.Exception is IOException || e.Exception is UnauthorizedAccessException)
+            && e.Message.Contains(run.Id.ToString(), StringComparison.Ordinal));
+    }
+
     /// <summary>A writer whose handoff knows only <paramref name="run"/>'s worktree, <paramref name="worktree"/>.</summary>
-    private static StandingInstructionsWriter Writer(TempDirectory worktree, WorkflowRun run, string path = "AGENT.md")
+    private static StandingInstructionsWriter Writer(
+        TempDirectory worktree, WorkflowRun run, string path = "AGENT.md", ILogger<StandingInstructionsWriter>? logger = null)
     {
         var handoff = Substitute.For<IRunWorkspaceHandoff>();
         handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
             Result<RunWorkspace, AgentError>.Success(
                 new RunWorkspace(run.Id, "sandbox", "unused", "main", $"manufacture/{run.Id}", worktree.Root, null))));
-        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = path }, handoff, NullLogger<StandingInstructionsWriter>.Instance);
+        return new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = path }, handoff, logger ?? NullLogger<StandingInstructionsWriter>.Instance);
     }
 
     private static WorkflowRun RunWith(string pinned, string? proposal)
