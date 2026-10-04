@@ -90,7 +90,7 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 var definitions = host.Services.GetRequiredService<IProcessDefinitionStore>();
 
                 var activeVersion = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
-                activeVersion.Should().Be(7, "processes/manufacture.yaml declares version: 7 - phase 2.6 task B7 rewrote its constraint 1 and the implement and review skills for sandbox mode, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
+                activeVersion.Should().Be(8, "processes/manufacture.yaml declares version: 8 - phase 2.6 ruling R61 states the run mode to implement and review and rewrote constraint 1 and both skills for it, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
 
                 var definition = await definitions.GetAsync("manufacture", activeVersion!.Value, CancellationToken.None);
                 definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);

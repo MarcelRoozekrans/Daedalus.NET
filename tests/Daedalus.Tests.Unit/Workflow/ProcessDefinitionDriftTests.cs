@@ -64,6 +64,17 @@ public sealed class ProcessDefinitionDriftTests
     }
 
     /// <summary>
+    ///     Ruling R61: <see cref="RunModeRunner"/> states the run mode to the node pinned to
+    ///     <see cref="ReviewHandoff.ReviewSkillName"/>. Red, applied once: rename <c>review</c>'s <c>skill:</c> in the
+    ///     process file, or the constant, and this fails; without it the reviewer would silently stop being told its mode.
+    /// </summary>
+    [Fact]
+    public void The_shipped_review_node_uses_the_skill_the_run_mode_statement_keys_on()
+    {
+        LoadManufactureProcess().Nodes["review"].Skill.Should().Be(ReviewHandoff.ReviewSkillName);
+    }
+
+    /// <summary>
     ///     The <c>publish</c> node names the action <see cref="OpenPullRequestAction"/> registers under. Falsifiable:
     ///     renaming the action in the process file or <see cref="OpenPullRequestAction.ActionName"/> turns this red.
     /// </summary>

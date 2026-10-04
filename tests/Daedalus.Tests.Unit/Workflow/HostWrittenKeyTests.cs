@@ -99,6 +99,8 @@ public sealed class HostWrittenKeyTests
     [InlineData("retrospect", "none", ReviewHandoff.PublishErrorKey)]
     [InlineData("implement", "changed", ReviewHandoff.WorkIntentKey)]
     [InlineData("review", "approved", ReviewHandoff.WorkIntentKey)]
+    [InlineData("implement", "changed", ReviewHandoff.RunModeKey)]
+    [InlineData("review", "approved", ReviewHandoff.RunModeKey)]
     public async Task An_agent_nodes_report_of_a_host_written_key_is_stripped_and_the_rest_is_kept(string node, string outcome, string key)
     {
         var completed = await CompleteAsync(RunAt(node), outcome, new(StringComparer.Ordinal)

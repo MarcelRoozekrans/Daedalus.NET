@@ -89,6 +89,13 @@ of `docs/architecture-diagrams.md`.
 | Sandbox (`true`) | `Daedalus.Api`, which ships it on, and the AppHost | Whatever each write grant lists, or any file when a grant lists no extensions. MSBuild evaluates project, props and targets files inside the run's container, never on the host. |
 | Local (`false`) | `Daedalus.Cli` and dev hosts without Docker | A git worktree on the host, and only `.cs` and `.md`. A grant that lists no extensions is refused at boot. |
 
+The agent is told the mode; it never works it out (ruling R61). `ManufactureRunStarter` writes the run variable
+`run_mode`, `sandbox` or `local`, from this setting, and only the start may write it. `RunModeRunner` states it in the
+task text of `implement` and of every `review` lens pass, as a `## Run mode` section reading `Run mode: sandbox` or
+`Run mode: local`, outside the block of agent-written variables. The implement and review skills key their
+mode-dependent rules off that line, and a node whose tools disagree with it reports the discrepancy instead of
+guessing. Manufacture v7's skills inferred the mode from whether `sandbox__build` was in the tool list, and a live run
+misread its list and refused a `.csproj` change the sandbox allowed.
 The Api's shipped implement grant lists no extensions, so running the Api in local mode needs the list set explicitly as
 well, or S6 below refuses the boot:
 

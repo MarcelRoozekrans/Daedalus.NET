@@ -44,12 +44,12 @@ public sealed partial class ManufactureReviewSkillContentTests
     ///     it did not make; it has no build tool; and the skill, shared with local mode, says what to do without the
     ///     tool. Each assertion has its own Red, applied to <c>skills/manufacture-review/SKILL.md</c>:
     ///     <list type="bullet">
-    ///         <item>"If your tool list has sandbox__test, you may run it" - Red: delete that sentence.</item>
+    ///         <item>"In sandbox mode you may run sandbox__test" - Red: delete that sentence.</item>
     ///         <item>"You have no sandbox__build" - Red: delete the sentence, or tell the reviewer it may build.</item>
     ///         <item>"Put what you ran in checked" - Red: delete that bold lead.</item>
     ///         <item>The "sandbox__test: Passed! 11 tests" example - Red: delete the example entry.</item>
     ///         <item>"Do not write such an entry for a run you did not make" - Red: delete that sentence.</item>
-    ///         <item>"local mode and there is nothing to run" - Red: delete the local-mode sentence.</item>
+    ///         <item>"so there is nothing to run; judge from the code alone" - Red: delete the local-mode sentence.</item>
     ///     </list>
     /// </summary>
     [Fact]
@@ -57,12 +57,42 @@ public sealed partial class ManufactureReviewSkillContentTests
     {
         var normalized = Normalize(ReviewSkill());
 
-        normalized.Should().ContainEquivalentOf("If your tool list has sandbox__test, you may run it");
+        normalized.Should().ContainEquivalentOf("In sandbox mode you may run sandbox__test");
         normalized.Should().ContainEquivalentOf("You have no sandbox__build");
         normalized.Should().ContainEquivalentOf("Put what you ran in checked");
         normalized.Should().ContainEquivalentOf("\"sandbox__test: Passed! 11 tests\"");
         normalized.Should().ContainEquivalentOf("Do not write such an entry for a run you did not make");
-        normalized.Should().ContainEquivalentOf("local mode and there is nothing to run");
+        normalized.Should().ContainEquivalentOf("so there is nothing to run; judge from the code alone");
+    }
+
+    /// <summary>
+    ///     Ruling R61: the reviewer follows the run mode its task states and never infers it from its tool list. Each
+    ///     assertion has its own Red, applied once to <c>skills/manufacture-review/SKILL.md</c>:
+    ///     <list type="bullet">
+    ///         <item>the absences - Red: restore the old sentences "If your tool list has sandbox__test, you may run it"
+    ///             or "If your list has no sandbox__test, this host is in local mode";</item>
+    ///         <item>"Your task states the mode this run executes in" and "Run mode: sandbox" - Red: delete the section's
+    ///             lead paragraph;</item>
+    ///         <item>"Do not work the mode out from your tool list" - Red: delete that sentence;</item>
+    ///         <item>the disagreement sentence and its rejection - Red: delete them, or tell the reviewer to judge from
+    ///             the code alone when sandbox__test is missing.</item>
+    ///     </list>
+    /// </summary>
+    [Fact]
+    public void The_review_skill_keys_off_the_stated_run_mode_never_off_tool_presence()
+    {
+        var normalized = Normalize(ReviewSkill());
+
+        normalized.Should().NotContainEquivalentOf("If your tool list has sandbox__test");
+        normalized.Should().NotContainEquivalentOf("If your list has no sandbox__test");
+        normalized.Should().NotContainEquivalentOf("this host is in local mode");
+
+        normalized.Should().ContainEquivalentOf("Your task states the mode this run executes in");
+        normalized.Should().ContainEquivalentOf("Run mode: sandbox");
+        normalized.Should().ContainEquivalentOf("Follow that stated run mode");
+        normalized.Should().ContainEquivalentOf("Do not work the mode out from your tool list");
+        normalized.Should().ContainEquivalentOf("If the stated mode and your tools disagree, do not guess");
+        normalized.Should().ContainEquivalentOf("reject, with a finding whose scenario names the discrepancy");
     }
 
     [Fact]
