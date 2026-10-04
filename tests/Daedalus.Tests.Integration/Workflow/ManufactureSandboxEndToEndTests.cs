@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using AwesomeAssertions.Execution;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
@@ -270,6 +271,22 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
     ///         <c>WriteLinesToFile</c> into a <c>Message</c>, and no result holds it.</item>
     ///     </list>
     ///     <para>
+    ///     Then the run is resumed and published, because publish applies the patch, <c>Directory.Build.props</c> included,
+    ///     to a worktree on this host. The host's sweep timer is off for this test, so the succeeded run's publish worktree
+    ///     is still there to search. Reds, applied once in the final fix round:
+    ///     </para>
+    ///     <list type="bullet">
+    ///         <item>the published commit holds <c>Directory.Build.props</c>: protect that file through
+    ///         <c>Thalos:Workflow:Sandbox:ProtectedPaths</c>, with the two earlier assertions that need it set aside; the
+    ///         branch then has no such file;</item>
+    ///         <item>the publish worktree exists: run the host's <see cref="RunWorkspaceSweeper"/> before the search, which
+    ///         removes it;</item>
+    ///         <item>no marker under the publish worktree or <c>DataRoot</c>, and none written under the temp directory: have
+    ///         <c>OpenPullRequestAction</c> run <c>dotnet build</c> on the publish worktree before it commits, as a publish
+    ///         that evaluated MSBuild would; all six of those assertions fail. The host-tools and remote searches are the
+    ///         same as before the publish, and keep the red named above.</item>
+    ///     </list>
+    ///     <para>
     ///     Only <c>sandbox__test</c> results are expected to hold the text, but that is not asserted: every tool a run calls
     ///     is served inside its sandbox, so no change in Daedalus would make a different tool's result hold it while the
     ///     test's result still does, and an assertion without such a change would prove nothing. The host searches above
@@ -289,8 +306,9 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
         chat.ThenToolCall("sandbox__test", new { });
         ScriptChangedOutcome(chat, "Added a build marker.", ["Directory.Build.props", "tests/Lib.Tests/MarkerTests.cs"]);
         ScriptReviewAndRetrospect(chat);
-        await using var host = await StartHostAsync(chat, new FakePullRequestPublisher());
+        await using var host = await StartHostAsync(chat, new FakePullRequestPublisher(), withoutSweepTimer: true);
         using var developer = Client(host, "u-dev", "developer");
+        using var admin = Client(host, "a-admin", "admin");
 
         var runId = await StartRunAsync(developer);
         await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate", RunGuard);
@@ -319,6 +337,29 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
 
         ToolResults(chat, "sandbox__test").Should().Contain(r => r.Contains(MarkerText, StringComparison.Ordinal),
             $"the test run inside the sandbox found the marker its build wrote; the results were: {string.Join(" | ", AllToolResults(chat).Select(r => $"{r.Tool}: {r.Result}"))}");
+
+        // Publish applies the run's patch, Directory.Build.props included, to a worktree on this host. Nothing there may
+        // evaluate it either.
+        await ResumeAsync(admin, runId);
+        await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Succeeded, "published", PublishGuard);
+        host.Remote.Show($"manufacture/{runId}", "Directory.Build.props").Should().Contain("S3Marker", "the props file was published, so publish handled it");
+
+        var publishWorktree = Path.Combine(host.DataRoot, "publish", "runs", runId.ToString());
+        Directory.Exists(publishWorktree).Should().BeTrue("the publish worktree is kept until a sweep removes the succeeded run's workspace");
+        using (new AssertionScope("after the publish"))
+        {
+            foreach (var root in new[] { publishWorktree, host.DataRoot, host.HostToolsRoot!, host.Remote.Url })
+            {
+                Directory.EnumerateFiles(root, "marker.txt", SearchOption.AllDirectories).Should().BeEmpty($"publishing evaluates no MSBuild file of the run, under {root}");
+                Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Where(f => Holds(f, MarkerText))
+                    .Should().BeEmpty($"nothing under {root} may hold the marker text after the publish");
+            }
+
+            var recentAfterPublish = FilesWrittenSince(Path.GetTempPath(), started);
+            recentAfterPublish.Where(f => string.Equals(Path.GetFileName(f), "marker.txt", StringComparison.OrdinalIgnoreCase))
+                .Should().BeEmpty("no marker.txt may be written anywhere under the temp directory by the publish");
+            recentAfterPublish.Where(f => Holds(f, MarkerText)).Should().BeEmpty("no file written under the temp directory by the publish may hold the marker text");
+        }
     }
 
     /// <summary>
@@ -368,6 +409,83 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
         done.Variables.Should().ContainKey("pr_url").WhoseValue.Should().Be(FakePullRequestPublisher.Url);
         publisher.OpenCount.Should().Be(2, "one failed attempt, then the retry");
         host.Remote.Log($"manufacture/{runId}", count: 2)[1].Files.Should().Contain("src/Lib/A.cs");
+    }
+
+    /// <summary>
+    ///     S5 end to end: the publish-side check refuses a stored patch that touches a protected path, whatever the sandbox
+    ///     let through. After the run parks, a hunk adding <paramref name="appended"/> is appended to the run's stored patch,
+    ///     <c>&lt;DataRoot&gt;/sandboxes/&lt;run id, format N&gt;.patch</c> (Thalos 0.14.2, <c>SandboxRecordStore.PatchPath</c>),
+    ///     standing in for a sandbox that failed to refuse the write. A resume that applies the standing instructions checks
+    ///     the patch out first and answers 422 naming the path, with the run still at its gate and nothing pushed. A resume
+    ///     without applying answers 204, and the run then fails at <c>publish</c>, naming the path, with nothing pushed. The
+    ///     seed has no <c>AGENT.md</c>, so a path under that name is a legal new path rather than a clash with a file.
+    /// </summary>
+    /// <remarks>
+    ///     Each scope's assertions are checked together, so one red run shows every assertion the red reaches. Reds, each
+    ///     applied once (see the final fix round's report):
+    ///     <list type="bullet">
+    ///         <item><c>AGENT.md/x</c>: drop the <c>"&lt;path&gt;/"</c> entry from <c>ExtraProtectedPaths</c>. The applier then
+    ///         applies the patch, so the resume with apply answers 500, not 422, because the writer cannot write a file
+    ///         where the patch made a directory, and names no protected path; the run stays at its gate and nothing is
+    ///         pushed, so those three hold. With the first scope set aside, the resume without apply publishes the run,
+    ///         which succeeds with <c>AGENT.md/x</c> in its standing-instructions commit, failing every assertion of the
+    ///         second scope but the 204.</item>
+    ///         <item>Both cases, for the first scope: <c>.github/</c> is one of Thalos's defaults, which no configuration
+    ///         can remove (ruling R44), so the closest faithful red is the input: append the same hunk under <c>docs/</c>,
+    ///         which is not protected. The resume with apply then answers 204, the run publishes, and every assertion of the
+    ///         first scope fails, the branch and its commits included, which the wait for the run to settle makes
+    ///         deterministic.</item>
+    ///         <item>Both cases, for the second scope: the same input red with the first resume and its scope removed; the
+    ///         resume without apply publishes, and every assertion of the second scope but the 204 fails.</item>
+    ///         <item>The 204: have <c>WorkflowRunGateway</c> apply the standing instructions on every resume; the resume
+    ///         without apply then answers 422.</item>
+    ///     </list>
+    /// </remarks>
+    [SkippableTheory]
+    [InlineData(".github/workflows/x.yml")]
+    [InlineData("AGENT.md/x")]
+    public async Task A_stored_patch_touching_a_protected_path_is_refused_at_publish(string appended)
+    {
+        Skip.IfNot(docker.Available, docker.SkipReason);
+
+        var chat = new ScriptedChatClient();
+        chat.ThenToolCall("workspace__edit_file", new { path = "src/Lib/A.cs", oldText = AddLine, newText = AddLine + "    public static int Twice(int a) => a * 2;\n" });
+        ScriptChangedOutcome(chat, "Added Twice.", ["src/Lib/A.cs"]);
+        ScriptReviewAndRetrospect(chat);
+        await using var host = await StartHostAsync(chat, new FakePullRequestPublisher(), seed: [.. Seed.Where(f => !string.Equals(f.Path, "AGENT.md", StringComparison.Ordinal))]);
+        using var admin = Client(host, "a-admin", "admin");
+
+        var runId = await StartRunAsync(admin);
+        await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate", RunGuard);
+        await SweepUntilNoContainerAsync(host, runId);
+        var patch = Path.Combine(host.DataRoot, "sandboxes", runId.ToString("N") + ".patch");
+        File.Exists(patch).Should().BeTrue("parking stores the run's patch on the trusted side");
+        await File.AppendAllTextAsync(patch, NewFilePatch(appended, "on: push\n"));
+
+        var applying = await admin.PostAsJsonAsync($"/api/workflow-runs/{runId}/resume", new ResumeWorkflowRunRequest("human_approval", null, ApplyStandingInstructions: true));
+        var applyingBody = await applying.Content.ReadAsStringAsync();
+        var afterApplying = await host.WaitForAsync(runId, r => r.Status != WorkflowStatus.Running, "settled after the resume", PublishGuard);
+        using (new AssertionScope("the resume that applies the standing instructions"))
+        {
+            applying.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity, applyingBody);
+            applyingBody.Should().Contain($"protected path '{appended}'");
+            afterApplying.Status.Should().Be(WorkflowStatus.Awaiting, "a refused resume leaves the run at its gate");
+            RemoteBranches(host).Should().BeEmpty("nothing is pushed");
+            RemoteCommitCount(host).Should().Be(1, "the remote holds only the seed commit");
+        }
+
+        var resumed = await admin.PostAsJsonAsync($"/api/workflow-runs/{runId}/resume", new ResumeWorkflowRunRequest("human_approval", null, ApplyStandingInstructions: false));
+        var resumedBody = await resumed.Content.ReadAsStringAsync();
+        resumed.StatusCode.Should().Be(HttpStatusCode.NoContent, resumedBody);
+        var settled = await host.WaitForAsync(runId, r => r.Status is WorkflowStatus.Failed or WorkflowStatus.Succeeded, "settled after the publish", PublishGuard);
+        using (new AssertionScope("the resume that does not apply the standing instructions"))
+        {
+            settled.Status.Should().Be(WorkflowStatus.Failed, "publish refuses the patch");
+            settled.CurrentNode.Should().Be("publish");
+            settled.LastError.Should().Contain($"protected path '{appended}'");
+            RemoteBranches(host).Should().BeEmpty("nothing is pushed");
+            RemoteCommitCount(host).Should().Be(1, "the remote holds only the seed commit");
+        }
     }
 
     /// <summary>
@@ -540,8 +658,17 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
     ///     image and the sandboxes are on one engine whatever <c>DOCKER_HOST</c> says. <paramref name="settings"/> come after,
     ///     so a test can still point the host elsewhere.
     /// </summary>
+    /// <remarks>
+    ///     <paramref name="seed"/> replaces <see cref="Seed"/>. <paramref name="withoutSweepTimer"/> drops the host's
+    ///     one-minute workspace sweep, for a test that must find a succeeded run's publish worktree still there: the sweep
+    ///     removes it. This suite drives every sweep it needs directly anyway.
+    /// </remarks>
     private Task<ScratchWorkflowHost> StartHostAsync(
-        IChatClient chat, FakePullRequestPublisher publisher, IReadOnlyDictionary<string, string?>? settings = null)
+        IChatClient chat,
+        FakePullRequestPublisher publisher,
+        IReadOnlyDictionary<string, string?>? settings = null,
+        IReadOnlyList<(string Path, string Content)>? seed = null,
+        bool withoutSweepTimer = false)
     {
         var all = new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Docker:Endpoint"] = docker.EngineEndpoint };
         foreach (var (key, value) in settings ?? new Dictionary<string, string?>(StringComparer.Ordinal))
@@ -549,14 +676,29 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
             all[key] = value;
         }
 
+        var services = Services(chat, publisher);
         return ScratchWorkflowHost.StartAsync(
             docker.Postgres,
             runtime: null,
-            seed: Seed,
+            seed: seed ?? Seed,
             settings: all,
-            configureServices: Services(chat, publisher),
+            configureServices: withoutSweepTimer ? s => { services(s); RemoveSweepTimer(s); }
+        : services,
             sandboxImage: docker.ImageTag,
             sandboxNetwork: docker.NewNetwork());
+    }
+
+    /// <summary>
+    ///     Removes the hosted <see cref="RunWorkspaceSweepService"/>, registered through a factory whose delegate returns
+    ///     that type; the <see cref="RunWorkspaceSweeper"/> it ticks stays, for a test to drive.
+    /// </summary>
+    private static void RemoveSweepTimer(IServiceCollection services)
+    {
+        var timer = services.Where(d => d.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService)
+            && !d.IsKeyedService
+            && d.ImplementationFactory?.Method.ReturnType == typeof(RunWorkspaceSweepService)).ToList();
+        timer.Should().ContainSingle("the host registers one workspace sweep timer");
+        services.Remove(timer[0]);
     }
 
     /// <summary>The scripted model, a fast outbox poll, and one fake as both pull-request interfaces (ruling R28a).</summary>
@@ -629,6 +771,31 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
 
         held.Entered.Task.IsCompleted.Should().BeTrue(
             $"the held model request should have arrived, but the run stopped with status {run?.Status} at '{run?.CurrentNode}', last error: {run?.LastError}");
+    }
+
+    /// <summary>The remote's branches under <c>manufacture/</c>, the only ones a run pushes.</summary>
+    private static string[] RemoteBranches(ScratchWorkflowHost host) =>
+        LocalGitRemote.Git(host.Remote.Url, "for-each-ref --format=%(refname) refs/heads/manufacture/")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>How many commits every ref of the remote reaches together.</summary>
+    private static int RemoteCommitCount(ScratchWorkflowHost host) =>
+        int.Parse(LocalGitRemote.Git(host.Remote.Url, "rev-list --all --count"), System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    ///     A <c>git diff --cached --binary --full-index</c> style hunk that adds one text file, its blob id computed the way
+    ///     git computes it, so it reads as part of the sandbox's own export.
+    /// </summary>
+    private static string NewFilePatch(string path, string content)
+    {
+        var bytes = Encoding.UTF8.GetBytes(content);
+        var header = Encoding.ASCII.GetBytes($"blob {bytes.Length}\0");
+#pragma warning disable CA5350 // git's object id is SHA-1 by definition; nothing here is a security use.
+        var blob = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData([.. header, .. bytes]));
+#pragma warning restore CA5350
+        var lines = content.TrimEnd('\n').Split('\n');
+        return $"diff --git a/{path} b/{path}\nnew file mode 100644\nindex 0000000000000000000000000000000000000000..{blob}\n" +
+            $"--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{lines.Length} @@\n" + string.Concat(lines.Select(l => "+" + l + "\n"));
     }
 
     private static async Task<long> CountRunsAsync(ScratchWorkflowHost host)
