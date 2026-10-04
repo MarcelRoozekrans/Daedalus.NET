@@ -20,9 +20,9 @@
 
 ## Branching
 
-**Model:** trunk
-**PR required:** no
-**Protected branches:** main — active branch ruleset named `Main` on `~DEFAULT_BRANCH`, rules: deletion, non_fast_forward, required_status_checks
+**Model:** feature-branch
+**PR required:** yes
+**Protected branches:** main — active branch ruleset named `Main` on `~DEFAULT_BRANCH`, rules: deletion, non_fast_forward, required_status_checks, pull_request (1 approval; squash or rebase only); the admin bypass applies only when merging a pull request (2026-10-04)
 
 ## Versioning & Release
 

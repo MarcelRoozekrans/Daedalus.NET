@@ -71,7 +71,7 @@ only once something demonstrably better runs in its place.
 | 2.3 | The manufacturing squad | complete (2026-09-23; #274) |
 | 2.4 | The process as skills | complete (2026-09-24; #276) |
 | 2.5 | Run write authority, standing instructions in the target workspace, prompt caching | complete (2026-10-01; #315) |
-| 2.6 | Sandboxed run pods | pending |
+| 2.6 | Sandboxed run pods | complete (2026-10-04; #320) |
 | 2.7 | Issues as a first-class output | pending |
 | 2.8 | Ralph retirement | pending |
 | 2.9 | Observability | pending |
