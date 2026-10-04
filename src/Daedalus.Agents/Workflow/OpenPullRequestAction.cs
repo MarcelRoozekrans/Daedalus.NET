@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Thalos;
 using Thalos.Git;
 using Thalos.Git.Workspaces;
@@ -59,15 +60,21 @@ namespace Daedalus.Agents.Workflow;
 ///     null, and a pull request URL that is not an absolute http or https URL is a failure too, so the run's
 ///     <c>pr_url</c> is always a link. An <see cref="OperationCanceledException"/> propagates only when the dispatch's
 ///     own token was cancelled; one nobody asked for, such as an HTTP client's timeout, is a failed result, because the outbox would otherwise
-///     retry it until the message is dead-lettered (see <see cref="IWorkflowHostAction"/>).
+///     retry it until the message is dead-lettered (see <see cref="IWorkflowHostAction"/>). The failure becomes the run's
+///     error, which the run view shows over HTTP, so it never carries an exception's text or a failed step's detail,
+///     such as raw git stderr; those are logged. A refusal keeps its detail, since it names what was refused.
 ///     </para>
 ///     <para>
 ///     A singleton: the scoped <see cref="IOpenPullRequestLookup"/>, <see cref="IPullRequestPublisher"/> and the
 ///     record store are resolved from a scope of its own per call (ruling R28a).
 ///     </para>
 /// </remarks>
-internal sealed class OpenPullRequestAction(
-    IRunWorkspaceHandoff handoff, IRunWorkspaceGit git, IServiceScopeFactory scopes, WorkflowConfig config) : IWorkflowHostAction
+internal sealed partial class OpenPullRequestAction(
+    IRunWorkspaceHandoff handoff,
+    IRunWorkspaceGit git,
+    IServiceScopeFactory scopes,
+    WorkflowConfig config,
+    ILogger<OpenPullRequestAction> logger) : IWorkflowHostAction
 {
     /// <summary>The name a process node references with <c>action: open-pull-request</c>.</summary>
     public const string ActionName = ReviewHandoff.PublishActionName;
@@ -93,7 +100,7 @@ internal sealed class OpenPullRequestAction(
         // so is a sandboxed run whose patch the publish-side protected-path check refused (S5): before any commit.
         var handedOff = await handoff.CheckoutForPublishAsync(run.Id, ct).ConfigureAwait(false);
         if (handedOff.IsFailure)
-            return Result<HostActionResult>.Failure(Describe(handedOff.Error));
+            return Result<HostActionResult>.Failure(Explain(handedOff.Error, run.Id, "the handoff"));
 
         var ws = handedOff.Value;
 
@@ -103,7 +110,9 @@ internal sealed class OpenPullRequestAction(
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
-            return Failed($"publishing was cancelled without the dispatch being cancelled, as a timeout does: {ex.Message}", ws);
+            // The exception's own text is logged, not stored: the run's error is shown over HTTP.
+            LogPublishCancelled(logger, ex, run.Id);
+            return Failed("publishing was cancelled without the dispatch being cancelled, as a timeout does; the server log has the details", ws);
         }
     }
 
@@ -167,7 +176,7 @@ internal sealed class OpenPullRequestAction(
             },
             ct).ConfigureAwait(false);
         if (code.IsFailure)
-            return Failed($"commit failed: {Describe(code.Error)}", ws);
+            return Failed($"commit failed: {Explain(code.Error, run.Id, "the code commit")}", ws);
 
         var standing = await git.CommitAsync(
             ws,
@@ -179,12 +188,12 @@ internal sealed class OpenPullRequestAction(
             },
             ct).ConfigureAwait(false);
         if (standing.IsFailure)
-            return Failed($"{_standingInstructionsPath} commit failed: {Describe(standing.Error)}", ws);
+            return Failed($"{_standingInstructionsPath} commit failed: {Explain(standing.Error, run.Id, "the standing-instructions commit")}", ws);
 
         // Against the merge base of ws.BaseRef.
         var stat = await git.DiffStatAsync(ws, ct).ConfigureAwait(false);
         if (stat.IsFailure)
-            return Failed($"diff failed: {Describe(stat.Error)}", ws);
+            return Failed($"diff failed: {Explain(stat.Error, run.Id, "the diff")}", ws);
         if (stat.Value is not { } changes)
             return Failed("diff failed: the diff stat reported no file list", ws);
         if (changes.Count == 0)
@@ -194,7 +203,7 @@ internal sealed class OpenPullRequestAction(
         // IGitCredentialSource the workspace provider already uses.
         var push = await git.PushAsync(ws, ct).ConfigureAwait(false);
         if (push.IsFailure)
-            return Failed($"push failed: {Describe(push.Error)}", ws);
+            return Failed($"push failed: {Explain(push.Error, run.Id, "the push")}", ws);
 
         // 3. Open, or reuse, the pull request.
         var lookup = scope.ServiceProvider.GetRequiredService<IOpenPullRequestLookup>();
@@ -202,7 +211,7 @@ internal sealed class OpenPullRequestAction(
 
         var existing = await lookup.FindOpenPullRequestAsync(repository.Remote, ws.Branch, ct).ConfigureAwait(false);
         if (existing.IsFailure)
-            return Failed($"pull request lookup failed: {Describe(existing.Error)}", ws);
+            return Failed($"pull request lookup failed: {Explain(existing.Error, run.Id, "the pull request lookup")}", ws);
 
         var pr = existing.Value;
         if (pr is null)
@@ -222,7 +231,7 @@ internal sealed class OpenPullRequestAction(
             var opened = await publisher.OpenPullRequestAsync(
                 ws.Root, ws.Branch, ws.DefaultBranch, PullRequestBody.Title(workIntent), body, ct).ConfigureAwait(false);
             if (opened.IsFailure)
-                return Failed($"opening the pull request failed: {Describe(opened.Error)}", ws);
+                return Failed($"opening the pull request failed: {Explain(opened.Error, run.Id, "opening the pull request")}", ws);
 
             pr = opened.Value;
         }
@@ -379,8 +388,27 @@ internal sealed class OpenPullRequestAction(
             $"review evidence record {record.Id} has no readable lens, verdict and checked list");
     }
 
-    private static string Describe(AgentError error) =>
-        string.IsNullOrWhiteSpace(error.Detail) ? error.Message : $"{error.Message} {error.Detail}";
+    /// <summary>
+    ///     What the run's error says about <paramref name="error"/>, which the run view shows over HTTP. A
+    ///     <see cref="AgentErrorCode.Validation"/> answer is a refusal, shown whole, since it names what was refused, such
+    ///     as the repository-relative path the publish-side check refused. Any other answer is a failure whose detail can be
+    ///     raw git stderr or an exception's text with host paths in it, so only its message is shown and the detail is
+    ///     logged, as <see cref="StandingInstructionsWriter"/> does for the same handoff.
+    /// </summary>
+    private string Explain(AgentError error, Guid runId, string step)
+    {
+        if (error.Code == AgentErrorCode.Validation)
+            return string.IsNullOrWhiteSpace(error.Detail) ? error.Message : $"{error.Message} {error.Detail}";
+
+        LogStepFailed(logger, runId, step, error.Code, error.Message, error.Detail);
+        return error.Message;
+    }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Publishing run {RunId} failed at {Step} ({Code}): {Error} {Detail}")]
+    private static partial void LogStepFailed(ILogger logger, Guid runId, string step, AgentErrorCode code, string error, string? detail);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Publishing run {RunId} was cancelled without its dispatch being cancelled")]
+    private static partial void LogPublishCancelled(ILogger logger, Exception exception, Guid runId);
 
     private static bool IsWebUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var parsed)

@@ -3,6 +3,8 @@ using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Thalos;
@@ -76,8 +78,8 @@ public sealed class OpenPullRequestActionTests : IDisposable
 
     public void Dispose() => _services.Dispose();
 
-    private OpenPullRequestAction Action() =>
-        new(_handoff, _git, _services.GetRequiredService<IServiceScopeFactory>(), _config);
+    private OpenPullRequestAction Action(ILogger<OpenPullRequestAction>? logger = null) =>
+        new(_handoff, _git, _services.GetRequiredService<IServiceScopeFactory>(), _config, logger ?? NullLogger<OpenPullRequestAction>.Instance);
 
     private IRunWorkspaceProvider Workspaces => (IRunWorkspaceProvider)_handoff;
 
@@ -503,16 +505,72 @@ public sealed class OpenPullRequestActionTests : IDisposable
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    /// <summary>
+    ///     A cancellation the dispatch did not ask for, such as an HTTP client's timeout, is a failed result. The run's
+    ///     error is shown over HTTP, so the exception's own text is logged rather than stored in it. Red, per assertion:
+    ///     rethrow it, and the first fails; put the exception's message back in the error, and the second fails; drop the
+    ///     log, and the third fails.
+    /// </summary>
     [Fact]
     public async Task A_cancellation_nobody_asked_for_is_a_failed_result_not_an_exception()
     {
         _publisher.OpenPullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"));
+        var logger = new CapturingLogger();
 
-        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+        var result = await Action(logger).RunAsync(Run(), PublishNode, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("HttpClient.Timeout").And.Contain(_ws.Root);
+        result.Error.Should().StartWith("publishing was cancelled").And.NotContain("HttpClient.Timeout").And.Contain(_ws.Root);
+        logger.Exceptions.Should().ContainSingle().Which.Should().BeOfType<TaskCanceledException>();
+    }
+
+    /// <summary>
+    ///     A handoff failure that is not a refusal shows its message only, since its detail can hold a host path, and the
+    ///     detail is logged; a refusal, Thalos's <see cref="AgentErrorCode.Validation"/>, is shown whole, since it names the
+    ///     refused path. Red, per assertion: describe every error with its detail, and the first fails; drop the log, and
+    ///     the second fails; describe every error by its message only, and the third fails.
+    /// </summary>
+    [Fact]
+    public async Task A_handoff_failure_shows_its_message_and_a_refusal_shows_its_detail()
+    {
+        var logger = new CapturingLogger();
+
+        var failed = await HandedOffWith(AgentError.StoreError("Could not store the exported patch.", @"C:\data\sandboxes\r1.patch: the disk is gone"), logger);
+        var refused = await HandedOffWith(new AgentError(AgentErrorCode.Validation, "the change touches protected path 'AGENT.md/x'; publish refused", "1 file"), logger);
+
+        failed.Should().Be("Could not store the exported patch.");
+        logger.Messages.Should().ContainSingle(m => m.Contains(@"C:\data\sandboxes\r1.patch: the disk is gone", StringComparison.Ordinal));
+        refused.Should().Be("the change touches protected path 'AGENT.md/x'; publish refused 1 file");
+    }
+
+    private async Task<string> HandedOffWith(AgentError error, ILogger<OpenPullRequestAction> logger)
+    {
+        _handoff.CheckoutForPublishAsync(RunId, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<RunWorkspace, AgentError>>(Result<RunWorkspace, AgentError>.Failure(error)));
+        var result = await Action(logger).RunAsync(Run(), PublishNode, CancellationToken.None);
+        result.IsFailure.Should().BeTrue();
+        return result.Error;
+    }
+
+    /// <summary>Records the formatted message and the exception of each entry.</summary>
+    private sealed class CapturingLogger : ILogger<OpenPullRequestAction>
+    {
+        public List<string> Messages { get; } = [];
+
+        public List<Exception> Exceptions { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Messages.Add(formatter(state, exception));
+            if (exception is not null)
+                Exceptions.Add(exception);
+        }
     }
 
     /// <summary>

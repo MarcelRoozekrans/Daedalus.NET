@@ -5,6 +5,7 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos;
 using Thalos.Git;
@@ -84,7 +85,8 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
             _workspaces,
             new GitCliRunWorkspaceGit(options, NullLogger<GitCliRunWorkspaceGit>.Instance),
             _services.GetRequiredService<IServiceScopeFactory>(),
-            config);
+            config,
+            NullLogger<OpenPullRequestAction>.Instance);
 
         _run = new WorkflowRun
         {
@@ -203,6 +205,29 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
     }
 
     /// <summary>
+    ///     A failed git step's detail, raw stderr that can hold host paths, is logged, not stored in the run's error,
+    ///     which the run view shows over HTTP; the message stays. Red, per assertion: describe the error with its detail
+    ///     again, and the first fails on git's <c>fatal:</c> line; drop the log, and the second fails.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_push_keeps_git_stderr_out_of_the_run_error_and_logs_it()
+    {
+        var logger = new CapturingLogger();
+        var action = new OpenPullRequestAction(
+            _workspaces,
+            new GitCliRunWorkspaceGit(new GitWorkspaceOptions { DataRoot = _dataRoot }, NullLogger<GitCliRunWorkspaceGit>.Instance),
+            _services.GetRequiredService<IServiceScopeFactory>(),
+            _config,
+            logger);
+        _remote.Delete();
+
+        var result = await action.RunAsync(_run, PublishNode, CancellationToken.None);
+
+        result.Error.Should().StartWith("push failed: ").And.NotContain("fatal:");
+        logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error && e.Message.Contains("fatal:", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     ///     Phase 2.6, task B5, carry 1: in sandbox mode the handoff worktree holds the run's patch as Thalos's
     ///     <see cref="GitPatchApplier"/> staged it, and that index is what the publish-side protected-path check passed
     ///     (S5). Publish's code commit must be exactly that index. Here the real applier stages a patch, into a real publish
@@ -262,7 +287,8 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
             handoff,
             new GitCliRunWorkspaceGit(publish, NullLogger<GitCliRunWorkspaceGit>.Instance),
             _services.GetRequiredService<IServiceScopeFactory>(),
-            _config);
+            _config,
+            NullLogger<OpenPullRequestAction>.Instance);
 
         var result = await action.RunAsync(_run, PublishNode, CancellationToken.None);
 
@@ -302,6 +328,20 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
             _run.Id, seq, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", "u-admin",
             $$"""{ "lens": "{{lens}}", "verdict": "{{verdict}}", "checked": ["{{item}}"], "findings": [] }""",
             DateTime.UtcNow).Value;
+
+    /// <summary>Records each entry's level, formatted message and exception.</summary>
+    private sealed class CapturingLogger : ILogger<OpenPullRequestAction>
+    {
+        public List<(LogLevel Level, string Message, Exception? Exception)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception), exception));
+    }
 
     /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
     private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>

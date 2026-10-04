@@ -183,7 +183,11 @@ public sealed partial class StandingInstructionsWriter(
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.WriteFailed, ex.Message));
+            // The exception's text names host paths, so it is logged, and the human gets the configured path only.
+            LogWriteFailed(_logger, ex, run.Id, _path);
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(
+                ResumeRefusal.WriteFailed,
+                $"'{_path}' could not be written in the worktree of run '{run.Id}'; the server log has the details."));
         }
         finally
         {
@@ -255,4 +259,7 @@ public sealed partial class StandingInstructionsWriter(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}'s publish worktree could not be handed off for the standing-instructions write ({Code}): {Error} {Detail}")]
     private static partial void LogHandoffFailed(ILogger logger, Guid runId, AgentErrorCode code, string error, string? detail);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}'s standing instructions could not be written to '{Path}' in its publish worktree")]
+    private static partial void LogWriteFailed(ILogger logger, Exception exception, Guid runId, string path);
 }
