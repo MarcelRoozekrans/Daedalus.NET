@@ -89,6 +89,15 @@ of `docs/architecture-diagrams.md`.
 | Sandbox (`true`) | `Daedalus.Api`, which ships it on, and the AppHost | Whatever each write grant lists, or any file when a grant lists no extensions. MSBuild evaluates project, props and targets files inside the run's container, never on the host. |
 | Local (`false`) | `Daedalus.Cli` and dev hosts without Docker | A git worktree on the host, and only `.cs` and `.md`. A grant that lists no extensions is refused at boot. |
 
+The Api's shipped implement grant lists no extensions, so running the Api in local mode needs the list set explicitly as
+well, or S6 below refuses the boot:
+
+```bash
+Thalos__Workflow__Sandbox__Enabled=false
+Thalos__Workflow__WriteGrants__0__AllowedExtensions__0=.cs
+Thalos__Workflow__WriteGrants__0__AllowedExtensions__1=.md
+```
+
 Boot-time checks, all in `DaedalusAgentsServiceCollectionExtensions` (a failure is an `InvalidOperationException` at
 startup, never a runtime surprise):
 
@@ -140,33 +149,54 @@ The infrastructure containers are named `<network>-gateway` and `<network>-egres
 
 ### Where files live
 
-Everything below is under `Thalos:Workflow:DataRoot`, which is `%LOCALAPPDATA%/Daedalus/workflow-data` when blank.
+Everything below is under `Thalos:Workflow:DataRoot`, which is `%LOCALAPPDATA%/Daedalus/workflow-data` when blank. A run
+id written `N` is the 32 hex digits without hyphens; `D` is the usual hyphenated form.
+
+Sandbox mode (Thalos 0.14.2):
 
 | Path | Holds |
 |---|---|
-| `mirrors/<repository>` | The API's mirror of each repository. A run's input bundle is cut from it. |
-| `sandboxes/<run-id>.patch` | The patch a parked run exported, with the sandbox record next to it. |
-| `publish/` | Publish worktrees: clean trees the API applies a patch into. |
-| `runs/` | Worktrees of local-mode runs. |
-| `patches/` | Short-lived copies of a patch while Thalos applies it. |
+| `publish/mirrors/<repository>` | The API's mirror of each repository. A run's input bundle and its publish worktree are both cut from it. |
+| `publish/runs/<run-id D>` | A run's publish worktree: a clean tree cut from the run's base commit, with its patch applied. |
+| `publish/patches/` | Short-lived private copies of a patch while Thalos applies it. |
+| `sandboxes/<run-id N>.patch` | The patch a parked run exported. |
+| `sandboxes/<run-id D>.json` | The run's sandbox record. |
+| `sandboxes/<run-id N>.bundle` | A new run's input bundle, deleted once the sandbox imported it. |
+
+Local mode:
+
+| Path | Holds |
+|---|---|
+| `mirrors/<repository>` | The mirror each run's worktree is cut from. |
+| `runs/<run-id D>` | A run's worktree, which its agents write into and publish commits from. |
 
 ### Publish and protected paths
 
-The sandbox exports a patch. At the review gate the API applies it with Thalos's `GitPatchApplier` into a clean worktree
-under `<DataRoot>/publish`, commits the staged index exactly as it stands, then pushes. `AGENT.md` is committed
-separately. A patch the API refuses on resume answers 422.
+The sandbox exports a patch when the run parks at its gate. Nothing is applied at the gate. When the run is resumed, the
+API applies the stored patch with Thalos's `GitPatchApplier` into the run's publish worktree, under
+`<DataRoot>/publish/runs`: during the resume itself when it carries `applyStandingInstructions: true`, because the
+approved standing instructions are written into that worktree, and otherwise in the `publish` node right after. Publish
+then commits the staged index exactly as it stands, commits `AGENT.md` separately, and pushes.
+
+A patch the check refuses is refused before anything is committed:
+
+- A resume with `applyStandingInstructions: true` answers 422, naming the refused path, and the run stays at its gate.
+- A resume without it answers 204, and the run then fails at `publish`, with the refusal, naming the path, as its error.
 
 Protected paths cannot be written: Thalos's fixed defaults (`.git/`, `.gitattributes`, `.gitmodules`, `.github/`,
 `.gitlab-ci.yml`, `azure-pipelines.yml`, `.azure-pipelines/`, `.circleci/`, `Jenkinsfile`), which configuration cannot
-remove, plus the extras in `Sandbox:ProtectedPaths` and the standing-instructions file, `AGENT.md` by default. The
-publish-side check is the control; the sandbox-side refusal is only a convenience. In sandbox mode publish also refuses
-`.gitattributes` and `.gitmodules` at any depth, symlinks and submodule pointers.
+remove, plus the extras in `Sandbox:ProtectedPaths` and the standing-instructions file, `AGENT.md` by default. That file is
+protected as a directory too, `AGENT.md/`, because Thalos matches a file entry exactly and publish would otherwise commit a
+path such as `AGENT.md/x` as the approved standing-instructions change (Thalos #265). The publish-side check is the
+control; the sandbox-side refusal is only a convenience. In sandbox mode publish also refuses `.gitattributes` and
+`.gitmodules` at any depth, symlinks and submodule pointers.
 
 ### Test results in the pull request
 
 A run's `sandbox__test` and `sandbox__build` results are recorded as `test-result` run records. The pull request body's
-`## Tests` section states them as reported by the run's sandbox and not verified, because the sandbox runs the change's
-own code.
+`## Tests` section states the last test run as reported by the run's sandbox and not verified, because the sandbox runs
+the change's own code. When the run recorded a workspace write after that test run, the section says the change may
+differ from what was tested.
 
 ### Cleaning up
 
