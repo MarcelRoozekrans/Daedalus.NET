@@ -480,6 +480,37 @@ public sealed partial class SandboxConfigTests : IDisposable
         File.Exists(Path.Combine(repo, "AGENT.md", "x")).Should().BeFalse("a refused patch writes nothing");
     }
 
+    /// <summary>
+    ///     The gate's restore reader is the concrete sandbox provider, resolved as such, so a decorator on
+    ///     <see cref="IRunWorkspaceProvider"/> does not turn restore recording off. Red: find the reader by testing whether
+    ///     <see cref="IRunWorkspaceProvider"/> resolves to a <see cref="SandboxRunWorkspaceProvider"/>, as before; the
+    ///     decorated host's gate then records nothing.
+    /// </summary>
+    [Fact]
+    public async Task In_sandbox_mode_a_decorated_workspace_provider_keeps_the_gate_recording_restores()
+    {
+        var (services, options, configuration, environment) = LoadShipped(ApiAppSettingsFileName);
+        services.AddDaedalusAgents(options, configuration, environment);
+        var inner = services.Last(d => d.ServiceType == typeof(IRunWorkspaceProvider));
+        services.AddSingleton<IRunWorkspaceProvider>(sp =>
+            new DecoratedProvider((IRunWorkspaceProvider)inner.ImplementationFactory!(sp)));
+        await using var sp = services.BuildServiceProvider();
+
+        sp.GetRequiredService<IRunWorkspaceProvider>().Should().BeOfType<DecoratedProvider>("the decorator is in place");
+        sp.GetServices<IWorkflowDispatchGate>().OfType<RunToolServersReadyGate>().Single().RecordsSandboxRestores.Should().BeTrue();
+    }
+
+    /// <summary>A pass-through decorator, as a host adding logging or metrics around the provider would register.</summary>
+    private sealed class DecoratedProvider(IRunWorkspaceProvider inner) : IRunWorkspaceProvider
+    {
+        public ValueTask<Result<RunWorkspace, AgentError>> CreateAsync(RunWorkspaceRequest request, CancellationToken ct) => inner.CreateAsync(request, ct);
+
+        public ValueTask<RunWorkspace?> FindAsync(Guid runId, CancellationToken ct) => inner.FindAsync(runId, ct);
+
+        public ValueTask<UnitResult<AgentError>> RemoveAsync(Guid runId, CancellationToken ct) => inner.RemoveAsync(runId, ct);
+
+        public ValueTask<IReadOnlyList<RunWorkspace>> ListAsync(CancellationToken ct) => inner.ListAsync(ct);
+    }
 
     /// <summary>
     ///     A <c>git diff --full-index</c> style patch that adds one text file, its blob id computed the way git computes
