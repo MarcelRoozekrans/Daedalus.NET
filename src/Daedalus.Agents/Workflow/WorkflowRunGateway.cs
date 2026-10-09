@@ -169,10 +169,11 @@ public sealed partial class WorkflowRunGateway(
     ///     before anything is written. A run that has deferred findings then gets a
     ///     <see cref="WorkflowRunRecord.FindingsDroppedKind"/> record naming the resumer and the dropped ids, even when
     ///     none are dropped, so the latest record is always the one that applies. A run with none records nothing.
-    ///     Each record carries a fresh attempt id. When the engine resume then fails, a
-    ///     <see cref="WorkflowRunRecord.FindingsDropVoidedKind"/> record names that attempt, so a resume that lost a
-    ///     race cannot leave its list latest over one that won. Residual window: a process crash between losing the
-    ///     engine race and the void append still leaves the loser's list latest.
+    ///     Each record carries a fresh attempt id. When anything after that append fails, the
+    ///     standing-instructions apply or the engine resume, a <see cref="WorkflowRunRecord.FindingsDropVoidedKind"/>
+    ///     record names that attempt, so a resume that failed cannot leave its list latest over one that took effect.
+    ///     Residual window: a process crash between the failure and the void append still leaves the failed resume's
+    ///     list latest.
     ///     </para>
     /// </summary>
     public async ValueTask<UnitResult<ResumeFailure>> ResumeAsync(
@@ -224,6 +225,19 @@ public sealed partial class WorkflowRunGateway(
                 return recorded;
         }
 
+        // Every failure after the drop record was appended voids it, whichever step failed, so a list that never took
+        // effect cannot stay the latest one.
+        var outcome = await ApplyAndResumeAsync(run, signal, payload, applyStandingInstructions, resumedBy, ct).ConfigureAwait(false);
+        if (outcome.IsFailure)
+            await VoidDroppedAsync(run, attempt, ct).ConfigureAwait(false);
+
+        return outcome;
+    }
+
+    /// <summary>Applies the standing instructions when asked, then resumes the run in the engine. Records nothing about findings.</summary>
+    private async ValueTask<UnitResult<ResumeFailure>> ApplyAndResumeAsync(
+        WorkflowRun run, string signal, string? payload, bool applyStandingInstructions, RunPrincipal resumedBy, CancellationToken ct)
+    {
         if (applyStandingInstructions)
         {
             var applied = await _writer!.ApplyAsync(run, ct).ConfigureAwait(false);
@@ -233,16 +247,13 @@ public sealed partial class WorkflowRunGateway(
 
         try
         {
-            var result = await ResumeAsync(runId, signal, payload, resumedBy, ct).ConfigureAwait(false);
-            if (result.IsSuccess)
-                return UnitResult<ResumeFailure>.Success();
-
-            await VoidDroppedAsync(run, attempt, ct).ConfigureAwait(false);
-            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, result.Error));
+            var result = await ResumeAsync(run.Id, signal, payload, resumedBy, ct).ConfigureAwait(false);
+            return result.IsSuccess
+                ? UnitResult<ResumeFailure>.Success()
+                : UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, result.Error));
         }
         catch (WorkflowConcurrencyException ex)
         {
-            await VoidDroppedAsync(run, attempt, ct).ConfigureAwait(false);
             var detail = applyStandingInstructions
                 ? $"The standing-instructions file was already written, but the resume itself lost a concurrency race: {ex.Message}"
                 : ex.Message;

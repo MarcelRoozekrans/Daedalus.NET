@@ -400,6 +400,42 @@ public sealed class WorkflowRunGatewayTests
         File.Exists(dir.Path("AGENT.md")).Should().BeFalse("a refused resume writes nothing");
     }
 
+    /// <summary>
+    ///     A resume whose standing-instructions apply refuses never reaches the engine, and its drop list must not stay
+    ///     latest over one that took effect. Red: skip the void after a failed apply; no void record exists.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_standing_instructions_apply_voids_the_drop_it_recorded()
+    {
+        var run = RunWith(pinned: "", proposal: "New instructions.");
+        var store = Substitute.For<IWorkflowStore>();
+        store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
+        var evidence = WorkflowRunRecord.Create(run.Id, 1, "review", WorkflowRunRecord.ReviewEvidenceKind, "p", null,
+            """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked"}] }""",
+            DateTime.UtcNow).Value;
+        var appended = new List<WorkflowRunRecord>();
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        records.ListAsync(run.Id, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([evidence]));
+        records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            appended.Add(call.Arg<WorkflowRunRecord>());
+            return ValueTask.CompletedTask;
+        });
+        var handoff = Substitute.For<IRunWorkspaceHandoff>();
+        handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
+            Result<RunWorkspace, AgentError>.Failure(AgentError.Validation("the change touches protected path '.github/workflows/ci.yml'; publish refused"))));
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff, NullLogger<StandingInstructionsWriter>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
+
+        var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, ["correctness-1"], Approver, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.PublishRefused);
+        var drop = appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind).Subject;
+        AttemptOf(appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDropVoidedKind).Subject).Should().Be(AttemptOf(drop));
+        await store.DidNotReceiveWithAnyArgs().ResumeAsync(Guid.Empty, default!, default);
+    }
+
     /// <summary>Keeps the levels a logger saw.</summary>
     private sealed class CapturingLogger : ILogger<WorkflowRunGateway>
     {
