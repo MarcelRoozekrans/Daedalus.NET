@@ -112,6 +112,19 @@ shipped**, which is why these three and not some other three:
   own design document: a policy binding described as protection when no tool matched it, and a
   tool-prefix list wrong in two directions.
 
+**The mechanism pass reads the documentation that describes the touched types.** For every type or public
+member the change adds or modifies, read the repository's top-level documentation that describes it:
+`README.md` at the repository root and any Markdown file under `docs/` that names the type. Check each claim
+there about that type against the code. This is a bounded read: only the docs that describe the types the
+change touches, never the whole repository, and it is the one place the review deliberately looks outside the
+diff. What you find sorts three ways:
+
+- A claim the change made false is in scope: reject, so the implementer fixes it.
+- A claim that is false independent of the change, about behaviour the change did not add or alter, is a real
+  defect outside the change's scope. Approve, and record it in `deferred` with reason `different-area`, because
+  the file is not one the change edits. Search issues first, as the deferral section below says.
+- A claim that is true goes in `checked`, named by file and claim.
+
 A rubric whose lenses look arbitrary gets skimmed. These are the mistakes that got past review
 here, in this repository, on the way to the branch you are reading.
 
@@ -157,7 +170,8 @@ saves you the effort.
 Sometimes a lens finds a real defect that this change should **not** fix. Do not reject for it, because the
 implementer would be sent to change code the work intent never asked about. Do not stay silent either: a finding
 nobody records is lost. Approve, and record it in `deferred`. Host code files it as an issue linked to the pull
-request, after a human at the gate has had the chance to drop it.
+request, after a human at the gate has had the chance to drop it. The main way a deferral arises is the
+mechanism lens reading the docs that describe the touched types and finding a claim that was already false.
 
 A finding is deferrable only for one of these reasons, which go in `reason`:
 
