@@ -138,9 +138,28 @@ public sealed class ApiThalosConfigurationTests
         agent.Name.Should().Be("Daedalus Architect");
         // repoaction__* is on the Architect and nowhere else: it is the interactive agent, so a human is present
         // for every comment, label or close. The unattended scout must never carry it.
-        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "memory__*", "skills__*", "context7__*", "repoaction__*", "manufacture__*");
+        agent.Tools.Should().Equal("roslyn__*", "daedalus__*", "issues__*", "memory__*", "skills__*", "context7__*", "repoaction__*", "manufacture__*");
         agent.Skills.Should().Equal("*");
         agent.Instructions.Should().Contain("roslyn__").And.Contain("daedalus__").And.Contain("memory__").And.Contain("skills__");
+    }
+
+    /// <summary>
+    ///     D5: only the reviewer and the Architect carry the issue tools, and no workflow role can file anything.
+    ///     Red: add "issues__*" to the implementer, or "repoaction__*" to the reviewer; the matching assertion fails.
+    /// </summary>
+    [Fact]
+    public void Only_the_reviewer_and_the_architect_carry_the_issue_tools_and_no_role_can_file()
+    {
+        // Read from the configuration section: the chartered reviewer is resolved from its charter at sync, so it is
+        // not in the composed catalog, but its tool envelope lives in Thalos:Agents.
+        var agents = LoadApiConfiguration().GetSection("Thalos:Agents").GetChildren()
+            .ToDictionary(a => a["Name"]!, a => a.GetSection("Tools").GetChildren().Select(t => t.Value!).ToList());
+
+        agents["reviewer"].Should().Contain(["issues__get", "issues__search"]);
+        foreach (var name in new[] { "implementer", "scout", "writer" })
+            agents[name].Should().NotContain(t => t.StartsWith("issues__", StringComparison.Ordinal), name);
+        foreach (var name in new[] { "implementer", "reviewer" })
+            agents[name].Should().NotContain(t => t.StartsWith("repoaction__", StringComparison.Ordinal), name);
     }
 
     [Fact]
