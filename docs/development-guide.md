@@ -235,6 +235,76 @@ NuGet packages through the egress proxy. The suite skips when Docker is missing 
 (`SandboxEngineProbeTests` pins that). Each host in the suite gets its own network, named `daedalus-b8-*`, so a developer's
 own `daedalus-sandboxes` network is left alone.
 
+## Deferred review findings and the issues tools
+
+Phase 2.7. A manufacture review can approve a change and still see defects it should not fix in that change. Those are
+recorded as deferred findings, offered to the person at the gate, and filed as GitHub issues after publish. The spec is
+`docs/superpowers/specs/2026-10-09-phase-2.7-issues-design.md`; its Amendments table overrides its body.
+
+### Deferred findings
+
+- **Approval only.** `daedalus__report_review_outcome` takes an optional `deferred` JSON array. It is accepted only with an
+  approval; on a rejection everything is in scope to fix, so a `deferred` there is refused.
+- **Entry shape.** `{file, line, title, scenario, reason, existingIssue?}`. `reason` is one of `different-area`,
+  `needs-decision`, `too-large` or `blocked`. A finding that fits none of the four is not deferrable and the reviewer must
+  reject so it is fixed. `ReviewEvidence.Validate` refuses a hollow entry. At most 32 entries, 1000 characters per field,
+  `title` at most 200, no NUL.
+- **Host-owned.** The tool writes `deferred` into the review evidence that `ReviewHandoffWorkflowStore` owns, never a run
+  variable, so an agent cannot plant a finding.
+- **Only the approving visit counts.** The host keeps the deferred findings of the final review visit's three lens passes.
+  Earlier visits ended in a rejection and their `file:line` points at code that was edited afterwards. Each kept finding
+  has the id `<lens>-<n>`.
+
+### The gate and `dropFindings`
+
+`GET /api/workflow-runs/{id}` shows `deferredFindings` with their ids. `ResumeWorkflowRunRequest.DropFindings` names ids not
+to file.
+
+- An id that is not in the run's deferred set is a 422, so a typo cannot silently file a finding.
+- The accepted list is written as a `findings-dropped` `WorkflowRunRecord` with the resumer as its principal. A run with
+  deferred findings always gets one, even when the list is empty, so the latest record is the one that applies.
+- A resume that loses a concurrent race, or fails after the drop was recorded, voids that record with a
+  `findings-drop-voided` record, so a list that never took effect cannot be read as the latest.
+
+### The issues tools
+
+| Tool | Source | Who may call it |
+|---|---|---|
+| `issues__get` | `issues`, its own source | The `reviewer` role and the chat Architect only |
+| `issues__search` | `issues` | The `reviewer` role and the chat Architect only |
+| `repoaction__create_issue` | `repoaction` | `developer` policy, so developer chat sessions only; no workflow role can call it |
+
+- `issues__get(repo, number)` returns title, state, labels and the body cut to about 2 KB, and refuses a pull request number.
+- `issues__search(repo, query, state)` prepends `repo:<repo> is:issue` and returns at most 10 hits with no bodies. It refuses
+  a query that carries its own `repo:`, `org:`, `user:` or `owner:` qualifier, because GitHub ORs several `repo:`
+  qualifiers, and drops any hit from another repository.
+- Both label issue text as third-party content. Only the reviewer's and the Architect's `Tools` lists name `issues__*`, in
+  both `appsettings.json` files.
+
+### The `file-findings` node
+
+Process v9 adds `publish -> file-findings -> done`. The node runs the `file-review-findings` host action. No model runs it
+and no agent holds a tool that could.
+
+- **Inputs are host-owned.** The repository and PR number come from the run's `pr_url`, and the action checks the repository
+  against the allow-list again. It needs no workspace.
+- **Per finding that was not dropped.** With `existingIssue: N` the host re-reads #N and comments there if it is an open
+  issue; otherwise, or with no pointer, it files a new issue with a permalink at the PR's head commit, the scenario, the
+  reason, the lens, the run id and the PR link. No labels are set. One PR comment then lists what was filed, commented on
+  and dropped, and by whom.
+- **Idempotent.** Every issue, comment and the PR summary ends with the marker
+  `<!-- daedalus-run:<runId> finding:<id> -->`, and each result is written as a `finding-filed` record when it is handled.
+  A retry skips recorded findings and scans issues and comments updated since the resume. A marker counts only on the final
+  line of a body authored by the token's own login. The host escapes `<!--` in everything a model wrote, so a marker
+  anywhere else is not ours.
+- **Outcomes.** `filed` and `none`. `none` makes no GitHub call. Every failure fails the node, and the run stays `Failed` at
+  `file-findings` for the admin retry, which re-runs that node alone.
+
+**Token requirement.** `file-findings` needs a GitHub **user** token, classic or fine-grained PAT, with Issues: Read and
+write on the target repository. It reads its own login with `GET /user` to attribute markers, so a GitHub App installation
+token or an Actions `GITHUB_TOKEN` gets a 403 there and the node fails. A fine-grained token that lacks Issues also fails
+the node with a 403, as phase 2.5's first publish did on Contents.
+
 ## ZeroAlloc.Results — full pattern catalogue
 
 `ZeroAlloc.Results` (not CSharpFunctionalExtensions — that package was removed
