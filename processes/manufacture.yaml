@@ -177,7 +177,9 @@ nodes:
   # drop, as a new issue or as a comment on the open issue the reviewer named, then posts one summary on the pull
   # request. Any failure fails the run here, where the admin retry re-runs this node alone; a retry duplicates nothing.
   # The repository and pull request come from the run's `pr_url`, re-checked against the allow-list. The node needs a
-  # GitHub user token with Issues: Read and write, whose own login it reads from GET /user. A human at the gate may
+  # fine-grained user PAT limited to the allow-listed repositories, with Issues: Read and write besides what publish
+  # needs; not a classic PAT, since issues__get and issues__search accept any repository the token can see. It reads
+  # its own login from GET /user. A human at the gate may
   # drop findings by naming them in the resume's `dropFindings`; an unknown id is refused there.
   file-findings:
     action: file-review-findings
