@@ -90,17 +90,19 @@ public sealed class HostWrittenKeyTests
     ///     Every agent node, whatever its skill, has each host-written key stripped from its report, and keeps the rest.
     ///     Red: dropping the <see cref="ReviewHandoff.HostWritten"/> loop from <c>StripForeignKeys</c>, or dropping the
     ///     row for the key, lets the forged value through on that row.
+    ///     <para>
+    ///     There are no <c>review</c> rows: a review node declares lenses, so the host drops every variable it reports
+    ///     (the review-variables ruling, live run e973b5e7) and there is no "rest of the report" left to keep. Its
+    ///     forged keys are covered by that drop, asserted in <c>ReviewHandoffKeyLimitTests</c>.
+    ///     </para>
     /// </summary>
     [Theory]
     [InlineData("implement", "changed", ReviewHandoff.PrUrlKey)]
-    [InlineData("review", "approved", ReviewHandoff.PrUrlKey)]
     [InlineData("retrospect", "none", ReviewHandoff.PrUrlKey)]
     [InlineData("implement", "changed", ReviewHandoff.PublishErrorKey)]
     [InlineData("retrospect", "none", ReviewHandoff.PublishErrorKey)]
     [InlineData("implement", "changed", ReviewHandoff.WorkIntentKey)]
-    [InlineData("review", "approved", ReviewHandoff.WorkIntentKey)]
     [InlineData("implement", "changed", ReviewHandoff.RunModeKey)]
-    [InlineData("review", "approved", ReviewHandoff.RunModeKey)]
     public async Task An_agent_nodes_report_of_a_host_written_key_is_stripped_and_the_rest_is_kept(string node, string outcome, string key)
     {
         var completed = await CompleteAsync(RunAt(node), outcome, new(StringComparer.Ordinal)

@@ -140,7 +140,7 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         }
 
         var node = await NodeForAsync(run, ct).ConfigureAwait(false);
-        var authored = EnforceAuthorship(run, node, result);
+        var authored = EnforceAuthorship(run, node, DropReviewVariables(node, result));
 
         if (node is { Action: null })
         {
@@ -250,6 +250,40 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         return new NodeResult(result.Outcome, cleared) { Usage = result.Usage };
     }
 
+    /// <summary>
+    ///     On a review node, returns <paramref name="result"/> with the same outcome and usage and an empty variable
+    ///     set; on any other node, <paramref name="result"/> itself.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///     <b>Why a review node's reported variables are dropped.</b> Nothing reads them. Review evidence lives in the
+    ///     host-written review-evidence records, which <see cref="ReviewLensRunner"/> fills from the arguments of
+    ///     <c>daedalus__report_review_outcome</c>, not from the bag. Retrospect reads only
+    ///     <see cref="ReviewHandoff.RetrospectReads"/> and publish reads implement's <c>summary</c>. A review variable is
+    ///     therefore dead data, but it is not harmless: the bag is shared run state under one cap of
+    ///     <see cref="MaxVariableKeys"/> keys, so a reviewer that reports half a dozen free-form keys can fail the run
+    ///     at <see cref="DescribeKeyLimitBreach"/> for data no one will ever read. Whether a run survives its review
+    ///     would then depend on how chatty the model was (live run e973b5e7 failed on a reviewer's six).
+    ///     </para>
+    ///     <para>
+    ///     <b>Absence, not filtering</b>, as for the read projection: the variables never reach the cap check or the
+    ///     inner store, so there is no downstream copy to strip. The outcome and usage pass through unchanged. The
+    ///     empty set is a real dictionary because <see cref="NodeResult"/> carries a non-null one.
+    ///     </para>
+    ///     <para>
+    ///     A future consumer of a review variable needs an explicit contract (a named key in
+    ///     <see cref="ReviewHandoff.Authors"/> style, with its author and reader declared). It does not get one by
+    ///     being reported.
+    ///     </para>
+    /// </remarks>
+    private static NodeResult DropReviewVariables(ProcessNode? node, NodeResult result) =>
+        IsReviewNode(node) && result.Variables.Count > 0
+            ? new NodeResult(result.Outcome, new Dictionary<string, object?>(StringComparer.Ordinal)) { Usage = result.Usage }
+            : result;
+
+    /// <summary>A review node is one that declares <c>lenses:</c>, the declaration <see cref="ReviewLensRunner"/> keys off.</summary>
+    private static bool IsReviewNode(ProcessNode? node) => node is { Lenses.Count: > 0 };
+
     private static bool IsRetrospect(ProcessNode? node) =>
         node is not null && string.Equals(node.Skill, ReviewHandoff.RetrospectSkillName, StringComparison.Ordinal);
 
@@ -327,7 +361,7 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             return null;
         }
 
-        if (node.Lenses.Count > 0)
+        if (IsReviewNode(node))
         {
             return ReviewHandoff.ReviewReads;
         }
