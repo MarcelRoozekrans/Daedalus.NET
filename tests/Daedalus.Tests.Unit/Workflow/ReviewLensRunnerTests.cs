@@ -48,29 +48,30 @@ public sealed class ReviewLensRunnerTests
         },
     };
 
-    private static IProcessDefinitionStore DefinitionsWith(params string[] lenses)
+    /// <summary>A definition shaped like version 9, whose <c>file-findings</c> node files deferred findings.</summary>
+    private static IProcessDefinitionStore DefinitionsWith(params string[] lenses) => Definitions(filesDeferred: true, lenses);
+
+    private static IProcessDefinitionStore Definitions(bool filesDeferred, params string[] lenses)
     {
-        var definition = new ProcessDefinition
+        var nodes = new Dictionary<string, ProcessNode>(StringComparer.Ordinal)
         {
-            Name = "manufacture",
-            Version = 3,
-            StartNode = "implement",
-            Nodes = new Dictionary<string, ProcessNode>(StringComparer.Ordinal)
+            ["implement"] = new() { Agent = "implementer", Skill = "manufacture-implement", Next = "review" },
+            ["review"] = new()
             {
-                ["implement"] = new() { Agent = "implementer", Skill = "manufacture-implement", Next = "review" },
-                ["review"] = new()
-                {
-                    Agent = "reviewer",
-                    Skill = "manufacture-review",
-                    Outcomes = ["approved", "rejected"],
-                    Branch = new Dictionary<string, string>(StringComparer.Ordinal) { ["approved"] = "done", ["rejected"] = "implement" },
-                    // Empty, never null, for a node that declares none: the process loader maps a missing lenses:
-                    // list to an empty one, and ProcessNode.Lenses is non-nullable with an empty default.
-                    Lenses = lenses,
-                },
-                ["done"] = new() { Terminal = "succeeded" },
+                Agent = "reviewer",
+                Skill = "manufacture-review",
+                Outcomes = ["approved", "rejected"],
+                Branch = new Dictionary<string, string>(StringComparer.Ordinal) { ["approved"] = "done", ["rejected"] = "implement" },
+                // Empty, never null, for a node that declares none: the process loader maps a missing lenses:
+                // list to an empty one, and ProcessNode.Lenses is non-nullable with an empty default.
+                Lenses = lenses,
             },
+            ["done"] = new() { Terminal = "succeeded" },
         };
+        if (filesDeferred)
+            nodes["file-findings"] = new() { Action = FileReviewFindingsAction.ActionName, Outcomes = ["filed", "none"], Next = "done" };
+
+        var definition = new ProcessDefinition { Name = "manufacture", Version = 3, StartNode = "implement", Nodes = nodes };
 
         var store = Substitute.For<IProcessDefinitionStore>();
         store.GetAsync("manufacture", 3, Arg.Any<CancellationToken>())
@@ -483,6 +484,41 @@ public sealed class ReviewLensRunnerTests
         entry.GetProperty("scenario").GetString().Should().Be("a stale entry is served after the TTL");
         entry.GetProperty("reason").GetString().Should().Be("different-area");
         entry.GetProperty("existingIssue").GetInt32().Should().Be(12);
+    }
+
+    /// <summary>
+    ///     A run pinned to a process version with no file-findings node, as version 8, would show deferred findings at
+    ///     the gate and then silently never file them, so the pass is refused and nothing is recorded. Red: skip the
+    ///     check in <c>RunLensesAsync</c>; the result is then a success and the record is appended.
+    /// </summary>
+    [Fact]
+    public async Task A_pass_that_defers_is_refused_when_the_pinned_process_cannot_file_deferred_findings()
+    {
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        var appended = new List<WorkflowRunRecord>();
+        records.AppendAsync(Arg.Do<WorkflowRunRecord>(appended.Add), Arg.Any<CancellationToken>()).Returns(ValueTask.CompletedTask);
+        var runner = new ReviewLensRunner(
+            new RecordingRunner(_ => Turn("correctness", "approved", examined: GoodChecked, deferred: DeferredEntry)),
+            Definitions(filesDeferred: false, "correctness"), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
+
+        var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Message.Should().Contain("cannot file deferred findings").And.Contain("Approve without 'deferred'");
+        appended.Should().BeEmpty();
+    }
+
+    /// <summary>The same process version still takes an approval that defers nothing. Red: refuse every pass on such a version; this fails.</summary>
+    [Fact]
+    public async Task A_pass_that_defers_nothing_is_accepted_when_the_pinned_process_cannot_file_deferred_findings()
+    {
+        var runner = new ReviewLensRunner(
+            new RecordingRunner(_ => Approves("correctness")), Definitions(filesDeferred: false, "correctness"),
+            RecordStoreScopes.For(), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
+
+        var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
     }
 
     [Fact]

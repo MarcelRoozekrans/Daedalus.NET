@@ -47,10 +47,17 @@ namespace Daedalus.Agents.Workflow;
 ///     <b>Every accepted pass leaves a record the model cannot write.</b> Once a pass's evidence has been read
 ///     back and validated, one <see cref="WorkflowRunRecord.ReviewEvidenceKind"/> record is appended to
 ///     <see cref="IWorkflowRunRecordStore"/>, before the next pass runs. Its payload is
-///     <c>{ lens, verdict, checked, findings }</c>, built from the validated <see cref="ReviewEvidence"/> and never
+///     <c>{ lens, verdict, checked, findings, deferred }</c>, built from the validated <see cref="ReviewEvidence"/> and never
 ///     from the raw call arguments or the run's variables, so it holds what this runner accepted and nothing an
 ///     agent can add to or overwrite later. <see cref="ReviewEvidence.Validate"/> bounds every list and every
 ///     entry, so the payload is bounded too. A pass that fails validation is not recorded.
+///     </para>
+///     <para>
+///     <b>A pass may defer findings only where they will be filed.</b> A pass whose evidence carries a non-empty
+///     <c>deferred</c> list is refused, and not recorded, when the run's pinned definition has no node with
+///     <c>action: file-review-findings</c>, as on version 8: the gate would show those findings and nothing would ever
+///     file them. The refusal lives here, on the read side, because <c>report_review_outcome</c> is stateless and
+///     cannot know which process version its run is pinned to.
 ///     </para>
 ///     <para>
 ///     <b>A pass whose evidence cannot be recorded fails the node.</b> The record is what later shows a review
@@ -87,15 +94,22 @@ internal sealed partial class ReviewLensRunner(
         if (request.Caller is not WorkflowCaller caller)
             return await _inner.RunAsync(request, ct);
 
-        var lenses = await ResolveLensesAsync(caller.Run, ct);
-        if (lenses.IsFailure)
-            return Result<AgentTurnResult, AgentError>.Failure(AgentError.Validation(lenses.Error));
+        var plan = await ResolveLensesAsync(caller.Run, ct);
+        if (plan.IsFailure)
+            return Result<AgentTurnResult, AgentError>.Failure(AgentError.Validation(plan.Error));
 
-        if (lenses.Value.Length == 0)
+        if (plan.Value.Lenses.Length == 0)
             return await _inner.RunAsync(request, ct);
 
-        return await RunLensesAsync(request, caller.Run, lenses.Value, ct);
+        return await RunLensesAsync(request, caller.Run, plan.Value, ct);
     }
+
+    /// <summary>
+    ///     The lenses the current node declares, and whether the run's pinned definition has a node with
+    ///     <c>action: file-review-findings</c>, without which a deferred finding would be shown at the gate and then
+    ///     never filed.
+    /// </summary>
+    private readonly record struct LensPlan(ImmutableArray<ReviewLens> Lenses, bool FilesDeferred);
 
     /// <summary>
     ///     Reads the current node's <c>lenses:</c> declaration off the run's pinned process definition. A run
@@ -103,21 +117,28 @@ internal sealed partial class ReviewLensRunner(
     ///     resolves both itself a moment later and fails the run with its own message, and producing a second,
     ///     differently worded failure here would only give the event log two ways to describe one problem.
     /// </summary>
-    private async ValueTask<Result<ImmutableArray<ReviewLens>>> ResolveLensesAsync(WorkflowRun run, CancellationToken ct)
+    private async ValueTask<Result<LensPlan>> ResolveLensesAsync(WorkflowRun run, CancellationToken ct)
     {
         var definition = await _definitions.GetAsync(run.Process, run.ProcessVersion, ct);
         if (definition.IsFailure || !definition.Value.Nodes.TryGetValue(run.CurrentNode, out var node))
-            return Result<ImmutableArray<ReviewLens>>.Success([]);
+            return Result<LensPlan>.Success(new LensPlan([], FilesDeferred: false));
 
-        return ReviewLens.Resolve(node.Lenses);
+        var lenses = ReviewLens.Resolve(node.Lenses);
+        if (lenses.IsFailure)
+            return Result<LensPlan>.Failure(lenses.Error);
+
+        var filesDeferred = definition.Value.Nodes.Values.Any(
+            n => string.Equals(n.Action, ReviewHandoff.FileFindingsActionName, StringComparison.Ordinal));
+        return Result<LensPlan>.Success(new LensPlan(lenses.Value, filesDeferred));
     }
 
     private async ValueTask<Result<AgentTurnResult, AgentError>> RunLensesAsync(
         SubagentRunRequest request,
         WorkflowRun run,
-        ImmutableArray<ReviewLens> lenses,
+        LensPlan plan,
         CancellationToken ct)
     {
+        var lenses = plan.Lenses;
         var projected = ReviewHandoff.ProjectForReview(run.Variables);
         Result<AgentTurnResult, AgentError> last = default;
         TurnUsage spent = default;
@@ -136,6 +157,11 @@ internal sealed partial class ReviewLensRunner(
             var evidence = ReadEvidence(last.Value, lens, request.RequiredOutcome);
             if (evidence.IsFailure)
                 return Result<AgentTurnResult, AgentError>.Failure(AgentError.Validation(evidence.Error));
+
+            // Checked here and not in report_review_outcome: the tool is stateless and cannot know which process
+            // version the run is pinned to, so only this runner, which has loaded that definition, can refuse it.
+            if (evidence.Value.Deferred.Count > 0 && !plan.FilesDeferred)
+                return Result<AgentTurnResult, AgentError>.Failure(AgentError.Validation(DeferredNotFiled(lens, run, evidence.Value.Deferred.Count)));
 
             var recorded = await RecordAsync(request.Caller, run, lens, evidence.Value, ct);
             if (recorded.IsFailure)
@@ -200,6 +226,12 @@ internal sealed partial class ReviewLensRunner(
 
         return UnitResult<AgentError>.Success();
     }
+
+    private static string DeferredNotFiled(ReviewLens lens, WorkflowRun run, int count) =>
+        $"The '{lens.Name}' review pass deferred {count.ToString(CultureInfo.InvariantCulture)} finding(s), but process " +
+        $"'{run.Process}' version {run.ProcessVersion.ToString(CultureInfo.InvariantCulture)} has no " +
+        $"'{ReviewHandoff.FileFindingsActionName}' node, so this process version cannot file deferred findings and they " +
+        "would never be filed. Approve without 'deferred', or reject so the findings are fixed in this change.";
 
     private static string NotRecorded(ReviewLens lens) =>
         $"The '{lens.Name}' review pass's evidence could not be recorded, so the pass is not accepted.";

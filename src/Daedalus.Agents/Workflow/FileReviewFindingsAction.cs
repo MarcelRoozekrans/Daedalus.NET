@@ -16,7 +16,9 @@ namespace Daedalus.Agents.Workflow;
 /// </summary>
 /// <remarks>
 ///     <para>
-///     <b>Outcomes.</b> <c>none</c> when nothing remains after the drops, and then GitHub is not called. <c>filed</c>
+///     <b>Outcomes.</b> <c>none</c> when nothing remains after the drops, or the run recorded no review evidence at all;
+///     then GitHub is not called, and the pull request link, the allow-list and the resume are not checked, since
+///     nothing is written. <c>filed</c>
 ///     otherwise. Every failure is a failed result, never an outcome, so the run stops <c>Failed</c> at this node, where
 ///     the admin retry re-runs it alone (spec amendment A3).
 ///     </para>
@@ -107,17 +109,6 @@ internal sealed partial class FileReviewFindingsAction(
 
     private async ValueTask<Result<HostActionResult>> FileAsync(WorkflowRun run, CancellationToken ct)
     {
-        var prLink = run.Variables.GetValueOrDefault(ReviewHandoff.PrUrlKey) as string;
-        if (!TryParsePullRequest(prLink, out var repo, out var prNumber))
-            return Failed($"the run's '{ReviewHandoff.PrUrlKey}' is not a github.com pull request link, so there is nothing to file the findings against");
-
-        var prUrl = new Uri(prLink!, UriKind.Absolute);
-        if (!IsAllowListed(repo))
-            return Failed($"repository '{repo}' is no longer allow-listed");
-
-        if (run.LastResume is not { } resume)
-            return Failed("the run was never resumed at its gate, so no human approved filing anything");
-
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>();
 
@@ -129,6 +120,10 @@ internal sealed partial class FileReviewFindingsAction(
         var visit = ApprovingReview.Read(records);
         if (visit.IsFailure)
             return Failed(visit.Error);
+
+        // A run without review evidence, as one whose review ran without lenses, deferred nothing: publish reads it the same way.
+        if (visit.Value is null)
+            return Outcome(NoneOutcome);
         if (visit.Value is not { Approved: true } approved)
             return Failed("no approving review is recorded for this run");
 
@@ -139,9 +134,23 @@ internal sealed partial class FileReviewFindingsAction(
         if (filed.IsFailure)
             return Failed(filed.Error);
 
+        // Before the pull request link, the allow-list and the resume are checked: nothing is written on this path, so
+        // nothing about where or on whose approval it would be written matters, and a host whose remote is not on
+        // github.com, as a local test remote is, still finishes a run that deferred nothing.
         var remaining = approved.Deferred.Where(d => !dropped.Value.Ids.Contains(d.Id)).ToList();
         if (remaining.Count == 0)
             return Outcome(NoneOutcome);
+
+        var prLink = run.Variables.GetValueOrDefault(ReviewHandoff.PrUrlKey) as string;
+        if (!TryParsePullRequest(prLink, out var repo, out var prNumber))
+            return Failed($"the run's '{ReviewHandoff.PrUrlKey}' is not a github.com pull request link, so there is nothing to file the findings against");
+
+        var prUrl = new Uri(prLink!, UriKind.Absolute);
+        if (!IsAllowListed(repo))
+            return Failed($"repository '{repo}' is no longer allow-listed");
+
+        if (run.LastResume is not { } resume)
+            return Failed("the run was never resumed at its gate, so no human approved filing anything");
 
         var reader = scope.ServiceProvider.GetRequiredService<IGitHubReader>();
         var writer = scope.ServiceProvider.GetRequiredService<IGitHubWriter>();

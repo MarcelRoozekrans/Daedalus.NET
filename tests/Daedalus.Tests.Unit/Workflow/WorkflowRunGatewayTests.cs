@@ -3,6 +3,7 @@ using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -438,7 +439,8 @@ public sealed class WorkflowRunGatewayTests
 
     /// <summary>
     ///     A client that aborts after the engine failed must not lose the void or replace the engine failure with a
-    ///     cancellation. Red: append the void with the request token; the append throws and the call throws.
+    ///     cancellation. Red: append the void with the request token; the append throws, the gateway swallows and logs
+    ///     it, and the void assertion goes red.
     /// </summary>
     [Fact]
     public async Task A_void_is_written_even_when_the_request_is_cancelled_after_the_engine_failed()
@@ -467,6 +469,64 @@ public sealed class WorkflowRunGatewayTests
         result.Error.Kind.Should().Be(ResumeRefusal.EngineRefused);
         result.Error.Detail.Should().Contain("lost the race");
         appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDropVoidedKind);
+    }
+
+    /// <summary>
+    ///     The void runs under a token of its own, which only its timeout cancels, so a hung store cannot hold the
+    ///     request forever. Red: append with <see cref="CancellationToken.None"/>; the token cannot be cancelled. Red:
+    ///     drop the timeout; the token is not cancelled after ten seconds.
+    /// </summary>
+    [Fact]
+    public async Task The_void_is_bounded_by_its_own_timeout()
+    {
+        var clock = new FakeTimeProvider();
+        var (_, store, records) = GateWith(ApprovedWithDeferred());
+        store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result>(Result.Failure("lost the race")));
+        // Observed inside the append and asserted after the call: the gateway swallows whatever the append throws, so
+        // an assertion inside the callback could never fail the test.
+        bool? cancellable = null, cancelledBefore = null, cancelledAfter = null;
+        records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            if (string.Equals(call.Arg<WorkflowRunRecord>().Kind, WorkflowRunRecord.FindingsDropVoidedKind, StringComparison.Ordinal))
+            {
+                var token = call.Arg<CancellationToken>();
+                cancellable = token.CanBeCanceled;
+                cancelledBefore = token.IsCancellationRequested;
+                clock.Advance(TimeSpan.FromSeconds(10));
+                cancelledAfter = token.IsCancellationRequested;
+            }
+
+            return ValueTask.CompletedTask;
+        });
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), clock, NullLogger<WorkflowRunGateway>.Instance);
+
+        await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, CancellationToken.None);
+
+        cancellable.Should().BeTrue("the void is appended under a bounded token of its own");
+        cancelledBefore.Should().BeFalse("the timeout has not passed when the append starts");
+        cancelledAfter.Should().BeTrue("ten seconds is the void's whole budget");
+    }
+
+    /// <summary>
+    ///     The drop record's name is posted publicly in the pull-request summary, so an approver without a display name is
+    ///     named generically, never by subject id; the record's principal still holds the id. Red: restore
+    ///     <c>DisplayName ?? Id</c>; the payload then carries the id.
+    /// </summary>
+    [Fact]
+    public async Task An_approver_without_a_display_name_is_recorded_as_the_approver_not_by_id()
+    {
+        var (gateway, _, records) = GateWith(ApprovedWithDeferred());
+        var appended = new List<WorkflowRunRecord>();
+        records.AppendAsync(Arg.Do<WorkflowRunRecord>(appended.Add), Arg.Any<CancellationToken>()).Returns(ValueTask.CompletedTask);
+        var anonymous = new RunPrincipal("subject-7f3a9c", ["admin"]);
+
+        await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], anonymous, CancellationToken.None);
+
+        var drop = appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind).Subject;
+        drop.PrincipalId.Should().Be("subject-7f3a9c");
+        drop.PayloadJson.Should().NotContain("subject-7f3a9c");
+        FindingRecords.ReadDropped(appended).Value.By.Should().Be(FindingRecords.UnnamedApprover);
     }
 
     /// <summary>Keeps the levels a logger saw.</summary>
