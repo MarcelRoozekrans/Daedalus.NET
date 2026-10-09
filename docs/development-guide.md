@@ -249,8 +249,13 @@ recorded as deferred findings, offered to the person at the gate, and filed as G
   `needs-decision`, `too-large` or `blocked`. A finding that fits none of the four is not deferrable and the reviewer must
   reject so it is fixed. `ReviewEvidence.Validate` refuses a hollow entry. At most 32 entries, 1000 characters per field,
   `title` at most 200, no NUL.
-- **Host-owned.** The tool writes `deferred` into the review evidence that `ReviewHandoffWorkflowStore` owns, never a run
-  variable, so an agent cannot plant a finding.
+- **Host-owned.** The tool only validates `deferred`; `ReviewLensRunner.RecordAsync` writes it into the run's
+  `review-evidence` record, never a run variable, so an agent cannot plant a finding.
+- **Only where it will be filed.** `ReviewLensRunner` refuses a pass that defers anything when the run's pinned process
+  definition has no `file-review-findings` node, as on v8, because the gate would show those findings and nothing would
+  file them. The check sits there, not in the tool, because the tool is stateless and cannot know the run's version.
+- **Plain, relative fields.** `ReviewEvidence.Validate` refuses a `title` containing `<!--` and a `file` that is rooted,
+  has a drive letter or has a `..` segment, so the issue's permalink stays inside the repository.
 - **Only the approving visit counts.** The host keeps the deferred findings of the final review visit's three lens passes.
   Earlier visits ended in a rejection and their `file:line` points at code that was edited afterwards. Each kept finding
   has the id `<lens>-<n>`.
@@ -295,15 +300,20 @@ and no agent holds a tool that could.
 - **Idempotent.** Every issue, comment and the PR summary ends with the marker
   `<!-- daedalus-run:<runId> finding:<id> -->`, and each result is written as a `finding-filed` record when it is handled.
   A retry skips recorded findings and scans issues and comments updated since the resume. A marker counts only on the final
-  line of a body authored by the token's own login. The host escapes `<!--` in everything a model wrote, so a marker
-  anywhere else is not ours.
-- **Outcomes.** `filed` and `none`. `none` makes no GitHub call. Every failure fails the node, and the run stays `Failed` at
+  line of a body authored by the token's own login. The host escapes `<!--` in everything a model wrote, and so do
+  `repoaction__create_issue` and `repoaction__comment_on_issue`, which post as that same login, so a marker anywhere else
+  is not ours.
+- **Outcomes.** `filed` and `none`. `none` makes no GitHub call and is decided before the `pr_url`, allow-list and resume
+  checks, since nothing is written. Every failure fails the node, and the run stays `Failed` at
   `file-findings` for the admin retry, which re-runs that node alone.
 
-**Token requirement.** `file-findings` needs a GitHub **user** token, classic or fine-grained PAT, with Issues: Read and
-write on the target repository. It reads its own login with `GET /user` to attribute markers, so a GitHub App installation
-token or an Actions `GITHUB_TOKEN` gets a 403 there and the node fails. A fine-grained token that lacks Issues also fails
-the node with a 403, as phase 2.5's first publish did on Contents.
+**Token requirement.** Use a **fine-grained** personal access token whose repository access is limited to the
+allow-listed repositories, with Issues: Read and write, plus the Contents: Read and write and Pull requests: Read and write
+that publish already needs. Not a classic PAT: `issues__get` and `issues__search` accept any repository the token can see,
+so a classic token's reach to every repository of its owner would let an agent read issues well outside the allow-list.
+The token must belong to a user: `file-findings` reads its own login with `GET /user` to attribute markers, so a GitHub App
+installation token or an Actions `GITHUB_TOKEN` gets a 403 there and the node fails. A fine-grained token that lacks
+Issues also fails the node with a 403, as phase 2.5's first publish did on Contents.
 
 ## ZeroAlloc.Results — full pattern catalogue
 
