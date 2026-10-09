@@ -592,7 +592,7 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
                     root.GetProperty("state").GetString() ?? "",
                     root.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.String ? body.GetString() : null,
                     labels,
-                    root.GetProperty("html_url").GetString() ?? "",
+                    HtmlUrl(root),
                     root.TryGetProperty("pull_request", out _));
             });
         }
@@ -646,7 +646,7 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
                         i.GetProperty("number").GetInt32(),
                         i.GetProperty("title").GetString() ?? "",
                         i.GetProperty("state").GetString() ?? "",
-                        i.GetProperty("html_url").GetString() ?? "")),
+                        HtmlUrl(i))),
             ]);
         }
     }
@@ -660,7 +660,7 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
             e => new IssueText(
                 e.GetProperty("number").GetInt32(),
                 e.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null,
-                e.GetProperty("html_url").GetString() ?? "",
+                HtmlUrl(e),
                 e.TryGetProperty("pull_request", out _)),
             ct);
     }
@@ -669,19 +669,25 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
         RepoRef repo, int number, DateTimeOffset since, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(repo);
+        if (number <= 0)
+            return Task.FromResult(Result<IReadOnlyList<IssueCommentText>>.Failure("An issue number must be positive."));
+
         return ScanAsync(
             page => $"{IssueUrl(repo, number)}/comments?since={Uri.EscapeDataString(FormatIso(since.UtcDateTime))}&per_page=100&page={page}",
             $"listing the comments on {repo}#{number}",
             e => new IssueCommentText(
                 e.GetProperty("id").GetInt64(),
                 e.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null,
-                e.GetProperty("html_url").GetString() ?? ""),
+                HtmlUrl(e)),
             ct);
     }
 
     public async Task<Result<string>> GetPullRequestHeadShaAsync(RepoRef repo, int number, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(repo);
+        if (number <= 0)
+            return Result<string>.Failure("A pull request number must be positive.");
+
         var token = _tokens.GetToken();
         if (token.IsFailure)
             return Result<string>.Failure(token.Error);
@@ -733,8 +739,12 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
             }
         }
 
-        return Result<IReadOnlyList<T>>.Failure($"{what}: more than {MaxScanPages * 100} items; the scan stops rather than read further.");
+        return Result<IReadOnlyList<T>>.Failure($"{what}: the scan read the {MaxScanPages * 100}-item cap and stops rather than read further.");
     }
+
+    /// <summary>GitHub's <c>html_url</c>; one that is not an absolute URL is a <see cref="FormatException"/>, which <see cref="ReadShape{T}"/> turns into a failed result.</summary>
+    private static Uri HtmlUrl(JsonElement element) =>
+        new(element.GetProperty("html_url").GetString() ?? "", UriKind.Absolute);
 
     /// <summary>A body of the wrong shape, such as a missing property, is a failed result rather than an exception.</summary>
     private static Result<T> ReadShape<T>(string what, Func<T> read)
@@ -749,7 +759,7 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
         }
     }
 
-    [GeneratedRegex(@"(?:^|\s)-?(?:repo|org|user|owner):", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"(?:^|[\s(])-?(?:repo|org|user|owner):", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex ScopeQualifier();
 
     [LoggerMessage(EventId = 511, Level = LogLevel.Warning, Message = "GitHub read failed: {What}")]
