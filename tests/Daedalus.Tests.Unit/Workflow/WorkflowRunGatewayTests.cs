@@ -329,7 +329,7 @@ public sealed class WorkflowRunGatewayTests
         FindingRecords.ReadDropped(appended).Value.Should().Be(DroppedFindings.None);
     }
 
-    /// <summary>Red: skip the <c>VoidDroppedAsync</c> call in the <c>WorkflowConcurrencyException</c> catch; no void record exists.</summary>
+    /// <summary>Red: rethrow from the <c>WorkflowConcurrencyException</c> catch, or skip the void on a failed outcome.</summary>
     [Fact]
     public async Task A_resume_that_loses_a_concurrency_race_voids_the_drop_it_recorded()
     {
@@ -434,6 +434,37 @@ public sealed class WorkflowRunGatewayTests
         var drop = appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind).Subject;
         AttemptOf(appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDropVoidedKind).Subject).Should().Be(AttemptOf(drop));
         await store.DidNotReceiveWithAnyArgs().ResumeAsync(Guid.Empty, default!, default);
+    }
+
+    /// <summary>
+    ///     A client that aborts after the engine failed must not lose the void or replace the engine failure with a
+    ///     cancellation. Red: append the void with the request token; the append throws and the call throws.
+    /// </summary>
+    [Fact]
+    public async Task A_void_is_written_even_when_the_request_is_cancelled_after_the_engine_failed()
+    {
+        using var cts = new CancellationTokenSource();
+        var (_, store, records) = GateWith(ApprovedWithDeferred());
+        store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            cts.Cancel();
+            return new ValueTask<Result>(Result.Failure("lost the race"));
+        });
+        var appended = new List<WorkflowRunRecord>();
+        records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            call.Arg<CancellationToken>().ThrowIfCancellationRequested();
+            appended.Add(call.Arg<WorkflowRunRecord>());
+            return ValueTask.CompletedTask;
+        });
+        // The drop is appended before the cancel, so only the void sees a cancelled request token.
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+
+        var result = await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, cts.Token);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.EngineRefused);
+        result.Error.Detail.Should().Contain("lost the race");
+        appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDropVoidedKind);
     }
 
     /// <summary>Keeps the levels a logger saw.</summary>

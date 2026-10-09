@@ -172,8 +172,10 @@ public sealed partial class WorkflowRunGateway(
     ///     Each record carries a fresh attempt id. When anything after that append fails, the
     ///     standing-instructions apply or the engine resume, a <see cref="WorkflowRunRecord.FindingsDropVoidedKind"/>
     ///     record names that attempt, so a resume that failed cannot leave its list latest over one that took effect.
-    ///     Residual window: a process crash between the failure and the void append still leaves the failed resume's
-    ///     list latest.
+    ///     Residual windows: a process crash between the failure and the void append still leaves the failed
+    ///     resume's list latest, and so does an unexpected exception from the apply or from the store's resume other than a
+    ///     <see cref="WorkflowConcurrencyException"/>, which propagates without a void because whether the engine resume took
+    ///     effect is then unknown.
     ///     </para>
     /// </summary>
     public async ValueTask<UnitResult<ResumeFailure>> ResumeAsync(
@@ -229,7 +231,7 @@ public sealed partial class WorkflowRunGateway(
         // effect cannot stay the latest one.
         var outcome = await ApplyAndResumeAsync(run, signal, payload, applyStandingInstructions, resumedBy, ct).ConfigureAwait(false);
         if (outcome.IsFailure)
-            await VoidDroppedAsync(run, attempt, ct).ConfigureAwait(false);
+            await VoidDroppedAsync(run, attempt).ConfigureAwait(false);
 
         return outcome;
     }
@@ -285,9 +287,10 @@ public sealed partial class WorkflowRunGateway(
 
     /// <summary>
     ///     Names the drop record of <paramref name="attempt"/> as void, because the engine resume that followed it failed. A
-    ///     failure to append is logged and swallowed, so the engine's own failure is still what the caller gets.
+    ///     failure to append is logged and swallowed, so the engine's own failure is still what the caller gets. It appends with
+    ///     <see cref="CancellationToken.None"/>: a short compensating write must not be lost because the client gave up.
     /// </summary>
-    private async ValueTask VoidDroppedAsync(WorkflowRun run, string? attempt, CancellationToken ct)
+    private async ValueTask VoidDroppedAsync(WorkflowRun run, string? attempt)
     {
         if (attempt is null)
             return;
@@ -301,9 +304,9 @@ public sealed partial class WorkflowRunGateway(
                 throw new InvalidOperationException(record.Error);
 
             await using var scope = _scopes.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>().AppendAsync(record.Value, ct).ConfigureAwait(false);
+            await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>().AppendAsync(record.Value, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (Exception ex)
         {
             LogDropVoidFailed(_logger, ex, run.Id, attempt);
         }
