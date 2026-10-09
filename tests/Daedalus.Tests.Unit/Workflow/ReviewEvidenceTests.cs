@@ -257,6 +257,8 @@ public sealed class ReviewEvidenceTests
     [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"","reason":"blocked"}]""", "no 'scenario'")]
     [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"later"}]""", "'reason'")]
     [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"blocked","existingIssue":0}]""", "'existingIssue'")]
+    [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"blocked","existingIssue":"twelve"}]""", "optional numeric 'existingIssue'")]
+    [InlineData("[null]", "is null; each entry must be an object")]
     public void A_hollow_deferred_entry_is_refused(string deferred, string expected)
     {
         var result = ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred);
@@ -271,7 +273,10 @@ public sealed class ReviewEvidenceTests
     {
         var deferred = $$"""[{"file":"a.cs","line":3,"title":"{{new string('t', 201)}}","scenario":"s","reason":"blocked"}]""";
 
-        ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred).IsFailure.Should().BeTrue();
+        var result = ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("200");
     }
 
     /// <summary>Red: skip the count check; 33 entries validate.</summary>
@@ -281,6 +286,9 @@ public sealed class ReviewEvidenceTests
         var entry = """{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"blocked"}""";
         var deferred = "[" + string.Join(",", Enumerable.Repeat(entry, 33)) + "]";
 
-        ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred).IsFailure.Should().BeTrue();
+        var result = ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("32");
     }
 }

@@ -231,7 +231,7 @@ public sealed record ReviewEvidence(
         catch (JsonException ex)
         {
             return Result<IReadOnlyList<DeferredFinding>>.Failure(
-                $"'deferred' must be a JSON array of objects with 'file', 'line', 'title', 'scenario' and 'reason': {ex.Message}");
+                $"'deferred' must be a JSON array of objects with 'file', 'line', 'title', 'scenario' and 'reason', and an optional numeric 'existingIssue': {ex.Message}");
         }
 
         if (parsed is null)
@@ -245,7 +245,9 @@ public sealed record ReviewEvidence(
         {
             var d = parsed[i];
             var at = $"Deferred finding {i + 1}";
-            if (d is null || string.IsNullOrWhiteSpace(d.File))
+            if (d is null)
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at} is null; each entry must be an object.");
+            if (string.IsNullOrWhiteSpace(d.File))
                 return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at} has no 'file'.");
             if (d.Line <= 0)
                 return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at} ('{d.File}') has no positive 'line'. Line numbers are one-based.");
