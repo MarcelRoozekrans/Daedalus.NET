@@ -48,6 +48,12 @@ public sealed class WorkflowRunRecord
     public const string FindingFiledKind = "finding-filed";
 
     /// <summary>
+    ///     The <see cref="Kind"/> of a record that a <see cref="FindingsDroppedKind"/> record's resume then failed, so its
+    ///     drop list never took effect. Its payload is <c>{ attempt }</c>, naming the voided record's attempt.
+    /// </summary>
+    public const string FindingsDropVoidedKind = "findings-drop-voided";
+
+    /// <summary>
     ///     The <see cref="Kind"/> of a record that a sandboxed run's package restore failed: the design's
     ///     <c>SandboxRestoreFailed</c>. The run proceeds, since its agent may be the one to fix the restore.
     /// </summary>

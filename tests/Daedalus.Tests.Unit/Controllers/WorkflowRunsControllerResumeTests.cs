@@ -34,7 +34,7 @@ public sealed class WorkflowRunsControllerResumeTests
     {
         _records.ListAsync(Guid.Empty, default, default).ReturnsForAnyArgs(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, _handoff, NullLogger<StandingInstructionsWriter>.Instance);
-        var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(_records), TimeProvider.System, writer);
+        var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(_records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddMvcCore().AddApiExplorer();

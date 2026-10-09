@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos;
 using Thalos.Workflow;
@@ -31,7 +33,7 @@ public sealed class WorkflowRunGatewayTests
     public async Task An_apply_on_a_gateway_built_without_a_writer_fails_loudly()
     {
         var store = Substitute.For<IWorkflowStore>();
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var act = async () => await gateway.ResumeAsync(
             Guid.NewGuid(), Signal, null, applyStandingInstructions: true, null, Approver, CancellationToken.None);
@@ -57,7 +59,7 @@ public sealed class WorkflowRunGatewayTests
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir), NullLogger<StandingInstructionsWriter>.Instance);
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, writer);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
 
         var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, null, Approver, CancellationToken.None);
 
@@ -86,7 +88,7 @@ public sealed class WorkflowRunGatewayTests
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir), NullLogger<StandingInstructionsWriter>.Instance);
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, writer);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
 
         await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, null, Approver, CancellationToken.None);
 
@@ -111,7 +113,7 @@ public sealed class WorkflowRunGatewayTests
         store.ResumeAsync(run.Id, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Success()));
 
-        var result = await new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System).ResumeAsync(
+        var result = await new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance).ResumeAsync(
             run.Id, Signal, null, applyStandingInstructions: false, null, Approver, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
@@ -139,7 +141,7 @@ public sealed class WorkflowRunGatewayTests
     {
         var store = Substitute.For<IWorkflowStore>();
         store.FindAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>((WorkflowRun?)null));
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var result = await gateway.RetryAsync(Guid.NewGuid(), Approver, CancellationToken.None);
 
@@ -161,7 +163,7 @@ public sealed class WorkflowRunGatewayTests
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
         store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Success()));
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var result = await gateway.RetryAsync(run.Id, Approver, CancellationToken.None);
 
@@ -181,7 +183,7 @@ public sealed class WorkflowRunGatewayTests
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
         store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Failure("run changed since it was read")));
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var result = await gateway.RetryAsync(run.Id, Approver, CancellationToken.None);
 
@@ -216,7 +218,7 @@ public sealed class WorkflowRunGatewayTests
         var records = Substitute.For<IWorkflowRunRecordStore>();
         records.ListAsync(GateRunId, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>(evidence));
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
         return (gateway, store, records);
     }
 
@@ -236,8 +238,9 @@ public sealed class WorkflowRunGatewayTests
     }
 
     /// <summary>
-    ///     Explicitly dropped, recorded with who dropped it. Red: skip the append; the Received assertion fails. Red: use
-    ///     the run's starter as principal; the PrincipalId assertion fails.
+    ///     Explicitly dropped, recorded with who dropped it. Red: skip the append; the InOrder assertion fails. Red: use
+    ///     the run's starter as principal; the PrincipalId assertion fails. Red: move the append after the engine resume;
+    ///     the InOrder assertion fails.
     /// </summary>
     [Fact]
     public async Task A_drop_is_recorded_with_the_resumer_before_the_run_resumes()
@@ -247,16 +250,20 @@ public sealed class WorkflowRunGatewayTests
         var result = await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        await records.Received(1).AppendAsync(
-            Arg.Is<WorkflowRunRecord>(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind && r.PrincipalId == Approver.Id
-                                           && r.PayloadJson.Contains("correctness-1")),
-            Arg.Any<CancellationToken>());
-        await store.Received(1).ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>());
+        Received.InOrder(() =>
+        {
+            records.AppendAsync(
+                Arg.Is<WorkflowRunRecord>(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind && r.PrincipalId == Approver.Id
+                                               && r.PayloadJson.Contains("correctness-1")),
+                Arg.Any<CancellationToken>());
+            store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>());
+        });
     }
 
     /// <summary>
     ///     A run with deferred findings always gets a record, even an empty one, so a failed earlier resume's drop list
-    ///     can never apply to a later one. Red: append only when the list is non-empty.
+    ///     can never apply to a later one. Red: append only when the list is non-empty. Red: record the unknown-checked list
+    ///     as the deferred ids; the empty-list assertion fails.
     /// </summary>
     [Fact]
     public async Task A_resume_that_drops_nothing_still_records_that_it_dropped_nothing()
@@ -266,7 +273,145 @@ public sealed class WorkflowRunGatewayTests
         await gateway.ResumeAsync(GateRunId, Signal, null, false, null, Approver, CancellationToken.None);
 
         await records.Received(1).AppendAsync(
-            Arg.Is<WorkflowRunRecord>(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind), Arg.Any<CancellationToken>());
+            Arg.Is<WorkflowRunRecord>(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind
+                                           && r.PayloadJson.Contains("\"dropped\":[]", StringComparison.Ordinal)),
+            Arg.Any<CancellationToken>());
+    }
+
+    private static (WorkflowRunGateway Gateway, IWorkflowStore Store, List<WorkflowRunRecord> Appended, CapturingLogger Log) LosingGate(
+        bool throwConcurrency, bool voidAppendFails = false)
+    {
+        var (_, store, records) = GateWith(ApprovedWithDeferred());
+        if (throwConcurrency)
+        {
+            store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>())
+                .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
+        }
+        else
+        {
+            store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>())
+                .Returns(new ValueTask<Result>(Result.Failure("lost the race")));
+        }
+
+        var appended = new List<WorkflowRunRecord>();
+        records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            var record = call.Arg<WorkflowRunRecord>();
+            if (voidAppendFails && record.Kind == WorkflowRunRecord.FindingsDropVoidedKind)
+                throw new InvalidOperationException("database down");
+
+            appended.Add(record);
+            return ValueTask.CompletedTask;
+        });
+        var log = new CapturingLogger();
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, log);
+        return (gateway, store, appended, log);
+    }
+
+    private static string AttemptOf(WorkflowRunRecord record) =>
+        JsonDocument.Parse(record.PayloadJson).RootElement.GetProperty("attempt").GetString()!;
+
+    /// <summary>
+    ///     A resume that loses the engine race must void the drop it recorded, or its list stays latest over the winner's.
+    ///     Red: skip the <c>VoidDroppedAsync</c> call after a failed result; no void record exists.
+    /// </summary>
+    [Fact]
+    public async Task A_resume_the_engine_refuses_voids_the_drop_it_recorded()
+    {
+        var (gateway, _, appended, _) = LosingGate(throwConcurrency: false);
+
+        var result = await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.EngineRefused);
+        var drop = appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind).Subject;
+        var voided = appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDropVoidedKind).Subject;
+        AttemptOf(voided).Should().Be(AttemptOf(drop));
+        FindingRecords.ReadDropped(appended).Value.Should().Be(DroppedFindings.None);
+    }
+
+    /// <summary>Red: skip the <c>VoidDroppedAsync</c> call in the <c>WorkflowConcurrencyException</c> catch; no void record exists.</summary>
+    [Fact]
+    public async Task A_resume_that_loses_a_concurrency_race_voids_the_drop_it_recorded()
+    {
+        var (gateway, _, appended, _) = LosingGate(throwConcurrency: true);
+
+        var result = await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.EngineRefused);
+        var drop = appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind).Subject;
+        AttemptOf(appended.Should().ContainSingle(r => r.Kind == WorkflowRunRecord.FindingsDropVoidedKind).Subject).Should().Be(AttemptOf(drop));
+    }
+
+    /// <summary>
+    ///     A void that cannot be written is logged and the engine's own failure still comes back. Red: let the void
+    ///     append's exception escape; the call throws. Red: drop the log call; the logger sees no error.
+    /// </summary>
+    [Fact]
+    public async Task A_void_that_cannot_be_written_is_logged_and_the_engine_failure_is_returned()
+    {
+        var (gateway, _, _, log) = LosingGate(throwConcurrency: false, voidAppendFails: true);
+
+        var result = await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.EngineRefused);
+        result.Error.Detail.Should().Contain("lost the race");
+        log.Levels.Should().Contain(LogLevel.Error);
+    }
+
+    /// <summary>Red: drop the log call in <c>RecordDroppedAsync</c>'s catch; the logger sees no error.</summary>
+    [Fact]
+    public async Task A_drop_that_cannot_be_recorded_is_logged_and_refuses_the_resume()
+    {
+        var (_, store, records) = GateWith(ApprovedWithDeferred());
+        records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns<ValueTask>(_ => throw new InvalidOperationException("database down"));
+        var log = new CapturingLogger();
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, log);
+
+        var result = await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.RecordFailed);
+        log.Levels.Should().Contain(LogLevel.Error);
+        await store.DidNotReceiveWithAnyArgs().ResumeAsync(Guid.Empty, default!, default);
+    }
+
+    /// <summary>
+    ///     A typo must not write the standing-instructions file either. Red: move the drop check below the apply; the
+    ///     file exists.
+    /// </summary>
+    [Fact]
+    public async Task An_unknown_finding_with_apply_standing_instructions_writes_no_file()
+    {
+        using var dir = new TempDirectory();
+        var run = RunWith(pinned: "", proposal: "New instructions.");
+        var store = Substitute.For<IWorkflowStore>();
+        store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
+        var evidence = WorkflowRunRecord.Create(run.Id, 1, "review", WorkflowRunRecord.ReviewEvidenceKind, "p", null,
+            """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked"}] }""",
+            DateTime.UtcNow).Value;
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        records.ListAsync(run.Id, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([evidence]));
+        var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir), NullLogger<StandingInstructionsWriter>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
+
+        var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, ["nope-1"], Approver, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ResumeRefusal.UnknownFinding);
+        File.Exists(dir.Path("AGENT.md")).Should().BeFalse("a refused resume writes nothing");
+    }
+
+    /// <summary>Keeps the levels a logger saw.</summary>
+    private sealed class CapturingLogger : ILogger<WorkflowRunGateway>
+    {
+        public List<LogLevel> Levels { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Levels.Add(logLevel);
     }
 
     /// <summary>Red: append even when there is nothing deferred; the DidNotReceive assertion fails.</summary>

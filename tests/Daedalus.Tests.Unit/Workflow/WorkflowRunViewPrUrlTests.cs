@@ -2,6 +2,7 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
 using Task = System.Threading.Tasks.Task;
 
@@ -34,7 +35,7 @@ public sealed class WorkflowRunViewPrUrlTests
         var records = Substitute.For<IWorkflowRunRecordStore>();
         records.ListAsync(run.Id, Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<Daedalus.Domain.Entities.WorkflowRunRecord>>([]));
-        var controller = new WorkflowRunsController(new WorkflowRunGateway(store, history, RecordStoreScopes.For(records), TimeProvider.System));
+        var controller = new WorkflowRunsController(new WorkflowRunGateway(store, history, RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 
         var response = await controller.Get(run.Id, CancellationToken.None);
 

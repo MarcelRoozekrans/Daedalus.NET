@@ -1,5 +1,6 @@
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 
@@ -45,14 +46,17 @@ namespace Daedalus.Agents.Workflow;
 /// <param name="history">Reads the run's event log back, including each completed node's token usage.</param>
 /// <param name="scopes">Creates the scope each read of the run's host-written records resolves <see cref="IWorkflowRunRecordStore"/> from.</param>
 /// <param name="clock">The time <c>findings-dropped</c> records are stamped with.</param>
+/// <param name="logger">Receives the failure of a findings-dropped or findings-drop-voided append.</param>
 /// <param name="writer">Writes an approved standing-instructions proposal; see the remarks.</param>
-public sealed class WorkflowRunGateway(
-    IWorkflowStore store, IWorkflowRunHistory history, IServiceScopeFactory scopes, TimeProvider clock, StandingInstructionsWriter? writer = null)
+public sealed partial class WorkflowRunGateway(
+    IWorkflowStore store, IWorkflowRunHistory history, IServiceScopeFactory scopes, TimeProvider clock, ILogger<WorkflowRunGateway> logger,
+    StandingInstructionsWriter? writer = null)
 {
     private readonly IWorkflowStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IWorkflowRunHistory _history = history ?? throw new ArgumentNullException(nameof(history));
     private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
     private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    private readonly ILogger<WorkflowRunGateway> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly StandingInstructionsWriter? _writer = writer;
 
     /// <summary>Finds a run by id, or <see langword="null"/> if none exists.</summary>
@@ -165,6 +169,10 @@ public sealed class WorkflowRunGateway(
     ///     before anything is written. A run that has deferred findings then gets a
     ///     <see cref="WorkflowRunRecord.FindingsDroppedKind"/> record naming the resumer and the dropped ids, even when
     ///     none are dropped, so the latest record is always the one that applies. A run with none records nothing.
+    ///     Each record carries a fresh attempt id. When the engine resume then fails, a
+    ///     <see cref="WorkflowRunRecord.FindingsDropVoidedKind"/> record names that attempt, so a resume that lost a
+    ///     race cannot leave its list latest over one that won. Residual window: a process crash between losing the
+    ///     engine race and the void append still leaves the loser's list latest.
     ///     </para>
     /// </summary>
     public async ValueTask<UnitResult<ResumeFailure>> ResumeAsync(
@@ -207,9 +215,11 @@ public sealed class WorkflowRunGateway(
 
         // Always recorded when the run has deferred findings, even with an empty list, so the latest record is the one
         // that applies and a failed earlier resume's list can never leak into this one.
+        string? attempt = null;
         if (known.Count > 0)
         {
-            var recorded = await RecordDroppedAsync(run, drop, resumedBy, ct).ConfigureAwait(false);
+            attempt = Guid.NewGuid().ToString("N");
+            var recorded = await RecordDroppedAsync(run, drop, resumedBy, attempt, ct).ConfigureAwait(false);
             if (recorded.IsFailure)
                 return recorded;
         }
@@ -224,12 +234,15 @@ public sealed class WorkflowRunGateway(
         try
         {
             var result = await ResumeAsync(runId, signal, payload, resumedBy, ct).ConfigureAwait(false);
-            return result.IsSuccess
-                ? UnitResult<ResumeFailure>.Success()
-                : UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, result.Error));
+            if (result.IsSuccess)
+                return UnitResult<ResumeFailure>.Success();
+
+            await VoidDroppedAsync(run, attempt, ct).ConfigureAwait(false);
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, result.Error));
         }
         catch (WorkflowConcurrencyException ex)
         {
+            await VoidDroppedAsync(run, attempt, ct).ConfigureAwait(false);
             var detail = applyStandingInstructions
                 ? $"The standing-instructions file was already written, but the resume itself lost a concurrency race: {ex.Message}"
                 : ex.Message;
@@ -238,11 +251,11 @@ public sealed class WorkflowRunGateway(
     }
 
     private async ValueTask<UnitResult<ResumeFailure>> RecordDroppedAsync(
-        WorkflowRun run, IReadOnlyCollection<string> drop, RunPrincipal resumedBy, CancellationToken ct)
+        WorkflowRun run, IReadOnlyCollection<string> drop, RunPrincipal resumedBy, string attempt, CancellationToken ct)
     {
         var record = WorkflowRunRecord.Create(
             run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.FindingsDroppedKind, resumedBy.Id, run.StartedBy?.Id,
-            FindingRecords.DroppedPayload(drop, resumedBy.DisplayName ?? resumedBy.Id), _clock.GetUtcNow().UtcDateTime);
+            FindingRecords.DroppedPayload(drop, resumedBy.DisplayName ?? resumedBy.Id, attempt), _clock.GetUtcNow().UtcDateTime);
         if (record.IsFailure)
             return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.RecordFailed, record.Error));
 
@@ -254,9 +267,42 @@ public sealed class WorkflowRunGateway(
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
+            LogDropAppendFailed(_logger, ex, run.Id);
             return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.RecordFailed, "The dropped findings could not be recorded, so the run was not resumed."));
         }
     }
+
+    /// <summary>
+    ///     Names the drop record of <paramref name="attempt"/> as void, because the engine resume that followed it failed. A
+    ///     failure to append is logged and swallowed, so the engine's own failure is still what the caller gets.
+    /// </summary>
+    private async ValueTask VoidDroppedAsync(WorkflowRun run, string? attempt, CancellationToken ct)
+    {
+        if (attempt is null)
+            return;
+
+        var record = WorkflowRunRecord.Create(
+            run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.FindingsDropVoidedKind, "workflow:gateway", run.StartedBy?.Id,
+            FindingRecords.DropVoidedPayload(attempt), _clock.GetUtcNow().UtcDateTime);
+        try
+        {
+            if (record.IsFailure)
+                throw new InvalidOperationException(record.Error);
+
+            await using var scope = _scopes.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>().AppendAsync(record.Value, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            LogDropVoidFailed(_logger, ex, run.Id, attempt);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}: the findings-dropped record could not be appended")]
+    private static partial void LogDropAppendFailed(ILogger logger, Exception exception, Guid runId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}: the resume failed but findings-dropped attempt {Attempt} could not be voided, so its drop list may still read as the latest")]
+    private static partial void LogDropVoidFailed(ILogger logger, Exception exception, Guid runId, string attempt);
 
     /// <summary>
     ///     <paramref name="run"/> is parked awaiting exactly <paramref name="signal"/>, or a failure naming what

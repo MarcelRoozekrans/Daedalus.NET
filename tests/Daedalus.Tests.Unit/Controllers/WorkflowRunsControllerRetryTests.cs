@@ -5,6 +5,7 @@ using Daedalus.Tests.Unit.Workflow;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
 
 namespace Daedalus.Tests.Unit.Controllers;
@@ -20,7 +21,7 @@ public sealed class WorkflowRunsControllerRetryTests
 
     public WorkflowRunsControllerRetryTests()
     {
-        var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System);
+        var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddMvcCore().AddApiExplorer();
