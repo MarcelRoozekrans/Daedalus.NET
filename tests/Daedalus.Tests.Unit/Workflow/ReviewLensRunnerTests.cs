@@ -457,6 +457,10 @@ public sealed class ReviewLensRunnerTests
     private const string DeferredEntry =
         """[{"file":"src/A.cs","line":3,"title":"Cache never expires","scenario":"a stale entry is served after the TTL","reason":"different-area","existingIssue":12}]""";
 
+    /// <summary>
+    ///     Later tasks deserialize the recorded names, so each is pinned. Red: delete <c>deferred = evidence.Deferred</c>
+    ///     from <c>ReviewLensRunner.RecordAsync</c>.
+    /// </summary>
     [Fact]
     public async Task An_approving_pass_records_its_deferred_findings()
     {
@@ -472,8 +476,6 @@ public sealed class ReviewLensRunnerTests
         result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
         var record = appended.Should().ContainSingle().Subject;
         using var payload = System.Text.Json.JsonDocument.Parse(record.PayloadJson);
-        // Red: delete `deferred = evidence.Deferred` from ReviewLensRunner.RecordAsync. Later tasks deserialize these
-        // names, so each is pinned here.
         var entry = payload.RootElement.GetProperty("deferred")[0];
         entry.GetProperty("file").GetString().Should().Be("src/A.cs");
         entry.GetProperty("line").GetInt32().Should().Be(3);
