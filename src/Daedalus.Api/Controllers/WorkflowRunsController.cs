@@ -164,7 +164,42 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             WriteAudit: [.. writes.Select(ToWriteAuditView)],
             DeferredFindings: deferred.IsSuccess ? [.. deferred.Value.Select(d => ToDeferredView(d, droppedIds))] : [],
             DeferredFindingsError: error.Length > 0 ? error : null,
-            FiledFindings: filed.IsSuccess ? [.. filed.Value.Values.Select(f => new FiledFindingView(f.FindingId, f.Mode, f.Issue, f.Url))] : []);
+            FiledFindings: filed.IsSuccess ? [.. filed.Value.Values.Order(FiledOrder.Instance).Select(f => new FiledFindingView(f.FindingId, f.Mode, f.Issue, f.Url))] : []);
+    }
+
+    /// <summary>Findings in the order a human reads them: by lens, then by number (so 2 comes before 10), with the summary last.</summary>
+    private sealed class FiledOrder : IComparer<FiledFinding>
+    {
+        public static readonly FiledOrder Instance = new();
+
+        public int Compare(FiledFinding? x, FiledFinding? y)
+        {
+            if (ReferenceEquals(x, y))
+                return 0;
+            if (x is null)
+                return -1;
+            if (y is null)
+                return 1;
+
+            var summary = IsSummary(x).CompareTo(IsSummary(y));
+            if (summary != 0)
+                return summary;
+
+            var (lensX, numberX) = Split(x.FindingId);
+            var (lensY, numberY) = Split(y.FindingId);
+            var lens = string.CompareOrdinal(lensX, lensY);
+            return lens != 0 ? lens : numberX.CompareTo(numberY);
+        }
+
+        private static bool IsSummary(FiledFinding f) => string.Equals(f.FindingId, FindingRecords.SummaryId, StringComparison.Ordinal);
+
+        private static (string Lens, int Number) Split(string id)
+        {
+            var dash = id.LastIndexOf('-');
+            return dash > 0 && int.TryParse(id[(dash + 1)..], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n)
+                ? (id[..dash], n)
+                : (id, 0);
+        }
     }
 
     private static DeferredFindingView ToDeferredView(IdentifiedDeferredFinding d, IReadOnlySet<string> dropped) =>

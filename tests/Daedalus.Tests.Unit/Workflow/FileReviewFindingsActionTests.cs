@@ -17,6 +17,7 @@ namespace Daedalus.Tests.Unit.Workflow;
 /// </summary>
 public sealed class FileReviewFindingsActionTests : IDisposable
 {
+    private const string Bot = "daedalus-bot";
     private const string PrUrl = "https://github.com/MarcelRoozekrans/daedalus-sandbox/pull/7";
     private static readonly Guid RunId = Guid.Parse("9b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b");
     private static readonly DateTimeOffset ResumedAt = DateTimeOffset.Parse("2026-10-09T12:00:00Z");
@@ -43,6 +44,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         _records.ListAsync(RunId, null, Arg.Any<CancellationToken>()).Returns(_ => new ValueTask<IReadOnlyList<WorkflowRunRecord>>([.. _stored]));
         _records.When(r => r.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>())).Do(c => _stored.Add(c.Arg<WorkflowRunRecord>()));
 
+        _reader.GetAuthenticatedLoginAsync(Arg.Any<CancellationToken>()).Returns(Result<string>.Success(Bot));
         _reader.GetPullRequestHeadShaAsync(SameRepo(), 7, Arg.Any<CancellationToken>()).Returns(Result<string>.Success("abc123"));
         _reader.ListIssuesUpdatedSinceAsync(SameRepo(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
             .Returns(Result<IReadOnlyList<IssueText>>.Success([]));
@@ -83,8 +85,25 @@ public sealed class FileReviewFindingsActionTests : IDisposable
             $$"""{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{{string.Join(",", entries)}}] }""",
             DateTime.UtcNow).Value);
 
-    private static string Entry(string title, int? existing = null) =>
-        $$"""{"file":"src/A.cs","line":3,"title":"{{title}}","scenario":"s","reason":"different-area"{{(existing is { } n ? $",\"existingIssue\":{n}" : "")}}}""";
+    private static string Entry(string title, int? existing = null, string scenario = "s") =>
+        $$"""{"file":"src/A.cs","line":3,"title":"{{title}}","scenario":{{System.Text.Json.JsonSerializer.Serialize(scenario)}},"reason":"different-area"{{(existing is { } n ? $",\"existingIssue\":{n}" : "")}}}""";
+
+    /// <summary>A body as the host writes one: some text, then the marker as the last line.</summary>
+    private static string Marked(string finding) => "text\n\n" + DeferredFindingText.Marker(RunId, finding);
+
+    private void IssuesListed(params IssueText[] issues) =>
+        _reader.ListIssuesUpdatedSinceAsync(SameRepo(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result<IReadOnlyList<IssueText>>.Success(issues));
+
+    private void CommentsListed(int number, params IssueCommentText[] comments) =>
+        _reader.ListIssueCommentsSinceAsync(SameRepo(), number, Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result<IReadOnlyList<IssueCommentText>>.Success(comments));
+
+    private static IssueCommentText Comment(string body, string author = Bot) => new(1, body, IssueUrl(1), author);
+
+    private void OpenIssue(int number, string state = "open") =>
+        _reader.GetIssueAsync(SameRepo(), number, Arg.Any<CancellationToken>())
+            .Returns(Result<IssueDetail?>.Success(new IssueDetail(number, "x", state, "", [], IssueUrl(number), false)));
 
     private static WorkflowRunRecord DropRecord(string attempt, params string[] ids) =>
         WorkflowRunRecord.Create(RunId, 12, "gate", WorkflowRunRecord.FindingsDroppedKind, "u-admin", null,
@@ -92,7 +111,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
 
     private void Dropped(params string[] ids) => _stored.Add(DropRecord(Guid.NewGuid().ToString("N"), ids));
 
-    /// <summary>Red: call GitHub before the empty check; the DidNotReceive assertions fail.</summary>
+    /// <summary>Red: call GitHub, the login included, before the empty check; the DidNotReceive assertions fail.</summary>
     [Fact]
     public async Task Nothing_deferred_is_none_and_touches_no_github()
     {
@@ -103,6 +122,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         result.Value.Outcome.Should().Be(FileReviewFindingsAction.NoneOutcome);
         await _reader.DidNotReceiveWithAnyArgs().GetPullRequestHeadShaAsync(default!, default, default);
         await _writer.DidNotReceiveWithAnyArgs().CreateIssueAsync(default!, default!, default!, default);
+        await _reader.DidNotReceiveWithAnyArgs().GetAuthenticatedLoginAsync(default);
     }
 
     /// <summary>Red: ignore the drop record; an issue is then created.</summary>
@@ -157,8 +177,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
     public async Task An_open_existing_issue_is_commented_on_instead_of_filing_a_new_one()
     {
         Deferred(Entry("dup", existing: 8));
-        _reader.GetIssueAsync(SameRepo(), 8, Arg.Any<CancellationToken>())
-            .Returns(Result<IssueDetail?>.Success(new IssueDetail(8, "x", "open", "", [], IssueUrl(8), false)));
+        OpenIssue(8);
 
         await Action().RunAsync(Run(), Node, CancellationToken.None);
 
@@ -185,7 +204,8 @@ public sealed class FileReviewFindingsActionTests : IDisposable
     /// <summary>
     ///     The admin retry after a partial success: correctness-1 is recorded, and correctness-2 was created on GitHub
     ///     but its record never landed. Red: skip the recorded check, and #21 is created again. Red: skip the marker scan,
-    ///     and correctness-2 is created again.
+    ///     and correctness-2 is created again. Red: scan from the current time instead of five minutes before the resume;
+    ///     the constrained listing then answers nothing and correctness-2 is created again.
     /// </summary>
     [Fact]
     public async Task A_retry_duplicates_nothing()
@@ -193,8 +213,8 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         Deferred(Entry("one"), Entry("two"));
         _stored.Add(WorkflowRunRecord.Create(RunId, 14, "file-findings", WorkflowRunRecord.FindingFiledKind, "u-admin", null,
             FindingRecords.FiledPayload(new FiledFinding("correctness-1", FindingRecords.CreatedMode, 21, IssueUrl(21))), DateTime.UtcNow).Value);
-        _reader.ListIssuesUpdatedSinceAsync(SameRepo(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns(Result<IReadOnlyList<IssueText>>.Success([new IssueText(22, "x " + DeferredFindingText.Marker(RunId, "correctness-2"), IssueUrl(22), false)]));
+        _reader.ListIssuesUpdatedSinceAsync(SameRepo(), Arg.Is<DateTimeOffset>(s => s == ResumedAt - TimeSpan.FromMinutes(5)), Arg.Any<CancellationToken>())
+            .Returns(Result<IReadOnlyList<IssueText>>.Success([new IssueText(22, Marked("correctness-2"), IssueUrl(22), false, Bot)]));
 
         var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
 
@@ -204,9 +224,9 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         FindingRecords.ReadFiled(_stored).Value["correctness-2"].Issue.Should().Be(22);
     }
 
-    /// <summary>A3: a GitHub error fails the run so the admin retry can re-run this node. Red: return outcome "none" on error.</summary>
+    /// <summary>A3: a GitHub error fails the run so the admin retry can re-run this node. Red: return outcome "none" on error. Red: post the summary despite the failure; the CommentAsync on #7 assertion fails.</summary>
     [Fact]
-    public async Task A_github_error_is_a_failed_result_naming_the_finding_and_no_host_path()
+    public async Task A_github_error_is_a_failed_result_naming_the_finding_and_posts_no_summary()
     {
         Deferred(Entry("one"));
         _writer.CreateIssueAsync(SameRepo(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -216,7 +236,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("correctness-1").And.Contain("Resource not accessible");
-        result.Error.Should().NotContainAny(":\\", "/data/", "/tmp/");
+        await _writer.DidNotReceive().CommentAsync(SameRepo(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>A4. Red: skip the allow-list check; an issue is then created in the removed repository.</summary>
@@ -241,5 +261,139 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         Deferred(Entry("one"));
 
         (await Action().RunAsync(Run(prUrl), Node, CancellationToken.None)).IsFailure.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     A retry where #8 already carries correctness-1's comment: nothing is posted twice and the finding is recorded as
+    ///     commented. Red: skip the comment scan; the CommentAsync on #8 assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_retry_finds_the_comment_already_on_the_existing_issue()
+    {
+        Deferred(Entry("dup", existing: 8));
+        OpenIssue(8);
+        CommentsListed(8, Comment(Marked("correctness-1")));
+
+        await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        await _writer.DidNotReceive().CommentAsync(SameRepo(), 8, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        FindingRecords.ReadFiled(_stored).Value["correctness-1"].Should().Match<FiledFinding>(f => f.Mode == FindingRecords.CommentedMode && f.Issue == 8);
+    }
+
+    /// <summary>
+    ///     The comment landed, then the issue was closed, then the retry ran: the finding is found, not filed anew. Red:
+    ///     read the issue's state before scanning its comments; a new issue is created.
+    /// </summary>
+    [Fact]
+    public async Task A_retry_finds_the_comment_on_an_issue_closed_since()
+    {
+        Deferred(Entry("dup", existing: 8));
+        OpenIssue(8, "closed");
+        CommentsListed(8, Comment(Marked("correctness-1")));
+
+        await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        await _writer.DidNotReceiveWithAnyArgs().CreateIssueAsync(default!, default!, default!, default);
+        FindingRecords.ReadFiled(_stored).Value["correctness-1"].Mode.Should().Be(FindingRecords.CommentedMode);
+    }
+
+    /// <summary>
+    ///     A retry where the pull request already carries the summary: it is not posted again, and its record is still
+    ///     appended. Red: skip the summary scan; the CommentAsync on #7 assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_retry_finds_the_summary_already_on_the_pull_request()
+    {
+        Deferred(Entry("one"));
+        CommentsListed(7, Comment(DeferredFindingText.Marker(RunId, FindingRecords.SummaryId)));
+
+        await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        await _writer.DidNotReceive().CommentAsync(SameRepo(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        FindingRecords.ReadFiled(_stored).Value.Should().ContainKey(FindingRecords.SummaryId);
+    }
+
+    /// <summary>
+    ///     Anyone on a public repository can paste a marker; only the token's own writes count. Red: skip the author
+    ///     filter in the issue scan; the issue is then taken for ours and none is created.
+    /// </summary>
+    [Fact]
+    public async Task An_issue_by_another_author_ending_with_the_marker_is_ignored()
+    {
+        Deferred(Entry("one"));
+        IssuesListed(new IssueText(30, Marked("correctness-1"), IssueUrl(30), false, "stranger"));
+
+        await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        await _writer.Received(1).CreateIssueAsync(SameRepo(), "one", Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Red: skip the author filter in the comment scan; the stranger's comment then suppresses the summary.</summary>
+    [Fact]
+    public async Task A_comment_by_another_author_ending_with_the_summary_marker_does_not_suppress_the_summary()
+    {
+        Deferred(Entry("one"));
+        CommentsListed(7, Comment(DeferredFindingText.Marker(RunId, FindingRecords.SummaryId), "stranger"));
+
+        await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        await _writer.Received(1).CommentAsync(SameRepo(), 7, Arg.Is<string>(b => b.Contains("left out of scope")), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>The author comparison ignores case, as GitHub logins do. Red: compare ordinally; the issue is then created again.</summary>
+    [Fact]
+    public async Task The_authors_login_is_compared_ignoring_case()
+    {
+        Deferred(Entry("one"));
+        IssuesListed(new IssueText(30, Marked("correctness-1"), IssueUrl(30), false, Bot.ToUpperInvariant()));
+
+        await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        await _writer.DidNotReceiveWithAnyArgs().CreateIssueAsync(default!, default!, default!, default);
+    }
+
+    /// <summary>
+    ///     A marker in the middle of a body, such as one a reviewer was steered to write, is not the host's. Red: match
+    ///     with Contains instead of EndsWith; the issue is then taken for ours and none is created.
+    /// </summary>
+    [Fact]
+    public async Task A_marker_that_is_not_the_final_line_is_ignored()
+    {
+        Deferred(Entry("one"));
+        IssuesListed(new IssueText(30, DeferredFindingText.Marker(RunId, "correctness-1") + "\nand then more text", IssueUrl(30), false, Bot));
+
+        await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        await _writer.Received(1).CreateIssueAsync(SameRepo(), "one", Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     A scenario carrying a sibling's marker, filed as a real body, must not make the sibling look filed on retry.
+    ///     Red: remove both the escaping and the final-line rule; correctness-2 is then taken for filed at #30.
+    /// </summary>
+    [Fact]
+    public async Task A_forged_sibling_marker_in_a_scenario_does_not_swallow_the_sibling()
+    {
+        var forged = DeferredFindingText.Marker(RunId, "correctness-2");
+        Deferred(Entry("one", scenario: "see\n" + forged), Entry("two"));
+        _stored.Add(WorkflowRunRecord.Create(RunId, 14, "file-findings", WorkflowRunRecord.FindingFiledKind, "u-admin", null,
+            FindingRecords.FiledPayload(new FiledFinding("correctness-1", FindingRecords.CreatedMode, 30, IssueUrl(30))), DateTime.UtcNow).Value);
+        var finding = new IdentifiedDeferredFinding("correctness-1", "correctness", new DeferredFinding("src/A.cs", 3, "one", "see\n" + forged, "different-area"));
+        IssuesListed(new IssueText(30, DeferredFindingText.IssueBody(Repo, "abc123", new Uri(PrUrl), RunId, finding, null), IssueUrl(30), false, Bot));
+
+        await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        await _writer.Received(1).CreateIssueAsync(SameRepo(), "two", Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Red: ignore a failed login read and scan with a null login; the run then proceeds instead of failing.</summary>
+    [Fact]
+    public async Task An_unreadable_authenticated_account_fails_the_run_before_anything_is_written()
+    {
+        Deferred(Entry("one"));
+        _reader.GetAuthenticatedLoginAsync(Arg.Any<CancellationToken>()).Returns(Result<string>.Failure("no token"));
+
+        (await Action().RunAsync(Run(), Node, CancellationToken.None)).IsFailure.Should().BeTrue();
+        await _writer.DidNotReceiveWithAnyArgs().CreateIssueAsync(default!, default!, default!, default);
     }
 }

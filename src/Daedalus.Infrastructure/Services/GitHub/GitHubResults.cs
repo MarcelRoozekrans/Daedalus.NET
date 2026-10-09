@@ -45,11 +45,11 @@ public sealed record IssueDetail(int Number, string Title, string State, string?
 /// <summary>One issue an issue search found.</summary>
 public sealed record IssueHit(int Number, string Title, string State, Uri HtmlUrl);
 
-/// <summary>An issue's body and link, as a marker scan reads it.</summary>
-public sealed record IssueText(int Number, string? Body, Uri HtmlUrl, bool IsPullRequest);
+/// <summary>An issue's body, link and author, as a marker scan reads it. <paramref name="AuthorLogin"/> is the account that opened it.</summary>
+public sealed record IssueText(int Number, string? Body, Uri HtmlUrl, bool IsPullRequest, string AuthorLogin);
 
-/// <summary>An issue comment's body and link, as a marker scan reads it.</summary>
-public sealed record IssueCommentText(long Id, string? Body, Uri HtmlUrl);
+/// <summary>An issue comment's body, link and author, as a marker scan reads it. <paramref name="AuthorLogin"/> is the account that wrote it.</summary>
+public sealed record IssueCommentText(long Id, string? Body, Uri HtmlUrl, string AuthorLogin);
 
 /// <summary>An issue GitHub created.</summary>
 public sealed record CreatedIssue(int Number, Uri HtmlUrl);

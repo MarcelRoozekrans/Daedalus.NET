@@ -711,7 +711,8 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
                 e.GetProperty("number").GetInt32(),
                 e.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null,
                 HtmlUrl(e),
-                e.TryGetProperty("pull_request", out _)),
+                e.TryGetProperty("pull_request", out _),
+                AuthorLogin(e)),
             ct);
     }
 
@@ -728,7 +729,8 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
             e => new IssueCommentText(
                 e.GetProperty("id").GetInt64(),
                 e.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null,
-                HtmlUrl(e)),
+                HtmlUrl(e),
+                AuthorLogin(e)),
             ct);
     }
 
@@ -791,6 +793,31 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
 
         return Result<IReadOnlyList<T>>.Failure($"{what}: the scan read the {MaxScanPages * 100}-item cap and stops rather than read further.");
     }
+
+    public async Task<Result<string>> GetAuthenticatedLoginAsync(CancellationToken ct = default)
+    {
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<string>.Failure(token.Error);
+
+        const string What = "reading the authenticated GitHub account";
+        var fetched = await GetJsonAsync($"{_options.ApiUrl.TrimEnd('/')}/user", token.Value, What, ct).ConfigureAwait(false);
+        if (fetched.IsFailure)
+            return Result<string>.Failure(fetched.Error);
+        if (fetched.Value is not { } doc)
+            return Result<string>.Failure("GitHub answered 404 for the authenticated account, so the configured token cannot be used to tell which comments are Daedalus's own.");
+
+        using (doc)
+        {
+            return ReadShape(What, () => doc.RootElement.GetProperty("login").GetString()
+                ?? throw new InvalidOperationException("login is null"));
+        }
+    }
+
+    /// <summary>The <c>user.login</c> of an issue or comment; a missing user, such as a deleted account, is a <see cref="InvalidOperationException"/>, which <see cref="ReadShape{T}"/> turns into a failed result.</summary>
+    private static string AuthorLogin(JsonElement element) =>
+        element.GetProperty("user").GetProperty("login").GetString()
+            ?? throw new InvalidOperationException("user.login is null");
 
     /// <summary>GitHub's <c>html_url</c>; one that is not an absolute URL is a <see cref="FormatException"/>, which <see cref="ReadShape{T}"/> turns into a failed result.</summary>
     private static Uri HtmlUrl(JsonElement element) =>

@@ -150,7 +150,12 @@ internal sealed partial class FileReviewFindingsAction(
         if (head.IsFailure)
             return Failed($"reading pull request #{prNumber} failed: {head.Error}");
 
-        var scan = new MarkerScan(reader, repo, resume.At - ClockSkew);
+        // Only what this token wrote counts as a marker: anyone else on a public repository can paste one (D2).
+        var login = await reader.GetAuthenticatedLoginAsync(ct).ConfigureAwait(false);
+        if (login.IsFailure)
+            return Failed($"reading the authenticated GitHub account failed: {login.Error}");
+
+        var scan = new MarkerScan(reader, repo, resume.At - ClockSkew, login.Value);
         var done = new Dictionary<string, FiledFinding>(filed.Value, StringComparer.Ordinal);
 
         foreach (var finding in remaining)
@@ -199,6 +204,17 @@ internal sealed partial class FileReviewFindingsAction(
             if (existing.IsFailure)
                 return Result<FiledFinding>.Failure($"reading #{number} failed: {existing.Error}");
 
+            if (existing.Value is { IsPullRequest: false } issue)
+            {
+                // Looked at before the issue's state is: a comment this run already wrote on an issue that has been
+                // closed since is found, not answered with a duplicate new issue.
+                var seen = await scan.FindCommentAsync(number, marker, ct).ConfigureAwait(false);
+                if (seen.IsFailure)
+                    return Result<FiledFinding>.Failure(seen.Error);
+                if (seen.Value is not null)
+                    return Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CommentedMode, number, issue.HtmlUrl));
+            }
+
             notUsed = existing.Value switch
             {
                 null => $"#{number} does not exist",
@@ -209,18 +225,10 @@ internal sealed partial class FileReviewFindingsAction(
 
             if (notUsed is null)
             {
-                var seen = await scan.FindCommentAsync(number, marker, ct).ConfigureAwait(false);
-                if (seen.IsFailure)
-                    return Result<FiledFinding>.Failure(seen.Error);
-
-                if (seen.Value is null)
-                {
-                    var posted = await writer.CommentAsync(repo, number, DeferredFindingText.IssueComment(repo, headSha, prUrl, runId, finding), ct).ConfigureAwait(false);
-                    if (posted.IsFailure)
-                        return Result<FiledFinding>.Failure(posted.Error);
-                }
-
-                return Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CommentedMode, number, existing.Value!.HtmlUrl));
+                var posted = await writer.CommentAsync(repo, number, DeferredFindingText.IssueComment(repo, headSha, prUrl, runId, finding), ct).ConfigureAwait(false);
+                return posted.IsFailure
+                    ? Result<FiledFinding>.Failure(posted.Error)
+                    : Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CommentedMode, number, existing.Value!.HtmlUrl));
             }
         }
 
@@ -230,7 +238,7 @@ internal sealed partial class FileReviewFindingsAction(
         if (earlier.Value is { } found)
             return Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CreatedMode, found.Number, found.HtmlUrl));
 
-        var created = await writer.CreateIssueAsync(repo, finding.Finding.Title, DeferredFindingText.IssueBody(repo, headSha, prUrl, runId, finding, notUsed), ct).ConfigureAwait(false);
+        var created = await writer.CreateIssueAsync(repo, DeferredFindingText.Line(finding.Finding.Title), DeferredFindingText.IssueBody(repo, headSha, prUrl, runId, finding, notUsed), ct).ConfigureAwait(false);
         return created.IsSuccess
             ? Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CreatedMode, created.Value.Number, created.Value.HtmlUrl))
             : Result<FiledFinding>.Failure(created.Error);
@@ -257,7 +265,7 @@ internal sealed partial class FileReviewFindingsAction(
     private static partial void LogFilingCancelled(ILogger logger, Exception exception, Guid runId);
 
     /// <summary>Reads each listing at most once per call, since every finding of one run scans the same window.</summary>
-    private sealed class MarkerScan(IGitHubReader reader, RepoRef repo, DateTimeOffset since)
+    private sealed class MarkerScan(IGitHubReader reader, RepoRef repo, DateTimeOffset since, string login)
     {
         private readonly Dictionary<int, IReadOnlyList<IssueCommentText>> _comments = [];
         private IReadOnlyList<IssueText>? _issues;
@@ -272,7 +280,7 @@ internal sealed partial class FileReviewFindingsAction(
                 _issues = listed.Value;
             }
 
-            return Result<IssueText?>.Success(_issues.FirstOrDefault(i => !i.IsPullRequest && (i.Body ?? "").Contains(marker, StringComparison.Ordinal)));
+            return Result<IssueText?>.Success(_issues.FirstOrDefault(i => !i.IsPullRequest && Ours(i.AuthorLogin) && EndsWithMarker(i.Body, marker)));
         }
 
         public async ValueTask<Result<IssueCommentText?>> FindCommentAsync(int number, string marker, CancellationToken ct)
@@ -285,7 +293,13 @@ internal sealed partial class FileReviewFindingsAction(
                 _comments[number] = comments = listed.Value;
             }
 
-            return Result<IssueCommentText?>.Success(comments.FirstOrDefault(c => (c.Body ?? "").Contains(marker, StringComparison.Ordinal)));
+            return Result<IssueCommentText?>.Success(comments.FirstOrDefault(c => Ours(c.AuthorLogin) && EndsWithMarker(c.Body, marker)));
         }
+
+        private bool Ours(string author) => string.Equals(author, login, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The host appends the marker as the last line, and escapes <c>&lt;!--</c> in everything a model wrote, so a marker anywhere else is not ours.</summary>
+        private static bool EndsWithMarker(string? body, string marker) =>
+            (body ?? "").TrimEnd().EndsWith(marker, StringComparison.Ordinal);
     }
 }

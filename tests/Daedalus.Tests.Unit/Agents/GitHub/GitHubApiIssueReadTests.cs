@@ -86,10 +86,10 @@ public sealed class GitHubApiIssueReadTests
     public async Task Issues_updated_since_are_read_across_pages()
     {
         var page1 = "[" + string.Join(',', Enumerable.Range(1, 100).Select(n =>
-            $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}"}""")) + "]";
+            $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}","user":{"login":"bot"} }""")) + "]";
         var handler = new StubHandler()
             .Route("&page=1", HttpStatusCode.OK, page1)
-            .Route("&page=2", HttpStatusCode.OK, """[{"number":101,"body":"<!-- m -->","html_url":"https://github.com/owner/repo/issues/101"}]""");
+            .Route("&page=2", HttpStatusCode.OK, """[{"number":101,"body":"<!-- m -->","html_url":"https://github.com/owner/repo/issues/101","user":{"login":"bot"}}]""");
 
         var issues = (await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z"))).Value;
 
@@ -105,7 +105,7 @@ public sealed class GitHubApiIssueReadTests
     public async Task A_scan_longer_than_the_page_cap_fails_rather_than_truncates()
     {
         var fullPage = "[" + string.Join(",", Enumerable.Range(1, 100).Select(n =>
-            $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}"}""")) + "]";
+            $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}","user":{"login":"bot"} }""")) + "]";
         var handler = new StubHandler().Route("&page=", HttpStatusCode.OK, fullPage);
 
         var result = await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z"));
@@ -119,7 +119,7 @@ public sealed class GitHubApiIssueReadTests
     public async Task A_page_that_answers_404_mid_scan_is_a_failure_not_a_short_result()
     {
         var fullPage = "[" + string.Join(",", Enumerable.Range(1, 100).Select(n =>
-            $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}"}""")) + "]";
+            $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}","user":{"login":"bot"} }""")) + "]";
         var handler = new StubHandler().Route("&page=1", HttpStatusCode.OK, fullPage);
 
         var result = await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z"));
@@ -182,7 +182,7 @@ public sealed class GitHubApiIssueReadTests
     public async Task Comments_since_are_read_with_the_since_filter()
     {
         var handler = new StubHandler().Route("/issues/7/comments", HttpStatusCode.OK,
-            """[{"id":5,"body":"x","html_url":"https://github.com/owner/repo/issues/7#issuecomment-5"}]""");
+            """[{"id":5,"body":"x","html_url":"https://github.com/owner/repo/issues/7#issuecomment-5","user":{"login":"bot"}}]""");
 
         var comments = (await Build(handler).ListIssueCommentsSinceAsync(Repo, 7, DateTimeOffset.Parse("2026-10-09T10:00:00Z"))).Value;
 
@@ -200,5 +200,49 @@ public sealed class GitHubApiIssueReadTests
         });
 
         (await Build(handler).GetPullRequestHeadShaAsync(Repo, 7)).IsFailure.Should().BeTrue();
+    }
+
+    /// <summary>Red: read <c>name</c> instead of <c>login</c>; the property is then missing and the read fails.</summary>
+    [Fact]
+    public async Task The_authenticated_login_is_read()
+    {
+        var handler = new StubHandler().Route("/user", HttpStatusCode.OK, """{"login":"daedalus-bot","name":"Not This"}""");
+
+        (await Build(handler).GetAuthenticatedLoginAsync()).Value.Should().Be("daedalus-bot");
+    }
+
+    /// <summary>Red: treat a 404 as an empty login; the result then succeeds.</summary>
+    [Fact]
+    public async Task A_missing_authenticated_account_is_a_failure()
+    {
+        (await Build(new StubHandler()).GetAuthenticatedLoginAsync()).IsFailure.Should().BeTrue();
+    }
+
+    /// <summary>The author decides whether a marker is Daedalus's own. Red: pass a constant instead of <c>user.login</c>; the logins differ.</summary>
+    [Fact]
+    public async Task The_author_of_each_issue_and_comment_is_read()
+    {
+        var handler = new StubHandler()
+            .Route("/issues?", HttpStatusCode.OK, """[{"number":1,"body":"b","html_url":"https://github.com/owner/repo/issues/1","user":{"login":"alice"}}]""")
+            .Route("/issues/7/comments", HttpStatusCode.OK, """[{"id":5,"body":"x","html_url":"https://github.com/owner/repo/issues/7#issuecomment-5","user":{"login":"Bob"}}]""");
+        var api = Build(handler);
+        var since = DateTimeOffset.Parse("2026-10-09T10:00:00Z");
+
+        (await api.ListIssuesUpdatedSinceAsync(Repo, since)).Value.Should().ContainSingle().Which.AuthorLogin.Should().Be("alice");
+        (await api.ListIssueCommentsSinceAsync(Repo, 7, since)).Value.Should().ContainSingle().Which.AuthorLogin.Should().Be("Bob");
+    }
+
+    /// <summary>A deleted account has a null user. Red: default the login to empty; the scans then succeed.</summary>
+    [Fact]
+    public async Task An_item_with_no_author_is_a_shape_failure()
+    {
+        var handler = new StubHandler()
+            .Route("/issues?", HttpStatusCode.OK, """[{"number":1,"body":"b","html_url":"https://github.com/owner/repo/issues/1","user":null}]""")
+            .Route("/issues/7/comments", HttpStatusCode.OK, """[{"id":5,"body":"x","html_url":"https://github.com/owner/repo/issues/7#issuecomment-5"}]""");
+        var api = Build(handler);
+        var since = DateTimeOffset.Parse("2026-10-09T10:00:00Z");
+
+        (await api.ListIssuesUpdatedSinceAsync(Repo, since)).IsFailure.Should().BeTrue();
+        (await api.ListIssueCommentsSinceAsync(Repo, 7, since)).IsFailure.Should().BeTrue();
     }
 }
