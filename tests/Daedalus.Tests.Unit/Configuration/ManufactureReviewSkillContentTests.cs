@@ -95,6 +95,29 @@ public sealed partial class ManufactureReviewSkillContentTests
         normalized.Should().ContainEquivalentOf("reject, with a finding whose scenario names the discrepancy");
     }
 
+    /// <summary>
+    ///     The mechanism lens reads the docs that describe the touched types, so a false claim in an adjacent doc can be
+    ///     deferred. Each assertion has its own Red, applied to <c>skills/manufacture-review/SKILL.md</c>:
+    ///     <list type="bullet">
+    ///         <item>the README and docs read - Red: delete the paragraph headed "The mechanism pass reads";</item>
+    ///         <item>the bounded-read clause - Red: delete "never the whole repository";</item>
+    ///         <item>the deferral route - Red: delete the middle bullet, or the sentence in the deferral section naming the
+    ///             mechanism lens, or change its reason from different-area.</item>
+    ///     </list>
+    /// </summary>
+    [Fact]
+    public void The_review_skill_has_the_mechanism_lens_read_the_docs_that_describe_the_touched_types()
+    {
+        var normalized = Normalize(ReviewSkill());
+
+        normalized.Should().ContainEquivalentOf("README.md at the repository root and any Markdown file under docs/ that names the type");
+        normalized.Should().ContainEquivalentOf("never the whole repository");
+        normalized.Should().ContainEquivalentOf("the one place the review deliberately looks outside the diff");
+        normalized.Should().ContainEquivalentOf("A claim the change made false is in scope: reject");
+        normalized.Should().ContainEquivalentOf("record it in deferred with reason different-area");
+        normalized.Should().ContainEquivalentOf("The main way a deferral arises is the mechanism lens");
+    }
+
     [Fact]
     public void The_review_skill_is_substantial_and_carries_its_rubric()
     {
