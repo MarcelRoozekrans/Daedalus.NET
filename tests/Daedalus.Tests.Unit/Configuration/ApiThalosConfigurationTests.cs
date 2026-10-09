@@ -153,7 +153,7 @@ public sealed class ApiThalosConfigurationTests
         // Read from the configuration section: the chartered reviewer is resolved from its charter at sync, so it is
         // not in the composed catalog, but its tool envelope lives in Thalos:Agents.
         var agents = LoadApiConfiguration().GetSection("Thalos:Agents").GetChildren()
-            .ToDictionary(a => a["Name"]!, a => a.GetSection("Tools").GetChildren().Select(t => t.Value!).ToList());
+            .ToDictionary(a => a["Name"]!, a => a.GetSection("Tools").GetChildren().Select(t => t.Value!).ToList(), StringComparer.Ordinal);
 
         agents["reviewer"].Should().Contain(["issues__get", "issues__search"]);
         foreach (var name in new[] { "implementer", "scout", "writer" })

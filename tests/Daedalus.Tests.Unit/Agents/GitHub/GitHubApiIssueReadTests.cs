@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using Daedalus.Infrastructure.Services.GitHub;
 using static Daedalus.Tests.Unit.Agents.GitHub.GitHubApiTestSupport;
@@ -91,7 +92,7 @@ public sealed class GitHubApiIssueReadTests
             .Route("&page=1", HttpStatusCode.OK, page1)
             .Route("&page=2", HttpStatusCode.OK, """[{"number":101,"body":"<!-- m -->","html_url":"https://github.com/owner/repo/issues/101","user":{"login":"bot"}}]""");
 
-        var issues = (await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z"))).Value;
+        var issues = (await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z", CultureInfo.InvariantCulture))).Value;
 
         issues.Should().HaveCount(101);
         handler.Requests[0].RequestUri!.Query.Should().Contain("state=all").And.Contain("since=2026-10-09T10%3A00%3A00Z");
@@ -104,11 +105,11 @@ public sealed class GitHubApiIssueReadTests
     [Fact]
     public async Task A_scan_longer_than_the_page_cap_fails_rather_than_truncates()
     {
-        var fullPage = "[" + string.Join(",", Enumerable.Range(1, 100).Select(n =>
+        var fullPage = "[" + string.Join(',', Enumerable.Range(1, 100).Select(n =>
             $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}","user":{"login":"bot"} }""")) + "]";
         var handler = new StubHandler().Route("&page=", HttpStatusCode.OK, fullPage);
 
-        var result = await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z"));
+        var result = await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z", CultureInfo.InvariantCulture));
 
         result.IsFailure.Should().BeTrue();
         handler.Requests.Should().HaveCount(GitHubApi.MaxScanPages);
@@ -118,11 +119,11 @@ public sealed class GitHubApiIssueReadTests
     [Fact]
     public async Task A_page_that_answers_404_mid_scan_is_a_failure_not_a_short_result()
     {
-        var fullPage = "[" + string.Join(",", Enumerable.Range(1, 100).Select(n =>
+        var fullPage = "[" + string.Join(',', Enumerable.Range(1, 100).Select(n =>
             $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}","user":{"login":"bot"} }""")) + "]";
         var handler = new StubHandler().Route("&page=1", HttpStatusCode.OK, fullPage);
 
-        var result = await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z"));
+        var result = await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z", CultureInfo.InvariantCulture));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -137,7 +138,7 @@ public sealed class GitHubApiIssueReadTests
         var api = Build(handler);
 
         var head = await api.GetPullRequestHeadShaAsync(Repo, 0);
-        var comments = await api.ListIssueCommentsSinceAsync(Repo, -1, DateTimeOffset.Parse("2026-10-09T10:00:00Z"));
+        var comments = await api.ListIssueCommentsSinceAsync(Repo, -1, DateTimeOffset.Parse("2026-10-09T10:00:00Z", CultureInfo.InvariantCulture));
 
         head.IsFailure.Should().BeTrue();
         comments.IsFailure.Should().BeTrue();
@@ -184,7 +185,7 @@ public sealed class GitHubApiIssueReadTests
         var handler = new StubHandler().Route("/issues/7/comments", HttpStatusCode.OK,
             """[{"id":5,"body":"x","html_url":"https://github.com/owner/repo/issues/7#issuecomment-5","user":{"login":"bot"}}]""");
 
-        var comments = (await Build(handler).ListIssueCommentsSinceAsync(Repo, 7, DateTimeOffset.Parse("2026-10-09T10:00:00Z"))).Value;
+        var comments = (await Build(handler).ListIssueCommentsSinceAsync(Repo, 7, DateTimeOffset.Parse("2026-10-09T10:00:00Z", CultureInfo.InvariantCulture))).Value;
 
         comments.Should().ContainSingle().Which.Id.Should().Be(5);
         handler.Requests.Single().RequestUri!.Query.Should().Contain("since=");
@@ -226,7 +227,7 @@ public sealed class GitHubApiIssueReadTests
             .Route("/issues?", HttpStatusCode.OK, """[{"number":1,"body":"b","html_url":"https://github.com/owner/repo/issues/1","user":{"login":"alice"}}]""")
             .Route("/issues/7/comments", HttpStatusCode.OK, """[{"id":5,"body":"x","html_url":"https://github.com/owner/repo/issues/7#issuecomment-5","user":{"login":"Bob"}}]""");
         var api = Build(handler);
-        var since = DateTimeOffset.Parse("2026-10-09T10:00:00Z");
+        var since = DateTimeOffset.Parse("2026-10-09T10:00:00Z", CultureInfo.InvariantCulture);
 
         (await api.ListIssuesUpdatedSinceAsync(Repo, since)).Value.Should().ContainSingle().Which.AuthorLogin.Should().Be("alice");
         (await api.ListIssueCommentsSinceAsync(Repo, 7, since)).Value.Should().ContainSingle().Which.AuthorLogin.Should().Be("Bob");
@@ -240,7 +241,7 @@ public sealed class GitHubApiIssueReadTests
             .Route("/issues?", HttpStatusCode.OK, """[{"number":1,"body":"b","html_url":"https://github.com/owner/repo/issues/1","user":null}]""")
             .Route("/issues/7/comments", HttpStatusCode.OK, """[{"id":5,"body":"x","html_url":"https://github.com/owner/repo/issues/7#issuecomment-5"}]""");
         var api = Build(handler);
-        var since = DateTimeOffset.Parse("2026-10-09T10:00:00Z");
+        var since = DateTimeOffset.Parse("2026-10-09T10:00:00Z", CultureInfo.InvariantCulture);
 
         (await api.ListIssuesUpdatedSinceAsync(Repo, since)).IsFailure.Should().BeTrue();
         (await api.ListIssueCommentsSinceAsync(Repo, 7, since)).IsFailure.Should().BeTrue();

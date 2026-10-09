@@ -40,7 +40,7 @@ public sealed class WorkflowRunViewDeferredTests
         {
             var kind = call.ArgAt<string?>(1);
             IReadOnlyList<WorkflowRunRecord> all = [evidence, .. extra];
-            return new ValueTask<IReadOnlyList<WorkflowRunRecord>>([.. all.Where(r => kind is null || r.Kind == kind)]);
+            return new ValueTask<IReadOnlyList<WorkflowRunRecord>>([.. all.Where(r => kind is null || string.Equals(r.Kind, kind, StringComparison.Ordinal))]);
         });
         var controller = new WorkflowRunsController(new WorkflowRunGateway(store, history, RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 

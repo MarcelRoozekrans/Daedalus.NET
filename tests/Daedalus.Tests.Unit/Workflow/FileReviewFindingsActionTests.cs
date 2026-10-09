@@ -1,3 +1,4 @@
+using System.Globalization;
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Infrastructure.Services.GitHub;
@@ -19,8 +20,8 @@ public sealed class FileReviewFindingsActionTests : IDisposable
 {
     private const string Bot = "daedalus-bot";
     private const string PrUrl = "https://github.com/MarcelRoozekrans/daedalus-sandbox/pull/7";
-    private static readonly Guid RunId = Guid.Parse("9b1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b");
-    private static readonly DateTimeOffset ResumedAt = DateTimeOffset.Parse("2026-10-09T12:00:00Z");
+    private static readonly Guid RunId = new Guid(0x9b1c2d3e, 0x4f50, 0x4617, 0x8a, 0x9b, 0x0c, 0x1d, 0x2e, 0x3f, 0x4a, 0x5b);
+    private static readonly DateTimeOffset ResumedAt = DateTimeOffset.Parse("2026-10-09T12:00:00Z", CultureInfo.InvariantCulture);
     private static readonly RepoRef Repo = RepoRef.Parse("MarcelRoozekrans/daedalus-sandbox").Value;
     private static readonly ProcessNode Node = new() { Action = FileReviewFindingsAction.ActionName, Outcomes = ["filed", "none"] };
 
@@ -42,7 +43,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         _services = services.BuildServiceProvider();
 
         _records.ListAsync(RunId, null, Arg.Any<CancellationToken>()).Returns(_ => new ValueTask<IReadOnlyList<WorkflowRunRecord>>([.. _stored]));
-        _records.When(r => r.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>())).Do(c => _stored.Add(c.Arg<WorkflowRunRecord>()));
+        _records.When(r => { _ = r.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()); }).Do(c => _stored.Add(c.Arg<WorkflowRunRecord>()));
 
         _reader.GetAuthenticatedLoginAsync(Arg.Any<CancellationToken>()).Returns(Result<string>.Success(Bot));
         _reader.GetPullRequestHeadShaAsync(SameRepo(), 7, Arg.Any<CancellationToken>()).Returns(Result<string>.Success("abc123"));
@@ -82,7 +83,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
 
     private void Deferred(params string[] entries) =>
         _stored.Add(WorkflowRunRecord.Create(RunId, 9, "review", WorkflowRunRecord.ReviewEvidenceKind, "p", null,
-            $$"""{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{{string.Join(",", entries)}}] }""",
+            $$"""{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{{string.Join(',', entries)}}] }""",
             DateTime.UtcNow).Value);
 
     private static string Entry(string title, int? existing = null, string scenario = "s") =>
@@ -169,7 +170,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         result.Value.Outcome.Should().Be(FileReviewFindingsAction.FiledOutcome);
         await _writer.Received(1).CreateIssueAsync(SameRepo(), "keep", Arg.Is<string>(b => b.Contains(DeferredFindingText.Marker(RunId, "correctness-1"))), Arg.Any<CancellationToken>());
         await _writer.Received(1).CommentAsync(SameRepo(), 7, Arg.Is<string>(b => b.Contains("Dropped at the gate by admin")), Arg.Any<CancellationToken>());
-        _stored.Count(r => r.Kind == WorkflowRunRecord.FindingFiledKind).Should().Be(2, "one finding and the summary");
+        _stored.Count(r => string.Equals(r.Kind, WorkflowRunRecord.FindingFiledKind, StringComparison.Ordinal)).Should().Be(2, "one finding and the summary");
     }
 
     /// <summary>D2: an open issue the reviewer named is commented on. Red: always create; the CommentAsync on #8 assertion fails.</summary>
@@ -256,11 +257,11 @@ public sealed class FileReviewFindingsActionTests : IDisposable
     [InlineData("https://gitlab.com/o/r/-/merge_requests/7")]
     [InlineData("https://gitlab.com/MarcelRoozekrans/daedalus-sandbox/pull/7")]
     [InlineData("https://github.com/MarcelRoozekrans/daedalus-sandbox/issues/7")]
-    public async Task A_missing_or_foreign_pull_request_link_is_refused(string? prUrl)
+    public async Task A_missing_or_foreign_pull_request_link_is_refused(string? pullRequestLink)
     {
         Deferred(Entry("one"));
 
-        (await Action().RunAsync(Run(prUrl), Node, CancellationToken.None)).IsFailure.Should().BeTrue();
+        (await Action().RunAsync(Run(pullRequestLink), Node, CancellationToken.None)).IsFailure.Should().BeTrue();
     }
 
     /// <summary>

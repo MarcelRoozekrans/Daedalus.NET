@@ -153,7 +153,7 @@ public class GitHubApiWriteTests
     public async Task An_issue_title_that_is_blank_or_too_long_fails_and_sends_nothing(string title)
     {
         var handler = new StubHandler();
-        var effective = title == "TOO_LONG" ? new string('x', GitHubApi.MaxIssueTitleLength + 1) : title;
+        var effective = string.Equals(title, "TOO_LONG", StringComparison.Ordinal) ? new string('x', GitHubApi.MaxIssueTitleLength + 1) : title;
 
         var result = await Build(handler).CreateIssueAsync(RepoRef.Parse("owner/repo").Value, effective, "body");
 

@@ -252,11 +252,11 @@ public sealed class WorkflowRunGatewayTests
         result.IsSuccess.Should().BeTrue();
         Received.InOrder(() =>
         {
-            records.AppendAsync(
+            _ = records.AppendAsync(
                 Arg.Is<WorkflowRunRecord>(r => r.Kind == WorkflowRunRecord.FindingsDroppedKind && r.PrincipalId == Approver.Id
                                                && r.PayloadJson.Contains("correctness-1")),
                 Arg.Any<CancellationToken>());
-            store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>());
+            _ = store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>());
         });
     }
 
@@ -297,7 +297,7 @@ public sealed class WorkflowRunGatewayTests
         records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
             var record = call.Arg<WorkflowRunRecord>();
-            if (voidAppendFails && record.Kind == WorkflowRunRecord.FindingsDropVoidedKind)
+            if (voidAppendFails && string.Equals(record.Kind, WorkflowRunRecord.FindingsDropVoidedKind, StringComparison.Ordinal))
                 throw new InvalidOperationException("database down");
 
             appended.Add(record);
@@ -445,11 +445,13 @@ public sealed class WorkflowRunGatewayTests
     {
         using var cts = new CancellationTokenSource();
         var (_, store, records) = GateWith(ApprovedWithDeferred());
-        store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        async ValueTask<Result> LoseTheRace()
         {
-            cts.Cancel();
-            return new ValueTask<Result>(Result.Failure("lost the race"));
-        });
+            await cts.CancelAsync();
+            return Result.Failure("lost the race");
+        }
+
+        store.ResumeAsync(GateRunId, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>()).Returns(_ => LoseTheRace());
         var appended = new List<WorkflowRunRecord>();
         records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
         {

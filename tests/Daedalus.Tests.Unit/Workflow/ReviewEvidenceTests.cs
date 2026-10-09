@@ -284,7 +284,7 @@ public sealed class ReviewEvidenceTests
     public void More_than_32_deferred_entries_are_refused()
     {
         var entry = """{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"blocked"}""";
-        var deferred = "[" + string.Join(",", Enumerable.Repeat(entry, 33)) + "]";
+        var deferred = "[" + string.Join(',', Enumerable.Repeat(entry, 33)) + "]";
 
         var result = ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred);
 
