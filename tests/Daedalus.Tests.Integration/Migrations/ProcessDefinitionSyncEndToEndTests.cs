@@ -90,12 +90,12 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 var definitions = host.Services.GetRequiredService<IProcessDefinitionStore>();
 
                 var activeVersion = await definitions.GetActiveVersionAsync("manufacture", CancellationToken.None);
-                activeVersion.Should().Be(8, "processes/manufacture.yaml declares version: 8 - phase 2.6 ruling R61 states the run mode to implement and review and rewrote constraint 1 and both skills for it, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
+                activeVersion.Should().Be(9, "processes/manufacture.yaml declares version: 9 - phase 2.7 adds the file-findings node after publish and the reviewer's deferred findings, rewriting constraints 2 and 3 and the review skill, which content-hash immutability makes a version change rather than an edit in place - and it must activate on a clean sync");
 
                 var definition = await definitions.GetAsync("manufacture", activeVersion!.Value, CancellationToken.None);
                 definition.IsSuccess.Should().BeTrue(definition.IsFailure ? definition.Error : null);
                 definition.Value.StartNode.Should().Be("implement", "'implement' is the first key under 'nodes' in the real file");
-                definition.Value.Nodes.Keys.Should().Contain(["implement", "review", "retrospect", "adjudicate", "gate", "publish", "done"]);
+                definition.Value.Nodes.Keys.Should().Contain(["implement", "review", "retrospect", "adjudicate", "gate", "publish", "file-findings", "done"]);
 
                 // Activation is the load-bearing part of the three assertions below, not the equality. A
                 // definition only reaches this store after ProcessValidator.ValidateAsync has accepted it against

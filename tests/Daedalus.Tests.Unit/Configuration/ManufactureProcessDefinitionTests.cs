@@ -72,19 +72,20 @@ public sealed class ManufactureProcessDefinitionTests
     }
 
     [Fact]
-    public void The_process_is_at_version_eight()
+    public void The_process_is_at_version_nine()
     {
         var definition = LoadManufactureProcess();
 
         definition.Name.Should().Be("manufacture");
 
-        // Falsifiable: setting `version:` back to 7 in processes/manufacture.yaml turns this red. The number is
+        // Falsifiable: setting `version:` back to 8 in processes/manufacture.yaml turns this red. The number is
         // load-bearing rather than cosmetic - phase 2.2's content-hash immutability refuses a same-version
         // content change, so a v8 body still labelled v7 is not a cosmetic slip, it is a file the store will
         // refuse to activate while the older v7 keeps running. Version 7 (phase 2.6, task B7) rewrites constraint 1 and the two
         // skills for sandbox mode and leaves the graph unchanged. Version 8 (phase 2.6, ruling R61) states the run mode
         // to implement and review instead of leaving them to infer it from their tool lists, and leaves the graph unchanged.
-        definition.Version.Should().Be(8);
+        // Version 9 (phase 2.7) adds the file-findings node after publish and the reviewer's deferred findings.
+        definition.Version.Should().Be(9);
     }
 
     /// <summary>
@@ -107,8 +108,27 @@ public sealed class ManufactureProcessDefinitionTests
         // must never end the run as succeeded.
         publish.Branch.Should().BeEquivalentTo(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["published"] = "done",
+            ["published"] = "file-findings",
             ["failed"] = "adjudicate",
+        });
+    }
+
+    /// <summary>
+    ///     Phase 2.7, A3: file-findings is a host action whose only outcomes end the run as succeeded, since any failure
+    ///     fails the run at this node for the admin retry. Red: add a `failed` outcome, or point `filed` anywhere but done.
+    /// </summary>
+    [Fact]
+    public void File_findings_is_the_file_review_findings_action_and_ends_at_done()
+    {
+        var node = LoadManufactureProcess().Nodes["file-findings"];
+
+        node.Agent.Should().BeNull();
+        node.Action.Should().Be(FileReviewFindingsAction.ActionName);
+        node.Outcomes.Should().BeEquivalentTo([FileReviewFindingsAction.FiledOutcome, FileReviewFindingsAction.NoneOutcome]);
+        node.Branch.Should().BeEquivalentTo(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [FileReviewFindingsAction.FiledOutcome] = "done",
+            [FileReviewFindingsAction.NoneOutcome] = "done",
         });
     }
 

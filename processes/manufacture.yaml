@@ -51,12 +51,14 @@
 #      reuses the one already open. It refuses before any commit or push when the run has no workspace, no
 #      pinned work intent, a repository no longer allow-listed at the workspace's remote, or review evidence
 #      that is unreadable or not an approval. No model decides any of it; no agent holds a tool that could.
+#      `file-findings` holds no tool and runs only after `publish` reports `published`.
 #
 #   3. Reaching `succeeded` proves the graph walked implement -> review -> retrospect -> gate ->
-#      publish -> done, that each task node's agent called the outcome tool its schema demanded, and that
-#      host code opened a pull request for a non-empty diff. It does not prove the change is right: that
-#      rests on the review lenses and on the human at the gate. See section 12 of the phase 2.3 design
-#      document for the honest limits of the review.
+#      publish -> file-findings -> done, that each task node's agent called the outcome tool its schema
+#      demanded, and that host code opened a pull request for a non-empty diff. Reaching `succeeded` also means
+#      every deferred finding the gate did not drop was filed or added to an existing issue. It does not prove the
+#      change is right: that rests on the review lenses and on the human at the gate. See section 12 of the
+#      phase 2.3 design document for the honest limits of the review.
 process: manufacture
 # version bumped 2 -> 3 (phase 2.3, task B4): implement and review move onto the squad roles, implement
 # gains an outcome set, and review declares its lenses. Content-hash immutability refuses a same-version
@@ -97,7 +99,12 @@ process: manufacture
 # their tool list, and the live proof's implementer misread a 74-tool list, decided it was in local mode, and
 # reported `blocked` on a `.csproj` change the sandbox allowed. The start now writes `run_mode`, the host states it in
 # both nodes' task text, and both skills key off the stated mode. Constraint 1 above says how. The graph is unchanged.
-version: 8
+#
+# version bumped 8 -> 9 (phase 2.7): an approving review lens may record deferred findings, real defects outside the
+# change's scope, and after publish a new host action, file-findings, files the ones the gate did not drop as issues
+# linked to the pull request. The reviewer gains issues__get and issues__search to name an existing issue instead of a
+# duplicate. Constraint 3 above is rewritten for the new last step.
+version: 9
 
 nodes:
   # `outcomes` is new in version 3. Version 2 declared none, so this node completed on any turn output at
@@ -163,8 +170,21 @@ nodes:
     action: open-pull-request
     outcomes: [published, failed]
     branch:
-      published: done
+      published: file-findings
       failed: adjudicate
+
+  # Phase 2.7: host code, not a model. Files each deferred finding of the approving review visit that the gate did not
+  # drop, as a new issue or as a comment on the open issue the reviewer named, then posts one summary on the pull
+  # request. Any failure fails the run here, where the admin retry re-runs this node alone; a retry duplicates nothing.
+  # The repository and pull request come from the run's `pr_url`, re-checked against the allow-list. The node needs a
+  # GitHub user token with Issues: Read and write, whose own login it reads from GET /user. A human at the gate may
+  # drop findings by naming them in the resume's `dropFindings`; an unknown id is refused there.
+  file-findings:
+    action: file-review-findings
+    outcomes: [filed, none]
+    branch:
+      filed: done
+      none: done
 
   done:
     terminal: succeeded
