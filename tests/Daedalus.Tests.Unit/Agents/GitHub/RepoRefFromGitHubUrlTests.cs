@@ -14,9 +14,9 @@ public sealed class RepoRefFromGitHubUrlTests
     [InlineData("https://github.com/MarcelRoozekrans/daedalus-sandbox")]
     [InlineData("git@github.com:MarcelRoozekrans/daedalus-sandbox.git")]
     [InlineData("https://github.com/MarcelRoozekrans/daedalus-sandbox/pull/7")]
-    public void A_github_remote_or_link_yields_owner_and_name(string url)
+    public void A_github_remote_or_link_yields_owner_and_name(string remote)
     {
-        var parsed = RepoRef.FromGitHubUrl(url);
+        var parsed = RepoRef.FromGitHubUrl(remote);
 
         parsed.IsSuccess.Should().BeTrue(parsed.IsFailure ? parsed.Error : "");
         parsed.Value.ToString().Should().Be("MarcelRoozekrans/daedalus-sandbox");
@@ -29,6 +29,6 @@ public sealed class RepoRefFromGitHubUrlTests
     [InlineData("https://gitlab.com/owner/repo")]
     [InlineData("https://github.com/owner")]
     [InlineData("not a url")]
-    public void Anything_else_is_a_failure_not_a_guess(string? url) =>
-        RepoRef.FromGitHubUrl(url).IsFailure.Should().BeTrue();
+    public void Anything_else_is_a_failure_not_a_guess(string? remote) =>
+        RepoRef.FromGitHubUrl(remote).IsFailure.Should().BeTrue();
 }

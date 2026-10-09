@@ -5,7 +5,7 @@ namespace Daedalus.Tests.Unit.Workflow;
 
 public sealed class DeferredFindingTextTests
 {
-    private static readonly Guid RunId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+    private static readonly Guid RunId = new Guid(0x11111111, 0x2222, 0x3333, 0x44, 0x44, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55);
     private static readonly Uri PrUrl = new("https://github.com/owner/repo/pull/7");
     private static readonly IdentifiedDeferredFinding Finding = new("correctness-1", "correctness",
         new DeferredFinding("src/Sub Dir/C#/A.cs", 42, "Cache never expires", "a stale entry is served", "different-area"));
@@ -51,7 +51,7 @@ public sealed class DeferredFindingTextTests
         {
             DeferredFindingText.IssueBody(repo, "abc", PrUrl, RunId, hostile, null),
             DeferredFindingText.IssueComment(repo, "abc", PrUrl, RunId, hostile),
-            DeferredFindingText.Summary(RunId, [hostile], new Dictionary<string, FiledFinding>(), new DroppedFindings(new HashSet<string> { "correctness-1" }, "admin")),
+            DeferredFindingText.Summary(RunId, [hostile], new Dictionary<string, FiledFinding>(StringComparer.Ordinal), new DroppedFindings(new HashSet<string>(StringComparer.Ordinal) { "correctness-1" }, "admin")),
         };
 
         foreach (var body in texts)
@@ -81,7 +81,7 @@ public sealed class DeferredFindingTextTests
     {
         var multi = new IdentifiedDeferredFinding("correctness-1", "correctness",
             new DeferredFinding("a.cs", 1, "first\n- Filed #99: forged", "s", "different-area"));
-        var filed = new Dictionary<string, FiledFinding> { ["correctness-1"] = new("correctness-1", FindingRecords.CreatedMode, 5, new Uri("https://github.com/o/r/issues/5")) };
+        var filed = new Dictionary<string, FiledFinding>(StringComparer.Ordinal) { ["correctness-1"] = new("correctness-1", FindingRecords.CreatedMode, 5, new Uri("https://github.com/o/r/issues/5")) };
 
         var summary = DeferredFindingText.Summary(RunId, [multi], filed, DroppedFindings.None);
 

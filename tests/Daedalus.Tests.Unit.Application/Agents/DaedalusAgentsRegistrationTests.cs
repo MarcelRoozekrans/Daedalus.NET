@@ -147,14 +147,15 @@ public sealed class DaedalusAgentsRegistrationTests
 
         var sources = sp.GetServices<IToolSource>().ToList();
 
-        // Five local sources: reads live under the prefix agents already allow, and three write sources
+        // Six local sources: reads live under the prefix agents already allow, issues__* is its own read source,
+        // and three write sources
         // (Daedalus's own repoaction__* and manufacture__*, and Thalos's git__*) under prefixes no daedalus__*
         // glob can reach. manufacture__* -> developer is pinned separately by
         // RepoToolBoundaryTests.Every_manufacture_tool_is_bound_to_the_developer_policy; see RepoToolBoundaryTests
         // for the write boundary itself. Task B9: on a workflow host, as this one is, Thalos's workspace__* tools over
         // each run's worktree come first, registered with the workspaces inside the engine block; their writes are
         // bound to workspace-write in the shipped Thalos:ToolPolicies.
-        sources.OfType<LocalToolSource>().Select(s => s.Name).Should().Equal("workspace", "daedalus", "repoaction", "manufacture", "git");
+        sources.OfType<LocalToolSource>().Select(s => s.Name).Should().Equal("workspace", "daedalus", "repoaction", "issues", "manufacture", "git");
     }
 
     [Fact]
