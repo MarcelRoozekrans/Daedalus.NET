@@ -80,8 +80,8 @@ public sealed class ManufactureProcessDefinitionTests
 
         // Falsifiable: setting `version:` back to 8 in processes/manufacture.yaml turns this red. The number is
         // load-bearing rather than cosmetic - phase 2.2's content-hash immutability refuses a same-version
-        // content change, so a v8 body still labelled v7 is not a cosmetic slip, it is a file the store will
-        // refuse to activate while the older v7 keeps running. Version 7 (phase 2.6, task B7) rewrites constraint 1 and the two
+        // content change, so a v9 body still labelled v8 is not a cosmetic slip, it is a file the store will
+        // refuse to activate while the older v8 keeps running. Version 7 (phase 2.6, task B7) rewrites constraint 1 and the two
         // skills for sandbox mode and leaves the graph unchanged. Version 8 (phase 2.6, ruling R61) states the run mode
         // to implement and review instead of leaving them to infer it from their tool lists, and leaves the graph unchanged.
         // Version 9 (phase 2.7) adds the file-findings node after publish and the reviewer's deferred findings.

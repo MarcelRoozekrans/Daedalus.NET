@@ -1,5 +1,5 @@
 # The first real manufacturing process. A transcription of subagent-driven-development's control
-# flow - implement, review with a bounded fix loop, a human approval gate, then publish - expressed
+# flow - implement, review with a bounded fix loop, a human approval gate, then publish and file the deferred findings - expressed
 # as data the engine interprets rather than as a skill's prose.
 #
 # Three constraints shape this file:
@@ -51,7 +51,7 @@
 #      reuses the one already open. It refuses before any commit or push when the run has no workspace, no
 #      pinned work intent, a repository no longer allow-listed at the workspace's remote, or review evidence
 #      that is unreadable or not an approval. No model decides any of it; no agent holds a tool that could.
-#      `file-findings` holds no tool and runs only after `publish` reports `published`.
+#      `file-findings` holds no agent tool (it uses a host-held GitHub token) and runs only after `publish` reports `published`.
 #
 #   3. Reaching `succeeded` proves the graph walked implement -> review -> retrospect -> gate ->
 #      publish -> file-findings -> done, that each task node's agent called the outcome tool its schema
