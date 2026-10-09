@@ -87,13 +87,13 @@ public sealed class ReviewLensRunnerTests
     };
 
     /// <summary>A turn that reported <paramref name="verdict"/> through both the evidence tool and the engine's.</summary>
-    private static AgentTurnResult Turn(string lens, string verdict, string? findings = null, string? examined = null) =>
+    private static AgentTurnResult Turn(string lens, string verdict, string? findings = null, string? examined = null, string? deferred = null) =>
         new(TurnId.New(), new SessionId(Guid.Empty), $"{lens}: {verdict}", default,
         [
             new ToolCallSummary(
                 ToolCallId.New(),
                 DaedalusReviewTools.QualifiedReportReviewOutcomeToolName,
-                System.Text.Json.JsonSerializer.Serialize(new { lens, verdict, findings, @checked = examined }),
+                System.Text.Json.JsonSerializer.Serialize(new { lens, verdict, findings, @checked = examined, deferred }),
                 Succeeded: true, "Recorded", TimeSpan.FromMilliseconds(3)),
             new ToolCallSummary(
                 ToolCallId.New(),
@@ -452,6 +452,35 @@ public sealed class ReviewLensRunnerTests
         record.PrincipalId.Should().Be(request.Caller.Id);
         record.StartedById.Should().Be("u-starter");
         record.CreatedAt.Should().Be(new DateTime(2026, 9, 28, 9, 30, 0, DateTimeKind.Utc));
+    }
+
+    private const string DeferredEntry =
+        """[{"file":"src/A.cs","line":3,"title":"Cache never expires","scenario":"a stale entry is served after the TTL","reason":"different-area","existingIssue":12}]""";
+
+    [Fact]
+    public async Task An_approving_pass_records_its_deferred_findings()
+    {
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        var appended = new List<WorkflowRunRecord>();
+        records.AppendAsync(Arg.Do<WorkflowRunRecord>(appended.Add), Arg.Any<CancellationToken>()).Returns(ValueTask.CompletedTask);
+        var runner = new ReviewLensRunner(
+            new RecordingRunner(_ => Turn("correctness", "approved", examined: GoodChecked, deferred: DeferredEntry)),
+            DefinitionsWith("correctness"), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<ReviewLensRunner>.Instance);
+
+        var result = await runner.RunAsync(ReviewRequest(ReviewRun()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var record = appended.Should().ContainSingle().Subject;
+        using var payload = System.Text.Json.JsonDocument.Parse(record.PayloadJson);
+        // Red: delete `deferred = evidence.Deferred` from ReviewLensRunner.RecordAsync. Later tasks deserialize these
+        // names, so each is pinned here.
+        var entry = payload.RootElement.GetProperty("deferred")[0];
+        entry.GetProperty("file").GetString().Should().Be("src/A.cs");
+        entry.GetProperty("line").GetInt32().Should().Be(3);
+        entry.GetProperty("title").GetString().Should().Be("Cache never expires");
+        entry.GetProperty("scenario").GetString().Should().Be("a stale entry is served after the TTL");
+        entry.GetProperty("reason").GetString().Should().Be("different-area");
+        entry.GetProperty("existingIssue").GetInt32().Should().Be(12);
     }
 
     [Fact]

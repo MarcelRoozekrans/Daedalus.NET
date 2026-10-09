@@ -214,4 +214,73 @@ public sealed class ReviewEvidenceTests
         // rather than only to the runner.
         rejected.Should().Contain("Remaining lenses will not run");
     }
+
+    private const string OneDeferred =
+        """[{"file":"src/A.cs","line":3,"title":"Cache never expires","scenario":"a stale entry is served after the TTL","reason":"different-area","existingIssue":12}]""";
+
+    /// <summary>Red: ignore the deferredJson argument; Deferred is then empty.</summary>
+    [Fact]
+    public void An_approval_carries_its_deferred_findings()
+    {
+        var evidence = ReviewEvidence.Validate("correctness", "approved", null, """["read A.cs"]""", OneDeferred).Value;
+
+        evidence.Deferred.Should().ContainSingle().Which.Should().Be(
+            new DeferredFinding("src/A.cs", 3, "Cache never expires", "a stale entry is served after the TTL", "different-area", 12));
+    }
+
+    /// <summary>Red: drop the ReportReviewOutcome pass-through of deferred, or the deferred count in the message.</summary>
+    [Fact]
+    public void The_tool_passes_deferred_through_and_reports_its_count()
+    {
+        var tools = new DaedalusReviewTools();
+
+        var accepted = tools.ReportReviewOutcome("correctness", "approved", null, """["read A.cs"]""", OneDeferred);
+
+        accepted.Should().Contain("1 deferred");
+    }
+
+    /// <summary>D1: a rejection's findings are all fixed in the loop. Red: drop the rejection check; this validates.</summary>
+    [Fact]
+    public void A_rejection_may_not_defer()
+    {
+        var result = ReviewEvidence.Validate("correctness", "rejected", """[{"file":"a.cs","line":1,"scenario":"s"}]""", null, OneDeferred);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("only accepted with an approval");
+    }
+
+    /// <summary>Red: drop the matching check; that row then validates.</summary>
+    [Theory]
+    [InlineData("""[{"line":3,"title":"t","scenario":"s","reason":"blocked"}]""", "no 'file'")]
+    [InlineData("""[{"file":"a.cs","line":0,"title":"t","scenario":"s","reason":"blocked"}]""", "positive 'line'")]
+    [InlineData("""[{"file":"a.cs","line":3,"title":" ","scenario":"s","reason":"blocked"}]""", "no 'title'")]
+    [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"","reason":"blocked"}]""", "no 'scenario'")]
+    [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"later"}]""", "'reason'")]
+    [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"blocked","existingIssue":0}]""", "'existingIssue'")]
+    public void A_hollow_deferred_entry_is_refused(string deferred, string expected)
+    {
+        var result = ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain(expected);
+    }
+
+    /// <summary>Red: skip the title-length check; this validates.</summary>
+    [Fact]
+    public void A_title_over_200_characters_is_refused()
+    {
+        var deferred = $$"""[{"file":"a.cs","line":3,"title":"{{new string('t', 201)}}","scenario":"s","reason":"blocked"}]""";
+
+        ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred).IsFailure.Should().BeTrue();
+    }
+
+    /// <summary>Red: skip the count check; 33 entries validate.</summary>
+    [Fact]
+    public void More_than_32_deferred_entries_are_refused()
+    {
+        var entry = """{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"blocked"}""";
+        var deferred = "[" + string.Join(",", Enumerable.Repeat(entry, 33)) + "]";
+
+        ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred).IsFailure.Should().BeTrue();
+    }
 }
