@@ -1,8 +1,60 @@
 # Session State
 
-**Last session:** 2026-10-01, with the owner present; paused for a laptop shutdown
+**Last session:** 2026-10-09, with the owner present
 
-## Current Position - phase 2.5 complete and merged (PR #315, 2026-10-01); phase 2.6 is next
+## Current Position - phase 2.7 complete and merged (PR #323, 2026-10-09); phase 2.8 is next
+
+**Milestone 2, phase 2.7, issues as a first-class output.** Rebase-merged to `main` as PR #323 (33 commits,
+head `d28fa6b`) on 2026-10-09. Phase 2.6 had closed earlier the same day through PR #321. Rulings R1–R27, the
+live-proof table and carried items are in `docs/plans/2026-10-09-phase-2.7-rulings.md`.
+
+- **What shipped:**
+  - An approving review lens records `deferred[]` findings.
+  - The gate lists them, and a resume may drop some (`dropFindings`).
+  - Process v9's `file-findings` host action files the rest as issues, or comments on an existing one, and posts one
+    PR summary. It is idempotent across admin retries.
+  - The reviewer and the chat Architect gain `issues__get` and `issues__search`.
+  - `repoaction__create_issue` is bound to `developer`.
+- **The live proof found and fixed two real defects:**
+  - A review node's free-form variables overflowed the 16-key bag. The host now drops them.
+  - The reviewer never deferred anything, so the mechanism lens now reads the docs that describe the touched types.
+- **Proven live:**
+  - Run `37ae33aa` went through v9 to `Succeeded` along the `none` route (daedalus-sandbox#10).
+  - Run `9e75a3c8` filed daedalus-sandbox#12 from a seeded README defect and posted the summary on #11.
+- **Test-proven only:** commenting on an existing issue, and dropping a finding at the gate.
+- **Suites:** Unit 941, Unit.Application 439, Unit.Domain 383, Unit.Infrastructure 153, Integration 712. CI green.
+- **Roadmap change:** phase 2.10, per-turn tool selection with ZeroAlloc.Jev, was inserted after 2.9. The scout HTTP
+  path and the manufacturing console are now 2.11 and 2.12.
+
+## Needs the owner
+
+1. **Close the sandbox leftovers when done.** daedalus-sandbox PRs #10 and #11 are open, as are issues #9 (the seed)
+   and #12. #12 tracks the seeded README claim, which is a real defect.
+2. **Decide #322:** limit `issues__*` to the run's repository for workflow callers.
+3. **Decide #318 and #319**, carried from 2.6.
+4. **Judgment call:** should the review skill's "search issues first" be strengthened? Run 7 did not link the
+   closely matching #9.
+5. **Cut a release when wanted** (release-please, manual dispatch). Then confirm the 2.6 and 2.7 `feat:`/`fix:`
+   commits are in its PR.
+6. **Still open from 2.6:**
+   - confirm the exposed secrets were rotated (the Anthropic key was);
+   - the context7 key committed in `.mcp.json`;
+   - the Postgres collation mismatch;
+   - review has no `blocked` outcome.
+
+## Filed or tracked
+
+- #322 (new in 2.7), plus #318, #319, #313, #295, #312, #280 and #281, all still open.
+
+## Recommended Next Step
+
+1. Merge the close-out PR for this branch, `chore/complete-phase-2.7`.
+2. `start-next-phase`: phase 2.8, Ralph retirement (Surface `Refactor`, so the pre-plan hook runs
+   `refactor-analysis`).
+
+---
+
+## Previous position (2026-10-01) - phase 2.5 complete and merged (PR #315); phase 2.6 is next
 
 **Milestone 2, phase 2.5, run write authority.** Merged to `main` as PR #315 (`aac31a9`) on 2026-10-01.
 Parts A, B and C are complete and reviewed, and the Part C final review found nothing to fix. Rulings, the live-proof table and carried items are in
