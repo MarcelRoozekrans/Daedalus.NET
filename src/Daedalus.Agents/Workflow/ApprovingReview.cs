@@ -30,8 +30,8 @@ public static class ApprovingReview
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>
-    ///     The latest visit, <see langword="null"/> when the run records no review evidence at all, or a failure naming the
-    ///     first record that cannot be read. Records of other kinds are ignored, so a caller may pass a full listing.
+    ///     The latest visit, <see langword="null"/> when the run records no review evidence at all, or a failure: one naming the first
+    ///     record that cannot be read, or one for a store that answered with no list at all, which has no record to name. Records of other kinds are ignored, so a caller may pass a full listing.
     /// </summary>
     public static Result<ReviewVisit?> Read(IReadOnlyList<WorkflowRunRecord>? records)
     {
@@ -81,8 +81,21 @@ public static class ApprovingReview
                 && examined.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String))
             {
                 IReadOnlyList<DeferredFinding> deferred = [];
-                if (root.TryGetProperty("deferred", out var d) && d.ValueKind == JsonValueKind.Array)
-                    deferred = JsonSerializer.Deserialize<DeferredFinding[]>(d.GetRawText(), JsonOptions) ?? [];
+                var wellFormed = true;
+                if (root.TryGetProperty("deferred", out var d) && d.ValueKind != JsonValueKind.Null)
+                {
+                    // The host wrote validated evidence, so a deferred list of any other shape is a corrupt record, not none.
+                    var entries = d.ValueKind == JsonValueKind.Array
+                        ? JsonSerializer.Deserialize<DeferredFinding?[]>(d.GetRawText(), JsonOptions)
+                        : null;
+                    if (entries is null || !entries.All(IsComplete))
+                        wellFormed = false;
+                    else
+                        deferred = [.. entries.Select(e => e!)];
+                }
+
+                if (!wellFormed)
+                    return Result<(string, bool, IReadOnlyList<string>, IReadOnlyList<DeferredFinding>)>.Failure(Unreadable(record));
 
                 return Result<(string, bool, IReadOnlyList<string>, IReadOnlyList<DeferredFinding>)>.Success((
                     lens.GetString()!,
@@ -97,6 +110,15 @@ public static class ApprovingReview
         }
 
         return Result<(string, bool, IReadOnlyList<string>, IReadOnlyList<DeferredFinding>)>.Failure(
-            $"review evidence record {record.Id} has no readable lens, verdict, checked list and deferred list");
+            Unreadable(record));
     }
+
+    private static string Unreadable(WorkflowRunRecord record) =>
+        $"review evidence record {record.Id} has no readable lens, verdict, checked list and deferred list";
+
+    private static bool IsComplete(DeferredFinding? f) =>
+        f is not null
+        && !string.IsNullOrWhiteSpace(f.File) && !string.IsNullOrWhiteSpace(f.Title)
+        && !string.IsNullOrWhiteSpace(f.Scenario) && !string.IsNullOrWhiteSpace(f.Reason)
+        && f.Line > 0;
 }
