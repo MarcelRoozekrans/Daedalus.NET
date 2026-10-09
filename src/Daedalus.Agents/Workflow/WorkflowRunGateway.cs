@@ -94,6 +94,13 @@ public sealed partial class WorkflowRunGateway(
     }
 
     /// <summary>
+    ///     What <c>file-review-findings</c> did with each deferred finding, by id, from the run's <c>finding-filed</c>
+    ///     records. Empty before the action has run; a failure only when a record cannot be read.
+    /// </summary>
+    public async ValueTask<Result<IReadOnlyDictionary<string, FiledFinding>>> ListFiledFindingsAsync(Guid runId, CancellationToken ct) =>
+        FindingRecords.ReadFiled(await ListRecordsAsync(runId, WorkflowRunRecord.FindingFiledKind, ct).ConfigureAwait(false));
+
+    /// <summary>
     ///     Resumes <paramref name="runId"/> if it is parked awaiting exactly <paramref name="signal"/>. A run not
     ///     found, not awaiting anything, or awaiting a different signal fails loudly — the error names what the
     ///     run is actually awaiting rather than only echoing back the signal the caller supplied — and the run's

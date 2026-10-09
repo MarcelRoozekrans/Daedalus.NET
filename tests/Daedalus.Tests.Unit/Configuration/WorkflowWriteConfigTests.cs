@@ -529,24 +529,23 @@ public sealed class WorkflowWriteConfigTests
     }
 
     /// <summary>
-    ///     Task B13: open-pull-request is registered once, as a singleton, so the resolver and the dispatcher, which both
-    ///     receive every registered host action, see the same instance.
+    ///     Task B13 and phase 2.7: open-pull-request and file-review-findings are each registered once, as a singleton, so the
+    ///     resolver and the dispatcher, which both receive every registered host action, see the same instances.
     /// </summary>
     [Fact]
-    public async Task With_the_engine_on_open_pull_request_is_one_singleton_host_action()
+    public async Task With_the_engine_on_each_host_action_is_one_singleton()
     {
         var (services, options, configuration, environment) = LoadShippedApi();
         services.AddDaedalusAgents(options, configuration, environment);
 
-        services.Where(d => d.ServiceType == typeof(IWorkflowHostAction))
-            .Should().ContainSingle()
-            .Which.Should().Match<ServiceDescriptor>(d =>
-                d.Lifetime == ServiceLifetime.Singleton && d.ImplementationType == typeof(OpenPullRequestAction));
+        var registered = services.Where(d => d.ServiceType == typeof(IWorkflowHostAction)).ToList();
+        registered.Should().HaveCount(2).And.OnlyContain(d => d.Lifetime == ServiceLifetime.Singleton);
+        registered.Select(d => d.ImplementationType).Should().BeEquivalentTo([typeof(OpenPullRequestAction), typeof(FileReviewFindingsAction)]);
 
         await using var sp = services.BuildServiceProvider();
-        var first = sp.GetServices<IWorkflowHostAction>().Should().ContainSingle().Subject;
-        first.Name.Should().Be("open-pull-request");
-        sp.GetServices<IWorkflowHostAction>().Single().Should().BeSameAs(first);
+        var first = sp.GetServices<IWorkflowHostAction>().ToList();
+        first.Select(a => a.Name).Should().BeEquivalentTo(["open-pull-request", "file-review-findings"]);
+        sp.GetServices<IWorkflowHostAction>().Should().Equal(first, (a, b) => ReferenceEquals(a, b));
     }
 
     [Fact]

@@ -55,4 +55,33 @@ public sealed class FindingRecordsTests
         result.Value.Ids.Should().BeEquivalentTo(["correctness-2"]);
         result.Value.By.Should().Be("admin");
     }
+
+    /// <summary>Red: serialize the url as an empty string; the round trip loses the link.</summary>
+    [Fact]
+    public void A_filed_record_round_trips_and_a_later_record_for_the_same_id_wins()
+    {
+        var first = new FiledFinding("correctness-1", FindingRecords.CreatedMode, 21, new Uri("https://github.com/o/r/issues/21"));
+        var later = first with { Mode = FindingRecords.CommentedMode, Issue = 8, Url = new Uri("https://github.com/o/r/issues/8") };
+
+        var result = FindingRecords.ReadFiled([
+            Record(WorkflowRunRecord.FindingFiledKind, FindingRecords.FiledPayload(first)),
+            Record(WorkflowRunRecord.FindingFiledKind, FindingRecords.FiledPayload(later))]);
+
+        result.Value["correctness-1"].Should().Be(later);
+    }
+
+    /// <summary>Red: parse a relative url leniently; the malformed record is then read.</summary>
+    [Theory]
+    [InlineData("""{ "id": "a", "mode": "created", "issue": 1, "url": "not a url" }""")]
+    [InlineData("""{ "id": "a", "mode": "created", "issue": "1", "url": "https://github.com/o/r/issues/1" }""")]
+    [InlineData("[]")]
+    public void An_unreadable_filed_record_is_a_failure_naming_it(string payload)
+    {
+        var record = Record(WorkflowRunRecord.FindingFiledKind, payload);
+
+        var result = FindingRecords.ReadFiled([record]);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain($"finding-filed record {record.Id} is unreadable");
+    }
 }
