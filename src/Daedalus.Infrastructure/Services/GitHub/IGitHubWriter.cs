@@ -3,9 +3,9 @@ using ZeroAlloc.Results;
 namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>
-///     Acts on a GitHub repository — for interactive agents and for the post-gate host actions, which run only after a human approved. There is no retry anywhere in this path: a
-///     retried comment is a double comment on someone's pull request, and a retried label or close is a visible
-///     action taken twice. A failure returns <see cref="Result{T}.Failure(string)"/> and stops; it must surface to
+///     Acts on a GitHub repository — for interactive agents and for the post-gate host actions, which run only
+///     after a human approved. There is no retry anywhere in this path: a retried comment is a double comment on
+///     someone's pull request, and a retried label or close is a visible action taken twice. A failure returns <see cref="Result{T}.Failure(string)"/> and stops; it must surface to
 ///     the agent rather than be swallowed, because otherwise the agent will report success to a person when the
 ///     write did not happen.
 /// </summary>

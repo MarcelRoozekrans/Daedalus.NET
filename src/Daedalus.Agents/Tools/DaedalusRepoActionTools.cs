@@ -93,6 +93,9 @@ public sealed class DaedalusRepoActionTools(IGitHubWriter writer)
         if (string.IsNullOrWhiteSpace(title))
             return "Could not file the issue: a title is required.";
 
+        if (title.Trim().Length > GitHubApi.MaxIssueTitleLength)
+            return $"Could not file the issue: the title is longer than {GitHubApi.MaxIssueTitleLength} characters.";
+
         var result = await writer.CreateIssueAsync(parsedRepo.Value, title.Trim(), body ?? "", ct);
         return result.IsSuccess
             ? $"Filed {parsedRepo.Value}#{result.Value.Number}: {result.Value.HtmlUrl}"
