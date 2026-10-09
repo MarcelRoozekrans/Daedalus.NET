@@ -20,7 +20,7 @@ only once something demonstrably better runs in its place.
 
 ## Definition of Done
 
-- [ ] **All planned phases complete.** Phases 2.1 through 2.11 are merged.
+- [ ] **All planned phases complete.** Phases 2.1 through 2.12 are merged.
 - [x] **One manufacture run proven live from intent to reviewed pull request.** It is started
       through `POST /api/workflow-runs`, against a repository the owner chooses. Every step is
       recorded in the run's event log, not asserted:
@@ -58,7 +58,7 @@ only once something demonstrably better runs in its place.
       is, sized from measurements rather than picked.
 - [ ] **All tests passing.** Unit, Unit.Application, Unit.Domain, Unit.Infrastructure and
       Integration all pass. Playwright.Api and Playwright.Browser pass for any phase that touches
-      UI, including 2.11's manufacturing console.
+      UI, including 2.12's manufacturing console.
 - [ ] **Documentation complete.** Every phase has a design doc, a plan and a rulings record in
       `docs/plans/`.
 
@@ -72,11 +72,12 @@ only once something demonstrably better runs in its place.
 | 2.4 | The process as skills | complete (2026-09-24; #276) |
 | 2.5 | Run write authority, standing instructions in the target workspace, prompt caching | complete (2026-10-01; #315) |
 | 2.6 | Sandboxed run pods | complete (2026-10-04; #320) |
-| 2.7 | Issues as a first-class output | pending |
+| 2.7 | Issues as a first-class output | complete (2026-10-09; #323) |
 | 2.8 | Ralph retirement | pending |
 | 2.9 | Observability | pending |
-| 2.10 | The scout HTTP path | pending |
-| 2.11 | Manufacturing console | pending |
+| 2.10 | Per-turn tool selection with ZeroAlloc.Jev | pending |
+| 2.11 | The scout HTTP path | pending |
+| 2.12 | Manufacturing console | pending |
 
 Full phase text, including what each completed phase actually proved and carried forward, is in
 `docs/planning/ROADMAP.md`.
