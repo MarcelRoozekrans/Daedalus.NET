@@ -139,8 +139,11 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var events = await runs.ListEventsAsync(run.Id, ct);
         var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
         var deferred = await runs.ListDeferredFindingsAsync(run.Id, ct);
-        var dropped = FindingRecords.ReadDropped(await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDroppedKind, ct));
+        var drops = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDroppedKind, ct);
+        var voids = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDropVoidedKind, ct);
+        var dropped = FindingRecords.ReadDropped([.. drops, .. voids]);
         var droppedIds = dropped.IsSuccess ? dropped.Value.Ids : DroppedFindings.None.Ids;
+        var error = string.Join("; ", new[] { deferred.IsFailure ? deferred.Error : null, dropped.IsFailure ? dropped.Error : null }.Where(e => e is not null));
 
         var (prUrl, unreadableLink) = ReadPrUrl(run);
         return new WorkflowRunView(
@@ -159,7 +162,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             StartedBy: run.StartedBy?.Id,
             WriteAudit: [.. writes.Select(ToWriteAuditView)],
             DeferredFindings: deferred.IsSuccess ? [.. deferred.Value.Select(d => ToDeferredView(d, droppedIds))] : [],
-            DeferredFindingsError: deferred.IsFailure ? deferred.Error : null);
+            DeferredFindingsError: error.Length > 0 ? error : null);
     }
 
     private static DeferredFindingView ToDeferredView(IdentifiedDeferredFinding d, IReadOnlySet<string> dropped) =>
@@ -398,9 +401,9 @@ public sealed record StartWorkflowRunResponse(Guid RunId);
 /// <param name="WriteAudit">Every workspace write the run was allowed, from its write-audit records, in seq order.</param>
 /// <param name="DeferredFindings">
 ///     The deferred findings of the run's approving review visit, each marked dropped when the latest
-///     <c>findings-dropped</c> record names it. Empty when the findings cannot be read.
+///     <c>findings-dropped</c> record names it. Empty when the findings cannot be read. When only the drop records cannot be read, none is marked dropped and the error says so.
 /// </param>
-/// <param name="DeferredFindingsError">Why <paramref name="DeferredFindings"/> is empty when a record could not be read, otherwise <see langword="null"/>.</param>
+/// <param name="DeferredFindingsError">Why a review-evidence or findings-dropped record could not be read, otherwise <see langword="null"/>.</param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
