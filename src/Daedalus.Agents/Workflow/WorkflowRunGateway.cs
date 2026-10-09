@@ -35,7 +35,7 @@ namespace Daedalus.Agents.Workflow;
 ///     record store do not.</b> The writer's default keeps the resume tests in <c>ResumeBoundaryTests.cs</c> free of
 ///     a writer they never use, while every host still wires the real one through DI (see
 ///     <c>AddDaedalusWorkflow</c>). A caller that asks the public
-///     <see cref="ResumeAsync(Guid,string,string?,bool,RunPrincipal,CancellationToken)"/> overload to apply standing
+///     <see cref="ResumeAsync(Guid,string,string?,bool,IReadOnlyList{string},RunPrincipal,CancellationToken)"/> overload to apply standing
 ///     instructions without one throws: that combination is a wiring bug, never a normal outcome a caller should
 ///     branch on. <paramref name="history"/> and <paramref name="scopes"/> are required, not defaulted (task B15,
 ///     ruling R25), so no host can build a gateway whose run view silently shows no usage and no write audit.
@@ -44,13 +44,15 @@ namespace Daedalus.Agents.Workflow;
 /// <param name="store">The workflow store every read and write of the run itself goes through.</param>
 /// <param name="history">Reads the run's event log back, including each completed node's token usage.</param>
 /// <param name="scopes">Creates the scope each read of the run's host-written records resolves <see cref="IWorkflowRunRecordStore"/> from.</param>
+/// <param name="clock">The time <c>findings-dropped</c> records are stamped with.</param>
 /// <param name="writer">Writes an approved standing-instructions proposal; see the remarks.</param>
 public sealed class WorkflowRunGateway(
-    IWorkflowStore store, IWorkflowRunHistory history, IServiceScopeFactory scopes, StandingInstructionsWriter? writer = null)
+    IWorkflowStore store, IWorkflowRunHistory history, IServiceScopeFactory scopes, TimeProvider clock, StandingInstructionsWriter? writer = null)
 {
     private readonly IWorkflowStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IWorkflowRunHistory _history = history ?? throw new ArgumentNullException(nameof(history));
     private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
+    private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly StandingInstructionsWriter? _writer = writer;
 
     /// <summary>Finds a run by id, or <see langword="null"/> if none exists.</summary>
@@ -75,6 +77,19 @@ public sealed class WorkflowRunGateway(
     }
 
     /// <summary>
+    ///     The deferred findings of the run's approving review visit, with their ids. Empty when the latest visit is not
+    ///     an approval or no review evidence exists; a failure only when a record cannot be read.
+    /// </summary>
+    public async ValueTask<Result<IReadOnlyList<IdentifiedDeferredFinding>>> ListDeferredFindingsAsync(Guid runId, CancellationToken ct)
+    {
+        var visit = ApprovingReview.Read(await ListRecordsAsync(runId, WorkflowRunRecord.ReviewEvidenceKind, ct).ConfigureAwait(false));
+        if (visit.IsFailure)
+            return Result<IReadOnlyList<IdentifiedDeferredFinding>>.Failure(visit.Error);
+
+        return Result<IReadOnlyList<IdentifiedDeferredFinding>>.Success(visit.Value is { Approved: true } approved ? approved.Deferred : []);
+    }
+
+    /// <summary>
     ///     Resumes <paramref name="runId"/> if it is parked awaiting exactly <paramref name="signal"/>. A run not
     ///     found, not awaiting anything, or awaiting a different signal fails loudly — the error names what the
     ///     run is actually awaiting rather than only echoing back the signal the caller supplied — and the run's
@@ -83,7 +98,7 @@ public sealed class WorkflowRunGateway(
     /// <remarks>
     ///     <c>internal</c>, not <c>public</c>: fix round 1 of task B5 found nothing in <c>src</c> calling this
     ///     overload directly any more — <c>Daedalus.Api.Controllers.WorkflowRunsController.Resume</c> only ever calls the
-    ///     public <see cref="ResumeAsync(Guid,string,string?,bool,RunPrincipal,CancellationToken)"/> overload below,
+    ///     public <see cref="ResumeAsync(Guid,string,string?,bool,IReadOnlyList{string},RunPrincipal,CancellationToken)"/> overload below,
     ///     which applies standing instructions when asked before delegating here. A future <c>public</c> caller of
     ///     this overload could bypass that entirely — resuming a gate with no chance to apply a proposal, or worse,
     ///     no chance to be refused when it should have been. <c>internal</c> keeps this callable only from within
@@ -144,39 +159,66 @@ public sealed class WorkflowRunGateway(
     ///     <see cref="ResumeRefusal.InstructionsChangedSinceStart"/> — the pinned text and the now-written file no
     ///     longer match — which is the correct, safe outcome even though it reads as a second, different failure.
     ///     </para>
+    ///     <para>
+    ///     <b>Deferred findings (phase 2.7).</b> Every id in <paramref name="dropFindings"/> must name a deferred finding
+    ///     of the run's approving review visit, or the resume is refused with <see cref="ResumeRefusal.UnknownFinding"/>
+    ///     before anything is written. A run that has deferred findings then gets a
+    ///     <see cref="WorkflowRunRecord.FindingsDroppedKind"/> record naming the resumer and the dropped ids, even when
+    ///     none are dropped, so the latest record is always the one that applies. A run with none records nothing.
+    ///     </para>
     /// </summary>
     public async ValueTask<UnitResult<ResumeFailure>> ResumeAsync(
-        Guid runId, string signal, string? payload, bool applyStandingInstructions, RunPrincipal resumedBy, CancellationToken ct)
+        Guid runId, string signal, string? payload, bool applyStandingInstructions, IReadOnlyList<string>? dropFindings,
+        RunPrincipal resumedBy, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(signal);
         ArgumentNullException.ThrowIfNull(resumedBy);
 
+        // A wiring bug, not a request outcome, so it is reported before anything is read.
+        if (applyStandingInstructions && _writer is null)
+        {
+            throw new InvalidOperationException(
+                "WorkflowRunGateway was constructed without a StandingInstructionsWriter; it cannot apply standing instructions.");
+        }
+
+        var run = await _store.FindAsync(runId, ct).ConfigureAwait(false);
+        if (run is null)
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, $"Workflow run '{runId}' was not found."));
+
+        var awaiting = CheckAwaiting(run, signal, runId);
+        if (awaiting.IsFailure)
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, awaiting.Error));
+
+        // Phase 2.7: every drop id is checked before anything is written, so a typo files nothing and changes nothing.
+        var deferred = await ListDeferredFindingsAsync(runId, ct).ConfigureAwait(false);
+        if (deferred.IsFailure)
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.RecordFailed, $"The run's review evidence could not be read: {deferred.Error}"));
+
+        var known = deferred.Value.Select(d => d.Id).ToList();
+        var drop = (dropFindings ?? []).Distinct(StringComparer.Ordinal).ToList();
+        var unknown = drop.Where(id => !known.Contains(id, StringComparer.Ordinal)).ToList();
+        if (unknown.Count > 0)
+        {
+            var detail = known.Count == 0
+                ? $"Workflow run '{runId}' has no deferred findings, so there is nothing to drop: {string.Join(", ", unknown)}."
+                : $"Workflow run '{runId}' has no deferred finding {string.Join(", ", unknown)}; its deferred findings are {string.Join(", ", known)}.";
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.UnknownFinding, detail));
+        }
+
+        // Always recorded when the run has deferred findings, even with an empty list, so the latest record is the one
+        // that applies and a failed earlier resume's list can never leak into this one.
+        if (known.Count > 0)
+        {
+            var recorded = await RecordDroppedAsync(run, drop, resumedBy, ct).ConfigureAwait(false);
+            if (recorded.IsFailure)
+                return recorded;
+        }
+
         if (applyStandingInstructions)
         {
-            if (_writer is null)
-            {
-                throw new InvalidOperationException(
-                    "WorkflowRunGateway was constructed without a StandingInstructionsWriter; it cannot apply standing instructions.");
-            }
-
-            var run = await _store.FindAsync(runId, ct).ConfigureAwait(false);
-            if (run is null)
-            {
-                return UnitResult<ResumeFailure>.Failure(
-                    new ResumeFailure(ResumeRefusal.EngineRefused, $"Workflow run '{runId}' was not found."));
-            }
-
-            var awaiting = CheckAwaiting(run, signal, runId);
-            if (awaiting.IsFailure)
-            {
-                return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, awaiting.Error));
-            }
-
-            var applied = await _writer.ApplyAsync(run, ct).ConfigureAwait(false);
+            var applied = await _writer!.ApplyAsync(run, ct).ConfigureAwait(false);
             if (applied.IsFailure)
-            {
                 return applied;
-            }
         }
 
         try
@@ -192,6 +234,27 @@ public sealed class WorkflowRunGateway(
                 ? $"The standing-instructions file was already written, but the resume itself lost a concurrency race: {ex.Message}"
                 : ex.Message;
             return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.EngineRefused, detail));
+        }
+    }
+
+    private async ValueTask<UnitResult<ResumeFailure>> RecordDroppedAsync(
+        WorkflowRun run, IReadOnlyCollection<string> drop, RunPrincipal resumedBy, CancellationToken ct)
+    {
+        var record = WorkflowRunRecord.Create(
+            run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.FindingsDroppedKind, resumedBy.Id, run.StartedBy?.Id,
+            FindingRecords.DroppedPayload(drop, resumedBy.DisplayName ?? resumedBy.Id), _clock.GetUtcNow().UtcDateTime);
+        if (record.IsFailure)
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.RecordFailed, record.Error));
+
+        try
+        {
+            await using var scope = _scopes.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>().AppendAsync(record.Value, ct).ConfigureAwait(false);
+            return UnitResult<ResumeFailure>.Success();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.RecordFailed, "The dropped findings could not be recorded, so the run was not resumed."));
         }
     }
 

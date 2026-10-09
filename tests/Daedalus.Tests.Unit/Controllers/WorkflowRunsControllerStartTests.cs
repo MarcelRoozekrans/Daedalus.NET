@@ -23,7 +23,7 @@ public sealed class WorkflowRunsControllerStartTests
     public WorkflowRunsControllerStartTests()
     {
         var gateway = new WorkflowRunGateway(
-            Substitute.For<IWorkflowStore>(), Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For());
+            Substitute.For<IWorkflowStore>(), Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddMvcCore().AddApiExplorer();

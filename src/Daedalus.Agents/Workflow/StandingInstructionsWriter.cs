@@ -6,7 +6,7 @@ using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Workflow;
 
-/// <summary>Why <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,bool,Thalos.Workflow.RunPrincipal,CancellationToken)"/> refused a resume.</summary>
+/// <summary>Why <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,bool,IReadOnlyList{string},Thalos.Workflow.RunPrincipal,CancellationToken)"/> refused a resume.</summary>
 public enum ResumeRefusal
 {
     /// <summary>The run's <c>retrospect</c> step reported no <see cref="ReviewHandoff.ProposedStandingInstructionsKey"/> — there is nothing to apply.</summary>
@@ -32,6 +32,12 @@ public enum ResumeRefusal
 
     /// <summary>The workflow engine's own resume refused — e.g. the run is not awaiting the given signal.</summary>
     EngineRefused,
+
+    /// <summary>Phase 2.7: the resume named a deferred finding to drop that the run does not have. A bad request, mapped to 422.</summary>
+    UnknownFinding,
+
+    /// <summary>Phase 2.7: the run's host-written records could not be read or written. A server fault, mapped to 500.</summary>
+    RecordFailed,
 }
 
 /// <summary>A resume refusal's kind plus a human-readable detail, carried by <see cref="UnitResult{E}"/>.</summary>

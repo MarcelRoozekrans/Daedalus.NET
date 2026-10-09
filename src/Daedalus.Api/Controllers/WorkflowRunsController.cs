@@ -138,6 +138,9 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     {
         var events = await runs.ListEventsAsync(run.Id, ct);
         var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
+        var deferred = await runs.ListDeferredFindingsAsync(run.Id, ct);
+        var dropped = FindingRecords.ReadDropped(await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDroppedKind, ct));
+        var droppedIds = dropped.IsSuccess ? dropped.Value.Ids : DroppedFindings.None.Ids;
 
         var (prUrl, unreadableLink) = ReadPrUrl(run);
         return new WorkflowRunView(
@@ -154,8 +157,14 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             PrUrl: prUrl,
             UnreadablePullRequestLink: unreadableLink,
             StartedBy: run.StartedBy?.Id,
-            WriteAudit: [.. writes.Select(ToWriteAuditView)]);
+            WriteAudit: [.. writes.Select(ToWriteAuditView)],
+            DeferredFindings: deferred.IsSuccess ? [.. deferred.Value.Select(d => ToDeferredView(d, droppedIds))] : [],
+            DeferredFindingsError: deferred.IsFailure ? deferred.Error : null);
     }
+
+    private static DeferredFindingView ToDeferredView(IdentifiedDeferredFinding d, IReadOnlySet<string> dropped) =>
+        new(d.Id, d.Lens, d.Finding.File, d.Finding.Line, d.Finding.Title, d.Finding.Scenario, d.Finding.Reason,
+            d.Finding.ExistingIssue, dropped.Contains(d.Id));
 
     private static NodeUsageView ToUsageView(WorkflowRunEvent completion)
     {
@@ -244,7 +253,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         }
 
         var approver = RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value);
-        var result = await runs.ResumeAsync(id, request.Signal, request.Payload, request.ApplyStandingInstructions, approver, ct);
+        var result = await runs.ResumeAsync(id, request.Signal, request.Payload, request.ApplyStandingInstructions, request.DropFindings, approver, ct);
         if (result.IsSuccess)
         {
             return NoContent();
@@ -254,6 +263,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         {
             ResumeRefusal.WriteFailed => StatusCodes.Status500InternalServerError,
             ResumeRefusal.PublishRefused => StatusCodes.Status422UnprocessableEntity,
+            ResumeRefusal.UnknownFinding => StatusCodes.Status422UnprocessableEntity,
+            ResumeRefusal.RecordFailed => StatusCodes.Status500InternalServerError,
             _ => StatusCodes.Status409Conflict,
         };
         return Problem(detail: result.Error.Detail, statusCode: statusCode);
@@ -333,7 +344,12 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 ///     Set <see langword="true"/> only when a human operator has decided to accept the run's proposed standing
 ///     instructions — this is the one flag that makes <see cref="WorkflowRunGateway"/> write to disk at all.
 /// </param>
-public sealed record ResumeWorkflowRunRequest(string Signal, string? Payload, bool ApplyStandingInstructions = false);
+/// <param name="DropFindings">
+///     Phase 2.7. The ids of deferred findings the human decided not to file. An id the run does not have is a 422 and
+///     nothing is resumed.
+/// </param>
+public sealed record ResumeWorkflowRunRequest(
+    string Signal, string? Payload, bool ApplyStandingInstructions = false, IReadOnlyList<string>? DropFindings = null);
 
 /// <summary>Request body for <see cref="WorkflowRunsController.Cancel"/>.</summary>
 /// <param name="Reason">A human-readable reason recorded against the run; defaults when omitted.</param>
@@ -380,6 +396,11 @@ public sealed record StartWorkflowRunResponse(Guid RunId);
 /// </param>
 /// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
 /// <param name="WriteAudit">Every workspace write the run was allowed, from its write-audit records, in seq order.</param>
+/// <param name="DeferredFindings">
+///     The deferred findings of the run's approving review visit, each marked dropped when the latest
+///     <c>findings-dropped</c> record names it. Empty when the findings cannot be read.
+/// </param>
+/// <param name="DeferredFindingsError">Why <paramref name="DeferredFindings"/> is empty when a record could not be read, otherwise <see langword="null"/>.</param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
@@ -394,7 +415,13 @@ public sealed record WorkflowRunView(
     Uri? PrUrl,
     string? UnreadablePullRequestLink,
     string? StartedBy,
-    IReadOnlyList<WriteAuditView> WriteAudit);
+    IReadOnlyList<WriteAuditView> WriteAudit,
+    IReadOnlyList<DeferredFindingView> DeferredFindings,
+    string? DeferredFindingsError);
+
+/// <summary>One deferred finding of the approving review visit, as the gate shows it.</summary>
+public sealed record DeferredFindingView(
+    string Id, string Lens, string File, int Line, string Title, string Scenario, string Reason, int? ExistingIssue, bool Dropped);
 
 /// <summary>The token usage one completed agent node reported, read off its completion event.</summary>
 /// <param name="Seq">The seq of the node execution the completion event closes.</param>

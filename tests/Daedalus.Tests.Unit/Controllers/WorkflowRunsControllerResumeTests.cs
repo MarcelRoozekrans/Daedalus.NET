@@ -11,6 +11,7 @@ using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
 using ZeroAlloc.Results;
+using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
 namespace Daedalus.Tests.Unit.Controllers;
 
@@ -26,12 +27,14 @@ public sealed class WorkflowRunsControllerResumeTests
 
     private readonly IWorkflowStore _store = Substitute.For<IWorkflowStore>();
     private readonly IRunWorkspaceHandoff _handoff = Substitute.For<IRunWorkspaceHandoff>();
+    private readonly IWorkflowRunRecordStore _records = Substitute.For<IWorkflowRunRecordStore>();
     private readonly WorkflowRunsController _controller;
 
     public WorkflowRunsControllerResumeTests()
     {
+        _records.ListAsync(Guid.Empty, default, default).ReturnsForAnyArgs(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, _handoff, NullLogger<StandingInstructionsWriter>.Instance);
-        var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), writer);
+        var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(_records), TimeProvider.System, writer);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddMvcCore().AddApiExplorer();
@@ -84,6 +87,30 @@ public sealed class WorkflowRunsControllerResumeTests
         var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
         objectResult.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         objectResult.Value.Should().BeOfType<ProblemDetails>().Subject.Detail.Should().Be("git apply failed.");
+        await _store.DidNotReceiveWithAnyArgs().ResumeAsync(Guid.Empty, default!, default);
+    }
+
+    /// <summary>
+    ///     A drop id the run does not have is a 422, and the run is not resumed. Red: map
+    ///     <see cref="ResumeRefusal.UnknownFinding"/> to 409 in the controller, and the status fails.
+    /// </summary>
+    [Fact]
+    public async Task An_unknown_finding_to_drop_is_a_422()
+    {
+        var run = AwaitingRun();
+        _store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
+        var evidence = WorkflowRunRecord.Create(
+            run.Id, 1, "review", WorkflowRunRecord.ReviewEvidenceKind, "p", null,
+            """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked"}] }""",
+            DateTime.UtcNow).Value;
+        _records.ListAsync(run.Id, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([evidence]));
+
+        var result = await _controller.Resume(run.Id, new ResumeWorkflowRunRequest(Signal, null, DropFindings: ["nope-1"]), CancellationToken.None);
+
+        var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status422UnprocessableEntity);
+        objectResult.Value.Should().BeOfType<ProblemDetails>().Subject.Detail.Should().Contain("nope-1");
         await _store.DidNotReceiveWithAnyArgs().ResumeAsync(Guid.Empty, default!, default);
     }
 

@@ -3,9 +3,12 @@ using System.Security.Claims;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
+using Daedalus.Domain.Entities;
+using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -337,7 +340,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes());
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System);
             var runId = await ParkedAtGateAsync(store, "c1");
 
             var result = await gateway.ResumeAsync(runId, "ci_passed", payload: null, TestApprover, CancellationToken.None);
@@ -353,7 +356,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes());
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System);
 
             var result = await gateway.ResumeAsync(Guid.NewGuid(), "human_approval", payload: null, TestApprover, CancellationToken.None);
 
@@ -368,7 +371,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes());
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System);
             var runId = await ParkedAtGateAsync(store, "c2");
 
             var result = await gateway.ResumeAsync(runId, "human_approval", payload: null, TestApprover, CancellationToken.None);
@@ -396,7 +399,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes()));
+            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System));
 
             var result = await controller.Resume(
                 Guid.NewGuid(), new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
@@ -411,11 +414,56 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes()));
+            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System));
 
             var result = await controller.Cancel(Guid.NewGuid(), new CancelWorkflowRunRequest("test"), CancellationToken.None);
 
             result.Should().BeOfType<NotFoundResult>();
+        });
+    }
+
+    /// <summary>
+    ///     The gate records a drop in Postgres, through the real <see cref="WorkflowRunRecordStore"/>, with the resuming
+    ///     user as principal, and <see cref="FindingRecords.ReadDropped"/> reads it back. Red: drop the
+    ///     <c>RecordDroppedAsync</c> call in <see cref="WorkflowRunGateway"/>; the single-record assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_drop_at_the_gate_is_recorded_with_the_resumer_in_postgres()
+    {
+        await WithScratchDatabaseAsync(async store =>
+        {
+            var runId = await ParkedAtGateAsync(store, "drop");
+            await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(store.ConnectionString)))
+            {
+                await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
+                await db.Database.MigrateAsync();
+            }
+
+            var records = new WorkflowRunRecordStore(new ConnectionStringDbContextFactory(store.ConnectionString));
+            var run = await store.Store.FindAsync(runId, CancellationToken.None);
+            var evidence = WorkflowRunRecord.Create(
+                runId, run!.CurrentSeq, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", null,
+                """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked"}] }""",
+                DateTime.UtcNow).Value;
+            await records.AppendAsync(evidence, CancellationToken.None);
+
+            var services = new ServiceCollection();
+            services.AddScoped<IWorkflowRunRecordStore>(_ => records);
+            var gateway = new WorkflowRunGateway(
+                store.Store, store.Store, services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), TimeProvider.System);
+            var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "u-dev"), new Claim(ClaimTypes.Role, "developer")], "Test"));
+            var controller = WithUser(new WorkflowRunsController(gateway), user);
+
+            var result = await controller.Resume(
+                runId, new ResumeWorkflowRunRequest("human_approval", null, DropFindings: ["correctness-1"]), CancellationToken.None);
+
+            result.Should().BeOfType<NoContentResult>();
+            var dropped = (await records.ListAsync(runId, WorkflowRunRecord.FindingsDroppedKind, CancellationToken.None))
+                .Should().ContainSingle().Subject;
+            dropped.PrincipalId.Should().Be("u-dev");
+            var read = FindingRecords.ReadDropped([dropped]);
+            read.IsSuccess.Should().BeTrue(read.IsFailure ? read.Error : null);
+            read.Value.Ids.Should().BeEquivalentTo(["correctness-1"]);
         });
     }
 
@@ -431,7 +479,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         await WithScratchDatabaseAsync(async store =>
         {
             var runId = await ParkedAtGateAsync(store, "no-subject");
-            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes())), DeveloperWithoutSubject());
+            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System)), DeveloperWithoutSubject());
 
             var result = await controller.Resume(
                 runId, new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
@@ -455,7 +503,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var starter = Substitute.For<IManufactureRunStarter>();
             starter.StartAsync(Arg.Any<ManufactureStartRequest>(), Arg.Any<CancellationToken>())
                 .Returns(new ValueTask<Result<Guid, ManufactureStartFailure>>(Result<Guid, ManufactureStartFailure>.Success(Guid.NewGuid())));
-            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes())), DeveloperWithoutSubject());
+            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System)), DeveloperWithoutSubject());
 
             var result = await controller.Start(new StartWorkflowRunRequest("Tighten a guard.", "sandbox"), starter, CancellationToken.None);
 
@@ -530,7 +578,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var definition = ProcessLoader.Load(Yaml).Value;
             (await definitions.UpsertAndActivateAsync(definition, Yaml, CancellationToken.None)).IsSuccess.Should().BeTrue();
 
-            await body(new ScratchStore(store, definitions));
+            await body(new ScratchStore(store, definitions, connectionString));
         }
         finally
         {
@@ -558,7 +606,13 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         await command.ExecuteNonQueryAsync();
     }
 
-    private sealed record ScratchStore(OrmWorkflowStore Store, OrmProcessDefinitionStore Definitions);
+    private sealed record ScratchStore(OrmWorkflowStore Store, OrmProcessDefinitionStore Definitions, string ConnectionString);
+
+    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
+    private sealed class ConnectionStringDbContextFactory(string connectionString) : IDbContextFactory<ApplicationDbContext>
+    {
+        public ApplicationDbContext CreateDbContext() => new(PostgresFixture.CreateDbContextOptions(connectionString));
+    }
 
     /// <summary>
     ///     The record-store scope factory every gateway here is built with, as <c>ReviewLensRunnerTests.Scopes</c>
