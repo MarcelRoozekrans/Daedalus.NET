@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ZeroAlloc.Results;
@@ -20,6 +21,35 @@ public sealed record ReviewFinding(
     [property: JsonPropertyName("file")] string File,
     [property: JsonPropertyName("line")] int Line,
     [property: JsonPropertyName("scenario")] string Scenario);
+
+/// <summary>
+///     A real defect an approving lens saw outside the change's scope. It is recorded rather than fixed, and filed as an
+///     issue after publish unless a human drops it at the gate. Only an approval may carry one (spec D1).
+/// </summary>
+/// <param name="File">Repository-relative path of the file the finding is in.</param>
+/// <param name="Line">One-based line number.</param>
+/// <param name="Title">The issue title it would be filed under, at most <see cref="MaxTitleLength"/> characters.</param>
+/// <param name="Scenario">The concrete input, state or sequence under which the code fails.</param>
+/// <param name="Reason">Why it is not fixed in this change: one of <see cref="Reasons"/>.</param>
+/// <param name="ExistingIssue">An open issue the reviewer found already tracking it, or <see langword="null"/>.</param>
+public sealed record DeferredFinding(
+    [property: JsonPropertyName("file")] string File,
+    [property: JsonPropertyName("line")] int Line,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("scenario")] string Scenario,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("existingIssue")] int? ExistingIssue = null)
+{
+    /// <summary>The longest <see cref="Title"/>.</summary>
+    public const int MaxTitleLength = 200;
+
+    /// <summary>
+    ///     The owner's own criteria for filing instead of fixing: a different area, a decision for the maintainer, a
+    ///     sizeable piece of work, or a wait on something external. A finding that fits none of them is fixed in the loop.
+    /// </summary>
+    public static readonly FrozenSet<string> Reasons =
+        new[] { "different-area", "needs-decision", "too-large", "blocked" }.ToFrozenSet(StringComparer.Ordinal);
+}
 
 /// <summary>
 ///     A reviewer's verdict for one lens pass, together with the evidence that verdict is required to carry.
@@ -72,6 +102,9 @@ public sealed record ReviewEvidence(
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Out-of-scope findings an approval recorded; empty on a rejection.</summary>
+    public IReadOnlyList<DeferredFinding> Deferred { get; init; } = [];
+
     /// <summary>Whether this pass approved.</summary>
     public bool IsApproval => string.Equals(Verdict, Approved, StringComparison.Ordinal);
 
@@ -84,7 +117,8 @@ public sealed record ReviewEvidence(
     /// <param name="verdict">The reported verdict.</param>
     /// <param name="findingsJson">A JSON array of findings, or null/empty when approving.</param>
     /// <param name="checkedJson">A JSON array of strings, or null/empty when rejecting.</param>
-    public static Result<ReviewEvidence> Validate(string? lens, string? verdict, string? findingsJson, string? checkedJson)
+    /// <param name="deferredJson">A JSON array of deferred findings, accepted only with an approval.</param>
+    public static Result<ReviewEvidence> Validate(string? lens, string? verdict, string? findingsJson, string? checkedJson, string? deferredJson = null)
     {
         if (string.IsNullOrWhiteSpace(lens))
             return Result<ReviewEvidence>.Failure("A review report must name the lens the pass applied.");
@@ -128,7 +162,19 @@ public sealed record ReviewEvidence(
                 "with nothing to act on.");
         }
 
-        return Result<ReviewEvidence>.Success(new ReviewEvidence(lens.Trim(), normalizedVerdict, findings.Value, examined.Value));
+        var deferred = ParseDeferred(deferredJson);
+        if (deferred.IsFailure)
+            return Result<ReviewEvidence>.Failure(deferred.Error);
+
+        if (string.Equals(normalizedVerdict, Rejected, StringComparison.Ordinal) && deferred.Value.Count > 0)
+        {
+            return Result<ReviewEvidence>.Failure(
+                "'deferred' is only accepted with an approval. A rejection sends every finding back to be fixed, so put " +
+                "an in-scope problem in 'findings'. An out-of-scope one is deferred by the pass that approves.");
+        }
+
+        return Result<ReviewEvidence>.Success(
+            new ReviewEvidence(lens.Trim(), normalizedVerdict, findings.Value, examined.Value) { Deferred = deferred.Value });
     }
 
     private static Result<IReadOnlyList<ReviewFinding>> ParseFindings(string? json)
@@ -170,6 +216,56 @@ public sealed record ReviewEvidence(
         }
 
         return Result<IReadOnlyList<ReviewFinding>>.Success(parsed);
+    }
+
+    private static Result<IReadOnlyList<DeferredFinding>> ParseDeferred(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return Result<IReadOnlyList<DeferredFinding>>.Success([]);
+
+        DeferredFinding?[]? parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<DeferredFinding?[]>(json, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return Result<IReadOnlyList<DeferredFinding>>.Failure(
+                $"'deferred' must be a JSON array of objects with 'file', 'line', 'title', 'scenario' and 'reason': {ex.Message}");
+        }
+
+        if (parsed is null)
+            return Result<IReadOnlyList<DeferredFinding>>.Success([]);
+
+        if (parsed.Length > MaxEntries)
+            return Result<IReadOnlyList<DeferredFinding>>.Failure($"'deferred' has {parsed.Length} entries; at most {MaxEntries} are accepted.");
+
+        var reasons = string.Join(", ", DeferredFinding.Reasons.Order(StringComparer.Ordinal));
+        for (var i = 0; i < parsed.Length; i++)
+        {
+            var d = parsed[i];
+            var at = $"Deferred finding {i + 1}";
+            if (d is null || string.IsNullOrWhiteSpace(d.File))
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at} has no 'file'.");
+            if (d.Line <= 0)
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at} ('{d.File}') has no positive 'line'. Line numbers are one-based.");
+            if (string.IsNullOrWhiteSpace(d.Title))
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at} ('{d.File}') has no 'title'. It becomes the issue's title.");
+            if (d.Title.Length > DeferredFinding.MaxTitleLength)
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at}'s 'title' is {d.Title.Length} characters; at most {DeferredFinding.MaxTitleLength} are accepted.");
+            if (string.IsNullOrWhiteSpace(d.Scenario))
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at} ('{d.File}') has no 'scenario'. Name the input or state under which the code fails.");
+            if (d.Reason is null || !DeferredFinding.Reasons.Contains(d.Reason))
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at}'s 'reason' must be one of {reasons}. A finding that fits none of them is in scope: reject so it is fixed.");
+            if (d.ExistingIssue is <= 0)
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at}'s 'existingIssue' must be a positive issue number, or left out.");
+
+            var text = CheckEntry($"{at}'s 'file'", d.File) ?? CheckEntry($"{at}'s 'title'", d.Title) ?? CheckEntry($"{at}'s 'scenario'", d.Scenario);
+            if (text is not null)
+                return Result<IReadOnlyList<DeferredFinding>>.Failure(text);
+        }
+
+        return Result<IReadOnlyList<DeferredFinding>>.Success([.. parsed.Select(d => d!)]);
     }
 
     private static Result<IReadOnlyList<string>> ParseChecked(string? json)

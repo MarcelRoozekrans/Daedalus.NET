@@ -172,6 +172,7 @@ internal sealed partial class ReviewLensRunner(
             verdict = evidence.Verdict,
             @checked = evidence.Checked,
             findings = evidence.Findings,
+            deferred = evidence.Deferred,
         });
 
         var record = WorkflowRunRecord.Create(
@@ -363,7 +364,8 @@ internal sealed partial class ReviewLensRunner(
             ReadArgument(root, "lens") ?? lens.Name,
             ReadArgument(root, "verdict"),
             ReadArgument(root, "findings"),
-            ReadArgument(root, "checked"));
+            ReadArgument(root, "checked"),
+            ReadArgument(root, "deferred"));
 
         if (reported.IsFailure)
             return reported;

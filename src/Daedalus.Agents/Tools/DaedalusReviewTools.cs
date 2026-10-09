@@ -59,15 +59,16 @@ public sealed class DaedalusReviewTools
         [Description("The review lens this pass applied: correctness, falsifiability or mechanism.")] string lens,
         [Description("The verdict for this lens only: 'approved' or 'rejected'.")] string verdict,
         [Description("JSON array of findings, required when rejecting. Each entry: {\"file\": \"src/X.cs\", \"line\": 42, \"scenario\": \"what concretely goes wrong\"}. At most 32 entries; 'file' and 'scenario' at most 1000 characters each; no NUL characters.")] string? findings = null,
-        [Description("JSON array of strings, required when approving. What you examined and found sound, specific enough for a human to look at the same thing. At most 32 entries of at most 1000 characters each; no NUL characters.")] string? @checked = null)
+        [Description("JSON array of strings, required when approving. What you examined and found sound, specific enough for a human to look at the same thing. At most 32 entries of at most 1000 characters each; no NUL characters.")] string? @checked = null,
+        [Description("JSON array of real findings outside this change's scope, accepted only when approving. Each entry: {\"file\": \"src/X.cs\", \"line\": 42, \"title\": \"short issue title\", \"scenario\": \"what concretely goes wrong\", \"reason\": \"different-area\", \"existingIssue\": 123}. 'reason' is one of different-area, needs-decision, too-large or blocked. 'existingIssue' is optional: an open issue already tracking it, found with issues__search. At most 32 entries; 'title' at most 200 characters.")] string? deferred = null)
     {
-        var validated = ReviewEvidence.Validate(lens, verdict, findings, @checked);
+        var validated = ReviewEvidence.Validate(lens, verdict, findings, @checked, deferred);
         if (validated.IsFailure)
             return $"Report refused: {validated.Error}";
 
         var evidence = validated.Value;
         return evidence.IsApproval
-            ? $"Recorded: lens '{evidence.Lens}' approved, {evidence.Checked.Count} item(s) checked."
+            ? $"Recorded: lens '{evidence.Lens}' approved, {evidence.Checked.Count} item(s) checked, {evidence.Deferred.Count} deferred."
             : $"Recorded: lens '{evidence.Lens}' rejected, {evidence.Findings.Count} finding(s). Remaining lenses will not run.";
     }
 }
