@@ -16,11 +16,7 @@ public static class DeferredFindingText
     ///     contain a <see cref="Marker"/> except the one the host appends last: a reviewer steered by the code it read
     ///     cannot plant a sibling finding's marker (spec A2 and D2).
     /// </summary>
-    public static string Block(string text)
-    {
-        ArgumentNullException.ThrowIfNull(text);
-        return text.Replace("<!--", "&lt;!--", StringComparison.Ordinal);
-    }
+    public static string Block(string text) => HtmlCommentText.Neutralize(text);
 
     /// <summary><see cref="Block"/> for a single line, such as a title: line breaks become spaces.</summary>
     public static string Line(string text) =>
@@ -95,7 +91,7 @@ public static class DeferredFindingText
         foreach (var finding in deferred)
         {
             if (dropped.Ids.Contains(finding.Id))
-                text.Append("- Dropped at the gate by ").Append(Line(dropped.By ?? "the approver")).Append(": `").Append(Line(finding.Id)).Append("` ").AppendLine(Line(finding.Finding.Title));
+                text.Append("- Dropped at the gate by ").Append(Line(dropped.By ?? FindingRecords.UnnamedApprover)).Append(": `").Append(Line(finding.Id)).Append("` ").AppendLine(Line(finding.Finding.Title));
             else if (filed.TryGetValue(finding.Id, out var f))
                 text.Append(string.Equals(f.Mode, FindingRecords.CommentedMode, StringComparison.Ordinal) ? "- Added to #" : "- Filed #").Append(f.Issue).Append(": ").AppendLine(Line(finding.Finding.Title));
         }

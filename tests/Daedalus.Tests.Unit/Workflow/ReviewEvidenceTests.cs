@@ -259,12 +259,34 @@ public sealed class ReviewEvidenceTests
     [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"blocked","existingIssue":0}]""", "'existingIssue'")]
     [InlineData("""[{"file":"a.cs","line":3,"title":"t","scenario":"s","reason":"blocked","existingIssue":"twelve"}]""", "optional numeric 'existingIssue'")]
     [InlineData("[null]", "is null; each entry must be an object")]
+    [InlineData("""[{"file":"a.cs","line":3,"title":"t <!-- x","scenario":"s","reason":"blocked"}]""", "'title' contains '<!--'")]
+    [InlineData("""[{"file":"/etc/a.cs","line":3,"title":"t","scenario":"s","reason":"blocked"}]""", "relative to the repository root")]
+    [InlineData("""[{"file":"\\src\\a.cs","line":3,"title":"t","scenario":"s","reason":"blocked"}]""", "relative to the repository root")]
+    [InlineData("""[{"file":"C:/src/a.cs","line":3,"title":"t","scenario":"s","reason":"blocked"}]""", "relative to the repository root")]
+    [InlineData("""[{"file":"../../../x/y","line":3,"title":"t","scenario":"s","reason":"blocked"}]""", "relative to the repository root")]
+    [InlineData("""[{"file":"src\\..\\..\\y.cs","line":3,"title":"t","scenario":"s","reason":"blocked"}]""", "relative to the repository root")]
     public void A_hollow_deferred_entry_is_refused(string deferred, string expected)
     {
         var result = ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain(expected);
+    }
+
+    /// <summary>
+    ///     Only a whole <c>..</c> segment climbs out; dots inside a name do not. Red: refuse any file containing "..";
+    ///     these rows then fail.
+    /// </summary>
+    [Theory]
+    [InlineData("src/a..b.cs")]
+    [InlineData("src/..hidden/a.cs")]
+    public void A_file_with_dots_inside_a_name_is_accepted(string file)
+    {
+        var deferred = $$"""[{"file":"{{file}}","line":3,"title":"t","scenario":"s","reason":"blocked"}]""";
+
+        var result = ReviewEvidence.Validate("correctness", "approved", null, """["x"]""", deferred);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : "");
     }
 
     /// <summary>Red: skip the title-length check; this validates.</summary>

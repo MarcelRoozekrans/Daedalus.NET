@@ -34,7 +34,8 @@ public sealed class DaedalusRepoActionTools(IGitHubWriter writer)
         if (parsedRepo.IsFailure)
             return parsedRepo.Error;
 
-        var result = await writer.CommentAsync(parsedRepo.Value, number, body, ct);
+        // Escaped, so a comment this account writes can never end with a marker the file-findings action trusts.
+        var result = await writer.CommentAsync(parsedRepo.Value, number, HtmlCommentText.Neutralize(body ?? ""), ct);
         return result.IsSuccess ? result.Value : $"Could not post the comment: {result.Error}";
     }
 
@@ -93,10 +94,13 @@ public sealed class DaedalusRepoActionTools(IGitHubWriter writer)
         if (string.IsNullOrWhiteSpace(title))
             return "Could not file the issue: a title is required.";
 
-        if (title.Trim().Length > GitHubApi.MaxIssueTitleLength)
+        // Escaped, so an issue this account files can never carry a marker the file-findings action trusts. The limit
+        // applies to the title as posted, escapes included.
+        var posted = HtmlCommentText.Neutralize(title.Trim());
+        if (posted.Length > GitHubApi.MaxIssueTitleLength)
             return $"Could not file the issue: the title is longer than {GitHubApi.MaxIssueTitleLength} characters.";
 
-        var result = await writer.CreateIssueAsync(parsedRepo.Value, title.Trim(), body ?? "", ct);
+        var result = await writer.CreateIssueAsync(parsedRepo.Value, posted, HtmlCommentText.Neutralize(body ?? ""), ct);
         return result.IsSuccess
             ? $"Filed {parsedRepo.Value}#{result.Value.Number}: {result.Value.HtmlUrl}"
             : $"Could not file the issue: {result.Error}";

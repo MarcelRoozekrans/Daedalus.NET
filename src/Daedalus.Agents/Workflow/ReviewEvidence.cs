@@ -261,6 +261,10 @@ public sealed record ReviewEvidence(
                 return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at}'s 'reason' must be one of {reasons}. A finding that fits none of them is in scope: reject so it is fixed.");
             if (d.ExistingIssue is <= 0)
                 return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at}'s 'existingIssue' must be a positive issue number, or left out.");
+            if (d.Title.Contains("<!--", StringComparison.Ordinal))
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at}'s 'title' contains '<!--'. A title has no use for an HTML comment; write it as plain text.");
+            if (!IsRepositoryRelative(d.File))
+                return Result<IReadOnlyList<DeferredFinding>>.Failure($"{at}'s 'file' ('{d.File}') must be a path relative to the repository root, with no leading slash, drive letter or '..' segment.");
 
             var text = CheckEntry($"{at}'s 'file'", d.File) ?? CheckEntry($"{at}'s 'title'", d.Title) ?? CheckEntry($"{at}'s 'scenario'", d.Scenario);
             if (text is not null)
@@ -268,6 +272,18 @@ public sealed record ReviewEvidence(
         }
 
         return Result<IReadOnlyList<DeferredFinding>>.Success([.. parsed.Select(d => d!)]);
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="file"/> stays inside the repository: not rooted, no drive letter and no <c>..</c>
+    ///     segment. The filed issue links to it on github.com, so a path that climbs out would link anywhere there.
+    /// </summary>
+    private static bool IsRepositoryRelative(string file)
+    {
+        if (file.StartsWith('/') || file.StartsWith('\\') || (file.Length >= 2 && file[1] == ':' && char.IsAsciiLetter(file[0])))
+            return false;
+
+        return !file.Split(['/', '\\']).Any(segment => string.Equals(segment.Trim(), "..", StringComparison.Ordinal));
     }
 
     private static Result<IReadOnlyList<string>> ParseChecked(string? json)

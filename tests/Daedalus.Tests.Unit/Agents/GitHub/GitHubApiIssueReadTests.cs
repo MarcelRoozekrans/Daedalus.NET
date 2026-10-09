@@ -41,9 +41,11 @@ public sealed class GitHubApiIssueReadTests
 
     /// <summary>
     ///     A5. GitHub combines several <c>repo:</c> qualifiers with OR, so a query naming its own would widen the search.
-    ///     Red: delete the qualifier check; the request is then sent.
+    ///     Red: delete the qualifier check; the request is then sent. Red: drop the double quote from the regex's lead
+    ///     class; the quoted row is then sent.
     /// </summary>
     [Theory]
+    [InlineData("\"repo:other/x\" crash")]
     [InlineData("crash repo:other/x")]
     [InlineData("org:evil crash")]
     [InlineData("user:someone")]

@@ -143,8 +143,10 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
 
     /// <summary>
     ///     Files an issue. Like <see cref="CreatePullRequestAsync"/> it returns what GitHub assigned rather than a fixed
-    ///     confirmation. No retry, and a timeout is a failure: an issue that was created before the timeout is found
-    ///     again by the caller's marker scan, never by retrying here.
+    ///     confirmation. No retry, and a timeout is a failure. An issue created before the timeout is never found by
+    ///     retrying here: the <c>file-review-findings</c> host action scans for its own marker before it files again,
+    ///     while any other caller, such as the <c>repoaction__create_issue</c> tool, gets a failure that may hide an
+    ///     issue that was in fact created.
     /// </summary>
     public async Task<Result<CreatedIssue>> CreateIssueAsync(RepoRef repo, string title, string body, CancellationToken ct = default)
     {
@@ -836,7 +838,7 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
         }
     }
 
-    [GeneratedRegex(@"(?:^|[\s(])-?(?:repo|org|user|owner):", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"(?:^|[\s(""])-?(?:repo|org|user|owner):", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex ScopeQualifier();
 
     [LoggerMessage(EventId = 511, Level = LogLevel.Warning, Message = "GitHub read failed: {What}")]
