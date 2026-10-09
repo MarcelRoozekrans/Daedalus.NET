@@ -138,6 +138,56 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
         });
     }
 
+    /// <summary>GitHub's own limit on an issue title.</summary>
+    public const int MaxIssueTitleLength = 256;
+
+    /// <summary>
+    ///     Files an issue. Like <see cref="CreatePullRequestAsync"/> it returns what GitHub assigned rather than a fixed
+    ///     confirmation. No retry, and a timeout is a failure: an issue that was created before the timeout is found
+    ///     again by the caller's marker scan, never by retrying here.
+    /// </summary>
+    public async Task<Result<CreatedIssue>> CreateIssueAsync(RepoRef repo, string title, string body, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        if (string.IsNullOrWhiteSpace(title) || title.Length > MaxIssueTitleLength)
+            return Result<CreatedIssue>.Failure($"An issue title must be 1 to {MaxIssueTitleLength} characters.");
+
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<CreatedIssue>.Failure(token.Error);
+
+        var payload = JsonSerializer.Serialize(new { title, body });
+
+        // Not disposed, matching SendWriteAsync: the test stub keeps the request so a test can read its body.
+        var request = new HttpRequestMessage(HttpMethod.Post, $"{RepoUrl(repo)}/issues")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+        ApplyHeaders(request, token.Value);
+
+        try
+        {
+            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                return Result<CreatedIssue>.Failure(MapError(response, text));
+
+            using var doc = JsonDocument.Parse(text);
+            return ReadShape($"filing an issue in {repo}", () => new CreatedIssue(
+                doc.RootElement.GetProperty("number").GetInt32(),
+                HtmlUrl(doc.RootElement)));
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            return Result<CreatedIssue>.Failure($"Filing an issue in {repo} timed out: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            LogReadFailed(_logger, ex, $"filing an issue in {repo}");
+            return Result<CreatedIssue>.Failure($"Filing an issue in {repo} failed: {ex.Message}");
+        }
+    }
+
     /// <summary>
     ///     The open pull request whose head is <paramref name="headBranch"/> in <paramref name="repo"/>, or
     ///     <see langword="null"/> when none is open. GitHub's <c>head</c> filter takes <c>owner:branch</c>; the whole

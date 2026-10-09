@@ -51,6 +51,9 @@ public sealed record IssueText(int Number, string? Body, Uri HtmlUrl, bool IsPul
 /// <summary>An issue comment's body and link, as a marker scan reads it.</summary>
 public sealed record IssueCommentText(long Id, string? Body, Uri HtmlUrl);
 
+/// <summary>An issue GitHub created.</summary>
+public sealed record CreatedIssue(int Number, Uri HtmlUrl);
+
 /// <summary>Which issues a search returns.</summary>
 public enum IssueSearchState
 {
