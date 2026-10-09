@@ -52,6 +52,9 @@ public sealed partial class WorkflowRunGateway(
     IWorkflowStore store, IWorkflowRunHistory history, IServiceScopeFactory scopes, TimeProvider clock, ILogger<WorkflowRunGateway> logger,
     StandingInstructionsWriter? writer = null)
 {
+    /// <summary>How long voiding a drop record may take once the resume after it failed; the request's own token does not bound it.</summary>
+    private static readonly TimeSpan VoidTimeout = TimeSpan.FromSeconds(10);
+
     private readonly IWorkflowStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IWorkflowRunHistory _history = history ?? throw new ArgumentNullException(nameof(history));
     private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
@@ -275,7 +278,7 @@ public sealed partial class WorkflowRunGateway(
     {
         var record = WorkflowRunRecord.Create(
             run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.FindingsDroppedKind, resumedBy.Id, run.StartedBy?.Id,
-            FindingRecords.DroppedPayload(drop, resumedBy.DisplayName ?? resumedBy.Id, attempt), _clock.GetUtcNow().UtcDateTime);
+            FindingRecords.DroppedPayload(drop, resumedBy.DisplayName ?? FindingRecords.UnnamedApprover, attempt), _clock.GetUtcNow().UtcDateTime);
         if (record.IsFailure)
             return UnitResult<ResumeFailure>.Failure(new ResumeFailure(ResumeRefusal.RecordFailed, record.Error));
 
@@ -294,8 +297,9 @@ public sealed partial class WorkflowRunGateway(
 
     /// <summary>
     ///     Names the drop record of <paramref name="attempt"/> as void, because the engine resume that followed it failed. A
-    ///     failure to append is logged and swallowed, so the engine's own failure is still what the caller gets. It appends with
-    ///     <see cref="CancellationToken.None"/>: a short compensating write must not be lost because the client gave up.
+    ///     failure to append is logged and swallowed, so the engine's own failure is still what the caller gets. It appends
+    ///     under a token of its own that only <see cref="VoidTimeout"/> cancels, not the request's: a short compensating
+    ///     write must not be lost because the client gave up, and a store that hangs must not hold the request forever.
     /// </summary>
     private async ValueTask VoidDroppedAsync(WorkflowRun run, string? attempt)
     {
@@ -310,8 +314,9 @@ public sealed partial class WorkflowRunGateway(
             if (record.IsFailure)
                 throw new InvalidOperationException(record.Error);
 
+            using var timeout = new CancellationTokenSource(VoidTimeout, _clock);
             await using var scope = _scopes.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>().AppendAsync(record.Value, CancellationToken.None).ConfigureAwait(false);
+            await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>().AppendAsync(record.Value, timeout.Token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

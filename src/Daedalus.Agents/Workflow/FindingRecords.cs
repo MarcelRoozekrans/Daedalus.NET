@@ -33,6 +33,12 @@ public static class FindingRecords
     /// <summary>The finding id the summary is recorded and marked under.</summary>
     public const string SummaryId = "summary";
 
+    /// <summary>
+    ///     Who a drop is credited to in the public pull-request summary when the approver has no display name. Never the
+    ///     subject id: the summary is public, and the record's own principal already holds the id.
+    /// </summary>
+    public const string UnnamedApprover = "the approver";
+
     /// <summary>The payload of a <see cref="WorkflowRunRecord.FindingsDroppedKind"/> record; <paramref name="attempt"/> is the resume attempt it belongs to.</summary>
     public static string DroppedPayload(IReadOnlyCollection<string> ids, string? by, string attempt) =>
         JsonSerializer.Serialize(new { attempt, dropped = ids, by });

@@ -66,7 +66,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
     private FileReviewFindingsAction Action() =>
         new(_services.GetRequiredService<IServiceScopeFactory>(), _config, TimeProvider.System, NullLogger<FileReviewFindingsAction>.Instance);
 
-    private static WorkflowRun Run(string? prUrl = PrUrl) => new()
+    private static WorkflowRun Run(string? prUrl = PrUrl, bool resumed = true) => new()
     {
         Id = RunId,
         Process = "manufacture",
@@ -78,7 +78,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         Variables = prUrl is null
             ? new Dictionary<string, object?>(StringComparer.Ordinal)
             : new Dictionary<string, object?>(StringComparer.Ordinal) { [ReviewHandoff.PrUrlKey] = prUrl },
-        LastResume = new RunResume(new RunPrincipal("u-admin", ["admin"]) { DisplayName = "admin" }, ResumedAt, "human_approval"),
+        LastResume = resumed ? new RunResume(new RunPrincipal("u-admin", ["admin"]) { DisplayName = "admin" }, ResumedAt, "human_approval") : null,
     };
 
     private void Deferred(params string[] entries) =>
@@ -124,6 +124,40 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         await _reader.DidNotReceiveWithAnyArgs().GetPullRequestHeadShaAsync(default!, default, default);
         await _writer.DidNotReceiveWithAnyArgs().CreateIssueAsync(default!, default!, default!, default);
         await _reader.DidNotReceiveWithAnyArgs().GetAuthenticatedLoginAsync(default);
+    }
+
+    /// <summary>
+    ///     A host that allow-lists a local git remote, as the integration hosts do, gets a pull request link that is not
+    ///     a github.com one from its fake publisher, and must still finish a run that deferred nothing, since nothing is
+    ///     written. Red: move the early <c>none</c> return back below the pull request, allow-list and resume checks; the
+    ///     outcome assertion fails with "not a github.com pull request link".
+    /// </summary>
+    [Fact]
+    public async Task Nothing_deferred_is_none_before_the_pull_request_link_and_allow_list_are_checked()
+    {
+        Deferred();
+        _config.Repositories.Clear();
+        _config.Repositories.Add(new RepositoryConfig { Name = "local", Remote = "file:///C:/tmp/remote.git" });
+        var result = await Action().RunAsync(Run("https://example.invalid/local/remote/pull/1", resumed: false), Node, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : "");
+        result.Value.Outcome.Should().Be(FileReviewFindingsAction.NoneOutcome);
+        _reader.ReceivedCalls().Should().BeEmpty();
+        _writer.ReceivedCalls().Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     A run whose review recorded no evidence deferred nothing, as publish reads it. Red: fail on a missing visit as on
+    ///     a rejected one; the outcome assertion fails with "no approving review".
+    /// </summary>
+    [Fact]
+    public async Task No_review_evidence_at_all_is_none()
+    {
+        var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : "");
+        result.Value.Outcome.Should().Be(FileReviewFindingsAction.NoneOutcome);
+        _writer.ReceivedCalls().Should().BeEmpty();
     }
 
     /// <summary>Red: ignore the drop record; an issue is then created.</summary>
