@@ -2062,13 +2062,14 @@ spaces and `..` segments — because agents pass this straight from a model, not
 `IGitHubWriter`'s own doc comment states it is "for interactive agents only" and carries no retry: a retried
 comment is a visible double comment on someone's pull request.
 
-Two tool classes each hold only one half of the seam — not by convention, but because each class's
+Three tool classes each hold only one half of the seam — not by convention, but because each class's
 constructor only accepts one interface:
 
 | Tool class | Injects | Tool source | Tools |
 |---|---|---|---|
 | `DaedalusRepoTools` | `IGitHubReader` only | `daedalus` (same source as `DaedalusKnowledgeTools`/`DaedalusScheduleTools`) | `daedalus__repo_activity`, `daedalus__repo_default_branch` |
-| `DaedalusRepoActionTools` | `IGitHubWriter` only | `repoaction` | `repoaction__comment_on_issue`, `repoaction__add_label`, `repoaction__close_issue` |
+| `DaedalusRepoActionTools` | `IGitHubWriter` only | `repoaction` | `repoaction__comment_on_issue`, `repoaction__add_label`, `repoaction__close_issue`, `repoaction__create_issue` |
+| `DaedalusIssueTools` | `IGitHubReader` only | `issues` | `issues__get`, `issues__search`, bound to the reviewer role and the chat Architect only |
 
 A tool class that cannot reach the writer cannot write, whatever an agent asks it to do — this is the first
 layer of the boundary, not the whole of it.
