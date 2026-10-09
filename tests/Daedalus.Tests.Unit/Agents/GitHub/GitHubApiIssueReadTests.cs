@@ -23,7 +23,7 @@ public sealed class GitHubApiIssueReadTests
         var issue = (await api.GetIssueAsync(Repo, 7)).Value!;
         var pr = (await api.GetIssueAsync(Repo, 8)).Value!;
 
-        issue.Should().BeEquivalentTo(new IssueDetail(7, "A bug", "open", "text", ["bug"], "https://github.com/owner/repo/issues/7", false));
+        issue.Should().BeEquivalentTo(new IssueDetail(7, "A bug", "open", "text", ["bug"], new Uri("https://github.com/owner/repo/issues/7"), false));
         pr.IsPullRequest.Should().BeTrue();
         pr.Body.Should().BeNull();
     }
@@ -47,6 +47,8 @@ public sealed class GitHubApiIssueReadTests
     [InlineData("org:evil crash")]
     [InlineData("user:someone")]
     [InlineData("OWNER:someone crash")]
+    [InlineData("(repo:other/x OR crash)")]
+    [InlineData("-repo:other/x crash")]
     public async Task A_query_naming_its_own_scope_is_refused_before_anything_is_sent(string query)
     {
         var handler = new StubHandler();
@@ -93,6 +95,77 @@ public sealed class GitHubApiIssueReadTests
 
         issues.Should().HaveCount(101);
         handler.Requests[0].RequestUri!.Query.Should().Contain("state=all").And.Contain("since=2026-10-09T10%3A00%3A00Z");
+    }
+
+    /// <summary>
+    ///     A2: a scan that stopped early would report "not found" for something that exists. Red: change the final return
+    ///     of <c>ScanAsync</c> to <c>Success(found)</c>; the 1000 items are then returned.
+    /// </summary>
+    [Fact]
+    public async Task A_scan_longer_than_the_page_cap_fails_rather_than_truncates()
+    {
+        var fullPage = "[" + string.Join(",", Enumerable.Range(1, 100).Select(n =>
+            $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}"}""")) + "]";
+        var handler = new StubHandler().Route("&page=", HttpStatusCode.OK, fullPage);
+
+        var result = await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z"));
+
+        result.IsFailure.Should().BeTrue();
+        handler.Requests.Should().HaveCount(GitHubApi.MaxScanPages);
+    }
+
+    /// <summary>Red: treat a 404 page as the end of the scan (return the items so far); the result then succeeds.</summary>
+    [Fact]
+    public async Task A_page_that_answers_404_mid_scan_is_a_failure_not_a_short_result()
+    {
+        var fullPage = "[" + string.Join(",", Enumerable.Range(1, 100).Select(n =>
+            $$"""{"number":{{n}},"body":"b","html_url":"https://github.com/owner/repo/issues/{{n}}"}""")) + "]";
+        var handler = new StubHandler().Route("&page=1", HttpStatusCode.OK, fullPage);
+
+        var result = await Build(handler).ListIssuesUpdatedSinceAsync(Repo, DateTimeOffset.Parse("2026-10-09T10:00:00Z"));
+
+        result.IsFailure.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     Red: drop the <c>number &lt;= 0</c> guard in either method; a request is then sent. Both are guarded.
+    /// </summary>
+    [Fact]
+    public async Task A_non_positive_number_is_refused_before_anything_is_sent()
+    {
+        var handler = new StubHandler();
+        var api = Build(handler);
+
+        var head = await api.GetPullRequestHeadShaAsync(Repo, 0);
+        var comments = await api.ListIssueCommentsSinceAsync(Repo, -1, DateTimeOffset.Parse("2026-10-09T10:00:00Z"));
+
+        head.IsFailure.Should().BeTrue();
+        comments.IsFailure.Should().BeTrue();
+        handler.Requests.Should().BeEmpty();
+    }
+
+    /// <summary>Red: ignore the state in the qualifier switch; the closed row then lacks <c>state:closed</c>.</summary>
+    [Theory]
+    [InlineData(IssueSearchState.Closed, "repo:owner/repo is:issue state:closed crash")]
+    [InlineData(IssueSearchState.All, "repo:owner/repo is:issue crash")]
+    public async Task The_search_state_becomes_its_qualifier(IssueSearchState state, string expected)
+    {
+        var handler = new StubHandler().Route("/search/issues", HttpStatusCode.OK, """{"items":[]}""");
+
+        await Build(handler).SearchIssuesAsync(Repo, "crash", state, 10);
+
+        Uri.UnescapeDataString(handler.Requests.Single().RequestUri!.Query).Should().Contain($"q={expected}&");
+    }
+
+    /// <summary>Red: replace the <c>Math.Clamp</c> with the raw limit; per_page is then 50.</summary>
+    [Fact]
+    public async Task A_limit_above_the_maximum_is_clamped()
+    {
+        var handler = new StubHandler().Route("/search/issues", HttpStatusCode.OK, """{"items":[]}""");
+
+        await Build(handler).SearchIssuesAsync(Repo, "crash", IssueSearchState.Open, 50);
+
+        handler.Requests.Single().RequestUri!.Query.Should().Contain("per_page=10").And.NotContain("per_page=50");
     }
 
     /// <summary>Red: read <c>base.sha</c> instead; the result is then the base commit.</summary>
