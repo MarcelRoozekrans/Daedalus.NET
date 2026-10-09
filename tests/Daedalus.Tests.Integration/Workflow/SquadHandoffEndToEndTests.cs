@@ -412,7 +412,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         result.ReviewEvidence.Should().HaveCount(4);
         result.ReviewEvidence.Select(Payload).Should().BeEquivalentTo(
             [
-                new EvidencePayload("correctness", "rejected", [], [RejectedFinding]),
+                new EvidencePayload("correctness", "rejected", [], [RejectedFinding], []),
                 Approved("correctness", "c1"),
                 Approved("falsifiability", "f1"),
                 Approved("mechanism", "m1"),
@@ -466,6 +466,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     ///     payload holds fails the read, and so does a member whose name differs only in case, since the Web
     ///     defaults would otherwise match <c>Lens</c> to <c>lens</c>. Red: adding a member to the payload
     ///     ReviewLensRunner records, or naming one <c>Lens</c>.
+    ///     Red: drop <c>deferred</c> from RecordAsync's payload, or add an unexpected member; Payload throws.
     /// </summary>
     private static readonly JsonSerializerOptions StrictPayload = new(JsonSerializerDefaults.Web)
     {
@@ -475,15 +476,16 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         RespectNullableAnnotations = true,
     };
 
-    private static EvidencePayload Approved(string lens, string examined) => new(lens, "approved", [examined], []);
+    private static EvidencePayload Approved(string lens, string examined) => new(lens, "approved", [examined], [], []);
 
     private static EvidencePayload Payload(WorkflowRunRecord record)
     {
         var read = () => JsonSerializer.Deserialize<EvidencePayload>(record.PayloadJson, StrictPayload);
-        return read.Should().NotThrow("the payload holds lens, verdict, checked and findings only").Subject!;
+        return read.Should().NotThrow("the payload holds lens, verdict, checked, findings and deferred only").Subject!;
     }
 
-    private sealed record EvidencePayload(string Lens, string Verdict, string[] Checked, FindingPayload[] Findings);
+    private sealed record EvidencePayload(string Lens, string Verdict, string[] Checked, FindingPayload[] Findings,
+        DeferredFinding[] Deferred);
 
     private sealed record FindingPayload(string File, int Line, string Scenario);
 
