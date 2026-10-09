@@ -70,11 +70,13 @@ public sealed class FindingRecordsTests
         result.Value["correctness-1"].Should().Be(later);
     }
 
-    /// <summary>Red: parse a relative url leniently; the malformed record is then read.</summary>
+    /// <summary>Red: parse a relative url leniently; the malformed record is then read. Red: drop the positive-issue check; the zero and negative records are then read.</summary>
     [Theory]
     [InlineData("""{ "id": "a", "mode": "created", "issue": 1, "url": "not a url" }""")]
     [InlineData("""{ "id": "a", "mode": "created", "issue": "1", "url": "https://github.com/o/r/issues/1" }""")]
     [InlineData("[]")]
+    [InlineData("""{ "id": "a", "mode": "created", "issue": 0, "url": "https://github.com/o/r/issues/1" }""")]
+    [InlineData("""{ "id": "a", "mode": "created", "issue": -3, "url": "https://github.com/o/r/issues/1" }""")]
     public void An_unreadable_filed_record_is_a_failure_naming_it(string payload)
     {
         var record = Record(WorkflowRunRecord.FindingFiledKind, payload);

@@ -144,7 +144,7 @@ public static class FindingRecords
             if (root.ValueKind == JsonValueKind.Object
                 && root.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(id.GetString())
                 && root.TryGetProperty("mode", out var mode) && mode.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(mode.GetString())
-                && root.TryGetProperty("issue", out var issue) && issue.ValueKind == JsonValueKind.Number && issue.TryGetInt32(out var number)
+                && root.TryGetProperty("issue", out var issue) && issue.ValueKind == JsonValueKind.Number && issue.TryGetInt32(out var number) && number > 0
                 && root.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String
                 && Uri.TryCreate(url.GetString(), UriKind.Absolute, out var link))
             {

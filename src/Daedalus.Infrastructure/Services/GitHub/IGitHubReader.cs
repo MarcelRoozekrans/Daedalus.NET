@@ -27,4 +27,7 @@ public interface IGitHubReader
 
     /// <summary>The commit pull request <paramref name="number"/>'s head points at.</summary>
     Task<Result<string>> GetPullRequestHeadShaAsync(RepoRef repo, int number, CancellationToken ct = default);
+
+    /// <summary>The login of the account the configured token authenticates as, which is the author of everything Daedalus writes.</summary>
+    Task<Result<string>> GetAuthenticatedLoginAsync(CancellationToken ct = default);
 }

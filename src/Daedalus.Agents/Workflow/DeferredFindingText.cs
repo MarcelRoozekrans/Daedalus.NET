@@ -11,6 +11,25 @@ public static class DeferredFindingText
     public static string Marker(Guid runId, string findingId) =>
         $"<!-- daedalus-run:{runId.ToString("D", CultureInfo.InvariantCulture)} finding:{findingId} -->";
 
+    /// <summary>
+    ///     Model-written text made safe to put in a body. An HTML comment opener is escaped, so no generated body can
+    ///     contain a <see cref="Marker"/> except the one the host appends last: a reviewer steered by the code it read
+    ///     cannot plant a sibling finding's marker (spec A2 and D2).
+    /// </summary>
+    public static string Block(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return text.Replace("<!--", "&lt;!--", StringComparison.Ordinal);
+    }
+
+    /// <summary><see cref="Block"/> for a single line, such as a title: line breaks become spaces.</summary>
+    public static string Line(string text) =>
+        Block(text).Replace("\r\n", " ", StringComparison.Ordinal).Replace('\n', ' ').Replace('\r', ' ');
+
+    /// <summary>A file path as link text inside a code span: nothing in it can close the span or the link, or break the line.</summary>
+    public static string PathText(string file) =>
+        Line(file).Replace('`', '\'').Replace('[', '(').Replace(']', ')');
+
     /// <summary>Why a finding was deferred, as a sentence fragment.</summary>
     public static string Reason(string reason) => reason switch
     {
@@ -18,7 +37,7 @@ public static class DeferredFindingText
         "needs-decision" => "it needs a design decision or the maintainer's call",
         "too-large" => "it is a sizeable piece of work of its own",
         "blocked" => "it waits on something outside this repository",
-        _ => reason,
+        _ => Line(reason),
     };
 
     /// <summary>A link to the finding's line at the pull request's head commit, so it still points at the right code after later edits.</summary>
@@ -36,11 +55,11 @@ public static class DeferredFindingText
         ArgumentNullException.ThrowIfNull(finding);
         ArgumentNullException.ThrowIfNull(prUrl);
         var text = new StringBuilder()
-            .AppendLine(finding.Finding.Scenario)
+            .AppendLine(Block(finding.Finding.Scenario))
             .AppendLine()
-            .Append("- **Where:** [`").Append(finding.Finding.File).Append(':').Append(finding.Finding.Line).Append("`](").Append(Permalink(repo, headSha, finding.Finding).AbsoluteUri).AppendLine(")")
+            .Append("- **Where:** [`").Append(PathText(finding.Finding.File)).Append(':').Append(finding.Finding.Line).Append("`](").Append(Permalink(repo, headSha, finding.Finding).AbsoluteUri).AppendLine(")")
             .Append("- **Why it was not fixed there:** ").AppendLine(Reason(finding.Finding.Reason))
-            .Append("- **Found by:** the `").Append(finding.Lens).Append("` review lens of manufacture run `").Append(runId).AppendLine("`")
+            .Append("- **Found by:** the `").Append(PathText(finding.Lens)).Append("` review lens of manufacture run `").Append(runId).AppendLine("`")
             .Append("- **Pull request:** ").AppendLine(prUrl.AbsoluteUri);
         if (notUsed is not null)
             text.AppendLine().Append("> The reviewer pointed at an existing issue, but it was not used: ").Append(notUsed).AppendLine(".");
@@ -54,12 +73,12 @@ public static class DeferredFindingText
         ArgumentNullException.ThrowIfNull(finding);
         ArgumentNullException.ThrowIfNull(prUrl);
         return new StringBuilder()
-            .Append("Manufacture run `").Append(runId).Append("` met this again in its `").Append(finding.Lens)
-            .Append("` review lens and left it out of scope: **").Append(finding.Finding.Title).AppendLine("**.")
+            .Append("Manufacture run `").Append(runId).Append("` met this again in its `").Append(PathText(finding.Lens))
+            .Append("` review lens and left it out of scope: **").Append(Line(finding.Finding.Title)).AppendLine("**.")
             .AppendLine()
-            .AppendLine(finding.Finding.Scenario)
+            .AppendLine(Block(finding.Finding.Scenario))
             .AppendLine()
-            .Append("- **Where:** [`").Append(finding.Finding.File).Append(':').Append(finding.Finding.Line).Append("`](").Append(Permalink(repo, headSha, finding.Finding).AbsoluteUri).AppendLine(")")
+            .Append("- **Where:** [`").Append(PathText(finding.Finding.File)).Append(':').Append(finding.Finding.Line).Append("`](").Append(Permalink(repo, headSha, finding.Finding).AbsoluteUri).AppendLine(")")
             .Append("- **Pull request:** ").AppendLine(prUrl.AbsoluteUri)
             .AppendLine()
             .Append(Marker(runId, finding.Id))
@@ -76,9 +95,9 @@ public static class DeferredFindingText
         foreach (var finding in deferred)
         {
             if (dropped.Ids.Contains(finding.Id))
-                text.Append("- Dropped at the gate by ").Append(dropped.By ?? "the approver").Append(": `").Append(finding.Id).Append("` ").AppendLine(finding.Finding.Title);
+                text.Append("- Dropped at the gate by ").Append(Line(dropped.By ?? "the approver")).Append(": `").Append(Line(finding.Id)).Append("` ").AppendLine(Line(finding.Finding.Title));
             else if (filed.TryGetValue(finding.Id, out var f))
-                text.Append(string.Equals(f.Mode, FindingRecords.CommentedMode, StringComparison.Ordinal) ? "- Added to #" : "- Filed #").Append(f.Issue).Append(": ").AppendLine(finding.Finding.Title);
+                text.Append(string.Equals(f.Mode, FindingRecords.CommentedMode, StringComparison.Ordinal) ? "- Added to #" : "- Filed #").Append(f.Issue).Append(": ").AppendLine(Line(finding.Finding.Title));
         }
 
         return text.AppendLine().Append(Marker(runId, FindingRecords.SummaryId)).ToString();

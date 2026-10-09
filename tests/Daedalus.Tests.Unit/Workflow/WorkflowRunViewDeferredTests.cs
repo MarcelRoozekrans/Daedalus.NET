@@ -102,4 +102,22 @@ public sealed class WorkflowRunViewDeferredTests
         view.DeferredFindingsError.Should().Contain("finding-filed record");
         view.FiledFindings.Should().BeEmpty();
     }
+
+    /// <summary>
+    ///     Filed findings list by lens and number, with the summary last, whatever order the records are in. Red: return
+    ///     the records in dictionary order; the summary and correctness-10 come out ahead.
+    /// </summary>
+    [Fact]
+    public async Task Filed_findings_are_ordered_by_lens_and_number_with_the_summary_last()
+    {
+        FiledFinding Filed(string id, int issue) => new(id, FindingRecords.CreatedMode, issue, new Uri($"https://github.com/o/r/issues/{issue}"));
+
+        var view = await ViewWith(
+            Record(WorkflowRunRecord.FindingFiledKind, FindingRecords.FiledPayload(Filed(FindingRecords.SummaryId, 7))),
+            Record(WorkflowRunRecord.FindingFiledKind, FindingRecords.FiledPayload(Filed("correctness-10", 12))),
+            Record(WorkflowRunRecord.FindingFiledKind, FindingRecords.FiledPayload(Filed("security-1", 13))),
+            Record(WorkflowRunRecord.FindingFiledKind, FindingRecords.FiledPayload(Filed("correctness-2", 11))));
+
+        view.FiledFindings.Select(f => f.FindingId).Should().Equal("correctness-2", "correctness-10", "security-1", FindingRecords.SummaryId);
+    }
 }
