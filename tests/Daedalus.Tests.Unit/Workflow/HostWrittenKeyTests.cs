@@ -93,7 +93,7 @@ public sealed class HostWrittenKeyTests
     ///     <para>
     ///     There are no <c>review</c> rows: a review node declares lenses, so the host drops every variable it reports
     ///     (the review-variables ruling, live run e973b5e7) and there is no "rest of the report" left to keep. Its
-    ///     forged keys are covered by that drop, asserted in <c>ReviewHandoffKeyLimitTests</c>.
+    ///     forged keys are covered by that drop, asserted in <c>ReviewHandoffKeyLimitTests.A_review_node_that_reports_variables_over_a_full_bag_completes_and_the_store_receives_none</c>.
     ///     </para>
     /// </summary>
     [Theory]

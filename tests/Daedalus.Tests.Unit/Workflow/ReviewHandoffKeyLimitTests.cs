@@ -8,12 +8,13 @@ using ZeroAlloc.Results;
 namespace Daedalus.Tests.Unit.Workflow;
 
 /// <summary>
-///     Covers the half of <see cref="ReviewHandoffWorkflowStore"/> that puts Thalos' sixteen-key cap back in
-///     force on a review node, and, since the final review's I3, keeps room in every agent node's count for the keys
-///     the host adds on every transition and the ones <c>open-pull-request</c> writes. Narrowing the bag a review dispatch is built from also narrows what
-///     <c>WorkflowNodeDispatcher.BuildNodeResult</c> counts that node's report against, so on exactly the node
-///     the projection applies to, the cap stopped binding: <c>review</c> may report eight fresh keys on each of
-///     five permitted visits and the dispatcher computes two plus eight every time.
+///     Covers the half of <see cref="ReviewHandoffWorkflowStore"/> that enforces Thalos' sixteen-key cap on the
+///     write path, and keeps room in every agent node's count for the keys the host adds on every transition and the
+///     ones <c>open-pull-request</c> writes. The split is: a review node's reported variables are dropped before any
+///     count (nothing reads them), and the cap is enforced on every node that keeps its variables, including a
+///     projected <c>retrospect</c> node. Narrowing the bag a dispatch is built from also narrows what
+///     <c>WorkflowNodeDispatcher.BuildNodeResult</c> counts that node's report against, so on a projected node the
+///     dispatcher's own count stops binding; the store counts against the run's real bag instead.
 /// </summary>
 /// <remarks>
 ///     The consequence is not cosmetic. <c>WorkflowVariableBlock.MaxOmittedKeyListLength</c> is derived from
@@ -98,7 +99,9 @@ public sealed class ReviewHandoffKeyLimitTests
     ///     <para>
     ///     This used to run on the review node. A review node's reported variables are now dropped before the cap
     ///     check (see <see cref="A_review_node_that_reports_variables_over_a_full_bag_completes_and_the_store_receives_none"/>),
-    ///     so the cap is exercised here on <c>implement</c>, where variables are kept.
+    ///     so the cap is exercised here on <c>implement</c>, where variables are kept. The real-bag count is pinned on
+    ///     the projected retrospect node, see
+    ///     <see cref="A_retrospect_report_is_counted_against_the_real_bag_not_the_projected_one"/>.
     ///     </para>
     /// </summary>
     [Fact]
@@ -109,7 +112,8 @@ public sealed class ReviewHandoffKeyLimitTests
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("changed", Report("fresh", 2)), CancellationToken.None);
 
-        // Falsifiable: deleting the cap check, or counting a projected bag instead of Inner's, turns this red.
+        // Falsifiable: deleting the cap check turns this red. implement is not projected, so counting a projected bag
+        // cannot turn it red; the retrospect test below pins that.
         inner.Completed.Should().BeNull("a report over the cap must not be persisted as a transition");
         inner.FailureMessage.Should().NotBeNull();
         inner.FailureMessage.Should().Contain("to 12 distinct keys", "the message must name the count the report takes the bag to");
@@ -141,6 +145,8 @@ public sealed class ReviewHandoffKeyLimitTests
     ///     Live run e973b5e7: the reviewer's final outcome call carried six free-form variables on a bag of nine, and
     ///     the run failed at the cap. Nothing reads a review node's variables, because review evidence lives in
     ///     host-written records, so the host drops them and the outcome passes through untouched.
+    ///     Also pins that a review node cannot land a host-owned key: the forged <c>pr_url</c> and <c>run_mode</c> never
+    ///     reach the inner store.
     ///     Red: pass the reported variables through to the cap check and the inner store.
     /// </summary>
     [Fact]
@@ -150,14 +156,41 @@ public sealed class ReviewHandoffKeyLimitTests
         var store = new ReviewHandoffWorkflowStore(inner, Definitions());
         var usage = new TurnUsage(1000, 50, "m") { CacheReadTokens = 800 };
 
+        var reported = Report("fresh", 6);
+        reported[ReviewHandoff.PrUrlKey] = "https://forged/pr/1";
+        reported["run_mode"] = "forged";
+
         await store.CompleteNodeAsync(
-            inner.Run!.Id, 3, AnyTransition(), new NodeResult("rejected", Report("fresh", 6)) { Usage = usage }, CancellationToken.None);
+            inner.Run!.Id, 3, AnyTransition(), new NodeResult("rejected", reported) { Usage = usage }, CancellationToken.None);
 
         inner.FailureMessage.Should().BeNull("the reported variables are dropped before the cap is checked");
         inner.Completed.Should().NotBeNull();
         inner.Completed!.Outcome.Should().Be("rejected", "the outcome passes through unchanged");
         inner.Completed.Usage.Should().Be(usage, "so does the usage");
         inner.Completed.Variables.Should().BeEmpty("no review variable reaches the inner store");
+    }
+
+    /// <summary>
+    ///     The cap is counted against the run's real bag, <c>Inner</c>'s, not the projected bag this store's own
+    ///     FindAsync hands the dispatcher. Retrospect is projected to <see cref="ReviewHandoff.RetrospectReads"/> and keeps
+    ///     its variables: the real bag holds ten keys, so two fresh ones are twelve and seventeen with the host's five,
+    ///     while the one-key projected bag would count only eight.
+    ///     Red: count this.FindAsync's projected bag instead of Inner's.
+    /// </summary>
+    [Fact]
+    public async Task A_retrospect_report_is_counted_against_the_real_bag_not_the_projected_one()
+    {
+        var inner = new RecordingWorkflowStore(RunWith("retrospect", [.. Keys("standing", 9), ReviewHandoff.LearningsKey]));
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+
+        await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("none", Report("fresh", 2)), CancellationToken.None);
+
+        inner.Completed.Should().BeNull("a report over the cap on the real bag must not be persisted");
+        inner.FailureMessage.Should().NotBeNull();
+        inner.FailureMessage.Should().Contain("to 12 distinct keys");
+        inner.FailureMessage.Should().Contain("to 17 with");
+        inner.FailureMessage.Should().Contain("limit of 16");
+        inner.FailureMessage.Should().Contain("'retrospect'");
     }
 
     /// <summary>
