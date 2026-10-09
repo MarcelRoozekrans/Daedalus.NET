@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -471,6 +472,40 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
         return JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
     }
 
+    /// <summary>
+    ///     GETs <paramref name="url"/> and parses the body. 404 is a successful <see langword="null"/>, since a caller
+    ///     asking whether an issue exists is answered, not failed. Every other expected fault is a failed result naming
+    ///     <paramref name="what"/>: another non-success status, a network fault, a timeout of the client's own, and a
+    ///     body that is not JSON. Only a cancellation of <paramref name="ct"/> itself propagates. The caller disposes
+    ///     the document.
+    /// </summary>
+    private async Task<Result<JsonDocument?>> GetJsonAsync(string url, string token, string what, CancellationToken ct)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            ApplyHeaders(request, token);
+
+            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return Result<JsonDocument?>.Success(null);
+
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return response.IsSuccessStatusCode
+                ? Result<JsonDocument?>.Success(JsonDocument.Parse(body))
+                : Result<JsonDocument?>.Failure(MapError(response, body));
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            return Result<JsonDocument?>.Failure($"{what} on GitHub timed out: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            LogReadFailed(_logger, ex, what);
+            return Result<JsonDocument?>.Failure($"{what} on GitHub failed: {ex.Message}");
+        }
+    }
+
     /// <summary>Headers GitHub requires on every request, read or write: the bearer token, User-Agent and API version.</summary>
     private void ApplyHeaders(HttpRequestMessage request, string token)
     {
@@ -519,6 +554,206 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
 
         return $"GitHub request failed with status {(int)response.StatusCode} {response.StatusCode}. GitHub said: {message}";
     }
+
+    /// <summary>The most hits <see cref="SearchIssuesAsync"/> returns.</summary>
+    public const int MaxSearchHits = 10;
+
+    /// <summary>The most pages of 100 a <c>since</c> listing reads before it gives up rather than read further.</summary>
+    public const int MaxScanPages = 10;
+
+    public async Task<Result<IssueDetail?>> GetIssueAsync(RepoRef repo, int number, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        if (number <= 0)
+            return Result<IssueDetail?>.Failure("An issue number must be positive.");
+
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<IssueDetail?>.Failure(token.Error);
+
+        var what = $"reading {repo}#{number}";
+        var fetched = await GetJsonAsync(IssueUrl(repo, number), token.Value, what, ct).ConfigureAwait(false);
+        if (fetched.IsFailure)
+            return Result<IssueDetail?>.Failure(fetched.Error);
+        if (fetched.Value is not { } doc)
+            return Result<IssueDetail?>.Success(null);
+
+        using (doc)
+        {
+            return ReadShape<IssueDetail?>(what, () =>
+            {
+                var root = doc.RootElement;
+                IReadOnlyList<string> labels = root.TryGetProperty("labels", out var l) && l.ValueKind == JsonValueKind.Array
+                    ? [.. l.EnumerateArray().Select(e => e.GetProperty("name").GetString() ?? "")]
+                    : [];
+                return new IssueDetail(
+                    root.GetProperty("number").GetInt32(),
+                    root.GetProperty("title").GetString() ?? "",
+                    root.GetProperty("state").GetString() ?? "",
+                    root.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.String ? body.GetString() : null,
+                    labels,
+                    root.GetProperty("html_url").GetString() ?? "",
+                    root.TryGetProperty("pull_request", out _));
+            });
+        }
+    }
+
+    public async Task<Result<IReadOnlyList<IssueHit>>> SearchIssuesAsync(
+        RepoRef repo, string query, IssueSearchState state, int limit, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        if (string.IsNullOrWhiteSpace(query))
+            return Result<IReadOnlyList<IssueHit>>.Failure("A search needs some words to search for.");
+
+        // A5: GitHub ORs repo: qualifiers, so one in the query would widen the search past this repository.
+        if (ScopeQualifier().IsMatch(query))
+        {
+            return Result<IReadOnlyList<IssueHit>>.Failure(
+                $"The query may not name its own repo:, org:, user: or owner: qualifier; this search is always limited to {repo}.");
+        }
+
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<IReadOnlyList<IssueHit>>.Failure(token.Error);
+
+        var stateQualifier = state switch
+        {
+            IssueSearchState.Open => "state:open ",
+            IssueSearchState.Closed => "state:closed ",
+            _ => "",
+        };
+        var q = $"repo:{repo} is:issue {stateQualifier}{query.Trim()}";
+        var perPage = Math.Clamp(limit, 1, MaxSearchHits);
+        var url = $"{_options.ApiUrl.TrimEnd('/')}/search/issues?q={Uri.EscapeDataString(q)}&per_page={perPage}";
+
+        var what = $"searching {repo}'s issues";
+        var fetched = await GetJsonAsync(url, token.Value, what, ct).ConfigureAwait(false);
+        if (fetched.IsFailure)
+            return Result<IReadOnlyList<IssueHit>>.Failure(fetched.Error);
+        if (fetched.Value is not { } doc)
+            return Result<IReadOnlyList<IssueHit>>.Failure($"{repo} does not exist, or the configured token cannot see it.");
+
+        using (doc)
+        {
+            var repoSuffix = $"/repos/{repo.Owner}/{repo.Name}";
+            return ReadShape<IReadOnlyList<IssueHit>>(what, () =>
+            [
+                .. doc.RootElement.GetProperty("items").EnumerateArray()
+                    .Where(i => !i.TryGetProperty("pull_request", out _)
+                                && (i.GetProperty("repository_url").GetString() ?? "").EndsWith(repoSuffix, StringComparison.OrdinalIgnoreCase))
+                    .Take(perPage)
+                    .Select(i => new IssueHit(
+                        i.GetProperty("number").GetInt32(),
+                        i.GetProperty("title").GetString() ?? "",
+                        i.GetProperty("state").GetString() ?? "",
+                        i.GetProperty("html_url").GetString() ?? "")),
+            ]);
+        }
+    }
+
+    public Task<Result<IReadOnlyList<IssueText>>> ListIssuesUpdatedSinceAsync(RepoRef repo, DateTimeOffset since, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        return ScanAsync(
+            page => $"{RepoUrl(repo)}/issues?state=all&since={Uri.EscapeDataString(FormatIso(since.UtcDateTime))}&per_page=100&page={page}",
+            $"listing {repo}'s issues updated since {FormatIso(since.UtcDateTime)}",
+            e => new IssueText(
+                e.GetProperty("number").GetInt32(),
+                e.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null,
+                e.GetProperty("html_url").GetString() ?? "",
+                e.TryGetProperty("pull_request", out _)),
+            ct);
+    }
+
+    public Task<Result<IReadOnlyList<IssueCommentText>>> ListIssueCommentsSinceAsync(
+        RepoRef repo, int number, DateTimeOffset since, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        return ScanAsync(
+            page => $"{IssueUrl(repo, number)}/comments?since={Uri.EscapeDataString(FormatIso(since.UtcDateTime))}&per_page=100&page={page}",
+            $"listing the comments on {repo}#{number}",
+            e => new IssueCommentText(
+                e.GetProperty("id").GetInt64(),
+                e.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null,
+                e.GetProperty("html_url").GetString() ?? ""),
+            ct);
+    }
+
+    public async Task<Result<string>> GetPullRequestHeadShaAsync(RepoRef repo, int number, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<string>.Failure(token.Error);
+
+        var what = $"reading pull request {repo}#{number}";
+        var fetched = await GetJsonAsync($"{RepoUrl(repo)}/pulls/{number}", token.Value, what, ct).ConfigureAwait(false);
+        if (fetched.IsFailure)
+            return Result<string>.Failure(fetched.Error);
+        if (fetched.Value is not { } doc)
+            return Result<string>.Failure($"Pull request {repo}#{number} does not exist, or the configured token cannot see it.");
+
+        using (doc)
+        {
+            return ReadShape(what, () => doc.RootElement.GetProperty("head").GetProperty("sha").GetString()
+                ?? throw new InvalidOperationException("head.sha is null"));
+        }
+    }
+
+    /// <summary>
+    ///     Reads up to <see cref="MaxScanPages"/> pages of 100 and stops at the first short page. More than that is a
+    ///     failure rather than a silent cut, because a marker scan that stopped early would report "not found" for
+    ///     something that exists.
+    /// </summary>
+    private async Task<Result<IReadOnlyList<T>>> ScanAsync<T>(
+        Func<int, string> pageUrl, string what, Func<JsonElement, T> read, CancellationToken ct)
+    {
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<IReadOnlyList<T>>.Failure(token.Error);
+
+        var found = new List<T>();
+        for (var page = 1; page <= MaxScanPages; page++)
+        {
+            var fetched = await GetJsonAsync(pageUrl(page), token.Value, what, ct).ConfigureAwait(false);
+            if (fetched.IsFailure)
+                return Result<IReadOnlyList<T>>.Failure(fetched.Error);
+            if (fetched.Value is not { } doc)
+                return Result<IReadOnlyList<T>>.Failure($"{what}: GitHub answered 404.");
+
+            using (doc)
+            {
+                var items = ReadShape<IReadOnlyList<T>>(what, () => [.. doc.RootElement.EnumerateArray().Select(read)]);
+                if (items.IsFailure)
+                    return items;
+
+                found.AddRange(items.Value);
+                if (items.Value.Count < 100)
+                    return Result<IReadOnlyList<T>>.Success(found);
+            }
+        }
+
+        return Result<IReadOnlyList<T>>.Failure($"{what}: more than {MaxScanPages * 100} items; the scan stops rather than read further.");
+    }
+
+    /// <summary>A body of the wrong shape, such as a missing property, is a failed result rather than an exception.</summary>
+    private static Result<T> ReadShape<T>(string what, Func<T> read)
+    {
+        try
+        {
+            return Result<T>.Success(read());
+        }
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            return Result<T>.Failure($"GitHub's answer to {what} was not in the expected shape: {ex.Message}");
+        }
+    }
+
+    [GeneratedRegex(@"(?:^|\s)-?(?:repo|org|user|owner):", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex ScopeQualifier();
+
+    [LoggerMessage(EventId = 511, Level = LogLevel.Warning, Message = "GitHub read failed: {What}")]
+    private static partial void LogReadFailed(ILogger logger, Exception exception, string what);
 
     [LoggerMessage(EventId = 510, Level = LogLevel.Warning,
         Message = "Looking up an open pull request for {Repository} failed")]

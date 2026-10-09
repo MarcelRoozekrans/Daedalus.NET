@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>
@@ -38,3 +40,31 @@ public sealed record RepoActivity(
     CategoryResult<PullRequestSummary> OpenPullRequests,
     CategoryResult<IssueSummary> Issues,
     CategoryResult<WorkflowRunSummary> FailedRuns);
+
+/// <summary>One issue as <c>GET /repos/{owner}/{repo}/issues/{number}</c> returns it. GitHub also answers that endpoint for a pull request, which <see cref="IsPullRequest"/> marks.</summary>
+[SuppressMessage("Design", "CA1054", Justification = "GitHub reports the link as text and callers only print it.")]
+[SuppressMessage("Design", "CA1056", Justification = "GitHub reports the link as text and callers only print it.")]
+public sealed record IssueDetail(int Number, string Title, string State, string? Body, IReadOnlyList<string> Labels, string HtmlUrl, bool IsPullRequest);
+
+/// <summary>One issue an issue search found.</summary>
+[SuppressMessage("Design", "CA1054", Justification = "GitHub reports the link as text and callers only print it.")]
+[SuppressMessage("Design", "CA1056", Justification = "GitHub reports the link as text and callers only print it.")]
+public sealed record IssueHit(int Number, string Title, string State, string HtmlUrl);
+
+/// <summary>An issue's body and link, as a marker scan reads it.</summary>
+[SuppressMessage("Design", "CA1054", Justification = "GitHub reports the link as text and callers only print it.")]
+[SuppressMessage("Design", "CA1056", Justification = "GitHub reports the link as text and callers only print it.")]
+public sealed record IssueText(int Number, string? Body, string HtmlUrl, bool IsPullRequest);
+
+/// <summary>An issue comment's body and link, as a marker scan reads it.</summary>
+[SuppressMessage("Design", "CA1054", Justification = "GitHub reports the link as text and callers only print it.")]
+[SuppressMessage("Design", "CA1056", Justification = "GitHub reports the link as text and callers only print it.")]
+public sealed record IssueCommentText(long Id, string? Body, string HtmlUrl);
+
+/// <summary>Which issues a search returns.</summary>
+public enum IssueSearchState
+{
+    Open,
+    Closed,
+    All,
+}
