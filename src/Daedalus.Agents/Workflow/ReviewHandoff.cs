@@ -128,6 +128,9 @@ public static class ReviewHandoff
     /// <summary>The <c>open-pull-request</c> host action's name, the only writer of <see cref="PrUrlKey"/> and <see cref="PublishErrorKey"/>.</summary>
     public const string PublishActionName = "open-pull-request";
 
+    /// <summary>Phase 2.7: the host action that files the approving review's deferred findings after publish.</summary>
+    public const string FileFindingsActionName = "file-review-findings";
+
     /// <summary>
     ///     Run variables no agent node may write, keyed by the variable, valued by the host action that writes it, or
     ///     <see langword="null"/> when only the run's start does. <see cref="ReviewHandoffWorkflowStore"/> strips a listed

@@ -82,4 +82,24 @@ public sealed class WorkflowRunViewDeferredTests
 
         view.DeferredFindings.Should().ContainSingle().Which.Dropped.Should().BeTrue();
     }
+
+    /// <summary>Red: leave FiledFindings empty; the single finding is missing.</summary>
+    [Fact]
+    public async Task A_filed_finding_is_shown_with_its_issue_link()
+    {
+        var view = await ViewWith(Record(WorkflowRunRecord.FindingFiledKind,
+            FindingRecords.FiledPayload(new FiledFinding("correctness-1", FindingRecords.CreatedMode, 21, new Uri("https://github.com/o/r/issues/21")))));
+
+        view.FiledFindings.Should().ContainSingle().Which.Should().Be(new FiledFindingView("correctness-1", "created", 21, new Uri("https://github.com/o/r/issues/21")));
+    }
+
+    /// <summary>Red: ignore the filed read's error; the error is null.</summary>
+    [Fact]
+    public async Task An_unreadable_filed_record_is_reported_on_the_view()
+    {
+        var view = await ViewWith(Record(WorkflowRunRecord.FindingFiledKind, """{ "id": "correctness-1" }"""));
+
+        view.DeferredFindingsError.Should().Contain("finding-filed record");
+        view.FiledFindings.Should().BeEmpty();
+    }
 }

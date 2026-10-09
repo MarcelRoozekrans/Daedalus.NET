@@ -521,6 +521,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // validate and dispatch. A singleton: it resolves the scoped PR lookup and publisher from a scope of its own.
         services.AddSingleton<IWorkflowHostAction, OpenPullRequestAction>();
 
+        // Phase 2.7: the post-publish step that files deferred review findings. Registered like open-pull-request, so the
+        // resolver validates `action: file-review-findings` and the dispatcher runs it.
+        services.AddSingleton<IWorkflowHostAction, FileReviewFindingsAction>();
+
         // Task B7: every workspace write a run is allowed is recorded in that store before the tool runs, or denied.
         DecorateToolAuthorizerWithWriteAudit(services, toolPolicies);
 

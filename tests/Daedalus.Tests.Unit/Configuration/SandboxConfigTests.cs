@@ -287,7 +287,7 @@ public sealed partial class SandboxConfigTests : IDisposable
         await using var sp = BuildShippedApi();
 
         sp.GetService<IRunWorkspaceGit>().Should().BeOfType<GitCliRunWorkspaceGit>();
-        sp.GetServices<Thalos.Workflow.IWorkflowHostAction>().Should().ContainSingle().Which.Name.Should().Be("open-pull-request");
+        sp.GetServices<Thalos.Workflow.IWorkflowHostAction>().Select(a => a.Name).Should().BeEquivalentTo(["open-pull-request", "file-review-findings"]);
     }
 
     /// <summary>

@@ -12,12 +12,27 @@ public sealed record DroppedFindings(IReadOnlySet<string> Ids, string? By)
     public static readonly DroppedFindings None = new(FrozenSet<string>.Empty, null);
 }
 
+/// <summary>What <c>file-review-findings</c> did with one deferred finding, or with the summary.</summary>
+public sealed record FiledFinding(string FindingId, string Mode, int Issue, Uri Url);
+
 /// <summary>
 ///     Writes and reads the host-written records of what happened to a run's deferred findings (spec amendment A1). Both
 ///     halves live here, so the payload shape the gateway writes is the one <c>file-review-findings</c> reads.
 /// </summary>
 public static class FindingRecords
 {
+    /// <summary>A new issue was filed.</summary>
+    public const string CreatedMode = "created";
+
+    /// <summary>The finding was added to an open issue the reviewer named.</summary>
+    public const string CommentedMode = "commented";
+
+    /// <summary>The pull-request summary comment was posted.</summary>
+    public const string SummaryMode = "summary";
+
+    /// <summary>The finding id the summary is recorded and marked under.</summary>
+    public const string SummaryId = "summary";
+
     /// <summary>The payload of a <see cref="WorkflowRunRecord.FindingsDroppedKind"/> record; <paramref name="attempt"/> is the resume attempt it belongs to.</summary>
     public static string DroppedPayload(IReadOnlyCollection<string> ids, string? by, string attempt) =>
         JsonSerializer.Serialize(new { attempt, dropped = ids, by });
@@ -94,5 +109,53 @@ public static class FindingRecords
         {
             return null;
         }
+    }
+
+    /// <summary>The payload of a <see cref="WorkflowRunRecord.FindingFiledKind"/> record.</summary>
+    public static string FiledPayload(FiledFinding filed)
+    {
+        ArgumentNullException.ThrowIfNull(filed);
+        return JsonSerializer.Serialize(new { id = filed.FindingId, mode = filed.Mode, issue = filed.Issue, url = filed.Url.AbsoluteUri });
+    }
+
+    /// <summary>Every finding already handled, by id; a later record for the same id wins.</summary>
+    public static Result<IReadOnlyDictionary<string, FiledFinding>> ReadFiled(IReadOnlyList<WorkflowRunRecord> records)
+    {
+        ArgumentNullException.ThrowIfNull(records);
+        var filed = new Dictionary<string, FiledFinding>(StringComparer.Ordinal);
+        foreach (var record in records.Where(r => string.Equals(r.Kind, WorkflowRunRecord.FindingFiledKind, StringComparison.Ordinal)))
+        {
+            var read = ReadOneFiled(record);
+            if (read is null)
+                return Result<IReadOnlyDictionary<string, FiledFinding>>.Failure($"finding-filed record {record.Id} is unreadable");
+
+            filed[read.FindingId] = read;
+        }
+
+        return Result<IReadOnlyDictionary<string, FiledFinding>>.Success(filed);
+    }
+
+    private static FiledFinding? ReadOneFiled(WorkflowRunRecord record)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(record.PayloadJson);
+            var root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(id.GetString())
+                && root.TryGetProperty("mode", out var mode) && mode.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(mode.GetString())
+                && root.TryGetProperty("issue", out var issue) && issue.ValueKind == JsonValueKind.Number && issue.TryGetInt32(out var number)
+                && root.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String
+                && Uri.TryCreate(url.GetString(), UriKind.Absolute, out var link))
+            {
+                return new FiledFinding(id.GetString()!, mode.GetString()!, number, link);
+            }
+        }
+        catch (JsonException)
+        {
+            // Reported by the caller, the same as a payload of the wrong shape.
+        }
+
+        return null;
     }
 }
