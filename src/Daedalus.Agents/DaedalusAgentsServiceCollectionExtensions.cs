@@ -103,6 +103,13 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     /// </remarks>
     public const string ManufactureToolSourceName = "manufacture";
 
+    /// <summary>
+    ///     The Thalos tool-source name of <see cref="DaedalusIssueTools"/>; tools appear as <c>issues__get</c> and
+    ///     <c>issues__search</c>. Ungated reads. A separate source so that only the agents that name it, the reviewer and
+    ///     the chat Architect, carry its definitions; see <see cref="DaedalusIssueTools"/>.
+    /// </summary>
+    public const string IssuesToolSourceName = "issues";
+
     /// <summary>Name of the application database connection string (<c>ConnectionStrings:daedalus</c>), shared with the Rag.NET memory index.</summary>
     public const string DatabaseConnectionName = "daedalus";
 
@@ -351,6 +358,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 // write boundary, and the reviewer's daedalus__* grant already names it.
                 .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools), typeof(DaedalusReviewTools))
                 .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
+                .AddLocalTools(IssuesToolSourceName, typeof(DaedalusIssueTools))
                 // Registered unconditionally, like the two sources above: IManufactureRunStarter always resolves
                 // (the disabled default when Workflow.Enabled is false), so this source is always present for
                 // Every_manufacture_tool_is_bound_to_the_developer_policy to check against real, shipped config
