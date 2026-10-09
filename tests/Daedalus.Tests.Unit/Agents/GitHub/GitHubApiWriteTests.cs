@@ -126,6 +126,7 @@ public class GitHubApiWriteTests
         result.Value.Should().Be(new CreatedIssue(12, new Uri("https://github.com/owner/repo/issues/12")));
         var sent = handler.Requests.Should().ContainSingle().Subject;
         sent.Method.Should().Be(HttpMethod.Post);
+        sent.RequestUri!.AbsolutePath.Should().Be("/repos/owner/repo/issues");
         var payload = await sent.Content!.ReadAsStringAsync();
         payload.Should().Contain("\"title\":\"A title\"").And.Contain("\"body\":\"A body\"");
     }
@@ -142,5 +143,36 @@ public class GitHubApiWriteTests
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("Resource not accessible");
         handler.Requests.Should().ContainSingle();
+    }
+
+    /// <summary>Red: drop the length check from <c>CreateIssueAsync</c>; the 257-character case sends a request.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("TOO_LONG")]
+    public async Task An_issue_title_that_is_blank_or_too_long_fails_and_sends_nothing(string title)
+    {
+        var handler = new StubHandler();
+        var effective = title == "TOO_LONG" ? new string('x', GitHubApi.MaxIssueTitleLength + 1) : title;
+
+        var result = await Build(handler).CreateIssueAsync(RepoRef.Parse("owner/repo").Value, effective, "body");
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("1 to 256 characters");
+        handler.Requests.Should().BeEmpty();
+    }
+
+    /// <summary>Red: read <c>html_url</c> with a null-tolerant fallback; the malformed and missing cases then succeed.</summary>
+    [Theory]
+    [InlineData("""{"number":12,"html_url":"not a url"}""")]
+    [InlineData("""{"number":12}""")]
+    public async Task A_created_issue_without_a_usable_link_is_a_failure(string json)
+    {
+        var handler = new StubHandler().Route("/repos/owner/repo/issues", HttpStatusCode.Created, json);
+
+        var result = await Build(handler).CreateIssueAsync(RepoRef.Parse("owner/repo").Value, "A title", "A body");
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("not in the expected shape");
     }
 }
