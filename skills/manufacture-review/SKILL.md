@@ -147,7 +147,10 @@ moment it happens, instead of being reconstructed afterwards from a run that mer
 
 **2. The engine's outcome tool** — the exact value the engine names for this node (`approved` or
 `rejected`; never a synonym, never a sentence). It must **agree** with the verdict you just
-recorded. A turn whose two reports disagree fails the node.
+recorded. A turn whose two reports disagree fails the node. Report only the outcome value: do not put
+variables in the engine outcome tool's report. Evidence goes through `daedalus__report_review_outcome`, and
+any variables the review node reports are discarded by the host, which is the mechanism; this sentence only
+saves you the effort.
 
 ## Out of scope: defer, do not drop
 
