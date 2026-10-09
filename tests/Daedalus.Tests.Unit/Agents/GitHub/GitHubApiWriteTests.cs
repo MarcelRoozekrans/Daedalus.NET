@@ -113,4 +113,34 @@ public class GitHubApiWriteTests
         result.IsFailure.Should().BeTrue();
         handler.Requests.Should().BeEmpty();
     }
+
+    /// <summary>Red: send to <c>/pulls</c>, or drop <c>body</c> from the payload; an assertion fails.</summary>
+    [Fact]
+    public async Task Creating_an_issue_posts_title_and_body_and_returns_number_and_link()
+    {
+        var handler = new StubHandler().Route("/repos/owner/repo/issues", HttpStatusCode.Created,
+            """{"number":12,"html_url":"https://github.com/owner/repo/issues/12"}""");
+
+        var result = await Build(handler).CreateIssueAsync(RepoRef.Parse("owner/repo").Value, "A title", "A body");
+
+        result.Value.Should().Be(new CreatedIssue(12, new Uri("https://github.com/owner/repo/issues/12")));
+        var sent = handler.Requests.Should().ContainSingle().Subject;
+        sent.Method.Should().Be(HttpMethod.Post);
+        var payload = await sent.Content!.ReadAsStringAsync();
+        payload.Should().Contain("\"title\":\"A title\"").And.Contain("\"body\":\"A body\"");
+    }
+
+    /// <summary>Red: retry on failure; two requests are then recorded.</summary>
+    [Fact]
+    public async Task A_failed_issue_create_surfaces_and_is_not_retried()
+    {
+        var handler = new StubHandler().Route("/repos/owner/repo/issues", HttpStatusCode.Forbidden,
+            """{"message":"Resource not accessible by personal access token"}""");
+
+        var result = await Build(handler).CreateIssueAsync(RepoRef.Parse("owner/repo").Value, "A title", "A body");
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("Resource not accessible");
+        handler.Requests.Should().ContainSingle();
+    }
 }
