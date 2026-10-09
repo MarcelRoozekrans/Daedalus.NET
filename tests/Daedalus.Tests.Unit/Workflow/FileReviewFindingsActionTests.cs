@@ -421,6 +421,18 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         await _writer.Received(1).CreateIssueAsync(SameRepo(), "two", Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>Red: delete the LastResume check; an issue is then created.</summary>
+    [Fact]
+    public async Task A_run_never_resumed_at_its_gate_files_nothing_when_findings_remain()
+    {
+        Deferred(Entry("one"));
+
+        var result = await Action().RunAsync(Run(resumed: false), Node, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        await _writer.DidNotReceiveWithAnyArgs().CreateIssueAsync(default!, default!, default!, default);
+    }
+
     /// <summary>Red: ignore a failed login read and scan with a null login; the run then proceeds instead of failing.</summary>
     [Fact]
     public async Task An_unreadable_authenticated_account_fails_the_run_before_anything_is_written()
