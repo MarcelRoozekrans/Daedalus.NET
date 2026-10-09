@@ -283,33 +283,18 @@ internal sealed partial class OpenPullRequestAction(
     {
         var records = await services.GetRequiredService<IWorkflowRunRecordStore>()
             .ListAsync(runId, WorkflowRunRecord.ReviewEvidenceKind, ct).ConfigureAwait(false);
-        if (records is null)
-            return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Failure("the run record store answered with no review evidence list");
-        if (records.Count == 0)
+        var visit = ApprovingReview.Read(records);
+        if (visit.IsFailure)
+            return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Failure(visit.Error);
+        if (visit.Value is null)
             return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Success([]);
-
-        var approvingSeq = records.Max(r => r.Seq);
-        var lenses = new List<(string Lens, bool Approved, IReadOnlyList<string> Checked)>();
-        foreach (var record in records.Where(r => r.Seq == approvingSeq))
-        {
-            var read = ReadEvidence(record);
-            if (read.IsFailure)
-                return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Failure(read.Error);
-
-            var at = lenses.FindIndex(l => string.Equals(l.Lens, read.Value.Lens, StringComparison.Ordinal));
-            if (at >= 0)
-                lenses[at] = read.Value;
-            else
-                lenses.Add(read.Value);
-        }
-
-        if (lenses.FirstOrDefault(l => !l.Approved) is { Lens: { } rejected })
+        if (!visit.Value.Approved)
         {
             return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Failure(
-                $"the review evidence for lens '{rejected}' at the approving visit is not an approval");
+                $"the review evidence for lens '{visit.Value.RejectedLens}' at the approving visit is not an approval");
         }
 
-        return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Success([.. lenses.Select(l => (l.Lens, l.Checked))]);
+        return Result<IReadOnlyList<(string, IReadOnlyList<string>)>>.Success([.. visit.Value.Lenses.Select(l => (l.Lens, l.Checked))]);
     }
 
     /// <summary>
@@ -379,33 +364,6 @@ internal sealed partial class OpenPullRequestAction(
         }
 
         return null;
-    }
-
-    private static Result<(string Lens, bool Approved, IReadOnlyList<string> Checked)> ReadEvidence(WorkflowRunRecord record)
-    {
-        try
-        {
-            using var payload = JsonDocument.Parse(record.PayloadJson);
-            var root = payload.RootElement;
-            if (root.ValueKind == JsonValueKind.Object
-                && root.TryGetProperty("lens", out var lens) && lens.ValueKind == JsonValueKind.String
-                && root.TryGetProperty("verdict", out var verdict) && verdict.ValueKind == JsonValueKind.String
-                && root.TryGetProperty("checked", out var examined) && examined.ValueKind == JsonValueKind.Array
-                && examined.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String))
-            {
-                return Result<(string, bool, IReadOnlyList<string>)>.Success((
-                    lens.GetString()!,
-                    string.Equals(verdict.GetString(), ReviewEvidence.Approved, StringComparison.Ordinal),
-                    [.. examined.EnumerateArray().Select(e => e.GetString()!)]));
-            }
-        }
-        catch (JsonException)
-        {
-            // Reported below with the record's id, the same as a payload of the wrong shape.
-        }
-
-        return Result<(string, bool, IReadOnlyList<string>)>.Failure(
-            $"review evidence record {record.Id} has no readable lens, verdict and checked list");
     }
 
     /// <summary>
