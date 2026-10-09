@@ -20,7 +20,7 @@ public sealed class WorkflowRunsControllerRetryTests
 
     public WorkflowRunsControllerRetryTests()
     {
-        var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For());
+        var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddMvcCore().AddApiExplorer();

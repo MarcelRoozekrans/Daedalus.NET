@@ -35,6 +35,19 @@ public sealed class WorkflowRunRecord
     public const string ReviewEvidenceKind = "review-evidence";
 
     /// <summary>
+    ///     The <see cref="Kind"/> of a record that a human resumed a gate dropping some of the run's deferred findings, or
+    ///     none. Its payload is <c>{ dropped: [ids], by }</c> and its <see cref="PrincipalId"/> is the resumer. The latest
+    ///     one applies.
+    /// </summary>
+    public const string FindingsDroppedKind = "findings-dropped";
+
+    /// <summary>
+    ///     The <see cref="Kind"/> of a record that <c>file-review-findings</c> filed or commented one deferred finding, or
+    ///     posted its pull-request summary. Its payload is <c>{ id, mode, issue, url }</c>.
+    /// </summary>
+    public const string FindingFiledKind = "finding-filed";
+
+    /// <summary>
     ///     The <see cref="Kind"/> of a record that a sandboxed run's package restore failed: the design's
     ///     <c>SandboxRestoreFailed</c>. The run proceeds, since its agent may be the one to fix the restore.
     /// </summary>

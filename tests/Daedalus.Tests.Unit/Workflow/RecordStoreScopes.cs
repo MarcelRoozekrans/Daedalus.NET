@@ -1,4 +1,5 @@
 using Daedalus.Agents.Workflow;
+using Daedalus.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Daedalus.Tests.Unit.Workflow;
@@ -16,7 +17,14 @@ internal static class RecordStoreScopes
     public static IServiceScopeFactory For(IWorkflowRunRecordStore? records = null)
     {
         var services = new ServiceCollection();
-        services.AddScoped(_ => records ?? Substitute.For<IWorkflowRunRecordStore>());
+        services.AddScoped(_ => records ?? Empty());
         return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
+
+    private static IWorkflowRunRecordStore Empty()
+    {
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        records.ListAsync(Guid.Empty, default, default).ReturnsForAnyArgs(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
+        return records;
     }
 }
