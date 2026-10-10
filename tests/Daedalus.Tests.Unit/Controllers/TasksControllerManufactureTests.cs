@@ -30,6 +30,7 @@ public sealed class TasksControllerManufactureTests
     private readonly WorkflowConfig _workflow = new();
     private readonly IWorkflowStore _store = Substitute.For<IWorkflowStore>();
     private readonly TaskManufactureServiceTests.CapturingLogger<TaskManufactureService> _logger = new();
+    private readonly TaskManufactureServiceTests.CapturingLogger<WorkflowRunCanceller> _cancelLog = new();
     private readonly TasksController _controller;
 
     public TasksControllerManufactureTests()
@@ -51,7 +52,8 @@ public sealed class TasksControllerManufactureTests
     }
 
     private TaskManufactureService Service() =>
-        new(_tasks, _projects, _runs, _starter, _workflow, _logger, TaskManufactureServiceTests.Gateway(_store));
+        new(_tasks, _projects, _runs, _starter, _workflow,
+            new WorkflowRunCanceller(TaskManufactureServiceTests.Gateway(_store), TimeProvider.System, _cancelLog), _logger);
 
     private DomainTask Given(string repositoryUrl, WorkflowRunState? run = null)
     {
@@ -174,9 +176,9 @@ public sealed class TasksControllerManufactureTests
     }
 
     /// <summary>
-    ///     A cancel that throws is best-effort: still 409, the body says the run was not cancelled, and an Error with both
-    ///     ids and the exception is logged.
-    ///     Red: let the exception escape the cancel; the action throws.
+    ///     A cancel that throws is best-effort: still 409, the body says the run was not cancelled, the service logs an Error
+    ///     with both ids, and the canceller logs the exception.
+    ///     Red: let the exception escape <c>WorkflowRunCanceller.CancelAsync</c>; the action throws.
     /// </summary>
     [Fact]
     public async Task A_cancel_that_throws_still_answers_409_and_logs_an_error()
@@ -189,9 +191,10 @@ public sealed class TasksControllerManufactureTests
 
         StatusOf(result).Should().Be(StatusCodes.Status409Conflict);
         ProblemOf(result).Extensions["runCancelled"].Should().Be(false);
-        var error = _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error).Subject;
-        error.Message.Should().Contain(runId.ToString()).And.Contain(task.Id.ToString());
-        error.Exception.Should().BeOfType<InvalidOperationException>();
+        _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
+            .Which.Message.Should().Contain(runId.ToString()).And.Contain(task.Id.ToString());
+        _cancelLog.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
+            .Which.Exception.Should().BeOfType<InvalidOperationException>();
     }
 
     /// <summary>
