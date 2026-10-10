@@ -1,10 +1,10 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Application.Commands.ConvertPrdToTasks;
@@ -75,7 +75,7 @@ public sealed partial class ConvertPrdToTasksCommandHandler(
                     return Result<List<TaskDto>>.Failure(persistResult.Error);
                 }
 
-                createdTasks.Add(TaskDtoMapper.ToDto(persistResult.Value));
+                createdTasks.Add(TaskDtoMapper.ToDto(persistResult.Value, WorkflowRunStatus.Unknown));
                 LogTaskCreatedSuccessfully(logger, taskId);
             }
 

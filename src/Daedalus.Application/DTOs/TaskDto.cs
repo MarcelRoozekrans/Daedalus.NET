@@ -1,6 +1,6 @@
 namespace Daedalus.Application.DTOs;
 
-/// <summary>DTO for Task entity with all Ralph loop fields.</summary>
+/// <summary>A board task. <c>Status</c> is derived from its run when it has one (phase 2.8).</summary>
 public record TaskDto(
     Guid Id,
     string TaskId,
@@ -24,4 +24,6 @@ public record TaskDto(
     DateTime? CompletedAt,
     string? Learnings,
     DateTime? LearningsUpdatedAt,
-    IReadOnlyList<TaskExecutionDto> Executions);
+    IReadOnlyList<TaskExecutionDto> Executions,
+    Guid? WorkflowRunId,
+    Uri? PullRequestUrl);

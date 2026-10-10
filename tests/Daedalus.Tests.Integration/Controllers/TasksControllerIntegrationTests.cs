@@ -2,6 +2,7 @@ using Daedalus.Api.Controllers;
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
+using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
@@ -38,7 +39,7 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync();
 
-        _taskQueryService = new TaskQueryService(_dbContext);
+        _taskQueryService = new TaskQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
         _controller = new TasksController(_taskQueryService, _commandsMock, _loggerMock);
     }
 

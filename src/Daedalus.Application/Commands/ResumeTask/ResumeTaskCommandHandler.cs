@@ -1,8 +1,8 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Commands.ResumeTask;
 
@@ -39,6 +39,6 @@ public sealed class ResumeTaskCommandHandler(ITaskRepository taskRepository)
             return Result<TaskDto>.Failure($"Failed to update task: {updateResult.Error}");
         }
 
-        return Result<TaskDto>.Success(TaskDtoMapper.ToDto(task));
+        return Result<TaskDto>.Success(TaskDtoMapper.ToDto(task, WorkflowRunStatus.Unknown));
     }
 }

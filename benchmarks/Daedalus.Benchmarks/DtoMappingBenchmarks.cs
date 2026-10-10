@@ -1,3 +1,4 @@
+using Daedalus.Application.Abstractions;
 namespace Daedalus.Benchmarks;
 
 using ZLinq;
@@ -27,14 +28,14 @@ public class DtoMappingBenchmarks
     [Benchmark(Description = "DTO Mapping: Single task with 5 executions")]
     public TaskDto MapSingleTask()
     {
-        return TaskDtoMapper.ToDto(_singleTask);
+        return TaskDtoMapper.ToDto(_singleTask, WorkflowRunStatus.Unknown);
     }
 
     [Benchmark(Description = "DTO Mapping: 10 tasks with 5 executions each")]
     public List<TaskDto> MapBulkSmall()
     {
         return _bulkTasks.Take(10)
-            .Select(TaskDtoMapper.ToDto)
+            .Select(t => TaskDtoMapper.ToDto(t, WorkflowRunStatus.Unknown))
             .ToList();
     }
 
@@ -42,7 +43,7 @@ public class DtoMappingBenchmarks
     public List<TaskDto> MapBulkLarge()
     {
         return _bulkTasks
-            .Select(TaskDtoMapper.ToDto)
+            .Select(t => TaskDtoMapper.ToDto(t, WorkflowRunStatus.Unknown))
             .ToList();
     }
 
@@ -51,7 +52,7 @@ public class DtoMappingBenchmarks
     {
         return _bulkTasks
             .AsValueEnumerable()
-            .Select(TaskDtoMapper.ToDto)
+            .Select(t => TaskDtoMapper.ToDto(t, WorkflowRunStatus.Unknown))
             .ToList();
     }
 
@@ -61,7 +62,7 @@ public class DtoMappingBenchmarks
         var dtos = new List<TaskDto>(_bulkTasks.Count);
         foreach (var task in _bulkTasks)
         {
-            dtos.Add(TaskDtoMapper.ToDto(task));
+            dtos.Add(TaskDtoMapper.ToDto(task, WorkflowRunStatus.Unknown));
         }
         return dtos;
     }
