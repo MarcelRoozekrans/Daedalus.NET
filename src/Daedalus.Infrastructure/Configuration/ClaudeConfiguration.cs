@@ -1,43 +1,23 @@
 namespace Daedalus.Infrastructure.Configuration;
 
 /// <summary>
-///     Claude-specific configuration for the Anthropic API.
+///     The Anthropic settings <c>AgentFactory</c> reads, bound from <see cref="SectionName"/>.
 /// </summary>
 public sealed class ClaudeConfiguration
 {
+    public const string SectionName = "ExternalServices:Llm:Claude";
+
+    /// <summary>The default model, used when <see cref="Model"/> is not configured.</summary>
+    public const string DefaultModel = "claude-sonnet-4-20250514";
+
     /// <summary>
-    ///     Anthropic API key. Can also be set via ANTHROPIC_API_KEY environment variable.
+    ///     Anthropic API key. When it is not configured, the <c>ANTHROPIC_API_KEY</c> environment variable is used.
     /// </summary>
     public string? ApiKey { get; set; }
 
-    /// <summary>
-    ///     Model to use (default: "claude-sonnet-4-20250514").
-    /// </summary>
-    public string Model { get; set; } = "claude-sonnet-4-20250514";
+    /// <summary>The model to invoke.</summary>
+    public string Model { get; set; } = DefaultModel;
 
-    /// <summary>
-    ///     Maximum tokens for primary invocations (default: 8192).
-    /// </summary>
+    /// <summary>The maximum output tokens of one invocation.</summary>
     public int MaxTokens { get; set; } = 8192;
-
-    /// <summary>
-    ///     Request timeout in milliseconds (default: 60000).
-    /// </summary>
-    public int Timeout { get; set; } = 60000;
-
-    /// <summary>
-    ///     Whether to enable Claude as an LLM provider (default: false).
-    /// </summary>
-    public bool Enabled { get; set; }
-
-    /// <summary>
-    ///     Maximum parallel subagents (default: 10).
-    /// </summary>
-    public int MaxParallelSubagents { get; set; } = 10;
-
-    /// <summary>
-    ///     Default subagent model override. If null, uses the primary model.
-    ///     Allows using cheaper models (e.g., haiku) for simple subagent tasks.
-    /// </summary>
-    public string? SubagentModel { get; set; }
 }

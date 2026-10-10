@@ -3,7 +3,8 @@ using Daedalus.Application.Services;
 namespace Daedalus.Infrastructure.Configuration;
 
 /// <summary>
-///     Configuration for external service integrations.
+///     The <c>ExternalServices</c> section's MCP integration. Its other keys are bound by their own options:
+///     <c>Llm:Claude</c> by <see cref="ClaudeConfiguration"/>, and <c>Platforms:GitHub</c> by <c>GitHubOptions</c>.
 ///     Context7 documentation is available via MCP server tools configured in the Mcp section.
 /// </summary>
 public sealed class ExternalServicesConfiguration
@@ -15,14 +16,4 @@ public sealed class ExternalServicesConfiguration
     ///     Includes Context7 documentation server (resolve-library-id, get-library-docs tools).
     /// </summary>
     public McpIntegrationOptions Mcp { get; set; } = new();
-
-    /// <summary>
-    ///     Repository platform configurations
-    /// </summary>
-    public RepositoryPlatformsConfiguration Platforms { get; set; } = new();
-
-    /// <summary>
-    ///     LLM service configuration
-    /// </summary>
-    public LlmServiceConfiguration Llm { get; set; } = new();
 }
