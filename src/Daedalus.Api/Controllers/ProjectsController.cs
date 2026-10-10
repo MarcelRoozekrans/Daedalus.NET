@@ -2,6 +2,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.CreateProject;
 using Daedalus.Application.Commands.DeleteProject;
 using Daedalus.Application.Commands.UpdateProject;
+using Daedalus.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -147,12 +148,14 @@ public sealed partial class ProjectsController(
             : BadRequest(new { error = result.Error });
     }
 
-    /// <summary>Delete a project.</summary>
+    /// <summary>Delete a project and its tasks. 409 while any of its tasks has a live manufacture run (amendment A7).</summary>
     [Authorize(Policy = "ProjectManagement")]
     [EnableRateLimiting("write-operations")]
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> DeleteProject(Guid id, CancellationToken ct = default)
     {
         var command = new DeleteProjectCommand(id);
@@ -161,6 +164,11 @@ public sealed partial class ProjectsController(
         if (result.IsSuccess)
         {
             return NoContent();
+        }
+
+        if (TaskRunGuard.IsConflict(result.Error))
+        {
+            return Conflict(new { error = result.Error });
         }
 
         return result.Error.Contains("not found", StringComparison.OrdinalIgnoreCase)
