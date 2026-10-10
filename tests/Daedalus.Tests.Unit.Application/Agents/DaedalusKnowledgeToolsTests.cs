@@ -26,6 +26,7 @@ public sealed class DaedalusKnowledgeToolsTests
     private DaedalusKnowledgeTools CreateSut() => new(
         new DaedalusFailurePatternsTools(_failures, NullLogger<DaedalusFailurePatternsTools>.Instance));
 
+    /// <summary>Red: drop <c>FrozenHistory.Notice</c> from the empty answer in <c>DaedalusFailurePatternsTools</c>; the full-text assertion fails.</summary>
     [Fact]
     public async Task SearchFailurePatterns_delegates_error_message_and_max_results_to_the_failure_patterns_tool()
     {
@@ -46,6 +47,7 @@ public sealed class DaedalusKnowledgeToolsTests
         typeof(DaedalusKnowledgeTools).GetMethod(nameof(DaedalusKnowledgeTools.SearchFailurePatterns))!
             .GetCustomAttribute<DescriptionAttribute>()!.Description.Should().Contain(FrozenHistory.Notice);
 
+    /// <summary>Red: drop <c>FrozenHistory.Notice</c> from the empty answer in <c>DaedalusFailurePatternsTools</c>; the notice assertion fails.</summary>
     [Fact]
     public async Task LocalToolSource_exposes_only_search_failure_patterns_and_invokes_it_through_a_di_scope()
     {
