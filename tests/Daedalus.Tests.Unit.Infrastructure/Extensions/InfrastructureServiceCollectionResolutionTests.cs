@@ -71,7 +71,6 @@ public sealed class InfrastructureServiceCollectionResolutionTests
         };
 
         act.Should().NotThrow(
-            "The Ralph pipeline resolves this exact graph, and Ralph is still the " +
-            "live pull-request-creation path until phase 2.5");
+            "the Ralph pipeline resolves this exact graph until phase 2.8 deletes it");
     }
 }
