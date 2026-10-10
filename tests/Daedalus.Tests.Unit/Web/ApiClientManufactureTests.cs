@@ -13,7 +13,7 @@ public sealed class ApiClientManufactureTests
     private static HttpResponseMessage Json(HttpStatusCode code, string json) =>
         new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
-    /// <summary>Red: revert the catch in ReadProblemDetailAsync; the call throws.
+    /// <summary>Red: drop <c>JsonException</c> from the catch in ReadProblemDetailAsync; the call throws.</summary>
     [Fact]
     public async Task A_502_with_an_html_body_is_a_failure_not_an_exception()
     {
