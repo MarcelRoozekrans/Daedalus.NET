@@ -72,4 +72,16 @@ public sealed class ThalosLearningsMemoryTests
         result.Value.Should().BeEmpty();
         await _service.DidNotReceive().RecallAsync(Arg.Any<string>(), Arg.Any<MemoryScope>(), Arg.Any<RecallOptions>(), Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task Recall_without_a_shared_owner_fails_without_calling_thalos()
+    {
+        _memoryOptions.SharedOwnerId = null;
+
+        var result = await Sut().RecallAsync("anything", 5, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("No shared memory owner");
+        await _service.DidNotReceive().RecallAsync(Arg.Any<string>(), Arg.Any<MemoryScope>(), Arg.Any<RecallOptions>(), Arg.Any<CancellationToken>());
+    }
 }

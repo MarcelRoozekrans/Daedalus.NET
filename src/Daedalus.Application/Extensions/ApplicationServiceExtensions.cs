@@ -22,8 +22,7 @@ public static class ApplicationServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Note: RalphLoopConfiguration is registered in the API/Infrastructure layer
-        // where full dependency injection setup is available
+        // Note: RalphLoopConfiguration is bound in Daedalus.Api, where the full configuration setup is available.
 
         // Auto-register all Mediator request handlers in the Application assembly by their own
         // concrete type. The generated MediatorService resolves each handler with
