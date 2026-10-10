@@ -179,8 +179,9 @@ public class TasksPageBrowserTests : BrowserTestBase
     {
         await _tasksPage.NavigateAsync().ConfigureAwait(false);
         await Expect(_tasksPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_tasksPage.GetRowByText("Fix bug B")).ToBeVisibleAsync().ConfigureAwait(false);
         var iterationCell = _tasksPage.GetIterationText("Fix bug B");
-        await Expect(iterationCell).Not.ToContainTextAsync("/").ConfigureAwait(false);
+        await Expect(iterationCell).ToHaveTextAsync("—").ConfigureAwait(false);
     }
 
     // ── Create dialog content ────────────────────────────────────────────────

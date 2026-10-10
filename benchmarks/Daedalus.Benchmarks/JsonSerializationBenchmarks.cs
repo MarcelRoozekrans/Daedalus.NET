@@ -119,7 +119,10 @@ public class JsonSerializationBenchmarks
                         j % 2 == 0,
                         DateTime.UtcNow.AddMinutes(-j),
                         TimeSpan.FromMilliseconds(100 + j * 10),
-                        null
+                        null,
+                        100,
+                        50,
+                        "claude-sonnet-5"
                     ))
                     .ToList(),
                 null,
