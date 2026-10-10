@@ -106,16 +106,40 @@ public sealed class ApiClient(HttpClient httpClient)
         await GetAsync<List<RunDiagnosis>>($"/api/schedules/{scheduleId}/runs?take={take}", ct);
 
     // Write helpers
-    private async Task<Result<T>> PostAsync<T>(string url, object body, CancellationToken ct = default)
-        where T : class
+    private Task<Result<T>> PostAsync<T>(string url, object body, CancellationToken ct = default)
+        where T : class =>
+        SendAsync<T>(token => httpClient.PostAsJsonAsync(url, body, token), ct);
+
+    private Task<Result> PostAsync(string url, object body, CancellationToken ct = default) =>
+        SendAsync(token => httpClient.PostAsJsonAsync(url, body, token), ct);
+
+    private Task<Result<T>> PutAsync<T>(string url, object body, CancellationToken ct = default)
+        where T : class =>
+        SendAsync<T>(token => httpClient.PutAsJsonAsync(url, body, token), ct);
+
+    private Task<Result> DeleteAsync(string url, CancellationToken ct = default) =>
+        SendAsync(token => httpClient.DeleteAsync(new Uri(url, UriKind.Relative), token), ct);
+
+    /// <summary>
+    ///     Sends a write and reads a <typeparamref name="T"/> body on success. Every expected failure is a Result and never
+    ///     throws: a refusal carries the server's reason, a success body that is not JSON is a failure, and so is a
+    ///     cancelled request.
+    /// </summary>
+    private static async Task<Result<T>> SendAsync<T>(
+        Func<CancellationToken, Task<HttpResponseMessage>> send,
+        CancellationToken ct) where T : class
     {
         try
         {
-            var response = await httpClient.PostAsJsonAsync(url, body, ct);
-            response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<T>(ct);
-            return result is not null
-                ? Result<T>.Success(result)
+            using var response = await send(ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                return Result<T>.Failure(await ReadFailureReasonAsync(response, ct));
+            }
+
+            var value = await TryReadJsonAsync<T>(response, ct);
+            return value is not null
+                ? Result<T>.Success(value)
                 : Result<T>.Failure("No data returned from server");
         }
         catch (AccessTokenNotAvailableException)
@@ -126,15 +150,23 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result<T>.Failure($"API error: {ex.Message}");
         }
+        catch (OperationCanceledException)
+        {
+            return Result<T>.Failure("Request was cancelled");
+        }
     }
 
-    private async Task<Result> PostAsync(string url, object body, CancellationToken ct = default)
+    /// <summary>Sends a write whose success body is not read. Failures map as <see cref="SendAsync{T}"/> maps them.</summary>
+    private static async Task<Result> SendAsync(
+        Func<CancellationToken, Task<HttpResponseMessage>> send,
+        CancellationToken ct)
     {
         try
         {
-            var response = await httpClient.PostAsJsonAsync(url, body, ct);
-            response.EnsureSuccessStatusCode();
-            return Result.Success();
+            using var response = await send(ct);
+            return response.IsSuccessStatusCode
+                ? Result.Success()
+                : Result.Failure(await ReadFailureReasonAsync(response, ct));
         }
         catch (AccessTokenNotAvailableException)
         {
@@ -144,45 +176,9 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result.Failure($"API error: {ex.Message}");
         }
-    }
-
-    private async Task<Result<T>> PutAsync<T>(string url, object body, CancellationToken ct = default)
-        where T : class
-    {
-        try
+        catch (OperationCanceledException)
         {
-            var response = await httpClient.PutAsJsonAsync(url, body, ct);
-            response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<T>(ct);
-            return result is not null
-                ? Result<T>.Success(result)
-                : Result<T>.Failure("No data returned from server");
-        }
-        catch (AccessTokenNotAvailableException)
-        {
-            return Result<T>.Failure("Please log in to perform this action.");
-        }
-        catch (HttpRequestException ex)
-        {
-            return Result<T>.Failure($"API error: {ex.Message}");
-        }
-    }
-
-    private async Task<Result> DeleteAsync(string url, CancellationToken ct = default)
-    {
-        try
-        {
-            var response = await httpClient.DeleteAsync(new Uri(url, UriKind.Relative), ct);
-            response.EnsureSuccessStatusCode();
-            return Result.Success();
-        }
-        catch (AccessTokenNotAvailableException)
-        {
-            return Result.Failure("Please log in to perform this action.");
-        }
-        catch (HttpRequestException ex)
-        {
-            return Result.Failure($"API error: {ex.Message}");
+            return Result.Failure("Request was cancelled");
         }
     }
 
@@ -191,41 +187,16 @@ public sealed class ApiClient(HttpClient httpClient)
     ///     Starts a manufacture run for the task. A refusal returns the server's problem detail, such as a repository that
     ///     is not allow-listed, so the page can show why.
     /// </summary>
-    public async Task<Result<StartWorkflowRunResponse>> ManufactureTaskAsync(Guid id, CancellationToken ct = default)
+    public Task<Result<StartWorkflowRunResponse>> ManufactureTaskAsync(Guid id, CancellationToken ct = default) =>
+        SendAsync<StartWorkflowRunResponse>(
+            token => httpClient.PostAsync(new Uri($"/api/tasks/{id}/manufacture", UriKind.Relative), content: null, token),
+            ct);
+
+    private static async Task<T?> TryReadJsonAsync<T>(HttpResponseMessage response, CancellationToken ct) where T : class
     {
         try
         {
-            using var response = await httpClient.PostAsync(new Uri($"/api/tasks/{id}/manufacture", UriKind.Relative), content: null, ct);
-            if (response.IsSuccessStatusCode)
-            {
-                var started = await ReadStartedAsync(response, ct);
-                return started is not null
-                    ? Result<StartWorkflowRunResponse>.Success(started)
-                    : Result<StartWorkflowRunResponse>.Failure("No data returned from server");
-            }
-
-            var detail = await ReadProblemDetailAsync(response, ct);
-            return Result<StartWorkflowRunResponse>.Failure(detail ?? $"API error: {(int)response.StatusCode} {response.ReasonPhrase}");
-        }
-        catch (AccessTokenNotAvailableException)
-        {
-            return Result<StartWorkflowRunResponse>.Failure("Please log in to perform this action.");
-        }
-        catch (HttpRequestException ex)
-        {
-            return Result<StartWorkflowRunResponse>.Failure($"API error: {ex.Message}");
-        }
-        catch (OperationCanceledException)
-        {
-            return Result<StartWorkflowRunResponse>.Failure("Request was cancelled");
-        }
-    }
-
-    private static async Task<StartWorkflowRunResponse?> ReadStartedAsync(HttpResponseMessage response, CancellationToken ct)
-    {
-        try
-        {
-            return await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>(ct);
+            return await response.Content.ReadFromJsonAsync<T>(ct);
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or NotSupportedException or InvalidOperationException)
         {
@@ -233,20 +204,24 @@ public sealed class ApiClient(HttpClient httpClient)
         }
     }
 
-    private static async Task<string?> ReadProblemDetailAsync(HttpResponseMessage response, CancellationToken ct)
+    /// <summary>
+    ///     The reason a write was refused. The server answers in two shapes: a ProblemDetails <c>detail</c>, and the
+    ///     <c>{ "error": "..." }</c> body most controllers return. A body in neither shape gives the status line.
+    /// </summary>
+    private static async Task<string> ReadFailureReasonAsync(HttpResponseMessage response, CancellationToken ct)
     {
-        try
+        var body = await TryReadJsonAsync<FailureBody>(response, ct);
+        if (!string.IsNullOrWhiteSpace(body?.Detail))
         {
-            var problem = await response.Content.ReadFromJsonAsync<ProblemBody>(ct);
-            return string.IsNullOrWhiteSpace(problem?.Detail) ? null : problem.Detail;
+            return body.Detail;
         }
-        catch (Exception ex) when (ex is System.Text.Json.JsonException or NotSupportedException or InvalidOperationException)
-        {
-            return null;
-        }
+
+        return !string.IsNullOrWhiteSpace(body?.Error)
+            ? body.Error
+            : $"API error: {(int)response.StatusCode} {response.ReasonPhrase}";
     }
 
-    private sealed record ProblemBody(string? Detail);
+    private sealed record FailureBody(string? Detail, string? Error);
 
     public async Task<Result<TaskDto>> CreateTaskAsync(CreateTaskDto dto, CancellationToken ct = default) =>
         await PostAsync<TaskDto>("/api/tasks", dto, ct);
