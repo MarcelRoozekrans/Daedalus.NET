@@ -36,8 +36,12 @@ public static class TaskStatusLabels
     /// </summary>
     public static bool IsEditable(int status) => status is 0 or 3 or 4 or 6;
 
-    /// <summary>Whether a Manufacture button is offered: for the same statuses as <see cref="IsEditable"/>.</summary>
-    public static bool IsStartable(int status) => IsEditable(status);
+    /// <summary>
+    ///     Whether a Manufacture button is offered: for the statuses <see cref="IsEditable"/> allows, and for an orphaned
+    ///     claim of the retired loop, a task stored In Progress with no run, which the server starts.
+    /// </summary>
+    public static bool IsStartable(TaskDto task) =>
+        IsEditable(task.Status) || (task.Status == 1 && task.WorkflowRunId is null);
 
     /// <summary>
     ///     Whether the task carries the retired loop's settings: only a task from before phase 2.8 has
