@@ -7,8 +7,7 @@ using Thalos;
 namespace Daedalus.Tests.Integration.Services.CodeAnalysis;
 
 /// <summary>
-///     Guards DI resolution of <see cref="IPullRequestFactory"/>, <see cref="IWorkspaceOrchestrator"/> and
-///     <see cref="IRalphLoopOrchestrator"/> on the real <c>Daedalus.Api</c> composition root — the one that calls
+///     Guards DI resolution of <see cref="IPullRequestFactory"/> and <see cref="IRalphLoopOrchestrator"/> on the real <c>Daedalus.Api</c> composition root — the one that calls
 ///     both <c>AddDaedalusAgents</c> and <c>AddCodeAnalysisServices</c> on the same container.
 /// </summary>
 /// <remarks>
@@ -23,9 +22,8 @@ namespace Daedalus.Tests.Integration.Services.CodeAnalysis;
 ///         <see cref="IServiceCollection"/>.
 ///     </para>
 ///     <para>
-///         <b>Why only the API root here.</b> The memory-less root (<c>AddCodeAnalysisServices</c> without
-///         <c>AddDaedalusAgents</c> — the composition the retired Ralph console host ran in
-///         production) is covered by the faster
+///         <b>Why only the API root here.</b> The agent-less root (<c>AddCodeAnalysisServices</c> without
+///         <c>AddDaedalusAgents</c>) is covered by the faster
 ///         <c>Daedalus.Tests.Unit.Infrastructure.Extensions.InfrastructureServiceCollectionResolutionTests</c>,
 ///         which substitutes the two EF-Core-backed repositories this graph needs instead of paying for a real
 ///         Postgres container. That test belongs in the unit gate for the fast feedback; this one exists because
@@ -53,7 +51,6 @@ public sealed class PullRequestFactoryRegistrationTests(PostgresFixture fixture)
         var act = () =>
         {
             scope.ServiceProvider.GetRequiredService<IPullRequestFactory>();
-            scope.ServiceProvider.GetRequiredService<IWorkspaceOrchestrator>();
             scope.ServiceProvider.GetRequiredService<IRalphLoopOrchestrator>();
         };
 

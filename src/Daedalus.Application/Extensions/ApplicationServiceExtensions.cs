@@ -42,20 +42,8 @@ public static class ApplicationServiceExtensions
         services.AddMediator();
         services.AddScoped<IApplicationCommands, ApplicationCommands>();
 
-        // Register prompt building and MCP agent selection
-        services.AddPromptBuilding();
-
-        // Register learnings service for cross-task knowledge transfer
-        services.AddScoped<ILearningsService, LearningsService>();
-
-        // Register inline LLM response parser (replaces file-based + subagent extraction)
-        services.AddScoped<ILlmResponseParser, LlmResponseParser>();
-
         // Register PRD service
         services.AddScoped<IPrdService, PrdService>();
-
-        // Register phase chaining orchestrator for multi-phase task dependency resolution
-        services.AddScoped<IPhaseOrchestrator, PhaseOrchestrator>();
 
         // Register the ZeroAlloc.Validation-generated validators. ZeroAlloc.Validation.Inject's
         // AddZeroAllocValidators() only discovers `class`-declared [Validate] targets — its
@@ -72,27 +60,6 @@ public static class ApplicationServiceExtensions
         services.AddSingleton<ValidatorFor<UpdateRepositoryConfigurationDto>, UpdateRepositoryConfigurationDtoValidator>();
         services.AddSingleton<ValidatorFor<SendBrainstormMessageDto>, SendBrainstormMessageDtoValidator>();
         services.AddSingleton<ValidatorFor<SubmitAnalysisRequest>, SubmitAnalysisRequestValidator>();
-
-        return services;
-    }
-
-    /// <summary>
-    ///     Registers prompt builder services.
-    ///     Library documentation is available on-demand via Context7 MCP tools
-    ///     (resolve-library-id, get-library-docs) which Claude calls during inference.
-    /// </summary>
-    public static IServiceCollection AddPromptBuilding(this IServiceCollection services)
-    {
-        // Register the RLP template builder for structured prompt assembly
-        services.AddScoped<IRalphPromptTemplateBuilder, RalphPromptTemplateBuilder>();
-
-        // Register the prompt builder directly — Context7 documentation is now fetched
-        // on-demand by Claude via MCP tools, no decorator needed
-        services.AddScoped<DefaultPromptBuilder>();
-        services.AddScoped<IPromptBuilder>(sp => sp.GetRequiredService<DefaultPromptBuilder>());
-
-        // Register agent executor for multi-agent execution chains
-        services.AddScoped<IAgentExecutor, AgentExecutor>();
 
         return services;
     }

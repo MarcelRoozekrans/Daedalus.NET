@@ -8,11 +8,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Daedalus.Tests.Unit.Infrastructure.Extensions;
 
 /// <summary>
-///     Guards DI resolution of <see cref="IPullRequestFactory"/>, <see cref="IWorkspaceOrchestrator"/> and
-///     <see cref="IRalphLoopOrchestrator"/> against <see cref="InfrastructureServiceExtensions.AddExternalServices"/>
-///     and <see cref="InfrastructureServiceExtensions.AddCodeAnalysisServices"/> — the exact registrations
-///     the retired Ralph console host's composition root called to build the Ralph object graph resolved in
-///     production.
+///     Guards DI resolution of <see cref="IPullRequestFactory"/> and <see cref="IRalphLoopOrchestrator"/>
+///     against <see cref="InfrastructureServiceExtensions.AddExternalServices"/> and
+///     <see cref="InfrastructureServiceExtensions.AddCodeAnalysisServices"/>, the registrations a host without
+///     <c>AddDaedalusAgents</c> uses to build the code-analysis object graph.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -29,9 +28,8 @@ namespace Daedalus.Tests.Unit.Infrastructure.Extensions;
 ///     <para>
 ///         <b>Why no database.</b> The real composition root also calls <c>AddApplicationDatabase</c> and registers
 ///         <c>ApplicationDbContext</c>-backed repositories, none of which this graph needs
-///         (<see cref="IWorkspaceOrchestrator"/> and <see cref="IRalphLoopOrchestrator"/> depend on
-///         <c>IProjectRepository</c> and <c>ICodeAnalysisRepository</c> respectively, both EF Core repositories).
-///         Substituting those two interfaces after calling the real extension methods keeps this test in the fast
+///         (<see cref="IRalphLoopOrchestrator"/> depends on <c>ICodeAnalysisRepository</c>, an EF Core repository).
+///         Substituting that interface after calling the real extension methods keeps this test in the fast
 ///         unit gate — no Postgres, no Testcontainers, sub-second — while still exercising the exact registration
 ///         calls that broke.
 ///     </para>
@@ -39,25 +37,23 @@ namespace Daedalus.Tests.Unit.Infrastructure.Extensions;
 public sealed class InfrastructureServiceCollectionResolutionTests
 {
     [Fact]
-    public void Console_style_registrations_resolve_the_pull_request_and_orchestrator_graph()
+    public void Registrations_without_agents_resolve_the_pull_request_and_orchestrator_graph()
     {
         var services = new ServiceCollection();
         services.AddLogging();
 
         var configuration = new ConfigurationBuilder().Build();
 
-        // Mirrors the retired Ralph console host's call sequence for this graph: IProjectRepository is registered
-        // directly (not through an extension method), then AddExternalServices, then AddCodeAnalysisServices.
-        // Deliberately WITHOUT AddDaedalusAgents — that host never called it, and that asymmetry is what let the
-        // dropped registration hide behind the API host's green tests.
-        services.AddScoped<IProjectRepository>(_ => Substitute.For<IProjectRepository>());
+        // AddExternalServices, then AddCodeAnalysisServices. Deliberately WITHOUT AddDaedalusAgents: a host that
+        // registers code analysis alone must still resolve the graph, and that asymmetry is what let a dropped
+        // registration hide behind the API host's green tests.
         services.AddExternalServices(configuration);
         services.AddCodeAnalysisServices(configuration);
 
-        // ICodeAnalysisRepository, IFailurePatternDatabase, IPromptContextStore and IBrainstormRepository are all
-        // EF Core repositories needing ApplicationDbContext, which nothing in this test registers. Only
-        // ICodeAnalysisRepository sits on the graph under test (IRalphLoopOrchestrator's constructor); the other
-        // three are registered by AddExternalServices but never resolved here, so they are left alone.
+        // ICodeAnalysisRepository, IFailurePatternDatabase and IBrainstormRepository are all EF Core repositories
+        // needing ApplicationDbContext, which nothing in this test registers. Only ICodeAnalysisRepository sits on
+        // the graph under test (IRalphLoopOrchestrator's constructor); the other two are registered by
+        // AddExternalServices but never resolved here, so they are left alone.
         services.AddScoped<ICodeAnalysisRepository>(_ => Substitute.For<ICodeAnalysisRepository>());
 
         using var provider = services.BuildServiceProvider();
@@ -66,11 +62,10 @@ public sealed class InfrastructureServiceCollectionResolutionTests
         var act = () =>
         {
             scope.ServiceProvider.GetRequiredService<IPullRequestFactory>();
-            scope.ServiceProvider.GetRequiredService<IWorkspaceOrchestrator>();
             scope.ServiceProvider.GetRequiredService<IRalphLoopOrchestrator>();
         };
 
         act.Should().NotThrow(
-            "the Ralph pipeline resolves this exact graph until phase 2.8 deletes it");
+            "code analysis still resolves the pull request factory and the orchestrator from these registrations");
     }
 }
