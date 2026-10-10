@@ -30,8 +30,14 @@ public static class TaskStatusLabels
         _ => BadgeStyle.Light,
     };
 
-    /// <summary>Whether a Manufacture button is offered: not while a run is live, and not once the task completed.</summary>
-    public static bool IsStartable(int status) => status is 0 or 3 or 4 or 6;
+    /// <summary>
+    ///     Whether the task can be edited: not while a run is live, and not once the task completed. A task whose run
+    ///     failed or was cancelled stays editable. The server's <c>TaskStatusDerivation.IsEditable</c> applies the same set.
+    /// </summary>
+    public static bool IsEditable(int status) => status is 0 or 3 or 4 or 6;
+
+    /// <summary>Whether a Manufacture button is offered: for the same statuses as <see cref="IsEditable"/>.</summary>
+    public static bool IsStartable(int status) => IsEditable(status);
 
     /// <summary>
     ///     Whether the task carries the retired loop's settings: only a task from before phase 2.8 has

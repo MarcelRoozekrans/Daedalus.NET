@@ -4,7 +4,6 @@ using Daedalus.Application.Mappers;
 using Daedalus.Application.Services;
 using ZeroAlloc.Mediator;
 using ZeroAlloc.Results;
-using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.UpdateTask;
 
@@ -36,10 +35,10 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository, IWo
         }
 
         var status = TaskStatusDerivation.Derive(task, run);
-        if (status != TaskStatus.Pending)
+        if (!TaskStatusDerivation.IsEditable(status))
         {
             return Result<TaskDto>.Failure(
-                $"Cannot update task: current status is {status}. Only pending tasks can be updated.");
+                $"Cannot update task: current status is {status}. A completed task, or one whose run is live, cannot be updated.");
         }
 
         // Apply partial updates using domain method where applicable

@@ -22,6 +22,14 @@ public static class TaskStatusDerivation
         _ => task.Status,
     };
 
+    /// <summary>
+    ///     Whether a task whose derived status is <paramref name="derived"/> can be edited: it has no live run and is not
+    ///     completed. A task whose run failed or was cancelled stays editable (amendment A7). The Web's
+    ///     <c>TaskStatusLabels.IsEditable</c> applies the same set.
+    /// </summary>
+    public static bool IsEditable(TaskStatus derived) =>
+        derived is TaskStatus.Pending or TaskStatus.Failed or TaskStatus.Abandoned or TaskStatus.Cancelled;
+
     /// <summary>The status of <paramref name="task"/>'s current run, without a lookup when it has none.</summary>
     public static async ValueTask<WorkflowRunStatus> ReadRunAsync(this IWorkflowRunStatusReader reader, DomainTask task, CancellationToken ct) =>
         task.WorkflowRunId is { } runId ? await reader.ReadAsync(runId, ct).ConfigureAwait(false) : WorkflowRunStatus.Unknown;

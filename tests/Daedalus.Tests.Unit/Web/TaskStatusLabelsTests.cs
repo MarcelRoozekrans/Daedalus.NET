@@ -32,6 +32,22 @@ public sealed class TaskStatusLabelsTests
     public void Only_a_task_without_a_live_or_completed_run_is_startable(int status, bool startable) =>
         TaskStatusLabels.IsStartable(status).Should().Be(startable);
 
+    /// <summary>
+    ///     Ruling I2: a task can be edited unless its run is live or it completed; a failed or cancelled run leaves it
+    ///     editable. The server's <c>TaskStatusDerivation.IsEditable</c> uses the same set.
+    ///     Red per row: change <c>IsEditable</c>'s pattern, for example back to the dialog's old <c>0 or 3</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    [InlineData(4, true)]
+    [InlineData(5, false)]
+    [InlineData(6, true)]
+    public void Only_a_task_without_a_live_or_completed_run_is_editable(int status, bool editable) =>
+        TaskStatusLabels.IsEditable(status).Should().Be(editable);
+
     /// <summary>Red: give AwaitingApproval the Info style of InProgress; a person at the board cannot tell them apart.</summary>
     [Fact]
     public void Awaiting_approval_looks_different_from_in_progress() =>
