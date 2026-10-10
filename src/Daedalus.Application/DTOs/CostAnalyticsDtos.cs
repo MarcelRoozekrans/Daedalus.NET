@@ -2,15 +2,66 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Daedalus.Application.DTOs;
 
-/// <summary>Overall cost summary across all projects.</summary>
+/// <summary>The sources a cost figure's tokens are read from, and how a session's owner picks one.</summary>
+public static class CostSources
+{
+    /// <summary>Iterations of the task loop that phase 2.8 retired, from <c>TaskExecutions</c>. Read-only history.</summary>
+    public const string History = "history";
+
+    /// <summary>Completed agent nodes of manufacture runs, from <c>node-usage</c> records, with the model and cache split.</summary>
+    public const string Manufacture = "manufacture";
+
+    /// <summary>Agent sessions a person owns. No model, no cache split.</summary>
+    public const string Chat = "chat";
+
+    /// <summary>Agent sessions a scheduled run owns (<c>schedule:*</c>). No model, no cache split.</summary>
+    public const string Scheduled = "scheduled";
+
+    /// <summary>The model key of tokens recorded without a model.</summary>
+    public const string NoModel = "unattributed";
+
+    /// <summary>The owner prefix of a manufacture node turn's session (<c>WorkflowCaller.Id</c>).</summary>
+    public const string WorkflowOwnerPrefix = "workflow:";
+
+    /// <summary>The owner prefix of a scheduled run's session.</summary>
+    public const string ScheduleOwnerPrefix = "schedule:";
+
+    /// <summary>
+    ///     The source of a session owned by <paramref name="ownerId"/>, or null for a manufacture node turn, which its
+    ///     <c>node-usage</c> record already counts.
+    /// </summary>
+    public static string? ForSessionOwner(string ownerId)
+    {
+        if (ownerId.StartsWith(WorkflowOwnerPrefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return ownerId.StartsWith(ScheduleOwnerPrefix, StringComparison.Ordinal) ? Scheduled : Chat;
+    }
+}
+
+/// <summary>The overall cost, split by source, by model and by day.</summary>
 public record CostSummaryDto(
     long TotalInputTokens,
     long TotalOutputTokens,
+    long TotalCacheReadTokens,
+    long TotalCacheWriteTokens,
     decimal TotalCost,
-    int TotalExecutions,
-    int TotalTasks,
+    int TotalEntries,
+    int UnreadableRecords,
     ExcludedCostDto Excluded,
+    IReadOnlyList<CostSliceDto> BySource,
+    IReadOnlyList<CostSliceDto> ByModel,
+    IReadOnlyList<CostDayDto> ByDay,
     string Scope);
+
+/// <summary>One slice of the total: a source, or a model. <c>Entries</c> counts executions, records or sessions.</summary>
+public record CostSliceDto(
+    string Key, long InputTokens, long OutputTokens, long CacheReadTokens, long CacheWriteTokens, decimal Cost, int Entries);
+
+/// <summary>One source's usage on one UTC day.</summary>
+public record CostDayDto(DateOnly Day, string Source, long InputTokens, long OutputTokens, decimal Cost, int Entries);
 
 /// <summary>Cost breakdown for a single project.</summary>
 public record ProjectCostDto(
@@ -34,7 +85,7 @@ public record TaskCostDto(
     ExcludedCostDto Excluded,
     string Scope);
 
-/// <summary>Estimated cost for a planned Ralph run.</summary>
+/// <summary>Estimated cost for a planned run of up to <c>MaxIterations</c> turns.</summary>
 public record CostEstimateDto(
     string ModelId,
     string ModelDisplayName,

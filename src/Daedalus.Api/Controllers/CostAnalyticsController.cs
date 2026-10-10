@@ -72,25 +72,7 @@ public sealed partial class CostAnalyticsController(
         }
     }
 
-    /// <summary>Get per-task cost breakdown for a session.</summary>
-    [Authorize(Policy = "TaskRead")]
-    [HttpGet("by-session/{id:guid}")]
-    [ProducesResponseType(typeof(IReadOnlyList<TaskCostDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetBySessionId(Guid id, CancellationToken ct = default)
-    {
-        try
-        {
-            var result = await costService.GetCostsBySessionIdAsync(id, ct);
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            LogErrorRetrievingCosts(logger, ex);
-            return StatusCode(StatusCodes.Status500InternalServerError, new { error = "Internal server error" });
-        }
-    }
-
-    /// <summary>Estimate cost for a planned Ralph run.</summary>
+    /// <summary>Estimate the cost of a planned run of up to <c>maxIterations</c> turns.</summary>
     [Authorize(Policy = "TaskRead")]
     [HttpGet("estimate")]
     [ProducesResponseType(typeof(CostEstimateDto), StatusCodes.Status200OK)]
