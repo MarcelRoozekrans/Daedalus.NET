@@ -1,12 +1,12 @@
 using System.Diagnostics.CodeAnalysis;
 using Anthropic;
 using Anthropic.Core;
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Agents;
 
