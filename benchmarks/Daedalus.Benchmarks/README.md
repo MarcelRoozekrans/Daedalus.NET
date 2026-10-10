@@ -13,13 +13,13 @@ dotnet run -p benchmarks/Daedalus.Benchmarks -c Release
 ### Run specific benchmark class
 
 ```bash
-dotnet run -p benchmarks/Daedalus.Benchmarks -c Release --filter "LinqBenchmarks"
+dotnet run -p benchmarks/Daedalus.Benchmarks -c Release --filter "StringValidationBenchmarks"
 ```
 
 ### Run specific benchmark method
 
 ```bash
-dotnet run -p benchmarks/Daedalus.Benchmarks -c Release --filter "LinqBenchmarks.ZLinqArray"
+dotnet run -p benchmarks/Daedalus.Benchmarks -c Release --filter "StringValidationBenchmarks.StandardValidation"
 ```
 
 ## Benchmark Suites

@@ -29,6 +29,9 @@ src/
 ├── Daedalus.Agents/           # Agent/session infrastructure (ZeroAlloc.Outbox),
 │                               # the manufacture workflow host
 ├── Daedalus.Cli/              # Console-channel host
+├── Daedalus.Migrations/       # EF Core migration runner, run before the hosts
+├── Daedalus.Sandbox/          # Per-run sandbox container host and its Dockerfile
+├── Daedalus.ServiceDefaults/  # Shared OpenTelemetry, logging, DB registration
 ├── Daedalus.Web/              # Blazor WebAssembly UI
 └── Daedalus.AppHost/          # .NET Aspire orchestration
 
@@ -47,15 +50,16 @@ automatic pickup.
   `src/Daedalus.Api/Services/TaskManufactureService.cs`) needs the
   `WorkflowResume` policy, the `developer` or `admin` role. It answers 201 with
   the run id, and attaches the run to the task (`Task.WorkflowRunId`). Every
-  refusal comes before anything is spent:
+  precondition is checked before the run starts:
   - 404: no such task.
   - 422: the project has no `RepositoryUrl`, or it matches no entry of
     `Thalos:Workflow:Repositories`, or a dependency's derived status is not
-    `Completed`.
+    `Completed`, or a dependency does not exist in the project.
   - 409: the task's current run is still `Running` or `Awaiting`. A 409 also
     answers a task that changed while the run started: that run is cancelled
     and the body names its `runId` and whether it was cancelled. A failed
-    attach is a 500 with the same extensions.
+    attach is a 500 with the same extensions, and a failed read of the task,
+    its project or its dependencies is a 500 with generic text.
   - The starter's own failures map as `POST /api/workflow-runs` maps them
     (`ManufactureStartProblem`): 400 invalid, 422 unstartable, 503 when the
     starter is unavailable (with `Retry-After: 30`), and 503 without it when
@@ -123,7 +127,8 @@ package some older docs reference.
 ## Developer workflows
 
 ```bash
-# Run everything (Postgres, migrations, API, Web) via .NET Aspire
+# Run everything via .NET Aspire: Postgres, Keycloak, Ollama, migrations,
+# the daedalus-sandbox:dev image build, API and Web
 dotnet run --project src/Daedalus.AppHost
 # Dashboard: http://localhost:17300
 

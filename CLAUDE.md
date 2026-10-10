@@ -17,7 +17,11 @@ src/
 ├── Daedalus.Application/      # Mediator requests/handlers, DTOs, repository interfaces
 ├── Daedalus.Infrastructure/   # EF Core DbContext, repository impls, migrations
 ├── Daedalus.Api/              # REST controllers
+├── Daedalus.Agents/           # Thalos.NET composition root, manufacture workflow host
 ├── Daedalus.Cli/              # Console-channel host
+├── Daedalus.Migrations/       # EF Core migration runner
+├── Daedalus.Sandbox/          # Per-run sandbox container host
+├── Daedalus.ServiceDefaults/  # Shared OpenTelemetry, logging, DB registration
 ├── Daedalus.Web/              # Blazor WebAssembly UI
 └── Daedalus.AppHost/          # .NET Aspire orchestration
 tests/
@@ -33,7 +37,7 @@ task's status is derived from its run on read (`TaskStatusDerivation`).
 ## Build and test
 
 ```bash
-dotnet run --project src/Daedalus.AppHost   # Aspire: Postgres + migrations + API + Web, dashboard on :17300
+dotnet run --project src/Daedalus.AppHost   # Aspire: Postgres, Keycloak, Ollama, migrations, sandbox image, API, Web; dashboard :17300
 dotnet build
 dotnet test
 dotnet test tests/Daedalus.Tests.Unit
