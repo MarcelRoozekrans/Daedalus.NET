@@ -189,4 +189,30 @@ public sealed class NodeUsageRecordTests
             Arg.Is<WorkflowRunRecord>(r => r.Node == "review" && r.Kind == WorkflowRunRecord.NodeUsageKind),
             Arg.Any<CancellationToken>());
     }
+
+    /// <summary>
+    ///     The completion is durable before the append, so a dispatch cancelled in between must still get its record and
+    ///     must not see an exception. Red: pass the caller's token to the append; the store sees a cancelled token and
+    ///     the record is never written.
+    /// </summary>
+    [Fact]
+    public async Task A_dispatch_cancelled_after_the_completion_still_records_its_usage()
+    {
+        var run = RunAt("implement");
+        var written = new List<WorkflowRunRecord>();
+        _records.AppendAsync(default!, default).ReturnsForAnyArgs(call =>
+        {
+            call.Arg<CancellationToken>().ThrowIfCancellationRequested();
+            written.Add(call.Arg<WorkflowRunRecord>());
+            return ValueTask.CompletedTask;
+        });
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        var complete = async () => await Store(new RecordingWorkflowStore(run)).CompleteNodeAsync(
+            run.Id, 3, AnyTransition(), new NodeResult("changed", new Dictionary<string, object?>(StringComparer.Ordinal)) { Usage = Usage }, cancelled.Token);
+
+        await complete.Should().NotThrowAsync();
+        written.Should().ContainSingle().Which.Kind.Should().Be(WorkflowRunRecord.NodeUsageKind);
+    }
 }
