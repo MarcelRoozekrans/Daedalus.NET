@@ -6,6 +6,8 @@ using Daedalus.Agents.Memory;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Skills;
 using Daedalus.Agents.Workflow;
+using Daedalus.Application.Abstractions;
+using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -73,6 +75,34 @@ public sealed class DaedalusAgentsRegistrationTests
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(configuration, environment, embeddings);
         return services.BuildServiceProvider();
+    }
+
+    /// <summary>
+    ///     Amendment A2: a host with the engine off still resolves the port, so task reads never fail DI there.
+    ///     Red: drop the <c>TryAddSingleton</c> of the disabled reader; resolution throws.
+    /// </summary>
+    [Fact]
+    public void A_host_with_the_engine_off_resolves_the_disabled_run_status_reader()
+    {
+        using var sp = Build(Config(("Thalos:Workflow:Enabled", "false")));
+
+        sp.GetRequiredService<IWorkflowRunStatusReader>().Should().BeOfType<DisabledWorkflowRunStatusReader>();
+    }
+
+    /// <summary>
+    ///     An enabled host replaces it with the engine reader. Checked on the descriptor, so no workflow store is built.
+    ///     Red: drop the <c>Replace</c> in <c>AddDaedalusWorkflow</c>; the last descriptor is the disabled reader.
+    /// </summary>
+    [Fact]
+    public void A_host_with_the_engine_on_replaces_it_with_the_engine_reader()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddSingleton(Substitute.For<IPullRequestFactory>());
+        services.AddDaedalusAgents(Config(), Environment());
+
+        services.Last(d => d.ServiceType == typeof(IWorkflowRunStatusReader)).ImplementationType!.Name.Should().Be("WorkflowRunStatusReader");
     }
 
     [Fact]

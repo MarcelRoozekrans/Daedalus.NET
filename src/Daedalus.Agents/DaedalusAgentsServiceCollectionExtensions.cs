@@ -15,6 +15,7 @@ using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
+using Daedalus.Application.Services;
 using Daedalus.Infrastructure.Agents.Tools;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
@@ -299,6 +300,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // report the engine is off instead of failing DI resolution.
         services.TryAddSingleton<IManufactureRunStarter, DisabledManufactureRunStarter>();
 
+        // Phase 2.8, amendment A2: always registered, like the starter above, so task reads resolve on every host.
+        // AddDaedalusWorkflow replaces it with the engine reader when Workflow.Enabled.
+        services.TryAddSingleton<IWorkflowRunStatusReader, DisabledWorkflowRunStatusReader>();
+
         // The memory index embeds with the DI generator; a host that only hands the instance to this call (for Sentinel) still gets a working index.
         if (embeddingGenerator is not null)
         {
@@ -543,6 +548,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 sp.GetRequiredService<IRunWorkspaceProvider>(),
                 sp.GetRequiredService<IRunBaseFileReader>(),
                 sp.GetRequiredService<WorkflowConfig>())));
+
+        // Phase 2.8: reads a task's run over the undecorated IWorkflowStore, as WorkflowRunGateway does.
+        services.Replace(ServiceDescriptor.Singleton<IWorkflowRunStatusReader, WorkflowRunStatusReader>());
 
         // ISubagentRunner comes from AddThalos; IWorkflowStore/IProcessDefinitionStore from AddWorkflowOrm above.
         // Built via WorkflowNodeDispatcherFactory, not inline here — see that type's remarks for why this needs
