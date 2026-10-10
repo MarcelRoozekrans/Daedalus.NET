@@ -23,4 +23,6 @@ public record TaskDto(
     DateTime? CompletedAt,
     string? Learnings,
     DateTime? LearningsUpdatedAt,
-    IReadOnlyList<TaskExecutionDto> Executions);
+    IReadOnlyList<TaskExecutionDto> Executions,
+    Guid? WorkflowRunId,
+    Uri? PullRequestUrl);

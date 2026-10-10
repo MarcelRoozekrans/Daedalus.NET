@@ -1,6 +1,6 @@
 global using ZeroAlloc.Results;
-using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Daedalus.Application.DTOs.Scheduling;
+using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
 using BrainstormSessionDto = Daedalus.Application.DTOs.BrainstormSessionDto;
 using BrainstormSessionSummaryDto = Daedalus.Application.DTOs.BrainstormSessionSummaryDto;
@@ -209,6 +209,51 @@ public sealed class ApiClient(HttpClient httpClient)
     }
 
     // Task CRUD
+    /// <summary>
+    ///     Starts a manufacture run for the task. A refusal returns the server's problem detail, such as a repository that
+    ///     is not allow-listed, so the page can show why.
+    /// </summary>
+    public async Task<Result<StartWorkflowRunResponse>> ManufactureTaskAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await httpClient.PostAsync(new Uri($"/api/tasks/{id}/manufacture", UriKind.Relative), content: null, ct);
+            if (response.IsSuccessStatusCode)
+            {
+                var started = await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>(ct);
+                return started is not null
+                    ? Result<StartWorkflowRunResponse>.Success(started)
+                    : Result<StartWorkflowRunResponse>.Failure("No data returned from server");
+            }
+
+            var detail = await ReadProblemDetailAsync(response, ct);
+            return Result<StartWorkflowRunResponse>.Failure(detail ?? $"API error: {(int)response.StatusCode} {response.ReasonPhrase}");
+        }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result<StartWorkflowRunResponse>.Failure("Please log in to perform this action.");
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result<StartWorkflowRunResponse>.Failure($"API error: {ex.Message}");
+        }
+    }
+
+    private static async Task<string?> ReadProblemDetailAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProblemBody>(ct);
+            return string.IsNullOrWhiteSpace(problem?.Detail) ? null : problem.Detail;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record ProblemBody(string? Detail);
+
     public async Task<Result<TaskDto>> CreateTaskAsync(CreateTaskDto dto, CancellationToken ct = default) =>
         await PostAsync<TaskDto>("/api/tasks", dto, ct);
 
