@@ -12,7 +12,7 @@ namespace Daedalus.Agents.Memory;
 ///     unavailable or rows failed, every <see cref="ReindexConfig.SweepInterval"/> otherwise. Never fails host start.
 /// </summary>
 /// <remarks>
-///     Registered by <c>AddDaedalusAgents</c> only (the API host), never by <c>AddDaedalusMemory</c>: one sweeper per database
+///     Registered by <c>AddDaedalusAgents</c> only (the API host): one sweeper per database
 ///     is enough and the API is also the host that owns the Rag.NET schema.
 /// </remarks>
 internal sealed partial class ReindexPendingMemoriesHostedService(

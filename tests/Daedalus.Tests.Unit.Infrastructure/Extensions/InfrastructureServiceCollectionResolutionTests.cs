@@ -11,7 +11,7 @@ namespace Daedalus.Tests.Unit.Infrastructure.Extensions;
 ///     Guards DI resolution of <see cref="IPullRequestFactory"/>, <see cref="IWorkspaceOrchestrator"/> and
 ///     <see cref="IRalphLoopOrchestrator"/> against <see cref="InfrastructureServiceExtensions.AddExternalServices"/>
 ///     and <see cref="InfrastructureServiceExtensions.AddCodeAnalysisServices"/> — the exact registrations
-///     <c>Daedalus.Console</c>'s composition root calls to build the object graph <c>RalphLoopWorker</c> resolves in
+///     the retired Ralph console host's composition root called to build the Ralph object graph resolved in
 ///     production.
 /// </summary>
 /// <remarks>
@@ -46,9 +46,9 @@ public sealed class InfrastructureServiceCollectionResolutionTests
 
         var configuration = new ConfigurationBuilder().Build();
 
-        // Mirrors Daedalus.Console/Program.cs's call sequence for this graph: IProjectRepository is registered
+        // Mirrors the retired Ralph console host's call sequence for this graph: IProjectRepository is registered
         // directly (not through an extension method), then AddExternalServices, then AddCodeAnalysisServices.
-        // Deliberately WITHOUT AddDaedalusAgents — Console never calls it, and that asymmetry is what let the
+        // Deliberately WITHOUT AddDaedalusAgents — that host never called it, and that asymmetry is what let the
         // dropped registration hide behind the API host's green tests.
         services.AddScoped<IProjectRepository>(_ => Substitute.For<IProjectRepository>());
         services.AddExternalServices(configuration);
@@ -71,7 +71,7 @@ public sealed class InfrastructureServiceCollectionResolutionTests
         };
 
         act.Should().NotThrow(
-            "Daedalus.Console's RalphLoopWorker resolves this exact graph in production, and Ralph is still the " +
+            "The Ralph pipeline resolves this exact graph, and Ralph is still the " +
             "live pull-request-creation path until phase 2.5");
     }
 }

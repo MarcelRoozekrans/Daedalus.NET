@@ -142,7 +142,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     An agent id is neither a ULID nor a GUID, a Sentinel action or detector name is unknown, a <c>Thalos:Memory</c>
     ///     value is out of range, a <c>Thalos:Skills</c> value is out of range or a configured <c>Thalos:Skills:Roots</c>
     ///     entry does not exist, <c>Thalos:Squad:FallbackAgentName</c> is blank, or memory is already registered on this
-    ///     collection (see <see cref="AddDaedalusMemory"/>).
+    ///     collection.
     /// </exception>
     public static IServiceCollection AddDaedalusAgents(
         this IServiceCollection services,
@@ -316,9 +316,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         services.AddThalos(thalos =>
         {
-            // This host owns the Rag.NET schema: the API is the only host that creates rag_chunks (see AddDaedalusMemory).
+            // This host owns the Rag.NET schema: the API is the only host that creates rag_chunks.
             ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: true);
-            // Skills are API-host only: the Ralph console runs no Thalos agents (see AddDaedalusMemory).
             ConfigureSkills(thalos, configuration.GetSection(SkillsConfig.SectionName), options.Skills, skillRoots);
 
 
@@ -1215,59 +1214,6 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     internal static partial Regex AllowedExtensionPattern();
 
     /// <summary>
-    ///     Memory-only registration for hosts that run Ralph but <b>no</b> Thalos agents — the console worker. Registers the
-    ///     same <c>IMemoryService</c>, Postgres store and Rag.NET index as <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/>, plus the Ralph
-    ///     port <c>ILearningsMemory</c>. No agents, tools, Sentinel or reindex service (the API host runs that one).
-    /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="configuration">Host configuration; <c>Thalos:Memory</c> and <c>ConnectionStrings:daedalus</c> are read.</param>
-    /// <remarks>
-    ///     <para>
-    ///         Mutually exclusive with <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/>, and checked: calling both throws. The Daedalus
-    ///         registrations are <c>TryAdd</c>-based, but <c>UseRagNetMemory</c> is last-call-wins, so a later
-    ///         <see cref="AddDaedalusMemory"/> would flip <c>EnsureSchemaOnStartup</c> back to <c>false</c> on the API host
-    ///         — nobody would create <c>rag_chunks</c>, every memory would stay <c>index_pending</c>, and nothing would fail
-    ///         loudly.
-    ///     </para>
-    ///     <para>
-    ///         No skills either: the Ralph worker runs no Thalos agents, so there is no catalogue to build.
-    ///     </para>
-    ///     <para>
-    ///         <b>The API host owns the Rag.NET schema.</b> This call sets <c>EnsureSchemaOnStartup = false</c>, because the
-    ///         AppHost starts the API and the console concurrently against one database and two racing
-    ///         <c>CREATE EXTENSION</c>/<c>CREATE TABLE</c>/<c>CREATE INDEX</c> sweeps can fail on the pg catalog and take a
-    ///         host down. Until the API has created <c>rag_chunks</c>, this host degrades along the designed path: memories
-    ///         are stored <c>index_pending</c> and the API's reindex sweeper embeds them afterwards.
-    ///     </para>
-    ///     <para>
-    ///         Requires <c>IDbContextFactory&lt;ApplicationDbContext&gt;</c>. Register an <c>IEmbeddingGenerator&lt;string, Embedding&lt;float&gt;&gt;</c>
-    ///         before this call for a working index; without one memories are likewise stored <c>index_pending</c>.
-    ///     </para>
-    /// </remarks>
-    /// <exception cref="InvalidOperationException">
-    ///     A <c>Thalos:Memory</c> value is out of range, or memory is already registered on this collection — this method
-    ///     and <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> are mutually exclusive.
-    /// </exception>
-    public static IServiceCollection AddDaedalusMemory(this IServiceCollection services, IConfiguration configuration)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(configuration);
-        ThrowIfMemoryAlreadyRegistered(services, nameof(AddDaedalusMemory));
-
-        var options = new DaedalusAgentsOptions();
-        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
-        var connectionString = ResolveConnectionString(configuration);
-
-        ValidateMemoryConfig(options.Memory);
-        services.TryAddSingleton(options.Memory);
-        services.TryAddSingleton(options.Memory.RalphRecall);
-        services.TryAddSingleton<ILearningsMemory, ThalosLearningsMemory>();
-        services.AddThalos(thalos => ConfigureMemory(
-            thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: false));
-        return services;
-    }
-
-    /// <summary>
     ///     Registers the GitHub seam behind <see cref="DaedalusRepoTools"/> and <see cref="DaedalusRepoActionTools"/>
     ///     by delegating to <c>Daedalus.Infrastructure.Extensions.InfrastructureServiceExtensions.AddGitHubApi</c>:
     ///     <see cref="GitHubOptions"/> from <see cref="GitHubOptions.SectionName"/>, the token source, and one
@@ -1455,20 +1401,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         }
     }
 
-    /// <summary>
-    ///     Refuses a second memory registration. <c>UseRagNetMemory</c> is last-call-wins, so calling
-    ///     <see cref="AddDaedalusAgents(IServiceCollection, IConfiguration, IHostEnvironment, IEmbeddingGenerator{string, Embedding{float}}?)"/> and <see cref="AddDaedalusMemory"/> on one host would silently leave
-    ///     <c>EnsureSchemaOnStartup</c> at whatever the later call passed — on the API host that means nobody creates
-    ///     <c>rag_chunks</c> and every memory stays <c>index_pending</c> with nothing failing. Fail loudly instead.
-    /// </summary>
+    /// <summary>Refuses a second memory registration on one host.</summary>
     private static void ThrowIfMemoryAlreadyRegistered(IServiceCollection services, string method)
     {
         if (services.Any(d => d.ServiceType == typeof(MemoryConfig)))
         {
             throw new InvalidOperationException(
-                $"{method} was called on a service collection that already registers Daedalus memory. " +
-                $"{nameof(AddDaedalusAgents)} and {nameof(AddDaedalusMemory)} are mutually exclusive: the API host calls " +
-                $"{nameof(AddDaedalusAgents)} (which owns the Rag.NET schema), every other host calls {nameof(AddDaedalusMemory)}.");
+                $"{method} was called on a service collection that already registers Daedalus memory. UseRagNetMemory is " +
+                "last-call-wins, so a second registration would silently change EnsureSchemaOnStartup. Register the agents once per host.");
         }
     }
 
@@ -1499,7 +1439,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     /// <summary>
     ///     Registers the memory triple on the Thalos builder: <c>Thalos:Memory</c> → <c>MemoryOptions</c>, the Postgres store
     ///     and the Rag.NET index on the application database. <paramref name="ensureSchema"/> decides whether this host
-    ///     creates the Rag.NET schema on start — exactly one host may, see the remarks on <see cref="AddDaedalusMemory"/>.
+    ///     creates the Rag.NET schema on start — exactly one host may.
     /// </summary>
     private static void ConfigureMemory(
         ThalosBuilder thalos,

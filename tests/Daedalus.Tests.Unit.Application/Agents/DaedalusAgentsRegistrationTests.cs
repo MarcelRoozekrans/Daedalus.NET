@@ -589,27 +589,6 @@ public sealed class DaedalusAgentsRegistrationTests
     }
 
     [Fact]
-    public void AddDaedalusMemory_registers_memory_for_the_ralph_console_host_without_agents()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        services.AddDaedalusMemory(Config());
-        using var sp = services.BuildServiceProvider();
-
-        sp.GetRequiredService<IMemoryService>().Should().NotBeNull();
-        sp.GetRequiredService<PostgresMemoryStore>().Should().NotBeNull();
-        sp.GetRequiredService<Daedalus.Application.Abstractions.ILearningsMemory>().Should().BeOfType<ThalosLearningsMemory>();
-        sp.GetRequiredService<MemoryConfig>().SharedOwnerId.Should().Be("daedalus");
-        sp.GetServices<IHostedService>().Should().NotContain(h => h.GetType().Name == "ReindexPendingMemoriesHostedService");
-        sp.GetRequiredService<IAgentCatalog>().Agents.Should().BeEmpty("the console host declares no agents");
-
-        // The API host creates rag_chunks; two hosts racing CREATE EXTENSION/TABLE/INDEX can fail on the pg catalog.
-        sp.GetRequiredService<RagNetMemoryOptions>().EnsureSchemaOnStartup.Should().BeFalse();
-        sp.GetServices<IHostedService>().Should().NotContain(h => h.GetType().Name == "RagNetMemorySchemaInitializer");
-    }
-
-    [Fact]
     public void AddDaedalusAgents_is_the_host_that_creates_the_ragnet_schema()
     {
         using var sp = Build(Config());
@@ -843,21 +822,5 @@ public sealed class DaedalusAgentsRegistrationTests
         using var sp = Build(Config());
 
         sp.GetRequiredService<IAgentCatalog>().Agents.Single().Skills.Should().BeEmpty();
-    }
-
-    [Fact]
-    public void AddDaedalusMemory_does_not_register_skills()
-    {
-        // Skills are API-host only: the Ralph console runs no Thalos agents, so it has nothing to hand a catalogue to.
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        services.AddDaedalusMemory(Config());
-        using var sp = services.BuildServiceProvider();
-
-        sp.GetService<ISkillStore>().Should().BeNull();
-        sp.GetService<PostgresSkillStore>().Should().BeNull();
-        sp.GetService<SkillsConfig>().Should().BeNull();
-        sp.GetServices<IHostedService>().Should().NotContain(h => h.GetType().Name.Contains("Skill", StringComparison.Ordinal));
     }
 }

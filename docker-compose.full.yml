@@ -139,25 +139,6 @@ services:
       retries: 3
       start_period: 10s
 
-  # Ralph Loop Worker Console
-  console:
-    build:
-      context: .
-      dockerfile: src/Daedalus.Console/Dockerfile
-    container_name: daedalus_console
-    environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__DefaultConnection: "Server=postgres;Port=5432;Database=daedalus;User Id=daedalus;Password=daedalus"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrations:
-        condition: service_completed_successfully
-    networks:
-      - daedalus_network
-    restart: unless-stopped
-
   # pgAdmin - Database management UI (optional)
   pgadmin:
     image: dpage/pgadmin4:latest

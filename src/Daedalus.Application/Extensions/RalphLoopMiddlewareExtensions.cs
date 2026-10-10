@@ -24,7 +24,7 @@ public static class RalphLoopMiddlewareExtensions
         IConfiguration configuration)
     {
         // How much the enrichment/MCP/adapter paths recall. Bound here because every host that runs Ralph calls this
-        // method; AddDaedalusAgents/AddDaedalusMemory TryAdd the same instance type from the same configuration key.
+        // method; AddDaedalusAgents TryAdds the same instance type from the same configuration key.
         var recallConfig = new RalphRecallConfiguration();
 #pragma warning disable IL2026 // Configuration binding requires reflection; acceptable for configuration scenarios
         configuration.GetSection(RalphRecallConfiguration.SectionName).Bind(recallConfig);

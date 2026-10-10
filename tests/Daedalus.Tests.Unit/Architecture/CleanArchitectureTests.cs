@@ -79,9 +79,6 @@ public sealed class CleanArchitectureTests
     private static readonly SysAssembly AgentsAssembly = typeof(DaedalusAgentsServiceCollectionExtensions).Assembly;
     private static readonly SysAssembly WebAssembly = typeof(Daedalus.Web.App).Assembly;
 
-    /// <summary>The Ralph console host. Has a public type (<c>RalphLoopWorker</c>) to anchor a <c>typeof()</c> on.</summary>
-    private static readonly SysAssembly ConsoleAssembly = typeof(Daedalus.Console.RalphLoopWorker).Assembly;
-
     /// <summary>
     ///     The CLI host. Loaded by simple name, not <c>typeof()</c>: <c>Daedalus.Cli</c> has exactly one source
     ///     file (<c>Program.cs</c>, top-level statements) and declares no public type, only the <c>internal</c>
@@ -130,7 +127,7 @@ public sealed class CleanArchitectureTests
 
     private static readonly ArchUnitNET.Domain.Architecture Architecture = new ArchLoader()
         .LoadAssemblies(DomainAssembly, ApplicationAssembly, InfrastructureAssembly, ApiAssembly, AgentsAssembly, WebAssembly)
-        .LoadAssemblies(ConsoleAssembly, CliAssembly)
+        .LoadAssemblies(CliAssembly)
         .LoadAssemblies(ThalosAssemblies)
         .LoadAssemblies(RagNetAssemblies)
         .LoadAssemblies(EfCoreAssembly)
@@ -190,8 +187,7 @@ public sealed class CleanArchitectureTests
     ///     scope <see cref="OnlySubagentRunExecutor_DependsOn_ISubagentRunner"/> to Daedalus code: Thalos' own
     ///     <c>SubagentRunner</c> (the default <c>ISubagentRunner</c> implementation) and its own DI registration
     ///     both legitimately "depend on" the interface they define and wire up, and are not offenders. Covers
-    ///     every host in the solution, including the thin entry points (<c>Daedalus.Console</c>,
-    ///     <c>Daedalus.Cli</c>) — the rule claims the whole solution, so the scope must actually be the whole
+    ///     every host in the solution, including the thin entry points (<c>Daedalus.Cli</c>) — the rule claims the whole solution, so the scope must actually be the whole
     ///     solution, not just the layers with the most code in them.
     /// </summary>
     private static readonly IObjectProvider<IType> DaedalusOwnTypes =
@@ -201,7 +197,6 @@ public sealed class CleanArchitectureTests
             .Or().ResideInAssembly(ApiAssembly)
             .Or().ResideInAssembly(AgentsAssembly)
             .Or().ResideInAssembly(WebAssembly)
-            .Or().ResideInAssembly(ConsoleAssembly)
             .Or().ResideInAssembly(CliAssembly)
             .As("Daedalus (this solution's own assemblies)");
 

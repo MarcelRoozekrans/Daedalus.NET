@@ -23,8 +23,8 @@ namespace Daedalus.Tests.Integration.Services.CodeAnalysis;
 ///         <see cref="IServiceCollection"/>.
 ///     </para>
 ///     <para>
-///         <b>Why only the API root here.</b> The Console-style root (<c>AddCodeAnalysisServices</c> without
-///         <c>AddDaedalusAgents</c> — the composition Daedalus.Console's <c>RalphLoopWorker</c> actually runs in
+///         <b>Why only the API root here.</b> The memory-less root (<c>AddCodeAnalysisServices</c> without
+///         <c>AddDaedalusAgents</c> — the composition the retired Ralph console host ran in
 ///         production) is covered by the faster
 ///         <c>Daedalus.Tests.Unit.Infrastructure.Extensions.InfrastructureServiceCollectionResolutionTests</c>,
 ///         which substitutes the two EF-Core-backed repositories this graph needs instead of paying for a real

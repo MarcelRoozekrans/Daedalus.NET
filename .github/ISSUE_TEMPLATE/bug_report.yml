@@ -53,7 +53,6 @@ body:
       description: Which part of Daedalus is affected?
       options:
         - API (Daedalus.Api)
-        - Console Worker (Daedalus.Console)
         - Web Frontend (Daedalus.Web)
         - Domain Layer
         - Application Layer

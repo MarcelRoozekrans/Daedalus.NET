@@ -38,7 +38,6 @@ var gitHubToken = builder.AddParameter("github-token", new EmptyStringParameterD
 var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
 var repoRoot = Path.GetFullPath(Path.Combine(solutionRoot, ".."));
 var migrationsPath = Path.Combine(solutionRoot, "Daedalus.Migrations/Daedalus.Migrations.csproj");
-var consolePath = Path.Combine(solutionRoot, "Daedalus.Console/Daedalus.Console.csproj");
 var apiPath = Path.Combine(solutionRoot, "Daedalus.Api/Daedalus.Api.csproj");
 var webPath = Path.Combine(solutionRoot, "Daedalus.Web/Daedalus.Web.csproj");
 var keycloakRealmPath = Path.Combine(repoRoot, "keycloak-realm.json");
@@ -86,19 +85,6 @@ var migrations = builder.AddProject("migrations", migrationsPath)
     .WithReference(database)
     .WithReference(keycloak)
     .WaitFor(database)
-    .WaitFor(keycloak);
-
-// Add the Daedalus console application (depends on migrations and Keycloak).
-// WaitForCompletion, not WaitFor: `migrations` is a one-shot job, and WaitFor releases as soon as it is
-// *running* — so the worker used to start against a database whose schema had not been applied (and even
-// when the job exited 1). WaitForCompletion(0) blocks until it exits successfully.
-builder.AddProject("console", consolePath)
-    .WithReference(database)
-    .WithReference(keycloak)
-    .WithReference(migrations)
-    .WithReference(ollama)
-    .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
-    .WaitForCompletion(migrations)
     .WaitFor(keycloak);
 
 // Phase 2.6: the per-run sandbox image, built from this checkout before the api starts, so a run always uses the code

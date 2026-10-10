@@ -8,7 +8,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>Daedalus.Cli</RootNamespace>
         <AssemblyName>Daedalus.Cli</AssemblyName>
-        <!-- AOT disabled, like Daedalus.Console and Daedalus.Api: EF Core's ApplyConfigurationsFromAssembly and the
+        <!-- AOT disabled, like Daedalus.Api: EF Core's ApplyConfigurationsFromAssembly and the
              Thalos agent stack need reflection/dynamic code. -->
         <PublishAot>false</PublishAot>
         <TrimMode>none</TrimMode>
