@@ -76,8 +76,9 @@ public sealed class NodeUsageBackfillTests(PostgresFixture fixture)
     ///     Red: pass <c>seq + 1000</c> to <c>RecordAsync</c> in <c>ReviewHandoffWorkflowStore.CompleteNodeAsync</c>; the
     ///     seq assertion fails. With that assertion removed, the same change makes the restart backfill a second record
     ///     per completion, and the count assertion fails: 3 expected, 6 found.
-    ///     Red: drop the <c>recorded.Add(seq)</c> skip in the backfill and count every append as written; the further
-    ///     pass returns the completion count instead of 0.
+    ///     The final <c>Be(0)</c> has no single-change red: the backfill's <c>recorded.Add(seq)</c> skip and the
+    ///     recorder's unique-index catch each keep it at 0 alone. It documents the expected outcome; the seq assertion
+    ///     is the one that guards the shared key.
     /// </summary>
     [Fact]
     public async Task A_restart_after_a_live_run_backfills_nothing()
