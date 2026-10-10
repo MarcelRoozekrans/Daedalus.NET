@@ -2,6 +2,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.DeleteTask;
 using Daedalus.Application.Commands.UpdateTask;
 using Daedalus.Application.Services;
+using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Tests.Unit.Application.Commands;
 
@@ -47,24 +48,59 @@ public sealed class TaskRunGuardTests
     }
 
     /// <summary>
-    ///     "Only Pending is editable" applies to the derived status: a stored-Pending task whose run is over is refused
-    ///     with the non-live error, so the controller answers 400, not 409.
-    ///     Red: revert the handler to <c>task.Status != Pending</c>; the stored Pending lets the update through.
+    ///     Ruling I2: a completed task is not editable, judged on the derived status. A stored-Pending task whose run
+    ///     succeeded is refused with the non-live error, so the controller answers 400, not 409.
+    ///     Red: revert the handler to <c>task.Status</c>; the stored Pending lets the update through.
+    /// </summary>
+    [Fact]
+    public async Task An_update_of_a_task_whose_run_succeeded_is_refused_but_not_as_a_conflict()
+    {
+        var task = Given(WorkflowRunState.Succeeded);
+
+        var result = await new UpdateTaskCommandHandler(_tasks, _runs).Handle(Rename(task.Id), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().StartWith("Cannot update task: current status is Completed");
+        TaskRunGuard.IsConflict(result.Error).Should().BeFalse();
+        await _tasks.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default);
+    }
+
+    /// <summary>
+    ///     Ruling I2: a task whose run failed or was cancelled stays editable; amendment A7 refuses only a live run.
+    ///     Red: go back to "only Pending is editable"; the derived Failed and Cancelled are refused.
     /// </summary>
     [Theory]
-    [InlineData(WorkflowRunState.Succeeded)]
     [InlineData(WorkflowRunState.Failed)]
     [InlineData(WorkflowRunState.Cancelled)]
-    public async Task An_update_of_a_task_whose_run_is_over_is_refused_but_not_as_a_conflict(WorkflowRunState state)
+    public async Task An_update_of_a_task_whose_run_failed_or_was_cancelled_succeeds(WorkflowRunState state)
     {
         var task = Given(state);
 
         var result = await new UpdateTaskCommandHandler(_tasks, _runs).Handle(Rename(task.Id), CancellationToken.None);
 
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().StartWith("Cannot update task: current status is");
-        TaskRunGuard.IsConflict(result.Error).Should().BeFalse();
-        await _tasks.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Title.Should().Be("Renamed");
+        await _tasks.Received(1).UpdateAsync(task, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     Without a readable run the stored status decides. Stored Failed and Abandoned stay editable; stored Completed,
+    ///     and an orphaned InProgress claim, do not.
+    ///     Red per row: change the set in <c>TaskStatusDerivation.IsEditable</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(TaskStatus.Failed, true)]
+    [InlineData(TaskStatus.Abandoned, true)]
+    [InlineData(TaskStatus.Completed, false)]
+    [InlineData(TaskStatus.InProgress, false)]
+    public async Task Without_a_run_the_stored_status_decides_whether_an_update_goes_through(TaskStatus stored, bool editable)
+    {
+        var task = Given(state: null);
+        typeof(DomainTask).GetProperty(nameof(DomainTask.Status))!.SetValue(task, stored);
+
+        var result = await new UpdateTaskCommandHandler(_tasks, _runs).Handle(Rename(task.Id), CancellationToken.None);
+
+        result.IsSuccess.Should().Be(editable);
     }
 
     /// <summary>
