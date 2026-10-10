@@ -7,8 +7,9 @@ using Thalos;
 namespace Daedalus.Tests.Integration.Services.CodeAnalysis;
 
 /// <summary>
-///     Guards DI resolution of <see cref="IPullRequestFactory"/> and <see cref="IRalphLoopOrchestrator"/> on the real <c>Daedalus.Api</c> composition root — the one that calls
-///     both <c>AddDaedalusAgents</c> and <c>AddCodeAnalysisServices</c> on the same container.
+///     Guards DI resolution of <see cref="IPullRequestFactory"/> and <see cref="IRalphLoopOrchestrator"/> on the real
+///     <c>Daedalus.Api</c> composition root, the one that calls both
+///     <c>AddDaedalusAgents</c> and <c>AddCodeAnalysisServices</c> on the same container.
 /// </summary>
 /// <remarks>
 ///     <para>

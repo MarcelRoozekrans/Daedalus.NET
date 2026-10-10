@@ -9,9 +9,9 @@ using ZeroAlloc.Results;
 namespace Daedalus.Agents.Memory;
 
 /// <summary>
-///     <see cref="ILearningsMemory"/> over Thalos' <see cref="IMemoryService"/>: Ralph learnings are host-written project
-///     knowledge, so they live under the shared owner, agent-less, kind <c>learning</c>. ZeroAlloc results are converted to
-///     CSFE at this boundary (Application convention).
+///     <see cref="ILearningsMemory"/> over Thalos' <see cref="IMemoryService"/>: learnings are host-written project
+///     knowledge, so they live under the shared owner, agent-less, kind <c>learning</c>. Thalos' <c>Result</c> with an
+///     <c>AgentError</c> is mapped to a ZeroAlloc <c>Result</c> with a string error at this boundary, so Application stays Thalos-free.
 /// </summary>
 /// <param name="memory">The Thalos memory facade (store + index).</param>
 /// <param name="memoryOptions">
@@ -48,7 +48,7 @@ public sealed partial class ThalosLearningsMemory(
         {
             TopK = Math.Clamp(maxResults, RalphRecallConfiguration.MinTopK, RalphRecallConfiguration.MaxTopK),
             MinScore = recall.MinScore,
-            MaxChars = 0, // no character budget — the prompt builder caps the enrichment block, TopK caps the count
+            MaxChars = 0, // no character budget — TopK caps the count, and the caller caps what it renders
         };
 
         var result = await memory.RecallAsync(query, scope, options, ct).ConfigureAwait(false);
@@ -63,9 +63,9 @@ public sealed partial class ThalosLearningsMemory(
         return Result<IReadOnlyList<RecalledLearning>>.Success(learnings);
     }
 
-    [LoggerMessage(EventId = 501, Level = LogLevel.Debug, Message = "Recalling Ralph learnings failed: {Code} {Message}")]
+    [LoggerMessage(EventId = 501, Level = LogLevel.Debug, Message = "Recalling learnings failed: {Code} {Message}")]
     private static partial void LogRecallFailed(ILogger logger, AgentErrorCode code, string message);
 
-    [LoggerMessage(EventId = 502, Level = LogLevel.Warning, Message = "Thalos:Memory:SharedOwnerId resolved to nothing; Ralph learnings are disabled")]
+    [LoggerMessage(EventId = 502, Level = LogLevel.Warning, Message = "Thalos:Memory:SharedOwnerId resolved to nothing; learnings are disabled")]
     private static partial void LogNoSharedOwner(ILogger logger);
 }
