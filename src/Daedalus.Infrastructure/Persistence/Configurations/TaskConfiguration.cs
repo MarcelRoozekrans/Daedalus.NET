@@ -42,6 +42,11 @@ internal sealed class TaskConfiguration : IEntityTypeConfiguration<Task>
             .HasConversion<int>()
             .IsRequired();
 
+        entity.Property(e => e.WorkflowRunId);
+
+        // Phase 2.8: AwaitingApproval (5) and Cancelled (6) are derived on read and never stored.
+        entity.ToTable(t => t.HasCheckConstraint("CK_Tasks_Status_Stored", "\"Status\" BETWEEN 0 AND 4"));
+
         entity.Property(e => e.Priority)
             .HasConversion<int>()
             .IsRequired();

@@ -6,8 +6,9 @@ using ZeroAlloc.Results;
 namespace Daedalus.Domain.Entities;
 
 /// <summary>
-///     Represents a task within a project to be executed by the Ralph loop.
-///     This is an aggregate root that owns task executions and manages execution lifecycle.
+///     A unit of work on a project's board. A person starts a manufacture run for it, and its status is then derived
+///     from that run when it is read (phase 2.8). Tasks from before phase 2.8 keep the status and the execution
+///     history the retired task loop recorded.
 /// </summary>
 public sealed class Task : AggregateRoot<Guid>
 {
@@ -86,6 +87,12 @@ public sealed class Task : AggregateRoot<Guid>
     ///     Prevents lost updates in concurrent scenarios.
     /// </summary>
     public byte[]? RowVersion { get; private set; }
+
+    /// <summary>
+    ///     Gets the id of the manufacture run most recently started for this task, or null when none was. Earlier runs
+    ///     stay in the workflow run history. The task's status is derived from this run when the task is read.
+    /// </summary>
+    public Guid? WorkflowRunId { get; private set; }
 
     /// <summary>
     ///     Creates a new task within a project.
@@ -271,6 +278,21 @@ public sealed class Task : AggregateRoot<Guid>
         }
 
         _filesToModify.Remove(filePath);
+        return ZeroAlloc.Results.Result.Success();
+    }
+
+    /// <summary>
+    ///     Records <paramref name="runId"/> as this task's current manufacture run, replacing any earlier one. The stored
+    ///     <see cref="Status"/> is not changed: it is derived from the run when the task is read.
+    /// </summary>
+    public Result AttachRun(Guid runId)
+    {
+        if (runId == Guid.Empty)
+        {
+            return ZeroAlloc.Results.Result.Failure("Run id cannot be empty");
+        }
+
+        WorkflowRunId = runId;
         return ZeroAlloc.Results.Result.Success();
     }
 
