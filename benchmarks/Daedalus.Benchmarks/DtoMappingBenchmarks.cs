@@ -90,9 +90,7 @@ public class DtoMappingBenchmarks
             $"Phase-{id % 3 + 1}",
             id % 3 + 1,
             (Complexity)(id % 3),
-            $"Task {id} prompt content",
-            "Task completed successfully",
-            100);
+            $"Task {id} prompt content");
 
         var task = taskResult.Value;
         task.Claim(sessionId);

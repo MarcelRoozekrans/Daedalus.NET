@@ -173,6 +173,16 @@ public class TasksPageBrowserTests : BrowserTestBase
         await Expect(iterationCell).ToContainTextAsync("/").ConfigureAwait(false);
     }
 
+    [Test]
+    [Description("A task created since the loop was retired shows no iteration count")]
+    public async Task TasksPage_DataGrid_ShouldShowNoIterationCount_ForATaskWithoutLoopHistory()
+    {
+        await _tasksPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_tasksPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
+        var iterationCell = _tasksPage.GetIterationText("Fix bug B");
+        await Expect(iterationCell).Not.ToContainTextAsync("/").ConfigureAwait(false);
+    }
+
     // ── Create dialog content ────────────────────────────────────────────────
 
     [Test]

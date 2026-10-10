@@ -11,7 +11,5 @@ public record CreateTaskDto(
     int ParallelGroup,
     int EstimatedComplexity,
     string Prompt,
-    string CompletionPromise,
-    int MaxIterations,
     IReadOnlyList<string>? Dependencies,
     IReadOnlyList<string>? FilesToModify);

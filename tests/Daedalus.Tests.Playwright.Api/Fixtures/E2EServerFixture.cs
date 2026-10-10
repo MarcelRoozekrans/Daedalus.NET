@@ -322,9 +322,7 @@ public class E2EServerFixture
                 "Backend",
                 1,
                 Complexity.Medium,
-                "Implement feature A by creating the necessary code",
-                "Feature A must be working correctly",
-                10);
+                "Implement feature A by creating the necessary code");
 
             if (task1Result.IsSuccess)
             {
@@ -341,9 +339,7 @@ public class E2EServerFixture
                 "Backend",
                 1,
                 Complexity.Low,
-                "Fix the bug in module B by analyzing and correcting the code",
-                "Bug B must be resolved",
-                5);
+                "Fix the bug in module B by analyzing and correcting the code");
 
             if (task2Result.IsSuccess)
             {

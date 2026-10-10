@@ -16,7 +16,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_ValidTransition_PendingToInProgress_ShouldSucceed()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 10);
+        var task = DomainTestFactory.CreateTask();
         task.Status.Should().Be(DomainTaskStatus.Pending);
 
         // Act
@@ -32,7 +32,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_ValidTransition_InProgressToCompleted_ShouldSucceed()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 10);
+        var task = DomainTestFactory.CreateTask();
         task.Claim(_sessionId);
         task.Status.Should().Be(DomainTaskStatus.InProgress);
 
@@ -53,7 +53,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_ValidTransition_InProgressToFailed_ShouldSucceed()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 1);
+        var task = DomainTestFactory.CreateTask();
         task.Claim(_sessionId);
         task.Status.Should().Be(DomainTaskStatus.InProgress);
 
@@ -78,7 +78,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_ValidTransition_InProgressToAbandoned_ShouldSucceed()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 10);
+        var task = DomainTestFactory.CreateTask();
         task.Claim(_sessionId);
         task.Status.Should().Be(DomainTaskStatus.InProgress);
 
@@ -95,7 +95,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_ValidTransition_AbandonedToPending_ShouldSucceed()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 10);
+        var task = DomainTestFactory.CreateTask();
         task.Claim(_sessionId);
         task.Abandon();
         task.Status.Should().Be(DomainTaskStatus.Abandoned);
@@ -117,7 +117,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_InvalidTransition_CompletedToPending_ShouldFail()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 10);
+        var task = DomainTestFactory.CreateTask();
         task.Claim(_sessionId);
         var execution = new TaskExecution { IterationNumber = 1, LlmResponse = "DONE", CompletionPromiseFound = true };
         task.RecordExecution(execution);
@@ -137,7 +137,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_InvalidTransition_RecordExecutionOutOfSequence_ShouldFail()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 1);
+        var task = DomainTestFactory.CreateTask();
         task.Claim(_sessionId);
 
         // Act - Try to record iteration 5 when we should do 1
@@ -153,7 +153,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_CannotRecordExecutionWhenNotInProgress_ShouldFail()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(completionPromise: "COMPLETE", maxIterations: 10);
+        var task = DomainTestFactory.CreateTask();
         task.Status.Should().Be(DomainTaskStatus.Pending);
 
         var execution = new TaskExecution { IterationNumber = 1, LlmResponse = "Test", CompletionPromiseFound = false };
@@ -174,7 +174,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_ClaimedByMultipleSessions_SecondClaimFails()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 10);
+        var task = DomainTestFactory.CreateTask();
         var session1 = Guid.NewGuid();
         var session2 = Guid.NewGuid();
 
@@ -194,7 +194,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_StatusAndSessionIdAreConsistent()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 10);
+        var task = DomainTestFactory.CreateTask();
 
         // Assert - Initial state
         task.Status.Should().Be(DomainTaskStatus.Pending);
@@ -220,7 +220,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_IterationCountIncrementsOnExecution()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 10);
+        var task = DomainTestFactory.CreateRalphLoopTask(maxIterations: 10);
         task.IterationCount.Should().Be(0);
 
         // Act
@@ -239,7 +239,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_MultipleExecutionsRecorded()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(maxIterations: 5);
+        var task = DomainTestFactory.CreateRalphLoopTask(maxIterations: 5);
         task.Claim(_sessionId);
 
         // Act
@@ -264,7 +264,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_IsNotCompletedUntilPromiseFound()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(completionPromise: "SUCCESS", maxIterations: 5);
+        var task = DomainTestFactory.CreateRalphLoopTask(completionPromise: "SUCCESS", maxIterations: 5);
         task.Claim(_sessionId);
 
         // Act - Multiple executions without finding promise

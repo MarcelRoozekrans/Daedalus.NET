@@ -433,8 +433,7 @@ public class E2EServerFixture
                 "Complete the implementation of feature A",
                 Priority.Medium, "Backend", 1,
                 Complexity.Medium,
-                "Implement feature A by creating the necessary code",
-                "Feature A must be working correctly", 10);
+                "Implement feature A by creating the necessary code");
             if (task1Result.IsSuccess)
             {
                 project.AddTask(task1Result.Value);
@@ -445,14 +444,21 @@ public class E2EServerFixture
                 "Fix the critical bug in module B",
                 Priority.High, "Backend", 1,
                 Complexity.Low,
-                "Fix the bug in module B by analyzing and correcting the code",
-                "Bug B must be resolved", 5);
+                "Fix the bug in module B by analyzing and correcting the code");
             if (task2Result.IsSuccess)
             {
                 project.AddTask(task2Result.Value);
             }
 
             dbContext.Projects.Add(project);
+
+            // TASK-001 stands in for an old Ralph task. Task.Create no longer takes the loop settings, so set them
+            // as EF does when it reads an old row. TASK-002 stays a new task with none.
+            if (task1Result.IsSuccess)
+            {
+                dbContext.Entry(task1Result.Value).Property(t => t.MaxIterations).CurrentValue = 10;
+            }
+
             await dbContext.SaveChangesAsync().ConfigureAwait(false);
         }
         catch (DbUpdateException)

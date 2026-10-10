@@ -32,7 +32,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
         var newSessionId = Guid.NewGuid();
 
         var staleTask =
-            ApplicationTestFactory.CreateTask(prompt: "Stale Task", completionPromise: "DONE", maxIterations: 10);
+            ApplicationTestFactory.CreateTask(prompt: "Stale Task");
         staleTask.Claim(oldSessionId);
 
         _taskRepository
@@ -72,8 +72,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
     public async Task GetNextAvailableTaskAsync_WhenTaskAvailable_ShouldReturnTask()
     {
         // Arrange
-        var task = ApplicationTestFactory.CreateTask(prompt: "Test prompt", completionPromise: "DONE",
-            maxIterations: 10);
+        var task = ApplicationTestFactory.CreateTask(prompt: "Test prompt");
         _taskRepository
             .ClaimNextAsync(_sessionId, _cancellationToken)
             .Returns(Result<Daedalus.Domain.Entities.Task?>.Success((DomainTask?)task));
@@ -112,7 +111,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
         // Arrange
         var session1 = Guid.NewGuid();
         var session2 = Guid.NewGuid();
-        var task = ApplicationTestFactory.CreateTask(prompt: "Test", completionPromise: "DONE", maxIterations: 10);
+        var task = ApplicationTestFactory.CreateTask(prompt: "Test");
 
         _taskRepository
             .ClaimNextAsync(session1, _cancellationToken)
@@ -153,8 +152,8 @@ public class TaskAssignmentServiceTests : UnitTestBase
     public async Task GetNextAvailableTaskAsync_MultipleCallsToSameSession_ShouldClaimDifferentTasks()
     {
         // Arrange
-        var task1 = ApplicationTestFactory.CreateTask(prompt: "Task 1", completionPromise: "DONE", maxIterations: 10);
-        var task2 = ApplicationTestFactory.CreateTask(prompt: "Task 2", completionPromise: "DONE", maxIterations: 10);
+        var task1 = ApplicationTestFactory.CreateTask(prompt: "Task 1");
+        var task2 = ApplicationTestFactory.CreateTask(prompt: "Task 2");
 
         _taskRepository
             .ClaimNextAsync(_sessionId, _cancellationToken)
@@ -196,12 +195,10 @@ public class TaskAssignmentServiceTests : UnitTestBase
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        var task1 = ApplicationTestFactory.CreateTask(prompt: "Stale Task 1", completionPromise: "DONE",
-            maxIterations: 10);
+        var task1 = ApplicationTestFactory.CreateTask(prompt: "Stale Task 1");
         task1.Claim(sessionId);
 
-        var task2 = ApplicationTestFactory.CreateTask(prompt: "Stale Task 2", completionPromise: "DONE",
-            maxIterations: 10);
+        var task2 = ApplicationTestFactory.CreateTask(prompt: "Stale Task 2");
         task2.Claim(sessionId);
 
         var staleTasks = new List<DomainTask> { task1, task2 };
@@ -229,8 +226,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        var task = ApplicationTestFactory.CreateTask(prompt: "Stale Task", completionPromise: "DONE",
-            maxIterations: 10);
+        var task = ApplicationTestFactory.CreateTask(prompt: "Stale Task");
         task.Claim(sessionId);
 
         var staleTasks = new List<DomainTask> { task };
@@ -280,12 +276,10 @@ public class TaskAssignmentServiceTests : UnitTestBase
         var sessionId1 = Guid.NewGuid();
         var sessionId2 = Guid.NewGuid();
 
-        var task1 = ApplicationTestFactory.CreateTask(prompt: "Stale Task 1", completionPromise: "DONE",
-            maxIterations: 10);
+        var task1 = ApplicationTestFactory.CreateTask(prompt: "Stale Task 1");
         task1.Claim(sessionId1);
 
-        var task2 = ApplicationTestFactory.CreateTask(prompt: "Stale Task 2", completionPromise: "DONE",
-            maxIterations: 10);
+        var task2 = ApplicationTestFactory.CreateTask(prompt: "Stale Task 2");
         task2.Claim(sessionId2);
 
         var staleTasks = new List<DomainTask> { task1, task2 };
@@ -319,8 +313,7 @@ public class TaskAssignmentServiceTests : UnitTestBase
         var staleTasks = new List<DomainTask>();
         for (var i = 0; i < 100; i++)
         {
-            var task = ApplicationTestFactory.CreateTask(prompt: $"Task {i}", completionPromise: "DONE",
-                maxIterations: 10);
+            var task = ApplicationTestFactory.CreateTask(prompt: $"Task {i}");
             task.Claim(Guid.NewGuid());
             staleTasks.Add(task);
         }

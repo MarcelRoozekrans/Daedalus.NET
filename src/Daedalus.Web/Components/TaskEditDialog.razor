@@ -152,9 +152,7 @@
                 _phase,
                 _parallelGroup != Task.ParallelGroup ? _parallelGroup : null,
                 _estimatedComplexity != Task.EstimatedComplexity ? _estimatedComplexity : null,
-                _prompt,
-                _completionPromise,
-                _maxIterations != Task.MaxIterations ? _maxIterations : null);
+                _prompt);
 
             var result = await Api.UpdateTaskAsync(Task.Id, dto);
             if (result.IsSuccess)

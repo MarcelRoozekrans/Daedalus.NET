@@ -270,7 +270,7 @@ public class AbandonTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new AbandonTaskCommand(taskId, "Reason");
-        var task = ApplicationTestFactory.CreateTask(
+        var task = ApplicationTestFactory.CreateRalphLoopTask(
             taskId,
             prompt: "Generate report",
             completionPromise: "REPORT_GENERATED"

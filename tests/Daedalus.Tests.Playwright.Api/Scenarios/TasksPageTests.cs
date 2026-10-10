@@ -60,7 +60,6 @@ public class TasksPageTests : ApiTestBase
         firstTask.Should().NotBeNull("Should have at least one task");
         firstTask!.Id.Should().NotBeEmpty();
         firstTask.Prompt.Should().NotBeNullOrEmpty("Task prompt should be present");
-        firstTask.CompletionPromise.Should().NotBeNullOrEmpty("Task completion promise should be present");
     }
 
     [Test]

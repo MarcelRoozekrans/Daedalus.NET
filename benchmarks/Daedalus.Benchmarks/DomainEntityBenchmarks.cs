@@ -23,14 +23,12 @@ public class DomainEntityBenchmarks
     private const string ValidDescription = "Add Redis caching for hot path queries";
     private const string ValidPhase = "Backend";
     private const string ValidPrompt = "Implement a Redis-backed distributed cache for API responses";
-    private const string ValidPromise = "Task completed successfully";
 
     // Untrimmed strings to measure Trim() allocation inside Create
     private const string UntrimmedTitle = "  Implement caching layer  ";
     private const string UntrimmedDescription = "  Add Redis caching for hot path queries  ";
     private const string UntrimmedPhase = "  Backend  ";
     private const string UntrimmedPrompt = "  Implement caching  ";
-    private const string UntrimmedPromise = "  Done  ";
 
     [GlobalSetup]
     public void Setup()
@@ -41,7 +39,7 @@ public class DomainEntityBenchmarks
         var taskResult = Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, ValidTitle, ValidDescription,
             Priority.High, ValidPhase, 1, Complexity.High,
-            ValidPrompt, ValidPromise, 100);
+            ValidPrompt);
         _inProgressTask = taskResult.Value;
         _inProgressTask.Claim(_sessionId);
 
@@ -49,7 +47,7 @@ public class DomainEntityBenchmarks
         var depTaskResult = Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), "TASK-DEP", "Dep task", "Has many deps",
             Priority.Medium, "Phase-1", 1, Complexity.Medium,
-            "Do work", "Done", 10);
+            "Do work");
         _taskWithDependencies = depTaskResult.Value;
         for (int i = 0; i < 50; i++)
         {
@@ -60,7 +58,7 @@ public class DomainEntityBenchmarks
         var fileTaskResult = Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), "TASK-FILE", "File task", "Has many files",
             Priority.Medium, "Phase-1", 1, Complexity.Medium,
-            "Do work", "Done", 10);
+            "Do work");
         _taskWithFiles = fileTaskResult.Value;
         for (int i = 0; i < 50; i++)
         {
@@ -88,7 +86,7 @@ public class DomainEntityBenchmarks
         return Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, ValidTitle, ValidDescription,
             Priority.High, ValidPhase, 1, Complexity.High,
-            ValidPrompt, ValidPromise, 50);
+            ValidPrompt);
     }
 
     [Benchmark(Description = "Task.Create - untrimmed strings (forces Trim allocation)")]
@@ -97,7 +95,7 @@ public class DomainEntityBenchmarks
         return Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), "  TASK-002  ", UntrimmedTitle, UntrimmedDescription,
             Priority.High, UntrimmedPhase, 1, Complexity.High,
-            UntrimmedPrompt, UntrimmedPromise, 50);
+            UntrimmedPrompt);
     }
 
     [Benchmark(Description = "Task.Create - validation failure (empty title)")]
@@ -106,7 +104,7 @@ public class DomainEntityBenchmarks
         return Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, "", ValidDescription,
             Priority.High, ValidPhase, 1, Complexity.High,
-            ValidPrompt, ValidPromise, 50);
+            ValidPrompt);
     }
 
     [Benchmark(Description = "Task.RecordExecution - incomplete (hotpath per iteration)")]
@@ -116,7 +114,7 @@ public class DomainEntityBenchmarks
         var task = Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, ValidTitle, ValidDescription,
             Priority.High, ValidPhase, 1, Complexity.High,
-            ValidPrompt, ValidPromise, 100).Value;
+            ValidPrompt).Value;
         task.Claim(_sessionId);
 
         return task.RecordExecution(new TaskExecution
@@ -139,7 +137,7 @@ public class DomainEntityBenchmarks
         var task = Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, ValidTitle, ValidDescription,
             Priority.High, ValidPhase, 1, Complexity.High,
-            ValidPrompt, ValidPromise, 100).Value;
+            ValidPrompt).Value;
         task.Claim(_sessionId);
 
         return task.RecordExecution(new TaskExecution
@@ -163,7 +161,7 @@ public class DomainEntityBenchmarks
         var task = Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), "TASK-ADD", "Add task", "Add deps",
             Priority.Medium, "Phase-1", 1, Complexity.Medium,
-            "Do work", "Done", 10).Value;
+            "Do work").Value;
         for (int i = 0; i < 50; i++)
         {
             task.AddDependency($"TASK-{i:D3}");
@@ -201,7 +199,7 @@ public class DomainEntityBenchmarks
             var t = Task.Create(
                 Guid.NewGuid(), project.Id, $"TASK-{i:D3}", $"Title {i}", $"Desc {i}",
                 Priority.Medium, "Phase-1", 1, Complexity.Medium,
-                "Prompt", "Done", 10).Value;
+                "Prompt").Value;
             project.AddTask(t);
         }
 
@@ -209,7 +207,7 @@ public class DomainEntityBenchmarks
         var newTask = Task.Create(
             Guid.NewGuid(), project.Id, "TASK-NEW", "New", "New",
             Priority.High, "Phase-2", 1, Complexity.Low,
-            "Prompt", "Done", 10).Value;
+            "Prompt").Value;
 
         return project.AddTask(newTask);
     }

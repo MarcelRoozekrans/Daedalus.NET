@@ -28,7 +28,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId, maxIterations: 5);
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId, maxIterations: 5);
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
@@ -120,7 +120,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId);
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId);
         task.Claim(sessionId); // Must claim before recording execution
 
         // Mark task as completed
@@ -157,7 +157,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId, maxIterations: 1);
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId, maxIterations: 1);
         task.Claim(sessionId); // Must claim before recording execution
 
         // Use up all iterations - this will set status to Failed
@@ -195,7 +195,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId);
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId);
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
@@ -220,7 +220,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId, completionPromise: "TASK_COMPLETE");
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId, completionPromise: "TASK_COMPLETE");
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
@@ -250,7 +250,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId, completionPromise: "COMPLETE");
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId, completionPromise: "COMPLETE");
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
@@ -279,7 +279,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId);
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId);
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
@@ -308,7 +308,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId, maxIterations: 10);
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId, maxIterations: 10);
         var initialIterationCount = task.IterationCount;
 
         _taskRepository
@@ -338,7 +338,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId);
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId);
         var cts = new CancellationTokenSource();
 
         _taskRepository
@@ -368,7 +368,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId, prompt: "Generate", completionPromise: "DONE");
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId, prompt: "Generate", completionPromise: "DONE");
 
         _taskRepository
             .GetByIdAsync(taskId, Arg.Any<CancellationToken>())
@@ -399,7 +399,7 @@ public class ExecuteTaskCommandHandlerTests
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var command = new ExecuteTaskCommand(taskId, sessionId, "worker1");
-        var task = ApplicationTestFactory.CreateTask(taskId, maxIterations: 5);
+        var task = ApplicationTestFactory.CreateRalphLoopTask(taskId, maxIterations: 5);
         task.Claim(sessionId); // Must claim before recording execution
 
         // Add one prior execution

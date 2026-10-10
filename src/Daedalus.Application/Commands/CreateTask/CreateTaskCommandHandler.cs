@@ -26,18 +26,6 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
             return Result<TaskDto>.Failure($"Prompt: {promptError}");
         }
 
-        var promiseValidation =
-            PerformanceOptimizations.ValidateAndTrimString(command.CompletionPromise, out var promiseError);
-        if (promiseValidation == null)
-        {
-            return Result<TaskDto>.Failure($"CompletionPromise: {promiseError}");
-        }
-
-        if (command.MaxIterations <= 0)
-        {
-            return Result<TaskDto>.Failure("MaxIterations must be greater than 0");
-        }
-
         // Create domain entity using factory method
         var createResult = Task.Create(
             Guid.NewGuid(),
@@ -49,9 +37,7 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
             command.Phase,
             command.ParallelGroup,
             command.Complexity,
-            promptValidation,
-            promiseValidation,
-            command.MaxIterations);
+            promptValidation);
 
         if (createResult.IsFailure)
         {

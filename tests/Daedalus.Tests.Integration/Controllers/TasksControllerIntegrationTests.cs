@@ -72,10 +72,8 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         var taskId1 = Guid.NewGuid();
         var taskId2 = Guid.NewGuid();
         _dbContext.Tasks.AddRange(
-            IntegrationTestFactory.CreateTask(taskId1, prompt: "Task 1", completionPromise: "Promise 1",
-                maxIterations: 5),
-            IntegrationTestFactory.CreateTask(taskId2, prompt: "Task 2", completionPromise: "Promise 2",
-                maxIterations: 5)
+            IntegrationTestFactory.CreateTask(taskId1, prompt: "Task 1"),
+            IntegrationTestFactory.CreateTask(taskId2, prompt: "Task 2")
         );
         await _dbContext.SaveChangesAsync();
 
@@ -98,8 +96,7 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         // Arrange
         for (var i = 0; i < 15; i++)
         {
-            _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(prompt: $"Task {i}", completionPromise: "Promise",
-                maxIterations: 5));
+            _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(prompt: $"Task {i}"));
         }
 
         await _dbContext.SaveChangesAsync();
@@ -138,8 +135,7 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(taskId, prompt: "Test Task",
-            completionPromise: "Test Promise", maxIterations: 5));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(taskId, prompt: "Test Task"));
         await _dbContext.SaveChangesAsync();
 
         // Act
@@ -171,8 +167,7 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test", completionPromise: "Promise",
-            maxIterations: 5);
+        var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test");
         var sessionId = Guid.NewGuid();
 
         var execution = new TaskExecution

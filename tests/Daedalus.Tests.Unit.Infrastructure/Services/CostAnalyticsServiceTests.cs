@@ -85,9 +85,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
             "Testing",
             1,
             Complexity.Medium,
-            "Test prompt",
-            "DONE",
-            maxIterations: 10).Value;
+            "Test prompt").Value;
 
         _dbContext.Projects.Add(project);
         _dbContext.Tasks.Add(task);
@@ -128,9 +126,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
             "Testing",
             1,
             Complexity.Medium,
-            "Test prompt",
-            "DONE",
-            maxIterations: 10).Value;
+            "Test prompt").Value;
         _dbContext.Tasks.Add(task);
         return taskId;
     }

@@ -44,8 +44,6 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
             title = "",                 // violates NotEmpty
             description = "d",
             prompt = "p",
-            completionPromise = "c",
-            maxIterations = 5000,       // violates InclusiveBetween 1..1000
             parallelGroup = 1,
             priority = 0,
             estimatedComplexity = 0
@@ -61,17 +59,14 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
 
         problem.Errors.Should().ContainKey("Title");
         problem.Errors["Title"].Should().Contain("Title is required.");
-        problem.Errors.Should().ContainKey("MaxIterations");
-        problem.Errors["MaxIterations"].Should().Contain("Max iterations must be between 1 and 1000.");
     }
 
     /// <summary>
-    ///     Guards two of <c>UpdateTaskDto</c>'s four <c>When = nameof(...)HasValue</c> guards —
-    ///     <see cref="Daedalus.Application.DTOs.UpdateTaskDto.MaxIterations"/> (<c>InclusiveBetween(1, 1000)</c>)
-    ///     and <see cref="Daedalus.Application.DTOs.UpdateTaskDto.ParallelGroup"/>
-    ///     (<c>GreaterThanOrEqualTo(1)</c>) — because dropping either guard is behaviourally observable: an
+    ///     Guards one of <c>UpdateTaskDto</c>'s three <c>When = nameof(...)HasValue</c> guards —
+    ///     <see cref="Daedalus.Application.DTOs.UpdateTaskDto.ParallelGroup"/>
+    ///     (<c>GreaterThanOrEqualTo(1)</c>) — because dropping it is behaviourally observable: an
     ///     omitted (<c>null</c>) field coerces to <c>0</c> before its range check runs, and <c>0</c> is outside
-    ///     both ranges, so the partial <c>PUT</c> would wrongly 400.
+    ///     that range, so the partial <c>PUT</c> would wrongly 400.
     ///     It CANNOT guard <c>Priority</c> or <c>EstimatedComplexity</c> — both are <c>InclusiveBetween(0, n)</c>,
     ///     so a coerced <c>0</c> is a valid value (0 = Critical priority, 0 = Simple complexity) and produces the
     ///     same 200 whether the guard is present or not; no status-code assertion can tell the two cases apart.
@@ -94,8 +89,6 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
             title = "Original title",
             description = "d",
             prompt = "p",
-            completionPromise = "c",
-            maxIterations = 5,
             parallelGroup = 1,
             priority = 0,
             estimatedComplexity = 0
@@ -108,7 +101,6 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         var updated = await response.Content.ReadFromJsonAsync<TaskDto>();
         updated!.Title.Should().Be("Updated title");
-        updated.MaxIterations.Should().Be(5, "an omitted MaxIterations must not be coerced to 0 and re-validated");
         updated.ParallelGroup.Should().Be(1, "an omitted ParallelGroup must not be coerced to 0 and re-validated");
     }
 

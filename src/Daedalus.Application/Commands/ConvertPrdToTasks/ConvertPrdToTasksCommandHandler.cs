@@ -46,9 +46,7 @@ public sealed partial class ConvertPrdToTasksCommandHandler(
                     prdItem.Phase,
                     prdItem.ParallelGroup,
                     prdItem.Complexity,
-                    BuildTaskPrompt(prdItem),
-                    BuildCompletionPromise(prdItem),
-                    DetermineMaxIterations(prdItem.Complexity));
+                    BuildTaskPrompt(prdItem));
 
                 if (taskResult.IsFailure)
                 {
@@ -101,20 +99,6 @@ public sealed partial class ConvertPrdToTasksCommandHandler(
                 Priority: {prdItem.Priority}
                 Complexity: {prdItem.Complexity}
                 """;
-    }
-
-    private static string BuildCompletionPromise(PrdItemForConversionDto prdItem) =>
-        $"Implementation complete: {prdItem.Title}";
-
-    private static int DetermineMaxIterations(Complexity complexity)
-    {
-        return complexity switch
-        {
-            Complexity.High => 10,
-            Complexity.Medium => 7,
-            Complexity.Low => 5,
-            _ => 5
-        };
     }
 
     [LoggerMessage(

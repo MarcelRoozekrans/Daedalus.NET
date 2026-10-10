@@ -13,13 +13,13 @@ public class TaskEntityTests : UnitTestBase
     public void Create_WithValidParameters_ShouldSucceed()
     {
         // Arrange & Act
-        var task = DomainTestFactory.CreateTask(prompt: "Test prompt", completionPromise: "DONE", maxIterations: 10);
+        var task = DomainTestFactory.CreateTask(prompt: "Test prompt");
 
         // Assert
         task.Should().NotBeNull();
         task.Prompt.Should().Be("Test prompt");
-        task.CompletionPromise.Should().Be("DONE");
-        task.MaxIterations.Should().Be(10);
+        task.CompletionPromise.Should().BeEmpty();
+        task.MaxIterations.Should().Be(0);
         task.Status.Should().Be(DomainTaskStatus.Pending);
     }
 
@@ -42,7 +42,7 @@ public class TaskEntityTests : UnitTestBase
     public void RecordExecution_WhenCompletionPromiseFound_ShouldMarkCompleted()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask(completionPromise: "DONE");
+        var task = DomainTestFactory.CreateTask();
         task.Claim(_sessionId);
         var execution = new TaskExecution
         {

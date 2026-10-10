@@ -47,10 +47,8 @@ public class TaskQueryServiceIntegrationTests(PostgresFixture fixture) : IAsyncL
         // Arrange
         var taskId1 = Guid.NewGuid();
         var taskId2 = Guid.NewGuid();
-        var task1 = IntegrationTestFactory.CreateTask(taskId1, prompt: "Task 1", completionPromise: "Promise 1",
-            maxIterations: 5);
-        var task2 = IntegrationTestFactory.CreateTask(taskId2, prompt: "Task 2", completionPromise: "Promise 2",
-            maxIterations: 5);
+        var task1 = IntegrationTestFactory.CreateTask(taskId1, prompt: "Task 1");
+        var task2 = IntegrationTestFactory.CreateTask(taskId2, prompt: "Task 2");
 
         _dbContext.Tasks.AddRange(task1, task2);
         await _dbContext.SaveChangesAsync();
@@ -68,8 +66,7 @@ public class TaskQueryServiceIntegrationTests(PostgresFixture fixture) : IAsyncL
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test Task", completionPromise: "Test Promise",
-            maxIterations: 5);
+        var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test Task");
 
         _dbContext.Tasks.Add(task);
         await _dbContext.SaveChangesAsync();

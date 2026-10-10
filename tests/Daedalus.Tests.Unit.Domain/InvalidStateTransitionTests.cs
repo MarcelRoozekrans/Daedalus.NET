@@ -14,8 +14,7 @@ public class InvalidStateTransitionTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task", completionPromise: "Promise",
-            maxIterations: 5);
+        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task");
         var sessionId = Guid.NewGuid();
 
         // Must claim task first
@@ -47,8 +46,7 @@ public class InvalidStateTransitionTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task", completionPromise: "Promise",
-            maxIterations: 5);
+        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task");
         var session1 = Guid.NewGuid();
         var session2 = Guid.NewGuid();
 
@@ -67,8 +65,7 @@ public class InvalidStateTransitionTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task", completionPromise: "Promise",
-            maxIterations: 5);
+        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task");
 
         // Act - Try to abandon pending task
         var abandonResult = task.Abandon();
@@ -83,8 +80,7 @@ public class InvalidStateTransitionTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task", completionPromise: "found it",
-            maxIterations: 5);
+        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task");
         var sessionId = Guid.NewGuid();
 
         task.Claim(sessionId);
@@ -115,8 +111,7 @@ public class InvalidStateTransitionTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task", completionPromise: "Promise",
-            maxIterations: 2); // Max 2 iterations
+        var task = DomainTestFactory.CreateRalphLoopTask(taskId, prompt: "Test Task", maxIterations: 2); // Max 2 iterations
         var sessionId = Guid.NewGuid();
 
         task.Claim(sessionId);
@@ -191,8 +186,7 @@ public class InvalidStateTransitionTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task", completionPromise: "Promise",
-            maxIterations: 5);
+        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task");
         var newSessionId = Guid.NewGuid();
 
         // Act - Try to resume pending task
@@ -207,8 +201,7 @@ public class InvalidStateTransitionTests
     {
         // Arrange
         var taskId = Guid.NewGuid();
-        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task", completionPromise: "Promise",
-            maxIterations: 5);
+        var task = DomainTestFactory.CreateTask(taskId, prompt: "Test Task");
         var sessionId = Guid.NewGuid();
         var newSessionId = Guid.NewGuid();
 

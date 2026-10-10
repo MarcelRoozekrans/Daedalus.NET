@@ -61,8 +61,7 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
         // Arrange
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
-        var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test", completionPromise: "Promise",
-            maxIterations: 5);
+        var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test");
 
         var execution = new TaskExecution
         {
@@ -97,8 +96,7 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
         // Arrange
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
-        var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test", completionPromise: "Promise",
-            maxIterations: 5);
+        var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test");
 
         var execution = new TaskExecution
         {

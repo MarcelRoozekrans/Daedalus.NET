@@ -51,6 +51,9 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         var taskEntity = IntegrationTestFactory.CreateTask(taskId);
         _dbContext.Tasks.Add(taskEntity);
 
+        // An old Ralph task: recording executions needs its iteration limit, which Task.Create no longer sets.
+        _dbContext.Entry(taskEntity).Property(t => t.MaxIterations).CurrentValue = 10;
+
         var session = ExecutionSession.Create(sessionId, "test-worker").Value;
         _dbContext.ExecutionSessions.Add(session);
         await _dbContext.SaveChangesAsync();
@@ -167,9 +170,11 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
 
-        var taskEntity = IntegrationTestFactory.CreateTask(taskId, prompt: "Sequential Task",
-            completionPromise: "promise", maxIterations: 5);
+        var taskEntity = IntegrationTestFactory.CreateTask(taskId, prompt: "Sequential Task");
         _dbContext.Tasks.Add(taskEntity);
+
+        // An old Ralph task: recording executions needs its iteration limit, which Task.Create no longer sets.
+        _dbContext.Entry(taskEntity).Property(t => t.MaxIterations).CurrentValue = 5;
 
         var session = ExecutionSession.Create(sessionId, "seq-worker").Value;
         _dbContext.ExecutionSessions.Add(session);

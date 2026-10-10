@@ -27,11 +27,6 @@ public record CreateTaskDto(
     [property: Must(nameof(CreateTaskDto.IsPresent), Message = "Prompt is required.")]
     [property: MaxLength(8000, Message = "Prompt cannot exceed 8000 characters.")]
     string Prompt,
-    [property: Must(nameof(CreateTaskDto.IsPresent), Message = "Completion promise is required.")]
-    [property: MaxLength(1000, Message = "Completion promise cannot exceed 1000 characters.")]
-    string CompletionPromise,
-    [property: InclusiveBetween(1, 1000, Message = "Max iterations must be between 1 and 1000.")]
-    int MaxIterations,
     IReadOnlyList<string>? Dependencies,
     IReadOnlyList<string>? FilesToModify)
 {

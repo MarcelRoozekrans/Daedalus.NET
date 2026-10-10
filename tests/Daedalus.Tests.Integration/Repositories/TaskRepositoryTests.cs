@@ -66,8 +66,6 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         var sessionId = Guid.NewGuid();
         var task = new TaskTestBuilder()
             .WithPrompt("Test prompt")
-            .WithCompletionPromise("DONE")
-            .WithMaxIterations(10)
             .ClaimedBy(sessionId)
             .WithProjectId(projectId)
             .Build();
@@ -98,7 +96,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var task = new TaskTestBuilder().WithPrompt("Test prompt").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task = new TaskTestBuilder().WithPrompt("Test prompt")
             .WithProjectId(projectId)
             .Build();
         await _repository.AddAsync(task, CancellationToken.None);
@@ -135,7 +133,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var task = new TaskTestBuilder().WithPrompt("Test prompt").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task = new TaskTestBuilder().WithPrompt("Test prompt")
             .WithProjectId(projectId)
             .Build();
         var sessionId = Guid.NewGuid();
@@ -180,8 +178,6 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
 
         var task = new TaskTestBuilder()
             .WithPrompt("Test prompt")
-            .WithCompletionPromise("DONE")
-            .WithMaxIterations(10)
             .WithProjectId(projectId)
             .Build();
 
@@ -212,15 +208,11 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
 
         var task1 = new TaskTestBuilder()
             .WithPrompt("Prompt 1")
-            .WithCompletionPromise("DONE")
-            .WithMaxIterations(5)
             .WithProjectId(projectId)
             .Build();
 
         var task2 = new TaskTestBuilder()
             .WithPrompt("Prompt 2")
-            .WithCompletionPromise("DONE")
-            .WithMaxIterations(10)
             .WithProjectId(projectId)
             .Build();
 
@@ -247,7 +239,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var task = new TaskTestBuilder().WithPrompt("Test prompt").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task = new TaskTestBuilder().WithPrompt("Test prompt")
             .WithProjectId(projectId)
             .Build();
         var sessionId = Guid.NewGuid();
@@ -285,7 +277,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var task = new TaskTestBuilder().WithPrompt("Test prompt").WithCompletionPromise("DONE").WithMaxIterations(5)
+        var task = new TaskTestBuilder().WithPrompt("Test prompt")
             .WithProjectId(projectId)
             .Build();
         var sessionId = Guid.NewGuid();
@@ -330,10 +322,10 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var task1 = new TaskTestBuilder().WithPrompt("Prompt 1").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task1 = new TaskTestBuilder().WithPrompt("Prompt 1")
             .WithProjectId(projectId)
             .Build();
-        var task2 = new TaskTestBuilder().WithPrompt("Prompt 2").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task2 = new TaskTestBuilder().WithPrompt("Prompt 2")
             .WithProjectId(projectId)
             .Build();
 
@@ -370,14 +362,10 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
 
         var pendingTask = new TaskTestBuilder()
             .WithPrompt("Pending")
-            .WithCompletionPromise("DONE")
-            .WithMaxIterations(10)
             .WithProjectId(projectId)
             .Build();
         var claimedTask = new TaskTestBuilder()
             .WithPrompt("Claimed")
-            .WithCompletionPromise("DONE")
-            .WithMaxIterations(10)
             .ClaimedBy(Guid.NewGuid())
             .WithProjectId(projectId)
             .Build();
@@ -404,10 +392,10 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var oldTask = new TaskTestBuilder().WithPrompt("Old").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var oldTask = new TaskTestBuilder().WithPrompt("Old")
             .WithProjectId(projectId)
             .Build();
-        var newTask = new TaskTestBuilder().WithPrompt("New").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var newTask = new TaskTestBuilder().WithPrompt("New")
             .WithProjectId(projectId)
             .Build();
 
@@ -438,7 +426,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var task = new TaskTestBuilder().WithPrompt("Test").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task = new TaskTestBuilder().WithPrompt("Test")
             .WithProjectId(projectId).Build();
         await _repository.AddAsync(task, CancellationToken.None);
 
@@ -477,10 +465,10 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var task1 = new TaskTestBuilder().WithPrompt("First").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task1 = new TaskTestBuilder().WithPrompt("First")
             .WithProjectId(projectId)
             .Build();
-        var task2 = new TaskTestBuilder().WithPrompt("Second").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task2 = new TaskTestBuilder().WithPrompt("Second")
             .WithProjectId(projectId)
             .Build();
 
@@ -511,7 +499,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var task = new TaskTestBuilder().WithPrompt("Stale Task").WithCompletionPromise("DONE").WithMaxIterations(10)
+        var task = new TaskTestBuilder().WithPrompt("Stale Task")
             .WithProjectId(projectId)
             .Build();
         var sessionId = Guid.NewGuid();
@@ -545,8 +533,6 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
 
         var task = new TaskTestBuilder()
             .WithPrompt("Active Task")
-            .WithCompletionPromise("DONE")
-            .WithMaxIterations(10)
             .WithProjectId(projectId)
             .Build();
         var sessionId = Guid.NewGuid();
@@ -584,8 +570,6 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         {
             var task = new TaskTestBuilder()
                 .WithPrompt($"Task {i}")
-                .WithCompletionPromise("DONE")
-                .WithMaxIterations(10)
                 .ClaimedBy(sessionId)
                 .WithProjectId(projectId)
                 .Build();

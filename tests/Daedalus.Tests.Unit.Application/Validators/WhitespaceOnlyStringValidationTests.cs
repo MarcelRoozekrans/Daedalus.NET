@@ -28,7 +28,7 @@ public class WhitespaceOnlyStringValidationTests
         },
         {
             () => new CreateTaskDtoValidator().Validate(new CreateTaskDto(
-                Guid.NewGuid(), null, "   ", "Valid description", 0, null, 1, 0, "Valid prompt", "Valid promise", 5,
+                Guid.NewGuid(), null, "   ", "Valid description", 0, null, 1, 0, "Valid prompt",
                 null, null)),
             nameof(CreateTaskDto.Title),
             ["Title is required."]
@@ -84,7 +84,10 @@ public class WhitespaceOnlyStringValidationTests
     {
         var dto = new CreateRepositoryConfigurationDto
         {
-            Name = "Valid name", Url = "https://example.com/repo.git", Platform = "   ", DefaultBranch = "main"
+            Name = "Valid name",
+            Url = "https://example.com/repo.git",
+            Platform = "   ",
+            DefaultBranch = "main"
         };
         var result = new CreateRepositoryConfigurationDtoValidator().Validate(dto);
 

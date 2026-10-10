@@ -91,9 +91,7 @@ public class LearningsEnrichmentMiddlewareTests : UnitTestBase
             "Backend",
             1,
             Complexity.Medium,
-            "Implement the feature",
-            "TASK_COMPLETE",
-            100);
+            "Implement the feature");
 
         return new RalphIterationContext
         {

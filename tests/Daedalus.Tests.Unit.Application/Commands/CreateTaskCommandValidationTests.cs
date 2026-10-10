@@ -22,14 +22,10 @@ public class CreateTaskCommandValidationTests
             "Design",
             1,
             Complexity.Medium,
-            "Test Prompt",
-            "Test Promise",
-            5);
+            "Test Prompt");
 
         // Assert
         result.Prompt.Should().Be("Test Prompt");
-        result.CompletionPromise.Should().Be("Test Promise");
-        result.MaxIterations.Should().Be(5);
         result.Title.Should().Be("Test Task");
         result.Priority.Should().Be(Priority.Medium);
     }
@@ -47,75 +43,10 @@ public class CreateTaskCommandValidationTests
             "Design",
             1,
             Complexity.Low,
-            string.Empty,
-            "Promise",
-            5);
+            string.Empty);
 
         // Assert
         result.Prompt.Should().Be(string.Empty);
-    }
-
-    [Fact]
-    public void CreateTaskCommand_WithZeroIterations_IsInvalid()
-    {
-        // Act
-        var result = new CreateTaskCommand(
-            Guid.NewGuid(),
-            "TEST-003",
-            "Task",
-            "Description",
-            Priority.Low,
-            "Design",
-            1,
-            Complexity.Low,
-            "Prompt",
-            "Promise",
-            0);
-
-        // Assert
-        result.MaxIterations.Should().Be(0);
-    }
-
-    [Fact]
-    public void CreateTaskCommand_WithNegativeIterations_IsInvalid()
-    {
-        // Act
-        var result = new CreateTaskCommand(
-            Guid.NewGuid(),
-            "TEST-004",
-            "Task",
-            "Description",
-            Priority.Low,
-            "Design",
-            1,
-            Complexity.Low,
-            "Prompt",
-            "Promise",
-            -1);
-
-        // Assert
-        result.MaxIterations.Should().Be(-1);
-    }
-
-    [Fact]
-    public void CreateTaskCommand_WithMaxIterations_Succeeds()
-    {
-        // Act
-        var result = new CreateTaskCommand(
-            Guid.NewGuid(),
-            "TEST-005",
-            "Task",
-            "Description",
-            Priority.High,
-            "Design",
-            1,
-            Complexity.High,
-            "Prompt",
-            "Promise",
-            1000);
-
-        // Assert
-        result.MaxIterations.Should().Be(1000);
     }
 
     [Fact]
@@ -134,9 +65,7 @@ public class CreateTaskCommandValidationTests
             "Design",
             1,
             Complexity.Low,
-            longPrompt,
-            "Promise",
-            5);
+            longPrompt);
 
         // Assert
         result.Prompt.Should().HaveLength(1000);
@@ -155,36 +84,10 @@ public class CreateTaskCommandValidationTests
             "Design",
             1,
             Complexity.Low,
-            "Prompt: \"Special\" <>&",
-            "Promise with Unicode: 你好",
-            5);
+            "Prompt: \"Special\" <>&");
 
         // Assert
         result.Prompt.Should().Contain("Special");
-        result.CompletionPromise.Should().Contain("你好");
-    }
-
-    [Fact]
-    public void CreateTaskCommand_WithNullPromise_CanBeCreated()
-    {
-        // Act
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(),
-            "TEST-008",
-            "Task",
-            "Description",
-            Priority.Low,
-            "Design",
-            1,
-            Complexity.Low,
-            "Prompt",
-            null!,
-            5);
-
-        // Assert
-        command.Prompt.Should().Be("Prompt");
-        command.CompletionPromise.Should().BeNull();
-        command.MaxIterations.Should().Be(5);
     }
 
     [Fact]
@@ -200,13 +103,9 @@ public class CreateTaskCommandValidationTests
             "Test",
             1,
             Complexity.Medium,
-            null!,
-            "Promise",
-            5);
+            null!);
 
         // Assert
         command.Prompt.Should().BeNull();
-        command.CompletionPromise.Should().Be("Promise");
-        command.MaxIterations.Should().Be(5);
     }
 }

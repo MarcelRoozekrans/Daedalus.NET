@@ -45,8 +45,7 @@ public class TaskAssignmentServiceAspireIntegrationTests(AspirePostgresFixture f
         var session = ExecutionSession.Create(sessionId, "worker-001").Value;
         await _sessionRepository.AddAsync(session, CancellationToken.None);
 
-        var task = IntegrationTestFactory.CreateTask(prompt: "Task to complete", completionPromise: "DONE",
-            maxIterations: 10);
+        var task = IntegrationTestFactory.CreateTask(prompt: "Task to complete");
         await _taskRepository.AddAsync(task, CancellationToken.None);
 
         // Act
@@ -70,12 +69,9 @@ public class TaskAssignmentServiceAspireIntegrationTests(AspirePostgresFixture f
         var session = ExecutionSession.Create(sessionId, "worker-001").Value;
         await _sessionRepository.AddAsync(session, CancellationToken.None);
 
-        var task1 = IntegrationTestFactory.CreateTask(prompt: "First task", completionPromise: "DONE",
-            maxIterations: 10);
-        var task2 = IntegrationTestFactory.CreateTask(prompt: "Second task", completionPromise: "DONE",
-            maxIterations: 10);
-        var task3 = IntegrationTestFactory.CreateTask(prompt: "Third task", completionPromise: "DONE",
-            maxIterations: 10);
+        var task1 = IntegrationTestFactory.CreateTask(prompt: "First task");
+        var task2 = IntegrationTestFactory.CreateTask(prompt: "Second task");
+        var task3 = IntegrationTestFactory.CreateTask(prompt: "Third task");
 
         await _taskRepository.AddAsync(task1, CancellationToken.None);
         await Task.Delay(10);
@@ -119,8 +115,8 @@ public class TaskAssignmentServiceAspireIntegrationTests(AspirePostgresFixture f
         await _sessionRepository.AddAsync(session1, CancellationToken.None);
         await _sessionRepository.AddAsync(session2, CancellationToken.None);
 
-        var task1 = IntegrationTestFactory.CreateTask(prompt: "Task 1", completionPromise: "DONE", maxIterations: 10);
-        var task2 = IntegrationTestFactory.CreateTask(prompt: "Task 2", completionPromise: "DONE", maxIterations: 10);
+        var task1 = IntegrationTestFactory.CreateTask(prompt: "Task 1");
+        var task2 = IntegrationTestFactory.CreateTask(prompt: "Task 2");
 
         await _taskRepository.AddAsync(task1, CancellationToken.None);
         await _taskRepository.AddAsync(task2, CancellationToken.None);

@@ -19,8 +19,7 @@ public class TestHelpersIntegrationTests(PostgresFixture fixture)
     {
         // Arrange
         var taskBuilder = new TaskTestBuilder()
-            .WithPrompt("Test prompt")
-            .WithCompletionPromise("Done");
+            .WithPrompt("Test prompt");
 
         // Act - Build uses MustSucceed internally
         var task = taskBuilder.Build();
@@ -28,7 +27,7 @@ public class TestHelpersIntegrationTests(PostgresFixture fixture)
         // Assert
         Assert.NotNull(task);
         Assert.Equal("Test prompt", task.Prompt);
-        Assert.Equal("Done", task.CompletionPromise);
+        Assert.Empty(task.CompletionPromise);
     }
 
     [Fact]

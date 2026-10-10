@@ -9,7 +9,6 @@ namespace Daedalus.Benchmarks;
 public class CommandHandlerBenchmarks
 {
     private string _validPrompt = default!;
-    private string _validPromise = default!;
     private string _untrimmedPrompt = default!;
     private string _whitespacePrompt = default!;
 
@@ -17,7 +16,6 @@ public class CommandHandlerBenchmarks
     public void Setup()
     {
         _validPrompt = "Analyze the given code and identify performance bottlenecks";
-        _validPromise = "Return a structured list of optimization opportunities";
         _untrimmedPrompt = "  Untrimmed Prompt  ";
         _whitespacePrompt = "   ";
     }
@@ -53,9 +51,7 @@ public class CommandHandlerBenchmarks
     public bool MultipleValidationChecks()
     {
         var promptValid = PerformanceOptimizations.ValidateAndTrimString(_validPrompt, out _) != null;
-        var promiseValid = PerformanceOptimizations.ValidateAndTrimString(_validPromise, out _) != null;
-        var maxIterationsValid = 5 > 0;
-        return promptValid && promiseValid && maxIterationsValid;
+        return promptValid;
     }
 
     [Benchmark(Description = "ContainsTarget - Substring search")]

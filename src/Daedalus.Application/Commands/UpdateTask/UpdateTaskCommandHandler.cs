@@ -61,14 +61,11 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository, IWo
         }
 
         // Apply execution config updates via domain method
-        if (command.ParallelGroup.HasValue || command.Prompt is not null ||
-            command.CompletionPromise is not null || command.MaxIterations.HasValue)
+        if (command.ParallelGroup.HasValue || command.Prompt is not null)
         {
             var configResult = task.UpdateExecutionConfig(
                 parallelGroup: command.ParallelGroup,
-                prompt: command.Prompt,
-                completionPromise: command.CompletionPromise,
-                maxIterations: command.MaxIterations);
+                prompt: command.Prompt);
 
             if (configResult.IsFailure)
             {
