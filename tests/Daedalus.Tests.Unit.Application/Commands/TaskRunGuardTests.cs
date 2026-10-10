@@ -26,7 +26,7 @@ public sealed class TaskRunGuardTests
 
         _tasks.GetByIdAsync(task.Id, Arg.Any<CancellationToken>()).Returns(Result<DomainTask>.Success(task));
         _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Success());
-        _tasks.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(Result.Success());
+        _tasks.DeleteAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>()).Returns(Result.Success());
         return task;
     }
 
@@ -100,7 +100,7 @@ public sealed class TaskRunGuardTests
         var result = await new DeleteTaskCommandHandler(_tasks, _runs).Handle(new DeleteTaskCommand(task.Id), CancellationToken.None);
 
         result.Error.Should().StartWith(TaskRunGuard.LiveRunPrefix);
-        await _tasks.DidNotReceive().DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _tasks.DidNotReceive().DeleteAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>
