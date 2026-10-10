@@ -20,7 +20,7 @@ namespace Daedalus.Application.Services.Brainstorm;
 /// </summary>
 public sealed partial class BrainstormService(
     IBrainstormRepository repository,
-    IRalphAgentFactory agentFactory,
+    IAgentFactory agentFactory,
     IProjectRepository projectRepository,
     IPrdService prdService,
     ILogger<BrainstormService> logger) : IBrainstormService

@@ -13,7 +13,7 @@ namespace Daedalus.Application.Commands.GeneratePrd;
 ///     Handler for PRD generation using LLM with PRD agent mode.
 /// </summary>
 public sealed partial class GeneratePrdCommandHandler(
-    IRalphAgentFactory agentFactory,
+    IAgentFactory agentFactory,
     ILogger<GeneratePrdCommandHandler> logger) : IRequestHandler<GeneratePrdCommand, Result<PrdResponseDto>>
 {
     private const string _prdAgentPrompt = """
