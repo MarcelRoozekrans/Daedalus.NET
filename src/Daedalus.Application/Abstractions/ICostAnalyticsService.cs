@@ -17,11 +17,8 @@ public interface ICostAnalyticsService
     /// <summary>Get per-task cost breakdown for a specific project.</summary>
     Task<IReadOnlyList<TaskCostDto>> GetCostsByProjectIdAsync(Guid projectId, CancellationToken ct = default);
 
-    /// <summary>Get per-task cost breakdown for a specific session.</summary>
-    Task<IReadOnlyList<TaskCostDto>> GetCostsBySessionIdAsync(Guid sessionId, CancellationToken ct = default);
-
     /// <summary>
-    ///     Estimate cost for a planned Ralph run. Fails when <paramref name="modelId"/> has no configured pricing —
+    ///     Estimate the cost of a planned run of up to <paramref name="maxIterations"/> turns. Fails when <paramref name="modelId"/> has no configured pricing —
     ///     never relabels the estimate under a different, priced model.
     /// </summary>
     Task<Result<CostEstimateDto>> EstimateCostAsync(string modelId, int maxIterations, int estimatedPromptTokens, CancellationToken ct = default);

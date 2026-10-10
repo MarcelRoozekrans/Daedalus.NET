@@ -242,9 +242,6 @@ public sealed class ApiClient(HttpClient httpClient)
     public async Task<Result<List<TaskCostDto>>> GetCostsByProjectIdAsync(Guid projectId, CancellationToken ct = default) =>
         await GetAsync<List<TaskCostDto>>($"/api/cost-analytics/by-project/{projectId}", ct);
 
-    public async Task<Result<List<TaskCostDto>>> GetCostsBySessionIdAsync(Guid sessionId, CancellationToken ct = default) =>
-        await GetAsync<List<TaskCostDto>>($"/api/cost-analytics/by-session/{sessionId}", ct);
-
     public async Task<Result<CostEstimateDto>> EstimateCostAsync(
         string modelId, int maxIterations = 10, int estimatedPromptTokens = 4000,
         CancellationToken ct = default) =>

@@ -16,8 +16,7 @@ namespace Daedalus.Tests.Unit.Infrastructure.Services;
 ///     Unit tests for <see cref="CostAnalyticsService"/> — the guard against silently relabelling an unpriced or
 ///     unattributed model's tokens under another model's name and rate, on every method that computes a cost
 ///     (<see cref="CostAnalyticsService.EstimateCostAsync"/>, <see cref="CostAnalyticsService.GetSummaryAsync"/>,
-///     <see cref="CostAnalyticsService.GetCostsByProjectAsync"/>, <see cref="CostAnalyticsService.GetCostsByProjectIdAsync"/>,
-///     and <see cref="CostAnalyticsService.GetCostsBySessionIdAsync"/>).
+///     <see cref="CostAnalyticsService.GetCostsByProjectAsync"/>, <see cref="CostAnalyticsService.GetCostsByProjectIdAsync"/>).
 /// </summary>
 public sealed class CostAnalyticsServiceTests : IAsyncDisposable
 {
@@ -194,7 +193,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
 
         result.TotalInputTokens.Should().Be(1500);
         result.TotalOutputTokens.Should().Be(3000);
-        result.TotalExecutions.Should().Be(2);
+        result.TotalEntries.Should().Be(2);
         result.TotalCost.Should().Be(0.0385m); // 0.033 (model-a) + 0.0055 (model-b), priced separately
         result.Excluded.Should().Be(ExcludedCostDto.None);
     }
@@ -246,35 +245,20 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
     }
 
     /// <summary>
-    ///     The <c>Scope</c> string is a mechanism claim shipped on every cost DTO, so it is guarded like one.
-    ///     It used to say agent turns "are not persisted", which is false - <c>PostgresAgentSessionStore</c>
-    ///     records per-session token totals and <c>AgentMessages</c> records per-message ones. The old guard
-    ///     asserted only that the string was non-empty and held two substrings, so it could not catch that.
+    ///     The scope is a claim shipped on the summary, so it is guarded like one: it names every source and the exclusion.
+    ///     Red: restore the old Ralph-only scope string; it names no node-usage, workflow:* or schedule:*.
     /// </summary>
     [Fact]
-    public async Task GetSummaryAsync_StatesWhatItCoversAndWhereTheRestIsRecorded()
+    public async Task The_summary_scope_names_the_four_sources_and_the_workflow_exclusion()
     {
-        // Falsifiability: clearing CostAnalyticsService.Scope (or never assigning it onto the DTO) turns the
-        // first assertion red; putting the "not persisted" claim back turns the last one red.
-        var sut = new CostAnalyticsService(_dbContext, PricingWithOneModel());
+        var result = await new CostAnalyticsService(_dbContext, PricingWithOneModel()).GetSummaryAsync();
 
-        var result = await sut.GetSummaryAsync();
-
-        result.Scope.Should().NotBeNullOrWhiteSpace();
-        result.Scope.Should().Contain("TaskExecution", "the reason these figures are narrow is the table they read");
-
-        // Where agent-turn usage actually lives, named rather than waved at. This is the half that makes the
-        // statement useful: a reader who wants that spend is told which tables to go to.
-        result.Scope.Should().Contain("AgentSessions").And.Contain("AgentMessages");
-
-        result.Scope.Should().NotContain("not persisted",
-            "agent turns are persisted; these endpoints just do not read those tables");
-        result.Scope.Should().NotContain("never persisted");
+        result.Scope.Should().Contain("node-usage").And.Contain("workflow:*").And.Contain("schedule:*").And.Contain("TaskExecutions");
     }
 
     #endregion
 
-    #region GetCostsByProjectAsync / GetCostsByProjectIdAsync / GetCostsBySessionIdAsync — per-model grouping
+    #region GetCostsByProjectAsync / GetCostsByProjectIdAsync — per-model grouping
 
     [Fact]
     public async Task GetCostsByProjectAsync_TwoModelsInSameProject_PricesEachGroupSeparately()
@@ -318,30 +302,6 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels());
 
         var result = await sut.GetCostsByProjectIdAsync(projectId);
-
-        var taskCost = result.Should().ContainSingle().Subject;
-        taskCost.TaskId.Should().Be(taskId);
-        taskCost.InputTokens.Should().Be(1500);
-        taskCost.OutputTokens.Should().Be(3000);
-        taskCost.IterationCount.Should().Be(2);
-        taskCost.EstimatedCost.Should().Be(0.0385m);
-        taskCost.Excluded.Should().Be(ExcludedCostDto.None);
-    }
-
-    [Fact]
-    public async Task GetCostsBySessionIdAsync_TwoModelsInSameSession_PricesEachGroupSeparately()
-    {
-        // Falsifiability: same shape of defect again — GetCostsBySessionIdAsync used to group by task only
-        // (ignoring ModelId) before calling the old CalculateCostFromExecutions on the combined tokens.
-        var (_, taskId) = SeedProjectWithTask("TASK-1");
-        var sessionId = Guid.NewGuid();
-        SeedExecution(taskId, sessionId, ModelA, inputTokens: 1000, outputTokens: 2000); // 0.033
-        SeedExecution(taskId, sessionId, ModelB, inputTokens: 500, outputTokens: 1000); // 0.0055
-        await _dbContext.SaveChangesAsync();
-
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels());
-
-        var result = await sut.GetCostsBySessionIdAsync(sessionId);
 
         var taskCost = result.Should().ContainSingle().Subject;
         taskCost.TaskId.Should().Be(taskId);
