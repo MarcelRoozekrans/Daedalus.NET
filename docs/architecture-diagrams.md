@@ -610,11 +610,11 @@ graph TB
     subgraph "Presentation Layer"
         API["REST API<br/>Controllers"]
         WEB["Web UI<br/>Blazor Components"]
+        QUERYSVC["Query services<br/>ITaskQueryService (Daedalus.Api)<br/>(Read Operations)"]
     end
 
     subgraph "Application Layer"
         COMMANDS["Command Handlers<br/>(Write Operations)"]
-        QUERIES["Query Handlers<br/>(Read Operations)"]
         SERVICES["Application Services"]
         DTOs["Data Transfer Objects"]
     end
@@ -633,11 +633,11 @@ graph TB
     end
 
     API --> COMMANDS
-    API --> QUERIES
+    API --> QUERYSVC
+    QUERYSVC --> DBCONTEXT
     WEB --> SERVICES
 
     COMMANDS --> SERVICES
-    QUERIES --> SERVICES
 
     SERVICES --> REPOSITORIES
     SERVICES --> ENTITIES
@@ -1851,25 +1851,25 @@ graph TD
 ## 21. Data Access — EF Core, Concurrency, and Migrations
 
 Source: `src/Daedalus.Infrastructure/Persistence/` (`ApplicationDbContext`, `Configurations/`) and
-`src/Daedalus.Infrastructure/Migrations/` (17 migrations, `AddMissingTaskColumns` (2026-02-09, the
-earliest by its `[Migration]` timestamp) through `AddScheduledRunRepository` (2026-09-19)).
+`src/Daedalus.Infrastructure/Migrations/` (24 migrations, `AddMissingTaskColumns` (2026-02-09, the
+earliest by its `[Migration]` timestamp) through `MakeTaskRowVersionXmin` (2026-10-10, the latest)).
 `Daedalus.Migrations` is a small standalone console host
 (`src/Daedalus.Migrations/Program.cs`) whose entire job is `await dbContext.Database.MigrateAsync()` on
 startup; `Daedalus.AppHost` runs it as a managed Aspire project (`AddProject`, not a compile-time
-reference — same pattern as section 2) so the schema is current before `Api`, `Web` or `Console` accept
+reference — same pattern as section 2) so the schema is current before `Api` or `Web` accept
 traffic.
 
-`ApplicationDbContext` exposes **17** `DbSet<T>` properties: the 14 entities from the section 3 ERD, plus
+`ApplicationDbContext` exposes **21** `DbSet<T>` properties: the entities drawn in the section 3 ERD, plus
 `CodeAnalysisRequests` and `AnalysisIterations` (real DbSets, but outside section 3's `Entities/`-folder
-scope — see its note), plus `OutboxMessages` (`ZeroAlloc.Outbox.EfCore`, section 17/18's delivery and
-scheduling messages). `AsNoTracking()` is the convention for read-only queries (section 14).
+scope — see its note), plus `SkillVersions`, `RoleCharterVersions`, `RoleCharters` and `WorkflowRunRecords`,
+plus `OutboxMessages` (`ZeroAlloc.Outbox.EfCore`, section 17/18's delivery and scheduling messages). `AsNoTracking()` is the convention for read-only queries (section 14).
 
 ### Two concurrency-token generations — not one, despite both being called "the concurrency token"
 
-**This is a verify-the-member finding, not a design opinion.** Seven of the nine concurrency-checked
+**This is a verify-the-member finding, not a design opinion.** Six of the nine concurrency-checked
 entities carry a client-side `byte[]? RowVersion` property, mapped with plain `.IsRowVersion()` onto a
-`bytea` column literally named `RowVersion` (`Task`, `Project`, `ExecutionSession`, `AgentSession`,
-`BrainstormSession`, `CodeAnalysisRequest`, `RepositoryConfiguration`). **On Npgsql this column is
+`bytea` column literally named `RowVersion` (`Project`, `ExecutionSession`, `AgentSession`,
+`BrainstormSession`, `CodeAnalysisRequest`, `RepositoryConfiguration`). Issue #290 tracks these remaining six. **On Npgsql this column is
 inert** — Postgres has no built-in auto-updating binary rowversion the way SQL Server does, and nothing
 in this codebase writes a new value into it on every update. The design record for `AgentSession` says so
 directly (`docs/plans/2026-08-16-thalos-net-plan-b.md`): *"`AgentSession.RowVersion` is inert on Npgsql
@@ -1882,8 +1882,10 @@ PostgreSQL."* Its concurrency-critical paths (`RecordTurnAsync`, `TryTransitionA
 `try`/`catch (DbUpdateConcurrencyException)`, a catch block that in practice can only fire if some other
 write path changes the row's `RowVersion` value — which nothing currently does.
 
-The two newest aggregates — `ScheduledRun` and `ScheduledRunExecution` (added in phase 1.5, section 18) —
-use the **real** mechanism instead: a shadow `uint` property mapped straight onto Postgres's own system
+Three entities use the **real** mechanism instead. `ScheduledRun` and `ScheduledRunExecution` (added in phase 1.5,
+section 18) declare a shadow property, and `Task` was moved onto it in phase 2.8 by migration
+`MakeTaskRowVersionXmin`, mapping its `RowVersion` property onto `xmin` (`TaskConfiguration.cs`), so the attach of a
+manufacture run to a task can lose a race and be refused. The two schedule entities: a shadow `uint` property mapped straight onto Postgres's own system
 column, exactly as the brief for this phase describes:
 
 ```csharp
@@ -1894,20 +1896,20 @@ builder.Property<uint>("xmin").IsRowVersion().HasColumnName("xmin");
 `xmin` is populated by Postgres itself on every row version — no application code ever sets it — so two
 sweepers racing the same due row (section 18) genuinely get a `DbUpdateConcurrencyException` from a stale
 `xmin`, not a check that can never fail. This is the pattern any new concurrency-sensitive entity should
-follow; the `byte[] RowVersion` columns on the older seven entities are a carried-forward historical
+follow; the `byte[] RowVersion` columns on the older six entities are a carried-forward historical
 artifact, not a template to copy.
 
 ```mermaid
 graph TB
-    subgraph Inert["Inert byte[] RowVersion (7 entities)"]
-        Old["Task, Project, ExecutionSession,<br/>AgentSession, BrainstormSession,<br/>CodeAnalysisRequest, RepositoryConfiguration"]
+    subgraph Inert["Inert byte[] RowVersion (6 entities)"]
+        Old["Project, ExecutionSession,<br/>AgentSession, BrainstormSession,<br/>CodeAnalysisRequest, RepositoryConfiguration"]
         Bytea[("bytea column<br/>never DB-generated")]
         Old -->|"IsRowVersion()"| Bytea
         Old -.->|"concurrency-critical paths<br/>bypass this via ExecuteUpdateAsync"| Bypass["Atomic UPDATE ... WHERE"]
     end
 
-    subgraph Real["Real xmin (2 entities, phase 1.5+)"]
-        New["ScheduledRun,<br/>ScheduledRunExecution"]
+    subgraph Real["Real xmin (3 entities)"]
+        New["ScheduledRun,<br/>ScheduledRunExecution,<br/>Task (phase 2.8)"]
         Xmin[("Postgres xmin<br/>system column<br/>DB-generated on every write")]
         New -->|"Property&lt;uint&gt;(\"xmin\").IsRowVersion()"| Xmin
         Xmin -->|"stale xmin on UPDATE"| Conflict["DbUpdateConcurrencyException<br/>(genuinely thrown)"]
@@ -1916,11 +1918,11 @@ graph TB
 
 ### Migrations
 
-17 migrations, applied in order by `Daedalus.Migrations` at Aspire startup. The two concurrency
+24 migrations, applied in order by `Daedalus.Migrations` at Aspire startup. The two concurrency
 generations above map to two migration eras: `AddRowVersionConcurrencyTokens` added the inert `bytea`
 columns; `AddScheduledRuns`/`AddScheduledRunExecutions` (2026-09-17) are the first to declare `xmin`
 directly (`type: "xid", rowVersion: true`), followed by `AddFailedAtStep` and
-`AddScheduledRunRepository` extending the same two tables. Repository patterns for the newer aggregates
+`AddScheduledRunRepository` extending the same two tables. The latest, `MakeTaskRowVersionXmin` (2026-10-10), moves `Task` onto `xmin` too. Repository patterns for the newer aggregates
 (`ScheduledRunStore`, `ScheduledRunExecutionStore`) lean on the genuine `xmin` conflict to implement
 "loser backs off, winner proceeds" claim semantics (section 18) — a pattern the inert-`RowVersion`
 entities cannot support without `ExecuteUpdateAsync`'s where-clause trick instead.
@@ -1992,7 +1994,7 @@ See `docs/development-guide.md`, "Run sandboxes", for configuration, boot checks
 ### 🏗️ **Layered Architecture**
 
 - **Presentation Layer**: Controllers, APIs, UI components
-- **Application Layer**: Commands, Queries, DTOs, Services (CQRS pattern)
+- **Application Layer**: Commands, DTOs, Services. Reads go through query services such as `ITaskQueryService` in `Daedalus.Api`, not mediator queries
 - **Domain Layer**: Entities, Value Objects, Business Logic
 - **Infrastructure Layer**: EF Core, Repositories, Persistence
 

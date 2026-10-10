@@ -72,15 +72,16 @@ A task on the board becomes work only when a person starts a manufacture run for
 2. **Press Manufacture** on the Tasks page, or call `POST /api/tasks/{id}/manufacture`. It needs the `developer` or
    `admin` role (the `WorkflowResume` policy, as `POST /api/workflow-runs`). The run's work intent is the task's title,
    a blank line, then its description. The answer is `201` with `{ "runId": "..." }`; the run id is attached to the task.
-   Starting again later replaces it, and earlier runs stay in the workflow run history. Every refusal comes before
-   anything is spent:
+   Starting again later replaces it, and earlier runs stay in the workflow run history. Every precondition is checked
+   before the run starts:
 
    | Status | When |
    |---|---|
    | `404` | The task does not exist. |
-   | `422` | The project has no `RepositoryUrl`, it matches no allow-listed entry (the message names it), or a dependency's status is not `Completed`. |
+   | `422` | The project has no `RepositoryUrl`, it matches no allow-listed entry (the message names it), a dependency is not `Completed`, or a dependency does not exist in the project. |
    | `409` | The task's current run is still `Running` or `Awaiting`. Also when the task changed while the run started: that run is cancelled, and the body carries its `runId` and `runCancelled`. |
    | `400`, `422`, `503` | The run starter refused, as for `POST /api/workflow-runs`. `503` is also the answer while the workflow engine is disabled. |
+   | `500` | Reading the task, its project or its dependencies failed (generic text, the cause is logged). Or the run started but attaching it failed: the run is cancelled and the body carries `runId` and `runCancelled`. |
 
 3. **Watch the derived status.** A task stores only its run id, and its status is read from the run each time:
 
@@ -166,6 +167,7 @@ src/
 ├── Daedalus.Api/              # REST controllers (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos, Telegram channel poller
 ├── Daedalus.Cli/              # Interactive terminal host for Thalos agents (console channel; run by hand, not in AppHost)
 ├── Daedalus.Web/              # Blazor WASM frontend (Radzen components)
+├── Daedalus.Sandbox/          # Per-run sandbox container host (Dockerfile; built by the AppHost)
 └── Daedalus.Migrations/       # EF Core database migration runner
 
 tests/
@@ -289,8 +291,9 @@ The `launchSettings.json` pre-configures all required environment variables. No 
 3. **Keycloak 26.0** container starts (with realm auto-import from `keycloak-realm.json`)
 4. **Ollama** container starts and pulls `nomic-embed-text` (embeddings for AI.Sentinel and agent memory; ~274 MB on the
    first run, cached in a data volume)
-5. **Migrations** run automatically (`Daedalus.Migrations`, waits for DB + Keycloak). The API waits for the job to
-   *complete* (`WaitForCompletion`), not merely to start, so no host boots against an un-migrated database
+5. **Migrations** run automatically (`Daedalus.Migrations`, waits for DB + Keycloak), and the per-run sandbox image
+   `daedalus-sandbox:dev` is built with `docker build`. The API waits for both to *complete* (`WaitForCompletion`),
+   not merely to start, so no host boots against an un-migrated database
 6. **API** starts (REST + JWT auth via Keycloak, port `5000`; creates the Rag.NET `rag_chunks` schema)
 7. **Web Frontend** starts (Blazor WASM, OIDC login via Keycloak)
 8. **Aspire Dashboard** available with real-time monitoring
@@ -1255,5 +1258,5 @@ Same setup as [Rag.NET](https://github.com/MarcelRoozekrans/Rag.NET) and
 | [Roadmap](docs/planning/ROADMAP.md)                      | Milestone 1 phases and status                     |
 | [Regression report 2026-08-16](docs/regression-report-2026-08-16.md) | Browser regression evidence for the Agent page  |
 | [Ralph Wiggum Technique](docs/ralph-wiggum-technique.md) | The retired iteration loop, kept as history       |
-| [Coding Standards](.github/copilot-instructions.md)      | C# patterns, performance, forbidden anti-patterns |
+| [Development Guide](docs/development-guide.md)           | C# patterns, performance, forbidden anti-patterns; see also CLAUDE.md |
 | [Context7 Auto Usage](.github/context7-auto-usage.md)    | When to query Context7 for library documentation  |
