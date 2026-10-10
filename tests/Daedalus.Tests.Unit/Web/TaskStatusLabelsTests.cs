@@ -18,19 +18,36 @@ public sealed class TaskStatusLabelsTests
     public void Each_status_has_its_label(int status, string label) => TaskStatusLabels.Name(status).Should().Be(label);
 
     /// <summary>
-    ///     A task can be started unless its run is live or it already completed.
-    ///     Red per row: change <c>IsStartable</c>'s pattern.
+    ///     A task with no run can be started unless it already completed or is In Progress.
+    ///     Red per row: change <c>IsEditable</c>'s pattern, which <c>IsStartable</c> builds on.
     /// </summary>
     [Theory]
     [InlineData(0, true)]
-    [InlineData(1, false)]
     [InlineData(2, false)]
     [InlineData(3, true)]
     [InlineData(4, true)]
     [InlineData(5, false)]
     [InlineData(6, true)]
-    public void Only_a_task_without_a_live_or_completed_run_is_startable(int status, bool startable) =>
-        TaskStatusLabels.IsStartable(status).Should().Be(startable);
+    public void A_task_without_a_run_is_startable_unless_it_completed(int status, bool startable) =>
+        TaskStatusLabels.IsStartable(WithRun(status, workflowRunId: null)).Should().Be(startable);
+
+    /// <summary>
+    ///     A task stored In Progress with no run is an orphaned claim of the retired loop, which the server starts.
+    ///     Red: drop the orphan clause from <c>IsStartable</c>; the orphan is not startable.
+    /// </summary>
+    [Fact]
+    public void An_orphaned_in_progress_claim_without_a_run_is_startable() =>
+        TaskStatusLabels.IsStartable(WithRun(1, workflowRunId: null)).Should().BeTrue();
+
+    /// <summary>
+    ///     In Progress with a run is a live run, and Awaiting Approval always has one. Neither offers Manufacture.
+    ///     Red: drop the <c>WorkflowRunId is null</c> test from the orphan clause; the live run is startable.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public void A_task_whose_run_is_live_is_not_startable(int status) =>
+        TaskStatusLabels.IsStartable(WithRun(status, workflowRunId: Guid.NewGuid())).Should().BeFalse();
 
     /// <summary>
     ///     Ruling I2: a task can be edited unless its run is live or it completed; a failed or cancelled run leaves it
@@ -86,4 +103,7 @@ public sealed class TaskStatusLabelsTests
     private static TaskDto Task(int maxIterations, Uri? pullRequestUrl) =>
         new(Guid.NewGuid(), "T-1", Guid.NewGuid(), "t", "d", 1, "p", 0, [], [], 1, "prompt", "promise", maxIterations, 0,
             null, null, 0, DateTime.UtcNow, null, null, null, [], null, pullRequestUrl);
+
+    private static TaskDto WithRun(int status, Guid? workflowRunId) =>
+        Task(0, pullRequestUrl: null) with { Status = status, WorkflowRunId = workflowRunId };
 }

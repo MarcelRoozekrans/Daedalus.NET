@@ -93,7 +93,7 @@
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" JustifyContent="JustifyContent.Center">
                     <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
                                   Click="@(() => OpenEditDialog(task))" title="Edit"/>
-                    @if (TaskStatusLabels.IsStartable(task.Status))
+                    @if (TaskStatusLabels.IsStartable(task))
                     {
                         <RadzenButton Icon="precision_manufacturing" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Success"
                                       Disabled="@_starting.Contains(task.Id)" Click="@(() => ManufactureTask(task))" title="Manufacture"/>
