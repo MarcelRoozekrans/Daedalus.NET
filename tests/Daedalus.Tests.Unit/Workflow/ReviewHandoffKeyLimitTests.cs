@@ -108,7 +108,7 @@ public sealed class ReviewHandoffKeyLimitTests
     public async Task An_implement_node_report_that_takes_the_real_bag_past_the_cap_still_fails_the_run()
     {
         var inner = new RecordingWorkflowStore(RunWith("implement", Keys("standing", 10)));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("changed", Report("fresh", 2)), CancellationToken.None);
 
@@ -131,7 +131,7 @@ public sealed class ReviewHandoffKeyLimitTests
     public async Task An_implement_node_report_that_stays_inside_the_cap_is_completed_normally()
     {
         var inner = new RecordingWorkflowStore(RunWith("implement", Keys("standing", 9)));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("changed", Report("fresh", 2)), CancellationToken.None);
 
@@ -153,7 +153,7 @@ public sealed class ReviewHandoffKeyLimitTests
     public async Task A_review_node_that_reports_variables_over_a_full_bag_completes_and_the_store_receives_none()
     {
         var inner = new RecordingWorkflowStore(RunWith("review", Keys("standing", 9)));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
         var usage = new TurnUsage(1000, 50, "m") { CacheReadTokens = 800 };
 
         var reported = Report("fresh", 6);
@@ -181,7 +181,7 @@ public sealed class ReviewHandoffKeyLimitTests
     public async Task A_retrospect_report_is_counted_against_the_real_bag_not_the_projected_one()
     {
         var inner = new RecordingWorkflowStore(RunWith("retrospect", [.. Keys("standing", 9), ReviewHandoff.LearningsKey]));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("none", Report("fresh", 2)), CancellationToken.None);
 
@@ -201,7 +201,7 @@ public sealed class ReviewHandoffKeyLimitTests
     public async Task A_retrospect_nodes_reported_variables_still_reach_the_store_unchanged()
     {
         var inner = new RecordingWorkflowStore(RunWith("retrospect", Keys("standing", 3)));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
         var reported = Report("fresh", 2);
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("none", reported), CancellationToken.None);
@@ -220,7 +220,7 @@ public sealed class ReviewHandoffKeyLimitTests
     public async Task An_implement_node_that_only_overwrites_existing_keys_is_never_capped()
     {
         var inner = new RecordingWorkflowStore(RunWith("implement", Keys("standing", 16)));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         var overwrite = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -242,7 +242,7 @@ public sealed class ReviewHandoffKeyLimitTests
     public async Task A_node_that_runs_no_lenses_may_not_take_the_room_kept_for_the_host()
     {
         var inner = new RecordingWorkflowStore(RunWith("implement", Keys("standing", 9)));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("changed", Report("fresh", 3)), CancellationToken.None);
 
@@ -261,7 +261,7 @@ public sealed class ReviewHandoffKeyLimitTests
         var inner = new RecordingWorkflowStore(RunWith(
             "implement",
             [.. Keys("standing", 9), "squad_mode", "pinning", "recall_tier", ReviewHandoff.PrUrlKey, ReviewHandoff.PublishErrorKey]));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(inner.Run!.Id, 3, AnyTransition(), new NodeResult("changed", Report("fresh", 2)), CancellationToken.None);
 
@@ -277,7 +277,7 @@ public sealed class ReviewHandoffKeyLimitTests
     public async Task The_publish_action_nodes_report_is_not_held_to_the_reservation()
     {
         var inner = new RecordingWorkflowStore(RunWith("publish", Keys("standing", 15)));
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(
             inner.Run!.Id, 3, AnyTransition(),

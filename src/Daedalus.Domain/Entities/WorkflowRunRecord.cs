@@ -67,6 +67,14 @@ public sealed class WorkflowRunRecord
     /// </summary>
     public const string TestResultKind = "test-result";
 
+    /// <summary>
+    ///     The <see cref="Kind"/> of a record of one completed agent node's token usage. Its payload is a
+    ///     <see cref="NodeUsage"/>. There is at most one per (<see cref="RunId"/>, <see cref="Seq"/>): the live append and
+    ///     the startup backfill both skip a sequence number that already has one. The append is not in the transaction
+    ///     that completes the node, so a crash between the two loses the record until the next boot's backfill writes it.
+    /// </summary>
+    public const string NodeUsageKind = "node-usage";
+
     /// <summary>Maximum length of <see cref="Node"/>; the column is <c>varchar(128)</c>.</summary>
     public const int MaxNodeLength = 128;
 

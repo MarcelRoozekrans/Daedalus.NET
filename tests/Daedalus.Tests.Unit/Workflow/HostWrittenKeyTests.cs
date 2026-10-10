@@ -76,7 +76,7 @@ public sealed class HostWrittenKeyTests
     private static async Task<NodeResult> CompleteAsync(WorkflowRun run, string outcome, Dictionary<string, object?> reported)
     {
         var inner = new RecordingWorkflowStore(run);
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(
             run.Id, 3, new WorkflowTransition("done", WorkflowStatus.Running, awaitingSignal: null, WorkflowEventKind.Branched),
@@ -172,7 +172,7 @@ public sealed class HostWrittenKeyTests
         }
 
         var atReview = RunAt("review", merged);
-        var dispatched = await new ReviewHandoffWorkflowStore(new RecordingWorkflowStore(atReview), Definitions())
+        var dispatched = await new ReviewHandoffWorkflowStore(new RecordingWorkflowStore(atReview), Definitions(), TestNodeUsage.Recorder())
             .FindAsync(atReview.Id, CancellationToken.None);
 
         dispatched!.Variables.Should().ContainKey(ReviewHandoff.WorkIntentKey).WhoseValue.Should().Be(pinned);

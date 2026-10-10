@@ -74,8 +74,13 @@ namespace Daedalus.Agents.Workflow;
 ///     transition, and keeps room for the keys <c>open-pull-request</c> writes, on every agent node rather than only a
 ///     projected one; see <see cref="DescribeKeyLimitBreach"/>.
 ///     </para>
+///     <para>
+///     <b>A third job, since phase 2.8:</b> after the completion is persisted, a completion with usage appends one
+///     <c>node-usage</c> record through <see cref="NodeUsageRecorder"/>. The null-run pass-through and the key-cap
+///     failure write none. Usage is not a variable, so a review node, whose variables are dropped, still records it.
+///     </para>
 /// </remarks>
-internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessDefinitionStore definitions)
+internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessDefinitionStore definitions, NodeUsageRecorder usage)
     : DelegatingWorkflowStore(inner)
 {
     /// <summary>
@@ -93,6 +98,8 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
     internal const int MaxVariableKeys = 16;
 
     private readonly IProcessDefinitionStore _definitions = definitions ?? throw new ArgumentNullException(nameof(definitions));
+
+    private readonly NodeUsageRecorder _usage = usage ?? throw new ArgumentNullException(nameof(usage));
 
     /// <inheritdoc />
     public override async ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct)
@@ -153,6 +160,13 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         }
 
         await Inner.CompleteNodeAsync(runId, seq, transition, authored, ct).ConfigureAwait(false);
+
+        // Phase 2.8: the node's usage, once the completion is persisted. A host action reads no turn, so it has none.
+        // Usage is not a variable: a review node's variables are dropped above, and its usage is still recorded.
+        if (authored.Usage is { } turnUsage)
+        {
+            await _usage.RecordAsync(run.Id, seq, run.CurrentNode, run.StartedBy?.Id, turnUsage, _usage.UtcNow, ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

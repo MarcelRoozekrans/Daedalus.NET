@@ -516,6 +516,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // A singleton is safe: the store takes a fresh DbContext from IDbContextFactory on every call.
         services.AddSingleton<IWorkflowRunRecordStore, WorkflowRunRecordStore>();
 
+        // Phase 2.8: writes each completed agent node's usage, for cost analytics. Resolves the record store from a scope
+        // of its own, like the review lens runner, so this singleton captures nothing scoped.
+        services.AddSingleton<NodeUsageRecorder>();
+
         // Task B13: the post-gate publish step. The resolver above and WorkflowNodeDispatcherFactory both receive every
         // registered IWorkflowHostAction (ruling R27), so this registration is what makes `action: open-pull-request`
         // validate and dispatch. A singleton: it resolves the scoped PR lookup and publisher from a scope of its own.
