@@ -53,12 +53,6 @@ public static class InfrastructureServiceExtensions
 #pragma warning restore IL2026
         });
 
-        // Register RalphLoop configuration for conditional service registration
-        var ralphLoopConfig = new RalphLoopConfiguration();
-#pragma warning disable IL2026 // Configuration binding uses reflection; accepted risk for configuration scenarios
-        configuration.GetSection(RalphLoopConfiguration.SectionName).Bind(ralphLoopConfig);
-#pragma warning restore IL2026
-
         // Register MCP integration options scoped service
         services.AddScoped(sp =>
         {
@@ -66,25 +60,11 @@ public static class InfrastructureServiceExtensions
             return config.Value.Mcp ?? new McpIntegrationOptions { Enabled = false };
         });
 
-        // Register workspace context provider for loading specs, plan, and agent instructions
-        services.AddScoped<IWorkspaceContextProvider, FileSystemWorkspaceContextProvider>();
-
-        // Register real implementations unconditionally — WorkspacePath is set dynamically per-task.
-        // Middleware guards on WorkspacePath at runtime (empty = skip).
-        services.AddScoped<IGitWorkflowService, GitWorkflowService>();
-        services.AddScoped<ILoopbackEvaluator, LoopbackEvaluator>();
-        services.AddScoped<IWorkspaceOrchestrator, WorkspaceOrchestrator>();
-
-        services.AddScoped<IPromptContextStore, DatabasePromptContextStore>();
-
         // Register failure pattern database
         services.AddScoped<IFailurePatternDatabase, FailurePatternDatabase>();
 
         // Register brainstorm repository for brainstorm session persistence
         services.AddScoped<IBrainstormRepository, BrainstormRepository>();
-
-        // Register knowledge base tool status for LearningsEnrichmentMiddleware mode switching
-        services.AddScoped<IKnowledgeBaseToolStatus, KnowledgeBaseToolStatus>();
 
         return services;
     }
@@ -153,7 +133,7 @@ public static class InfrastructureServiceExtensions
         // used to register the concrete type as a side effect of giving it an HttpClient. Now that it takes
         // GitHubApi instead, that side effect is gone, so it is registered explicitly here -- otherwise
         // PullRequestFactory (which takes it as a constructor parameter, not behind an interface) fails to
-        // resolve, and IPullRequestFactory/IWorkspaceOrchestrator/IRalphLoopOrchestrator all fail with it.
+        // resolve, and IPullRequestFactory/IRalphLoopOrchestrator both fail with it.
         services.AddTransient<GitHubPullRequestFactory>();
 
         // Register resilient HTTP client for Azure DevOps API calls

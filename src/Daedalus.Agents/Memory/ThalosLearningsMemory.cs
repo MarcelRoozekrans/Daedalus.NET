@@ -1,6 +1,5 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
-using Daedalus.Application.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Thalos;
@@ -28,38 +27,6 @@ public sealed partial class ThalosLearningsMemory(
     ILogger<ThalosLearningsMemory> logger) : ILearningsMemory
 {
     private string? SharedOwnerId => memoryOptions.Value.SharedOwnerId;
-
-    /// <inheritdoc />
-    public async Task<Result<string>> RememberAsync(ParsedLearning learning, Guid sourceTaskId, CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(learning);
-
-        if (SharedOwnerId is not { Length: > 0 } owner)
-        {
-            LogNoSharedOwner(logger);
-            return Result<string>.Failure("No shared memory owner is configured; the learning was not stored.");
-        }
-
-        var request = new RememberRequest
-        {
-            OwnerId = owner,
-            AgentId = null,
-            Kind = MemoryKind.Learning,
-            Text = LearningMemoryMapping.Text(learning.Pattern, learning.Resolution),
-            Tags = LearningMemoryMapping.Tags(learning.Category, learning.Severity, learning.Tags),
-            Source = LearningMemoryMapping.Source(sourceTaskId),
-            Importance = LearningMemoryMapping.Importance(learning.Severity),
-        };
-
-        var result = await memory.RememberAsync(request, ct).ConfigureAwait(false);
-        if (result.IsFailure)
-        {
-            LogRememberFailed(logger, result.Error.Code, result.Error.Message);
-            return Result<string>.Failure($"{result.Error.Code}: {result.Error.Message}");
-        }
-
-        return Result<string>.Success(result.Value.Id.ToString());
-    }
 
     /// <inheritdoc />
     public async Task<Result<IReadOnlyList<RecalledLearning>>> RecallAsync(string query, int maxResults, CancellationToken ct)
@@ -95,9 +62,6 @@ public sealed partial class ThalosLearningsMemory(
             .Select(h => new RecalledLearning(h.Record.Id.ToString(), h.Record.Text, h.Record.Tags, h.Score, h.Record.CreatedAt))];
         return Result<IReadOnlyList<RecalledLearning>>.Success(learnings);
     }
-
-    [LoggerMessage(EventId = 500, Level = LogLevel.Warning, Message = "Remembering a Ralph learning failed: {Code} {Message}")]
-    private static partial void LogRememberFailed(ILogger logger, AgentErrorCode code, string message);
 
     [LoggerMessage(EventId = 501, Level = LogLevel.Debug, Message = "Recalling Ralph learnings failed: {Code} {Message}")]
     private static partial void LogRecallFailed(ILogger logger, AgentErrorCode code, string message);

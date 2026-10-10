@@ -6,8 +6,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Memory;
-using LearningCategory = Daedalus.Domain.Entities.LearningCategory;
-using LearningSeverity = Daedalus.Domain.Entities.LearningSeverity;
 
 namespace Daedalus.Tests.Unit.Application.Agents;
 
@@ -33,45 +31,6 @@ public sealed class ThalosLearningsMemoryTests
         CreatedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow,
     };
-
-    [Fact]
-    public async Task Remember_writes_under_the_shared_owner_as_a_learning()
-    {
-        var taskId = Guid.NewGuid();
-        RememberRequest? seen = null;
-        _service.RememberAsync(Arg.Do<RememberRequest>(r => seen = r), Arg.Any<CancellationToken>())
-            .Returns(ZeroAlloc.Results.Result<MemoryRecord, AgentError>.Success(Record("x")));
-
-        var result = await Sut().RememberAsync(
-            new ParsedLearning(LearningCategory.ErrorPattern, "CS1061", "add using", ["ef core"], LearningSeverity.High),
-            taskId,
-            CancellationToken.None);
-
-        result.IsSuccess.Should().BeTrue();
-        seen.Should().NotBeNull();
-        seen!.OwnerId.Should().Be("daedalus");
-        seen.AgentId.Should().BeNull();
-        seen.Kind.Should().Be(MemoryKind.Learning);
-        seen.Text.Should().Be("CS1061\nadd using");
-        seen.Tags.Should().Equal("errorpattern", "high", "ef core");
-        seen.Importance.Should().Be(0.8);
-        seen.Source.Should().Be($"ralph:task/{taskId}");
-    }
-
-    [Fact]
-    public async Task Remember_maps_thalos_errors_to_a_failure_without_throwing()
-    {
-        _service.RememberAsync(Arg.Any<RememberRequest>(), Arg.Any<CancellationToken>())
-            .Returns(ZeroAlloc.Results.Result<MemoryRecord, AgentError>.Failure(AgentError.MemoryStoreFailed("down")));
-
-        var result = await Sut().RememberAsync(
-            new ParsedLearning(LearningCategory.CodeConvention, "p", "r", [], LearningSeverity.Low),
-            Guid.NewGuid(),
-            CancellationToken.None);
-
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("MemoryStoreFailed");
-    }
 
     [Fact]
     public async Task Recall_queries_the_shared_scope_and_projects_hits()

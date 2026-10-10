@@ -13,7 +13,6 @@ class Program
         BenchmarkRunner.Run<DtoMappingBenchmarks>();
         BenchmarkRunner.Run<JsonSerializationBenchmarks>();
         BenchmarkRunner.Run<DomainEntityBenchmarks>();
-        BenchmarkRunner.Run<PromptBuildingBenchmarks>();
         BenchmarkRunner.Run<DependencyResolutionBenchmarks>();
         BenchmarkRunner.Run<ResponseExtractionBenchmarks>();
     }

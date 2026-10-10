@@ -316,8 +316,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         services.AddThalos(thalos =>
         {
-            // This host owns the Rag.NET schema: the API and the CLI, the hosts that call AddDaedalusAgents, create rag_chunks.
-            ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: true);
+            ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString);
             ConfigureSkills(thalos, configuration.GetSection(SkillsConfig.SectionName), options.Skills, skillRoots);
 
 
@@ -1438,15 +1437,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
     /// <summary>
     ///     Registers the memory triple on the Thalos builder: <c>Thalos:Memory</c> → <c>MemoryOptions</c>, the Postgres store
-    ///     and the Rag.NET index on the application database. <paramref name="ensureSchema"/> decides whether this host
-    ///     creates the Rag.NET schema on start — exactly one host may.
+    ///     and the Rag.NET index on the application database. Every host that calls <c>AddDaedalusAgents</c> creates the
+    ///     Rag.NET schema on start.
     /// </summary>
     private static void ConfigureMemory(
         ThalosBuilder thalos,
         IConfigurationSection section,
         MemoryConfig config,
-        string connectionString,
-        bool ensureSchema)
+        string connectionString)
     {
         thalos.UseMemory(o =>
             {
@@ -1459,7 +1457,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             {
                 o.ConnectionString = connectionString; // same database as the app; Rag.NET keeps its own pool
                 o.VectorDimensions = config.VectorDimensions;
-                o.EnsureSchemaOnStartup = ensureSchema;
+                o.EnsureSchemaOnStartup = true;
             });
     }
 
