@@ -21,7 +21,7 @@ public sealed class DeleteTaskCommandHandler(ITaskRepository taskRepository, IWo
         var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
-            return Result.Failure($"Task not found: {taskResult.Error}");
+            return Result.Failure(taskResult.Error);
         }
 
         var task = taskResult.Value;
