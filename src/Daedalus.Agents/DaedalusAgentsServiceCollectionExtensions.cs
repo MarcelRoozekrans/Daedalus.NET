@@ -598,6 +598,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // rather than a second ZeroAlloc.Outbox AddOutbox() call. The dispatcher is registered as its concrete
         // type only, never as IOutboxTypeDispatcher: the channel pipeline's OutboxWorkerService enumerates every
         // IOutboxTypeDispatcher in the container, and must not pick this one up.
+        // Phase 2.8, amendment A4: writes node-usage records for completions that have none. Registered before the outbox
+        // poller below: hosted services start in registration order, so the backfill finishes before a live completion can
+        // append the same (run, seq). The unique index on node-usage records settles any overlap regardless.
+        services.AddHostedService<NodeUsageBackfill>();
         services.AddSingleton<WorkflowDispatchOutboxDispatcher>();
         services.AddSingleton(dispatchOptions);
         services.AddHostedService(sp => new WorkflowOutboxDispatchService(
