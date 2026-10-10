@@ -22,7 +22,8 @@ public sealed class DaedalusKnowledgeTools(DaedalusFailurePatternsTools failures
     [ThalosTool("search_failure_patterns")]
     [Description(
         "Search known failure patterns and their solutions. Use this when you encounter " +
-        "a build error, test failure, or runtime exception to find previously discovered fixes.")]
+        "a build error, test failure, or runtime exception to find previously discovered fixes. " +
+        FrozenHistory.Notice)]
     public Task<string> SearchFailurePatterns(
         [Description("The error message or pattern to search for")] string errorMessage,
         [Description("Maximum number of results (default: 3)")] int maxResults = 3,

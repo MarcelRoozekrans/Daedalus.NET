@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Reflection;
 using Daedalus.Agents.Tools;
 using Daedalus.Application.Abstractions;
 using Daedalus.Infrastructure.Agents.Tools;
@@ -31,9 +33,18 @@ public sealed class DaedalusKnowledgeToolsTests
 
         var result = await sut.SearchFailurePatterns("CS0246 type not found", maxResults: 2, ct: CancellationToken.None);
 
-        result.Should().StartWith("No matching failure patterns found.");
+        result.Should().Be("No matching failure patterns found. " + FrozenHistory.Notice);
         await _failures.Received(1).SearchByErrorAsync("CS0246 type not found", 2, Arg.Any<CancellationToken>());
     }
+
+    /// <summary>
+    ///     The Thalos-facing tool is the one agents call, and it carries its own copy of the description. Red: drop
+    ///     <c>FrozenHistory.Notice</c> from the description on <c>DaedalusKnowledgeTools.SearchFailurePatterns</c>.
+    /// </summary>
+    [Fact]
+    public void The_agent_facing_description_says_its_data_predates_the_retirement() =>
+        typeof(DaedalusKnowledgeTools).GetMethod(nameof(DaedalusKnowledgeTools.SearchFailurePatterns))!
+            .GetCustomAttribute<DescriptionAttribute>()!.Description.Should().Contain(FrozenHistory.Notice);
 
     [Fact]
     public async Task LocalToolSource_exposes_only_search_failure_patterns_and_invokes_it_through_a_di_scope()
@@ -56,7 +67,7 @@ public sealed class DaedalusKnowledgeToolsTests
             StringComparer.Ordinal);
         var result = await search.InvokeAsync(arguments, CancellationToken.None);
 
-        result?.ToString().Should().Contain("No matching failure patterns found.");
+        result?.ToString().Should().Contain("No matching failure patterns found.").And.Contain(FrozenHistory.Notice);
         await _failures.Received(1).SearchByErrorAsync("NU1902 vulnerable package", 3, Arg.Any<CancellationToken>());
     }
 }

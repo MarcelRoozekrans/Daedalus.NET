@@ -4,7 +4,7 @@ namespace Daedalus.Infrastructure.Agents.Tools;
 ///     The notice on the knowledge tools whose data only the retired task loop wrote (phase 2.8, D3 and A5). Rebuilding
 ///     that data from review rejections is tracked as an issue.
 /// </summary>
-internal static class FrozenHistory
+public static class FrozenHistory
 {
     /// <summary>Said in each tool's description and in an empty answer, so a model does not read absence as evidence.</summary>
     public const string Notice =
