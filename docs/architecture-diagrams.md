@@ -1,5 +1,9 @@
 # Daedalus Solution Architecture Diagrams
 
+Phase 2.8 (October 2026) retired the Ralph loop and `Daedalus.Console`. The sections that described them (5, 6, 8A and
+9) were deleted and their numbers are not reused, so the numbering below has gaps. Work now starts when a person presses
+Manufacture on a board task: see section 8.
+
 ## 1. System Context
 
 Daedalus is a .NET agent framework for software work (tasks, projects, executions, scheduled runs,
@@ -21,7 +25,6 @@ graph TB
     subgraph "Daedalus (this repository)"
         Web["Web<br/>(Blazor)"]
         Api["Api<br/>(ASP.NET Core REST API)"]
-        Console["Console<br/>(background worker host)"]
         Cli["Cli"]
         Agents["Agents<br/>(channels, scheduling, skills,<br/>GitHub tooling, sessions, memory, tools)"]
         AppHost["AppHost<br/>(.NET Aspire orchestrator)"]
@@ -53,14 +56,11 @@ graph TB
     Web -->|OIDC login, token auth| Keycloak
     Api -->|EF Core| Postgres
     Api -->|validate JWT| Keycloak
-    Console -->|EF Core, direct| Postgres
     Api --> Agents
-    Console --> Agents
     Cli --> Agents
 
     AppHost -->|manages| Web
     AppHost -->|manages| Api
-    AppHost -->|manages| Console
     AppHost -->|manages| Postgres
     AppHost -->|manages| Keycloak
     AppHost -->|manages| Ollama
@@ -86,9 +86,10 @@ graph TB
 ## 2. Solution Layout
 
 All 11 projects under `src/`, enumerated directly rather than carried forward from any earlier diagram.
+`Daedalus.Sandbox` (the per-run container host, section 22) references no other project and is not drawn.
 `Daedalus.Agents` is the one most likely to be missed: it holds channels (`Channels/`), scheduling
 (`Scheduling/`), skills (`Skills/`), GitHub tooling (`GitHub/`), sessions (`Sessions/`), memory (`Memory/`)
-and tools (`Tools/`), and every host project (`Api`, `Console`, `Cli`) depends on it directly.
+and tools (`Tools/`), and every host project (`Api`, `Cli`) depends on it directly.
 
 ```mermaid
 graph TB
@@ -108,7 +109,6 @@ graph TB
 
     subgraph "Hosts"
         Api["Daedalus.Api"]
-        Console["Daedalus.Console"]
         Cli["Daedalus.Cli"]
         Migrations["Daedalus.Migrations"]
         Web["Daedalus.Web"]
@@ -132,12 +132,6 @@ graph TB
     Api --> Agents
     Api --> ServiceDefaults
 
-    Console --> Domain
-    Console --> Application
-    Console --> Infrastructure
-    Console --> Agents
-    Console --> ServiceDefaults
-
     Cli --> Domain
     Cli --> Application
     Cli --> Infrastructure
@@ -155,7 +149,7 @@ graph TB
 ```
 
 `Daedalus.Web` depends only on `Daedalus.Application` (it talks to the API over HTTP, not to the database
-directly). `Daedalus.AppHost` is the .NET Aspire orchestrator: it launches `Api`, `Web`, `Console` and
+directly). `Daedalus.AppHost` is the .NET Aspire orchestrator: it launches `Api`, `Web` and
 `Migrations` as managed processes (via `AddProject`, not a compile-time `ProjectReference`), alongside the
 PostgreSQL, Keycloak and Ollama containers — that relationship is orchestration, shown here for
 completeness, not a project dependency.
@@ -166,8 +160,8 @@ completeness, not a project dependency.
 
 Enumerated directly from `src/Daedalus.Domain/Entities/`, cross-checked against the EF Core configurations
 in `src/Daedalus.Infrastructure/Persistence/Configurations/` rather than inferred from property names.
-Fourteen persisted entities exist today (excluding enums, the `Entity`/`AggregateRoot` base classes, and
-the `PromptSection` value object, none of which are separate tables).
+The persisted entities below are the ones this diagram draws (excluding enums and the `Entity`/`AggregateRoot` base classes,
+which are not tables).
 
 **Dropped from the previous diagram:** `GitOperation`, `GitDiff` and `GitBranch`. They are not persisted
 domain entities — `GitDiff` and `GitOperationContext` exist only as transient DTOs under
@@ -201,14 +195,15 @@ erDiagram
         string title
         string description
         enum priority
-        enum status
+        enum status "stored 0 to 4; 5 and 6 are derived on read"
         string phase
         int parallel_group
         enum estimated_complexity
         string prompt
         string completion_promise
         int max_iterations
-        guid current_session_id "not FK-enforced"
+        guid current_session_id "not FK-enforced, old Ralph tasks only"
+        guid workflow_run_id "not FK-enforced, the current manufacture run"
         string result
         int iteration_count
         string learnings
@@ -379,7 +374,7 @@ erDiagram
 `Task → TaskExecution`, `AgentSession → AgentMessage`, and `BrainstormSession → BrainstormMessage`. Several
 other Guid-typed properties look like foreign keys by name but are not configured as one anywhere — the
 same trap the previous diagram fell into with `GitOperation`. Marked `"not FK-enforced"` above:
-`Task.CurrentSessionId` (no relationship to `ExecutionSession`), `ScheduledRunExecution.ScheduleId` (only a
+`Task.CurrentSessionId` (no relationship to `ExecutionSession`), `Task.WorkflowRunId` (a workflow run is identified by id in Thalos's tables and in `WorkflowRunRecords`), `ScheduledRunExecution.ScheduleId` (only a
 unique index on `(ScheduleId, OccurrenceAt)`, no `HasOne`/`HasForeignKey`), and `BrainstormSession.ProjectId`
 (indexed, but never wired to `Project` the way `Task.ProjectId` is). `AgentMemory.AgentId` and
 `ChannelConversation.SessionId`/`AgentId` are marked `"external Thalos identity"` because they hold the
@@ -401,9 +396,8 @@ visibility boundary that every newcomer trips over at least once:
 
 **The generated `IMediator` and its registration method `AddMediator()` are `internal` to `Daedalus.Application`.**
 `IMediator` cannot appear in a public method signature anywhere else — the compiler refuses it with CS0051
-(inconsistent accessibility) — and `AddMediator()` cannot be called from `Program.cs` in `Daedalus.Api` or
-`Daedalus.Console`, which is what every upstream ZeroAlloc.Mediator example shows, because `Program.cs` is
-compiled into a different assembly. `Daedalus.Api` has 14 public MVC controllers, and they must be public to be
+(inconsistent accessibility) — and `AddMediator()` cannot be called from `Program.cs` in `Daedalus.Api`, which is what every upstream ZeroAlloc.Mediator example shows, because `Program.cs` is
+compiled into a different assembly. `Daedalus.Api` has 13 public MVC controllers, and they must be public to be
 discovered by ASP.NET Core's controller convention — so the assembly boundary is real, not incidental.
 
 The bridge is `IApplicationCommands` (`Daedalus.Application/Abstractions/IApplicationCommands.cs`), a small
@@ -427,21 +421,17 @@ to `mediator.Send(command, cancellationToken)`:
 | `CreateTaskAsync` | `CreateTaskCommand` | `ValueTask<Result<TaskDto>>` |
 | `UpdateTaskAsync` | `UpdateTaskCommand` | `ValueTask<Result<TaskDto>>` |
 | `DeleteTaskAsync` | `DeleteTaskCommand` | `ValueTask<Result>` |
-| `AbandonTaskAsync` | `AbandonTaskCommand` | `ValueTask<Result<TaskDto>>` |
-| `ResumeTaskAsync` | `ResumeTaskCommand` | `ValueTask<Result<TaskDto>>` |
 
-**Confirmed by grepping `src/Daedalus.Api/Controllers`: exactly 2 of the 14 public controllers reference
-`IApplicationCommands`** — `ProjectsController` and `TasksController`. The other 12 (`AgentsController`,
+**Confirmed by grepping `src/Daedalus.Api/Controllers`: exactly 2 of the 13 public controllers reference
+`IApplicationCommands`** — `ProjectsController` and `TasksController`. The other 11 (`AgentsController`,
 `AgentSessionsController`, `AgentMemoriesController`, `BrainstormController`, `CodeAnalysisController`,
-`CostAnalyticsController`, `ExecutionSessionsController`, `PrdController`, `RalphConfigController`,
-`RepositoriesController`, `SchedulesController`, `TaskExecutionsController`) never dispatch a command through
-this path at all.
+`CostAnalyticsController`, `PrdController`, `RepositoriesController`, `SchedulesController`,
+`TaskExecutionsController`, `WorkflowRunsController`) never dispatch a command through this path at all.
 
-`Daedalus.Application` has 12 command types in total (`Commands/*`), not 8 — `ConvertPrdToTasksCommand`,
-`ExecuteTaskCommand`, `GeneratePrdCommand` and `RegeneratePlanCommand` are the other 4. They are never added to
-`IApplicationCommands`, because nothing outside the assembly needs to send them: `PrdService` and
-`McpConfigurationParser` are themselves compiled into `Daedalus.Application`, so they call `mediator.Send(...)`
-on the internal `IMediator` directly. The facade exists only for the assembly-crossing case, and it is sized to
+`Daedalus.Application` has 8 command types in total (`Commands/*`), not 6 — `ConvertPrdToTasksCommand` and
+`GeneratePrdCommand` are the other 2. They are never added to `IApplicationCommands`, because nothing outside the
+assembly needs to send them: `PrdService` is itself compiled into `Daedalus.Application`, so it calls
+`mediator.Send(...)` on the internal `IMediator` directly. The facade exists only for the assembly-crossing case, and it is sized to
 exactly the commands that cross.
 
 **Requests are `readonly record struct`, not classes.** The ZeroAlloc.Mediator generator enforces this with its
@@ -451,7 +441,7 @@ codebase follows this:
 
 ```csharp
 public readonly record struct CreateTaskCommand(
-    Guid ProjectId, string TaskId, string Title, /* … */ int MaxIterations)
+    Guid ProjectId, string TaskId, string Title, /* … */ string Prompt)
     : IRequest<Result<TaskDto>>;
 ```
 
@@ -466,15 +456,15 @@ graph TB
     subgraph API["Daedalus.Api — public assembly"]
         Ctrl1["ProjectsController"]
         Ctrl2["TasksController"]
-        CtrlOther["12 other public controllers<br/>(no command dispatch)"]
+        CtrlOther["11 other public controllers<br/>(no command dispatch)"]
     end
 
     subgraph APP["Daedalus.Application — internal boundary"]
-        Facade["IApplicationCommands (public interface)<br/>ApplicationCommands (internal impl)<br/>exactly 8 methods"]
+        Facade["IApplicationCommands (public interface)<br/>ApplicationCommands (internal impl)<br/>exactly 6 methods"]
         Mediator["IMediator — generated, internal<br/>ZeroAlloc.Mediator, AddMediator() also internal"]
-        H8["8 facade-reachable handlers<br/>readonly record struct requests<br/>ValueTask&lt;Result&gt; / ValueTask&lt;Result&lt;T&gt;&gt;"]
-        Internal["PrdService · McpConfigurationParser<br/>(same-assembly callers)"]
-        H4["4 internal-only handlers<br/>ConvertPrdToTasks · ExecuteTask<br/>GeneratePrd · RegeneratePlan"]
+        H8["6 facade-reachable handlers<br/>readonly record struct requests<br/>ValueTask&lt;Result&gt; / ValueTask&lt;Result&lt;T&gt;&gt;"]
+        Internal["PrdService<br/>(same-assembly caller)"]
+        H4["2 internal-only handlers<br/>ConvertPrdToTasks · GeneratePrd"]
     end
 
     Ctrl1 -->|"public call"| Facade
@@ -487,60 +477,9 @@ graph TB
     CtrlOther -.->|"no dispatch"| Facade
 ```
 
-A gap worth being honest about: `GetAllTasksQuery` and `GetTaskByIdQuery` still exist under
-`Daedalus.Application/Queries/`, implement `IRequest<Result<T>>`, and have registered handlers — but nothing in
-the codebase calls `mediator.Send` for either one today. `TasksController`'s read endpoints go through
-`ITaskQueryService` (`Daedalus.Api.Services.TaskQueryService`) instead, which queries `ApplicationDbContext`
-directly with EF Core. The CQRS write side is wired through the mediator; the read side, in practice, is not.
-
----
-
-## 5. Legacy: Git-Driven Task Execution (Ralph Loop)
-
-> **Status: legacy, not deleted.** Sections 5, 5A, 5B and 6 describe the original git-integrated
-> execution path, built before Thalos.NET (sections 15-20) existed. Nothing below is wrong — it was
-> verified directly against current source — it is marked legacy because Milestone 2 plans to redesign
-> it as **phase 2.5** (see `docs/planning/ROADMAP.md`), not because it is broken. It stays switched on
-> until that redesign demonstrably does the job. `RalphLoopWorker` is a real, currently-running
-> `BackgroundService` in `Daedalus.Console`, so a reader who finds it in the codebase still needs this
-> section.
-
-Two independent features share the git plumbing (`IGitRepositoryManager`, section 5A) but are otherwise
-unconnected — conflating them was the previous diagram's core error:
-
-1. **Per-task execution** (this section and section 6): `RalphLoopWorker` polls for pending `Task` rows,
-   optionally prepares a git workspace, and runs the task's prompt through an LLM iteration loop.
-2. **Code analysis** (section 5A/5B): `RalphLoopOrchestrator` (`IRalphLoopOrchestrator`), driven by
-   `CodeAnalysisController`, runs a single-file review-and-patch workflow against an existing
-   branch/commit. It is a separate request type (`CodeAnalysisRequest`, under
-   `Daedalus.Domain/CodeAnalysis/` — outside section 3's entity enumeration, see its note on scope) and
-   is never invoked by `RalphLoopWorker`.
-
-Verified end to end by reading `RalphLoopWorker.cs` and `WorkspaceOrchestrator.cs` directly:
-
-```mermaid
-graph TD
-    A["RalphLoopWorker polls<br/>ITaskAssignmentService (5s)"] -->|Task claimed| B{"task.ProjectId set?"}
-    B -->|Yes| C["IWorkspaceOrchestrator.PrepareWorkspaceAsync<br/>(WorkspaceOrchestrator)"]
-    C -->|"IGitRepositoryManager:<br/>CloneRepositoryAsync, CreateWorktreeAsync,<br/>CreateFeatureBranchAsync"| D["Workspace ready<br/>(clone + feature branch)"]
-    C -->|Failure| E["Non-fatal: continue<br/>text-only, no workspace"]
-    B -->|No| E
-    D --> F["IRalphLoopService.ExecuteAsync<br/>(RalphLoopPipelineService, section 6)"]
-    E --> F
-    F --> G{"Loop finished"}
-    G -->|"workspace present"| H["IWorkspaceOrchestrator.FinalizeWorkspaceAsync"]
-    H -->|pushOnCompletion| I["gitManager.CommitChangesAsync<br/>+ PushBranchAsync"]
-    I --> J["CreatePullRequestAsync<br/>(IPullRequestFactory)"]
-    H --> K["gitManager.CleanupAsync<br/>(always runs)"]
-    G -->|"no workspace"| L["Mark task complete/failed"]
-    J --> L
-    K --> L
-```
-
-`WorkspaceOrchestrator` (`Daedalus.Infrastructure.Services`) is the only place `RalphLoopWorker` touches
-git, and even there it delegates every operation to `IGitRepositoryManager` (section 5A). There is no
-`RalphLoopService` class — that god-object was deleted; `RalphLoopPipelineService` (section 6) replaced
-it — and there is no `McpEnhancedPromptBuilder` anywhere in `src/`.
+There are no mediator query requests. `TasksController`'s read endpoints go through `ITaskQueryService`
+(`Daedalus.Api.Services.TaskQueryService`), which queries `ApplicationDbContext` directly with EF Core and derives each
+task's status from its run (section 8). The CQRS write side is wired through the mediator; the read side is not.
 
 ---
 
@@ -579,17 +518,14 @@ public interface IGitRepositoryManager
 }
 ```
 
-Two unrelated callers, both real:
-
-| Caller | Uses it for |
-|---|---|
-| `WorkspaceOrchestrator` (section 5) | Clone + feature branch + worktree before a task runs; commit/push/cleanup after |
-| `RalphLoopOrchestrator` (`IRalphLoopOrchestrator`, driven by `CodeAnalysisController`) | The same clone/branch/diff/patch/commit primitives, for the unrelated code-analysis workflow |
+One caller: `RalphLoopOrchestrator` (`IRalphLoopOrchestrator`, driven by `CodeAnalysisController`), which uses the
+clone/branch/diff/patch/commit primitives for the code-analysis workflow. The name is historical (issue #279): this
+type has nothing to do with the retired Ralph loop. The manufacture runs do not use this interface; they work in a
+workspace or sandbox owned by the Thalos workflow engine.
 
 ```mermaid
 graph TB
-    subgraph Consumers["Two unrelated consumers"]
-        WO["WorkspaceOrchestrator<br/>(per-task workspace prep, section 5)"]
+    subgraph Consumers["Consumer"]
         RLO["RalphLoopOrchestrator<br/>(code analysis, section 5B)"]
     end
 
@@ -601,7 +537,6 @@ graph TB
         IMPL["GitRepositoryManager"]
     end
 
-    WO --> GM
     RLO --> GM
     GM -.implemented by.-> IMPL
 ```
@@ -638,15 +573,13 @@ public interface IRepositoryCodeExtractor
 ```
 
 It is consumed only by the code-analysis feature (`IAnalysisPromptBuilder` / `RalphLoopOrchestrator`,
-section 5A) — the per-task pipeline (section 6) builds its prompt through `IPromptBuilder` instead and
-never calls this interface.
+section 5A).
 
-**The LLM is Anthropic Claude, not OpenAI or GitHub Copilot, in both features.** The per-task pipeline's
-`LlmInvocationMiddleware` calls `IRalphAgentFactory.InvokeAsync` (implemented by `RalphAgentFactory` in
-`Daedalus.Infrastructure`, wrapping `Thalos.NET.Anthropic`); the code-analysis feature's orchestrator
-calls the model through the same `IRalphAgentFactory` seam. Neither path has ever gone through OpenAI or
-GitHub Copilot — no such integration exists anywhere in `src/`. `McpEnhancedPromptBuilder`, named in the
-previous diagram, does not exist under any name.
+**The orchestrator does not call a model itself.** `RalphLoopOrchestrator`'s constructor takes a repository, the git
+manager, the code extractor, the prompt builder, the change applier and the pull request factory, and no
+`IAgentFactory`. The Application layer's one LLM seam, `IAgentFactory` (implemented by `AgentFactory` in
+`Daedalus.Infrastructure`, Anthropic Claude through Microsoft.Extensions.AI), is used by `BrainstormService` and
+`GeneratePrdCommandHandler`. No OpenAI or GitHub Copilot integration exists in `src/`.
 
 ```mermaid
 graph TB
@@ -660,102 +593,10 @@ graph TB
         WT["Worktree<br/>(prepared by IGitRepositoryManager)"]
     end
 
-    subgraph Llm["LLM"]
-        Factory["IRalphAgentFactory<br/>(RalphAgentFactory)"]
-        Claude[("Anthropic API<br/>Thalos.NET.Anthropic")]
-    end
-
     RLO --> RC
     RLO --> PB
     RC -->|reads| WT
     PB -->|uses| RC
-    PB -->|final prompt| Factory
-    Factory --> Claude
-```
-
----
-
-## 6. Legacy: Ralph Loop Worker - Task Processing Pipeline
-
-> **Status: legacy, not deleted — see the note in section 5.** Verified accurate against
-> `RalphLoopWorker.cs`: the polling/heartbeat/reclaim intervals below match the source exactly.
-
-The console application implements a distributed Ralph Loop worker. Each iteration runs through a fixed
-`IRalphLoopMiddleware` pipeline (`Daedalus.Application/Services/Middleware/`), ordered by each
-middleware's own `Order` property:
-
-| Order | Middleware | Does |
-|---|---|---|
-| 90 | `LearningsEnrichmentMiddleware` | Injects prior-iteration learnings into context |
-| 100 | `PromptBuildingMiddleware` | Builds the iteration prompt via `IPromptBuilder` |
-| 200 | `LlmInvocationMiddleware` | Calls `IRalphAgentFactory.InvokeAsync` — Anthropic Claude, MCP tools pre-attached |
-| 250 | `CodeChangeApplicationMiddleware` | Applies the model's changes to the workspace |
-| 300 | `CompletionDetectionMiddleware` | Checks for the task's `CompletionPromise` string |
-| 350 | `InlineLearningsExtractionMiddleware` | Extracts new learnings from this iteration |
-| 400 | `LoopbackEvaluationMiddleware` | Runs build/tests, records `BuildSucceeded`/`TestsPassed` |
-| 500 | `GitCheckpointMiddleware` | Commits via `IGitWorkflowService.CommitAfterSuccessAsync` only when loopback passed |
-
-`IGitWorkflowService` is a separate, lighter interface from `IGitRepositoryManager` (section 5A) — five
-members (`CommitAfterSuccessAsync`, `TagOnCompletionAsync`, `ResetToLastGoodAsync`, `PushAsync`,
-`GetLatestTagAsync`) built for the "commit on green, `git reset --hard` on rails-off" checkpoint pattern,
-not for cloning or worktrees. `RalphLoopPipelineService` (`IRalphLoopService`) is what `RalphLoopWorker`
-actually resolves and runs; there is no `RalphLoopService` class today.
-
-```mermaid
-graph TD
-    A["🟢 Worker Starts"] -->|Initialize| B["Register Session<br/>in Database"]
-
-    B --> C{"Periodic Checks<br/>Every 5s"}
-
-    C -->|Check| D["Poll Pending Tasks"]
-    C -->|Check| E["Send Heartbeat<br/>Every 30s"]
-    C -->|Check| F["Reclaim Stale Tasks<br/>Every 5m"]
-
-    D --> G{"Task Found?"}
-    G -->|No| C
-    G -->|Yes| H["Claim Task<br/>Update CurrentSessionId"]
-
-    H --> I{"Git Task?"}
-
-    I -->|Yes| J["Clone Repository<br/>Create Worktree"]
-    I -->|No| K["Start Ralph Loop<br/>without Git"]
-
-    J -->|Repo Ready| L["Start Ralph Loop<br/>Iteration 1..n"]
-    K --> L
-
-    L --> M["Build Dynamic Prompt<br/>with File Context"]
-    M --> N["Send Prompt to LLM"]
-    N --> O["Get LLM Response<br/>Code Changes/Diffs"]
-
-    O --> P["Apply Changes to<br/>Files/Worktree"]
-
-    P --> Q{"Check for<br/>CompletionPromise"}
-
-    Q -->|Found| R["✅ Task Complete"]
-    Q -->|Not Found| S{"Max Iterations<br/>Reached?"}
-
-    S -->|No| T["Extract Diffs<br/>Add to Learnings"]
-    T --> U["Update Prompt with<br/>Execution History"]
-    U --> N
-
-    S -->|Yes| V["❌ Task Failed"]
-
-    R -->|Git Task?| W{"Commit & Push<br/>Changes?"}
-    V -->|Cleanup| W
-
-    W -->|Yes| X["Commit Changes<br/>to Feature Branch"]
-    W -->|No| X2["Keep Worktree<br/>for Review"]
-
-    X -->|Push| Y["Push to Remote<br/>Create Pull Request"]
-    X2 --> Z["Mark Task Complete"]
-
-    Y -->|Record| Z["Save PR URL & Commit SHA<br/>Update Task Status"]
-
-    Z --> AA["Cleanup Worktree<br/>Release Task"]
-
-    AA --> C
-
-    C -->|Shutdown Signal| AB["🔴 Worker Stops<br/>Mark Session Inactive"]
 ```
 
 ---
@@ -769,7 +610,6 @@ graph TB
     subgraph "Presentation Layer"
         API["REST API<br/>Controllers"]
         WEB["Web UI<br/>Blazor Components"]
-        CONSOLE["Console App<br/>Ralph Loop Worker"]
     end
 
     subgraph "Application Layer"
@@ -795,7 +635,6 @@ graph TB
     API --> COMMANDS
     API --> QUERIES
     WEB --> SERVICES
-    CONSOLE --> SERVICES
 
     COMMANDS --> SERVICES
     QUERIES --> SERVICES
@@ -813,148 +652,39 @@ graph TB
 
 ---
 
-## 8. Complete Data Flow - Git-Based Task Execution
+## 8. Complete Data Flow - Manufacturing a Task
 
-How data flows from creation through git operations to completion:
-
-```mermaid
-graph LR
-    subgraph "Task Creation"
-        A["User Creates Task<br/>Specifies Repo URL"]
-        B["Task Entity<br/>Created with Git Repo"]
-        C["Task Persisted<br/>Status: Pending"]
-    end
-
-    subgraph "Repository Initialization"
-        D["Worker Polls<br/>Finds Task"]
-        E["Clone Repository<br/>from Remote URL"]
-        F["Create Feature Branch<br/>& Worktree"]
-    end
-
-    subgraph "First Iteration"
-        G["Extract Code Files<br/>Build Context"]
-        H["Send Full Codebase<br/>Context to LLM"]
-        I["LLM Analyzes<br/>Returns Changes"]
-    end
-
-    subgraph "Change Application Loop"
-        J["Apply Patch/Changes<br/>to Worktree"]
-        K["Check for<br/>CompletionPromise"]
-        L["Diff Generated<br/>from Changes"]
-        M["Add Diff to<br/>Learnings Context"]
-    end
-
-    subgraph "Completion"
-        N["✅ CompletionPromise<br/>Found"]
-        O["Stage & Commit<br/>Changes in Git"]
-        P["Push to Feature Branch<br/>Create PR"]
-    end
-
-    subgraph "Finalization"
-        Q["Save PR URL &<br/>Commit SHA"]
-        R["Mark Task Complete<br/>Set CompletedAt"]
-        S["Delete Worktree<br/>Release Task"]
-    end
-
-    A --> B --> C --> D
-    D --> E --> F
-    F --> G --> H --> I
-    I --> J --> K
-    K -->|No Match| L --> M --> H
-    K -->|Match| N --> O --> P
-    P --> Q --> R --> S
-```
-
----
-
-## 8A. Data Flow - Task Execution
-
-How data flows from creation to completion using direct database access. This is the same legacy Ralph
-Loop pipeline detailed in sections 5-6; see those for the verified middleware order and interfaces.
+A board task becomes work only when a person starts a manufacture run for it. Nothing polls the board. The flow below
+is read from `TasksController.Manufacture`, `TaskManufactureService` (`Daedalus.Api/Services/`) and
+`processes/manufacture.yaml`.
 
 ```mermaid
-graph LR
-    subgraph "Task Creation"
-        A["User/API<br/>Creates Task"]
-        B["Task Entity<br/>Created"]
-        C["Task Persisted<br/>Status: Pending"]
-    end
-
-    subgraph "Task Claiming (Direct DB Access)"
-        D["Ralph Loop Worker<br/>Polls DB"]
-        E["Worker Claims Task<br/>Sets CurrentSessionId"]
-        F["Task Status Updates<br/>In Progress"]
-    end
-
-    subgraph "Task Execution"
-        G["Send Prompt to<br/>Anthropic Claude<br/>(IRalphAgentFactory)"]
-        H["LLM Processes<br/>Analyzes Code"]
-        I["LLM Returns<br/>Response"]
-        J["Check for<br/>CompletionPromise"]
-    end
-
-    subgraph "Learning Loop"
-        K["Aggregate Learnings<br/>from Previous Runs"]
-        L["Enhance Prompt<br/>Add Context"]
-        M["Increment Iteration<br/>Counter"]
-    end
-
-    subgraph "Task Completion"
-        N["✅ CompletionPromise<br/>Found"]
-        O["Save Final Result<br/>LLM Output"]
-        P["Mark Task Complete<br/>Set CompletedAt"]
-        Q["Release Task"]
-    end
-
-    A --> B --> C --> D
-    D --> E --> F --> G
-    G --> H --> I --> J
-    J -->|No Match| K --> L --> M --> G
-    J -->|Match Found| N --> O --> P --> Q
+graph TD
+    A["Person presses Manufacture<br/>POST /api/tasks/{id}/manufacture<br/>(WorkflowResume policy)"] --> B{"Refusals, before anything is spent"}
+    B -->|"no task"| R404["404"]
+    B -->|"repository not allow-listed<br/>or a dependency not Completed"| R422["422"]
+    B -->|"current run is Running or Awaiting"| R409["409"]
+    B -->|"engine disabled or starter unavailable"| R503["503"]
+    B -->|"ok"| C["IManufactureRunStarter.StartAsync<br/>work intent = title, blank line, description"]
+    C --> D["Task.AttachRun saves WorkflowRunId<br/>201 with the run id"]
+    D --> E["implement"]
+    E -->|changed| F["review"]
+    E -->|blocked| X["adjudicate: failed"]
+    F -->|rejected| E
+    F -->|"rejected 5 times"| X
+    F -->|approved| G["retrospect"]
+    G --> H["gate: awaits human_approval"]
+    H -->|"POST /api/workflow-runs/{id}/resume"| I["publish: open-pull-request"]
+    I -->|published| J["file-findings"]
+    I -->|failed| X
+    J --> K["done: succeeded"]
 ```
 
----
-
-## 9. Multi-Instance Worker Coordination
-
-How multiple workers coordinate on the same task queue:
-
-```mermaid
-graph TB
-    subgraph "Database"
-        TASKS["Task Queue<br/>Status: Pending"]
-        SESSIONS["Active Sessions<br/>Worker Heartbeats"]
-    end
-
-    subgraph "Worker Instances"
-        W1["Worker 1<br/>machine-001"]
-        W2["Worker 2<br/>machine-002"]
-        W3["Worker 3<br/>machine-003"]
-    end
-
-    subgraph "Coordination"
-        LOCK["Optimistic Locking<br/>CurrentSessionId"]
-        HB["Heartbeat Monitoring<br/>5min Stale Timeout"]
-        RC["Reclaim Stale Tasks<br/>Auto-Reset"]
-    end
-
-    W1 -->|Poll Every 5s| TASKS
-    W2 -->|Poll Every 5s| TASKS
-    W3 -->|Poll Every 5s| TASKS
-
-    W1 -->|Claim Task| LOCK
-    W2 -->|Claim Task| LOCK
-    W3 -->|Claim Task| LOCK
-
-    LOCK -->|Prevents Duplicates| TASKS
-
-    W1 -->|Heartbeat Every 30s| SESSIONS
-    W2 -->|Heartbeat Every 30s| SESSIONS
-    W3 -->|Heartbeat Every 30s| SESSIONS
-
-    HB -->|Monitor| SESSIONS
-    RC -->|Release If Stale| TASKS
-```
+Each agent node, on completing with usage, also gets a `node-usage` record in the run's history. The task keeps no copy
+of the run's state. `GET` of a task reads the run through `IWorkflowRunStatusReader` and `TaskStatusDerivation` maps it:
+`Running` is `InProgress`, `Awaiting` is `AwaitingApproval` (5), `Succeeded` is `Completed`, `Failed` is `Failed`, and
+`Cancelled` is `Cancelled` (6). 5 and 6 are never stored. When the workflow engine is disabled, the reader answers
+Unknown and the stored status shows. Update and delete of a task answer 409 while its run is live.
 
 ---
 
@@ -970,7 +700,7 @@ graph TB
         REG3["AddScoped: Query Services"]
         REG4["AddScoped: Command Handlers"]
         REG5["AddSingleton: Configuration"]
-        REG6["AddHostedService: RalphLoopWorker"]
+        REG6["AddDaedalusAgents<br/>(Thalos config and hosted services)"]
         REG7["AddAuthentication<br/>+ AddJwtBearer (Keycloak)"]
         REG8["AddAuthorization<br/>Policies & Roles"]
     end
@@ -1016,7 +746,7 @@ graph TB
 
 ## 11. API Controllers & Endpoints
 
-Enumerated directly from `src/Daedalus.Api/Controllers/` — **14 controllers**, not the 4 the previous
+Enumerated directly from `src/Daedalus.Api/Controllers/` — **13 controllers**, not the 4 the previous
 diagram showed (there is no `DataControllers`; that was a made-up umbrella label). Every controller
 carries `[ApiVersion("1.0")]`, and `Asp.Versioning.Mvc` is referenced and configured
 (`AddApiVersioning` in `Program.cs`, with `UrlSegmentApiVersionReader` among its readers) — but **no
@@ -1026,20 +756,19 @@ exist for a versioning scheme that has not been switched on yet.
 
 | Controller | Route | Notes |
 |---|---|---|
-| `TasksController` | `/api/[controller]` → `/api/tasks` | CRUD + abandon/resume; reads via `ITaskQueryService`, writes via `IApplicationCommands` (section 4) |
+| `TasksController` | `/api/[controller]` → `/api/tasks` | CRUD + `POST {id}/manufacture` (section 8); reads via `ITaskQueryService`, writes via `IApplicationCommands` (section 4) |
 | `ProjectsController` | `/api/[controller]` → `/api/projects` | CRUD, `+with-tasks` |
 | `AgentsController` | `/api/agents` | Lists the agent catalogue |
 | `AgentSessionsController` | `/api/agents` | Sessions, turns (buffered + SSE stream), see section 15 |
 | `AgentMemoriesController` | `/api/agent-memories` | List/get/forget, see section 16 |
 | `BrainstormController` | `/api/[controller]` → `/api/brainstorm` | Sessions, messages, phase advance, task generation |
 | `CodeAnalysisController` | `/api/[controller]` → `/api/codeanalysis` | The code-analysis feature from section 5A/5B |
-| `CostAnalyticsController` | `/api/cost-analytics` | Summaries, per-project/session, pricing |
-| `ExecutionSessionsController` | `/api/[controller]` → `/api/executionsessions` | Worker session listing |
+| `CostAnalyticsController` | `/api/cost-analytics` | Summary, per-project, estimate, pricing |
 | `PrdController` | `/api/[controller]` → `/api/prd` | Generate PRD, convert to tasks |
-| `RalphConfigController` | `/api/ralph-config` | Get/update Ralph loop configuration |
 | `RepositoriesController` | `/api/[controller]` → `/api/repositories` | Repository configuration CRUD + test-connection |
 | `SchedulesController` | `/api/schedules` | Overview, run history, resend — see section 19 |
-| `TaskExecutionsController` | `/api/[controller]` → `/api/taskexecutions` | Execution history by task/session |
+| `TaskExecutionsController` | `/api/[controller]` → `/api/taskexecutions` | Read-only history of the retired loop, by task/session |
+| `WorkflowRunsController` | `/api/workflow-runs` | Start, read, resume (the gate), cancel, retry a manufacture run |
 
 ```mermaid
 graph TB
@@ -1047,7 +776,7 @@ graph TB
         Ta["TasksController<br/>/api/tasks"]
         Pr["ProjectsController<br/>/api/projects"]
         TE["TaskExecutionsController<br/>/api/taskexecutions"]
-        ES["ExecutionSessionsController<br/>/api/executionsessions"]
+        WR["WorkflowRunsController<br/>/api/workflow-runs"]
     end
 
     subgraph Agent["Thalos agent surface"]
@@ -1056,9 +785,8 @@ graph TB
         AM["AgentMemoriesController<br/>/api/agent-memories"]
     end
 
-    subgraph Automation["Ralph / legacy automation"]
+    subgraph Automation["Analysis, PRD and brainstorm"]
         Ca["CodeAnalysisController<br/>/api/codeanalysis"]
-        Rc["RalphConfigController<br/>/api/ralph-config"]
         Pd["PrdController<br/>/api/prd"]
         Br["BrainstormController<br/>/api/brainstorm"]
     end
@@ -1071,6 +799,7 @@ graph TB
 
     Ta -->|IApplicationCommands / ITaskQueryService| Domain1[("PostgreSQL")]
     Pr -->|IApplicationCommands| Domain1
+    Ta -->|TaskManufactureService| WR
     AS -->|IAgentRuntime| Domain1
     AM -->|IMemoryService| Domain1
     Sc -->|IScheduleDiagnostics| Domain1
@@ -1094,7 +823,6 @@ graph TB
 
     subgraph Hosts["Hosts"]
         API["ASP.NET Core 10<br/>REST API"]
-        WORKER["Console<br/>Ralph Loop worker"]
         ASPIRE["🚀 .NET Aspire 13.4<br/>Orchestration"]
     end
 
@@ -1158,9 +886,7 @@ graph TB
     API -->|validate JWT| JWT
     API --> MEDIATOR
     API --> EFC
-    WORKER --> EFC
     API --> THALOS
-    WORKER --> THALOS
     THALOS --> ANTHROPIC
     THALOS --> MCP
 
@@ -1172,19 +898,18 @@ graph TB
     KEYCLOAK --> POSTGRES
 
     ASPIRE -->|manages| API
-    ASPIRE -->|manages| WORKER
     ASPIRE -->|manages| POSTGRES
     ASPIRE -->|manages| KEYCLOAK
 
     API --> HTTPRES
-    WORKER --> LIBGIT
-    WORKER --> CRONOS
+    API --> LIBGIT
+    API --> CRONOS
 
     API --> ZLINQ
     DotNET --> ZLINQ
 
     API --> XUNIT
-    WORKER --> CONTAINERS
+    API --> CONTAINERS
     BLAZOR --> PLAYWRIGHT
     PLAYWRIGHT --> NUNIT
 
@@ -1194,7 +919,6 @@ graph TB
     API --> ZAANALYZERS
 
     API --> OTEL
-    WORKER --> OTEL
 ```
 
 ### Not in this codebase
@@ -1363,7 +1087,7 @@ graph TB
 
 ## 15. Agent turn (Thalos)
 
-Phase 1.1 adds a second, general-purpose agent stack next to the Ralph Loop: **Thalos.NET** (Microsoft Agent Framework
+Phase 1.1 added a general-purpose agent stack: **Thalos.NET** (Microsoft Agent Framework
 1.17 underneath, AI.Sentinel at the model boundary, MCP + local tools with authorization at the function boundary). The
 Blazor page `/agent` talks to `Daedalus.Api` over REST, and one turn is streamed back as Server-Sent Events. Sessions and
 transcripts live in PostgreSQL via `PostgresAgentSessionStore` (`Daedalus.Agents`).
@@ -1505,36 +1229,31 @@ Notes:
   is not.
 - On host start `AgentSessionCrashRecovery` resets any session left in `Running` by a crashed process back to `Idle`.
 
-### Strangler layout: Ralph and Thalos side by side
+### Where the retired loop's data went
 
-**Both stacks are still wired in today**, sharing Infrastructure (DbContext) — and, since phase 1.2, the agent
-memory: Ralph's learnings are written and recalled through the Application port `ILearningsMemory` (shared owner
-`daedalus`), so `StructuredLearnings` and the hand-rolled embedding service are gone. Ralph's retirement was
-originally slated for phase 1.6, then explicitly rescoped on 2026-09-20 (`docs/planning/ROADMAP.md`): the loop
-is the seed of the Milestone 2 software-manufacturing design, not dead weight, so it is **redesigned as phase
-2.5** rather than deleted, and switched off only once that redesign demonstrably does the job — see the legacy
-note in section 5. The Ralph worker runs in `Daedalus.Console` as `RalphLoopWorker`, resolving `IRalphLoopService`
-(`RalphLoopPipelineService`, section 6) — not the `RalphLoopOrchestrator` class, which belongs to the unrelated
-code-analysis feature (section 5A). `Daedalus.Console` registers `AddDaedalusMemory` (memory only, no agents, no
-skills, creates no Rag.NET schema — it runs no Thalos agents, so there is no catalogue to build):
+Phase 1.2 moved Ralph's learnings into the agent memory: the Application port `ILearningsMemory` (shared owner
+`daedalus`) is backed by the same store as `memory__*`, so `StructuredLearnings` and the hand-rolled embedding service
+are gone. Phase 2.8 (October 2026) then retired the Ralph loop and `Daedalus.Console`, deleted the write half of the
+learnings code, and left `ILearningsMemory` read-only: only the `search_learnings` MCP tool reads it, and the tool
+says its data predates the retirement (`FrozenHistory.Notice`). `daedalus__search_failure_patterns` is frozen the same
+way. `AddDaedalusMemory`, the memory-only registration the Console used, was deleted; `AddDaedalusAgents` registers
+agents and memory in both the API and the CLI.
 
 ```mermaid
 graph LR
     subgraph "Daedalus.Web (Blazor WASM)"
-        Pages["Tasks / Sessions / Executions /<br/>Ralph Config / PRD Generator"]
+        Pages["Tasks / Executions (history) / Costs /<br/>PRD Generator / Brainstorm"]
         AgentPage["/agent<br/>(Agent.razor)"]
     end
 
     subgraph "Daedalus.Api"
-        RalphCtrl["Ralph controllers<br/>(tasks, sessions, ralph-config, …)"]
+        BoardCtrl["TasksController (manufacture)<br/>TaskExecutionsController<br/>CostAnalyticsController, …"]
         AgentCtrl["AgentsController<br/>AgentSessionsController (SSE)<br/>AgentMemoriesController"]
     end
 
-    subgraph "Ralph stack (legacy — phase 2.5 redesign pending, see section 5)"
-        Ralph["RalphLoopWorker → RalphLoopPipelineService<br/>Daedalus.Console worker"]
-        RalphLlm["IRalphAgentFactory<br/>Anthropic Claude"]
-        LearnPort["ILearningsMemory (Application port)<br/>LearningsService · enrichment middleware<br/>search_learnings MCP tool"]
-        ConsoleComposition["AddDaedalusMemory<br/>(memory only, no schema)"]
+    subgraph "Board and frozen history"
+        Mfg["TaskManufactureService<br/>(section 8)"]
+        LearnPort["ILearningsMemory (Application port, read-only)<br/>search_learnings MCP tool"]
     end
 
     subgraph "Thalos stack (Daedalus.Agents)"
@@ -1568,13 +1287,10 @@ graph LR
         PG[("PostgreSQL 16<br/>pgvector/pgvector:pg16")]
     end
 
-    Pages --> RalphCtrl
+    Pages --> BoardCtrl
     AgentPage -->|REST + SSE| AgentCtrl
-    RalphCtrl --> Ralph
-    Ralph --> RalphLlm
-    Ralph --> LearnPort
-    LearnPort --> Adapter
-    ConsoleComposition -.registers.-> Adapter
+    BoardCtrl --> Mfg
+    Mfg --> DbCtx
     AgentCtrl --> Runtime
     AgentCtrl --> MemSvc
     Composition -.registers.-> Runtime
@@ -1582,6 +1298,7 @@ graph LR
     Composition -.registers.-> MemSvc
     Composition -.registers.-> Reindex
     Composition -.registers.-> SkillSync
+    Composition -.registers.-> Adapter
     Runtime --> SessionStore
     Runtime --> SentinelBox
     Runtime --> Knowledge
@@ -1589,6 +1306,8 @@ graph LR
     Runtime --> MemTools
     Runtime --> SklTools
     Runtime --> SkillCat
+    Mcp --> LearnPort
+    LearnPort --> Adapter
     MemTools --> MemSvc
     SklTools --> SkillStore2
     SklTools --> SkillIdx
@@ -1606,7 +1325,6 @@ graph LR
     MemStore2 --> DbCtx
     SkillStore2 --> DbCtx
     Recovery --> DbCtx
-    Ralph --> DbCtx
     DbCtx --> PG
 ```
 
@@ -2292,29 +2010,20 @@ See `docs/development-guide.md`, "Run sandboxes", for configuration, boot checks
 - No exception throwing for flow control
 - Clear success/failure paths
 
-### 🔄 **Distributed Task Processing (legacy — see section 5/6)**
+### 🔄 **Board-Driven Manufacturing**
 
-- Ralph Loop worker pattern for iterative LLM execution against Anthropic Claude, via `IRalphAgentFactory`
-- Optimistic locking with `CurrentSessionId` for task claiming
-- Heartbeat monitoring for worker health
-- Automatic stale task reclamation
-- Superseded in direction by the Thalos agent runtime (sections 15-20); kept running until phase 2.5's
-  redesign replaces it
+- A person starts each run: `POST /api/tasks/{id}/manufacture` (section 8). Nothing polls the board, so no tokens are
+  spent unless someone chooses to.
+- A task stores only its `WorkflowRunId`; its status is derived from the run on read, so it cannot drift.
+- Cost analytics reads four sources: `TaskExecutions` history, `node-usage` records, chat sessions and scheduled
+  sessions. Sessions owned by `workflow:*` are excluded so a run's turns are not counted twice.
 
-### 📊 **Automatic Code Generation & Git Integration (legacy — see section 5A/5B)** ✨
+### 📊 **Code Analysis & Git Integration (see section 5A/5B)** ✨
 
 - **`IGitRepositoryManager`** (12 members, section 5A) — clone, fetch, feature branches, worktrees, diff,
-  patch, commit, push, cleanup. Two independent consumers: `WorkspaceOrchestrator` (per-task execution)
-  and `RalphLoopOrchestrator` (the separate code-analysis feature).
+  patch, commit, push, cleanup. Its one consumer is `RalphLoopOrchestrator`, the code-analysis feature.
 - **`IRepositoryCodeExtractor`** (5 members, section 5B) — single file, code snippet by line range,
-  related-file discovery, file history, and building the code-analysis feature's LLM context. Consumed
-  only by the code-analysis feature, not by the per-task pipeline.
-- **Fully automated workflow (per-task pipeline)**:
-    - The LLM makes changes directly in an isolated worktree via the middleware pipeline (section 6)
-    - Successful iterations are checkpointed via `IGitWorkflowService.CommitAfterSuccessAsync`
-    - On completion, `WorkspaceOrchestrator.FinalizeWorkspaceAsync` pushes the branch and opens a PR via
-      `IPullRequestFactory`
-    - The workspace is always cleaned up, success or failure
+  related-file discovery, file history, and building the code-analysis feature's LLM context.
 
 ### 📊 **Data-Driven Development**
 
@@ -2334,7 +2043,7 @@ See `docs/development-guide.md`, "Run sandboxes", for configuration, boot checks
 
 ## Git Integration Service APIs
 
-Quick reference only — full narrative and consumer breakdown is in sections 5A and 5B. Both interfaces
+Quick reference only — full narrative is in sections 5A and 5B. Both interfaces
 below are read directly from `src/Daedalus.Application/Services/CodeAnalysis/`, not carried forward from
 an earlier version of this document.
 
@@ -2391,16 +2100,15 @@ Task<Result<AnalysisContext>> BuildAnalysisContextAsync(
 
 ## Git Integration Workflow Summary
 
-Two independent flows share these interfaces (section 5); neither is a single unbroken pipeline the way
-this table might suggest in isolation:
+The code-analysis feature (section 5A/5B) is the only consumer of these interfaces:
 
-| Phase            | Per-task execution (section 5/6)                 | Code analysis (section 5A/5B)         |
-| ---------------- | ------------------------------------------------- | -------------------------------------- |
-| **Setup**        | `WorkspaceOrchestrator` clones + creates worktree  | `RalphLoopOrchestrator` clones/checks out |
-| **Analysis**     | `IPromptBuilder` builds the iteration prompt       | `IRepositoryCodeExtractor` + `IAnalysisPromptBuilder` build context |
-| **Iteration**    | Middleware pipeline applies changes (section 6)    | LLM proposes a patch, `IGitChangeApplier` applies it |
-| **Verification** | `LoopbackEvaluationMiddleware` build/test check    | Iteration loop with its own completion check |
-| **Completion**   | `GitCheckpointMiddleware` commits each green step; `WorkspaceOrchestrator.FinalizeWorkspaceAsync` pushes + opens the PR | `IPullRequestFactory` opens the PR |
-| **Cleanup**      | `gitManager.CleanupAsync`, always runs             | Same `IGitRepositoryManager.CleanupAsync` |
+| Phase            | Code analysis                                                       |
+| ---------------- | ------------------------------------------------------------------- |
+| **Setup**        | `RalphLoopOrchestrator` clones/checks out                           |
+| **Analysis**     | `IRepositoryCodeExtractor` + `IAnalysisPromptBuilder` build context |
+| **Iteration**    | LLM proposes a patch, `IGitChangeApplier` applies it                |
+| **Verification** | Iteration loop with its own completion check                        |
+| **Completion**   | `IPullRequestFactory` opens the PR                                  |
+| **Cleanup**      | `IGitRepositoryManager.CleanupAsync`                                |
 
-Both flows are **legacy** (section 5) — accurate today, not the direction new work should follow.
+Manufacture runs do not use these interfaces: the Thalos workflow engine owns their workspace (section 22).

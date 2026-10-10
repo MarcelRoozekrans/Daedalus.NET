@@ -8,11 +8,8 @@
       ]
     },
     "context7": {
-			"type": "http",
-			"url": "https://mcp.context7.com/mcp",
-			"headers": {
-				"CONTEXT7_API_KEY": "ctx7sk-17a78fa8-8042-4d02-8814-4e4ffdd31797"
-			}
-		}
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    }
   }
 }

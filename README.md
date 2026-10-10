@@ -6,15 +6,15 @@
 [![C#](https://img.shields.io/badge/C%23-13.0-239120?logo=csharp)](https://learn.microsoft.com/dotnet/csharp/)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/MarcelRoozekrans/Daedalus.NET/pkgs/container/)
 
-High-performance .NET 10 application using Railway-Oriented Programming for AI-driven task execution with LLM iteration
-loops. Features dual presentation layers (Blazor Web + Console Worker) sharing one Application + Infrastructure stack,
-orchestrated via .NET Aspire.
+High-performance .NET 10 application using Railway-Oriented Programming for AI-driven task execution. A person plans work
+on a task board and starts a manufacture run for a task; the task's status follows that run. One presentation layer
+(Blazor Web + REST API), plus a CLI host, share one Application + Infrastructure stack, orchestrated via .NET Aspire.
 
 ## Table of Contents
 
 - [About the Name](#about-the-name)
 - [Architecture Overview](#architecture-overview)
-- [The Ralph Wiggum Technique](#the-ralph-wiggum-technique)
+- [Manufacturing a task](#manufacturing-a-task)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
@@ -44,36 +44,82 @@ pinnacle of craftsmanship, innovation, and the human drive to overcome challenge
 
 ## Architecture Overview
 
-Daedalus has **dual presentation layers** sharing one Application + Infrastructure stack:
+Daedalus has **one presentation layer** (Web) and a CLI host, sharing one Application + Infrastructure stack:
 
 | Layer                    | Project                                     | Purpose                                                         |
 |--------------------------|---------------------------------------------|-----------------------------------------------------------------|
 | **Web** (Blazor WASM)    | `Daedalus.Api` + `Daedalus.Web`             | REST API + browser UI via Radzen components                     |
-| **Console** (Ralph Loop) | `Daedalus.Console`                          | Background worker with direct DB access for low-latency polling |
 | **Agents** (Thalos)      | `Daedalus.Agents` (hosted in `Daedalus.Api`) | Thalos.NET agent stack: sessions, tools, AI.Sentinel, SSE chat, Telegram channel |
 | **CLI** (Thalos channels)| `Daedalus.Cli`                              | Interactive terminal host for Thalos agents (console channel, no browser) |
 | **Shared**               | `Application` + `Infrastructure` + `Domain` | CQRS handlers, EF Core repositories, PostgreSQL persistence     |
 
-The Console worker bypasses HTTP to minimise latency (5-second polling cycles). Both layers use the same CQRS services
-and repositories.
+The Ralph loop and its `Daedalus.Console` worker were retired in phase 2.8 (October 2026): nothing polls the board, and no
+tokens are spent unless a person starts a run.
 
-For detailed diagrams covering component interactions, data flow, Git integration, and multi-worker coordination, see
-[Architecture Diagrams](docs/architecture-diagrams.md) (14+ Mermaid diagrams, including the Thalos agent turn).
+For detailed diagrams covering component interactions, data flow, Git integration, and the manufacture run, see
+[Architecture Diagrams](docs/architecture-diagrams.md) (Mermaid diagrams, including the Thalos agent turn).
 
 ---
 
-## The Ralph Wiggum Technique
+## Manufacturing a task
 
-This project demonstrates the **Ralph Wiggum AI Loop Technique** — an iterative AI development methodology that feeds
-an AI agent the same prompt repeatedly until a completion signal is received:
+A task on the board becomes work only when a person starts a manufacture run for it. There is no automatic pickup.
 
-- **Iteration > Perfection**: Automated loops refine work iteratively
-- **Failures Are Data**: Deterministic failures are informative and drive progress
-- **Clear Completion Criteria**: Explicit success conditions and output markers
-- **Automatic Verification**: Tests, linters, and type checkers as built-in gates
-- **Subagent Delegation**: Primary context window acts as scheduler, spawning isolated subagents for expensive work
+1. **Create the task.** The task's project must have a `RepositoryUrl` that matches an entry of
+   `Thalos:Workflow:Repositories`. For a github.com URL the match is on owner and name, ignoring case. For any other
+   remote it is an exact match of the remote, after trimming one trailing `/` and one trailing `.git` from each side.
+   Creating and editing a task needs the `task-manager` or `admin` role.
+2. **Press Manufacture** on the Tasks page, or call `POST /api/tasks/{id}/manufacture`. It needs the `developer` or
+   `admin` role (the `WorkflowResume` policy, as `POST /api/workflow-runs`). The run's work intent is the task's title,
+   a blank line, then its description. The answer is `201` with `{ "runId": "..." }`; the run id is attached to the task.
+   Starting again later replaces it, and earlier runs stay in the workflow run history. Every refusal comes before
+   anything is spent:
 
-See [Ralph Wiggum Technique Documentation](docs/ralph-wiggum-technique.md) for detailed guidance.
+   | Status | When |
+   |---|---|
+   | `404` | The task does not exist. |
+   | `422` | The project has no `RepositoryUrl`, it matches no allow-listed entry (the message names it), or a dependency's status is not `Completed`. |
+   | `409` | The task's current run is still `Running` or `Awaiting`. Also when the task changed while the run started: that run is cancelled, and the body carries its `runId` and `runCancelled`. |
+   | `400`, `422`, `503` | The run starter refused, as for `POST /api/workflow-runs`. `503` is also the answer while the workflow engine is disabled. |
+
+3. **Watch the derived status.** A task stores only its run id, and its status is read from the run each time:
+
+   | Run | Task status |
+   |---|---|
+   | Running | `InProgress` (1) |
+   | Awaiting the human gate | `AwaitingApproval` (5) |
+   | Succeeded | `Completed` (2) |
+   | Failed | `Failed` (3) |
+   | Cancelled | `Cancelled` (6) |
+
+   5 and 6 are never stored: the database check constraint allows 0 to 4. A task without a run keeps its stored status,
+   so a task from the Ralph era keeps `Completed`, `Failed` or `Abandoned`. When the workflow engine is disabled on a
+   host, the run cannot be read, and the stored status shows. While a task's run is live, updating or deleting the task
+   answers `409`. The Manufacture button shows for `Pending`, `Failed`, `Abandoned` and `Cancelled` tasks.
+4. **Approve at the gate.** The run waits for `human_approval`. A developer or admin approves it with
+   `POST /api/workflow-runs/{runId}/resume` and the body `{ "signal": "human_approval", "payload": null }`.
+   `applyStandingInstructions` (default `false`) and `dropFindings` are optional. This is the workflow run's gate, not
+   the retired task `resume` endpoint.
+5. **Follow the pull request.** Once the run publishes, the task shows a link to its pull request (`pullRequestUrl` on
+   `GET /api/tasks/{id}`).
+6. **Read the costs.** `/costs` and `GET /api/cost-analytics/summary` combine four sources:
+   - `history`: `TaskExecutions`, the iterations of the retired loop;
+   - `manufacture`: one `node-usage` record per completed agent node of a run, with its model and cache split;
+   - `chat`: agent sessions owned by a person;
+   - `scheduled`: agent sessions owned by `schedule:*`.
+
+   Sessions owned by `workflow:*` are a run's node turns. They are excluded from `chat`, because their `node-usage`
+   records already count them. Session sources carry no model and no cache split, so their tokens are not priced. The
+   host appends each `node-usage` record when a node completes, and a startup step backfills the records of older runs
+   (it skips any run and sequence already recorded). The `by-session` cost endpoint no longer exists; `estimate` stays.
+
+**History and frozen data.** `TaskExecutions` and `ExecutionSessions` are kept as read-only history, and the Web "Task
+Loop History" page only shows them. The `daedalus__search_failure_patterns` and `daedalus__search_learnings` tools read
+data only the retired loop wrote, and their descriptions and empty answers say so (`FrozenHistory.Notice`). Agents still
+recall learnings through the `memory__*` tools and auto-recall. The recall budget for `search_learnings` is
+`Thalos:Memory:LearningsRecall`; the old `Thalos:Memory:RalphRecall` key fails the boot.
+
+The old technique is described in [Ralph Wiggum Technique](docs/ralph-wiggum-technique.md), kept as history.
 
 ---
 
@@ -96,7 +142,7 @@ See [Ralph Wiggum Technique Documentation](docs/ralph-wiggum-technique.md) for d
 | Agent channels       | `Thalos.NET.Channels` 0.4.0 (console channel, pump, commands) + `Thalos.NET.Channels.Telegram` 0.4.0 (Bot API, long-poll) |
 | Embeddings           | Ollama `nomic-embed-text` (768 dims) via OllamaSharp 5.4.12                          |
 | LLM security         | AI.Sentinel 2.0.1 (via `Thalos.NET.Sentinel`)                                       |
-| LLM Providers        | GitHub Copilot SDK 0.1.21 (Ralph), Anthropic SDK 12.40.0 (Ralph + Thalos)           |
+| LLM Providers        | Anthropic SDK 12.53.0 (agent factory for brainstorm and PRD generation; Thalos via `Thalos.NET.Anthropic`) |
 | MCP                  | ModelContextProtocol 2.2.0 (`Thalos.NET.Mcp` reads `.mcp.json`)                     |
 | Frontend             | Blazor WebAssembly + Radzen.Blazor 8.7.5                                            |
 | Mocking              | NSubstitute 5.3.0 + NSubstitute.Analyzers.CSharp 1.0.17                             |
@@ -118,7 +164,6 @@ src/
 ├── Daedalus.Infrastructure/   # EF Core DbContext, Repositories, LLM services, External integrations
 ├── Daedalus.Agents/           # Thalos.NET composition root: agents from config, Postgres session + memory stores, knowledge tools, DeveloperPolicy
 ├── Daedalus.Api/              # REST controllers (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos, Telegram channel poller
-├── Daedalus.Console/          # Ralph Loop worker (background hosted service)
 ├── Daedalus.Cli/              # Interactive terminal host for Thalos agents (console channel; run by hand, not in AppHost)
 ├── Daedalus.Web/              # Blazor WASM frontend (Radzen components)
 └── Daedalus.Migrations/       # EF Core database migration runner
@@ -226,8 +271,8 @@ All projects enforce `TreatWarningsAsErrors=true` with three code analyzers (Son
 
 ## Running the Application
 
-The project uses **.NET Aspire 13.1.0** with DCP for orchestration. All services (PostgreSQL, migrations, API, Console
-worker, frontend) are started and wired together automatically.
+The project uses **.NET Aspire 13.1.0** with DCP for orchestration. All services (PostgreSQL, migrations, API,
+frontend) are started and wired together automatically.
 
 ### Quick Start
 
@@ -244,12 +289,11 @@ The `launchSettings.json` pre-configures all required environment variables. No 
 3. **Keycloak 26.0** container starts (with realm auto-import from `keycloak-realm.json`)
 4. **Ollama** container starts and pulls `nomic-embed-text` (embeddings for AI.Sentinel and agent memory; ~274 MB on the
    first run, cached in a data volume)
-5. **Migrations** run automatically (`Daedalus.Migrations`, waits for DB + Keycloak). API and Console wait for the job to
+5. **Migrations** run automatically (`Daedalus.Migrations`, waits for DB + Keycloak). The API waits for the job to
    *complete* (`WaitForCompletion`), not merely to start, so no host boots against an un-migrated database
 6. **API** starts (REST + JWT auth via Keycloak, port `5000`; creates the Rag.NET `rag_chunks` schema)
-7. **Console Worker** starts (Ralph Loop, direct DB polling)
-8. **Web Frontend** starts (Blazor WASM, OIDC login via Keycloak)
-9. **Aspire Dashboard** available with real-time monitoring
+7. **Web Frontend** starts (Blazor WASM, OIDC login via Keycloak)
+8. **Aspire Dashboard** available with real-time monitoring
 
 ### Endpoints
 
@@ -301,7 +345,7 @@ dotnet ef database update --project src/Daedalus.Infrastructure --startup-projec
 |-------------------------------------------|--------------|--------------------------|-------------------------------------------------------|
 | `PARAMETERS__DB_USERNAME`                 | Yes (Aspire) | `postgres`               | PostgreSQL username                                   |
 | `PARAMETERS__DB_PASSWORD`                 | Yes (Aspire) | `postgres`               | PostgreSQL password                                   |
-| `ANTHROPIC_API_KEY`                       | No           | —                        | Claude API key (Ralph fallback; required for Thalos agent turns) |
+| `ANTHROPIC_API_KEY`                       | No           | —                        | Claude API key (agent factory fallback; required for Thalos agent turns) |
 | `DAEDALUS_REGRESSION_SCREENSHOTS`         | No           | —                        | `1` → Browser E2E writes regression screenshots into `docs/regression-screenshots/` |
 | `GITHUB_TOKEN`                            | No           | —                        | GitHub API authentication for Git operations          |
 | `GITLAB_TOKEN`                            | No           | —                        | GitLab API authentication                             |
@@ -313,7 +357,7 @@ dotnet ef database update --project src/Daedalus.Infrastructure --startup-projec
 
 ### Application Settings (`appsettings.json`)
 
-Both the **API** and **Console** projects have their own `appsettings.json` with the following key sections:
+The **API** and **CLI** projects each have their own `appsettings.json`. The API one has these key sections:
 
 #### Database Connection
 
@@ -329,65 +373,28 @@ Both the **API** and **Console** projects have their own `appsettings.json` with
 
 #### LLM Provider Configuration
 
+`IAgentFactory` (brainstorm and PRD generation) reads the Claude section. Thalos agent turns are configured under
+`Thalos:Anthropic` instead (see [Thalos agents](#thalos-agents)).
+
 ```json
 {
     "ExternalServices": {
         "Llm": {
-            "Provider": "copilot",
-            "Timeout": 30000,
             "Claude": {
-                "Enabled": false,
                 "ApiKey": null,
                 "Model": "claude-sonnet-4-20250514",
-                "MaxTokens": 8192,
-                "Timeout": 60000,
-                "MaxParallelSubagents": 10,
-                "SubagentModel": null
+                "MaxTokens": 8192
             }
         }
     }
 }
 ```
 
-| Setting                           | Description                                            |
-|-----------------------------------|--------------------------------------------------------|
-| `Llm.Provider`                    | Default provider: `"copilot"` or `"claude"`            |
-| `Llm.Claude.Enabled`              | Set to `true` to register the Claude provider          |
-| `Llm.Claude.ApiKey`               | Anthropic API key (or set `ANTHROPIC_API_KEY` env var) |
-| `Llm.Claude.Model`                | Claude model identifier                                |
-| `Llm.Claude.MaxParallelSubagents` | Max concurrent subagent invocations                    |
-
-#### Copilot Configuration (Console only)
-
-```json
-{
-    "Copilot": {
-        "Model": "gpt-4",
-        "CliPath": null,
-        "LogLevel": "warning"
-    }
-}
-```
-
-#### Ralph Loop Configuration
-
-```json
-{
-    "RalphLoop": {
-        "IterationDelayMs": 100,
-        "MaxConsecutiveFailures": 5,
-        "MaxIterations": 0,
-        "RequestTimeoutSeconds": 300,
-        "EnableDetailedLogging": false
-    }
-}
-```
-
-| Setting                  | Description                              |
-|--------------------------|------------------------------------------|
-| `MaxIterations`          | `0` = unlimited iterations               |
-| `MaxConsecutiveFailures` | Abort threshold for consecutive failures |
-| `RequestTimeoutSeconds`  | Per-LLM-request timeout                  |
+| Setting               | Description                                            |
+|-----------------------|--------------------------------------------------------|
+| `Llm.Claude.ApiKey`   | Anthropic API key (or set `ANTHROPIC_API_KEY` env var) |
+| `Llm.Claude.Model`    | Claude model identifier                                |
+| `Llm.Claude.MaxTokens`| Output token cap per invocation                        |
 
 #### MCP (Model Context Protocol) Integration
 
@@ -444,9 +451,9 @@ development, Keycloak is provisioned automatically by Aspire and HTTPS metadata 
 
 Phase 1.1 of the [roadmap](docs/planning/ROADMAP.md) adds a general-purpose agent stack built on
 [Thalos.NET](https://github.com/MarcelRoozekrans/Thalos.NET) (Microsoft Agent Framework 1.17 underneath, ZeroAlloc-native,
-AI.Sentinel at the model boundary). It runs **alongside** the Ralph Loop as a strangler: nothing in Ralph changes until
-phase 1.6 retires it. Design: [docs/plans/2026-08-16-thalos-agent-core-design.md](docs/plans/2026-08-16-thalos-agent-core-design.md);
-sequence diagram: [Architecture Diagrams §14](docs/architecture-diagrams.md#14-agent-turn-thalos).
+AI.Sentinel at the model boundary). It once ran **alongside** the Ralph Loop as a strangler; phase 2.8 retired that loop, and a
+board task now starts work as a manufacture run (see [Manufacturing a task](#manufacturing-a-task)). Design: [docs/plans/2026-08-16-thalos-agent-core-design.md](docs/plans/2026-08-16-thalos-agent-core-design.md);
+sequence diagram: [Architecture Diagrams §15](docs/architecture-diagrams.md#15-agent-turn-thalos).
 
 Phase 1.2 adds **memory** on top: `Thalos.NET.Memory` + `Thalos.NET.Memory.RagNet` (Thalos.NET 0.2.0). Design:
 [docs/plans/2026-08-17-thalos-memory-design.md](docs/plans/2026-08-17-thalos-memory-design.md); see
@@ -537,14 +544,14 @@ persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Ski
 | `Thalos:Sentinel:Enabled`                      | Registers the AI.Sentinel decorator around the chat client.                                                                                                                                                  |
 | `Thalos:Sentinel:On{Critical,High,Medium,Low}` | Action per severity: `PassThrough`, `Log`, `Alert`, `Quarantine`. A quarantined turn returns `422 Quarantined` (buffered) / `event: error` (stream).                                                          |
 | `Thalos:Sentinel:DisabledDetectors`            | AI.Sentinel detector type names to switch off (e.g. `PromptInjectionDetector`); unknown names fail at startup.                                                                                               |
-| `Thalos:Memory:Enabled`                        | Master switch for memory: auto-recall, `memory__*` tools, the Ralph learnings paths and the reindex sweeper.                                                                                                 |
-| `Thalos:Memory:SharedOwnerId`                  | Owner of host-written project knowledge (Ralph learnings). Recalled for every caller, written only by host code; deleting one needs the `developer` policy. Default `daedalus`.                              |
+| `Thalos:Memory:Enabled`                        | Master switch for memory: auto-recall, `memory__*` tools and the reindex sweeper.                                                                                                 |
+| `Thalos:Memory:SharedOwnerId`                  | Owner of shared project knowledge: the learnings the retired Ralph loop wrote. Recalled for every caller; deleting one needs the `developer` policy. Default `daedalus`.                              |
 | `Thalos:Memory:Recall:{TopK,MinScore,MaxChars}`| Auto-recall budget per turn (and for `memory__recall`): how many memories, the cosine-similarity floor and the character cap on the injected block.                                                          |
 | `Thalos:Memory:Dedupe:{Enabled,Threshold}`     | Thalos refuses a near-duplicate `remember` above the similarity threshold and reports the existing memory (`deduped`).                                                                                       |
 | `Thalos:Memory:ExposeTools`                    | Registers the `memory` tool source. Which agents actually see `memory__*` is still decided by their `Tools` glob.                                                                                            |
 | `Thalos:Memory:VectorDimensions`               | Embedding width of the Rag.NET index (`nomic-embed-text` = **768**). Must match the existing `rag_chunks` table — see [Operational notes](#operational-notes).                                              |
-| `Thalos:Memory:LearningsRecall:{TopK,MinScore}` | Daedalus-only: how many shared learnings the `search_learnings` MCP tool and the Thalos learnings recall ask for, and the minimum score. `TopK` is clamped to 1–50 (1–20 for the MCP tool).                                           |
-| `Thalos:Memory:Reindex:*`                      | Daedalus-only: `ReindexPendingMemoriesHostedService` (API host only) — `Enabled`, `StartupDelay`, `RetryInterval` (index unavailable/failed rows), `SweepInterval` (all clear).                              |
+| `Thalos:Memory:LearningsRecall:{TopK,MinScore}` | Daedalus-only: how many shared learnings the `search_learnings` MCP tool asks for, and the minimum score. Replaces `Thalos:Memory:RalphRecall`, which fails the boot. `TopK` is clamped to 1–50 (1–20 for the MCP tool).                                           |
+| `Thalos:Memory:Reindex:*`                      | Daedalus-only: `ReindexPendingMemoriesHostedService` (registered by `AddDaedalusAgents`, so in both the API and CLI hosts) — `Enabled`, `StartupDelay`, `RetryInterval` (index unavailable/failed rows), `SweepInterval` (all clear).                              |
 | `Thalos:Skills:Enabled`                        | Master switch for the catalogue and the `skills__*` tools. `false` skips root validation entirely, so a host with no skills folder still starts.                                                              |
 | `Thalos:Skills:Roots[]`                        | Folders holding `<name>/SKILL.md`, resolved against the host content root (like `McpConfigPath`). **A configured root that does not exist fails host start, on purpose** — see [Operational notes](#operational-notes). Empty by default. |
 | `Thalos:Skills:Catalogue:MaxChars`             | Character budget for the catalogue block appended to the agent's instructions. Overflow is reported with an explicit "and N more" line, never silently truncated.                                             |
@@ -573,9 +580,10 @@ transcript archive.
   the prompt (budgeted by `MaxChars`); the agent can also call `memory__remember`, `memory__recall`, `memory__forget`
   and `memory__list` itself. Recall is scoped to the caller's own memories, the memories pinned to the current agent,
   and the shared owner's — so one user never sees another's.
-- **The shared owner is Ralph's learnings.** Everything written under `Thalos:Memory:SharedOwnerId` (`daedalus`) with
-  kind `learning` is recalled for every caller. The Ralph Loop writes there through the Application port
-  `ILearningsMemory` (adapter `ThalosLearningsMemory` in `Daedalus.Agents`), so learnings and agent memory are one store.
+- **The shared owner holds the retired loop's learnings.** Everything written under `Thalos:Memory:SharedOwnerId`
+  (`daedalus`) with kind `learning` is recalled for every caller. The Ralph Loop wrote there until phase 2.8; nothing
+  writes learnings there now, and the Application port `ILearningsMemory` (adapter `ThalosLearningsMemory` in
+  `Daedalus.Agents`) only reads them, for the `search_learnings` tool. Learnings and agent memory are one store.
 - **Where it lives.** The `AgentMemories` table (`PostgresMemoryStore`, `Daedalus.Agents`) is the source of truth; the
   Rag.NET index (`rag_chunks`, same database, `vector(768)`) is a **rebuildable cache** of embeddings. Vectors are never
   stored on `AgentMemories`.
@@ -584,10 +592,9 @@ transcript archive.
   `ReindexPendingMemoriesHostedService` (API host, `Thalos:Memory:Reindex:*`) sweeps them in the background once the
   index comes up. It sweeps **pending rows only**, so rebuilding the whole index means marking the rows pending first —
   see [Operational notes](#operational-notes).
-- **Hosts.** `AddDaedalusAgents` (API) registers agents **and** memory, owns the Rag.NET schema (`EnsureSchemaOnStartup`)
-  and runs the sweeper. `AddDaedalusMemory` (the `Daedalus.Console` Ralph worker) registers memory only and creates no
-  schema, so the two hosts cannot race for `rag_chunks`. The two are **mutually exclusive**: calling both in one host
-  throws at registration time.
+- **Hosts.** `AddDaedalusAgents` (API and CLI) registers agents **and** memory, owns the Rag.NET schema
+  (`EnsureSchemaOnStartup`) and runs the sweeper. `AddDaedalusMemory`, the memory-only registration the Console worker
+  used, was deleted with the Console in phase 2.8.
 - **Migration.** `AddAgentMemories` creates `AgentMemories`, copies every `StructuredLearnings` row into it (category and
   severity become tags, `index_pending = true` so the sweeper embeds them) and drops `StructuredLearnings`. The
   hand-rolled learnings/embedding slice — `ILearningsRepository`, `IEmbeddingService`, `Pgvector.EntityFrameworkCore`
@@ -804,12 +811,12 @@ rate limiter.
   ```
   The `UPDATE` is **not** optional: `ReindexPendingMemoriesHostedService` sweeps with `PendingOnly = true`, so without it
   only memories that were already pending get embedded and everything else stays invisible to recall.
-- **Ralph's learnings live in the agent memory:** the parser is unchanged, but persistence and recall now go through the
-  Application port `ILearningsMemory` (shared owner `daedalus`, kind `learning`) instead of `StructuredLearnings` and a
-  hand-rolled embedding service. Consequence of the shared owner: enrichment no longer filters by project or excludes the
-  current task — recall ranks purely by similarity to the task prompt, so learnings are cross-project and a task can
-  recall one it produced itself. `HitCount` became Thalos' `RecallCount`/`LastRecalledAt`. Ralph is retired in phase 1.6.
-- **Startup order:** the AppHost uses `WaitForCompletion(migrations)` for `api` and `console` — `WaitFor` releases as soon
+- **Ralph's learnings live in the agent memory:** phase 1.6 moved them from `StructuredLearnings` and a hand-rolled
+  embedding service to the shared owner `daedalus`, kind `learning`. Recall ranks purely by similarity to the query, so
+  learnings are cross-project. `HitCount` became Thalos' `RecallCount`/`LastRecalledAt`. Phase 2.8 deleted the loop and
+  the write half of the learnings code; what is left is read by `ILearningsMemory` for the frozen `search_learnings`
+  tool.
+- **Startup order:** the AppHost uses `WaitForCompletion(migrations)` for `api` — `WaitFor` releases as soon
   as a one-shot job *starts*, which let hosts boot against an un-migrated database.
 - **`Thalos:Channels:DefaultAgent` is a `Name`, not an `Id`, and nothing validates it at startup.** A wrong
   value (a ULID, a typo) only fails the first time a channel needs to bind — see [Channels](#channels).
@@ -1013,7 +1020,7 @@ builder.Services.AddOidcAuthentication(options =>
 | `Daedalus.Tests.Unit`                | xUnit              | General utilities, Spectre Console        | No                   |
 | `Daedalus.Tests.Unit.Domain`         | xUnit              | Domain entities, value objects            | No                   |
 | `Daedalus.Tests.Unit.Application`    | xUnit              | CQRS handlers, services                   | No                   |
-| `Daedalus.Tests.Unit.Infrastructure` | xUnit              | LLM services, factory, workspace provider | No                   |
+| `Daedalus.Tests.Unit.Infrastructure` | xUnit              | LLM services, agent factory               | No                   |
 | `Daedalus.Tests.Integration`         | xUnit              | Database with Testcontainers (`pgvector/pgvector:pg16`), agent controllers + SSE | **Yes** |
 | `Daedalus.Tests.Playwright.Api`      | NUnit              | API endpoint E2E                          | **Yes**              |
 | `Daedalus.Tests.Playwright.Browser`  | NUnit + Playwright | Browser E2E                               | **Yes** + Playwright |
@@ -1119,8 +1126,7 @@ dotnet run -p benchmarks/Daedalus.Benchmarks -c Release --filter "AllocationBenc
 | `JsonSerializationBenchmarks`          | JSON serialization strategies                   |
 | `LlmResponseBenchmarks`                | LLM response processing                         |
 | `DomainEntityBenchmarks`               | Entity creation, state transitions, collections |
-| `PromptBuildingBenchmarks`             | Ralph loop prompt building pipeline             |
-| `DependencyResolutionBenchmarks`       | Phase orchestration dependency graphs           |
+| `DependencyResolutionBenchmarks`       | Dependency graph resolution                     |
 | `ResponseExtractionBenchmarks`         | LLM response extraction & prompt injection      |
 
 Results are output to `BenchmarkDotNet.Artifacts/results/`. See
@@ -1152,7 +1158,7 @@ docker compose up -d
 ### Full Stack
 
 ```bash
-# Start all services (DB, Keycloak, migrations, API, web, console, pgAdmin)
+# Start all services (DB, Keycloak, migrations, API, web, pgAdmin)
 docker compose -f docker-compose.full.yml up -d
 ```
 
@@ -1162,7 +1168,6 @@ docker compose -f docker-compose.full.yml up -d
 | Keycloak       | `localhost:8082` | OIDC provider, auto-imports realm           |
 | API            | `localhost:8080` | Health check: `GET /health`, requires auth  |
 | Web            | `localhost:8081` | Blazor WASM frontend, login via Keycloak    |
-| Console Worker | —                | No exposed ports (background worker)        |
 | pgAdmin        | `localhost:5050` | Database management UI                      |
 
 ---
@@ -1188,8 +1193,8 @@ The project uses `.editorconfig` for consistent style rules enforced by `dotnet 
 - **Compile-Time Logging**: `[LoggerMessage]` attributes for zero-allocation logging
 - **Testing**: NSubstitute for mocking, AwesomeAssertions for fluent assertions, Bogus for test data
 
-See [copilot-instructions.md](.github/copilot-instructions.md) for the full set of coding standards, patterns, and
-forbidden anti-patterns.
+See [CLAUDE.md](CLAUDE.md) and the [development guide](docs/development-guide.md) for the coding standards, patterns, and
+forbidden anti-patterns. `.github/copilot-instructions.md` is superseded.
 
 ### Commits, versioning and releases
 
@@ -1204,9 +1209,10 @@ Same setup as [Rag.NET](https://github.com/MarcelRoozekrans/Rag.NET) and
   local build.
 - **Releases** are cut by [release-please](.github/workflows/release-please.yml): dispatch → review/merge the
   `chore(main): release X.Y.Z` PR → dispatch → `vX.Y.Z` tag + GitHub release. Then a manual CI dispatch with
-  `publish_release=true` pushes the `daedalus-api`, `daedalus-console` and `daedalus-web` images to ghcr.io as
+  `publish_release=true` pushes the `daedalus-api` and `daedalus-web` images to ghcr.io as
   `X.Y.Z`, `X.Y` and `latest` — only from the tagged commit. Every push to `main` publishes the moving tip as
-  `<sha>` and `main`.
+  `<sha>` and `main`. The `daedalus-console` image ended with phase 2.8: an external compose file that still pulls
+  `daedalus-console:latest` keeps a frozen worker running against the new schema.
 
 ---
 
@@ -1248,6 +1254,6 @@ Same setup as [Rag.NET](https://github.com/MarcelRoozekrans/Rag.NET) and
 | [Thalos agent core design](docs/plans/2026-08-16-thalos-agent-core-design.md) | Design of the Thalos.NET-based agent stack (phase 1.1) |
 | [Roadmap](docs/planning/ROADMAP.md)                      | Milestone 1 phases and status                     |
 | [Regression report 2026-08-16](docs/regression-report-2026-08-16.md) | Browser regression evidence for the Agent page  |
-| [Ralph Wiggum Technique](docs/ralph-wiggum-technique.md) | AI iteration loop methodology                     |
+| [Ralph Wiggum Technique](docs/ralph-wiggum-technique.md) | The retired iteration loop, kept as history       |
 | [Coding Standards](.github/copilot-instructions.md)      | C# patterns, performance, forbidden anti-patterns |
 | [Context7 Auto Usage](.github/context7-auto-usage.md)    | When to query Context7 for library documentation  |

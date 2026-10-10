@@ -9,17 +9,14 @@ migration record if something here looks surprising.
 
 ## Architecture
 
-Daedalus has two presentation layers sharing one Application + Infrastructure
-stack:
+Daedalus has one presentation layer, `Daedalus.Api` with `Daedalus.Web` (REST
+controllers and a Blazor WebAssembly UI), plus the `Daedalus.Cli` host. They
+share one `Daedalus.Application` + `Daedalus.Infrastructure` stack.
 
-- **Web/API layer** (`Daedalus.Api`, `Daedalus.Web`) — REST controllers and a
-  Blazor WebAssembly UI.
-- **Console layer** (`Daedalus.Console`, the "Ralph Loop") — a background
-  worker that polls for tasks and drives an LLM iteration loop directly
-  against the database, bypassing HTTP for latency.
-
-Both layers depend on the same `Daedalus.Application` and `Daedalus.Domain`
-projects. Project layout:
+Phase 2.8 (October 2026) retired the Ralph loop and its `Daedalus.Console`
+worker, which polled the board and drove an LLM iteration loop. Work now starts
+when a person presses Manufacture on a board task: see "Manufacturing a task"
+below. Project layout:
 
 ```
 src/
@@ -29,9 +26,9 @@ src/
 ├── Daedalus.Infrastructure/   # EF Core DbContext, repository implementations,
 │                               # migrations, external service clients
 ├── Daedalus.Api/              # REST controllers, request/response models
-├── Daedalus.Console/          # Ralph Loop worker (RalphLoopWorker.cs)
-├── Daedalus.Agents/           # Agent/session infrastructure (ZeroAlloc.Outbox)
-├── Daedalus.Cli/              # Command-line tooling
+├── Daedalus.Agents/           # Agent/session infrastructure (ZeroAlloc.Outbox),
+│                               # the manufacture workflow host
+├── Daedalus.Cli/              # Console-channel host
 ├── Daedalus.Web/              # Blazor WebAssembly UI
 └── Daedalus.AppHost/          # .NET Aspire orchestration
 
@@ -41,14 +38,80 @@ tests/
 └── Daedalus.Tests.Playwright.Api / Daedalus.Tests.Playwright.Browser/
 ```
 
-There is no file named `RalphLoopService.cs` — the worker's hosted service is
-`src/Daedalus.Console/RalphLoopWorker.cs`; the pipeline logic lives in
-`src/Daedalus.Application/Services/RalphLoopPipelineService.cs` and
-`src/Daedalus.Infrastructure/Services/CodeAnalysis/RalphLoopOrchestrator.cs`.
+### Manufacturing a task
 
-Task claiming is `TaskRepository.ClaimNextAsync(Guid sessionId, ...)` in
-`src/Daedalus.Infrastructure/Persistence/TaskRepository.cs` (not
-`ClaimNextTaskAsync`), which sets `Task.CurrentSessionId` via `task.Claim(...)`.
+A board task becomes work only when a person starts a run for it. There is no
+automatic pickup.
+
+- `POST /api/tasks/{id}/manufacture` (`TasksController.Manufacture`, logic in
+  `src/Daedalus.Api/Services/TaskManufactureService.cs`) needs the
+  `WorkflowResume` policy, the `developer` or `admin` role. It answers 201 with
+  the run id, and attaches the run to the task (`Task.WorkflowRunId`). Every
+  refusal comes before anything is spent:
+  - 404: no such task.
+  - 422: the project has no `RepositoryUrl`, or it matches no entry of
+    `Thalos:Workflow:Repositories`, or a dependency's derived status is not
+    `Completed`.
+  - 409: the task's current run is still `Running` or `Awaiting`. A 409 also
+    answers a task that changed while the run started: that run is cancelled
+    and the body names its `runId` and whether it was cancelled. A failed
+    attach is a 500 with the same extensions.
+  - The starter's own failures map as `POST /api/workflow-runs` maps them
+    (`ManufactureStartProblem`): 400 invalid, 422 unstartable, 503 when the
+    starter is unavailable (with `Retry-After: 30`), and 503 without it when
+    the workflow engine is disabled.
+- The repository match: for a github.com URL, owner and name, ignoring case and
+  form. For any other remote, the same string after trimming one trailing `/`
+  and one trailing `.git` from each side. The work intent is the task's title,
+  a blank line, then its description.
+- A run waits at its `human_approval` gate. A developer or admin approves it
+  with `POST /api/workflow-runs/{id}/resume` and a body of
+  `{ "signal": "human_approval", "payload": null }`. `applyStandingInstructions`
+  and `dropFindings` are optional. This `resume` is a workflow-run gate and has
+  nothing to do with the retired task `resume` endpoint.
+
+### Task status is derived
+
+A task stores only its `WorkflowRunId`. `TaskStatusDerivation` computes the
+status on read from the run:
+
+| Run | Task status |
+|---|---|
+| Running | `InProgress` |
+| Awaiting | `AwaitingApproval` (5) |
+| Succeeded | `Completed` |
+| Failed | `Failed` |
+| Cancelled | `Cancelled` (6) |
+
+5 and 6 are never stored: the check constraint `CK_Tasks_Status_Stored` allows
+0 to 4. A task without a run shows its stored status, so an old Ralph task keeps
+`Completed`, `Failed` or `Abandoned`. When the workflow engine is disabled on a
+host, the reader answers Unknown and the stored status shows. Task update and
+delete answer 409 while the task's run is live. The old Ralph-only fields
+(`MaxIterations`, `CompletionPromise`, `IterationCount`, `CurrentSessionId`)
+remain as columns and show read-only on old tasks.
+
+### Costs and history
+
+- After each agent node completes with usage, the host appends a `node-usage`
+  workflow run record (`NodeUsageRecorder`). `NodeUsageBackfill` fills the
+  records missing for older runs at host startup. It is not an EF migration, and
+  it writes nothing for a (run, seq) that already has a record.
+- Cost analytics reads four sources: `TaskExecutions` history, `node-usage`
+  records (manufacture), chat sessions and scheduled sessions. Sessions owned by
+  `workflow:*` are a manufacture run's node turns and are excluded from chat, so
+  nothing counts twice. Session sources carry no model or cache split.
+  The `by-session` cost endpoint was removed; `estimate` stays.
+- `TaskExecutions` and `ExecutionSessions` are read-only history. The Web
+  "Task Loop History" page shows them and cannot change them.
+- `daedalus__search_failure_patterns` and `daedalus__search_learnings` read data
+  only the retired loop wrote. Their descriptions and empty answers carry
+  `FrozenHistory.Notice`. Agents still recall learnings through the `memory__*`
+  tools and auto-recall; the budget is `Thalos:Memory:LearningsRecall`, and the
+  old `Thalos:Memory:RalphRecall` key fails the boot.
+
+`RalphLoopOrchestrator` in `src/Daedalus.Infrastructure/Services/CodeAnalysis/`
+is an unrelated code-analysis type that kept its name (issue #279).
 
 Clean Architecture layer boundaries (Domain must not depend on Application/
 Infrastructure/Api, etc.) are enforced by ArchUnitNET tests in
@@ -60,7 +123,7 @@ package some older docs reference.
 ## Developer workflows
 
 ```bash
-# Run everything (API, Console worker, Postgres) via .NET Aspire
+# Run everything (Postgres, migrations, API, Web) via .NET Aspire
 dotnet run --project src/Daedalus.AppHost
 # Dashboard: http://localhost:17300
 
@@ -423,9 +486,9 @@ internally) via `AddStandardResilienceHandler`, used in
 and `src/Daedalus.Web/Program.cs`:
 
 ```csharp
-services.AddHttpClient<GitHubPullRequestFactory>(client =>
+services.AddHttpClient<AzureDevOpsPullRequestFactory>(client =>
     {
-        client.DefaultRequestHeaders.Add("User-Agent", "Daedalus-RalphLoop");
+        client.DefaultRequestHeaders.Add("User-Agent", "Daedalus");
     })
     .AddStandardResilienceHandler(options =>
     {
@@ -481,14 +544,14 @@ on the same class — pick one.
 
 ## Compile-time logging with `LoggerMessage`
 
-66 files in `src/` use `[LoggerMessage]` source-generated logging — this is
+61 files in `src/` use `[LoggerMessage]` source-generated logging — this is
 the dominant logging convention, not a suggestion:
 
 ```csharp
-public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogger<TaskRepository> logger)
+public sealed partial class TaskManufactureService(/* ... */ ILogger<TaskManufactureService> logger)
 {
-    [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Task {TaskId} claimed by session {SessionId}")]
-    private static partial void LogTaskClaimed(ILogger logger, Guid sessionId, Guid taskId);
+    [LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Run {RunId}, started for task {TaskId} but not attached, could not be cancelled")]
+    private static partial void LogCancelFailed(ILogger logger, Guid runId, Guid taskId);
 }
 ```
 
@@ -498,11 +561,11 @@ in anything on a hot or frequently called path.
 
 ## ZLinq
 
-`ZLinq` is referenced and used in 5 files (`LearningsService.cs`,
-`PhaseOrchestrator.cs`, `RalphLoopPipelineService.cs`,
-`RalphPromptTemplateBuilder.cs`, `LearningCategory.cs`) via
-`AsValueEnumerable()`. It is real but a minor convention — reach for it in
-genuinely hot paths, not by default; standard LINQ is used everywhere else.
+`ZLinq` is referenced by `Daedalus.Application` and `Daedalus.Infrastructure`,
+but since phase 2.8 deleted the Ralph pipeline no file under `src/` calls
+`AsValueEnumerable()`; only the benchmarks use it. It is a minor option — reach
+for it in genuinely hot paths, not by default; standard LINQ is used everywhere
+else.
 
 ```csharp
 using ZLinq;
@@ -519,7 +582,7 @@ var filtered = tasks
 - No `Task.Wait()`, `.Result`, or `.GetAwaiter().GetResult()` — none exist in
   `src/` today; keep it that way.
 - No `async void` outside event handlers — none exist in `src/` today.
-- `ConfigureAwait(false)` is used in 54 files; keep using it in library-style
+- `ConfigureAwait(false)` is used in 74 files; keep using it in library-style
   code (Application/Infrastructure), not required in ASP.NET Core request
   pipeline code without a `SynchronizationContext`.
 - `IAsyncEnumerable<T>` is used in 3 files — a real but narrow pattern for

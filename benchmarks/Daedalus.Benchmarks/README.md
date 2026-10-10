@@ -116,33 +116,20 @@ Benchmarks completion promise detection in LLM responses:
 
 ### 9. **DomainEntityBenchmarks** - Entity Lifecycle Hotpaths
 
-Benchmarks domain entity operations called every Ralph loop iteration:
+Benchmarks domain entity operations that run whenever the board creates or edits a task or project:
 
 - `Task.Create()` with pre-trimmed vs untrimmed strings vs validation failure
 - `Task.AddDependency()` - linear Contains scan on growing lists (50 items)
 - `Task.AddFileToModify()` and `Task.UpdateMetadata()` - Trim allocations
 - `Project.Create()` and `Project.AddTask()` - Exists search on 20 tasks
-- `ExecutionSession.Create()` and `IsStale()` checks
 
-**Key Metric**: Allocations per iteration — these run on every Ralph loop cycle
+**Key Metric**: Allocations per operation
 
-### 10. **PromptBuildingBenchmarks** - Prompt Pipeline (Hottest Path)
+### 10. **DependencyResolutionBenchmarks** - Dependency Graphs
 
-Benchmarks the single highest-allocation codepath — prompt construction:
-
-- `GetDefaultSections()` minimal/full/with workspace context
-- `BuildPromptAsync()` end-to-end prompt generation
-- `PromptSection.Create()` factory — single and bulk (20 sections)
-- ZLinq vs standard LINQ for filter+sort on 20/50 PromptSection collections
-- History `TakeLast(5).ToList()` on 3 vs 20 entries
-- History multi-pass `Count(predicate)` vs single-pass manual loop
-- `Response.Substring` snippet vs `Span<char>` slicing
-
-**Key Metric**: Allocations and latency — runs every Ralph loop iteration to build the LLM prompt
-
-### 11. **DependencyResolutionBenchmarks** - Phase Orchestrator Graphs
-
-Benchmarks dependency resolution in `PhaseOrchestrator.OnTaskCompletedAsync`:
+Benchmarks a ready-task dependency resolution over in-memory task graphs. The algorithm is a standalone copy of the one
+the retired `PhaseOrchestrator` ran after each task completed (phase 2.8 deleted that type); it is kept as a pure
+compute and allocation measurement and calls no production code:
 
 - Ready-task resolution on 10/50/200 task graphs (ZLinq vs standard LINQ)
 - `Dictionary<string, Status>` construction on 50/200 tasks
@@ -150,7 +137,7 @@ Benchmarks dependency resolution in `PhaseOrchestrator.OnTaskCompletedAsync`:
 
 **Key Metric**: Scaling behavior — O(n²) dependency check becomes significant at 200+ tasks
 
-### 12. **ResponseExtractionBenchmarks** - LLM Response Extraction & Injection
+### 11. **ResponseExtractionBenchmarks** - LLM Response Extraction & Injection
 
 Benchmarks text extraction and prompt manipulation patterns:
 

@@ -1,10 +1,10 @@
 # Daedalus
 
-.NET 10 / C# 13. Two presentation layers (`Daedalus.Api`/`Daedalus.Web` REST +
-Blazor, and `Daedalus.Console`'s "Ralph Loop" background worker) share one
-`Daedalus.Application` + `Daedalus.Infrastructure` stack over PostgreSQL/EF
-Core. The Console worker talks to the database directly, bypassing HTTP, for
-latency. Full pattern catalogue and extended examples:
+.NET 10 / C# 13. One presentation layer, `Daedalus.Api` with `Daedalus.Web`,
+plus the `Daedalus.Cli` host, share `Daedalus.Application` and
+`Daedalus.Infrastructure` over PostgreSQL/EF Core. Work starts when a person
+presses Manufacture on a board task; the Ralph loop and `Daedalus.Console`
+were retired in phase 2.8 (October 2026). Full pattern catalogue and extended examples:
 `docs/development-guide.md`. `.github/copilot-instructions.md` still exists
 but is superseded and may contain stale guidance — treat it as historical,
 not authoritative.
@@ -17,7 +17,7 @@ src/
 ├── Daedalus.Application/      # Mediator requests/handlers, DTOs, repository interfaces
 ├── Daedalus.Infrastructure/   # EF Core DbContext, repository impls, migrations
 ├── Daedalus.Api/              # REST controllers
-├── Daedalus.Console/          # Ralph Loop worker (RalphLoopWorker.cs — not "RalphLoopService")
+├── Daedalus.Cli/              # Console-channel host
 ├── Daedalus.Web/              # Blazor WebAssembly UI
 └── Daedalus.AppHost/          # .NET Aspire orchestration
 tests/
@@ -26,13 +26,14 @@ tests/
 └── Daedalus.Tests.Playwright.Api / .Playwright.Browser/
 ```
 
-Task claiming is `TaskRepository.ClaimNextAsync(...)` (not
-`ClaimNextTaskAsync`), in `Daedalus.Infrastructure/Persistence/TaskRepository.cs`.
+A board task starts work through `POST /api/tasks/{id}/manufacture`, handled by
+`TaskManufactureService` (`Daedalus.Api/Services/TaskManufactureService.cs`). A
+task's status is derived from its run on read (`TaskStatusDerivation`).
 
 ## Build and test
 
 ```bash
-dotnet run --project src/Daedalus.AppHost   # Aspire: API + Console + Postgres, dashboard on :17300
+dotnet run --project src/Daedalus.AppHost   # Aspire: Postgres + migrations + API + Web, dashboard on :17300
 dotnet build
 dotnet test
 dotnet test tests/Daedalus.Tests.Unit
@@ -100,12 +101,13 @@ fails.
 
 ## Genuinely widespread conventions
 
-- `[LoggerMessage]` source-generated logging (66 files) — prefer it over
+- `[LoggerMessage]` source-generated logging (61 files) — prefer it over
   `ILogger.LogXxx()` in anything performance-sensitive.
 - Primary constructors for DI everywhere; never mix one with a second,
   traditional constructor on the same class.
-- `ZLinq`'s `AsValueEnumerable()` for hot-path LINQ (5 files) — minor, not
-  the default; standard LINQ is fine elsewhere.
+- `ZLinq`'s `AsValueEnumerable()` for hot-path LINQ — minor, not the default;
+  no file under `src/` uses it since phase 2.8, only the benchmarks. Standard
+  LINQ is fine elsewhere.
 - `AsNoTracking()` for read-only EF Core queries.
 - Clean Architecture layering (Domain has no dependency on Application/
   Infrastructure/Api) is enforced by ArchUnitNET
