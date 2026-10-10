@@ -142,10 +142,8 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         var project = IntegrationTestFactory.CreateProject(projectId, "Project With Tasks", "Has tasks");
         _dbContext.Projects.Add(project);
 
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 1",
-            completionPromise: "Promise 1", maxIterations: 5));
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 2",
-            completionPromise: "Promise 2", maxIterations: 5));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 1"));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 2"));
         await _dbContext.SaveChangesAsync();
 
         // Act
@@ -227,10 +225,8 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         var project = IntegrationTestFactory.CreateProject(projectId, "Project With Tasks", "Has tasks");
         _dbContext.Projects.Add(project);
 
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task A",
-            completionPromise: "Promise A", maxIterations: 5));
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task B",
-            completionPromise: "Promise B", maxIterations: 5));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task A"));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task B"));
         await _dbContext.SaveChangesAsync();
 
         // Act

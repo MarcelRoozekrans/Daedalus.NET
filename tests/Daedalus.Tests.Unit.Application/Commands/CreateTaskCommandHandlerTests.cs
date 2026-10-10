@@ -35,14 +35,11 @@ public class CreateTaskCommandHandlerTests
             "Development", // Phase
             1, // ParallelGroup
             Complexity.Medium, // Complexity
-            "Implement authentication", // Prompt
-            "IMPLEMENTATION_COMPLETE", // CompletionPromise
-            10 // MaxIterations
+            "Implement authentication" // Prompt
         );
 
         var createdTask = ApplicationTestFactory.CreateTask(
-            prompt: "Implement authentication",
-            completionPromise: "IMPLEMENTATION_COMPLETE");
+            prompt: "Implement authentication");
         _taskRepository
             .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
             .Returns(Result<Daedalus.Domain.Entities.Task>.Success(createdTask));
@@ -54,7 +51,6 @@ public class CreateTaskCommandHandlerTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().NotBeNull();
         result.Value.Prompt.Should().Be("Implement authentication");
-        result.Value.CompletionPromise.Should().Be("IMPLEMENTATION_COMPLETE");
     }
 
     [Fact]
@@ -71,15 +67,11 @@ public class CreateTaskCommandHandlerTests
             "Phase",
             2,
             Complexity.High,
-            "Prompt text",
-            "DONE",
-            5
+            "Prompt text"
         );
 
         var createdTask = ApplicationTestFactory.CreateTask(
-            prompt: "Prompt text",
-            completionPromise: "DONE",
-            maxIterations: 5
+            prompt: "Prompt text"
         );
         _taskRepository
             .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
@@ -107,15 +99,11 @@ public class CreateTaskCommandHandlerTests
             "Testing",
             1,
             Complexity.Low,
-            "Test prompt",
-            "TEST_DONE",
-            3
+            "Test prompt"
         );
 
         var createdTask = ApplicationTestFactory.CreateTask(
-            prompt: "Test prompt",
-            completionPromise: "TEST_DONE",
-            maxIterations: 3
+            prompt: "Test prompt"
         );
 
         _taskRepository
@@ -130,8 +118,6 @@ public class CreateTaskCommandHandlerTests
         var dto = result.Value;
         dto.Id.Should().Be(createdTask.Id);
         dto.Prompt.Should().Be("Test prompt");
-        dto.CompletionPromise.Should().Be("TEST_DONE");
-        dto.MaxIterations.Should().Be(3);
     }
 
     #endregion
@@ -145,7 +131,7 @@ public class CreateTaskCommandHandlerTests
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-004", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            null!, "DONE", 5
+            null!
         );
 
         // Act
@@ -163,7 +149,7 @@ public class CreateTaskCommandHandlerTests
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-005", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            "", "DONE", 5
+            ""
         );
 
         // Act
@@ -181,7 +167,7 @@ public class CreateTaskCommandHandlerTests
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-006", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            "   ", "DONE", 5
+            "   "
         );
 
         // Act
@@ -190,126 +176,6 @@ public class CreateTaskCommandHandlerTests
         // Assert
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("Prompt");
-    }
-
-    #endregion
-
-    #region CompletionPromise Validation
-
-    [Fact]
-    public async Task Handle_WithNullCompletionPromise_ShouldReturnFailure()
-    {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-007", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", null!, 5
-        );
-
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("CompletionPromise");
-    }
-
-    [Fact]
-    public async Task Handle_WithEmptyCompletionPromise_ShouldReturnFailure()
-    {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-008", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "", 5
-        );
-
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("CompletionPromise");
-    }
-
-    [Fact]
-    public async Task Handle_WithWhitespaceCompletionPromise_ShouldReturnFailure()
-    {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-009", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "   ", 5
-        );
-
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("CompletionPromise");
-    }
-
-    #endregion
-
-    #region MaxIterations Validation
-
-    [Fact]
-    public async Task Handle_WithZeroMaxIterations_ShouldReturnFailure()
-    {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-010", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "DONE", 0
-        );
-
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("MaxIterations");
-    }
-
-    [Fact]
-    public async Task Handle_WithNegativeMaxIterations_ShouldReturnFailure()
-    {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-011", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "DONE", -5
-        );
-
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("MaxIterations");
-    }
-
-    [Fact]
-    public async Task Handle_WithValidMaxIterations_ShouldSucceed()
-    {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-012", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "DONE", 100
-        );
-
-        var createdTask = ApplicationTestFactory.CreateTask(maxIterations: 100);
-        _taskRepository
-            .AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>())
-            .Returns(Result<Daedalus.Domain.Entities.Task>.Success(createdTask));
-
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
     }
 
     #endregion
@@ -323,7 +189,7 @@ public class CreateTaskCommandHandlerTests
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-013", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "DONE", 5
+            "Prompt"
         );
 
         _taskRepository
@@ -345,7 +211,7 @@ public class CreateTaskCommandHandlerTests
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-014", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "DONE", 5
+            "Prompt"
         );
 
         _taskRepository
@@ -369,7 +235,7 @@ public class CreateTaskCommandHandlerTests
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-015", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "DONE", 5
+            "Prompt"
         );
 
         var createdTask = ApplicationTestFactory.CreateTask();
@@ -393,7 +259,7 @@ public class CreateTaskCommandHandlerTests
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-016", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "DONE", 5
+            "Prompt"
         );
 
         _taskRepository
@@ -416,7 +282,7 @@ public class CreateTaskCommandHandlerTests
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-017", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            "  Prompt with spaces  ", "DONE", 5
+            "  Prompt with spaces  "
         );
 
         DomainTask? capturedTask = null;
@@ -433,13 +299,13 @@ public class CreateTaskCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_TrimsCompletionPromiseWhitespace()
+    public async Task Handle_CreatesATaskWithoutLoopSettings()
     {
         // Arrange
         var command = new CreateTaskCommand(
             Guid.NewGuid(), "TASK-018", "Title", "Description",
             Priority.Medium, "Phase", 1, Complexity.Medium,
-            "Prompt", "  COMPLETE  ", 5
+            "Prompt"
         );
 
         DomainTask? capturedTask = null;
@@ -450,9 +316,10 @@ public class CreateTaskCommandHandlerTests
         // Act
         var result = await _handler.Handle(command, CancellationToken.None);
 
-        // Assert
+        // Assert. Red: give Task.Create a default MaxIterations or CompletionPromise; these fail.
         result.IsSuccess.Should().BeTrue();
-        capturedTask?.CompletionPromise.Should().Be("COMPLETE");
+        capturedTask!.MaxIterations.Should().Be(0);
+        capturedTask.CompletionPromise.Should().BeEmpty();
     }
 
     #endregion

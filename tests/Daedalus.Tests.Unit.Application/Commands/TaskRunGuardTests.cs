@@ -30,7 +30,7 @@ public sealed class TaskRunGuardTests
         return task;
     }
 
-    private static UpdateTaskCommand Rename(Guid id) => new(id, "Renamed", null, null, null, null, null, null, null, null);
+    private static UpdateTaskCommand Rename(Guid id) => new(id, "Renamed", null, null, null, null, null, null);
 
     /// <summary>Red: guard on the stored status again; the update succeeds while the run is live.</summary>
     [Theory]

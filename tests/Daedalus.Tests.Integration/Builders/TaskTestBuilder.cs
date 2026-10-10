@@ -13,8 +13,6 @@ namespace Daedalus.Tests.Integration.Builders;
 /// <example>
 ///     var task = new TaskTestBuilder()
 ///     .WithPrompt("Find the answer")
-///     .WithCompletionPromise("Answer: 42")
-///     .WithMaxIterations(10)
 ///     .Build();
 /// </example>
 [SuppressMessage("CodeQuality", "S2933:Fields that are only set in the constructor should be \"readonly\"")]
@@ -24,12 +22,10 @@ public sealed class TaskTestBuilder
     private readonly string _phase = "Test";
     private Guid _projectId = Guid.NewGuid();
     private readonly string _taskId = $"TASK-{Guid.NewGuid():N}".Substring(0, 10);
-    private string _completionPromise = "DONE";
     private Complexity _complexity = Complexity.Medium;
     private Guid? _currentSessionId;
     private string _description = "A test task";
     private Guid _id = Guid.NewGuid();
-    private int _maxIterations = 10;
     private Priority _priority = Priority.Medium;
     private string _prompt = "Default test prompt";
     private TaskStatus _status = TaskStatus.Pending;
@@ -59,24 +55,6 @@ public sealed class TaskTestBuilder
     public TaskTestBuilder WithPrompt(string prompt)
     {
         _prompt = prompt;
-        return this;
-    }
-
-    /// <summary>
-    ///     Sets the completion promise/expectation.
-    /// </summary>
-    public TaskTestBuilder WithCompletionPromise(string promise)
-    {
-        _completionPromise = promise;
-        return this;
-    }
-
-    /// <summary>
-    ///     Sets the maximum number of iterations.
-    /// </summary>
-    public TaskTestBuilder WithMaxIterations(int maxIterations)
-    {
-        _maxIterations = maxIterations;
         return this;
     }
 
@@ -162,9 +140,7 @@ public sealed class TaskTestBuilder
             _phase,
             _parallelGroup,
             _complexity,
-            _prompt,
-            _completionPromise,
-            _maxIterations);
+            _prompt);
 
         var task = result.MustSucceed("Failed to build task for testing");
 

@@ -38,7 +38,7 @@ public sealed class CostAnalyticsPostgresTests(PostgresFixture fixture) : IAsync
     {
         await using var db = fixture.CreateDbContext();
         var project = DomainProject.Create(Guid.NewGuid(), "P", "D").Value;
-        var task = DomainTask.Create(Guid.NewGuid(), project.Id, "T-1", "T", "D", Priority.Medium, "x", 1, Complexity.Medium, "p", "DONE", maxIterations: 10).Value;
+        var task = DomainTask.Create(Guid.NewGuid(), project.Id, "T-1", "T", "D", Priority.Medium, "x", 1, Complexity.Medium, "p").Value;
         db.Projects.Add(project);
         db.Tasks.Add(task);
         db.TaskExecutions.Add(new TaskExecution

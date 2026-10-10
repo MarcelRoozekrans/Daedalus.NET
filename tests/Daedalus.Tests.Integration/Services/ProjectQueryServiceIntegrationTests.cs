@@ -115,8 +115,7 @@ public class ProjectQueryServiceIntegrationTests(PostgresFixture fixture) : IAsy
         var projectId = Guid.NewGuid();
         var project = IntegrationTestFactory.CreateProject(projectId, "Project With Tasks", "Has tasks");
         _dbContext.Projects.Add(project);
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 1",
-            completionPromise: "Promise", maxIterations: 5));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 1"));
         await _dbContext.SaveChangesAsync();
 
         // Act
@@ -186,8 +185,7 @@ public class ProjectQueryServiceIntegrationTests(PostgresFixture fixture) : IAsy
         var projectId = Guid.NewGuid();
         var project = IntegrationTestFactory.CreateProject(projectId, "Project", "Desc");
         _dbContext.Projects.Add(project);
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task",
-            completionPromise: "Promise", maxIterations: 5));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task"));
         await _dbContext.SaveChangesAsync();
 
         // Act
@@ -210,10 +208,8 @@ public class ProjectQueryServiceIntegrationTests(PostgresFixture fixture) : IAsy
         var project = IntegrationTestFactory.CreateProject(projectId, "Project", "Desc");
         _dbContext.Projects.Add(project);
 
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 1",
-            completionPromise: "Promise 1", maxIterations: 5));
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 2",
-            completionPromise: "Promise 2", maxIterations: 5));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 1"));
+        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 2"));
         await _dbContext.SaveChangesAsync();
 
         // Act
@@ -260,8 +256,12 @@ public class ProjectQueryServiceIntegrationTests(PostgresFixture fixture) : IAsy
         _dbContext.Projects.Add(project);
 
         var taskId = Guid.NewGuid();
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(taskId, projectId: projectId, prompt: "Test prompt",
-            completionPromise: "DONE", maxIterations: 10));
+        var task = IntegrationTestFactory.CreateTask(taskId, projectId: projectId, prompt: "Test prompt");
+        _dbContext.Tasks.Add(task);
+
+        // An old Ralph task: Task.Create no longer takes the loop settings, so set them as EF does for an old row.
+        _dbContext.Entry(task).Property(t => t.CompletionPromise).CurrentValue = "DONE";
+        _dbContext.Entry(task).Property(t => t.MaxIterations).CurrentValue = 10;
         await _dbContext.SaveChangesAsync();
 
         // Act
@@ -272,6 +272,7 @@ public class ProjectQueryServiceIntegrationTests(PostgresFixture fixture) : IAsy
         taskDto.Id.Should().Be(taskId);
         taskDto.Prompt.Should().Be("Test prompt");
         taskDto.CompletionPromise.Should().Be("DONE");
+        taskDto.MaxIterations.Should().Be(10);
     }
 
     #endregion

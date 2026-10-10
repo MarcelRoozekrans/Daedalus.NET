@@ -94,9 +94,7 @@ public sealed partial class TasksController(
             dto.Phase ?? "Phase-1",
             dto.ParallelGroup,
             (Complexity)dto.EstimatedComplexity,
-            dto.Prompt,
-            dto.CompletionPromise,
-            dto.MaxIterations);
+            dto.Prompt);
 
         var result = await commands.CreateTaskAsync(command, ct);
 
@@ -123,9 +121,7 @@ public sealed partial class TasksController(
             dto.Phase,
             dto.ParallelGroup,
             dto.EstimatedComplexity.HasValue ? (Complexity)dto.EstimatedComplexity.Value : null,
-            dto.Prompt,
-            dto.CompletionPromise,
-            dto.MaxIterations);
+            dto.Prompt);
 
         var result = await commands.UpdateTaskAsync(command, ct);
 

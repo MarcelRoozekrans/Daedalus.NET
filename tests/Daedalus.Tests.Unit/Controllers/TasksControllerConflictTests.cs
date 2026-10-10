@@ -24,7 +24,7 @@ public sealed class TasksControllerConflictTests
     {
         _commands.UpdateTaskAsync(default, default).ReturnsForAnyArgs(Result<TaskDto>.Failure(LiveError));
 
-        var result = await Controller().UpdateTask(Guid.NewGuid(), new UpdateTaskDto(null, null, null, null, null, null, null, null, null));
+        var result = await Controller().UpdateTask(Guid.NewGuid(), new UpdateTaskDto(null, null, null, null, null, null, null));
 
         result.Should().BeOfType<ConflictObjectResult>();
     }
@@ -49,7 +49,7 @@ public sealed class TasksControllerConflictTests
     {
         _commands.UpdateTaskAsync(default, default).ReturnsForAnyArgs(Result<TaskDto>.Failure(TaskRunGuard.ChangedUnderneath(Guid.NewGuid())));
 
-        var result = await Controller().UpdateTask(Guid.NewGuid(), new UpdateTaskDto(null, null, null, null, null, null, null, null, null));
+        var result = await Controller().UpdateTask(Guid.NewGuid(), new UpdateTaskDto(null, null, null, null, null, null, null));
 
         result.Should().BeOfType<ConflictObjectResult>();
     }

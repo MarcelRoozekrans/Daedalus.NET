@@ -8,6 +8,4 @@ public record UpdateTaskDto(
     string? Phase,
     int? ParallelGroup,
     int? EstimatedComplexity,
-    string? Prompt,
-    string? CompletionPromise,
-    int? MaxIterations);
+    string? Prompt);

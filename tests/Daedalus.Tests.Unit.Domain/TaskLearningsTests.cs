@@ -14,9 +14,7 @@ public class TaskLearningsTests
         // Arrange & Act
         var task = DomainTestFactory.CreateTask(
             Guid.NewGuid(),
-            prompt: "Test prompt",
-            completionPromise: "SUCCESS",
-            maxIterations: 5);
+            prompt: "Test prompt");
 
         // Assert
         Assert.Empty(task.Learnings);
@@ -29,9 +27,7 @@ public class TaskLearningsTests
         // Arrange
         var task = DomainTestFactory.CreateTask(
             Guid.NewGuid(),
-            prompt: "Test prompt",
-            completionPromise: "SUCCESS",
-            maxIterations: 5);
+            prompt: "Test prompt");
 
         var learningsText = "✓ Success at iteration 3\n⚠ Connection timeout error\nℹ Average response: 512 chars";
 
@@ -51,9 +47,7 @@ public class TaskLearningsTests
         // Arrange
         var task = DomainTestFactory.CreateTask(
             Guid.NewGuid(),
-            prompt: "Test prompt",
-            completionPromise: "SUCCESS",
-            maxIterations: 5);
+            prompt: "Test prompt");
 
         // Act
         var result = task.UpdateLearnings(string.Empty);
@@ -69,9 +63,7 @@ public class TaskLearningsTests
         // Arrange
         var task = DomainTestFactory.CreateTask(
             Guid.NewGuid(),
-            prompt: "Test prompt",
-            completionPromise: "SUCCESS",
-            maxIterations: 5);
+            prompt: "Test prompt");
 
         // Act
         var result = task.UpdateLearnings("   ");
@@ -86,9 +78,7 @@ public class TaskLearningsTests
         // Arrange
         var task = DomainTestFactory.CreateTask(
             Guid.NewGuid(),
-            prompt: "Test prompt",
-            completionPromise: "SUCCESS",
-            maxIterations: 5);
+            prompt: "Test prompt");
 
         var learningsText = "   Some learnings   \n  with extra whitespace  ";
 
@@ -106,9 +96,7 @@ public class TaskLearningsTests
         // Arrange
         var task = DomainTestFactory.CreateTask(
             Guid.NewGuid(),
-            prompt: "Test prompt",
-            completionPromise: "SUCCESS",
-            maxIterations: 5);
+            prompt: "Test prompt");
 
         var firstLearnings = "First attempt learnings";
         var secondLearnings = "Updated learnings after more executions";
@@ -140,9 +128,7 @@ public class TaskLearningsTests
         // Arrange
         var task = DomainTestFactory.CreateTask(
             Guid.NewGuid(),
-            prompt: "Test prompt",
-            completionPromise: "SUCCESS",
-            maxIterations: 5);
+            prompt: "Test prompt");
 
         // Create a long learnings string (1000+ chars)
         var learningsText = string.Join(

@@ -52,10 +52,10 @@ public sealed class Task : AggregateRoot<Guid>
     /// <summary>Gets the prompt to be repeatedly sent to the LLM.</summary>
     public string Prompt { get; private set; } = string.Empty;
 
-    /// <summary>Gets the completion promise - exact string that signals success.</summary>
+    /// <summary>Gets the completion promise. Set only by the task loop that phase 2.8 retired. A task created since has none: empty and 0.</summary>
     public string CompletionPromise { get; private set; } = string.Empty;
 
-    /// <summary>Gets the maximum iterations before failure.</summary>
+    /// <summary>Gets the maximum iterations. Set only by the task loop that phase 2.8 retired. A task created since has none: empty and 0.</summary>
     public int MaxIterations { get; private set; }
 
     /// <summary>Gets the session currently executing this task, if any.</summary>
@@ -109,8 +109,6 @@ public sealed class Task : AggregateRoot<Guid>
         int parallelGroup,
         Complexity estimatedComplexity,
         string prompt,
-        string completionPromise,
-        int maxIterations,
         DateTime? createdAt = null)
     {
         if (string.IsNullOrWhiteSpace(taskId))
@@ -163,21 +161,6 @@ public sealed class Task : AggregateRoot<Guid>
             return ZeroAlloc.Results.Result<Task>.Failure("Prompt cannot exceed 8000 characters");
         }
 
-        if (string.IsNullOrWhiteSpace(completionPromise))
-        {
-            return ZeroAlloc.Results.Result<Task>.Failure("Completion promise cannot be empty");
-        }
-
-        if (completionPromise.Length > 1000)
-        {
-            return ZeroAlloc.Results.Result<Task>.Failure("Completion promise cannot exceed 1000 characters");
-        }
-
-        if (maxIterations < 1 || maxIterations > 1000)
-        {
-            return ZeroAlloc.Results.Result<Task>.Failure("Max iterations must be between 1 and 1000");
-        }
-
         if (parallelGroup < 1)
         {
             return ZeroAlloc.Results.Result<Task>.Failure("Parallel group must be at least 1");
@@ -195,8 +178,6 @@ public sealed class Task : AggregateRoot<Guid>
             ParallelGroup = parallelGroup,
             EstimatedComplexity = estimatedComplexity,
             Prompt = prompt.Trim(),
-            CompletionPromise = completionPromise.Trim(),
-            MaxIterations = maxIterations,
             CreatedAt = createdAt ?? DateTime.UtcNow
         });
     }
@@ -346,13 +327,11 @@ public sealed class Task : AggregateRoot<Guid>
     }
 
     /// <summary>
-    ///     Updates execution configuration (prompt, completion promise, max iterations, parallel group).
+    ///     Updates the parallel group and the prompt.
     /// </summary>
     public Result UpdateExecutionConfig(
         int? parallelGroup = null,
-        string? prompt = null,
-        string? completionPromise = null,
-        int? maxIterations = null)
+        string? prompt = null)
     {
         if (parallelGroup.HasValue)
         {
@@ -377,31 +356,6 @@ public sealed class Task : AggregateRoot<Guid>
             }
 
             Prompt = prompt.Trim();
-        }
-
-        if (completionPromise is not null)
-        {
-            if (string.IsNullOrWhiteSpace(completionPromise))
-            {
-                return ZeroAlloc.Results.Result.Failure("Completion promise cannot be empty");
-            }
-
-            if (completionPromise.Length > 1000)
-            {
-                return ZeroAlloc.Results.Result.Failure("Completion promise cannot exceed 1000 characters");
-            }
-
-            CompletionPromise = completionPromise.Trim();
-        }
-
-        if (maxIterations.HasValue)
-        {
-            if (maxIterations.Value < 1 || maxIterations.Value > 1000)
-            {
-                return ZeroAlloc.Results.Result.Failure("Max iterations must be between 1 and 1000");
-            }
-
-            MaxIterations = maxIterations.Value;
         }
 
         return ZeroAlloc.Results.Result.Success();

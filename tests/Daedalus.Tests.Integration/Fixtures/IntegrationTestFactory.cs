@@ -62,9 +62,7 @@ public static class IntegrationTestFactory
         Guid? id = null,
         Guid? projectId = null,
         string? taskId = null,
-        string prompt = "Test prompt",
-        string completionPromise = "DONE",
-        int maxIterations = 10)
+        string prompt = "Test prompt")
     {
         return Task.Create(
             id ?? Guid.NewGuid(),
@@ -76,9 +74,7 @@ public static class IntegrationTestFactory
             "Testing",
             1,
             Complexity.Medium,
-            prompt,
-            completionPromise,
-            maxIterations
+            prompt
         ).Value;
     }
 }

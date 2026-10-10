@@ -59,7 +59,7 @@ public sealed class TasksControllerManufactureTests
     {
         var project = Project.Create(Guid.NewGuid(), "P", "D", repositoryUrl: repositoryUrl).Value;
         var task = DomainTask.Create(Guid.NewGuid(), project.Id, "TASK-1", "T", "D", Priority.Medium, "Backend", 1,
-            Complexity.Medium, "P", "DONE", 10).Value;
+            Complexity.Medium, "P").Value;
         if (run is { } state)
         {
             var runId = Guid.NewGuid();

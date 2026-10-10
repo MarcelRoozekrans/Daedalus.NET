@@ -1,3 +1,5 @@
+using Daedalus.Domain.Entities;
+
 namespace Daedalus.Tests.Unit.Domain.Entities;
 
 /// <summary>
@@ -6,6 +8,19 @@ namespace Daedalus.Tests.Unit.Domain.Entities;
 /// </summary>
 public sealed class TaskWorkflowRunTests
 {
+    /// <summary>
+    ///     A task created after phase 2.8 carries none of the loop's settings, so the Web shows none for it.
+    ///     Red: keep a default <c>MaxIterations = 10</c> in <c>Create</c>; the assertion fails.
+    /// </summary>
+    [Fact]
+    public void A_new_task_carries_no_loop_settings()
+    {
+        var task = DomainTask.Create(Guid.NewGuid(), Guid.NewGuid(), "TASK-1", "T", "D", Priority.Medium, "Backend", 1, Complexity.Medium, "P").Value;
+
+        task.MaxIterations.Should().Be(0);
+        task.CompletionPromise.Should().BeEmpty();
+    }
+
     /// <summary>Red: drop the assignment in <c>AttachRun</c>; <c>WorkflowRunId</c> stays null.</summary>
     [Fact]
     public void Attaching_a_run_records_its_id()

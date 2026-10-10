@@ -125,7 +125,6 @@ public class ProjectsPageTests : ApiTestBase
         foreach (var task in project!.Tasks)
         {
             task.Prompt.Should().NotBeNullOrEmpty("Task should have a prompt");
-            task.CompletionPromise.Should().NotBeNullOrEmpty("Task should have a completion promise");
         }
     }
 

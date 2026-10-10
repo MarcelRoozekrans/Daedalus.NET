@@ -21,8 +21,6 @@
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="TaskDto" Property="Prompt" Title="Prompt"/>
-                <RadzenDataGridColumn TItem="TaskDto" Property="MaxIterations" Title="Max Iter." Width="100px" TextAlign="TextAlign.Center"/>
-                <RadzenDataGridColumn TItem="TaskDto" Property="IterationCount" Title="Current" Width="100px" TextAlign="TextAlign.Center"/>
                 <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" Width="120px">
                     <Template Context="task">
                         @task.CreatedAt.ToShortDateString()

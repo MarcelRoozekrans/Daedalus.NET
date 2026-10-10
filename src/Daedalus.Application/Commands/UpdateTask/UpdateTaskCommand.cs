@@ -1,7 +1,7 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Commands.UpdateTask;
 
@@ -16,6 +16,4 @@ public readonly record struct UpdateTaskCommand(
     string? Phase,
     int? ParallelGroup,
     Complexity? EstimatedComplexity,
-    string? Prompt,
-    string? CompletionPromise,
-    int? MaxIterations) : IRequest<Result<TaskDto>>;
+    string? Prompt) : IRequest<Result<TaskDto>>;

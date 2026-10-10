@@ -18,11 +18,7 @@ public record UpdateTaskDto(
     [property: InclusiveBetween(0, 3, Message = "Estimated complexity must be between 0 (Simple) and 3 (VeryComplex).", When = nameof(UpdateTaskDto.EstimatedComplexityHasValue))]
     int? EstimatedComplexity,
     [property: MaxLength(8000, Message = "Prompt cannot exceed 8000 characters.")]
-    string? Prompt,
-    [property: MaxLength(1000, Message = "Completion promise cannot exceed 1000 characters.")]
-    string? CompletionPromise,
-    [property: InclusiveBetween(1, 1000, Message = "Max iterations must be between 1 and 1000.", When = nameof(UpdateTaskDto.MaxIterationsHasValue))]
-    int? MaxIterations)
+    string? Prompt)
 {
     /// <summary>Guards <see cref="Priority"/>'s range check so an omitted value is not coerced to 0 and checked.</summary>
     internal bool PriorityHasValue() => Priority.HasValue;
@@ -33,6 +29,4 @@ public record UpdateTaskDto(
     /// <summary>Guards <see cref="EstimatedComplexity"/>'s range check so an omitted value is not coerced to 0 and checked.</summary>
     internal bool EstimatedComplexityHasValue() => EstimatedComplexity.HasValue;
 
-    /// <summary>Guards <see cref="MaxIterations"/>'s range check so an omitted value is not coerced to 0 and checked.</summary>
-    internal bool MaxIterationsHasValue() => MaxIterations.HasValue;
 }

@@ -67,7 +67,7 @@ public sealed class TaskManufactureServiceTests
     /// <summary>The one place a task is built, so the <c>Task.Create</c> signature change in Task 11 touches one line.</summary>
     private static DomainTask NewTask(Guid projectId, string taskId) =>
         DomainTask.Create(Guid.NewGuid(), projectId, taskId, "Add a health check", "Expose GET /health.", Priority.Medium,
-            "Backend", 1, Complexity.Medium, "Implement it.", "DONE", 10).Value;
+            "Backend", 1, Complexity.Medium, "Implement it.").Value;
 
     private void RunIs(DomainTask task, WorkflowRunState state)
     {
