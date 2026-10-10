@@ -79,6 +79,11 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository, IWo
         var updateDbResult = await taskRepository.UpdateAsync(task, ct);
         if (updateDbResult.IsFailure)
         {
+            if (updateDbResult.Error.StartsWith(TaskRunGuard.ChangedPrefix, StringComparison.Ordinal))
+            {
+                return Result<TaskDto>.Failure(updateDbResult.Error);
+            }
+
             return Result<TaskDto>.Failure($"Failed to update task: {updateDbResult.Error}");
         }
 

@@ -130,7 +130,7 @@ public sealed partial class TasksController(
             return Ok(result.Value);
         }
 
-        if (result.Error.StartsWith(TaskRunGuard.LiveRunPrefix, StringComparison.Ordinal))
+        if (TaskRunGuard.IsConflict(result.Error))
         {
             return Conflict(new { error = result.Error });
         }
@@ -158,7 +158,7 @@ public sealed partial class TasksController(
             return NoContent();
         }
 
-        if (result.Error.StartsWith(TaskRunGuard.LiveRunPrefix, StringComparison.Ordinal))
+        if (TaskRunGuard.IsConflict(result.Error))
         {
             return Conflict(new { error = result.Error });
         }

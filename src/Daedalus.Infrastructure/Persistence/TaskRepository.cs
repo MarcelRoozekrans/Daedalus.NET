@@ -1,10 +1,11 @@
 using System.Globalization;
 using System.Text;
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 using Task = Daedalus.Domain.Entities.Task;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
@@ -121,7 +122,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
             // Dependency gate: only claim tasks with no dependencies OR all dependencies Completed
             var task = await dbContext.Tasks
                 .FromSqlInterpolated($@"
-                    SELECT * FROM ""Tasks"" t
+                    SELECT t.*, t.xmin FROM ""Tasks"" t
                     WHERE t.""Status"" = {(int)TaskStatus.Pending}
                     AND (
                         t.""Dependencies"" IS NULL
@@ -190,6 +191,11 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
             return Result.Success();
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id));
+        }
         catch (Exception ex)
         {
             LogErrorUpdatingTask(logger, ex, task.Id);
@@ -201,14 +207,22 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
     {
         try
         {
-            var deleted = await dbContext.Tasks
-                .Where(t => t.Id == id)
-                .ExecuteDeleteAsync(ct)
-                .ConfigureAwait(false);
+            // Delete through the tracker so the row's xmin is checked: a task that gained a run since it was read is
+            // refused rather than deleted.
+            var task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct).ConfigureAwait(false);
+            if (task is null)
+            {
+                return Result.Failure($"Task with ID {id} not found");
+            }
 
-            return deleted > 0
-                ? Result.Success()
-                : Result.Failure($"Task with ID {id} not found");
+            dbContext.Tasks.Remove(task);
+            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            return Result.Success();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return Result.Failure(TaskRunGuard.ChangedUnderneath(id));
         }
         catch (Exception ex)
         {
