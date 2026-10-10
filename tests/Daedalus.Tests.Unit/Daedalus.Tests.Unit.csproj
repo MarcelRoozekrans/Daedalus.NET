@@ -54,12 +54,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <!-- Api, Cli, Console and Web each ship an appsettings.json; whichever is copied last wins in the output folder.
+        <!-- Api, Cli and Web each ship an appsettings.json; whichever is copied last wins in the output folder.
              ApiThalosConfigurationTests and DefaultAgentConfigurationTests must test each host's own file, so link
              every one under an unambiguous name. -->
         <None Include="..\..\src\Daedalus.Api\appsettings.json" Link="Daedalus.Api.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
         <None Include="..\..\src\Daedalus.Cli\appsettings.json" Link="Daedalus.Cli.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
-        <None Include="..\..\src\Daedalus.Console\appsettings.json" Link="Daedalus.Console.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
         <!-- The Api's .mcp.json under an unambiguous name. It also reaches this output as .mcp.json, through the Api
              project reference; McpConfigOutputTests pins that the two are the same file, so no other host's
              .mcp.json can take its place there. -->
@@ -73,7 +72,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>
         <!-- Referenced only so its assembly is present in this project's output directory for
              Assembly.Load("Daedalus.Cli") in CleanArchitectureTests (OnlySubagentRunExecutor_DependsOn_ISubagentRunner's
              DaedalusOwnTypes) - Daedalus.Cli has no public type a typeof() expression could anchor on. -->

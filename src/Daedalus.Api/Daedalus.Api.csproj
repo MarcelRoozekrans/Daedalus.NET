@@ -6,7 +6,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>13</LangVersion>
         <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
-        <!-- Native AOT disabled, like Daedalus.Console: MVC controllers, EF Core (ApplyConfigurationsFromAssembly),
+        <!-- Native AOT disabled: MVC controllers, EF Core (ApplyConfigurationsFromAssembly),
              Aspire, the Anthropic SDK and AI.Sentinel all need reflection/dynamic code — a
              Release publish with PublishAot=true fails on IL2026/IL2104 (this is what kept the API container image
              from ever building). Reflection-based System.Text.Json stays enabled in every configuration for the
@@ -15,7 +15,7 @@
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
         <!-- Lets `dotnet user-secrets set Thalos:Channels:Telegram:BotToken ...` (etc.) reach this host in
-             Development, the same mechanism Daedalus.Console already uses for its own secrets. -->
+             Development, the same mechanism Daedalus.Cli uses for its own secrets. -->
         <UserSecretsId>0c04d16b-eee6-4e74-85c9-fcbe77850b42</UserSecretsId>
     </PropertyGroup>
 

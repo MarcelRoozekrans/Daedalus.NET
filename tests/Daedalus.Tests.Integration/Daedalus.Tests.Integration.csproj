@@ -61,7 +61,6 @@
         <ProjectReference Include="..\..\src\Daedalus.Cli\Daedalus.Cli.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
-        <ProjectReference Include="..\..\src\Daedalus.Console\Daedalus.Console.csproj"/>
         <!-- Migrations tests run Daedalus.Migrations' own workflow engine step, WorkflowEngineMigrator, rather than a
              copy of its wiring. -->
         <ProjectReference Include="..\..\src\Daedalus.Migrations\Daedalus.Migrations.csproj"/>
@@ -69,7 +68,7 @@
 
     <ItemGroup>
         <!-- SkillsStartupTests boots a host on the shipped API configuration; link it under an unambiguous name, the
-             same way Daedalus.Tests.Unit does (Api, Console and Web all ship an appsettings.json). -->
+             same way Daedalus.Tests.Unit does (Api, Cli and Web all ship an appsettings.json). -->
         <None Include="..\..\src\Daedalus.Api\appsettings.json" Link="Daedalus.Api.appsettings.json" CopyToOutputDirectory="PreserveNewest"/>
         <!-- The Api's .mcp.json under an unambiguous name. It also reaches this output as .mcp.json, through the Api
              project reference; McpConfigOutputTests pins that the two are the same file, so no other host's

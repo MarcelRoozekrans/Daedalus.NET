@@ -232,8 +232,6 @@ jobs:
         include:
           - image: daedalus-api
             dockerfile: src/Daedalus.Api/Dockerfile
-          - image: daedalus-console
-            dockerfile: src/Daedalus.Console/Dockerfile
           - image: daedalus-web
             dockerfile: src/Daedalus.Web/Dockerfile
 
@@ -298,8 +296,6 @@ jobs:
         include:
           - image: daedalus-api
             dockerfile: src/Daedalus.Api/Dockerfile
-          - image: daedalus-console
-            dockerfile: src/Daedalus.Console/Dockerfile
           - image: daedalus-web
             dockerfile: src/Daedalus.Web/Dockerfile
 

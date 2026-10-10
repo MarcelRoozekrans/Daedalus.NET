@@ -20,20 +20,16 @@ namespace Daedalus.Tests.Unit.Configuration;
 
 /// <summary>
 ///     Guards the shipped API configuration: <c>.mcp.json</c> flows into this test's output through the Daedalus.Api
-///     project reference, and <c>appsettings.json</c> is linked explicitly as <c>Daedalus.Api.appsettings.json</c> (Console
+///     project reference, and <c>appsettings.json</c> is linked explicitly as <c>Daedalus.Api.appsettings.json</c> (Cli
 ///     and Web ship one too and would otherwise race for the plain name), so the file that is deployed is the file under test.
 /// </summary>
 public sealed class ApiThalosConfigurationTests
 {
     private const string ApiAppSettingsFileName = "Daedalus.Api.appsettings.json";
 
-    private const string ConsoleAppSettingsFileName = "Daedalus.Console.appsettings.json";
-
     private const string CliAppSettingsFileName = "Daedalus.Cli.appsettings.json";
 
     private static IConfiguration LoadApiConfiguration() => Load(ApiAppSettingsFileName);
-
-    private static IConfiguration LoadConsoleConfiguration() => Load(ConsoleAppSettingsFileName);
 
     private static IConfiguration Load(string fileName) =>
         new ConfigurationBuilder()
@@ -251,53 +247,38 @@ public sealed class ApiThalosConfigurationTests
     }
 
     /// <summary>
-    ///     The console worker writes Ralph learnings into the same database as the API. If the two hosts disagreed on the
-    ///     shared owner, Ralph would write memories nobody recalls; if they disagreed on the vector width, the second host
-    ///     to touch <c>rag_chunks</c> would fail. Both files therefore declare the same block, pinned here.
+    ///     The Cli host recalls the same memories as the API. If the two disagreed on the shared owner, a conversation on
+    ///     one would not recall the other's; if they disagreed on the vector width, the second host to touch rag_chunks
+    ///     would fail. Red: change SharedOwnerId in Daedalus.Cli/appsettings.json.
     /// </summary>
     [Fact]
-    public void Console_and_api_agree_on_the_shared_memory_settings()
+    public void Cli_and_api_agree_on_the_shared_memory_settings()
     {
         var api = LoadApiConfiguration().GetSection(MemoryConfig.SectionName);
-        var console = LoadConsoleConfiguration().GetSection(MemoryConfig.SectionName);
+        var cli = Load(CliAppSettingsFileName).GetSection(MemoryConfig.SectionName);
 
-        console.Exists().Should().BeTrue("the Ralph worker binds Thalos:Memory through AddDaedalusMemory");
+        cli.Exists().Should().BeTrue();
         foreach (var key in new[] { "SharedOwnerId", "VectorDimensions", "RalphRecall:TopK", "RalphRecall:MinScore" })
         {
-            console[key].Should().Be(api[key], "Thalos:Memory:{0} must match between the API and console hosts", key);
+            cli[key].Should().Be(api[key], "Thalos:Memory:{0} must match between the API and Cli hosts", key);
         }
     }
 
-    [Fact]
-    public void Console_host_does_not_create_the_ragnet_schema()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        services.AddDaedalusMemory(LoadConsoleConfiguration());
-        using var sp = services.BuildServiceProvider();
-
-        sp.GetRequiredService<RagNetMemoryOptions>().EnsureSchemaOnStartup.Should().BeFalse(
-            "the API host creates rag_chunks; concurrent CREATE from both hosts can fail on the pg catalog");
-        sp.GetServices<IHostedService>().Should().NotContain(s => s.GetType().Name == "RagNetMemorySchemaInitializer");
-    }
-
     /// <summary>
-    ///     <c>UseRagNetMemory</c> is last-call-wins, so a host that called both registrations would silently take the
-    ///     later <c>EnsureSchemaOnStartup</c> — on the API that means nobody creates <c>rag_chunks</c> and every memory
-    ///     stays <c>index_pending</c> without anything failing. The registration refuses instead.
+    ///     UseRagNetMemory is last-call-wins, so a second registration would silently change EnsureSchemaOnStartup. The
+    ///     registration refuses instead. Red: drop the <c>ThrowIfMemoryAlreadyRegistered</c> call in <c>AddDaedalusAgents</c>.
     /// </summary>
     [Fact]
-    public void Registering_memory_twice_throws_instead_of_silently_disabling_schema_creation()
+    public void Registering_the_agents_twice_throws_instead_of_silently_changing_schema_creation()
     {
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
-        services.AddDaedalusMemory(LoadConsoleConfiguration());
+        var services = ComposeWithApiConfiguration();
+        var environment = Substitute.For<IHostEnvironment>();
+        environment.ContentRootPath.Returns(AppContext.BaseDirectory);
+        environment.EnvironmentName.Returns("Development");
 
-        var second = () => services.AddDaedalusMemory(LoadConsoleConfiguration());
+        var second = () => services.AddDaedalusAgents(LoadApiConfiguration(), environment);
 
-        second.Should().Throw<InvalidOperationException>().WithMessage("*mutually exclusive*");
+        second.Should().Throw<InvalidOperationException>().WithMessage("*already registers Daedalus memory*");
     }
 
     [Fact]

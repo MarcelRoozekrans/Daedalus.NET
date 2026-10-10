@@ -36,7 +36,6 @@ body:
         - Application Layer
         - Infrastructure Layer
         - API (Daedalus.Api)
-        - Console Worker (Daedalus.Console)
         - Web Frontend (Blazor)
         - Database / Migrations
         - CI/CD Pipeline

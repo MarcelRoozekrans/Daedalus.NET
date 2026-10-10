@@ -7,8 +7,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{5AB36F7E-BBAF-4C7C-B86C-1865B88588D2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Daedalus.Console", "src\Daedalus.Console\Daedalus.Console.csproj", "{C123D456-E789-0ABC-DEF1-234567890ABC}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Daedalus.Domain", "src\Daedalus.Domain\Daedalus.Domain.csproj", "{C223D456-E789-0ABC-DEF1-234567890ABC}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Daedalus.Application", "src\Daedalus.Application\Daedalus.Application.csproj", "{C323D456-E789-0ABC-DEF1-234567890ABC}"
@@ -42,7 +40,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Files", "Solution 
 		Directory.Build.props = Directory.Build.props
 		Directory.Packages.props = Directory.Packages.props
 		docker-compose.yml = docker-compose.yml
-		Dockerfile = Dockerfile
 		README.md = README.md
 		.gitignore = .gitignore
 		Daedalus.sln = Daedalus.sln
@@ -70,18 +67,6 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Debug|x64.Build.0 = Debug|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Debug|x86.Build.0 = Debug|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Release|Any CPU.Build.0 = Release|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Release|x64.ActiveCfg = Release|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Release|x64.Build.0 = Release|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Release|x86.ActiveCfg = Release|Any CPU
-		{C123D456-E789-0ABC-DEF1-234567890ABC}.Release|x86.Build.0 = Release|Any CPU
 		{C223D456-E789-0ABC-DEF1-234567890ABC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{C223D456-E789-0ABC-DEF1-234567890ABC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C223D456-E789-0ABC-DEF1-234567890ABC}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -303,7 +288,6 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{C123D456-E789-0ABC-DEF1-234567890ABC} = {5AB36F7E-BBAF-4C7C-B86C-1865B88588D2}
 		{C223D456-E789-0ABC-DEF1-234567890ABC} = {5AB36F7E-BBAF-4C7C-B86C-1865B88588D2}
 		{C323D456-E789-0ABC-DEF1-234567890ABC} = {5AB36F7E-BBAF-4C7C-B86C-1865B88588D2}
 		{C423D456-E789-0ABC-DEF1-234567890ABC} = {5AB36F7E-BBAF-4C7C-B86C-1865B88588D2}

@@ -14,7 +14,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-// Alias to resolve ambiguity between Daedalus.Api.Program and Daedalus.Console.Program
+// Alias to resolve ambiguity between Daedalus.Api.Program and other hosts' Program types
 using ApiProgram = Daedalus.Api.Program;
 using Task = System.Threading.Tasks.Task;
 
