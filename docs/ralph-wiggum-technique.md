@@ -1,5 +1,7 @@
 # Ralph Wiggum AI Loop Technique
 
+> **Retired.** Daedalus retired the Ralph loop in phase 2.8 (October 2026). Work now runs as a manufacture run, started from the board: see README, 'Manufacturing a task'. This page is kept as history.
+
 ## Overview
 
 The Ralph Wiggum technique is an iterative AI development methodology that uses persistent looping to feed an AI agent the same prompt repeatedly until a completion signal is received. Named after The Simpsons character, it embodies the philosophy of persistent iteration despite setbacks.

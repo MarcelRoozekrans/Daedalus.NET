@@ -3,10 +3,10 @@ namespace Daedalus.Benchmarks;
 using ZLinq;
 
 /// <summary>
-/// Benchmarks for phase orchestration dependency resolution — the in-memory
-/// dependency graph traversal that runs after every task completion.
-/// Simulates the core algorithm from PhaseOrchestrator.OnTaskCompletedAsync
-/// without the async DB call, isolating the pure compute + allocation cost.
+/// Benchmarks for dependency resolution — the in-memory dependency graph traversal
+/// that decides which tasks become ready once one completes.
+/// A standalone copy of the algorithm the retired PhaseOrchestrator.OnTaskCompletedAsync
+/// ran (phase 2.8 deleted that type), kept to isolate the pure compute + allocation cost.
 /// </summary>
 [MemoryDiagnoser]
 [RankColumn]
@@ -85,7 +85,7 @@ public class DependencyResolutionBenchmarks
         return task.Dependencies.Contains("TASK-000", StringComparer.Ordinal);
     }
 
-    // === Extracted algorithm from PhaseOrchestrator.OnTaskCompletedAsync ===
+    // === Copy of the algorithm from the retired PhaseOrchestrator.OnTaskCompletedAsync ===
 
     private static List<string> ResolveUnblockedTasks(List<TaskGraph> tasks, string completedTaskId)
     {
