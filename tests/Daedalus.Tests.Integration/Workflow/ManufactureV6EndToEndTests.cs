@@ -137,8 +137,8 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
     ///     sessions owned by <c>workflow:*</c> out, because each node turn is counted from its <c>node-usage</c> record.
     ///     This pins the owner that filter keys on. The scratch database holds this run's sessions only.
     ///     Red: change <c>WorkflowCaller.Id</c> to <c>$"run:{run.Id}"</c>; the owner assertion fails.
-    ///     Red: make <c>PostgresAgentSessionStore.CreateAsync</c> skip the <c>Add</c>; the run fails at implement with SessionNotFound, so the
-    ///     parked-at-the-gate wait fails first. The not-empty assertion is a guard against a vacuous owner check, and no single mutation reaches it.
+    ///     Guard, no isolated Red: the not-empty assertion keeps the owner assertion from passing vacuously over an empty set;
+    ///     a run that persists no sessions fails earlier, at the parked-at-the-gate wait.
     /// </summary>
     [Fact]
     public async Task Every_node_turn_session_is_owned_by_the_runs_workflow_caller()
