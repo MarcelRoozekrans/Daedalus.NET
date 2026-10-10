@@ -66,8 +66,12 @@ public sealed partial class TaskManufactureService(
     IManufactureRunStarter starter,
     WorkflowConfig workflow,
     IWorkflowRunCanceller canceller,
+    TimeProvider clock,
     ILogger<TaskManufactureService> logger)
 {
+    /// <summary>How long saving the attach may take, under a token of its own.</summary>
+    internal static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(10);
+
     [LoggerMessage(EventId = 1, Level = LogLevel.Warning,
         Message = "Run {RunId} started for task {TaskId}, but the task was changed by another request before the run could be attached")]
     private static partial void LogAttachLostRace(ILogger logger, Guid runId, Guid taskId);
@@ -140,7 +144,7 @@ public sealed partial class TaskManufactureService(
 
         var runId = started.Value;
         var attached = task.AttachRun(runId);
-        var saved = attached.IsSuccess ? await tasks.UpdateAsync(task, ct).ConfigureAwait(false) : attached;
+        var saved = attached.IsSuccess ? await SaveAttachAsync(task).ConfigureAwait(false) : attached;
         if (saved.IsSuccess)
         {
             return Result<Guid, TaskManufactureFailure>.Success(runId);
@@ -171,6 +175,17 @@ public sealed partial class TaskManufactureService(
             $"Run {runId} started, but {why}. {outcome}",
             RunId: runId,
             RunCancelled: cancelled));
+    }
+
+    /// <summary>
+    ///     Saves the attach under a token of its own that only <see cref="AttachTimeout"/> cancels, never the caller's, as
+    ///     <c>WorkflowRunCanceller</c> does. The run has already started, so a caller that goes away must not leave it
+    ///     running unattached, or have it cancelled, only because the request ended.
+    /// </summary>
+    private async Task<Result> SaveAttachAsync(DomainTask task)
+    {
+        using var timeout = new CancellationTokenSource(AttachTimeout, clock);
+        return await tasks.UpdateAsync(task, timeout.Token).ConfigureAwait(false);
     }
 
     /// <summary>The reason an unattached run is cancelled for, by why it is unattached.</summary>

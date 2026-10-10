@@ -53,7 +53,7 @@ public sealed class TasksControllerManufactureTests
 
     private TaskManufactureService Service() =>
         new(_tasks, _projects, _runs, _starter, _workflow,
-            new WorkflowRunCanceller(TaskManufactureServiceTests.Gateway(_store), TimeProvider.System, _cancelLog), _logger);
+            new WorkflowRunCanceller(TaskManufactureServiceTests.Gateway(_store), TimeProvider.System, _cancelLog), TimeProvider.System, _logger);
 
     private DomainTask Given(string repositoryUrl, WorkflowRunState? run = null)
     {

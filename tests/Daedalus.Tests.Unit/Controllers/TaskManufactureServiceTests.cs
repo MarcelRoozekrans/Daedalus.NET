@@ -42,7 +42,7 @@ public sealed class TaskManufactureServiceTests
             new ValueTask<Result<Guid, ManufactureStartFailure>>(Result<Guid, ManufactureStartFailure>.Success(_started)));
     }
 
-    private TaskManufactureService Service() => new(_tasks, _projects, _runs, _starter, _workflow, _canceller, _logger);
+    private TaskManufactureService Service() => new(_tasks, _projects, _runs, _starter, _workflow, _canceller, TimeProvider.System, _logger);
 
     /// <summary>The real gateway over <paramref name="store"/>, as the engine-on host registers it.</summary>
     internal static WorkflowRunGateway Gateway(IWorkflowStore store) =>
@@ -235,6 +235,35 @@ public sealed class TaskManufactureServiceTests
                 r.WorkIntent == "Add a health check\n\nExpose GET /health." && r.Repository == "daedalus-sandbox" && r.StartedBy == Starter),
             Arg.Any<CancellationToken>());
         await _tasks.Received(1).UpdateAsync(Arg.Is<DomainTask>(t => t.Id == task.Id && t.WorkflowRunId == _started), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     Once the run has started, the attach is saved under a token of its own, so a caller that goes away while the run
+    ///     starts leaves it attached, not cancelled. The save here honours its token, as EF Core's does.
+    ///     Red: pass the caller's token to <c>UpdateAsync</c> again, or link it into the save's token; the save fails,
+    ///     AttachFailed is returned and the run is cancelled, so the success, received-token and canceller assertions fail.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_that_cancels_after_the_start_still_gets_the_run_attached_and_not_cancelled()
+    {
+        var task = Given();
+        using var caller = new CancellationTokenSource();
+        _starter.StartAsync(default!, default).ReturnsForAnyArgs(_ =>
+        {
+            caller.Cancel();
+            return new ValueTask<Result<Guid, ManufactureStartFailure>>(Result<Guid, ManufactureStartFailure>.Success(_started));
+        });
+        _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(call =>
+            call.Arg<CancellationToken>().IsCancellationRequested ? Result.Failure("The save was cancelled.") : Result.Success());
+
+        var result = await Service().StartAsync(task.Id, Starter, caller.Token);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(_started);
+        await _tasks.Received(1).UpdateAsync(
+            Arg.Is<DomainTask>(t => t.Id == task.Id && t.WorkflowRunId == _started),
+            Arg.Is<CancellationToken>(t => !t.IsCancellationRequested));
+        await _canceller.DidNotReceiveWithAnyArgs().CancelAsync(Guid.Empty, default!, default);
     }
 
     /// <summary>Red: attach before starting; <c>UpdateAsync</c> is received although the start failed.</summary>
