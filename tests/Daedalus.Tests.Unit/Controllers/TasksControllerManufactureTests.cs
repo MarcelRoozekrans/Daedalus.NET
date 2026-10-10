@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Thalos.Workflow;
 using ZeroAlloc.Results;
 using DomainTask = Daedalus.Domain.Entities.Task;
 using Task = System.Threading.Tasks.Task;
@@ -26,7 +28,8 @@ public sealed class TasksControllerManufactureTests
     private readonly IWorkflowRunStatusReader _runs = Substitute.For<IWorkflowRunStatusReader>();
     private readonly IManufactureRunStarter _starter = Substitute.For<IManufactureRunStarter>();
     private readonly WorkflowConfig _workflow = new();
-    private readonly CapturingLogger _logger = new();
+    private readonly IWorkflowStore _store = Substitute.For<IWorkflowStore>();
+    private readonly TaskManufactureServiceTests.CapturingLogger<TaskManufactureService> _logger = new();
     private readonly TasksController _controller;
 
     public TasksControllerManufactureTests()
@@ -38,7 +41,7 @@ public sealed class TasksControllerManufactureTests
         services.AddLogging();
         services.AddMvcCore().AddApiExplorer();
         var identity = new ClaimsIdentity([new Claim("sub", "u-dev"), new Claim(ClaimTypes.Role, "developer")], authenticationType: "test");
-        _controller = new TasksController(Substitute.For<ITaskQueryService>(), Substitute.For<IApplicationCommands>(), _logger)
+        _controller = new TasksController(Substitute.For<ITaskQueryService>(), Substitute.For<IApplicationCommands>(), NullLogger<TasksController>.Instance)
         {
             ControllerContext = new ControllerContext
             {
@@ -47,7 +50,8 @@ public sealed class TasksControllerManufactureTests
         };
     }
 
-    private TaskManufactureService Service() => new(_tasks, _projects, _runs, _starter, _workflow);
+    private TaskManufactureService Service() =>
+        new(_tasks, _projects, _runs, _starter, _workflow, _logger, TaskManufactureServiceTests.Gateway(_store));
 
     private DomainTask Given(string repositoryUrl, WorkflowRunState? run = null)
     {
@@ -136,25 +140,92 @@ public sealed class TasksControllerManufactureTests
         StatusOf(await _controller.Manufacture(task.Id, Service())).Should().Be(StatusCodes.Status422UnprocessableEntity);
     }
 
-    /// <summary>
-    ///     The run started, but the task changed underneath and the attach lost the race: 409, logged at Warning with both
-    ///     ids so the unattached run can be found.
-    ///     Red: map AttachConflict to 500; the status assertion fails.
-    ///     Red: drop the log call; the log assertion fails.
-    /// </summary>
-    [Fact]
-    public async Task An_attach_that_loses_the_race_is_409_and_logs_both_ids()
+    private DomainTask GivenStartedRun(Guid runId, string saveError)
     {
         var task = Given("https://github.com/o/daedalus-sandbox");
-        var runId = Guid.NewGuid();
         _starter.StartAsync(default!, default).ReturnsForAnyArgs(new ValueTask<Result<Guid, ManufactureStartFailure>>(
             Result<Guid, ManufactureStartFailure>.Success(runId)));
-        _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id)));
+        _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Failure(saveError));
+        return task;
+    }
 
-        StatusOf(await _controller.Manufacture(task.Id, Service())).Should().Be(StatusCodes.Status409Conflict);
+    private static ProblemDetails ProblemOf(IActionResult result) =>
+        result.Should().BeAssignableTo<ObjectResult>().Subject.Value.Should().BeAssignableTo<ProblemDetails>().Subject;
 
+    /// <summary>
+    ///     The run started, but the task changed underneath and the attach lost the race: 409, the run cancelled, the body
+    ///     naming the run and the cancel outcome, and a Warning with both ids so the run can be found.
+    ///     Red: map AttachConflict to 500; the status assertion fails.
+    ///     Red: drop the Warning log; the log assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task An_attach_that_loses_the_race_is_409_cancels_the_run_and_logs_both_ids()
+    {
+        var runId = Guid.NewGuid();
+        var task = GivenStartedRun(runId, TaskRunGuard.ChangedUnderneath(Guid.NewGuid()));
+
+        var result = await _controller.Manufacture(task.Id, Service());
+
+        StatusOf(result).Should().Be(StatusCodes.Status409Conflict);
+        ProblemOf(result).Extensions["runId"].Should().Be(runId);
+        ProblemOf(result).Extensions["runCancelled"].Should().Be(true);
         _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning)
             .Which.Message.Should().Contain(runId.ToString()).And.Contain(task.Id.ToString());
+    }
+
+    /// <summary>
+    ///     A cancel that throws is best-effort: still 409, the body says the run was not cancelled, and an Error with both
+    ///     ids and the exception is logged.
+    ///     Red: let the exception escape the cancel; the action throws.
+    /// </summary>
+    [Fact]
+    public async Task A_cancel_that_throws_still_answers_409_and_logs_an_error()
+    {
+        var runId = Guid.NewGuid();
+        var task = GivenStartedRun(runId, TaskRunGuard.ChangedUnderneath(Guid.NewGuid()));
+        _store.CancelAsync(Guid.Empty, default!, default).ReturnsForAnyArgs<ValueTask>(_ => throw new InvalidOperationException("store down"));
+
+        var result = await _controller.Manufacture(task.Id, Service());
+
+        StatusOf(result).Should().Be(StatusCodes.Status409Conflict);
+        ProblemOf(result).Extensions["runCancelled"].Should().Be(false);
+        var error = _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error).Subject;
+        error.Message.Should().Contain(runId.ToString()).And.Contain(task.Id.ToString());
+        error.Exception.Should().BeOfType<InvalidOperationException>();
+    }
+
+    /// <summary>
+    ///     A save that fails for another reason: 500 naming the run, and an Error with both ids.
+    ///     Red: drop the AttachFailed case so it falls to the default; the runId extension is missing.
+    /// </summary>
+    [Fact]
+    public async Task An_attach_whose_save_fails_is_500_naming_the_run_and_logs_both_ids()
+    {
+        var runId = Guid.NewGuid();
+        var task = GivenStartedRun(runId, "Error updating task. The cause is logged.");
+
+        var result = await _controller.Manufacture(task.Id, Service());
+
+        StatusOf(result).Should().Be(StatusCodes.Status500InternalServerError);
+        ProblemOf(result).Extensions.Should().ContainKey("runId").WhoseValue.Should().Be(runId);
+        _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
+            .Which.Message.Should().Contain(runId.ToString()).And.Contain(task.Id.ToString());
+    }
+
+    /// <summary>
+    ///     A repository's error text never reaches the 500 body.
+    ///     Red: return <c>project.Error</c> as the service's message; the detail carries the secret.
+    /// </summary>
+    [Fact]
+    public async Task A_read_failure_is_500_without_the_repository_error()
+    {
+        var task = Given("https://github.com/o/daedalus-sandbox");
+        _projects.GetByIdAsync(task.ProjectId, Arg.Any<CancellationToken>()).Returns(Result<Project>.Failure("Error: Password=hunter2"));
+
+        var result = await _controller.Manufacture(task.Id, Service());
+
+        StatusOf(result).Should().Be(StatusCodes.Status500InternalServerError);
+        ProblemOf(result).Detail.Should().NotContain("hunter2");
     }
 
     /// <summary>
@@ -167,19 +238,5 @@ public sealed class TasksControllerManufactureTests
         var method = typeof(TasksController).GetMethod(nameof(TasksController.Manufacture))!;
 
         method.GetCustomAttribute<AuthorizeAttribute>()!.Policy.Should().Be("WorkflowResume");
-    }
-
-    /// <summary>Records each entry's level and formatted message.</summary>
-    private sealed class CapturingLogger : ILogger<TasksController>
-    {
-        public List<(LogLevel Level, string Message)> Entries { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            Entries.Add((logLevel, formatter(state, exception)));
     }
 }

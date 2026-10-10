@@ -1,8 +1,8 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Persistence;
 
@@ -28,7 +28,7 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
         catch (Exception ex)
         {
             LogErrorRetrievingProject(logger, ex, id);
-            return Result<Project>.Failure($"Error retrieving project: {ex.Message}");
+            return Result<Project>.Failure($"Error retrieving project {id}. The cause is logged.");
         }
     }
 
@@ -43,7 +43,7 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
         catch (Exception ex)
         {
             LogErrorAddingProject(logger, ex, project.Id);
-            return Result<Project>.Failure($"Error adding project: {ex.Message}");
+            return Result<Project>.Failure($"Error adding project {project.Id}. The cause is logged.");
         }
     }
 
@@ -58,7 +58,7 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
         catch (Exception ex)
         {
             LogErrorUpdatingProject(logger, ex, project.Id);
-            return Result.Failure($"Error updating project: {ex.Message}");
+            return Result.Failure($"Error updating project {project.Id}. The cause is logged.");
         }
     }
 
@@ -82,7 +82,7 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
         catch (Exception ex)
         {
             LogErrorDeletingProject(logger, ex, id);
-            return Result.Failure($"Error deleting project: {ex.Message}");
+            return Result.Failure($"Error deleting project {id}. The cause is logged.");
         }
     }
 

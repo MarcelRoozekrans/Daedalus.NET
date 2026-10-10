@@ -3,6 +3,7 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Infrastructure.Services.GitHub;
+using Microsoft.Extensions.Logging;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 using DomainTask = Daedalus.Domain.Entities.Task;
@@ -30,55 +31,93 @@ public enum TaskManufactureFailureKind
 
     /// <summary>
     ///     The run started, but the task was changed by another request after it was read, so the attach lost the
-    ///     row-version race and was not saved. 409, naming the run so a person can cancel it. No second run is started.
+    ///     row-version race and was not saved. The run is cancelled, best-effort, and no second run is started. 409,
+    ///     naming the run and whether it was cancelled.
     /// </summary>
     AttachConflict,
 
-    /// <summary>The run started, but could not be attached to the task. 500, naming the run so a person can cancel it.</summary>
+    /// <summary>
+    ///     The run started, but saving the attach failed otherwise. The run is cancelled, best-effort. 500, naming the run
+    ///     and whether it was cancelled; the cause is logged, never shown.
+    /// </summary>
     AttachFailed,
 
-    /// <summary>A read failed. 500.</summary>
+    /// <summary>A read failed. 500, with generic text; the cause is logged, never shown.</summary>
     Failed,
 }
 
 /// <summary>A refused or failed start.</summary>
 /// <param name="Kind">Why.</param>
-/// <param name="Message">Text that is safe to show the caller.</param>
+/// <param name="Message">Text that is safe to show the caller: it never carries a repository's or an exception's text.</param>
 /// <param name="Start">The starter's own failure, for <see cref="TaskManufactureFailureKind.StartFailed"/>.</param>
 /// <param name="RunId">The run that started but was not attached, for the two attach kinds.</param>
-public sealed record TaskManufactureFailure(TaskManufactureFailureKind Kind, string Message, ManufactureStartFailure? Start = null, Guid? RunId = null);
+/// <param name="RunCancelled">Whether that run was cancelled, for the two attach kinds.</param>
+public sealed record TaskManufactureFailure(
+    TaskManufactureFailureKind Kind, string Message, ManufactureStartFailure? Start = null, Guid? RunId = null, bool RunCancelled = false);
 
 /// <summary>
 ///     Starts a manufacture run for a board task (phase 2.8, D1 and D2). Every refusal comes before the starter is called,
 ///     so a refused start spends nothing. See the spec's §2 for the order of the checks.
 /// </summary>
-public sealed class TaskManufactureService(
+/// <remarks>
+///     <c>gateway</c> is registered only on a host whose workflow engine is on. A run can only start on such a host, so a
+///     started run that could not be attached can always be cancelled through it; without it the run is reported as not
+///     cancelled.
+/// </remarks>
+public sealed partial class TaskManufactureService(
     ITaskRepository tasks,
     IProjectRepository projects,
     IWorkflowRunStatusReader runs,
     IManufactureRunStarter starter,
-    WorkflowConfig workflow)
+    WorkflowConfig workflow,
+    ILogger<TaskManufactureService> logger,
+    WorkflowRunGateway? gateway = null)
 {
+    [LoggerMessage(EventId = 1, Level = LogLevel.Warning,
+        Message = "Run {RunId} started for task {TaskId}, but the task was changed by another request before the run could be attached")]
+    private static partial void LogAttachLostRace(ILogger logger, Guid runId, Guid taskId);
+
+    [LoggerMessage(EventId = 2, Level = LogLevel.Error, Message = "Run {RunId} started for task {TaskId}, but attaching it failed: {Error}")]
+    private static partial void LogAttachFailed(ILogger logger, Guid runId, Guid taskId, string error);
+
+    [LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Run {RunId}, started for task {TaskId} but not attached, could not be cancelled")]
+    private static partial void LogCancelFailed(ILogger logger, Exception exception, Guid runId, Guid taskId);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Error,
+        Message = "Run {RunId}, started for task {TaskId} but not attached, could not be cancelled: the workflow run gateway is not registered")]
+    private static partial void LogCancelUnavailable(ILogger logger, Guid runId, Guid taskId);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Error, Message = "Starting a run for task {TaskId} failed reading {What}: {Error}")]
+    private static partial void LogReadFailed(ILogger logger, Guid taskId, string what, string error);
+
     /// <summary>
     ///     Starts the run and attaches it. Returns the run id. The attach is saved on the instance that was read, so its
-    ///     row version guards it: when the task changed in between, the save is refused and
-    ///     <see cref="TaskManufactureFailureKind.AttachConflict"/> is returned for the run that already started.
+    ///     row version guards it: when the task changed in between, the save is refused, the run that already started is
+    ///     cancelled best-effort, and <see cref="TaskManufactureFailureKind.AttachConflict"/> is returned.
     /// </summary>
     public async Task<Result<Guid, TaskManufactureFailure>> StartAsync(Guid taskId, RunPrincipal startedBy, CancellationToken ct)
     {
         var found = await tasks.GetByIdAsync(taskId, ct).ConfigureAwait(false);
         if (found.IsFailure)
         {
-            return Fail(
-                found.Error.Contains("not found", StringComparison.OrdinalIgnoreCase) ? TaskManufactureFailureKind.TaskNotFound : TaskManufactureFailureKind.Failed,
-                found.Error);
+            if (found.Error.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            {
+                return Fail(TaskManufactureFailureKind.TaskNotFound, $"Task {taskId} was not found.");
+            }
+
+            return ReadFailed(taskId, "the task", found.Error);
         }
 
         var task = found.Value;
         var project = await projects.GetByIdAsync(task.ProjectId, ct).ConfigureAwait(false);
         if (project.IsFailure)
         {
-            return Fail(TaskManufactureFailureKind.Failed, project.Error);
+            return ReadFailed(taskId, "its project", project.Error);
+        }
+
+        if (string.IsNullOrWhiteSpace(project.Value.RepositoryUrl))
+        {
+            return Fail(TaskManufactureFailureKind.RepositoryNotAllowed, "The project has no repository URL.");
         }
 
         var repository = MatchRepository(project.Value.RepositoryUrl, workflow.Repositories);
@@ -116,13 +155,51 @@ public sealed class TaskManufactureService(
             return Result<Guid, TaskManufactureFailure>.Success(runId);
         }
 
-        var kind = saved.Error.StartsWith(TaskRunGuard.ChangedPrefix, StringComparison.Ordinal)
-            ? TaskManufactureFailureKind.AttachConflict
-            : TaskManufactureFailureKind.AttachFailed;
+        var lostRace = saved.Error.StartsWith(TaskRunGuard.ChangedPrefix, StringComparison.Ordinal);
+        if (lostRace)
+        {
+            LogAttachLostRace(logger, runId, task.Id);
+        }
+        else
+        {
+            LogAttachFailed(logger, runId, task.Id, saved.Error);
+        }
+
+        var cancelled = await CancelUnattachedAsync(runId, task, ct).ConfigureAwait(false);
+        var why = lostRace
+            ? $"task {task.TaskId} was changed by another request while the run started, so it was not attached"
+            : $"attaching it to task {task.TaskId} failed";
+        var outcome = cancelled ? $"Run {runId} was cancelled." : $"Cancelling run {runId} failed; cancel it by hand.";
         return Result<Guid, TaskManufactureFailure>.Failure(new TaskManufactureFailure(
-            kind,
-            $"Run {runId} started, but it could not be attached to task {task.TaskId}: {saved.Error} Cancel run {runId} if it is not wanted.",
-            RunId: runId));
+            lostRace ? TaskManufactureFailureKind.AttachConflict : TaskManufactureFailureKind.AttachFailed,
+            $"Run {runId} started, but {why}. {outcome}",
+            RunId: runId,
+            RunCancelled: cancelled));
+    }
+
+    /// <summary>
+    ///     Cancels a run that started but is not attached, so it does not run unattached. Best-effort: a failure is logged
+    ///     with both ids and reported as false, never thrown.
+    /// </summary>
+    private async Task<bool> CancelUnattachedAsync(Guid runId, DomainTask task, CancellationToken ct)
+    {
+        if (gateway is null)
+        {
+            LogCancelUnavailable(logger, runId, task.Id);
+            return false;
+        }
+
+        try
+        {
+            await gateway.CancelAsync(
+                runId, $"Phase 2.8: task {task.Id} changed while this run started; cancelled so it does not run unattached.", ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogCancelFailed(logger, ex, runId, task.Id);
+            return false;
+        }
     }
 
     /// <summary>The work intent: the task's title, a blank line, then its description.</summary>
@@ -181,7 +258,8 @@ public sealed class TaskManufactureService(
         var siblings = await tasks.GetByProjectIdAsync(task.ProjectId, ct).ConfigureAwait(false);
         if (siblings.IsFailure)
         {
-            return new TaskManufactureFailure(TaskManufactureFailureKind.Failed, siblings.Error);
+            LogReadFailed(logger, task.Id, "the project's tasks", siblings.Error);
+            return new TaskManufactureFailure(TaskManufactureFailureKind.Failed, Generic(task.Id));
         }
 
         foreach (var name in task.Dependencies)
@@ -202,6 +280,14 @@ public sealed class TaskManufactureService(
 
         return null;
     }
+
+    private Result<Guid, TaskManufactureFailure> ReadFailed(Guid taskId, string what, string error)
+    {
+        LogReadFailed(logger, taskId, what, error);
+        return Fail(TaskManufactureFailureKind.Failed, Generic(taskId));
+    }
+
+    private static string Generic(Guid taskId) => $"Starting a run for task {taskId} failed. The cause is logged.";
 
     private static Result<Guid, TaskManufactureFailure> Fail(TaskManufactureFailureKind kind, string message) =>
         Result<Guid, TaskManufactureFailure>.Failure(new TaskManufactureFailure(kind, message));

@@ -34,14 +34,6 @@ public sealed partial class TasksController(
     [LoggerMessage(EventId = 101, Level = LogLevel.Error, Message = "Error retrieving task {TaskId}")]
     private static partial void LogErrorRetrievingTask(ILogger logger, Guid taskId, Exception ex);
 
-    [LoggerMessage(EventId = 102, Level = LogLevel.Warning,
-        Message = "Run {RunId} started for task {TaskId}, but the task was changed by another request before the run could be attached; the run is not attached")]
-    private static partial void LogAttachLostRace(ILogger logger, Guid runId, Guid taskId);
-
-    [LoggerMessage(EventId = 103, Level = LogLevel.Error,
-        Message = "Run {RunId} started for task {TaskId}, but attaching it failed: {Detail}")]
-    private static partial void LogAttachFailed(ILogger logger, Guid runId, Guid taskId, string detail);
-
     /// <summary>Get all tasks with pagination.</summary>
     [Authorize(Policy = "TaskRead")]
     [HttpGet]
@@ -230,7 +222,7 @@ public sealed partial class TasksController(
     ///         <item>404 when the task does not exist;</item>
     ///         <item>422 when its project's repository is not allow-listed, or a dependency is not Completed;</item>
     ///         <item>409 while its current run is live, or when the task changed after it was read and the run that
-    ///         started could not be attached;</item>
+    ///         started could not be attached; that run is cancelled, and the body says whether it was;</item>
     ///         <item>201 with the run id once the run is started and attached.</item>
     ///     </list>
     ///     A starter failure maps as <c>POST /api/workflow-runs</c> maps it.
@@ -273,13 +265,23 @@ public sealed partial class TasksController(
             case { Kind: TaskManufactureFailureKind.StartFailed, Start: { } start }:
                 return ManufactureStartProblem.From(this, start);
             case { Kind: TaskManufactureFailureKind.AttachConflict, RunId: { } lostRun }:
-                LogAttachLostRace(logger, lostRun, id);
-                return Problem(detail: failure.Message, statusCode: StatusCodes.Status409Conflict);
+                return UnattachedRunProblem(StatusCodes.Status409Conflict, failure, lostRun);
             case { Kind: TaskManufactureFailureKind.AttachFailed, RunId: { } unattached }:
-                LogAttachFailed(logger, unattached, id, failure.Message);
-                return Problem(detail: failure.Message, statusCode: StatusCodes.Status500InternalServerError);
+                return UnattachedRunProblem(StatusCodes.Status500InternalServerError, failure, unattached);
             default:
                 return Problem(detail: failure.Message, statusCode: StatusCodes.Status500InternalServerError);
         }
+    }
+
+    /// <summary>
+    ///     A problem for a run that started but is not attached: the detail names the run and the cancel outcome, and the
+    ///     <c>runId</c> and <c>runCancelled</c> extensions carry both for a client.
+    /// </summary>
+    private ObjectResult UnattachedRunProblem(int statusCode, TaskManufactureFailure failure, Guid runId)
+    {
+        var problem = ProblemDetailsFactory.CreateProblemDetails(HttpContext, statusCode: statusCode, detail: failure.Message);
+        problem.Extensions["runId"] = runId;
+        problem.Extensions["runCancelled"] = failure.RunCancelled;
+        return new ObjectResult(problem) { StatusCode = statusCode };
     }
 }
