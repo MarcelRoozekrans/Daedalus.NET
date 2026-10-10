@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Anthropic;
 using Anthropic.Core;
@@ -120,7 +119,6 @@ public sealed partial class AgentFactory : IAgentFactory
             return Result<LlmInvocationResult>.Failure($"Error invoking Claude: {ex.Message}");
         }
     }
-
 
     /// <summary>
     ///     Creates an <see cref="IChatClient" /> backed by Anthropic Claude.
