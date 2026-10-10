@@ -47,9 +47,9 @@
                               TextAlign="TextAlign.Center">
             <Template Context="task">
                 <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
-                @if (task.PullRequestUrl is not null)
+                @if (TaskStatusLabels.PullRequestHref(task) is { } pullRequestHref)
                 {
-                    <RadzenLink Path="@task.PullRequestUrl.ToString()" Text="PR" Target="_blank" title="Pull request" data-testid="task-pr-link" Style="margin-left: 0.5rem;"/>
+                    <RadzenLink Path="@pullRequestHref" Text="PR" Target="_blank" title="Pull request" data-testid="task-pr-link" Style="margin-left: 0.5rem;"/>
                 }
             </Template>
         </RadzenDataGridColumn>
