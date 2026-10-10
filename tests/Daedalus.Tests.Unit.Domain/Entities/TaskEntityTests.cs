@@ -7,8 +7,6 @@ namespace Daedalus.Tests.Unit.Domain.Entities;
 /// </summary>
 public class TaskEntityTests : UnitTestBase
 {
-    private readonly Guid _sessionId = Guid.NewGuid();
-
     [Fact]
     public void Create_WithValidParameters_ShouldSucceed()
     {
@@ -20,79 +18,8 @@ public class TaskEntityTests : UnitTestBase
         task.Prompt.Should().Be("Test prompt");
         task.CompletionPromise.Should().BeEmpty();
         task.MaxIterations.Should().Be(0);
-        task.Status.Should().Be(DomainTaskStatus.Pending);
-    }
-
-    [Fact]
-    public void Claim_OnPendingTask_ShouldSucceed()
-    {
-        // Arrange
-        var task = DomainTestFactory.CreateTask();
-
-        // Act
-        var result = task.Claim(_sessionId);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        task.Status.Should().Be(DomainTaskStatus.InProgress);
-        task.CurrentSessionId.Should().Be(_sessionId);
-    }
-
-    [Fact]
-    public void RecordExecution_WhenCompletionPromiseFound_ShouldMarkCompleted()
-    {
-        // Arrange
-        var task = DomainTestFactory.CreateTask();
-        task.Claim(_sessionId);
-        var execution = new TaskExecution
-        {
-            Id = Guid.NewGuid(),
-            TaskId = task.Id,
-            SessionId = _sessionId,
-            IterationNumber = 1,
-            Prompt = task.Prompt,
-            LlmResponse = "The answer is DONE",
-            CompletionPromiseFound = true,
-            ExecutionDuration = TimeSpan.FromMilliseconds(100)
-        };
-
-        // Act
-        var result = task.RecordExecution(execution);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        task.Status.Should().Be(DomainTaskStatus.Completed);
-        task.Result.Should().Contain("DONE");
-    }
-
-    [Fact]
-    public void Abandon_OnInProgressTask_ShouldSucceed()
-    {
-        // Arrange
-        var task = DomainTestFactory.CreateTask();
-        task.Claim(_sessionId);
-
-        // Act
-        var result = task.Abandon();
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        task.Status.Should().Be(DomainTaskStatus.Abandoned);
-    }
-
-    [Fact]
-    public void Resume_OnAbandonedTask_ShouldSucceed()
-    {
-        // Arrange
-        var task = DomainTestFactory.CreateTask();
-        task.Claim(_sessionId);
-        task.Abandon();
-
-        // Act
-        var result = task.Resume(Guid.NewGuid());
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
+        task.Learnings.Should().BeEmpty();
+        task.LearningsUpdatedAt.Should().BeNull();
         task.Status.Should().Be(DomainTaskStatus.Pending);
     }
 

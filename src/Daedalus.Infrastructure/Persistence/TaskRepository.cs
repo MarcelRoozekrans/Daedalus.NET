@@ -36,135 +36,6 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         }
     }
 
-    public async Task<Result<IReadOnlyList<Task>>> GetPendingAsync(CancellationToken ct)
-    {
-        try
-        {
-            var tasks = await dbContext.Tasks
-                .AsNoTracking()
-                .Where(t => t.Status == TaskStatus.Pending)
-                .OrderBy(t => t.CreatedAt)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-
-            return Result<IReadOnlyList<Task>>.Success((IReadOnlyList<Task>)tasks);
-        }
-        catch (Exception ex)
-        {
-            LogErrorRetrievingPendingTasks(logger, ex);
-            return Result<IReadOnlyList<Task>>.Failure("Error retrieving pending tasks. The cause is logged.");
-        }
-    }
-
-    /// <summary>
-    ///     Gets pending tasks with database-level pagination (optimized performance).
-    ///     Skip/Take are executed at database level instead of in-memory.
-    /// </summary>
-    public async Task<Result<IReadOnlyList<Task>>> GetPendingAsync(int skip, int take, CancellationToken ct)
-    {
-        try
-        {
-            var tasks = await dbContext.Tasks
-                .AsNoTracking()
-                .Where(t => t.Status == TaskStatus.Pending)
-                .OrderByDescending(t => t.CreatedAt)
-                .Skip(skip)
-                .Take(take)
-                .Include(t => t.Executions)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-
-            return Result<IReadOnlyList<Task>>.Success((IReadOnlyList<Task>)tasks);
-        }
-        catch (Exception ex)
-        {
-            LogErrorRetrievingPendingTasks(logger, ex);
-            return Result<IReadOnlyList<Task>>.Failure("Error retrieving paginated tasks. The cause is logged.");
-        }
-    }
-
-    /// <summary>
-    ///     Gets the count of pending tasks efficiently without loading full entities.
-    /// </summary>
-    public async Task<Result<int>> GetPendingCountAsync(CancellationToken ct)
-    {
-        try
-        {
-            var count = await dbContext.Tasks
-                .AsNoTracking()
-                .Where(t => t.Status == TaskStatus.Pending)
-                .CountAsync(ct)
-                .ConfigureAwait(false);
-
-            return Result<int>.Success(count);
-        }
-        catch (Exception ex)
-        {
-            LogErrorRetrievingPendingTasks(logger, ex);
-            return Result<int>.Failure("Error counting pending tasks. The cause is logged.");
-        }
-    }
-
-    /// <summary>
-    ///     Atomically claims next pending task using SELECT FOR UPDATE SKIP LOCKED.
-    ///     Only claims tasks whose dependencies are all satisfied (Completed).
-    /// </summary>
-    public async Task<Result<Task?>> ClaimNextAsync(Guid sessionId, CancellationToken ct)
-    {
-        try
-        {
-            await using var transaction = await dbContext.Database.BeginTransactionAsync(ct)
-                .ConfigureAwait(false);
-
-            // SELECT FOR UPDATE SKIP LOCKED - atomic task claiming
-            // Dependency gate: only claim tasks with no dependencies OR all dependencies Completed
-            var task = await dbContext.Tasks
-                .FromSqlInterpolated($@"
-                    SELECT t.*, t.xmin FROM ""Tasks"" t
-                    WHERE t.""Status"" = {(int)TaskStatus.Pending}
-                    AND (
-                        t.""Dependencies"" IS NULL
-                        OR cardinality(t.""Dependencies"") = 0
-                        OR NOT EXISTS (
-                            SELECT 1 FROM unnest(t.""Dependencies"") AS dep_task_id
-                            WHERE NOT EXISTS (
-                                SELECT 1 FROM ""Tasks"" dep
-                                WHERE dep.""TaskId"" = dep_task_id
-                                AND dep.""Status"" = {(int)TaskStatus.Completed}
-                            )
-                        )
-                    )
-                    ORDER BY t.""CreatedAt"" ASC
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED")
-                .FirstOrDefaultAsync(ct)
-                .ConfigureAwait(false);
-
-            if (task is not null)
-            {
-                var claimResult = task.Claim(sessionId);
-                if (claimResult.IsFailure)
-                {
-                    await transaction.RollbackAsync(ct).ConfigureAwait(false);
-                    return Result<Task?>.Failure(claimResult.Error);
-                }
-
-                dbContext.Tasks.Update(task);
-                await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-                await transaction.CommitAsync(ct).ConfigureAwait(false);
-
-                LogTaskClaimed(logger, sessionId, task.Id);
-            }
-
-            return Result<Task?>.Success(task);
-        }
-        catch (Exception ex)
-        {
-            LogErrorClaimingTask(logger, ex, sessionId);
-            return Result<Task?>.Failure($"Error claiming a task for session {sessionId}. The cause is logged.");
-        }
-    }
-
     public async Task<Result<Task>> AddAsync(Task task, CancellationToken ct)
     {
         try
@@ -234,47 +105,6 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         }
     }
 
-    public async Task<Result> RecordExecutionAsync(TaskExecution execution, CancellationToken ct)
-    {
-        try
-        {
-            dbContext.TaskExecutions.Add(execution);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success();
-        }
-        catch (Exception ex)
-        {
-            LogErrorRecordingExecution(logger, ex, execution.TaskId);
-            return Result.Failure($"Error recording an execution of task {execution.TaskId}. The cause is logged.");
-        }
-    }
-
-    public async Task<Result<IReadOnlyList<Task>>> GetStaleInProgressAsync(TimeSpan staleness, CancellationToken ct)
-    {
-        try
-        {
-            var cutoffTime = DateTime.UtcNow.Subtract(staleness);
-
-            var staleTasks = await dbContext.Tasks
-                .AsNoTracking()
-                .Join(
-                    dbContext.ExecutionSessions.Where(s => !s.IsActive || s.LastHeartbeat < cutoffTime),
-                    t => t.CurrentSessionId,
-                    s => s.Id,
-                    (t, s) => t)
-                .Where(t => t.Status == TaskStatus.InProgress)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-
-            return Result<IReadOnlyList<Task>>.Success((IReadOnlyList<Task>)staleTasks);
-        }
-        catch (Exception ex)
-        {
-            LogErrorRetrievingStale(logger, ex);
-            return Result<IReadOnlyList<Task>>.Failure("Error retrieving stale tasks. The cause is logged.");
-        }
-    }
-
     /// <summary>
     ///     Gets all tasks belonging to a specific project for dependency resolution.
     /// </summary>
@@ -301,15 +131,6 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
     [LoggerMessage(EventId = 10, Level = LogLevel.Error, Message = "Error retrieving task {TaskId}")]
     private static partial void LogErrorRetrievingTask(ILogger logger, Exception exception, Guid taskId);
 
-    [LoggerMessage(EventId = 11, Level = LogLevel.Error, Message = "Error retrieving pending tasks")]
-    private static partial void LogErrorRetrievingPendingTasks(ILogger logger, Exception exception);
-
-    [LoggerMessage(EventId = 12, Level = LogLevel.Information, Message = "Session {SessionId} claimed task {TaskId}")]
-    private static partial void LogTaskClaimed(ILogger logger, Guid sessionId, Guid taskId);
-
-    [LoggerMessage(EventId = 13, Level = LogLevel.Error, Message = "Error claiming next task for session {SessionId}")]
-    private static partial void LogErrorClaimingTask(ILogger logger, Exception exception, Guid sessionId);
-
     [LoggerMessage(EventId = 14, Level = LogLevel.Error, Message = "Error adding task {TaskId}")]
     private static partial void LogErrorAddingTask(ILogger logger, Exception exception, Guid taskId);
 
@@ -318,12 +139,6 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
 
     [LoggerMessage(EventId = 19, Level = LogLevel.Error, Message = "Error deleting task {TaskId}")]
     private static partial void LogErrorDeletingTask(ILogger logger, Exception exception, Guid taskId);
-
-    [LoggerMessage(EventId = 16, Level = LogLevel.Error, Message = "Error recording execution for task {TaskId}")]
-    private static partial void LogErrorRecordingExecution(ILogger logger, Exception exception, Guid taskId);
-
-    [LoggerMessage(EventId = 17, Level = LogLevel.Error, Message = "Error retrieving stale in-progress tasks")]
-    private static partial void LogErrorRetrievingStale(ILogger logger, Exception exception);
 
     [LoggerMessage(EventId = 18, Level = LogLevel.Error,
         Message = "Error retrieving tasks for project {ProjectId}")]

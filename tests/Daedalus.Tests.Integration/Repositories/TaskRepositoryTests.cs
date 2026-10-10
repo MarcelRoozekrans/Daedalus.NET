@@ -8,7 +8,6 @@ using Xunit.Sdk;
 using Project = Daedalus.Domain.Entities.Project;
 using SystemTask = System.Threading.Tasks.Task;
 using Task = Daedalus.Domain.Entities.Task;
-using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Tests.Integration.Repositories;
 
@@ -55,7 +54,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
     #region UpdateAsync Tests
 
     [Fact]
-    public async SystemTask UpdateAsync_ChangingTaskStatus_ShouldPersist()
+    public async SystemTask UpdateAsync_ChangingTaskMetadata_ShouldPersist()
     {
         // Arrange
         var projectId = Guid.NewGuid();
@@ -63,14 +62,14 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
-        var sessionId = Guid.NewGuid();
         var task = new TaskTestBuilder()
             .WithPrompt("Test prompt")
-            .ClaimedBy(sessionId)
             .WithProjectId(projectId)
             .Build();
 
         await _repository.AddAsync(task, CancellationToken.None);
+        task.UpdateMetadata("Renamed", "New description", Priority.High, "Backend", Complexity.High)
+            .IsSuccess.Should().BeTrue();
 
         // Act
         var updateResult = await _repository.UpdateAsync(task, CancellationToken.None);
@@ -79,8 +78,9 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         // Assert
         updateResult.IsSuccess.Should().BeTrue();
         retrievedTask.IsSuccess.Should().BeTrue();
-        retrievedTask.Value.Status.Should().Be(TaskStatus.InProgress);
-        retrievedTask.Value.CurrentSessionId.Should().Be(sessionId);
+        retrievedTask.Value.Title.Should().Be("Renamed");
+        retrievedTask.Value.Priority.Should().Be(Priority.High);
+        retrievedTask.Value.Phase.Should().Be("Backend");
     }
 
     #endregion
@@ -137,7 +137,6 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
             .WithProjectId(projectId)
             .Build();
         var sessionId = Guid.NewGuid();
-        task.Claim(sessionId);
 
         var execution = new TaskExecution
         {
@@ -152,7 +151,8 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         };
 
         await _repository.AddAsync(task, CancellationToken.None);
-        await _repository.RecordExecutionAsync(execution, CancellationToken.None);
+        _dbContext.TaskExecutions.Add(execution);
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
 
         // Act
         var result = await _repository.GetByIdAsync(task.Id, CancellationToken.None);
@@ -224,372 +224,6 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         result1.IsSuccess.Should().BeTrue();
         result2.IsSuccess.Should().BeTrue();
         result1.Value.Id.Should().NotBe(result2.Value.Id);
-    }
-
-    #endregion
-
-    #region RecordExecutionAsync Tests
-
-    [Fact]
-    public async SystemTask RecordExecutionAsync_WithValidExecution_ShouldSucceed()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var task = new TaskTestBuilder().WithPrompt("Test prompt")
-            .WithProjectId(projectId)
-            .Build();
-        var sessionId = Guid.NewGuid();
-        task.Claim(sessionId);
-        await _repository.AddAsync(task, CancellationToken.None);
-
-        var execution = new TaskExecution
-        {
-            Id = Guid.NewGuid(),
-            TaskId = task.Id,
-            SessionId = sessionId,
-            IterationNumber = 1,
-            Prompt = task.Prompt,
-            LlmResponse = "Response",
-            CompletionPromiseFound = false,
-            ExecutionDuration = TimeSpan.FromMilliseconds(100)
-        };
-
-        // Act
-        var result = await _repository.RecordExecutionAsync(execution, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-
-        var retrievedTask = await _repository.GetByIdAsync(task.Id, CancellationToken.None);
-        retrievedTask.Value.Executions.Should().HaveCount(1);
-    }
-
-    [Fact]
-    public async SystemTask RecordExecutionAsync_MultipleExecutions_ShouldAllBePersisted()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var task = new TaskTestBuilder().WithPrompt("Test prompt")
-            .WithProjectId(projectId)
-            .Build();
-        var sessionId = Guid.NewGuid();
-        task.Claim(sessionId);
-        await _repository.AddAsync(task, CancellationToken.None);
-
-        // Act
-        for (var i = 1; i <= 3; i++)
-        {
-            var execution = new TaskExecution
-            {
-                Id = Guid.NewGuid(),
-                TaskId = task.Id,
-                SessionId = sessionId,
-                IterationNumber = i,
-                Prompt = task.Prompt,
-                LlmResponse = $"Response {i}",
-                CompletionPromiseFound = false,
-                ExecutionDuration = TimeSpan.FromMilliseconds(100 * i)
-            };
-            await _repository.RecordExecutionAsync(execution, CancellationToken.None);
-        }
-
-        // Assert
-        var retrievedTask = await _repository.GetByIdAsync(task.Id, CancellationToken.None);
-        retrievedTask.Value.Executions.Should().HaveCount(3);
-        retrievedTask.Value.Executions[0].IterationNumber.Should().Be(1);
-        retrievedTask.Value.Executions[1].IterationNumber.Should().Be(2);
-        retrievedTask.Value.Executions[2].IterationNumber.Should().Be(3);
-    }
-
-    #endregion
-
-    #region GetPendingAsync Tests
-
-    [Fact]
-    public async SystemTask GetPendingAsync_WithPendingTasks_ShouldReturnTasks()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var task1 = new TaskTestBuilder().WithPrompt("Prompt 1")
-            .WithProjectId(projectId)
-            .Build();
-        var task2 = new TaskTestBuilder().WithPrompt("Prompt 2")
-            .WithProjectId(projectId)
-            .Build();
-
-        await _repository.AddAsync(task1, CancellationToken.None);
-        await _repository.AddAsync(task2, CancellationToken.None);
-
-        // Act
-        var result = await _repository.GetPendingAsync(CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(2);
-    }
-
-    [Fact]
-    public async SystemTask GetPendingAsync_WithNoTasks_ShouldReturnEmptyList()
-    {
-        // Act
-        var result = await _repository.GetPendingAsync(CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async SystemTask GetPendingAsync_ShouldNotReturnClaimedTasks()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var pendingTask = new TaskTestBuilder()
-            .WithPrompt("Pending")
-            .WithProjectId(projectId)
-            .Build();
-        var claimedTask = new TaskTestBuilder()
-            .WithPrompt("Claimed")
-            .ClaimedBy(Guid.NewGuid())
-            .WithProjectId(projectId)
-            .Build();
-
-        await _repository.AddAsync(pendingTask, CancellationToken.None);
-        await _repository.AddAsync(claimedTask, CancellationToken.None);
-        await _repository.UpdateAsync(claimedTask, CancellationToken.None);
-
-        // Act
-        var result = await _repository.GetPendingAsync(CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(1);
-        result.Value[0].Id.Should().Be(pendingTask.Id);
-    }
-
-    [Fact]
-    public async SystemTask GetPendingAsync_ShouldReturnOrderedByCreatedAt()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var oldTask = new TaskTestBuilder().WithPrompt("Old")
-            .WithProjectId(projectId)
-            .Build();
-        var newTask = new TaskTestBuilder().WithPrompt("New")
-            .WithProjectId(projectId)
-            .Build();
-
-        await _repository.AddAsync(oldTask, CancellationToken.None);
-        await SystemTask.Delay(100);
-        await _repository.AddAsync(newTask, CancellationToken.None);
-
-        // Act
-        var result = await _repository.GetPendingAsync(CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(2);
-        result.Value[0].Id.Should().Be(oldTask.Id);
-        result.Value[1].Id.Should().Be(newTask.Id);
-    }
-
-    #endregion
-
-    #region ClaimNextAsync Tests
-
-    [Fact]
-    public async SystemTask ClaimNextAsync_WithPendingTasks_ShouldClaimAndLock()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var task = new TaskTestBuilder().WithPrompt("Test")
-            .WithProjectId(projectId).Build();
-        await _repository.AddAsync(task, CancellationToken.None);
-
-        var sessionId = Guid.NewGuid();
-
-        // Act
-        var result = await _repository.ClaimNextAsync(sessionId, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().NotBeNull();
-        result.Value!.Status.Should().Be(TaskStatus.InProgress);
-        result.Value.CurrentSessionId.Should().Be(sessionId);
-    }
-
-    [Fact]
-    public async SystemTask ClaimNextAsync_WithNoPendingTasks_ShouldReturnNull()
-    {
-        // Arrange
-        var sessionId = Guid.NewGuid();
-
-        // Act
-        var result = await _repository.ClaimNextAsync(sessionId, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().BeNull();
-    }
-
-    [Fact]
-    public async SystemTask ClaimNextAsync_WithMultiplePendingTasks_ShouldClaimOldest()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var task1 = new TaskTestBuilder().WithPrompt("First")
-            .WithProjectId(projectId)
-            .Build();
-        var task2 = new TaskTestBuilder().WithPrompt("Second")
-            .WithProjectId(projectId)
-            .Build();
-
-        await _repository.AddAsync(task1, CancellationToken.None);
-        await SystemTask.Delay(100);
-        await _repository.AddAsync(task2, CancellationToken.None);
-
-        var sessionId = Guid.NewGuid();
-
-        // Act
-        var result = await _repository.ClaimNextAsync(sessionId, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value!.Id.Should().Be(task1.Id);
-    }
-
-    #endregion
-
-    #region GetStaleInProgressAsync Tests
-
-    [Fact]
-    public async SystemTask GetStaleInProgressAsync_WithStaleSession_ShouldReturnTasks()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var task = new TaskTestBuilder().WithPrompt("Stale Task")
-            .WithProjectId(projectId)
-            .Build();
-        var sessionId = Guid.NewGuid();
-        task.Claim(sessionId);
-        await _repository.AddAsync(task, CancellationToken.None);
-
-        var session = ExecutionSession.Create(sessionId, "worker-1").Value;
-        session.Heartbeat(DateTime.UtcNow.AddMinutes(-10));
-        _dbContext.ExecutionSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
-
-        var staleness = TimeSpan.FromMinutes(5);
-
-        // Act
-        var result = await _repository.GetStaleInProgressAsync(staleness, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(1);
-        result.Value[0].Id.Should().Be(task.Id);
-    }
-
-    [Fact]
-    public async SystemTask GetStaleInProgressAsync_WithActiveSession_ShouldNotReturnTasks()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var task = new TaskTestBuilder()
-            .WithPrompt("Active Task")
-            .WithProjectId(projectId)
-            .Build();
-        var sessionId = Guid.NewGuid();
-        task.Claim(sessionId);
-        await _repository.AddAsync(task, CancellationToken.None);
-
-        var session = ExecutionSession.Create(sessionId, "worker-1").Value;
-        session.Heartbeat(DateTime.UtcNow);
-        _dbContext.ExecutionSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
-
-        var staleness = TimeSpan.FromMinutes(5);
-
-        // Act
-        var result = await _repository.GetStaleInProgressAsync(staleness, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async SystemTask GetStaleInProgressAsync_WithMultipleStaleTasks_ShouldReturnAll()
-    {
-        // Arrange
-        var projectId = Guid.NewGuid();
-        var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
-
-        var staleTasks = new List<Task>();
-        var sessionId = Guid.NewGuid();
-
-        for (var i = 0; i < 3; i++)
-        {
-            var task = new TaskTestBuilder()
-                .WithPrompt($"Task {i}")
-                .ClaimedBy(sessionId)
-                .WithProjectId(projectId)
-                .Build();
-            await _repository.AddAsync(task, CancellationToken.None);
-            staleTasks.Add(task);
-        }
-
-        var session = ExecutionSession.Create(sessionId, "worker-1").Value;
-        session.Heartbeat(DateTime.UtcNow.AddMinutes(-10));
-        _dbContext.ExecutionSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
-
-        var staleness = TimeSpan.FromMinutes(5);
-
-        // Act
-        var result = await _repository.GetStaleInProgressAsync(staleness, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(3);
     }
 
     #endregion

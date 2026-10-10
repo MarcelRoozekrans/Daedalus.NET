@@ -13,25 +13,31 @@ public class DtoMappingBenchmarks
 {
     private Task _singleTask = default!;
     private List<Task> _bulkTasks = default!;
+    private List<List<TaskExecution>> _bulkExecutions = default!;
     private const int BulkSize = 100;
     private const int ExecutionsPerTask = 5;
 
     [GlobalSetup]
     public void Setup()
     {
-        _singleTask = CreateTask(id: 1, executionCount: ExecutionsPerTask);
+        // Nothing but the retired loop wrote a task's executions, so a task built here has none. The executions
+        // are built apart and mapped by their own benchmark.
+        _singleTask = CreateTask(id: 1);
         _bulkTasks = Enumerable.Range(1, BulkSize)
-            .Select(i => CreateTask(i, ExecutionsPerTask))
+            .Select(i => CreateTask(i))
+            .ToList();
+        _bulkExecutions = Enumerable.Range(1, BulkSize)
+            .Select(i => CreateExecutions(i, ExecutionsPerTask))
             .ToList();
     }
 
-    [Benchmark(Description = "DTO Mapping: Single task with 5 executions")]
+    [Benchmark(Description = "DTO Mapping: Single task")]
     public TaskDto MapSingleTask()
     {
         return TaskDtoMapper.ToDto(_singleTask, WorkflowRunStatus.Unknown);
     }
 
-    [Benchmark(Description = "DTO Mapping: 10 tasks with 5 executions each")]
+    [Benchmark(Description = "DTO Mapping: 10 tasks")]
     public List<TaskDto> MapBulkSmall()
     {
         return _bulkTasks.Take(10)
@@ -39,7 +45,7 @@ public class DtoMappingBenchmarks
             .ToList();
     }
 
-    [Benchmark(Description = "DTO Mapping: 100 tasks with 5 executions each")]
+    [Benchmark(Description = "DTO Mapping: 100 tasks")]
     public List<TaskDto> MapBulkLarge()
     {
         return _bulkTasks
@@ -70,16 +76,15 @@ public class DtoMappingBenchmarks
     [Benchmark(Description = "DTO Mapping: Only executions (nested list allocation)")]
     public List<List<TaskExecutionDto>> MapExecutionsOnly()
     {
-        return _bulkTasks
-            .Select(t => t.Executions
+        return _bulkExecutions
+            .Select(executions => executions
                 .Select(TaskDtoMapper.ToExecutionDto)
                 .ToList())
             .ToList();
     }
 
-    private static Task CreateTask(int id, int executionCount)
+    private static Task CreateTask(int id)
     {
-        var sessionId = Guid.NewGuid();
         var taskResult = Task.Create(
             Guid.NewGuid(),
             Guid.NewGuid(),
@@ -92,19 +97,25 @@ public class DtoMappingBenchmarks
             (Complexity)(id % 3),
             $"Task {id} prompt content");
 
-        var task = taskResult.Value;
-        task.Claim(sessionId);
+        return taskResult.Value;
+    }
+
+    private static List<TaskExecution> CreateExecutions(int id, int executionCount)
+    {
+        var taskId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var executions = new List<TaskExecution>(executionCount);
 
         for (int i = 0; i < executionCount; i++)
         {
             var isLast = i == executionCount - 1 && id % 2 == 0;
-            task.RecordExecution(new TaskExecution
+            executions.Add(new TaskExecution
             {
                 Id = Guid.NewGuid(),
-                TaskId = task.Id,
+                TaskId = taskId,
                 SessionId = sessionId,
                 IterationNumber = i + 1,
-                Prompt = task.Prompt,
+                Prompt = $"Task {id} prompt content",
                 LlmResponse = isLast
                     ? "Task completed successfully"
                     : $"LLM Response {i}: {string.Concat(Enumerable.Repeat("x", 100))}",
@@ -115,6 +126,6 @@ public class DtoMappingBenchmarks
             });
         }
 
-        return task;
+        return executions;
     }
 }

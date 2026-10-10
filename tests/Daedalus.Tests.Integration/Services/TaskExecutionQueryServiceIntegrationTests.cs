@@ -48,9 +48,6 @@ public class TaskExecutionQueryServiceIntegrationTests(PostgresFixture fixture) 
         var sessionId = Guid.NewGuid();
         var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test");
 
-        // Claim task before recording execution
-        task.Claim(sessionId);
-
         var execution = new TaskExecution
         {
             Id = Guid.NewGuid(),
@@ -62,9 +59,8 @@ public class TaskExecutionQueryServiceIntegrationTests(PostgresFixture fixture) 
             CompletionPromiseFound = false,
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
-        task.RecordExecution(execution);
-
         _dbContext.Tasks.Add(task);
+        _dbContext.TaskExecutions.Add(execution);
         await _dbContext.SaveChangesAsync();
 
         // Act
@@ -83,9 +79,6 @@ public class TaskExecutionQueryServiceIntegrationTests(PostgresFixture fixture) 
         var sessionId = Guid.NewGuid();
         var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test");
 
-        // Claim task before recording execution
-        task.Claim(sessionId);
-
         var execution = new TaskExecution
         {
             Id = Guid.NewGuid(),
@@ -97,9 +90,8 @@ public class TaskExecutionQueryServiceIntegrationTests(PostgresFixture fixture) 
             CompletionPromiseFound = false,
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
-        task.RecordExecution(execution);
-
         _dbContext.Tasks.Add(task);
+        _dbContext.TaskExecutions.Add(execution);
         await _dbContext.SaveChangesAsync();
 
         // Act

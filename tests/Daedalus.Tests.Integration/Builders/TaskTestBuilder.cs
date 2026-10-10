@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Daedalus.Tests.Integration.Helpers;
 using Task = Daedalus.Domain.Entities.Task;
-using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Tests.Integration.Builders;
 
@@ -23,12 +22,10 @@ public sealed class TaskTestBuilder
     private Guid _projectId = Guid.NewGuid();
     private readonly string _taskId = $"TASK-{Guid.NewGuid():N}".Substring(0, 10);
     private Complexity _complexity = Complexity.Medium;
-    private Guid? _currentSessionId;
     private string _description = "A test task";
     private Guid _id = Guid.NewGuid();
     private Priority _priority = Priority.Medium;
     private string _prompt = "Default test prompt";
-    private TaskStatus _status = TaskStatus.Pending;
     private string _title = "Test task";
 
     /// <summary>
@@ -55,35 +52,6 @@ public sealed class TaskTestBuilder
     public TaskTestBuilder WithPrompt(string prompt)
     {
         _prompt = prompt;
-        return this;
-    }
-
-    /// <summary>
-    ///     Sets the task status.
-    /// </summary>
-    public TaskTestBuilder WithStatus(TaskStatus status)
-    {
-        _status = status;
-        return this;
-    }
-
-    /// <summary>
-    ///     Marks the task as claimed by a session (sets status to InProgress).
-    /// </summary>
-    public TaskTestBuilder ClaimedBy(Guid sessionId)
-    {
-        _currentSessionId = sessionId;
-        _status = TaskStatus.InProgress;
-        return this;
-    }
-
-    /// <summary>
-    ///     Marks the task as abandoned by a session.
-    /// </summary>
-    public TaskTestBuilder AsAbandoned()
-    {
-        _status = TaskStatus.Abandoned;
-        _currentSessionId = Guid.NewGuid(); // Create temporary session for abandoned state
         return this;
     }
 
@@ -142,27 +110,6 @@ public sealed class TaskTestBuilder
             _complexity,
             _prompt);
 
-        var task = result.MustSucceed("Failed to build task for testing");
-
-        // Apply status if not default (Pending)
-        if (_status == TaskStatus.InProgress)
-        {
-            if (_currentSessionId.HasValue)
-            {
-                task.Claim(_currentSessionId.Value).EnsureSuccess("Failed to claim task during build");
-            }
-        }
-        else if (_status == TaskStatus.Abandoned)
-        {
-            if (_currentSessionId.HasValue)
-            {
-                task.Claim(_currentSessionId.Value).EnsureSuccess("Failed to claim task during build");
-            }
-
-            task.Abandon().EnsureSuccess("Failed to abandon task during build");
-        }
-        // Note: Completed/Failed states require execution history, handled separately in tests
-
-        return task;
+        return result.MustSucceed("Failed to build task for testing");
     }
 }

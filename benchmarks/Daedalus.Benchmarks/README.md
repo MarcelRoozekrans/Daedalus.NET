@@ -119,7 +119,6 @@ Benchmarks completion promise detection in LLM responses:
 Benchmarks domain entity operations called every Ralph loop iteration:
 
 - `Task.Create()` with pre-trimmed vs untrimmed strings vs validation failure
-- `Task.RecordExecution()` - incomplete and completion state transitions
 - `Task.AddDependency()` - linear Contains scan on growing lists (50 items)
 - `Task.AddFileToModify()` and `Task.UpdateMetadata()` - Trim allocations
 - `Project.Create()` and `Project.AddTask()` - Exists search on 20 tasks

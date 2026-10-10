@@ -93,7 +93,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         return (projectId, taskId);
     }
 
-    /// <summary>Adds a raw TaskExecution row directly (bypassing Task.RecordExecution) — all these endpoints read
+    /// <summary>Adds a raw TaskExecution row directly — all these endpoints read
     ///     TaskExecutions via a join, not via the Task aggregate's in-memory collection, so this is what they
     ///     actually see. Does not call SaveChanges.</summary>
     private TaskExecution SeedExecution(Guid taskId, Guid sessionId, string? modelId, int inputTokens, int outputTokens)

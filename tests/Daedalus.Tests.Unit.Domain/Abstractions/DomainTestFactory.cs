@@ -41,23 +41,6 @@ public static class DomainTestFactory
     }
 
     /// <summary>
-    ///     Creates a task that carries the loop settings of an old Ralph task. Phase 2.8 removed them from
-    ///     <c>Task.Create</c>, so a test of the retired pipeline sets them on the private setters, as EF does when it
-    ///     reads an old row. Task 13 deletes the pipeline tests that need this.
-    /// </summary>
-    public static DomainTask CreateRalphLoopTask(
-        Guid? id = null,
-        string prompt = "Test prompt",
-        string completionPromise = "DONE",
-        int maxIterations = 10)
-    {
-        var task = CreateTask(id: id, prompt: prompt);
-        typeof(DomainTask).GetProperty(nameof(DomainTask.CompletionPromise))!.SetValue(task, completionPromise);
-        typeof(DomainTask).GetProperty(nameof(DomainTask.MaxIterations))!.SetValue(task, maxIterations);
-        return task;
-    }
-
-    /// <summary>
     ///     Creates a Project with minimal parameters, using defaults for others.
     /// </summary>
     public static Project CreateProject(
