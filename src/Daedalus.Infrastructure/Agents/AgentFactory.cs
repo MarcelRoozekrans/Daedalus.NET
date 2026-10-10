@@ -3,9 +3,10 @@ using Anthropic;
 using Anthropic.Core;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
+using Daedalus.Infrastructure.Configuration;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Agents;
@@ -26,30 +27,27 @@ public sealed partial class AgentFactory : IAgentFactory
     private readonly ILogger<AgentFactory> _logger;
 
     public AgentFactory(
-        IConfiguration configuration,
+        IOptions<ClaudeConfiguration> claude,
         McpToolBuilder mcpToolBuilder,
         McpIntegrationOptions mcpOptions,
         ILoggerFactory loggerFactory)
     {
+        ArgumentNullException.ThrowIfNull(claude);
         _mcpToolBuilder = mcpToolBuilder;
         _mcpOptions = mcpOptions;
         _logger = loggerFactory.CreateLogger<AgentFactory>();
 
-        // Read Anthropic configuration
-        var llmSection = configuration.GetSection("ExternalServices:Llm:Claude");
-        _apiKey = llmSection["ApiKey"]
-                  ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
-                  ?? string.Empty;
-        _defaultModel = llmSection["Model"] ?? "claude-sonnet-4-20250514";
-        _maxTokens = int.TryParse(
-            llmSection["MaxTokens"], System.Globalization.CultureInfo.InvariantCulture, out var max)
-            ? max
-            : 8192;
+        var options = claude.Value;
+        _apiKey = !string.IsNullOrEmpty(options.ApiKey)
+            ? options.ApiKey
+            : Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty;
+        _defaultModel = string.IsNullOrWhiteSpace(options.Model) ? ClaudeConfiguration.DefaultModel : options.Model;
+        _maxTokens = options.MaxTokens;
 
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
             _logger.LogWarning(
-                "Anthropic API key not configured. Set ExternalServices:Llm:Claude:ApiKey or ANTHROPIC_API_KEY env var");
+                "Anthropic API key not configured. Set {Section}:ApiKey or ANTHROPIC_API_KEY env var", ClaudeConfiguration.SectionName);
         }
     }
 

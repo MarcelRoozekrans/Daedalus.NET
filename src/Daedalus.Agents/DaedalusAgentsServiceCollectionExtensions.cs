@@ -1230,9 +1230,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     <para>
     ///         <b>The token is not configuration.</b> <see cref="GitHubTokenSource"/> reads
     ///         <c>GITHUB_TOKEN</c> from the environment, so nothing bound here ever carries a credential and no
-    ///         token can be committed. <c>ExternalServices:Platforms:GitHub:AuthToken</c> exists for the older
-    ///         Infrastructure platform clients and is deliberately left alone — <see cref="GitHubOptions"/> does
-    ///         not bind it.
+    ///         token can be committed. No configuration key holds a GitHub token.
     ///     </para>
     ///     <para>
     ///         Both interfaces resolve the same concrete type, but each tool class can only reach its own half:

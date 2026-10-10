@@ -412,27 +412,24 @@ The **API** and **CLI** projects each have their own `appsettings.json`. The API
                     "Url": "https://context7.com/api"
                 }
             }
-        },
-        "Context7": {
-            "Enabled": true,
-            "Timeout": 10000,
-            "ApiKey": null
         }
     }
 }
 ```
 
-> `Context7.ApiUrl` defaults to `https://context7.com/api` and only needs to be set when using a custom endpoint.
-
 #### Repository Platform Tokens
 
-Git operations support GitHub, GitLab, and Azure DevOps. Tokens are read from environment variables:
+Git operations support GitHub, GitLab, and Azure DevOps. Tokens are read only from environment variables; no
+configuration key holds one:
 
-| Platform     | Env Variable         | Config Section                           |
-|--------------|----------------------|------------------------------------------|
-| GitHub       | `GITHUB_TOKEN`       | `ExternalServices:Platforms:GitHub`      |
-| GitLab       | `GITLAB_TOKEN`       | `ExternalServices:Platforms:GitLab`      |
-| Azure DevOps | `AZURE_DEVOPS_TOKEN` | `ExternalServices:Platforms:AzureDevOps` |
+| Platform     | Env Variable         |
+|--------------|----------------------|
+| GitHub       | `GITHUB_TOKEN`       |
+| GitLab       | `GITLAB_TOKEN`       |
+| Azure DevOps | `AZURE_DEVOPS_TOKEN` |
+
+`ExternalServices:Platforms:GitHub` configures the GitHub client: `ApiUrl`, `UserAgent`, `MaxItemsPerCategory` and
+`DefaultLookback`.
 
 #### Authentication (API)
 

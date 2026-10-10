@@ -78,6 +78,11 @@ public static class InfrastructureServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        // The Anthropic settings AgentFactory reads.
+#pragma warning disable IL2026 // Configuration binding uses reflection; accepted risk for configuration scenarios
+        services.Configure<ClaudeConfiguration>(configuration.GetSection(ClaudeConfiguration.SectionName));
+#pragma warning restore IL2026
+
         // McpToolBuilder converts McpServerConfig entries into AITool instances
         services.AddSingleton<McpToolBuilder>();
 
