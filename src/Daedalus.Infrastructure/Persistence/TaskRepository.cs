@@ -191,9 +191,9 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
             return Result.Success();
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(e => e.Entity is Task))
         {
-            dbContext.ChangeTracker.Clear();
+            DetachTasks(ex);
             return Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id));
         }
         catch (Exception ex)
@@ -203,31 +203,37 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         }
     }
 
-    public async Task<Result> DeleteAsync(Guid id, CancellationToken ct)
+    public async Task<Result> DeleteAsync(Task task, CancellationToken ct)
     {
         try
         {
-            // Delete through the tracker so the row's xmin is checked: a task that gained a run since it was read is
-            // refused rather than deleted.
-            var task = await dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct).ConfigureAwait(false);
-            if (task is null)
-            {
-                return Result.Failure($"Task with ID {id} not found");
-            }
-
-            dbContext.Tasks.Remove(task);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success();
+            // Delete the instance the caller read, so the row version it carries is the original value. A task that
+            // gained a run after that read is refused rather than deleted. Setting the state marks this entity only,
+            // and the database cascade removes its executions.
+            dbContext.Entry(task).State = EntityState.Deleted;
+            var saved = await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            return saved > 0
+                ? Result.Success()
+                : Result.Failure($"Task with ID {task.Id} not found");
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(e => e.Entity is Task))
         {
-            dbContext.ChangeTracker.Clear();
-            return Result.Failure(TaskRunGuard.ChangedUnderneath(id));
+            DetachTasks(ex);
+            return Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id));
         }
         catch (Exception ex)
         {
-            LogErrorUpdatingTask(logger, ex, id);
+            LogErrorUpdatingTask(logger, ex, task.Id);
             return Result.Failure($"Error deleting task: {ex.Message}");
+        }
+    }
+
+    /// <summary>Detaches the tasks of a lost race, so the context holds no stale copy; other entries stay tracked.</summary>
+    private static void DetachTasks(DbUpdateConcurrencyException ex)
+    {
+        foreach (var entry in ex.Entries.Where(e => e.Entity is Task))
+        {
+            entry.State = EntityState.Detached;
         }
     }
 

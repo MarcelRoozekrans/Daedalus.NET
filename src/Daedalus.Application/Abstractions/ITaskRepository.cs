@@ -1,5 +1,5 @@
-using ZeroAlloc.Results;
 using Daedalus.Domain.Entities;
+using ZeroAlloc.Results;
 using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Application.Abstractions;
@@ -41,8 +41,11 @@ public interface ITaskRepository
     /// <summary>Updates an existing task.</summary>
     Task<Result> UpdateAsync(Task task, CancellationToken ct);
 
-    /// <summary>Deletes a task by ID.</summary>
-    Task<Result> DeleteAsync(Guid id, CancellationToken ct);
+    /// <summary>
+    ///     Deletes the task instance that was read, checking its row version: a task changed since it was read, such as
+    ///     one that gained a manufacture run, is refused with a <c>TaskRunGuard.ChangedPrefix</c> error.
+    /// </summary>
+    Task<Result> DeleteAsync(Task task, CancellationToken ct);
 
     /// <summary>Records a task execution (iteration).</summary>
     Task<Result> RecordExecutionAsync(TaskExecution execution, CancellationToken ct);

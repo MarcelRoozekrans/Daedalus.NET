@@ -39,4 +39,29 @@ public sealed class TasksControllerConflictTests
 
         result.Should().BeOfType<ConflictObjectResult>();
     }
+
+    /// <summary>
+    ///     A save that lost a race with another write is a conflict too.
+    ///     Red: revert <c>UpdateTask</c> to the old <c>StartsWith(LiveRunPrefix)</c> check; the result is 400.
+    /// </summary>
+    [Fact]
+    public async Task A_lost_race_on_an_update_is_409()
+    {
+        _commands.UpdateTaskAsync(default, default).ReturnsForAnyArgs(Result<TaskDto>.Failure(TaskRunGuard.ChangedUnderneath(Guid.NewGuid())));
+
+        var result = await Controller().UpdateTask(Guid.NewGuid(), new UpdateTaskDto(null, null, null, null, null, null, null, null, null));
+
+        result.Should().BeOfType<ConflictObjectResult>();
+    }
+
+    /// <summary>Red: revert <c>DeleteTask</c> to the old <c>StartsWith(LiveRunPrefix)</c> check; the result is 400.</summary>
+    [Fact]
+    public async Task A_lost_race_on_a_delete_is_409()
+    {
+        _commands.DeleteTaskAsync(default, default).ReturnsForAnyArgs(Result.Failure(TaskRunGuard.ChangedUnderneath(Guid.NewGuid())));
+
+        var result = await Controller().DeleteTask(Guid.NewGuid());
+
+        result.Should().BeOfType<ConflictObjectResult>();
+    }
 }

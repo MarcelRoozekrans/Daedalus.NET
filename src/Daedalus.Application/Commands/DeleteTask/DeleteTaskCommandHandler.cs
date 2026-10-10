@@ -32,6 +32,6 @@ public sealed class DeleteTaskCommandHandler(ITaskRepository taskRepository, IWo
             return Result.Failure(TaskRunGuard.LiveRun(task, run));
         }
 
-        return await taskRepository.DeleteAsync(task.Id, ct);
+        return await taskRepository.DeleteAsync(task, ct);
     }
 }
