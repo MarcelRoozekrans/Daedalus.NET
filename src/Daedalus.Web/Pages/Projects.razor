@@ -106,8 +106,8 @@ else
                     <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="110px"
                                           TextAlign="TextAlign.Center">
                         <Template Context="task">
-                            <RadzenBadge Text="@GetStatusText(task.Status)"
-                                         BadgeStyle="@GetStatusBadgeStyle(task.Status)"/>
+                            <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)"
+                                         BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
                         </Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="TaskDto" Title="Iterations" Width="100px" TextAlign="TextAlign.Center">
@@ -223,32 +223,6 @@ else
                 NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error ?? "Failed to delete");
             }
         }
-    }
-
-    private static string GetStatusText(int status)
-    {
-        return status switch
-        {
-            0 => "Pending",
-            1 => "In Progress",
-            2 => "Completed",
-            3 => "Failed",
-            4 => "Abandoned",
-            _ => "Unknown"
-        };
-    }
-
-    private static BadgeStyle GetStatusBadgeStyle(int status)
-    {
-        return status switch
-        {
-            0 => BadgeStyle.Warning,
-            1 => BadgeStyle.Info,
-            2 => BadgeStyle.Success,
-            3 => BadgeStyle.Danger,
-            4 => BadgeStyle.Light,
-            _ => BadgeStyle.Light
-        };
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()

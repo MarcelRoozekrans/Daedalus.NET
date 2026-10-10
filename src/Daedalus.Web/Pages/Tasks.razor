@@ -9,7 +9,7 @@
     <RadzenStack Gap="0.25rem">
         <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Tasks</RadzenText>
         <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
-            Manage and monitor Ralph Loop task executions
+            Plan work and start manufacture runs
         </RadzenText>
     </RadzenStack>
     <RadzenButton Text="Create Task" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialog"
@@ -46,7 +46,11 @@
         <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="120px"
                               TextAlign="TextAlign.Center">
             <Template Context="task">
-                <RadzenBadge Text="@GetStatusName(task.Status)" BadgeStyle="@GetStatusBadgeStyle(task.Status)"/>
+                <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
+                @if (task.PullRequestUrl is not null)
+                {
+                    <RadzenLink Path="@task.PullRequestUrl.ToString()" Text="PR" Target="_blank" title="Pull request" data-testid="task-pr-link" Style="margin-left: 0.5rem;"/>
+                }
             </Template>
         </RadzenDataGridColumn>
 
@@ -67,7 +71,7 @@
         <RadzenDataGridColumn TItem="TaskDto" Property="IterationCount" Title="Iterations" Width="110px"
                               TextAlign="TextAlign.Center">
             <Template Context="task">
-                <RadzenText TextStyle="TextStyle.Body2">@task.IterationCount / @task.MaxIterations</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2">@(TaskStatusLabels.HasLoopHistory(task) ? $"{task.IterationCount} / {task.MaxIterations}" : "—")</RadzenText>
             </Template>
         </RadzenDataGridColumn>
 
@@ -89,15 +93,10 @@
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" JustifyContent="JustifyContent.Center">
                     <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
                                   Click="@(() => OpenEditDialog(task))" title="Edit"/>
-                    @if (task.Status == 0)
+                    @if (TaskStatusLabels.IsStartable(task.Status))
                     {
-                        <RadzenButton Icon="play_arrow" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Success"
-                                      Click="@(() => ResumeTask(task))" title="Resume"/>
-                    }
-                    @if (task.Status is 0 or 1)
-                    {
-                        <RadzenButton Icon="stop" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Warning"
-                                      Click="@(() => AbandonTask(task))" title="Abandon"/>
+                        <RadzenButton Icon="precision_manufacturing" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Success"
+                                      Disabled="@_starting.Contains(task.Id)" Click="@(() => ManufactureTask(task))" title="Manufacture"/>
                     }
                     <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"
                                   Click="@(() => DeleteTask(task))" title="Delete"/>
@@ -176,39 +175,32 @@
         }
     }
 
-    private async Task AbandonTask(TaskDto task)
-    {
-        var confirmed = await DialogService.Confirm(
-            $"Abandon task '{task.Title ?? task.Id.ToString()[..8]}'?",
-            "Confirm Abandon",
-            new ConfirmOptions { OkButtonText = "Abandon", CancelButtonText = "Cancel" });
+    private readonly HashSet<Guid> _starting = [];
 
-        if (confirmed is true)
+    private async Task ManufactureTask(TaskDto task)
+    {
+        if (!_starting.Add(task.Id))
         {
-            var result = await Api.AbandonTaskAsync(task.Id, new AbandonTaskDto("Abandoned from dashboard"));
+            return;
+        }
+
+        try
+        {
+            var result = await Api.ManufactureTaskAsync(task.Id, _cts?.Token ?? CancellationToken.None);
             if (result.IsSuccess)
             {
-                NotificationService.Notify(NotificationSeverity.Success, "Task Abandoned");
+                NotificationService.Notify(NotificationSeverity.Success, "Manufacture started", $"Run {result.Value.RunId}");
             }
             else
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+                NotificationService.Notify(NotificationSeverity.Error, "Could not start", result.Error);
             }
-            await LoadTasks();
         }
-    }
+        finally
+        {
+            _starting.Remove(task.Id);
+        }
 
-    private async Task ResumeTask(TaskDto task)
-    {
-        var result = await Api.ResumeTaskAsync(task.Id, new ResumeTaskDto(null));
-        if (result.IsSuccess)
-        {
-            NotificationService.Notify(NotificationSeverity.Success, "Task Resumed");
-        }
-        else
-        {
-            NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
-        }
         await LoadTasks();
     }
 
@@ -241,32 +233,6 @@
             await _cts.CancelAsync();
             _cts.Dispose();
         }
-    }
-
-    private static string GetStatusName(int status)
-    {
-        return status switch
-        {
-            0 => "Pending",
-            1 => "In Progress",
-            2 => "Completed",
-            3 => "Failed",
-            4 => "Abandoned",
-            _ => "Unknown"
-        };
-    }
-
-    private static BadgeStyle GetStatusBadgeStyle(int status)
-    {
-        return status switch
-        {
-            0 => BadgeStyle.Warning,
-            1 => BadgeStyle.Info,
-            2 => BadgeStyle.Success,
-            3 => BadgeStyle.Danger,
-            4 => BadgeStyle.Light,
-            _ => BadgeStyle.Light
-        };
     }
 
     private static string GetPriorityName(int priority)

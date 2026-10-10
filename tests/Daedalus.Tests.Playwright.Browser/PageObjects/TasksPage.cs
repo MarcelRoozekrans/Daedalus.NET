@@ -12,11 +12,12 @@ public sealed class TasksPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
     public ILocator DialogTitle => _page.Locator(".rz-dialog-title");
     public ILocator ConfirmDialog => _page.Locator(".rz-dialog-wrapper");
 
-    public ILocator ConfirmOkButton => _page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Abandon" })
-        .Or(_page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Delete" }));
+    public ILocator ConfirmOkButton => _page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Delete" });
 
     public ILocator ConfirmCancelButton =>
         _page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Cancel" });
+
+    public ILocator ErrorNotification => _page.Locator(".rz-notification");
 
     public ILocator Notification => _page.Locator(".rz-notification");
 
@@ -34,11 +35,8 @@ public sealed class TasksPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
     public ILocator GetDeleteButton(string rowText) =>
         GetRowByText(rowText).Locator("button[title='Delete']");
 
-    public ILocator GetResumeButton(string rowText) =>
-        GetRowByText(rowText).Locator("button[title='Resume']");
-
-    public ILocator GetAbandonButton(string rowText) =>
-        GetRowByText(rowText).Locator("button[title='Abandon']");
+    public ILocator GetManufactureButton(string rowText) =>
+        GetRowByText(rowText).Locator("button[title='Manufacture']");
 
     public ILocator GetStatusBadge(string rowText) =>
         GetRowByText(rowText).Locator(".rz-badge").First;

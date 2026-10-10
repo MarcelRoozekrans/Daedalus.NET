@@ -138,6 +138,7 @@ public class E2EServerFixture
 
             // Query services
             builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
+            builder.Services.AddScoped<TaskManufactureService>();
             builder.Services.AddScoped<IExecutionSessionQueryService, ExecutionSessionQueryService>();
             builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
             builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
@@ -266,6 +267,7 @@ public class E2EServerFixture
                 options.AddPolicy("CodeAnalysis", policy => policy.RequireRole("analyst", "admin"));
                 options.AddPolicy("CodeAnalysisRead", policy => policy.RequireAuthenticatedUser());
                 options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
+                options.AddPolicy("WorkflowResume", policy => policy.RequireRole("developer", "admin"));
                 options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser());
             });
 

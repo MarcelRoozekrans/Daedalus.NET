@@ -71,6 +71,23 @@ public class TasksPageBrowserTests : BrowserTestBase
         await Expect(_tasksPage.GetDeleteButton("Implement feature A")).ToBeVisibleAsync().ConfigureAwait(false);
     }
 
+    /// <summary>
+    ///     A pending task offers Manufacture. The seeded project has no repository URL, so the server refuses with 422, and
+    ///     the page shows the server's own reason. Red: show a generic message instead of the problem detail; the reason is
+    ///     missing. Red: hide the button for status 0; it is not visible.
+    /// </summary>
+    [Test]
+    [Description("A pending task offers Manufacture, and a refused start shows the server's reason")]
+    public async Task TasksPage_Manufacture_OnAProjectWithoutAnAllowListedRepository_ShowsTheReason()
+    {
+        await _tasksPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_tasksPage.GetStatusBadge("Implement feature A")).ToContainTextAsync("Pending").ConfigureAwait(false);
+
+        await _tasksPage.GetManufactureButton("Implement feature A").ClickAsync().ConfigureAwait(false);
+
+        await Expect(_tasksPage.ErrorNotification).ToContainTextAsync("no repository URL").ConfigureAwait(false);
+    }
+
     [Test]
     [Description("Clicking Create Task should open a dialog")]
     public async Task TasksPage_CreateButton_ShouldOpenDialog()

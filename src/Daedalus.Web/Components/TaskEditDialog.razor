@@ -11,7 +11,7 @@
         </RadzenColumn>
         <RadzenColumn Size="12" SizeMD="6">
             <RadzenFormField Text="Status" Style="width: 100%;">
-                <RadzenBadge Text="@GetStatusName(Task.Status)" BadgeStyle="@GetStatusBadgeStyle(Task.Status)"/>
+                <RadzenBadge Text="@TaskStatusLabels.Name(Task.Status)" BadgeStyle="@TaskStatusLabels.Style(Task.Status)"/>
             </RadzenFormField>
         </RadzenColumn>
     </RadzenRow>
@@ -24,9 +24,12 @@
         <RadzenTextArea @bind-Value="@_prompt" Rows="5"/>
     </RadzenFormField>
 
-    <RadzenFormField Text="Completion Promise" Style="width: 100%;">
-        <RadzenTextArea @bind-Value="@_completionPromise" Rows="3"/>
-    </RadzenFormField>
+    @if (TaskStatusLabels.HasLoopHistory(Task))
+    {
+        <RadzenFormField Text="Completion Promise" Style="width: 100%;">
+            <RadzenTextArea @bind-Value="@_completionPromise" Rows="3" ReadOnly="true"/>
+        </RadzenFormField>
+    }
 
     <RadzenRow>
         <RadzenColumn Size="12" SizeMD="4">
@@ -41,11 +44,14 @@
                                 ValueProperty="Value"/>
             </RadzenFormField>
         </RadzenColumn>
-        <RadzenColumn Size="12" SizeMD="4">
-            <RadzenFormField Text="Max Iterations" Style="width: 100%;">
-                <RadzenNumeric @bind-Value="@_maxIterations" Min="1" Max="100"/>
-            </RadzenFormField>
-        </RadzenColumn>
+        @if (TaskStatusLabels.HasLoopHistory(Task))
+        {
+            <RadzenColumn Size="12" SizeMD="4">
+                <RadzenFormField Text="Max Iterations" Style="width: 100%;">
+                    <RadzenNumeric @bind-Value="@_maxIterations" ReadOnly="true"/>
+                </RadzenFormField>
+            </RadzenColumn>
+        }
     </RadzenRow>
 
     <RadzenRow>
@@ -166,31 +172,4 @@
             _submitting = false;
         }
     }
-
-    private static string GetStatusName(int status)
-    {
-        return status switch
-        {
-            0 => "Pending",
-            1 => "In Progress",
-            2 => "Completed",
-            3 => "Failed",
-            4 => "Abandoned",
-            _ => "Unknown"
-        };
-    }
-
-    private static BadgeStyle GetStatusBadgeStyle(int status)
-    {
-        return status switch
-        {
-            0 => BadgeStyle.Warning,
-            1 => BadgeStyle.Info,
-            2 => BadgeStyle.Success,
-            3 => BadgeStyle.Danger,
-            4 => BadgeStyle.Light,
-            _ => BadgeStyle.Light
-        };
-    }
-
 }
