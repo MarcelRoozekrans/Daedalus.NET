@@ -300,6 +300,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // report the engine is off instead of failing DI resolution.
         services.TryAddSingleton<IManufactureRunStarter, DisabledManufactureRunStarter>();
 
+        // Phase 2.8: always registered, like the starter above. It compensates for a started run that could not be
+        // attached to its task; AddDaedalusWorkflow replaces it next to the starter when Workflow.Enabled.
+        services.TryAddSingleton<IWorkflowRunCanceller, DisabledWorkflowRunCanceller>();
+
         // Phase 2.8, amendment A2: always registered, like the starter above, so task reads resolve on every host.
         // AddDaedalusWorkflow replaces it with the engine reader when Workflow.Enabled.
         services.TryAddSingleton<IWorkflowRunStatusReader, DisabledWorkflowRunStatusReader>();
@@ -548,6 +552,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 sp.GetRequiredService<IRunWorkspaceProvider>(),
                 sp.GetRequiredService<IRunBaseFileReader>(),
                 sp.GetRequiredService<WorkflowConfig>())));
+
+        // Phase 2.8: cancels a started run that could not be attached to its task, through WorkflowRunGateway.
+        services.Replace(ServiceDescriptor.Singleton<IWorkflowRunCanceller, WorkflowRunCanceller>());
 
         // Phase 2.8: reads a task's run over the undecorated IWorkflowStore, as WorkflowRunGateway does.
         services.Replace(ServiceDescriptor.Singleton<IWorkflowRunStatusReader, WorkflowRunStatusReader>());

@@ -29,19 +29,20 @@ public sealed class TaskManufactureServiceTests
     private readonly IManufactureRunStarter _starter = Substitute.For<IManufactureRunStarter>();
     private readonly WorkflowConfig _workflow = new();
     private readonly Guid _started = Guid.NewGuid();
-    private readonly IWorkflowStore _store = Substitute.For<IWorkflowStore>();
+    private readonly IWorkflowRunCanceller _canceller = Substitute.For<IWorkflowRunCanceller>();
     private readonly CapturingLogger<TaskManufactureService> _logger = new();
 
     public TaskManufactureServiceTests()
     {
         _workflow.Repositories.Add(new RepositoryConfig { Name = "daedalus-sandbox", Remote = Sandbox });
+        _canceller.CancelAsync(Guid.Empty, default!, default).ReturnsForAnyArgs(new ValueTask<bool>(true));
         _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Success());
         _runs.ReadAsync(Guid.Empty, default).ReturnsForAnyArgs(new ValueTask<WorkflowRunStatus>(WorkflowRunStatus.Unknown));
         _starter.StartAsync(default!, default).ReturnsForAnyArgs(
             new ValueTask<Result<Guid, ManufactureStartFailure>>(Result<Guid, ManufactureStartFailure>.Success(_started)));
     }
 
-    private TaskManufactureService Service() => new(_tasks, _projects, _runs, _starter, _workflow, _logger, Gateway(_store));
+    private TaskManufactureService Service() => new(_tasks, _projects, _runs, _starter, _workflow, _canceller, _logger);
 
     /// <summary>The real gateway over <paramref name="store"/>, as the engine-on host registers it.</summary>
     internal static WorkflowRunGateway Gateway(IWorkflowStore store) =>
@@ -273,20 +274,59 @@ public sealed class TaskManufactureServiceTests
     }
 
     /// <summary>
-    ///     A run that started but is not attached is cancelled, for a reason naming the task, and the failure says so.
-    ///     Red: skip the cancel; the store receives no cancel and RunCancelled is false.
+    ///     A run that lost the attach race is cancelled, for a reason naming the task and the change, and the failure says so.
+    ///     Red: skip the cancel; the canceller receives no call and RunCancelled is false.
+    ///     Red: give both kinds the failed-save reason; the reason does not say the task changed.
     /// </summary>
     [Fact]
-    public async Task An_unattached_run_is_cancelled_for_a_reason_naming_the_task()
+    public async Task A_run_that_lost_the_race_is_cancelled_for_a_reason_saying_the_task_changed()
     {
         var task = Given();
         _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id)));
 
         var result = await Service().StartAsync(task.Id, Starter, CancellationToken.None);
 
-        await _store.Received(1).CancelAsync(_started, Arg.Is<string>(r => r.Contains(task.Id.ToString())), Arg.Any<CancellationToken>());
+        await _canceller.Received(1).CancelAsync(
+            _started, Arg.Is<string>(r => r.Contains(task.Id.ToString()) && r.Contains("changed while this run started")), Arg.Any<CancellationToken>());
         result.Error.RunCancelled.Should().BeTrue();
         result.Error.Message.Should().Contain("was cancelled");
+    }
+
+    /// <summary>
+    ///     A run whose attach save failed is cancelled for a reason saying so, not that the task changed.
+    ///     Red: give both kinds the lost-race reason; the reason says the task changed.
+    /// </summary>
+    [Fact]
+    public async Task A_run_whose_save_failed_is_cancelled_for_a_reason_saying_the_save_failed()
+    {
+        var task = Given();
+        _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Failure("Error updating task. The cause is logged."));
+
+        await Service().StartAsync(task.Id, Starter, CancellationToken.None);
+
+        await _canceller.Received(1).CancelAsync(
+            _started,
+            Arg.Is<string>(r => r.Contains(task.Id.ToString()) && r.Contains("failed") && !r.Contains("changed")),
+            Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     A cancel that did not happen is reported and logged at Error with both ids.
+    ///     Red: drop the log call; no Error entry.
+    /// </summary>
+    [Fact]
+    public async Task A_run_that_could_not_be_cancelled_is_reported_and_logged_with_both_ids()
+    {
+        var task = Given();
+        _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id)));
+        _canceller.CancelAsync(Guid.Empty, default!, default).ReturnsForAnyArgs(new ValueTask<bool>(false));
+
+        var result = await Service().StartAsync(task.Id, Starter, CancellationToken.None);
+
+        result.Error.RunCancelled.Should().BeFalse();
+        result.Error.Message.Should().Contain("cancel it by hand");
+        _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
+            .Which.Message.Should().Contain(_started.ToString()).And.Contain(task.Id.ToString());
     }
 
     /// <summary>

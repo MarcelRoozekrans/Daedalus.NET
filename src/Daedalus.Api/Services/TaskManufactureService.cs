@@ -59,19 +59,14 @@ public sealed record TaskManufactureFailure(
 ///     Starts a manufacture run for a board task (phase 2.8, D1 and D2). Every refusal comes before the starter is called,
 ///     so a refused start spends nothing. See the spec's §2 for the order of the checks.
 /// </summary>
-/// <remarks>
-///     <c>gateway</c> is registered only on a host whose workflow engine is on. A run can only start on such a host, so a
-///     started run that could not be attached can always be cancelled through it; without it the run is reported as not
-///     cancelled.
-/// </remarks>
 public sealed partial class TaskManufactureService(
     ITaskRepository tasks,
     IProjectRepository projects,
     IWorkflowRunStatusReader runs,
     IManufactureRunStarter starter,
     WorkflowConfig workflow,
-    ILogger<TaskManufactureService> logger,
-    WorkflowRunGateway? gateway = null)
+    IWorkflowRunCanceller canceller,
+    ILogger<TaskManufactureService> logger)
 {
     [LoggerMessage(EventId = 1, Level = LogLevel.Warning,
         Message = "Run {RunId} started for task {TaskId}, but the task was changed by another request before the run could be attached")]
@@ -81,11 +76,7 @@ public sealed partial class TaskManufactureService(
     private static partial void LogAttachFailed(ILogger logger, Guid runId, Guid taskId, string error);
 
     [LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Run {RunId}, started for task {TaskId} but not attached, could not be cancelled")]
-    private static partial void LogCancelFailed(ILogger logger, Exception exception, Guid runId, Guid taskId);
-
-    [LoggerMessage(EventId = 4, Level = LogLevel.Error,
-        Message = "Run {RunId}, started for task {TaskId} but not attached, could not be cancelled: the workflow run gateway is not registered")]
-    private static partial void LogCancelUnavailable(ILogger logger, Guid runId, Guid taskId);
+    private static partial void LogCancelFailed(ILogger logger, Guid runId, Guid taskId);
 
     [LoggerMessage(EventId = 5, Level = LogLevel.Error, Message = "Starting a run for task {TaskId} failed reading {What}: {Error}")]
     private static partial void LogReadFailed(ILogger logger, Guid taskId, string what, string error);
@@ -165,7 +156,12 @@ public sealed partial class TaskManufactureService(
             LogAttachFailed(logger, runId, task.Id, saved.Error);
         }
 
-        var cancelled = await CancelUnattachedAsync(runId, task, ct).ConfigureAwait(false);
+        var cancelled = await canceller.CancelAsync(runId, CancelReason(lostRace, task.Id), ct).ConfigureAwait(false);
+        if (!cancelled)
+        {
+            LogCancelFailed(logger, runId, task.Id);
+        }
+
         var why = lostRace
             ? $"task {task.TaskId} was changed by another request while the run started, so it was not attached"
             : $"attaching it to task {task.TaskId} failed";
@@ -177,30 +173,10 @@ public sealed partial class TaskManufactureService(
             RunCancelled: cancelled));
     }
 
-    /// <summary>
-    ///     Cancels a run that started but is not attached, so it does not run unattached. Best-effort: a failure is logged
-    ///     with both ids and reported as false, never thrown.
-    /// </summary>
-    private async Task<bool> CancelUnattachedAsync(Guid runId, DomainTask task, CancellationToken ct)
-    {
-        if (gateway is null)
-        {
-            LogCancelUnavailable(logger, runId, task.Id);
-            return false;
-        }
-
-        try
-        {
-            await gateway.CancelAsync(
-                runId, $"Phase 2.8: task {task.Id} changed while this run started; cancelled so it does not run unattached.", ct).ConfigureAwait(false);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            LogCancelFailed(logger, ex, runId, task.Id);
-            return false;
-        }
-    }
+    /// <summary>The reason an unattached run is cancelled for, by why it is unattached.</summary>
+    internal static string CancelReason(bool lostRace, Guid taskId) => lostRace
+        ? $"Phase 2.8: task {taskId} changed while this run started, so the run was not attached; cancelled so it does not run unattached."
+        : $"Phase 2.8: saving this run on task {taskId} failed, so the run was not attached; cancelled so it does not run unattached.";
 
     /// <summary>The work intent: the task's title, a blank line, then its description.</summary>
     internal static string WorkIntent(DomainTask task) => $"{task.Title}\n\n{task.Description}";

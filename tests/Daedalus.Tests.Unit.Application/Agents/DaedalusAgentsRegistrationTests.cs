@@ -105,6 +105,34 @@ public sealed class DaedalusAgentsRegistrationTests
         services.Last(d => d.ServiceType == typeof(IWorkflowRunStatusReader)).ImplementationType!.Name.Should().Be("WorkflowRunStatusReader");
     }
 
+    /// <summary>
+    ///     Phase 2.8: a host with the engine off still resolves the compensating canceller, which cancels nothing.
+    ///     Red: drop the <c>TryAddSingleton</c> of the disabled canceller; resolution throws.
+    /// </summary>
+    [Fact]
+    public void A_host_with_the_engine_off_resolves_the_disabled_run_canceller()
+    {
+        using var sp = Build(Config(("Thalos:Workflow:Enabled", "false")));
+
+        sp.GetRequiredService<IWorkflowRunCanceller>().Should().BeOfType<DisabledWorkflowRunCanceller>();
+    }
+
+    /// <summary>
+    ///     An enabled host replaces it with the engine canceller. Checked on the descriptor, so no workflow store is built.
+    ///     Red: drop the <c>Replace</c> in <c>AddDaedalusWorkflow</c>; the last descriptor is the disabled canceller.
+    /// </summary>
+    [Fact]
+    public void A_host_with_the_engine_on_replaces_it_with_the_engine_canceller()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.AddSingleton(Substitute.For<IPullRequestFactory>());
+        services.AddDaedalusAgents(Config(), Environment());
+
+        services.Last(d => d.ServiceType == typeof(IWorkflowRunCanceller)).ImplementationType.Should().Be<WorkflowRunCanceller>();
+    }
+
     [Fact]
     public void Catalog_contains_the_configured_agent_with_parsed_ulid_and_wildcard_tools()
     {
