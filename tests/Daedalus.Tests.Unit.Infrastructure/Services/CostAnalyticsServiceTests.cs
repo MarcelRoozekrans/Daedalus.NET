@@ -247,6 +247,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
     /// <summary>
     ///     The scope is a claim shipped on the summary, so it is guarded like one: it names every source and the exclusion.
     ///     Red: restore the old Ralph-only scope string; it names no node-usage, workflow:* or schedule:*.
+    ///     Red: drop the sentence on unpriced session tokens and cache reads from the scope; the last assertion fails.
     /// </summary>
     [Fact]
     public async Task The_summary_scope_names_the_four_sources_and_the_workflow_exclusion()
@@ -254,6 +255,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         var result = await new CostAnalyticsService(_dbContext, PricingWithOneModel()).GetSummaryAsync();
 
         result.Scope.Should().Contain("node-usage").And.Contain("workflow:*").And.Contain("schedule:*").And.Contain("TaskExecutions");
+        result.Scope.Should().Contain("not priced").And.Contain("cache reads and writes");
     }
 
     #endregion

@@ -152,7 +152,7 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
 
     /// <summary>
     ///     No source has rows: every figure is zero and every list is empty, not an error.
-    ///     Red: read the history day range with <c>MinAsync</c>, which throws on an empty set.
+    ///     Red: emit a zero slice for every <c>CostSources</c> constant; <c>BySource</c> is no longer empty.
     /// </summary>
     [Fact]
     public async Task An_empty_database_is_all_zero()
@@ -181,6 +181,25 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
 
         summary.UnreadableRecords.Should().Be(1);
         summary.TotalInputTokens.Should().Be(0);
+    }
+
+    /// <summary>
+    ///     An unpriced model is listed once, however many days and sources it appears in.
+    ///     Red: remove the de-duplication in <c>PriceGroups</c>; the model id is listed four times.
+    /// </summary>
+    [Fact]
+    public async Task An_unpriced_model_is_listed_once_across_days_and_sources()
+    {
+        History("model-unknown", 100, 10, Day1);
+        History("model-unknown", 100, 10, Day2);
+        Manufacture(new NodeUsage("model-unknown", 200, 20, 0, 0), Day1);
+        Manufacture(new NodeUsage("model-unknown", 200, 20, 0, 0), Day2);
+        await _db.SaveChangesAsync();
+
+        var summary = await Service().GetSummaryAsync();
+
+        summary.Excluded.UnpricedModelIds.Should().Equal("model-unknown");
+        summary.Excluded.UnpricedInputTokens.Should().Be(600);
     }
 
     /// <summary>Red: return <c>Chat</c> for a <c>workflow:</c> owner; the first row fails.</summary>
