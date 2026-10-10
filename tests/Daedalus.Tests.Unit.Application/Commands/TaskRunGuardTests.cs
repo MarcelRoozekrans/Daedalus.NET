@@ -46,6 +46,42 @@ public sealed class TaskRunGuardTests
         await _tasks.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default);
     }
 
+    /// <summary>
+    ///     "Only Pending is editable" applies to the derived status: a stored-Pending task whose run is over is refused
+    ///     with the non-live error, so the controller answers 400, not 409.
+    ///     Red: revert the handler to <c>task.Status != Pending</c>; the stored Pending lets the update through.
+    /// </summary>
+    [Theory]
+    [InlineData(WorkflowRunState.Succeeded)]
+    [InlineData(WorkflowRunState.Failed)]
+    [InlineData(WorkflowRunState.Cancelled)]
+    public async Task An_update_of_a_task_whose_run_is_over_is_refused_but_not_as_a_conflict(WorkflowRunState state)
+    {
+        var task = Given(state);
+
+        var result = await new UpdateTaskCommandHandler(_tasks, _runs).Handle(Rename(task.Id), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().StartWith("Cannot update task: current status is");
+        TaskRunGuard.IsConflict(result.Error).Should().BeFalse();
+        await _tasks.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default);
+    }
+
+    /// <summary>
+    ///     A save that lost a race with another write of the task is a conflict, with its own message.
+    ///     Red: wrap the repository error as <c>Failed to update task: ...</c> again; the prefix is lost.
+    /// </summary>
+    [Fact]
+    public async Task An_update_that_lost_a_race_keeps_the_conflict_error()
+    {
+        var task = Given(state: null);
+        _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id)));
+
+        var result = await new UpdateTaskCommandHandler(_tasks, _runs).Handle(Rename(task.Id), CancellationToken.None);
+
+        TaskRunGuard.IsConflict(result.Error).Should().BeTrue();
+    }
+
     /// <summary>Red: refuse any task that has a run; the pending task without one is refused.</summary>
     [Fact]
     public async Task A_pending_task_without_a_run_can_still_be_updated()

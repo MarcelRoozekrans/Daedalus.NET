@@ -4,6 +4,7 @@ using Daedalus.Application.DTOs;
 using Daedalus.Application.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using ZeroAlloc.Mediator;
 using ZeroAlloc.Validation;
 
@@ -29,6 +30,11 @@ public static class ApplicationServiceExtensions
         // GetRequiredService<TConcreteHandler>() (not by an ICommandHandler/IQueryHandler-style
         // interface), so that is what must be registered here.
         RegisterHandlersAot(services);
+
+        // The update and delete handlers read the run status. A host whose workflow engine is off (the Console)
+        // never calls AddDaedalusAgents, so it needs this fallback; AddDaedalusAgents replaces it on engine hosts,
+        // whatever the call order, because it uses Replace.
+        services.TryAddSingleton<IWorkflowRunStatusReader, DisabledWorkflowRunStatusReader>();
 
         // Register the generated IMediator (internal to this assembly - AddMediator() is itself
         // internal, so it can only be called from code compiled into Daedalus.Application) and the
