@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Daedalus.Tests.Integration.Builders;
 using Daedalus.Tests.Integration.Fixtures;
-using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Tests.Integration.Demonstration;
 
@@ -28,23 +27,6 @@ public class TestHelpersIntegrationTests(PostgresFixture fixture)
         Assert.NotNull(task);
         Assert.Equal("Test prompt", task.Prompt);
         Assert.Empty(task.CompletionPromise);
-    }
-
-    [Fact]
-    public void TaskTestBuilder_ClaimedBy_Sets_Status_InProgress()
-    {
-        // Arrange
-        var sessionId = Guid.NewGuid();
-
-        // Act
-        var task = new TaskTestBuilder()
-            .WithPrompt("Claimed task")
-            .ClaimedBy(sessionId)
-            .Build();
-
-        // Assert
-        Assert.Equal(sessionId, task.CurrentSessionId);
-        Assert.True(task.Status == TaskStatus.InProgress);
     }
 
     [Fact]

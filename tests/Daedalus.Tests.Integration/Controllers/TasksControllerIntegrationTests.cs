@@ -181,7 +181,6 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
             CompletionPromiseFound = false,
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
-        task.RecordExecution(execution);
 
         _dbContext.Tasks.Add(task);
         _dbContext.TaskExecutions.Add(execution);

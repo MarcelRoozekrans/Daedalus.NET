@@ -74,7 +74,6 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
             CompletionPromiseFound = false,
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
-        task.RecordExecution(execution);
 
         _dbContext.Tasks.Add(task);
         _dbContext.TaskExecutions.Add(execution);
@@ -109,7 +108,6 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
             CompletionPromiseFound = false,
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
-        task.RecordExecution(execution);
 
         _dbContext.Tasks.Add(task);
         _dbContext.TaskExecutions.Add(execution);

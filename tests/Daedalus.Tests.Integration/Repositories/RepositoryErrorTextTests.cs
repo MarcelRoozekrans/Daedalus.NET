@@ -25,7 +25,7 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
 
     public static TheoryData<string> Operations => new()
     {
-        "task.GetById", "task.GetByProjectId", "task.GetPending", "task.Add", "task.Update", "task.Delete",
+        "task.GetById", "task.GetByProjectId", "task.Add", "task.Update", "task.Delete",
         "project.GetById", "project.Add", "project.Update", "project.Delete",
     };
 
@@ -53,7 +53,6 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
         {
             "task.GetById" => (await tasks.GetByIdAsync(Guid.NewGuid(), CancellationToken.None)).Error,
             "task.GetByProjectId" => (await tasks.GetByProjectIdAsync(Guid.NewGuid(), CancellationToken.None)).Error,
-            "task.GetPending" => (await tasks.GetPendingAsync(CancellationToken.None)).Error,
             "task.Add" => (await tasks.AddAsync(task, CancellationToken.None)).Error,
             "task.Update" => (await tasks.UpdateAsync(task, CancellationToken.None)).Error,
             "task.Delete" => (await tasks.DeleteAsync(task, CancellationToken.None)).Error,

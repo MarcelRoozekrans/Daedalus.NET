@@ -4,18 +4,16 @@ using ZeroAlloc.Results;
 
 /// <summary>
 /// Benchmarks for domain entity creation, state transitions, and collection operations.
-/// These are hot paths in the Ralph loop: Task.Create is called per task,
-/// Task.RecordExecution is called every iteration, and dependency manipulation
-/// exercises linear-search patterns on List&lt;string&gt;.
+/// Task.Create is called per task, and dependency manipulation exercises
+/// linear-search patterns on List&lt;string&gt;.
 /// </summary>
 [MemoryDiagnoser]
 [RankColumn]
 public class DomainEntityBenchmarks
 {
-    private Task _inProgressTask = default!;
+    private Task _metadataTask = default!;
     private Task _taskWithDependencies = default!;
     private Task _taskWithFiles = default!;
-    private Guid _sessionId;
 
     // Pre-allocated valid strings (already trimmed) to isolate entity logic from string allocation
     private const string ValidTaskId = "TASK-001";
@@ -33,15 +31,12 @@ public class DomainEntityBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _sessionId = Guid.NewGuid();
-
-        // Create a task that's in-progress for RecordExecution benchmarks
+        // Create a task for the UpdateMetadata benchmark
         var taskResult = Task.Create(
             Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, ValidTitle, ValidDescription,
             Priority.High, ValidPhase, 1, Complexity.High,
             ValidPrompt);
-        _inProgressTask = taskResult.Value;
-        _inProgressTask.Claim(_sessionId);
+        _metadataTask = taskResult.Value;
 
         // Create a task with many dependencies for linear-search benchmarks
         var depTaskResult = Task.Create(
@@ -64,20 +59,6 @@ public class DomainEntityBenchmarks
         {
             _taskWithFiles.AddFileToModify($"src/Module{i}/Service.cs");
         }
-
-        // Pre-allocate for setup reference
-        _ = new TaskExecution
-        {
-            Id = Guid.NewGuid(),
-            TaskId = _inProgressTask.Id,
-            SessionId = _sessionId,
-            IterationNumber = _inProgressTask.IterationCount + 1,
-            Prompt = ValidPrompt,
-            LlmResponse = "Response text without completion promise",
-            CompletionPromiseFound = false,
-            ExecutedAt = DateTime.UtcNow,
-            ExecutionDuration = TimeSpan.FromMilliseconds(150)
-        };
     }
 
     [Benchmark(Description = "Task.Create - pre-trimmed strings")]
@@ -105,53 +86,6 @@ public class DomainEntityBenchmarks
             Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, "", ValidDescription,
             Priority.High, ValidPhase, 1, Complexity.High,
             ValidPrompt);
-    }
-
-    [Benchmark(Description = "Task.RecordExecution - incomplete (hotpath per iteration)")]
-    public Result TaskRecordExecution()
-    {
-        // Reset task state for repeatable benchmarking
-        var task = Task.Create(
-            Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, ValidTitle, ValidDescription,
-            Priority.High, ValidPhase, 1, Complexity.High,
-            ValidPrompt).Value;
-        task.Claim(_sessionId);
-
-        return task.RecordExecution(new TaskExecution
-        {
-            Id = Guid.NewGuid(),
-            TaskId = task.Id,
-            SessionId = _sessionId,
-            IterationNumber = 1,
-            Prompt = ValidPrompt,
-            LlmResponse = "No completion found",
-            CompletionPromiseFound = false,
-            ExecutedAt = DateTime.UtcNow,
-            ExecutionDuration = TimeSpan.FromMilliseconds(150)
-        });
-    }
-
-    [Benchmark(Description = "Task.RecordExecution - with completion (state transition)")]
-    public Result TaskRecordExecutionCompleted()
-    {
-        var task = Task.Create(
-            Guid.NewGuid(), Guid.NewGuid(), ValidTaskId, ValidTitle, ValidDescription,
-            Priority.High, ValidPhase, 1, Complexity.High,
-            ValidPrompt).Value;
-        task.Claim(_sessionId);
-
-        return task.RecordExecution(new TaskExecution
-        {
-            Id = Guid.NewGuid(),
-            TaskId = task.Id,
-            SessionId = _sessionId,
-            IterationNumber = 1,
-            Prompt = ValidPrompt,
-            LlmResponse = "Task completed successfully",
-            CompletionPromiseFound = true,
-            ExecutedAt = DateTime.UtcNow,
-            ExecutionDuration = TimeSpan.FromMilliseconds(150)
-        });
     }
 
     [Benchmark(Description = "Task.AddDependency - to list of 50 (linear Contains check)")]
@@ -223,7 +157,7 @@ public class DomainEntityBenchmarks
     [Benchmark(Description = "Task.UpdateMetadata - 3x Trim allocations")]
     public Result TaskUpdateMetadata()
     {
-        return _inProgressTask.UpdateMetadata(
+        return _metadataTask.UpdateMetadata(
             UntrimmedTitle, UntrimmedDescription, Priority.High, UntrimmedPhase, Complexity.High);
     }
 }

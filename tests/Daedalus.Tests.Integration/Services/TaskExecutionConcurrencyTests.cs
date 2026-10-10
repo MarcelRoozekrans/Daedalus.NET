@@ -3,7 +3,6 @@ using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
-using DomainTaskStatus = Daedalus.Domain.Entities.TaskStatus;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Services;
@@ -51,15 +50,8 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         var taskEntity = IntegrationTestFactory.CreateTask(taskId);
         _dbContext.Tasks.Add(taskEntity);
 
-        // An old Ralph task: recording executions needs its iteration limit, which Task.Create no longer sets.
-        _dbContext.Entry(taskEntity).Property(t => t.MaxIterations).CurrentValue = 10;
-
         var session = ExecutionSession.Create(sessionId, "test-worker").Value;
         _dbContext.ExecutionSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
-
-        // Claim task
-        taskEntity.Claim(sessionId);
         await _dbContext.SaveChangesAsync();
 
         // Act - Record first execution
@@ -75,7 +67,6 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
         _dbContext.TaskExecutions.Add(exec1);
-        taskEntity.RecordExecution(exec1);
         await _dbContext.SaveChangesAsync();
 
         // Record second execution
@@ -91,7 +82,6 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
         _dbContext.TaskExecutions.Add(exec2);
-        taskEntity.RecordExecution(exec2);
         await _dbContext.SaveChangesAsync();
 
         // Assert - Clear tracker and reload from database to avoid duplicates from in-memory changes
@@ -99,8 +89,6 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         var refreshedTask = await _dbContext.Tasks.Include(t => t.Executions)
             .FirstAsync(t => t.Id == taskId);
         refreshedTask.Executions.Should().HaveCount(2);
-        refreshedTask.Status.Should().Be(DomainTaskStatus.Completed);
-        refreshedTask.IterationCount.Should().Be(2);
     }
 
     [Fact(Timeout = 10000)]
@@ -173,14 +161,8 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         var taskEntity = IntegrationTestFactory.CreateTask(taskId, prompt: "Sequential Task");
         _dbContext.Tasks.Add(taskEntity);
 
-        // An old Ralph task: recording executions needs its iteration limit, which Task.Create no longer sets.
-        _dbContext.Entry(taskEntity).Property(t => t.MaxIterations).CurrentValue = 5;
-
         var session = ExecutionSession.Create(sessionId, "seq-worker").Value;
         _dbContext.ExecutionSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
-
-        taskEntity.Claim(sessionId);
         await _dbContext.SaveChangesAsync();
 
         // Act - Record executions sequentially
@@ -198,7 +180,6 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
                 ExecutionDuration = TimeSpan.FromSeconds(1)
             };
             _dbContext.TaskExecutions.Add(execution);
-            taskEntity.RecordExecution(execution);
             await _dbContext.SaveChangesAsync();
         }
 
