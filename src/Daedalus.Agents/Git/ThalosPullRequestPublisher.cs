@@ -19,8 +19,8 @@ namespace Daedalus.Agents.Git;
 ///         <b>Why this lives in Daedalus.Agents, not Daedalus.Infrastructure.</b> Thalos defines the abstraction and
 ///         knows nothing of GitHub or Azure DevOps by design (see the phase 2.1 design doc's placement decision);
 ///         Daedalus supplies the hosting-platform implementation. <c>Daedalus.Infrastructure</c> stays free of Thalos —
-///         <c>CleanArchitectureTests</c>
-///         enforces that it takes no dependency on any <c>Thalos.*</c> namespace. <c>Daedalus.Agents</c> is the one
+///         <c>CleanArchitectureTests</c> enforces that it takes no dependency on any <c>Thalos.*</c> namespace.
+///         <c>Daedalus.Agents</c> is the one
 ///         project that already depends on both Thalos.NET and (one-way) <c>Daedalus.Infrastructure</c>, which is
 ///         exactly the seam this class needs to sit on.
 ///     </para>

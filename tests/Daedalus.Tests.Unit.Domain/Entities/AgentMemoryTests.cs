@@ -36,10 +36,10 @@ public sealed class AgentMemoryTests
     {
         // Thalos round-trips texts at the limit untrimmed (multi-line, trailing newline); custom kinds are stored as given.
         var text = string.Concat(Enumerable.Repeat("memo 🚀\n", AgentMemory.MaxTextLength / 8));
-        var m = AgentMemory.Create(Guid.NewGuid(), "alice", Guid.NewGuid(), "ralph-learning", text, [], "", 0.5, T0, false).Value;
+        var m = AgentMemory.Create(Guid.NewGuid(), "alice", Guid.NewGuid(), "learning", text, [], "", 0.5, T0, false).Value;
 
         m.Text.Should().Be(text);
-        m.Kind.Should().Be("ralph-learning");
+        m.Kind.Should().Be("learning");
         m.AgentId.Should().NotBeNull();
     }
 

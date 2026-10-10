@@ -7,8 +7,8 @@ namespace Daedalus.Agents.Memory;
 
 /// <summary>
 ///     Embeds memories whose vector is missing (<c>IndexPending</c>): rows written while Ollama was down, rows migrated from
-///     <c>StructuredLearnings</c>, rows written by the task-loop host that phase 2.8 retired. Runs at startup (after a short delay so the Rag.NET
-///     schema step is done) and then periodically — every <see cref="ReindexConfig.RetryInterval"/> while the index is
+///     <c>StructuredLearnings</c>, rows written by the task-loop host that phase 2.8 retired. Runs at startup (after a short delay
+///     so the Rag.NET schema step is done) and then periodically — every <see cref="ReindexConfig.RetryInterval"/> while the index is
 ///     unavailable or rows failed, every <see cref="ReindexConfig.SweepInterval"/> otherwise. Never fails host start.
 /// </summary>
 /// <remarks>
