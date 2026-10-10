@@ -154,8 +154,12 @@ public sealed class CostAnalyticsService(
     /// <summary>The group's cost at its own model's rate; 0 when the model is unattributed or unpriced (see <see cref="PriceGroups"/>).</summary>
     private decimal Price(UsageGroup group) =>
         group.ModelId is not null && _pricing.Models.TryGetValue(group.ModelId, out var pricing)
-            ? (group.InputTokens * pricing.InputTokenPricePerMillion / 1_000_000m) + (group.OutputTokens * pricing.OutputTokenPricePerMillion / 1_000_000m)
+            ? PriceTokens(pricing, group.InputTokens, group.OutputTokens)
             : 0m;
+
+    /// <summary>The one place a model's rate turns tokens into money.</summary>
+    private static decimal PriceTokens(ModelPricing pricing, long inputTokens, long outputTokens) =>
+        (inputTokens * pricing.InputTokenPricePerMillion / 1_000_000m) + (outputTokens * pricing.OutputTokenPricePerMillion / 1_000_000m);
 
     public async Task<IReadOnlyList<ProjectCostDto>> GetCostsByProjectAsync(CancellationToken ct = default)
     {
@@ -315,12 +319,16 @@ public sealed class CostAnalyticsService(
                 unpricedInput += group.InputTokens;
                 unpricedOutput += group.OutputTokens;
                 unpricedCount += group.ExecutionCount;
-                (unpricedModelIds ??= []).Add(group.ModelId);
+                unpricedModelIds ??= [];
+                if (!unpricedModelIds.Contains(group.ModelId, StringComparer.Ordinal))
+                {
+                    unpricedModelIds.Add(group.ModelId);
+                }
+
                 continue;
             }
 
-            cost += group.InputTokens * pricing.InputTokenPricePerMillion / 1_000_000m;
-            cost += group.OutputTokens * pricing.OutputTokenPricePerMillion / 1_000_000m;
+            cost += PriceTokens(pricing, group.InputTokens, group.OutputTokens);
         }
 
         var excluded = unattributedCount == 0 && unpricedCount == 0

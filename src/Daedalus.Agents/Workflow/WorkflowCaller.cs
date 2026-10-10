@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
 using Daedalus.Agents.Security;
+using Daedalus.Application.DTOs;
 using Thalos.Memory;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -71,7 +72,7 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
     public WorkflowRun Run { get; } = run ?? throw new ArgumentNullException(nameof(run));
 
     /// <inheritdoc />
-    public string Id { get; } = $"workflow:{run.Process}:{run.Id}";
+    public string Id { get; } = $"{CostSources.WorkflowOwnerPrefix}{run.Process}:{run.Id}";
 
     /// <inheritdoc />
     /// <remarks>
@@ -80,7 +81,7 @@ internal sealed class WorkflowCaller(WorkflowRun run, WriteGrantConfig? grant) :
     ///     <c>MemoryTools</c> (the <c>memory__*</c> tools) and <c>MemoryContextProvider</c> (auto-recall), so a
     ///     memory a role writes in one run is still readable — under the same owner — by that role in the next.
     /// </remarks>
-    public string MemoryOwnerId { get; } = $"workflow:{run.Process}";
+    public string MemoryOwnerId { get; } = $"{CostSources.WorkflowOwnerPrefix}{run.Process}";
 
     /// <inheritdoc />
     /// <remarks>
