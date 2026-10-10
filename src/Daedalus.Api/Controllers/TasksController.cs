@@ -1,4 +1,8 @@
 using System.Threading.RateLimiting;
+using Daedalus.Agents.Security;
+using Daedalus.Agents.Workflow;
+using Daedalus.Api.Agents;
+using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.AbandonTask;
 using Daedalus.Application.Commands.CreateTask;
@@ -29,6 +33,14 @@ public sealed partial class TasksController(
 
     [LoggerMessage(EventId = 101, Level = LogLevel.Error, Message = "Error retrieving task {TaskId}")]
     private static partial void LogErrorRetrievingTask(ILogger logger, Guid taskId, Exception ex);
+
+    [LoggerMessage(EventId = 102, Level = LogLevel.Warning,
+        Message = "Run {RunId} started for task {TaskId}, but the task was changed by another request before the run could be attached; the run is not attached")]
+    private static partial void LogAttachLostRace(ILogger logger, Guid runId, Guid taskId);
+
+    [LoggerMessage(EventId = 103, Level = LogLevel.Error,
+        Message = "Run {RunId} started for task {TaskId}, but attaching it failed: {Detail}")]
+    private static partial void LogAttachFailed(ILogger logger, Guid runId, Guid taskId, string detail);
 
     /// <summary>Get all tasks with pagination.</summary>
     [Authorize(Policy = "TaskRead")]
@@ -210,5 +222,64 @@ public sealed partial class TasksController(
         return result.Error.Contains("not found", StringComparison.OrdinalIgnoreCase)
             ? NotFound(new { error = result.Error })
             : BadRequest(new { error = result.Error });
+    }
+
+    /// <summary>
+    ///     Starts a manufacture run for the task (phase 2.8). Same authorization as <c>POST /api/workflow-runs</c>. It answers:
+    ///     <list type="bullet">
+    ///         <item>404 when the task does not exist;</item>
+    ///         <item>422 when its project's repository is not allow-listed, or a dependency is not Completed;</item>
+    ///         <item>409 while its current run is live, or when the task changed after it was read and the run that
+    ///         started could not be attached;</item>
+    ///         <item>201 with the run id once the run is started and attached.</item>
+    ///     </list>
+    ///     A starter failure maps as <c>POST /api/workflow-runs</c> maps it.
+    /// </summary>
+    [Authorize(Policy = "WorkflowResume")]
+    [EnableRateLimiting("write-operations")]
+    [HttpPost("{id:guid}/manufacture")]
+    [ProducesResponseType(typeof(StartWorkflowRunResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Manufacture(Guid id, [FromServices] TaskManufactureService manufacture, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(manufacture);
+        if (!HttpSecurityContextFactory.TryCreate(User, out var caller))
+        {
+            return Unauthorized();
+        }
+
+        var startedBy = RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value);
+        var result = await manufacture.StartAsync(id, startedBy, ct);
+        if (result.IsSuccess)
+        {
+            return Created(new Uri($"/api/workflow-runs/{result.Value}", UriKind.Relative), new StartWorkflowRunResponse(result.Value));
+        }
+
+        var failure = result.Error;
+        switch (failure)
+        {
+            case { Kind: TaskManufactureFailureKind.TaskNotFound }:
+                return Problem(detail: failure.Message, statusCode: StatusCodes.Status404NotFound);
+            case { Kind: TaskManufactureFailureKind.RepositoryNotAllowed or TaskManufactureFailureKind.DependencyNotCompleted }:
+                return Problem(detail: failure.Message, statusCode: StatusCodes.Status422UnprocessableEntity);
+            case { Kind: TaskManufactureFailureKind.RunLive }:
+                return Problem(detail: failure.Message, statusCode: StatusCodes.Status409Conflict);
+            case { Kind: TaskManufactureFailureKind.StartFailed, Start: { } start }:
+                return ManufactureStartProblem.From(this, start);
+            case { Kind: TaskManufactureFailureKind.AttachConflict, RunId: { } lostRun }:
+                LogAttachLostRace(logger, lostRun, id);
+                return Problem(detail: failure.Message, statusCode: StatusCodes.Status409Conflict);
+            case { Kind: TaskManufactureFailureKind.AttachFailed, RunId: { } unattached }:
+                LogAttachFailed(logger, unattached, id, failure.Message);
+                return Problem(detail: failure.Message, statusCode: StatusCodes.Status500InternalServerError);
+            default:
+                return Problem(detail: failure.Message, statusCode: StatusCodes.Status500InternalServerError);
+        }
     }
 }

@@ -47,9 +47,6 @@ namespace Daedalus.Api.Controllers;
 [Produces("application/json")]
 public sealed class WorkflowRunsController(WorkflowRunGateway runs) : ControllerBase
 {
-    /// <summary>The seconds a client is told to wait before retrying a start the host could not serve.</summary>
-    private const string RetryAfterSeconds = "30";
-
     /// <summary>
     ///     Starts a new manufacture run for <paramref name="request"/>'s <see cref="StartWorkflowRunRequest.WorkIntent"/>
     ///     on the allow-listed repository its <see cref="StartWorkflowRunRequest.Repository"/> names. A blank intent or
@@ -99,21 +96,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var result = await starter.StartAsync(startRequest, ct);
         if (result.IsFailure)
         {
-            var failure = result.Error;
-            switch (failure.Kind)
-            {
-                case ManufactureStartFailureKind.Invalid:
-                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status400BadRequest);
-                case ManufactureStartFailureKind.Unstartable:
-                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status422UnprocessableEntity);
-                case ManufactureStartFailureKind.Unavailable:
-                    Response.Headers.RetryAfter = RetryAfterSeconds;
-                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
-                case ManufactureStartFailureKind.Disabled:
-                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
-                default:
-                    return Problem(detail: failure.Message, statusCode: StatusCodes.Status500InternalServerError);
-            }
+            return ManufactureStartProblem.From(this, result.Error);
         }
 
         return CreatedAtAction(nameof(Get), new { id = result.Value }, new StartWorkflowRunResponse(result.Value));

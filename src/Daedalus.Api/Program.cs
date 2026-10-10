@@ -98,6 +98,7 @@ builder.Services.AddScoped<IRepositoryConfigurationRepository, RepositoryConfigu
 
 // Add API services
 builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
+builder.Services.AddScoped<TaskManufactureService>();
 builder.Services.AddScoped<IExecutionSessionQueryService, ExecutionSessionQueryService>();
 builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
 builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
