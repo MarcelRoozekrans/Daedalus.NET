@@ -1,7 +1,7 @@
 namespace Daedalus.Domain.Entities;
 
 /// <summary>
-///     Records a single iteration of Ralph loop execution.
+///     Records a single iteration of the retired task loop (phase 2.8), kept as task history.
 /// </summary>
 public sealed class TaskExecution : Entity<Guid>
 {

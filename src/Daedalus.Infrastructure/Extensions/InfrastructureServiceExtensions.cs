@@ -90,7 +90,7 @@ public static class InfrastructureServiceExtensions
     }
 
     /// <summary>
-    ///     Registers code analysis services including Ralph Loop orchestration and Git operations.
+    ///     Registers code analysis services including the iterative analysis orchestration (issue #279) and Git operations.
     ///     Configures resilient HTTP clients with retry, circuit breaker, and timeout policies.
     /// </summary>
     public static IServiceCollection AddCodeAnalysisServices(
@@ -158,7 +158,7 @@ public static class InfrastructureServiceExtensions
         // Register repository platform detector
         services.AddScoped<IRepositoryPlatformDetector, RepositoryPlatformDetector>();
 
-        // Register Ralph Loop orchestrator
+        // Register the iterative code-analysis orchestrator (issue #279)
         services.AddScoped<IRalphLoopOrchestrator, RalphLoopOrchestrator>();
 
         return services;

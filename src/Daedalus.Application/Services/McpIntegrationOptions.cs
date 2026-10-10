@@ -1,7 +1,7 @@
 namespace Daedalus.Application.Services;
 
 /// <summary>
-///     MCP integration configuration for Ralph loop.
+///     MCP integration configuration.
 /// </summary>
 public sealed class McpIntegrationOptions
 {

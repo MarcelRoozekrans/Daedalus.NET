@@ -9,7 +9,7 @@ namespace Daedalus.Domain.Entities;
 
 /// <summary>
 ///     Aggregate root representing a git repository configuration
-///     for code analysis and Ralph Loop processing.
+///     for code analysis.
 /// </summary>
 public sealed class RepositoryConfiguration : AggregateRoot<Guid>
 {

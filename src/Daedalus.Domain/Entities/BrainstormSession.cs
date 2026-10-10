@@ -8,7 +8,7 @@ namespace Daedalus.Domain.Entities;
 /// <summary>
 ///     Represents an interactive brainstorming session that guides a user
 ///     through structured phases to produce a design document, implementation
-///     plan, and phased tasks for autonomous Ralph Loop execution.
+///     plan, and phased tasks to be worked.
 /// </summary>
 public sealed class BrainstormSession : AggregateRoot<Guid>
 {

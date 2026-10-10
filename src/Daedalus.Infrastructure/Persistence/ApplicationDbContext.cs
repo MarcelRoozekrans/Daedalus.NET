@@ -9,7 +9,7 @@ using Task = Daedalus.Domain.Entities.Task;
 namespace Daedalus.Infrastructure.Persistence;
 
 /// <summary>
-///     EF Core DbContext for Ralph loop persistence.
+///     EF Core DbContext for Daedalus persistence.
 ///     Entity configurations are in the Configurations/ folder (IEntityTypeConfiguration pattern).
 /// </summary>
 [method:

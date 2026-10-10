@@ -7,7 +7,7 @@ using ZeroAlloc.Results;
 namespace Daedalus.Domain.Entities;
 
 /// <summary>
-///     Aggregate root representing a project containing multiple tasks to be executed by the Ralph loop.
+///     Aggregate root representing a project containing multiple tasks to be worked.
 /// </summary>
 public sealed class Project : AggregateRoot<Guid>
 {

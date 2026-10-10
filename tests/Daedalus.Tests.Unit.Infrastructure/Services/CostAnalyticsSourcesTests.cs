@@ -12,7 +12,7 @@ using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 namespace Daedalus.Tests.Unit.Infrastructure.Services;
 
 /// <summary>
-///     Phase 2.8, amendment A3: the summary covers four sources. Ralph's history comes from <c>TaskExecutions</c>,
+///     Phase 2.8, amendment A3: the summary covers four sources. The retired task loop's history comes from <c>TaskExecutions</c>,
 ///     manufacture from <c>node-usage</c> records, and chat and scheduled turns from <c>AgentSessions</c>. Sessions owned
 ///     by <c>workflow:*</c> are a manufacture run's node turns, already counted from their records, and are left out.
 /// </summary>

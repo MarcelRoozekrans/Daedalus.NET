@@ -23,7 +23,7 @@ public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILog
 
     /// <summary>Recalls learnings relevant to <paramref name="query"/> as a JSON array; never throws at the model.</summary>
     /// <param name="query">Natural-language description of what to look for.</param>
-    /// <param name="maxResults">Maximum number of results (clamped to the Ralph recall range).</param>
+    /// <param name="maxResults">Maximum number of results (clamped to the learnings recall range).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [McpServerTool(
         Name = "search_learnings",
@@ -41,7 +41,7 @@ public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILog
     {
         var recalled = await memory.RecallAsync(
             query,
-            Math.Clamp(maxResults, RalphRecallConfiguration.MinTopK, RalphRecallConfiguration.MaxToolTopK),
+            Math.Clamp(maxResults, LearningsRecallConfiguration.MinTopK, LearningsRecallConfiguration.MaxToolTopK),
             cancellationToken).ConfigureAwait(false);
         if (recalled.IsFailure)
         {

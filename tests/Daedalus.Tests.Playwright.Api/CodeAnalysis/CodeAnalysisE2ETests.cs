@@ -4,7 +4,7 @@ using Xunit.Abstractions;
 namespace Daedalus.Tests.Playwright.Api.CodeAnalysis;
 
 /// <summary>
-///     End-to-end tests for code analysis and Ralph Loop workflow
+///     End-to-end tests for the code analysis workflow (issue #279)
 ///     These tests require a running API server at http://localhost:5000
 /// </summary>
 public class CodeAnalysisE2ETests : IAsyncLifetime
@@ -44,9 +44,9 @@ public class CodeAnalysisE2ETests : IAsyncLifetime
     }
 
     [Fact(Skip = "Requires running API server")]
-    public async Task RalphLoopWorkflow_SubmitAnalyzeFinalize_CreatesCompleteWorkflow()
+    public async Task CodeAnalysisWorkflow_SubmitAnalyzeFinalize_CreatesCompleteWorkflow()
     {
-        // This test simulates the complete Ralph Loop workflow:
+        // This test simulates the complete code analysis workflow:
         // 1. Submit analysis request
         // 2. Retrieve prompt
         // 3. Simulate AI iterations  

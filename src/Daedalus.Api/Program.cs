@@ -64,7 +64,7 @@ if (!string.IsNullOrEmpty(ollamaConnectionString))
     builder.Services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(ollama);
 }
 
-// Thalos-based agents (strangler: lives beside Ralph until phase 1.6). Needs the DbContext factory (AddApplicationDatabase),
+// Thalos-based agents: chat sessions, memory, the manufacture workflow and scheduled runs. Needs the DbContext factory (AddApplicationDatabase),
 // the Ollama embedding generator (memory index + Sentinel) and the knowledge-tool services registered by AddAgentFrameworkServices above.
 builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment, ollama);
 

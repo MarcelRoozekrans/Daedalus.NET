@@ -259,7 +259,7 @@ public class ProjectQueryServiceIntegrationTests(PostgresFixture fixture) : IAsy
         var task = IntegrationTestFactory.CreateTask(taskId, projectId: projectId, prompt: "Test prompt");
         _dbContext.Tasks.Add(task);
 
-        // An old Ralph task: Task.Create no longer takes the loop settings, so set them as EF does for an old row.
+        // An old task-loop task: Task.Create no longer takes the loop settings, so set them as EF does for an old row.
         _dbContext.Entry(task).Property(t => t.CompletionPromise).CurrentValue = "DONE";
         _dbContext.Entry(task).Property(t => t.MaxIterations).CurrentValue = 10;
         await _dbContext.SaveChangesAsync();

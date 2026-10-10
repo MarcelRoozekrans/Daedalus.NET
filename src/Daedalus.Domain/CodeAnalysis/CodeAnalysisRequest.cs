@@ -1,7 +1,7 @@
 #pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
 
-using ZeroAlloc.Results;
 using Daedalus.Domain.Entities;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.CodeAnalysis;
 
@@ -10,7 +10,7 @@ namespace Daedalus.Domain.CodeAnalysis;
 #pragma warning disable S1144 // Unused private setters
 
 /// <summary>
-///     Represents a code analysis request for Ralph Loop processing.
+///     Represents a code analysis request for iterative analysis processing.
 ///     This is an aggregate root that owns AnalysisIteration entities and manages the analysis lifecycle.
 /// </summary>
 public sealed class CodeAnalysisRequest : AggregateRoot<Guid>
@@ -46,7 +46,7 @@ public sealed class CodeAnalysisRequest : AggregateRoot<Guid>
     public int MaxIterations { get; private set; }
     public string? CompletionPromise { get; private set; }
 
-    // Ralph Loop Content
+    // Iteration content
     public string? LastPromptSent { get; private set; }
     public string? LastAiResponse { get; private set; }
 

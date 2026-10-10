@@ -18,12 +18,12 @@ namespace Daedalus.Agents.Memory;
 ///     Thalos' own memory options — the shared owner is read from here rather than from <see cref="MemoryConfig"/> so this
 ///     adapter and Thalos' auto-recall always agree on the owner string (Thalos normalises a blank owner to null).
 /// </param>
-/// <param name="recall">The Ralph recall budget (<c>Thalos:Memory:RalphRecall</c>).</param>
+/// <param name="recall">The learnings recall budget (<c>Thalos:Memory:LearningsRecall</c>).</param>
 /// <param name="logger">Logger.</param>
 public sealed partial class ThalosLearningsMemory(
     IMemoryService memory,
     IOptions<MemoryOptions> memoryOptions,
-    RalphRecallConfiguration recall,
+    LearningsRecallConfiguration recall,
     ILogger<ThalosLearningsMemory> logger) : ILearningsMemory
 {
     private string? SharedOwnerId => memoryOptions.Value.SharedOwnerId;
@@ -46,7 +46,7 @@ public sealed partial class ThalosLearningsMemory(
         var scope = new MemoryScope(owner, null, null);
         var options = new RecallOptions
         {
-            TopK = Math.Clamp(maxResults, RalphRecallConfiguration.MinTopK, RalphRecallConfiguration.MaxTopK),
+            TopK = Math.Clamp(maxResults, LearningsRecallConfiguration.MinTopK, LearningsRecallConfiguration.MaxTopK),
             MinScore = recall.MinScore,
             MaxChars = 0, // no character budget — TopK caps the count, and the caller caps what it renders
         };

@@ -3,7 +3,7 @@ using ZeroAlloc.Results;
 namespace Daedalus.Domain.CodeAnalysis;
 
 /// <summary>
-///     Represents a single iteration of Ralph Loop analysis.
+///     Represents a single iteration of iterative code analysis.
 ///     This is a child entity owned by CodeAnalysisRequest aggregate root.
 /// </summary>
 public sealed class AnalysisIteration : Entities.Entity<Guid>

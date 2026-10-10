@@ -260,7 +260,7 @@ public sealed class CleanArchitectureTests
         rule.Check(Architecture);
     }
 
-    // ---- Thalos / Daedalus.Agents boundaries (strangler: Thalos lives only in Daedalus.Agents and the API) ----
+    // ---- Thalos / Daedalus.Agents boundaries (Thalos lives only in Daedalus.Agents and the API) ----
 
     [Fact]
     public void DomainLayer_ShouldNotDependOn_Thalos()
@@ -417,11 +417,11 @@ public sealed class CleanArchitectureTests
     }
 
     [Fact]
-    public void RalphCode_ShouldNotDependOn_Thalos_YetStranglerBoundary()
+    public void Infrastructure_ShouldNotDependOn_Thalos()
     {
         var rule = Types().That().Are(InfrastructureTypes)
             .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(ThalosNamespacePattern)
-            .Because("Ralph Loop (Infrastructure) is left untouched until the strangler migration replaces it");
+            .Because("Infrastructure stays free of Thalos; Daedalus.Agents is the one project that bridges the two");
 
         rule.Check(Architecture);
     }
