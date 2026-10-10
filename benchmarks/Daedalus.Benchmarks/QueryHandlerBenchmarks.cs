@@ -69,10 +69,9 @@ public class QueryHandlerBenchmarks
     public int ManualIteration()
     {
         int count = 0;
-        foreach (var taskId in _taskIdArray)
+        foreach (var taskId in _taskIdArray.Where(x => x % 3 == 0))
         {
-            if (taskId % 3 == 0)
-                count++;
+            count++;
         }
         return count;
     }

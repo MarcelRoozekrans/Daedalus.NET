@@ -53,7 +53,7 @@ public class TaskStateTransitionTests : UnitTestBase
     public void Task_ValidTransition_InProgressToFailed_ShouldSucceed()
     {
         // Arrange
-        var task = DomainTestFactory.CreateTask();
+        var task = DomainTestFactory.CreateRalphLoopTask(maxIterations: 1);
         task.Claim(_sessionId);
         task.Status.Should().Be(DomainTaskStatus.InProgress);
 

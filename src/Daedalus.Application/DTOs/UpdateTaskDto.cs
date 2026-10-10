@@ -28,5 +28,4 @@ public record UpdateTaskDto(
 
     /// <summary>Guards <see cref="EstimatedComplexity"/>'s range check so an omitted value is not coerced to 0 and checked.</summary>
     internal bool EstimatedComplexityHasValue() => EstimatedComplexity.HasValue;
-
 }
