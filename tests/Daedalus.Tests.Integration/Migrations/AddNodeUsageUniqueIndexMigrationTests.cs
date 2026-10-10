@@ -42,6 +42,51 @@ public sealed class AddNodeUsageUniqueIndexMigrationTests(PostgresFixture fixtur
         });
     }
 
+    /// <summary>
+    ///     A database that already holds duplicate node-usage rows migrates, and keeps the first of each pair. Other kinds
+    ///     are left alone. Red: remove the DELETE from <c>Up</c>; the index creation fails on the duplicates.
+    ///     Red: delete with <c>d."Id" &lt; k."Id"</c>; the survivor is the later row, and the Id assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task Duplicate_node_usage_rows_are_reduced_to_the_first_before_the_index_is_built()
+    {
+        long firstId = 0;
+        await RunMigrationAsync(
+            async connectionString =>
+            {
+                (await CountAsync(connectionString, WorkflowRunRecord.NodeUsageKind)).Should().Be(1);
+                (await CountAsync(connectionString, WorkflowRunRecord.WorkspaceWriteKind)).Should().Be(2, "other kinds keep their duplicates");
+                (await QueryAsync(connectionString, "SELECT \"Id\" FROM \"WorkflowRunRecords\" WHERE \"Kind\" = 'node-usage'", r => r.GetInt64(0)))
+                    .Should().Equal(firstId);
+            },
+            async connectionString =>
+            {
+                await ExecuteAsync(connectionString, InsertSql(WorkflowRunRecord.NodeUsageKind));
+                await ExecuteAsync(connectionString, InsertSql(WorkflowRunRecord.NodeUsageKind));
+                await ExecuteAsync(connectionString, InsertSql(WorkflowRunRecord.WorkspaceWriteKind));
+                await ExecuteAsync(connectionString, InsertSql(WorkflowRunRecord.WorkspaceWriteKind));
+                firstId = (await QueryAsync(connectionString, "SELECT MIN(\"Id\") FROM \"WorkflowRunRecords\" WHERE \"Kind\" = 'node-usage'", r => r.GetInt64(0))).Single();
+            });
+    }
+
+    private static async Task<long> CountAsync(string connectionString, string kind) =>
+        (await QueryAsync(connectionString, $"SELECT COUNT(*) FROM \"WorkflowRunRecords\" WHERE \"Kind\" = '{kind}'", r => r.GetInt64(0))).Single();
+
+    private static async Task<List<T>> QueryAsync<T>(string connectionString, string sql, Func<NpgsqlDataReader, T> read)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        var rows = new List<T>();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(read(reader));
+        }
+
+        return rows;
+    }
+
     private static async Task ExecuteAsync(string connectionString, string sql)
     {
         await using var connection = new NpgsqlConnection(connectionString);
@@ -50,7 +95,7 @@ public sealed class AddNodeUsageUniqueIndexMigrationTests(PostgresFixture fixtur
         await command.ExecuteNonQueryAsync();
     }
 
-    private async Task RunMigrationAsync(Func<string, Task> assert)
+    private async Task RunMigrationAsync(Func<string, Task> assert, Func<string, Task>? seedBefore = null)
     {
         var dbName = $"migrate_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
@@ -64,6 +109,11 @@ public sealed class AddNodeUsageUniqueIndexMigrationTests(PostgresFixture fixtur
 
             await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
             await db.Database.MigrateAsync(migrations[index - 1]);
+            if (seedBefore is not null)
+            {
+                await seedBefore(connectionString);
+            }
+
             await db.Database.MigrateAsync();
 
             await assert(connectionString);
