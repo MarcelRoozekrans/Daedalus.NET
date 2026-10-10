@@ -3,7 +3,9 @@ using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Domain.Entities;
+using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -130,6 +132,33 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     Phase 2.8, amendment A3: every agent turn a manufacture node runs is also an <c>AgentSessions</c> row, owned by
+    ///     the run's <see cref="WorkflowCaller"/> id, <c>workflow:manufacture:&lt;runId&gt;</c>. Cost analytics leaves
+    ///     sessions owned by <c>workflow:*</c> out, because each node turn is counted from its <c>node-usage</c> record.
+    ///     This pins the owner that filter keys on. The scratch database holds this run's sessions only.
+    ///     Red: change <c>WorkflowCaller.Id</c> to <c>$"run:{run.Id}"</c>; the owner assertion fails.
+    ///     Red: make <c>PostgresAgentSessionStore.CreateAsync</c> skip the <c>Add</c>; the run fails at implement with SessionNotFound, so the
+    ///     parked-at-the-gate wait fails first. The not-empty assertion is a guard against a vacuous owner check, and no single mutation reaches it.
+    /// </summary>
+    [Fact]
+    public async Task Every_node_turn_session_is_owned_by_the_runs_workflow_caller()
+    {
+        await WithV6HostAsync(async host =>
+        {
+            var start = await host.AdminClient.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("Tighten a guard.", "sandbox"));
+            start.StatusCode.Should().Be(HttpStatusCode.Created);
+            var runId = (await start.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
+            await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
+
+            await using var db = await host.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync();
+            var owners = await db.AgentSessions.AsNoTracking().Select(s => s.OwnerId).ToListAsync();
+
+            owners.Should().NotBeEmpty("implement, the three lens passes and retrospect each ran a turn through the real runtime");
+            owners.Should().OnlyContain(o => o == $"workflow:manufacture:{runId}");
+        });
+    }
+
+    /// <summary>
     ///     The model's script, in dispatch order. Implement tries a <c>.csproj</c> first, which the grant's extension
     ///     allow-list refuses (ruling R29), then edits <c>src/A.cs</c>. Each review lens reports its evidence and then
     ///     the same verdict. Retrospect proposes the pinned text plus the implementer's learning.
@@ -219,6 +248,8 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
         public LocalGitRemote Remote => host.Remote;
 
         public string DataRoot => host.DataRoot;
+
+        public IServiceProvider Services => host.Factory.Services;
 
         public Task<WorkflowRun> WaitForAsync(Guid runId, Func<WorkflowRun, bool> until, string what) =>
             host.WaitForAsync(runId, until, what);
