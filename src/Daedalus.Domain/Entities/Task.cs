@@ -1,4 +1,3 @@
-#pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
 #pragma warning disable S1144 // EF Core sets RowVersion via reflection (unused private setter is required)
 
 using ZeroAlloc.Results;
@@ -31,7 +30,10 @@ public sealed class Task : AggregateRoot<Guid>
     /// <summary>Gets the priority level.</summary>
     public Priority Priority { get; private set; } = Priority.Medium;
 
-    /// <summary>Gets the current status of the task.</summary>
+    /// <summary>
+    ///     Gets the task's stored status. Reads show the derived status instead, which <c>TaskStatusDerivation</c> maps
+    ///     from the task's manufacture run; the stored value shows only when the task has no readable run.
+    /// </summary>
     public TaskStatus Status { get; private set; } = TaskStatus.Pending;
 
     /// <summary>Gets the phase/stage of the project (e.g., "Backend", "Frontend").</summary>
@@ -362,4 +364,3 @@ public sealed class Task : AggregateRoot<Guid>
     }
 }
 #pragma warning restore S1144
-#pragma warning restore CA1819

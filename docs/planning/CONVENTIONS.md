@@ -33,6 +33,6 @@
 
 ## Deployment
 
-**Deploy target:** ghcr.io/marcelroozekrans — daedalus-api, daedalus-console, daedalus-web
+**Deploy target:** ghcr.io/marcelroozekrans — daedalus-api, daedalus-web
 **Environments:** none
 **Deployed by:** GitHub Actions ci.yml, gated publish-release job (workflow_dispatch with publish_release=true, on main or a v* tag)
