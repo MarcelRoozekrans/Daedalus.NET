@@ -187,8 +187,8 @@ public sealed class CleanArchitectureTests
     ///     scope <see cref="OnlySubagentRunExecutor_DependsOn_ISubagentRunner"/> to Daedalus code: Thalos' own
     ///     <c>SubagentRunner</c> (the default <c>ISubagentRunner</c> implementation) and its own DI registration
     ///     both legitimately "depend on" the interface they define and wire up, and are not offenders. Covers
-    ///     every host in the solution, including the thin entry points (<c>Daedalus.Cli</c>) — the rule claims the whole solution, so the scope must actually be the whole
-    ///     solution, not just the layers with the most code in them.
+    ///     every host in the solution, including the thin entry points (<c>Daedalus.Cli</c>) — the rule claims the whole
+    ///     solution, so the scope must actually be the whole solution, not just the layers with the most code in them.
     /// </summary>
     private static readonly IObjectProvider<IType> DaedalusOwnTypes =
         Types().That().ResideInAssembly(DomainAssembly)

@@ -213,7 +213,7 @@ jobs:
           npx --yes --package @commitlint/cli@21.2.1 --package @commitlint/config-conventional@21.2.0
           commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
 
-  # Builds the three container images with the derived version stamped in (APP_VERSION build-arg →
+  # Builds the two container images with the derived version stamped in (APP_VERSION build-arg →
   # -p:Version inside the Dockerfiles). On a push to main the images are pushed as <sha> and `main`
   # — the moving tip, never `latest`: `latest` is reserved for the newest release (publish-release
   # below). Pull requests only build. This is the rehearsal of the release job: the same Dockerfiles

@@ -51,7 +51,7 @@ public sealed class WorkflowRunStatusReaderTests
     [Fact]
     public async Task A_run_the_store_does_not_have_is_unknown()
     {
-        _store.FindAsync(default, default).ReturnsForAnyArgs(new ValueTask<WorkflowRun?>((WorkflowRun?)null));
+        _store.FindAsync(Guid.Empty, default).ReturnsForAnyArgs(new ValueTask<WorkflowRun?>((WorkflowRun?)null));
 
         (await new WorkflowRunStatusReader(_store).ReadAsync(Guid.NewGuid(), CancellationToken.None)).Should().Be(WorkflowRunStatus.Unknown);
     }

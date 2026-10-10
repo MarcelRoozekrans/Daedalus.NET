@@ -316,7 +316,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         services.AddThalos(thalos =>
         {
-            // This host owns the Rag.NET schema: the API is the only host that creates rag_chunks.
+            // This host owns the Rag.NET schema: the API and the CLI, the hosts that call AddDaedalusAgents, create rag_chunks.
             ConfigureMemory(thalos, configuration.GetSection(MemoryConfig.SectionName), options.Memory, connectionString, ensureSchema: true);
             ConfigureSkills(thalos, configuration.GetSection(SkillsConfig.SectionName), options.Skills, skillRoots);
 
