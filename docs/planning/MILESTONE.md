@@ -38,8 +38,13 @@ only once something demonstrably better runs in its place.
       token lacked write access. An admin then re-ran only `publish` through the retry that phase 2.5
       Part C added, so no agent node ran twice. The event log records both: `Failed` at seq 6 and
       `Retried` at seq 7, naming the admin. See `docs/plans/2026-09-24-phase-2.5-rulings.md`.
-- [ ] **Ralph retired only after that run.** Phase 2.8 deletes the loop only once the live run
+- [x] **Ralph retired only after that run.** Phase 2.8 deletes the loop only once the live run
       above exists, so the retirement proves the replacement works.
+
+      **Met 2026-10-10, phase 2.8.** The loop, its pipeline and the Console host are deleted (PR #329). A board
+      task now starts a manufacture run: run `b6fd3a6b` went from task `INV-1` through the gate to `Succeeded`
+      and opened daedalus-sandbox#14, the task read In Progress, then Awaiting Approval, then Completed, and
+      `/costs` counted the run's node usage exactly once. See `docs/plans/2026-10-10-phase-2.8-rulings.md`.
 - [x] **Agent output cannot execute on the host.** A file an agent writes during a run, including
       MSBuild project, props and targets files, is only ever evaluated inside that run's sandbox
       (phase 2.6), never on the API host. Added 2026-09-25 after the MSBuild spike proved the risk.
@@ -73,7 +78,7 @@ only once something demonstrably better runs in its place.
 | 2.5 | Run write authority, standing instructions in the target workspace, prompt caching | complete (2026-10-01; #315) |
 | 2.6 | Sandboxed run pods | complete (2026-10-04; #320) |
 | 2.7 | Issues as a first-class output | complete (2026-10-09; #323) |
-| 2.8 | Ralph retirement | pending |
+| 2.8 | Ralph retirement | complete (2026-10-10; #329) |
 | 2.9 | Observability | pending |
 | 2.10 | Per-turn tool selection with ZeroAlloc.Jev | pending |
 | 2.11 | The scout HTTP path | pending |

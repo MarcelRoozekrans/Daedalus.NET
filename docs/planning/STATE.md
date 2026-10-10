@@ -1,8 +1,60 @@
 # Session State
 
-**Last session:** 2026-10-09, with the owner present
+**Last session:** 2026-10-10, with the owner present
 
-## Current Position - phase 2.7 complete and merged (PR #323, 2026-10-09); phase 2.8 is next
+## Current Position - phase 2.8 complete and merged (PR #329, 2026-10-10); phase 2.9 is next
+
+**Milestone 2, phase 2.8, Ralph retirement.** Rebase-merged to `main` as PR #329 (55 commits, head `5ae35b0`) on
+2026-10-10. Rulings P1–P11 and E1–E22, the live-proof table and carried items are in
+`docs/plans/2026-10-10-phase-2.8-rulings.md`. Milestone 2 DoD "Ralph retired only after that run" is marked met.
+
+- **What shipped:**
+  - `POST /api/tasks/{id}/manufacture` starts a manufacture run from a board task; the Tasks page has a Manufacture
+    button, the derived status and the PR link.
+  - A task's status is derived from its run (5 Awaiting Approval and 6 Cancelled are never stored). Update and
+    delete answer 409 while the run is live, and so does deleting the project. `Task.RowVersion` is now `xmin`.
+  - `node-usage` records per completed agent node, a startup backfill, and four-source cost analytics.
+  - Deleted: the Console host and `daedalus-console` image, the pipeline, the Ralph-only API and UI, the loop's
+    dead members. Old tables stay as history.
+  - `IAgentFactory`; `LearningsRecall` (the old `RalphRecall` key fails boot). Failure patterns and learnings are
+    frozen with a notice.
+- **Live proof:** run `b6fd3a6b` from task `INV-1` reached the gate (status 5; a second start and an edit refused
+  with 409), was approved, and finished `Succeeded` with daedalus-sandbox#14. `/costs` matched its node usage
+  exactly, and the startup backfill filled in the 2.7 runs.
+- **Final review fixes:** the Web shows refusal reasons and never throws for expected failures; a failed or
+  cancelled task stays editable; a project delete respects live runs; dead LLM and platform config deleted.
+- **Suites:** Unit 1052, Unit.Application 260, Unit.Domain 346, Unit.Infrastructure 91, Integration 676,
+  Playwright.Api 113, Playwright.Browser 82. CI green.
+- **Secrets:** the exposed keys from 2.6 were rotated by the owner, and the revoked context7 key is removed from
+  `.mcp.json` (it remains in git history, revoked).
+
+## Needs the owner
+
+1. **Cut a release** (release-please, manual dispatch). Then confirm the 2.6, 2.7 and 2.8 `feat:`/`fix:` commits are
+   in its PR, and that the breaking changes from 2.8 (`feat(costs)!`, `refactor(tasks)!`, three `refactor!`) are
+   listed.
+2. **Remove any external `daedalus-console` deployment.** A compose file that pulls `:latest` keeps a frozen worker
+   running against the new schema (R5).
+3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11 and #14, issues #9 and #12.
+4. **Decide:** #325 (learnings and failure patterns rebuild: scope and write mode), #327 (Brainstorm and PRD
+   costs), #328 (project-delete race), #322, #318 and #319.
+5. **Still open:** the Postgres collation mismatch; review has no `blocked` outcome; should the review skill's
+   "search issues first" be strengthened.
+
+## Filed or tracked
+
+- New in 2.8: #325, #326, #327, #328; comments on #279, #290 and #311.
+- Still open: #322, #318, #319, #313, #295, #312, #280.
+- Closed by 2.8: #281, #283, #294.
+
+## Recommended Next Step
+
+1. Merge the close-out PR for this branch, `chore/complete-phase-2.8`.
+2. `start-next-phase`: phase 2.9, observability.
+
+---
+
+## Previous position (2026-10-09) - phase 2.7 complete and merged (PR #323); phase 2.8 was next
 
 **Milestone 2, phase 2.7, issues as a first-class output.** Rebase-merged to `main` as PR #323 (33 commits,
 head `d28fa6b`) on 2026-10-09. Phase 2.6 had closed earlier the same day through PR #321. Rulings R1–R27, the
