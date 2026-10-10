@@ -39,10 +39,6 @@ builder.Services.AddCoreInfrastructureServices();
 // Add database context
 builder.Services.AddApplicationDatabase(builder.Configuration, "daedalus");
 
-// Register RalphLoop configuration using options pattern with manual binding
-builder.Services.Configure<RalphLoopConfiguration>(options =>
-    builder.Configuration.GetSection(RalphLoopConfiguration.SectionName).Bind(options));
-
 // Register model pricing configuration
 builder.Services.Configure<ModelPricingConfiguration>(options =>
     builder.Configuration.GetSection(ModelPricingConfiguration.SectionName).Bind(options));
@@ -53,7 +49,7 @@ builder.Services.AddApplicationServices(builder.Configuration);
 // Add external service integrations (MCP agents, workspace context)
 builder.Services.AddExternalServices(builder.Configuration);
 
-// Add Agent Framework services (Claude via IRalphAgentFactory, MCP tools)
+// Add Agent Framework services (Claude via IAgentFactory, MCP tools)
 builder.Services.AddAgentFrameworkServices(builder.Configuration);
 
 // Register Ollama embedding generator (optional). The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama).
@@ -87,19 +83,17 @@ builder.Services.AddDaedalusChannels(builder.Configuration);
 // AddDaedalusScheduling for both hazards.
 builder.Services.AddDaedalusScheduling(builder.Configuration);
 
-// Add code analysis services (Ralph Loop orchestration, Git operations)
+// Add code analysis services (CodeAnalysis, Git operations)
 builder.Services.AddCodeAnalysisServices(builder.Configuration);
 
 // Add repositories
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
-builder.Services.AddScoped<IExecutionSessionRepository, ExecutionSessionRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<IRepositoryConfigurationRepository, RepositoryConfigurationRepository>();
 
 // Add API services
 builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
 builder.Services.AddScoped<TaskManufactureService>();
-builder.Services.AddScoped<IExecutionSessionQueryService, ExecutionSessionQueryService>();
 builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
 builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
 builder.Services.AddScoped<ICostAnalyticsService, CostAnalyticsService>();

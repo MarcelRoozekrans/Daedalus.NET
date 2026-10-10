@@ -29,7 +29,7 @@ public class NavigationBrowserTests : BrowserTestBase
     }
 
     [Test]
-    [Description("Sidebar should have all eight navigation menu items")]
+    [Description("Sidebar should have all six navigation menu items")]
     public async Task Sidebar_ShouldDisplay_AllMenuItems()
     {
         await NavigateToAsync("/").ConfigureAwait(false);
@@ -37,9 +37,7 @@ public class NavigationBrowserTests : BrowserTestBase
         await Expect(_mainPage.DashboardMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.TasksMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.ProjectsMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_mainPage.SessionsMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.ExecutionsMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_mainPage.RalphConfigMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.PrdGeneratorMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.GitRepositoriesMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
     }
@@ -65,16 +63,6 @@ public class NavigationBrowserTests : BrowserTestBase
     }
 
     [Test]
-    [Description("Clicking Sessions menu item should navigate to /sessions")]
-    public async Task Sidebar_ClickSessions_ShouldNavigate()
-    {
-        await NavigateToAsync("/").ConfigureAwait(false);
-        await _mainPage.NavigateToMenuItemAsync("Sessions").ConfigureAwait(false);
-        await Page.WaitForURLAsync("**/sessions").ConfigureAwait(false);
-        Page.Url.Should().Contain("/sessions");
-    }
-
-    [Test]
     [Description("Clicking Executions menu item should navigate to /executions")]
     public async Task Sidebar_ClickExecutions_ShouldNavigate()
     {
@@ -82,16 +70,6 @@ public class NavigationBrowserTests : BrowserTestBase
         await _mainPage.NavigateToMenuItemAsync("Executions").ConfigureAwait(false);
         await Page.WaitForURLAsync("**/executions").ConfigureAwait(false);
         Page.Url.Should().Contain("/executions");
-    }
-
-    [Test]
-    [Description("Clicking Ralph Config menu item should navigate to /ralph-config")]
-    public async Task Sidebar_ClickRalphConfig_ShouldNavigate()
-    {
-        await NavigateToAsync("/").ConfigureAwait(false);
-        await _mainPage.NavigateToMenuItemAsync("Ralph Config").ConfigureAwait(false);
-        await Page.WaitForURLAsync("**/ralph-config").ConfigureAwait(false);
-        Page.Url.Should().Contain("/ralph-config");
     }
 
     [Test]
@@ -147,9 +125,7 @@ public class NavigationBrowserTests : BrowserTestBase
         {
             ("Tasks", "/tasks"),
             ("Projects", "/projects"),
-            ("Sessions", "/sessions"),
             ("Executions", "/executions"),
-            ("Ralph Config", "/ralph-config"),
             ("Git Repositories", "/repositories"),
             ("PRD Generator", "/prd-generator"),
             ("Dashboard", "/")
@@ -170,7 +146,7 @@ public class NavigationBrowserTests : BrowserTestBase
     [Description("Bug #3 regression: error messages should never display empty 'Unexpected error: '")]
     public async Task ErrorMessages_ShouldNeverBeEmpty()
     {
-        var pages = new[] { "/tasks", "/projects", "/sessions", "/ralph-config" };
+        var pages = new[] { "/tasks", "/projects" };
 
         foreach (var pagePath in pages)
         {

@@ -1,4 +1,0 @@
-namespace Daedalus.Application.DTOs;
-
-/// <summary>DTO for abandoning a task.</summary>
-public record AbandonTaskDto(string Reason);

@@ -9,7 +9,7 @@ namespace Daedalus.Tests.Playwright.Api.Scenarios;
 /// </summary>
 [TestFixture]
 [Category("E2E")]
-[Category("RalphLoop")]
+[Category("TaskApi")]
 public class RalphLoopE2ETests : ApiTestBase
 {
     private static readonly string[] AnalysisRequirements = ["Analyze code quality"];

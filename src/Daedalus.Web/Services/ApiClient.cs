@@ -61,28 +61,6 @@ public sealed class ApiClient(HttpClient httpClient)
         CancellationToken ct = default) =>
         await GetAsync<TaskDto>($"/api/tasks/{id}", ct);
 
-    // ExecutionSessions
-    public async Task<Result<PagedResultDto<ExecutionSessionDto>>> GetSessionsAsync(
-        int page = 1,
-        int pageSize = 10,
-        CancellationToken ct = default) =>
-        await GetAsync<PagedResultDto<ExecutionSessionDto>>(
-            $"/api/executionsessions?page={page}&pageSize={pageSize}",
-            ct);
-
-    public async Task<Result<PagedResultDto<ExecutionSessionDto>>> GetActiveSessionsAsync(
-        int page = 1,
-        int pageSize = 10,
-        CancellationToken ct = default) =>
-        await GetAsync<PagedResultDto<ExecutionSessionDto>>(
-            $"/api/executionsessions/active?page={page}&pageSize={pageSize}",
-            ct);
-
-    public async Task<Result<ExecutionSessionDto>> GetSessionAsync(
-        Guid id,
-        CancellationToken ct = default) =>
-        await GetAsync<ExecutionSessionDto>($"/api/executionsessions/{id}", ct);
-
     // TaskExecutions
     public async Task<Result<PagedResultDto<TaskExecutionDto>>> GetExecutionsByTaskAsync(
         Guid taskId,
@@ -278,20 +256,6 @@ public sealed class ApiClient(HttpClient httpClient)
 
     public async Task<Result> DeleteTaskAsync(Guid id, CancellationToken ct = default) =>
         await DeleteAsync($"/api/tasks/{id}", ct);
-
-    public async Task<Result<TaskDto>> AbandonTaskAsync(Guid id, AbandonTaskDto dto, CancellationToken ct = default) =>
-        await PostAsync<TaskDto>($"/api/tasks/{id}/abandon", dto, ct);
-
-    public async Task<Result<TaskDto>> ResumeTaskAsync(Guid id, ResumeTaskDto dto, CancellationToken ct = default) =>
-        await PostAsync<TaskDto>($"/api/tasks/{id}/resume", dto, ct);
-
-    // Ralph Config
-    public async Task<Result<RalphConfigDto>> GetRalphConfigAsync(CancellationToken ct = default) =>
-        await GetAsync<RalphConfigDto>("/api/ralph-config", ct);
-
-    public async Task<Result<RalphConfigDto>>
-        UpdateRalphConfigAsync(RalphConfigDto dto, CancellationToken ct = default) =>
-        await PutAsync<RalphConfigDto>("/api/ralph-config", dto, ct);
 
     // Cost Analytics
     public async Task<Result<CostSummaryDto>> GetCostSummaryAsync(CancellationToken ct = default) =>

@@ -1,13 +1,11 @@
-using ZeroAlloc.Results;
-using Daedalus.Application.Commands.AbandonTask;
 using Daedalus.Application.Commands.CreateProject;
 using Daedalus.Application.Commands.CreateTask;
 using Daedalus.Application.Commands.DeleteProject;
 using Daedalus.Application.Commands.DeleteTask;
-using Daedalus.Application.Commands.ResumeTask;
 using Daedalus.Application.Commands.UpdateProject;
 using Daedalus.Application.Commands.UpdateTask;
 using Daedalus.Application.DTOs;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Abstractions;
 
@@ -31,8 +29,4 @@ public interface IApplicationCommands
     ValueTask<Result<TaskDto>> UpdateTaskAsync(UpdateTaskCommand command, CancellationToken cancellationToken);
 
     ValueTask<Result> DeleteTaskAsync(DeleteTaskCommand command, CancellationToken cancellationToken);
-
-    ValueTask<Result<TaskDto>> AbandonTaskAsync(AbandonTaskCommand command, CancellationToken cancellationToken);
-
-    ValueTask<Result<TaskDto>> ResumeTaskAsync(ResumeTaskCommand command, CancellationToken cancellationToken);
 }

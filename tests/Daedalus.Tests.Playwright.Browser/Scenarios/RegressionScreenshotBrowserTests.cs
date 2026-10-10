@@ -12,7 +12,7 @@ namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 [Category("E2E")]
 [Category("Browser")]
 [Category("Regression")]
-[Description("Regression screenshots of the control pages (home, sessions, ralph config)")]
+[Description("Regression screenshots of the control pages (home)")]
 public class RegressionScreenshotBrowserTests : BrowserTestBase
 {
     /// <summary>Sub-directory under <c>regression-screenshots/</c>; one folder per report date.</summary>
@@ -28,30 +28,5 @@ public class RegressionScreenshotBrowserTests : BrowserTestBase
         await Expect(page.StatsRow).ToBeVisibleAsync().ConfigureAwait(false);
 
         await SaveRegressionScreenshotAsync($"{ReportFolder}/home.png").ConfigureAwait(false);
-    }
-
-    [Test]
-    [Description("Sessions page renders its grid and is captured")]
-    public async Task Sessions_ShouldRender_AndCapture()
-    {
-        var page = new SessionsPage(Page, BaseUrl);
-        await page.NavigateAsync().ConfigureAwait(false);
-        await Expect(page.PageTitle).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(page.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
-
-        await SaveRegressionScreenshotAsync($"{ReportFolder}/sessions.png").ConfigureAwait(false);
-    }
-
-    [Test]
-    [Description("Ralph config page renders its form and is captured")]
-    public async Task RalphConfig_ShouldRender_AndCapture()
-    {
-        var page = new RalphConfigPage(Page, BaseUrl);
-        await page.NavigateAsync().ConfigureAwait(false);
-        await Expect(page.PageTitle).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(page.SaveButton)
-            .ToBeVisibleAsync(new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 }).ConfigureAwait(false);
-
-        await SaveRegressionScreenshotAsync($"{ReportFolder}/ralph-config.png").ConfigureAwait(false);
     }
 }

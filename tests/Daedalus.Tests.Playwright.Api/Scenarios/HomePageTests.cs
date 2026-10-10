@@ -23,12 +23,12 @@ public class HomePageTests : ApiTestBase
     public async Task HomePageShould_DisplayStatisticsGrid()
     {
         var tasks = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
-        var sessions = await GetApiAsync<PagedResultDto<ExecutionSessionDto>>("/api/executionsessions")
+        var projects = await GetApiAsync<PagedResultDto<ProjectDto>>("/api/projects")
             .ConfigureAwait(false);
         tasks.Should().NotBeNull();
         tasks!.Total.Should().BeGreaterThanOrEqualTo(0);
-        sessions.Should().NotBeNull();
-        sessions!.Total.Should().BeGreaterThanOrEqualTo(0);
+        projects.Should().NotBeNull();
+        projects!.Total.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Test]
@@ -46,10 +46,8 @@ public class HomePageTests : ApiTestBase
     {
         var tasksResponse = await GetApiResponseAsync("/api/tasks").ConfigureAwait(false);
         var projectsResponse = await GetApiResponseAsync("/api/projects").ConfigureAwait(false);
-        var sessionsResponse = await GetApiResponseAsync("/api/executionsessions").ConfigureAwait(false);
         tasksResponse.Ok.Should().BeTrue("Tasks API should be accessible");
         projectsResponse.Ok.Should().BeTrue("Projects API should be accessible");
-        sessionsResponse.Ok.Should().BeTrue("Sessions API should be accessible");
     }
 
     [Test]
@@ -136,7 +134,7 @@ public class HomePageTests : ApiTestBase
     [Description("Verify quick links are properly accessible")]
     public async Task HomePageShould_HaveWellFormattedQuickLinks()
     {
-        var endpoints = new[] { "/api/tasks", "/api/projects", "/api/executionsessions", "/health" };
+        var endpoints = new[] { "/api/tasks", "/api/projects", "/health" };
         foreach (var endpoint in endpoints)
         {
             var response = await GetApiResponseAsync(endpoint).ConfigureAwait(false);

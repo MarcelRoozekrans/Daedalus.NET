@@ -162,7 +162,6 @@ public class E2EServerFixture
 
                         // Register repositories that are missing from the API project
                         services.AddScoped<ITaskRepository, TaskRepository>();
-                        services.AddScoped<IExecutionSessionRepository, ExecutionSessionRepository>();
 
                         // Register mock/stub services for external dependencies
                         services.AddScoped<IRalphAgentFactory, StubRalphAgentFactory>();
@@ -178,8 +177,7 @@ public class E2EServerFixture
                         // IApplicationCommands only touch ITaskRepository/IProjectRepository (both real,
                         // against the seeded Postgres container), so the real handlers run and behave
                         // exactly like production - including returning "not found" for a missing id.
-                        // The commands that do call out to an LLM (GeneratePrd, ExecuteTask,
-                        // ConvertPrdToTasks, RegeneratePlan) are safe too: they go through
+                        // The commands that do call out to an LLM (GeneratePrd,// ConvertPrdToTasks) are safe too: they go through
                         // IRalphAgentFactory, which is stubbed above.
 
                         // Add HttpClient for any services that still need it
