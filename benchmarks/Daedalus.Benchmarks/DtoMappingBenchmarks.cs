@@ -1,4 +1,6 @@
 using Daedalus.Application.Abstractions;
+using Daedalus.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 namespace Daedalus.Benchmarks;
 
 using ZLinq;
@@ -13,31 +15,33 @@ public class DtoMappingBenchmarks
 {
     private Task _singleTask = default!;
     private List<Task> _bulkTasks = default!;
-    private List<List<TaskExecution>> _bulkExecutions = default!;
     private const int BulkSize = 100;
     private const int ExecutionsPerTask = 5;
 
     [GlobalSetup]
     public void Setup()
     {
-        // Nothing but the retired loop wrote a task's executions, so a task built here has none. The executions
-        // are built apart and mapped by their own benchmark.
-        _singleTask = CreateTask(id: 1);
+        // Nothing but the retired loop wrote a task's executions, and Task has no member that adds one. EF fills
+        // Task.Executions when it reads a row, by relationship fix-up. This context does the same for the tasks built
+        // here: attaching a task and its executions links them. The provider never connects, since nothing is queried.
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql("Host=unused;Database=unused")
+            .Options;
+        using var context = new ApplicationDbContext(options);
+
+        _singleTask = CreateTask(context, id: 1, ExecutionsPerTask);
         _bulkTasks = Enumerable.Range(1, BulkSize)
-            .Select(i => CreateTask(i))
-            .ToList();
-        _bulkExecutions = Enumerable.Range(1, BulkSize)
-            .Select(i => CreateExecutions(i, ExecutionsPerTask))
+            .Select(i => CreateTask(context, i, ExecutionsPerTask))
             .ToList();
     }
 
-    [Benchmark(Description = "DTO Mapping: Single task")]
+    [Benchmark(Description = "DTO Mapping: Single task with 5 executions")]
     public TaskDto MapSingleTask()
     {
         return TaskDtoMapper.ToDto(_singleTask, WorkflowRunStatus.Unknown);
     }
 
-    [Benchmark(Description = "DTO Mapping: 10 tasks")]
+    [Benchmark(Description = "DTO Mapping: 10 tasks with 5 executions each")]
     public List<TaskDto> MapBulkSmall()
     {
         return _bulkTasks.Take(10)
@@ -45,7 +49,7 @@ public class DtoMappingBenchmarks
             .ToList();
     }
 
-    [Benchmark(Description = "DTO Mapping: 100 tasks")]
+    [Benchmark(Description = "DTO Mapping: 100 tasks with 5 executions each")]
     public List<TaskDto> MapBulkLarge()
     {
         return _bulkTasks
@@ -76,14 +80,14 @@ public class DtoMappingBenchmarks
     [Benchmark(Description = "DTO Mapping: Only executions (nested list allocation)")]
     public List<List<TaskExecutionDto>> MapExecutionsOnly()
     {
-        return _bulkExecutions
-            .Select(executions => executions
+        return _bulkTasks
+            .Select(t => t.Executions
                 .Select(TaskDtoMapper.ToExecutionDto)
                 .ToList())
             .ToList();
     }
 
-    private static Task CreateTask(int id)
+    private static Task CreateTask(ApplicationDbContext context, int id, int executionCount)
     {
         var taskResult = Task.Create(
             Guid.NewGuid(),
@@ -97,12 +101,15 @@ public class DtoMappingBenchmarks
             (Complexity)(id % 3),
             $"Task {id} prompt content");
 
-        return taskResult.Value;
+        var task = taskResult.Value;
+        context.Attach(task);
+        context.AttachRange(CreateExecutions(task, id, executionCount));
+        context.Entry(task).State = EntityState.Detached;
+        return task;
     }
 
-    private static List<TaskExecution> CreateExecutions(int id, int executionCount)
+    private static List<TaskExecution> CreateExecutions(Task task, int id, int executionCount)
     {
-        var taskId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var executions = new List<TaskExecution>(executionCount);
 
@@ -112,10 +119,10 @@ public class DtoMappingBenchmarks
             executions.Add(new TaskExecution
             {
                 Id = Guid.NewGuid(),
-                TaskId = taskId,
+                TaskId = task.Id,
                 SessionId = sessionId,
                 IterationNumber = i + 1,
-                Prompt = $"Task {id} prompt content",
+                Prompt = task.Prompt,
                 LlmResponse = isLast
                     ? "Task completed successfully"
                     : $"LLM Response {i}: {string.Concat(Enumerable.Repeat("x", 100))}",

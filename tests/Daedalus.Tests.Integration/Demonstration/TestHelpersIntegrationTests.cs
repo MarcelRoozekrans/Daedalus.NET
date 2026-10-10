@@ -30,25 +30,6 @@ public class TestHelpersIntegrationTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public void ExecutionSessionTestBuilder_AsStale_Creates_Old_Heartbeat()
-    {
-        // Arrange
-        var staleness = TimeSpan.FromMinutes(15);
-
-        // Act
-        var session = new ExecutionSessionTestBuilder()
-            .WithWorkerName("stale-worker")
-            .AsStale(staleness)
-            .Build();
-
-        // Assert
-        Assert.NotNull(session);
-        Assert.Equal("stale-worker", session.WorkerName);
-        // Heartbeat should be in the past
-        Assert.True(session.LastHeartbeat < DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(10)));
-    }
-
-    [Fact]
     public void PostgresFixture_Provides_Valid_ConnectionString()
     {
         // Act

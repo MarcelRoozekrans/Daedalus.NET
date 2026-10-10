@@ -41,7 +41,7 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
     }
 
     [Fact(Timeout = 10000)]
-    public async Task SingleTask_RecordingMultipleExecutions()
+    public async Task PersistedTaskExecutionRows_TwoRowsOnOneTask_AreAllReloaded()
     {
         // Arrange
         var taskId = Guid.NewGuid();
@@ -121,38 +121,7 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
     }
 
     [Fact(Timeout = 10000)]
-    public async Task SessionHeartbeat_ConcurrentUpdates()
-    {
-        // Arrange
-        var sessionId = Guid.NewGuid();
-        var session = ExecutionSession.Create(sessionId, "heartbeat-worker").Value;
-        _dbContext.ExecutionSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
-
-        var originalHeartbeat = session.LastHeartbeat;
-
-        // Act - Multiple concurrent heartbeat updates, each on its own DbContext (a DbContext is not
-        // thread-safe; sharing _dbContext here raced SaveChangesAsync and failed intermittently)
-        var heartbeatTasks = Enumerable.Range(0, 3).Select(i => Task.Run(async () =>
-        {
-            await Task.Delay(10 * i);
-            var options = PostgresFixture.CreateDbContextOptions(_connectionString);
-            await using var dbContext = new ApplicationDbContext(options);
-            var tracked = await dbContext.ExecutionSessions.SingleAsync(s => s.Id == sessionId);
-            tracked.Heartbeat();
-            await dbContext.SaveChangesAsync();
-        }));
-
-        await Task.WhenAll(heartbeatTasks);
-
-        // Assert
-        _dbContext.ChangeTracker.Clear();
-        var refreshed = await _dbContext.ExecutionSessions.SingleAsync(s => s.Id == sessionId);
-        refreshed.LastHeartbeat.Should().BeAfter(originalHeartbeat);
-    }
-
-    [Fact(Timeout = 10000)]
-    public async Task TaskExecution_SequentialIterations()
+    public async Task PersistedTaskExecutionRows_SavedOneAtATime_KeepTheirIterationNumbers()
     {
         // Arrange
         var taskId = Guid.NewGuid();
@@ -189,32 +158,5 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
             .FirstAsync(t => t.Id == taskId);
         refreshedTask.Executions.Should().HaveCount(3);
         refreshedTask.Executions.Select(e => e.IterationNumber).Order().Should().Equal(1, 2, 3);
-    }
-
-    [Fact(Timeout = 10000)]
-    public async Task SessionShutdown_AllowsRestart()
-    {
-        // Arrange
-        var sessionId1 = Guid.NewGuid();
-        var session1 = ExecutionSession.Create(sessionId1, "shutdown-worker").Value;
-        _dbContext.ExecutionSessions.Add(session1);
-        await _dbContext.SaveChangesAsync();
-
-        // Act - Shutdown first session
-        session1.Shutdown();
-        await _dbContext.SaveChangesAsync();
-
-        // Create new session after shutdown
-        var sessionId2 = Guid.NewGuid();
-        var session2 = ExecutionSession.Create(sessionId2, "shutdown-worker").Value;
-        _dbContext.ExecutionSessions.Add(session2);
-        await _dbContext.SaveChangesAsync();
-
-        // Assert
-        session1.IsActive.Should().BeFalse();
-        session2.IsActive.Should().BeTrue();
-
-        var allSessions = await _dbContext.ExecutionSessions.ToListAsync();
-        allSessions.Should().HaveCount(2);
     }
 }

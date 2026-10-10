@@ -146,14 +146,6 @@ public class DomainEntityBenchmarks
         return project.AddTask(newTask);
     }
 
-    [Benchmark(Description = "ExecutionSession.Create + IsStale check")]
-    public bool ExecutionSessionCreateAndStaleCheck()
-    {
-        var session = ExecutionSession.Create(Guid.NewGuid(), "worker-001").Value;
-        session.Heartbeat();
-        return session.IsStale(TimeSpan.FromMinutes(5));
-    }
-
     [Benchmark(Description = "Task.UpdateMetadata - 3x Trim allocations")]
     public Result TaskUpdateMetadata()
     {

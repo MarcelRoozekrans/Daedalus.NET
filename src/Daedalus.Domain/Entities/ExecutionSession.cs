@@ -51,30 +51,6 @@ public sealed class ExecutionSession : AggregateRoot<Guid>
             LastHeartbeat = now
         });
     }
-
-    /// <summary>
-    ///     Records that a task was completed by this session, incrementing the counter.
-    /// </summary>
-    public void RecordTaskCompleted() => TasksCompleted++;
-
-    /// <summary>
-    ///     Updates the heartbeat timestamp to signal the session is still alive.
-    /// </summary>
-    public void Heartbeat(DateTime? heartbeatTime = null) => LastHeartbeat = heartbeatTime ?? DateTime.UtcNow;
-
-    /// <summary>
-    ///     Marks the session as inactive when shutting down gracefully.
-    /// </summary>
-    public void Shutdown() => IsActive = false;
-
-    /// <summary>
-    ///     Checks if this session has staled (no heartbeat for specified duration).
-    /// </summary>
-    public bool IsStale(TimeSpan staleness, DateTime? currentTime = null)
-    {
-        var now = currentTime ?? DateTime.UtcNow;
-        return now - LastHeartbeat > staleness;
-    }
 }
 #pragma warning restore S1144
 #pragma warning restore CA1819
