@@ -220,7 +220,7 @@ public sealed class ApiClient(HttpClient httpClient)
             using var response = await httpClient.PostAsync(new Uri($"/api/tasks/{id}/manufacture", UriKind.Relative), content: null, ct);
             if (response.IsSuccessStatusCode)
             {
-                var started = await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>(ct);
+                var started = await ReadStartedAsync(response, ct);
                 return started is not null
                     ? Result<StartWorkflowRunResponse>.Success(started)
                     : Result<StartWorkflowRunResponse>.Failure("No data returned from server");
@@ -237,6 +237,22 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result<StartWorkflowRunResponse>.Failure($"API error: {ex.Message}");
         }
+        catch (OperationCanceledException)
+        {
+            return Result<StartWorkflowRunResponse>.Failure("Request was cancelled");
+        }
+    }
+
+    private static async Task<StartWorkflowRunResponse?> ReadStartedAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>(ct);
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or NotSupportedException or InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     private static async Task<string?> ReadProblemDetailAsync(HttpResponseMessage response, CancellationToken ct)
@@ -246,7 +262,7 @@ public sealed class ApiClient(HttpClient httpClient)
             var problem = await response.Content.ReadFromJsonAsync<ProblemBody>(ct);
             return string.IsNullOrWhiteSpace(problem?.Detail) ? null : problem.Detail;
         }
-        catch (System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or NotSupportedException or InvalidOperationException)
         {
             return null;
         }

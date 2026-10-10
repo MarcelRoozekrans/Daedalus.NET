@@ -17,8 +17,6 @@ public sealed class TasksPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
     public ILocator ConfirmCancelButton =>
         _page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Cancel" });
 
-    public ILocator ErrorNotification => _page.Locator(".rz-notification");
-
     public ILocator Notification => _page.Locator(".rz-notification");
 
     public ILocator SuccessNotification =>

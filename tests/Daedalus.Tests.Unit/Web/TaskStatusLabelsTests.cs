@@ -36,4 +36,38 @@ public sealed class TaskStatusLabelsTests
     [Fact]
     public void Awaiting_approval_looks_different_from_in_progress() =>
         TaskStatusLabels.Style(5).Should().NotBe(TaskStatusLabels.Style(1));
+
+    /// <summary>Red per row: change a status's style in <c>Style</c>.</summary>
+    [Theory]
+    [InlineData(0, BadgeStyle.Warning)]
+    [InlineData(1, BadgeStyle.Info)]
+    [InlineData(2, BadgeStyle.Success)]
+    [InlineData(3, BadgeStyle.Danger)]
+    [InlineData(4, BadgeStyle.Light)]
+    [InlineData(5, BadgeStyle.Primary)]
+    [InlineData(6, BadgeStyle.Light)]
+    [InlineData(99, BadgeStyle.Light)]
+    public void Each_status_has_its_style(int status, BadgeStyle style) => TaskStatusLabels.Style(status).Should().Be(style);
+
+    /// <summary>Red: change <c>MaxIterations &gt; 0</c> to <c>&gt;= 0</c>; zero reads true.</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(10, true)]
+    public void Only_a_task_with_iterations_has_loop_history(int maxIterations, bool expected) =>
+        TaskStatusLabels.HasLoopHistory(Task(maxIterations, null)).Should().Be(expected);
+
+    /// <summary>Red: return null or a fixed string from <c>PullRequestHref</c>; the link is missing or wrong.</summary>
+    [Fact]
+    public void A_task_with_a_pull_request_exposes_its_link() =>
+        TaskStatusLabels.PullRequestHref(Task(0, new Uri("https://github.com/o/r/pull/7"))).Should().Be("https://github.com/o/r/pull/7");
+
+    /// <summary>Red: return a placeholder when there is no pull request; a dead link is rendered.</summary>
+    [Fact]
+    public void A_task_without_a_pull_request_has_no_link() =>
+        TaskStatusLabels.PullRequestHref(Task(0, null)).Should().BeNull();
+
+    private static TaskDto Task(int maxIterations, Uri? pullRequestUrl) =>
+        new(Guid.NewGuid(), "T-1", Guid.NewGuid(), "t", "d", 1, "p", 0, [], [], 1, "prompt", "promise", maxIterations, 0,
+            null, null, 0, DateTime.UtcNow, null, null, null, [], null, pullRequestUrl);
 }

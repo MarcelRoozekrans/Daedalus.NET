@@ -38,4 +38,7 @@ public static class TaskStatusLabels
     ///     <c>MaxIterations</c> above zero. Those fields are shown read-only, for such a task only.
     /// </summary>
     public static bool HasLoopHistory(TaskDto task) => task.MaxIterations > 0;
+
+    /// <summary>The pull request link to render for a task, or null when it has none.</summary>
+    public static string? PullRequestHref(TaskDto task) => task.PullRequestUrl?.ToString();
 }
