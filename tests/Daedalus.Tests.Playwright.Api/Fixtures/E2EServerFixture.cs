@@ -164,7 +164,7 @@ public class E2EServerFixture
                         services.AddScoped<ITaskRepository, TaskRepository>();
 
                         // Register mock/stub services for external dependencies
-                        services.AddScoped<IRalphAgentFactory, StubRalphAgentFactory>();
+                        services.AddScoped<IAgentFactory, StubAgentFactory>();
 
                         // Replace services that require HttpClient with stubs
                         RemoveService<IPullRequestFactory>(services);
@@ -178,7 +178,7 @@ public class E2EServerFixture
                         // against the seeded Postgres container), so the real handlers run and behave
                         // exactly like production - including returning "not found" for a missing id.
                         // The commands that do call out to an LLM (GeneratePrd,// ConvertPrdToTasks) are safe too: they go through
-                        // IRalphAgentFactory, which is stubbed above.
+                        // IAgentFactory, which is stubbed above.
 
                         // Add HttpClient for any services that still need it
                         services.AddHttpClient();

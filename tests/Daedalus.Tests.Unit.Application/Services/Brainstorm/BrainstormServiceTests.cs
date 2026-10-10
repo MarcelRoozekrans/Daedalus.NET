@@ -9,7 +9,7 @@ namespace Daedalus.Tests.Unit.Application.Services.Brainstorm;
 public class BrainstormServiceTests
 {
     private readonly IBrainstormRepository _repository = Substitute.For<IBrainstormRepository>();
-    private readonly IRalphAgentFactory _agentFactory = Substitute.For<IRalphAgentFactory>();
+    private readonly IAgentFactory _agentFactory = Substitute.For<IAgentFactory>();
     private readonly IProjectRepository _projectRepository = Substitute.For<IProjectRepository>();
     private readonly IPrdService _prdService = Substitute.For<IPrdService>();
     private readonly ILogger<BrainstormService> _logger = Substitute.For<ILogger<BrainstormService>>();

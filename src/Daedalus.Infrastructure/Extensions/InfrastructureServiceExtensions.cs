@@ -70,7 +70,7 @@ public static class InfrastructureServiceExtensions
     }
 
     /// <summary>
-    ///     Registers Agent Framework services: <c>IRalphAgentFactory</c> (Claude via Anthropic),
+    ///     Registers Agent Framework services: <c>IAgentFactory</c> (Claude via Anthropic),
     ///     <c>McpToolBuilder</c> (MCP → AITool bridge), and supporting infrastructure.
     ///     Call this after AddExternalServices so MCP configuration is available.
     /// </summary>
@@ -81,11 +81,10 @@ public static class InfrastructureServiceExtensions
         // McpToolBuilder converts McpServerConfig entries into AITool instances
         services.AddSingleton<McpToolBuilder>();
 
-        // IRalphAgentFactory is the primary interface for LLM invocations:
+        // IAgentFactory is the primary interface for LLM invocations:
         // - Creates ChatClientAgent backed by Anthropic Claude
         // - Attaches MCP tools automatically
-        // - Supports subagent pattern for Ralph Wiggum technique
-        services.AddScoped<IRalphAgentFactory, RalphAgentFactory>();
+        services.AddScoped<IAgentFactory, AgentFactory>();
 
         return services;
     }
@@ -141,7 +140,7 @@ public static class InfrastructureServiceExtensions
         // retry (exponential backoff), circuit breaker, and timeout
         services.AddHttpClient<AzureDevOpsPullRequestFactory>(client =>
             {
-                client.DefaultRequestHeaders.Add("User-Agent", "Daedalus-RalphLoop");
+                client.DefaultRequestHeaders.Add("User-Agent", "Daedalus");
             })
             .AddStandardResilienceHandler(options =>
             {

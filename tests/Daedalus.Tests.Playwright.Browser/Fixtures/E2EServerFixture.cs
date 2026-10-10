@@ -143,9 +143,9 @@ public class E2EServerFixture
             // IProjectRepository (both real, against the seeded Postgres container below), so the real
             // handlers run and behave exactly like production - including returning "not found" for a
             // missing id. The commands that do call out to an LLM (GeneratePrd,
-            // ConvertPrdToTasks) are safe too: they go through IRalphAgentFactory, which
+            // ConvertPrdToTasks) are safe too: they go through IAgentFactory, which
             // is stubbed here.
-            RemoveAndReplace<IRalphAgentFactory, StubRalphAgentFactory>(builder.Services);
+            RemoveAndReplace<IAgentFactory, StubAgentFactory>(builder.Services);
             RemoveAndReplace<IPullRequestFactory, StubPullRequestFactory>(builder.Services);
             RemoveAndReplace<IRalphLoopOrchestrator, StubRalphLoopOrchestrator>(builder.Services);
 
