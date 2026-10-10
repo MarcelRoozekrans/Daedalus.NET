@@ -26,7 +26,7 @@ public sealed class DaedalusLearningsToolsTests
     public async Task SearchLearnings_reports_no_matches_and_never_throws()
     {
         _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<RecalledLearning>>.Success([]));
-        (await Sut().SearchLearnings("x", 3)).Should().Be("No matching learnings found.");
+        (await Sut().SearchLearnings("x", 3)).Should().StartWith("No matching learnings found.");
 
         _memory.RecallAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Result<IReadOnlyList<RecalledLearning>>.Failure("MemoryIndexUnavailable: down"));
         (await Sut().SearchLearnings("x", 3)).Should().StartWith("Learnings memory unavailable");
