@@ -1,15 +1,14 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.Services;
 using ZeroAlloc.Mediator;
-using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Commands.DeleteTask;
 
 /// <summary>
-///     Handles DeleteTaskCommand by removing the task from persistence.
-///     Only pending or abandoned tasks can be deleted.
+///     Deletes a task, unless its manufacture run is live.
 /// </summary>
-public sealed class DeleteTaskCommandHandler(ITaskRepository taskRepository)
+public sealed class DeleteTaskCommandHandler(ITaskRepository taskRepository, IWorkflowRunStatusReader runs)
     : IRequestHandler<DeleteTaskCommand, Result>
 {
     public async ValueTask<Result> Handle(DeleteTaskCommand command, CancellationToken ct)
@@ -27,9 +26,10 @@ public sealed class DeleteTaskCommandHandler(ITaskRepository taskRepository)
 
         var task = taskResult.Value;
 
-        if (task.Status is TaskStatus.InProgress)
+        var run = await runs.ReadRunAsync(task, ct);
+        if (run.IsLive)
         {
-            return Result.Failure("Cannot delete an in-progress task. Abandon it first.");
+            return Result.Failure(TaskRunGuard.LiveRun(task, run));
         }
 
         return await taskRepository.DeleteAsync(task.Id, ct);

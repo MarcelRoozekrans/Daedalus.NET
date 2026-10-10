@@ -1,8 +1,8 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.AbandonTask;
@@ -59,7 +59,7 @@ public sealed class AbandonTaskCommandHandler(ITaskRepository taskRepository)
         }
 
         // Map to DTO and return
-        var taskDto = TaskDtoMapper.ToDto(task);
+        var taskDto = TaskDtoMapper.ToDto(task, WorkflowRunStatus.Unknown);
         return Result<TaskDto>.Success(taskDto);
     }
 }

@@ -121,7 +121,9 @@ public class JsonSerializationBenchmarks
                         TimeSpan.FromMilliseconds(100 + j * 10),
                         null
                     ))
-                    .ToList()
+                    .ToList(),
+                null,
+                null
             ))
             .ToList();
     }

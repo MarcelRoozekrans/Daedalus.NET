@@ -1,13 +1,15 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using Daedalus.Application.Services;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using DomainTask = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Infrastructure.Services;
 
 /// <summary>Implementation of project query service.</summary>
-public sealed class ProjectQueryService(ApplicationDbContext context) : IProjectQueryService
+public sealed class ProjectQueryService(ApplicationDbContext context, IWorkflowRunStatusReader runs) : IProjectQueryService
 {
     public async Task<PagedResultDto<ProjectDto>> GetAllAsync(int page, int pageSize, CancellationToken ct = default)
     {
@@ -22,7 +24,10 @@ public sealed class ProjectQueryService(ApplicationDbContext context) : IProject
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
-        var dtos = projects.Select(p => new ProjectDto(
+        var dtos = new List<ProjectDto>(projects.Count);
+        foreach (var p in projects)
+        {
+            dtos.Add(new ProjectDto(
                 p.Id,
                 p.ProjectName,
                 p.Description,
@@ -31,9 +36,8 @@ public sealed class ProjectQueryService(ApplicationDbContext context) : IProject
                 p.DefaultBranch,
                 p.CreatedAt,
                 p.ModifiedAt,
-                p.Tasks.Select(TaskDtoMapper.ToDtoWithoutExecutions).ToList().AsReadOnly()
-            ))
-            .ToList();
+                await ToTaskDtosAsync(p.Tasks, ct).ConfigureAwait(false)));
+        }
 
         return new PagedResultDto<ProjectDto>(
             dtos.AsReadOnly(),
@@ -90,7 +94,18 @@ public sealed class ProjectQueryService(ApplicationDbContext context) : IProject
             project.DefaultBranch,
             project.CreatedAt,
             project.ModifiedAt,
-            project.Tasks.Select(TaskDtoMapper.ToDtoWithoutExecutions).ToList().AsReadOnly()
+            await ToTaskDtosAsync(project.Tasks, ct).ConfigureAwait(false)
         );
+    }
+
+    private async Task<IReadOnlyList<TaskDto>> ToTaskDtosAsync(IEnumerable<DomainTask> tasks, CancellationToken ct)
+    {
+        var dtos = new List<TaskDto>();
+        foreach (var task in tasks)
+        {
+            dtos.Add(TaskDtoMapper.ToDtoWithoutExecutions(task, await runs.ReadRunAsync(task, ct).ConfigureAwait(false)));
+        }
+
+        return dtos.AsReadOnly();
     }
 }

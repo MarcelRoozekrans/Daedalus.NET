@@ -1,4 +1,6 @@
+using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
+using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using DomainTask = Daedalus.Domain.Entities.Task;
 
@@ -13,7 +15,7 @@ public static class TaskDtoMapper
     /// <summary>
     ///     Maps a Task domain entity to its full DTO representation.
     /// </summary>
-    public static TaskDto ToDto(DomainTask task)
+    public static TaskDto ToDto(DomainTask task, WorkflowRunStatus run)
     {
         var executionDtos = task.Executions
             .Select(e => new TaskExecutionDto(
@@ -47,7 +49,7 @@ public static class TaskDtoMapper
             task.Prompt,
             task.CompletionPromise,
             task.MaxIterations,
-            (int)task.Status,
+            (int)TaskStatusDerivation.Derive(task, run),
             task.CurrentSessionId,
             task.Result,
             task.IterationCount,
@@ -55,13 +57,15 @@ public static class TaskDtoMapper
             task.CompletedAt,
             task.Learnings,
             task.LearningsUpdatedAt,
-            executionDtos);
+            executionDtos,
+            task.WorkflowRunId,
+            run.PullRequestUrl);
     }
 
     /// <summary>
     ///     Maps a Task domain entity to a DTO without execution history (lightweight).
     /// </summary>
-    public static TaskDto ToDtoWithoutExecutions(DomainTask task)
+    public static TaskDto ToDtoWithoutExecutions(DomainTask task, WorkflowRunStatus run)
     {
         return new TaskDto(
             task.Id,
@@ -78,7 +82,7 @@ public static class TaskDtoMapper
             task.Prompt,
             task.CompletionPromise,
             task.MaxIterations,
-            (int)task.Status,
+            (int)TaskStatusDerivation.Derive(task, run),
             task.CurrentSessionId,
             task.Result,
             task.IterationCount,
@@ -86,7 +90,9 @@ public static class TaskDtoMapper
             task.CompletedAt,
             task.Learnings,
             task.LearningsUpdatedAt,
-            []);
+            [],
+            task.WorkflowRunId,
+            run.PullRequestUrl);
     }
 
     /// <summary>

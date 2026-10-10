@@ -1,11 +1,13 @@
+using Daedalus.Application.Abstractions;
+using Daedalus.Application.Mappers;
+using Daedalus.Application.Services;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Api.Services;
 
-/// <summary>Implementation of ITaskQueryService.</summary>
-public sealed class TaskQueryService(ApplicationDbContext dbContext) : ITaskQueryService
+/// <summary>Reads tasks, each with its status derived from its run: one run lookup per task that has one.</summary>
+public sealed class TaskQueryService(ApplicationDbContext dbContext, IWorkflowRunStatusReader runs) : ITaskQueryService
 {
     public async Task<PagedResultDto<TaskDto>> GetAllAsync(int page = 1, int pageSize = 10,
         CancellationToken ct = default)
@@ -20,7 +22,11 @@ public sealed class TaskQueryService(ApplicationDbContext dbContext) : ITaskQuer
             .Take(pageSize)
             .ToListAsync(ct).ConfigureAwait(false);
 
-        var dtos = tasks.Select(MapToDto).ToList();
+        var dtos = new List<TaskDto>(tasks.Count);
+        foreach (var task in tasks)
+        {
+            dtos.Add(TaskDtoMapper.ToDto(task, await runs.ReadRunAsync(task, ct).ConfigureAwait(false)));
+        }
 
         return new PagedResultDto<TaskDto>(dtos, total, page, pageSize);
     }
@@ -32,49 +38,6 @@ public sealed class TaskQueryService(ApplicationDbContext dbContext) : ITaskQuer
             .Include(t => t.Executions)
             .FirstOrDefaultAsync(t => t.Id == id, ct).ConfigureAwait(false);
 
-        return task is null ? null : MapToDto(task);
-    }
-
-    private static TaskDto MapToDto(Task task)
-    {
-        return new TaskDto(
-            task.Id,
-            task.TaskId,
-            task.ProjectId,
-            task.Title,
-            task.Description,
-            (int)task.Priority,
-            task.Phase,
-            task.ParallelGroup,
-            task.Dependencies,
-            task.FilesToModify,
-            (int)task.EstimatedComplexity,
-            task.Prompt,
-            task.CompletionPromise,
-            task.MaxIterations,
-            (int)task.Status,
-            task.CurrentSessionId,
-            task.Result,
-            task.IterationCount,
-            task.CreatedAt,
-            task.CompletedAt,
-            task.Learnings,
-            task.LearningsUpdatedAt,
-            task.Executions.Select(e => new TaskExecutionDto(
-                e.Id,
-                e.TaskId,
-                e.SessionId,
-                e.IterationNumber,
-                e.Prompt,
-                e.LlmResponse,
-                e.CompletionPromiseFound,
-                e.ExecutedAt,
-                e.ExecutionDuration,
-                e.Error,
-                e.InputTokens,
-                e.OutputTokens,
-                e.ModelId
-            )).ToList()
-        );
+        return task is null ? null : TaskDtoMapper.ToDto(task, await runs.ReadRunAsync(task, ct).ConfigureAwait(false));
     }
 }

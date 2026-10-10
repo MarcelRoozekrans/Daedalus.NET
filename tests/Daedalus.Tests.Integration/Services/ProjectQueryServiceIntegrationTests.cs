@@ -1,3 +1,4 @@
+using Daedalus.Application.Services;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Integration.Fixtures;
@@ -23,7 +24,7 @@ public class ProjectQueryServiceIntegrationTests(PostgresFixture fixture) : IAsy
         var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
-        _sut = new ProjectQueryService(_dbContext);
+        _sut = new ProjectQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
     }
 
     public async SystemTask DisposeAsync()

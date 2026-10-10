@@ -5,6 +5,7 @@ using Daedalus.Application.Commands.CreateTask;
 using Daedalus.Application.Commands.DeleteTask;
 using Daedalus.Application.Commands.ResumeTask;
 using Daedalus.Application.Commands.UpdateTask;
+using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -106,6 +107,7 @@ public sealed partial class TasksController(
     [HttpPut("{id:guid}")]
     [ProducesResponseType(typeof(TaskDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateTask(Guid id, [FromBody] UpdateTaskDto dto, CancellationToken ct = default)
     {
@@ -128,6 +130,11 @@ public sealed partial class TasksController(
             return Ok(result.Value);
         }
 
+        if (result.Error.StartsWith(TaskRunGuard.LiveRunPrefix, StringComparison.Ordinal))
+        {
+            return Conflict(new { error = result.Error });
+        }
+
         return result.Error.Contains("not found", StringComparison.OrdinalIgnoreCase)
             ? NotFound(new { error = result.Error })
             : BadRequest(new { error = result.Error });
@@ -139,6 +146,7 @@ public sealed partial class TasksController(
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteTask(Guid id, CancellationToken ct = default)
     {
@@ -148,6 +156,11 @@ public sealed partial class TasksController(
         if (result.IsSuccess)
         {
             return NoContent();
+        }
+
+        if (result.Error.StartsWith(TaskRunGuard.LiveRunPrefix, StringComparison.Ordinal))
+        {
+            return Conflict(new { error = result.Error });
         }
 
         return result.Error.Contains("not found", StringComparison.OrdinalIgnoreCase)

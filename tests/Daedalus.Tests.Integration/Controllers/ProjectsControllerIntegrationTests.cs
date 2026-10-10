@@ -1,10 +1,10 @@
-using ZeroAlloc.Results;
 using Daedalus.Api.Controllers;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.CreateProject;
 using Daedalus.Application.Commands.DeleteProject;
 using Daedalus.Application.Commands.UpdateProject;
 using Daedalus.Application.DTOs;
+using Daedalus.Application.Services;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Integration.Fixtures;
@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
+using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Controllers;
@@ -37,7 +38,7 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
 
         _dbContext = new ApplicationDbContext(options);
 
-        _projectQueryService = new ProjectQueryService(_dbContext);
+        _projectQueryService = new ProjectQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
         _controller = new ProjectsController(_projectQueryService, _commandsMock, _loggerMock);
     }
 

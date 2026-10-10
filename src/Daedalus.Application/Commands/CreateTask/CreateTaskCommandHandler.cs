@@ -1,9 +1,9 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using Daedalus.Application.Services;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Application.Commands.CreateTask;
@@ -70,7 +70,7 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
         }
 
         // Map domain entity to DTO
-        var taskDto = TaskDtoMapper.ToDto(addResult.Value);
+        var taskDto = TaskDtoMapper.ToDto(addResult.Value, WorkflowRunStatus.Unknown);
 
         return Result<TaskDto>.Success(taskDto);
     }

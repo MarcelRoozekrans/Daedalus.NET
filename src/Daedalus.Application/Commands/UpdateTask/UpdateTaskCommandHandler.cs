@@ -1,9 +1,9 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
 using Daedalus.Application.Services;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.UpdateTask;
@@ -11,7 +11,7 @@ namespace Daedalus.Application.Commands.UpdateTask;
 /// <summary>
 ///     Handles UpdateTaskCommand by updating task metadata while preserving execution history.
 /// </summary>
-public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
+public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository, IWorkflowRunStatusReader runs)
     : IRequestHandler<UpdateTaskCommand, Result<TaskDto>>
 {
     public async ValueTask<Result<TaskDto>> Handle(UpdateTaskCommand command, CancellationToken ct)
@@ -29,11 +29,17 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
 
         var task = taskResult.Value;
 
-        // Only allow updates on pending tasks
-        if (task.Status != TaskStatus.Pending)
+        var run = await runs.ReadRunAsync(task, ct);
+        if (run.IsLive)
+        {
+            return Result<TaskDto>.Failure(TaskRunGuard.LiveRun(task, run));
+        }
+
+        var status = TaskStatusDerivation.Derive(task, run);
+        if (status != TaskStatus.Pending)
         {
             return Result<TaskDto>.Failure(
-                $"Cannot update task: current status is {task.Status}. Only pending tasks can be updated.");
+                $"Cannot update task: current status is {status}. Only pending tasks can be updated.");
         }
 
         // Apply partial updates using domain method where applicable
@@ -76,6 +82,6 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository)
             return Result<TaskDto>.Failure($"Failed to update task: {updateDbResult.Error}");
         }
 
-        return Result<TaskDto>.Success(TaskDtoMapper.ToDto(task));
+        return Result<TaskDto>.Success(TaskDtoMapper.ToDto(task, run));
     }
 }

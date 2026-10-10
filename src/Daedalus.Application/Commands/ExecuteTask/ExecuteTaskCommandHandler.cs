@@ -1,8 +1,8 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Mappers;
 using Daedalus.Domain.Entities;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Application.Commands.ExecuteTask;
@@ -114,7 +114,7 @@ public sealed class ExecuteTaskCommandHandler(
             }
 
             // Map results to DTO and result record
-            var taskDto = TaskDtoMapper.ToDto(task);
+            var taskDto = TaskDtoMapper.ToDto(task, WorkflowRunStatus.Unknown);
             var lastExecution = task.Executions[^1];
             var executionDto = TaskDtoMapper.ToExecutionDto(lastExecution);
 
