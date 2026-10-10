@@ -4,6 +4,9 @@ using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
+using Daedalus.Tests.Unit.Workflow;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 using DomainTask = Daedalus.Domain.Entities.Task;
@@ -26,6 +29,8 @@ public sealed class TaskManufactureServiceTests
     private readonly IManufactureRunStarter _starter = Substitute.For<IManufactureRunStarter>();
     private readonly WorkflowConfig _workflow = new();
     private readonly Guid _started = Guid.NewGuid();
+    private readonly IWorkflowStore _store = Substitute.For<IWorkflowStore>();
+    private readonly CapturingLogger<TaskManufactureService> _logger = new();
 
     public TaskManufactureServiceTests()
     {
@@ -36,7 +41,11 @@ public sealed class TaskManufactureServiceTests
             new ValueTask<Result<Guid, ManufactureStartFailure>>(Result<Guid, ManufactureStartFailure>.Success(_started)));
     }
 
-    private TaskManufactureService Service() => new(_tasks, _projects, _runs, _starter, _workflow);
+    private TaskManufactureService Service() => new(_tasks, _projects, _runs, _starter, _workflow, _logger, Gateway(_store));
+
+    /// <summary>The real gateway over <paramref name="store"/>, as the engine-on host registers it.</summary>
+    internal static WorkflowRunGateway Gateway(IWorkflowStore store) =>
+        new(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
     /// <summary>A task on a project with <paramref name="repositoryUrl"/>, alone in its project.</summary>
     private DomainTask Given(string repositoryUrl = Sandbox) => GivenInProject(Guid.NewGuid(), repositoryUrl);
@@ -115,12 +124,16 @@ public sealed class TaskManufactureServiceTests
     ///     Ruling P2: a non-GitHub remote matches its own exact string, and an unparsable entry is skipped, never thrown on.
     ///     Red: drop the exact-remote fallback; the local row is refused.
     ///     Red: read <c>.Value</c> of a failed parse; the method throws.
+    ///     Red: drop the blank project URL guard; the null row throws.
+    ///     Red: drop the blank configured remote guard; the blank entry matches the project <c>/</c>.
     /// </summary>
     [Theory]
     [InlineData("/srv/git/sandbox.git", "/srv/git/sandbox/", true)]
     [InlineData("/srv/git/sandbox.git", "https://github.com/MarcelRoozekrans/daedalus-sandbox", false)]
     [InlineData("/srv/git/Sandbox.git", "/srv/git/sandbox.git", false)]
-    public void A_non_github_remote_matches_only_itself(string configured, string project, bool matches)
+    [InlineData("/srv/git/sandbox.git", null, false)]
+    [InlineData("", "/", false)]
+    public void A_non_github_remote_matches_only_itself(string configured, string? project, bool matches)
     {
         var entry = new RepositoryConfig { Name = "local", Remote = configured };
 
@@ -259,6 +272,58 @@ public sealed class TaskManufactureServiceTests
         await _starter.ReceivedWithAnyArgs(1).StartAsync(default!, default);
     }
 
+    /// <summary>
+    ///     A run that started but is not attached is cancelled, for a reason naming the task, and the failure says so.
+    ///     Red: skip the cancel; the store receives no cancel and RunCancelled is false.
+    /// </summary>
+    [Fact]
+    public async Task An_unattached_run_is_cancelled_for_a_reason_naming_the_task()
+    {
+        var task = Given();
+        _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id)));
+
+        var result = await Service().StartAsync(task.Id, Starter, CancellationToken.None);
+
+        await _store.Received(1).CancelAsync(_started, Arg.Is<string>(r => r.Contains(task.Id.ToString())), Arg.Any<CancellationToken>());
+        result.Error.RunCancelled.Should().BeTrue();
+        result.Error.Message.Should().Contain("was cancelled");
+    }
+
+    /// <summary>
+    ///     A project with no repository URL is refused with a clear message, before anything is spent.
+    ///     Red: drop the service's blank URL check; the message is the no-match text instead.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_project_without_a_repository_url_is_refused_saying_so(string blank)
+    {
+        var task = Given(blank);
+
+        var result = await Service().StartAsync(task.Id, Starter, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(TaskManufactureFailureKind.RepositoryNotAllowed);
+        result.Error.Message.Should().Be("The project has no repository URL.");
+        await NothingWasSpentAsync();
+    }
+
+    /// <summary>
+    ///     A repository's error text is logged, never returned: the message is generic.
+    ///     Red: return <c>project.Error</c> as the message; it carries the secret.
+    /// </summary>
+    [Fact]
+    public async Task A_read_failure_returns_generic_text_and_logs_the_cause()
+    {
+        var task = Given();
+        _projects.GetByIdAsync(task.ProjectId, Arg.Any<CancellationToken>()).Returns(Result<Project>.Failure("Error: Password=hunter2"));
+
+        var result = await Service().StartAsync(task.Id, Starter, CancellationToken.None);
+
+        result.Error.Kind.Should().Be(TaskManufactureFailureKind.Failed);
+        result.Error.Message.Should().NotContain("hunter2");
+        _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error).Which.Message.Should().Contain("hunter2");
+    }
+
     /// <summary>Red: map a save failure that is not a lost race to AttachConflict; the kind assertion fails.</summary>
     [Fact]
     public async Task An_attach_whose_save_fails_otherwise_is_attach_failed_naming_the_run()
@@ -270,5 +335,19 @@ public sealed class TaskManufactureServiceTests
 
         result.Error.Kind.Should().Be(TaskManufactureFailureKind.AttachFailed);
         result.Error.RunId.Should().Be(_started);
+    }
+
+    /// <summary>Records each entry's level, formatted message and exception.</summary>
+    internal sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message, Exception? Exception)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception), exception));
     }
 }

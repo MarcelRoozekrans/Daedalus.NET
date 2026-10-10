@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Text;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
@@ -34,7 +32,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorRetrievingTask(logger, ex, id);
-            return Result<Task>.Failure($"Error retrieving task: {ex.Message}");
+            return Result<Task>.Failure($"Error retrieving task {id}. The cause is logged.");
         }
     }
 
@@ -54,7 +52,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorRetrievingPendingTasks(logger, ex);
-            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving tasks: {ex.Message}");
+            return Result<IReadOnlyList<Task>>.Failure("Error retrieving pending tasks. The cause is logged.");
         }
     }
 
@@ -81,7 +79,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorRetrievingPendingTasks(logger, ex);
-            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving paginated tasks: {ex.Message}");
+            return Result<IReadOnlyList<Task>>.Failure("Error retrieving paginated tasks. The cause is logged.");
         }
     }
 
@@ -103,7 +101,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorRetrievingPendingTasks(logger, ex);
-            return Result<int>.Failure($"Error counting pending tasks: {ex.Message}");
+            return Result<int>.Failure("Error counting pending tasks. The cause is logged.");
         }
     }
 
@@ -163,7 +161,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorClaimingTask(logger, ex, sessionId);
-            return Result<Task?>.Failure($"Error claiming task: {ex.Message}");
+            return Result<Task?>.Failure($"Error claiming a task for session {sessionId}. The cause is logged.");
         }
     }
 
@@ -178,8 +176,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorAddingTask(logger, ex, task.Id);
-            var exceptionDetails = BuildExceptionDetails(ex);
-            return Result<Task>.Failure($"Error adding task: {exceptionDetails}");
+            return Result<Task>.Failure($"Error adding task {task.Id}. The cause is logged.");
         }
     }
 
@@ -199,7 +196,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorUpdatingTask(logger, ex, task.Id);
-            return Result.Failure($"Error updating task: {ex.Message}");
+            return Result.Failure($"Error updating task {task.Id}. The cause is logged.");
         }
     }
 
@@ -223,8 +220,8 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         }
         catch (Exception ex)
         {
-            LogErrorUpdatingTask(logger, ex, task.Id);
-            return Result.Failure($"Error deleting task: {ex.Message}");
+            LogErrorDeletingTask(logger, ex, task.Id);
+            return Result.Failure($"Error deleting task {task.Id}. The cause is logged.");
         }
     }
 
@@ -248,7 +245,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorRecordingExecution(logger, ex, execution.TaskId);
-            return Result.Failure($"Error recording execution: {ex.Message}");
+            return Result.Failure($"Error recording an execution of task {execution.TaskId}. The cause is logged.");
         }
     }
 
@@ -274,7 +271,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorRetrievingStale(logger, ex);
-            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving stale tasks: {ex.Message}");
+            return Result<IReadOnlyList<Task>>.Failure("Error retrieving stale tasks. The cause is logged.");
         }
     }
 
@@ -297,7 +294,7 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         catch (Exception ex)
         {
             LogErrorRetrievingProjectTasks(logger, ex, projectId);
-            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving project tasks: {ex.Message}");
+            return Result<IReadOnlyList<Task>>.Failure($"Error retrieving the tasks of project {projectId}. The cause is logged.");
         }
     }
 
@@ -319,6 +316,9 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
     [LoggerMessage(EventId = 15, Level = LogLevel.Error, Message = "Error updating task {TaskId}")]
     private static partial void LogErrorUpdatingTask(ILogger logger, Exception exception, Guid taskId);
 
+    [LoggerMessage(EventId = 19, Level = LogLevel.Error, Message = "Error deleting task {TaskId}")]
+    private static partial void LogErrorDeletingTask(ILogger logger, Exception exception, Guid taskId);
+
     [LoggerMessage(EventId = 16, Level = LogLevel.Error, Message = "Error recording execution for task {TaskId}")]
     private static partial void LogErrorRecordingExecution(ILogger logger, Exception exception, Guid taskId);
 
@@ -328,27 +328,4 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
     [LoggerMessage(EventId = 18, Level = LogLevel.Error,
         Message = "Error retrieving tasks for project {ProjectId}")]
     private static partial void LogErrorRetrievingProjectTasks(ILogger logger, Exception exception, Guid projectId);
-
-    /// <summary>
-    ///     Builds detailed exception information including inner exception details.
-    /// </summary>
-    private static string BuildExceptionDetails(Exception ex)
-    {
-        var details = new StringBuilder();
-        details.AppendLine(CultureInfo.InvariantCulture, $"Main Exception: {ex.GetType().Name} - {ex.Message}");
-
-        if (ex.InnerException is not null)
-        {
-            details.AppendLine(CultureInfo.InvariantCulture,
-                $"Inner Exception: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}");
-
-            if (ex.InnerException.InnerException is not null)
-            {
-                details.AppendLine(CultureInfo.InvariantCulture,
-                    $"Inner Inner Exception: {ex.InnerException.InnerException.GetType().Name} - {ex.InnerException.InnerException.Message}");
-            }
-        }
-
-        return details.ToString();
-    }
 }

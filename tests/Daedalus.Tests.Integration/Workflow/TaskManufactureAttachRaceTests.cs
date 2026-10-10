@@ -1,90 +1,95 @@
-using Daedalus.Agents;
+using System.Text.Json;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Services;
-using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Thalos.Workflow;
-using SystemTask = System.Threading.Tasks.Task;
+using ZeroAlloc.Results;
+using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>
-///     The attach of a started run is saved on the task instance the service read, over the real repositories, so the
-///     task's <c>xmin</c> guards it. A task changed while the run was starting refuses the attach: the run exists, the
-///     start answers AttachConflict naming it, and no second run is started.
+///     The attach of a started run is saved on the task instance the service read, so the task's <c>xmin</c> guards it.
+///     Here the real starter starts a real run, and another request renames the task before the attach. The attach is
+///     refused, the orphaned run is cancelled, and the endpoint answers 409 saying so. No second run is started.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
-public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture) : IAsyncLifetime
+public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
 {
-    private const string Remote = "https://github.com/o/daedalus-sandbox";
-
-    private readonly IWorkflowRunStatusReader _runs = Substitute.For<IWorkflowRunStatusReader>();
-    private readonly IManufactureRunStarter _starter = Substitute.For<IManufactureRunStarter>();
-    private readonly Guid _started = Guid.NewGuid();
-    private Guid _taskId;
-
-    public async SystemTask InitializeAsync()
-    {
-        await fixture.DatabaseResetter.ResetAsync();
-        var project = Project.Create(Guid.NewGuid(), "Sandbox", "The sandbox", repositoryUrl: Remote).Value;
-        var task = IntegrationTestFactory.CreateTask(projectId: project.Id);
-        _taskId = task.Id;
-        await using var db = NewContext();
-        db.Projects.Add(project);
-        db.Tasks.Add(task);
-        await db.SaveChangesAsync();
-
-        _runs.ReadAsync(Guid.Empty, default).ReturnsForAnyArgs(new ValueTask<WorkflowRunStatus>(WorkflowRunStatus.Unknown));
-    }
-
-    public SystemTask DisposeAsync() => SystemTask.CompletedTask;
-
-    private ApplicationDbContext NewContext() => new(PostgresFixture.CreateDbContextOptions(fixture.ConnectionString));
-
     /// <summary>
-    ///     Another request renames the task while its run is starting.
     ///     Red: in <c>TaskManufactureService.StartAsync</c>, re-read the task through <c>GetByIdAsync</c> after the start
-    ///     and attach the run to that fresh copy; the attach is saved, so the start succeeds and the failure assertion
-    ///     fails.
+    ///     and attach the run to that fresh copy; the attach is saved, so the POST answers 201.
+    ///     Red: skip the cancel of the unattached run; the run is not Cancelled and <c>runCancelled</c> is false.
     /// </summary>
     [Fact]
-    public async SystemTask A_task_changed_while_its_run_starts_refuses_the_attach_and_starts_no_second_run()
+    public async Task A_task_changed_while_its_run_starts_refuses_the_attach_and_cancels_the_run()
     {
-        _starter.StartAsync(default!, default).ReturnsForAnyArgs(_ => RenameThenStartAsync());
+        RenamingStarter? renaming = null;
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture,
+            new ScriptedManufactureRuntime(),
+            configureServices: services =>
+            {
+                var real = services.Last(d => d.ServiceType == typeof(IManufactureRunStarter));
+                services.Remove(real);
+                services.AddSingleton<IManufactureRunStarter>(sp =>
+                    renaming = new RenamingStarter(
+                        (IManufactureRunStarter)real.ImplementationFactory!(sp), sp.GetRequiredService<IDbContextFactory<ApplicationDbContext>>()));
+            });
 
-        await using var db = NewContext();
-        var workflow = new WorkflowConfig();
-        workflow.Repositories.Add(new RepositoryConfig { Name = "daedalus-sandbox", Remote = Remote });
-        var service = new TaskManufactureService(
-            new TaskRepository(db, Substitute.For<ILogger<TaskRepository>>()),
-            new ProjectRepository(db, Substitute.For<ILogger<ProjectRepository>>()),
-            _runs,
-            _starter,
-            workflow);
+        var project = Project.Create(Guid.NewGuid(), "Sandbox", "The scratch remote", repositoryUrl: host.Remote.Url).Value;
+        var task = IntegrationTestFactory.CreateTask(projectId: project.Id);
+        project.AddTask(task).IsSuccess.Should().BeTrue();
+        await using (var db = await host.Factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync())
+        {
+            db.Projects.Add(project);
+            await db.SaveChangesAsync();
+        }
 
-        var result = await service.StartAsync(_taskId, new RunPrincipal("a-dev", ["developer"]), CancellationToken.None);
+        using var client = host.Client("a-developer", "developer");
+        var response = await client.PostAsync($"/api/tasks/{task.Id}/manufacture", content: null);
 
-        result.IsFailure.Should().BeTrue();
-        result.Error.Kind.Should().Be(TaskManufactureFailureKind.AttachConflict);
-        result.Error.RunId.Should().Be(_started);
-        await _starter.ReceivedWithAnyArgs(1).StartAsync(default!, default);
-        await using var check = NewContext();
-        var stored = await check.Tasks.SingleAsync(t => t.Id == _taskId);
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        renaming.Should().NotBeNull();
+        renaming!.Started.Should().ContainSingle("the lost race must not start a second run");
+        var runId = renaming.Started[0];
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("runId").GetGuid().Should().Be(runId);
+        body.RootElement.GetProperty("runCancelled").GetBoolean().Should().BeTrue();
+
+        var run = await host.Store.FindAsync(runId, CancellationToken.None);
+        run!.Status.Should().Be(WorkflowStatus.Cancelled, "a run no task points at must not keep running");
+
+        await using var check = await host.Factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync();
+        var stored = await check.Tasks.SingleAsync(t => t.Id == task.Id);
         stored.WorkflowRunId.Should().BeNull("the lost attach must not be saved");
         stored.Title.Should().Be("Renamed", "the other request's change stands");
     }
 
-    /// <summary>Renames the task through another context, then reports <see cref="_started"/> as the run.</summary>
-    private async ValueTask<Result<Guid, ManufactureStartFailure>> RenameThenStartAsync()
+    /// <summary>The real starter, after which another request renames every task the start was for.</summary>
+    private sealed class RenamingStarter(IManufactureRunStarter inner, IDbContextFactory<ApplicationDbContext> contexts) : IManufactureRunStarter
     {
-        await using var other = NewContext();
-        var current = await other.Tasks.SingleAsync(t => t.Id == _taskId);
-        current.UpdateMetadata("Renamed", "d", Priority.Low, "p", Complexity.Low).IsSuccess.Should().BeTrue();
-        await other.SaveChangesAsync();
-        return Result<Guid, ManufactureStartFailure>.Success(_started);
+        public List<Guid> Started { get; } = [];
+
+        public async ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
+        {
+            var started = await inner.StartAsync(request, ct);
+            if (started.IsSuccess)
+            {
+                Started.Add(started.Value);
+                await using var other = await contexts.CreateDbContextAsync(ct);
+                foreach (var task in await other.Tasks.ToListAsync(ct))
+                {
+                    task.UpdateMetadata("Renamed", "d", Priority.Low, "p", Complexity.Low).IsSuccess.Should().BeTrue();
+                }
+
+                await other.SaveChangesAsync(ct);
+            }
+
+            return started;
+        }
     }
 }
