@@ -689,6 +689,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton(skills);
         // The real record store over the fixture's Daedalus database, where ReviewLensRunner records each pass.
         services.AddSingleton(records);
+        // Phase 2.8: the dispatcher's store appends each completed node's usage through the same record store.
+        services.AddSingleton<NodeUsageRecorder>();
         services.AddSingleton(TimeProvider.System);
         services.AddLogging();
         services.AddSingleton(Options.Create(new DetachedRunOptions

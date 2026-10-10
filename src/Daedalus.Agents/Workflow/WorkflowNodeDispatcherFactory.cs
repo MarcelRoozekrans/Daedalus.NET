@@ -57,7 +57,8 @@ internal static class WorkflowNodeDispatcherFactory
                 sp.GetRequiredService<IWorkflowStore>(),
                 sp.GetRequiredService<SquadOptions>(),
                 sp.GetRequiredService<Daedalus.Agents.Memory.WorkflowRecallTierLog>()),
-            sp.GetRequiredService<IProcessDefinitionStore>()),
+            sp.GetRequiredService<IProcessDefinitionStore>(),
+            sp.GetRequiredService<NodeUsageRecorder>()),
         // Order matters, twice over. ReviewLensRunner is the middle decorator and BudgetedSubagentRunner the
         // innermost one, so a node that runs three lens passes runs three separately budgeted turns rather than
         // three passes sharing one turn's ceiling - reversing the two would let a two-lens review exhaust the

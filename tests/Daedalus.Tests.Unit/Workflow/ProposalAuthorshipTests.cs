@@ -86,7 +86,7 @@ public sealed class ProposalAuthorshipTests
     private static async Task<NodeResult> CompleteAsync(WorkflowRun run, string? outcome, Dictionary<string, object?> reported)
     {
         var inner = new RecordingWorkflowStore(run);
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(run.Id, 3, AnyTransition(), new NodeResult(outcome, reported), CancellationToken.None);
 
@@ -213,7 +213,7 @@ public sealed class ProposalAuthorshipTests
         var reported = new Dictionary<string, object?>(StringComparer.Ordinal) { [Key] = Planted };
         var run = RunAt(node);
         var inner = new RecordingWorkflowStore(run);
-        var store = new ReviewHandoffWorkflowStore(inner, Definitions());
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder());
 
         await store.CompleteNodeAsync(
             run.Id, 3, AnyTransition(), new NodeResult(outcome, reported) { Usage = usage }, CancellationToken.None);

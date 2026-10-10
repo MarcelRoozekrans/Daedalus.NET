@@ -91,6 +91,7 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         // The two store decorators the factory puts between the dispatcher and IWorkflowStore need these.
         services.AddSingleton(new SquadOptions { Enabled = true, FallbackAgentName = "Daedalus Architect" });
         services.AddSingleton<WorkflowRecallTierLog>();
+        services.AddSingleton(TestNodeUsage.Recorder());
         // The caller resolver reads the write grants from it; none are needed for a budget.
         services.AddSingleton(new WorkflowConfig());
         // ReviewLensRunner timestamps and logs the review evidence it records; this node declares no lenses.
