@@ -122,14 +122,14 @@ public class UIInteractionTests : ApiTestBase
     [Description("Empty collections return proper paged structure")]
     public async Task UIInteraction_EmptyCollections_ReturnProperPagedStructure()
     {
-        // Act — sessions are empty (no seeds)
-        var result = await GetApiAsync<PagedResultDto<ExecutionSessionDto>>("/api/executionsessions")
+        // Act — page past the end of the seeded projects, so the page is empty
+        var result = await GetApiAsync<PagedResultDto<ProjectDto>>("/api/projects?page=1000&pageSize=10")
             .ConfigureAwait(false);
 
         // Assert
         result.Should().NotBeNull("Empty collections should still return paged wrapper");
         result!.Items.Should().NotBeNull("Items collection should exist even when empty");
-        result.Total.Should().Be(0);
+        result.Items.Should().BeEmpty();
         result.Page.Should().BeGreaterThanOrEqualTo(1);
         result.PageSize.Should().BeGreaterThan(0);
     }

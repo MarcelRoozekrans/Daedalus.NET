@@ -14,11 +14,9 @@ public class ApiAuthorizationTests
     private static readonly Type[] ControllerTypes =
     [
         typeof(TasksController),
-        typeof(ExecutionSessionsController),
         typeof(ProjectsController),
         typeof(TaskExecutionsController),
         typeof(CodeAnalysisController),
-        typeof(RalphConfigController),
         typeof(RepositoriesController),
         typeof(PrdController),
         typeof(AgentsController),

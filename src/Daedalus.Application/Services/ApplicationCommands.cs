@@ -1,15 +1,13 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
-using Daedalus.Application.Commands.AbandonTask;
 using Daedalus.Application.Commands.CreateProject;
 using Daedalus.Application.Commands.CreateTask;
 using Daedalus.Application.Commands.DeleteProject;
 using Daedalus.Application.Commands.DeleteTask;
-using Daedalus.Application.Commands.ResumeTask;
 using Daedalus.Application.Commands.UpdateProject;
 using Daedalus.Application.Commands.UpdateTask;
 using Daedalus.Application.DTOs;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Services;
 
@@ -37,11 +35,5 @@ internal sealed class ApplicationCommands(IMediator mediator) : IApplicationComm
         => mediator.Send(command, cancellationToken);
 
     public ValueTask<Result> DeleteTaskAsync(DeleteTaskCommand command, CancellationToken cancellationToken)
-        => mediator.Send(command, cancellationToken);
-
-    public ValueTask<Result<TaskDto>> AbandonTaskAsync(AbandonTaskCommand command, CancellationToken cancellationToken)
-        => mediator.Send(command, cancellationToken);
-
-    public ValueTask<Result<TaskDto>> ResumeTaskAsync(ResumeTaskCommand command, CancellationToken cancellationToken)
         => mediator.Send(command, cancellationToken);
 }

@@ -152,12 +152,10 @@ public sealed class AuthenticationFlowTests(PostgresFixture postgres, KeycloakFi
     /// </summary>
     [Theory]
     [InlineData("GET", "/api/tasks", null)]
-    [InlineData("GET", "/api/executionsessions", null)]
     [InlineData("GET", "/api/projects", null)]
     [InlineData("GET", "/api/taskexecutions/task/00000000-0000-0000-0000-000000000000", null)]
     [InlineData("POST", "/api/codeanalysis",
         """{"RepositoryUrl":"https://github.com/org/repo","FilePath":"src/Foo.cs","Type":1,"Title":"Auth probe","Description":"Auth probe","Requirements":[]}""")]
-    [InlineData("GET", "/api/ralph-config", null)]
     public async Task AllProtectedEndpoints_RequireJwtToken(string method, string endpoint, string? body)
     {
         // Arrange

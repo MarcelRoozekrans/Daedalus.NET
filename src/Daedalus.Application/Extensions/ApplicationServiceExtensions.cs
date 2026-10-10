@@ -22,8 +22,6 @@ public static class ApplicationServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Note: RalphLoopConfiguration is bound in Daedalus.Api, where the full configuration setup is available.
-
         // Auto-register all Mediator request handlers in the Application assembly by their own
         // concrete type. The generated MediatorService resolves each handler with
         // GetRequiredService<TConcreteHandler>() (not by an ICommandHandler/IQueryHandler-style

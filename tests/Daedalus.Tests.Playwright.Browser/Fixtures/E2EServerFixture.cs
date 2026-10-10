@@ -121,9 +121,6 @@ public class E2EServerFixture
             // Core infrastructure (ISystemClock, etc.)
             builder.Services.AddCoreInfrastructureServices();
 
-            // RalphLoop configuration (empty defaults — no real workspace)
-            builder.Services.Configure<RalphLoopConfiguration>(_ => { });
-
             // Application services (handlers, validators, prompt builders, PRD service, etc.)
             builder.Services.AddApplicationServices(builder.Configuration);
 
@@ -132,14 +129,12 @@ public class E2EServerFixture
 
             // Repositories
             builder.Services.AddScoped<ITaskRepository, TaskRepository>();
-            builder.Services.AddScoped<IExecutionSessionRepository, ExecutionSessionRepository>();
             builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
             builder.Services.AddScoped<IRepositoryConfigurationRepository, RepositoryConfigurationRepository>();
 
             // Query services
             builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
             builder.Services.AddScoped<TaskManufactureService>();
-            builder.Services.AddScoped<IExecutionSessionQueryService, ExecutionSessionQueryService>();
             builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
             builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
 
@@ -147,8 +142,8 @@ public class E2EServerFixture
             // 8 commands reachable through IApplicationCommands only touch ITaskRepository/
             // IProjectRepository (both real, against the seeded Postgres container below), so the real
             // handlers run and behave exactly like production - including returning "not found" for a
-            // missing id. The commands that do call out to an LLM (GeneratePrd, ExecuteTask,
-            // ConvertPrdToTasks, RegeneratePlan) are safe too: they go through IRalphAgentFactory, which
+            // missing id. The commands that do call out to an LLM (GeneratePrd,
+            // ConvertPrdToTasks) are safe too: they go through IRalphAgentFactory, which
             // is stubbed here.
             RemoveAndReplace<IRalphAgentFactory, StubRalphAgentFactory>(builder.Services);
             RemoveAndReplace<IPullRequestFactory, StubPullRequestFactory>(builder.Services);

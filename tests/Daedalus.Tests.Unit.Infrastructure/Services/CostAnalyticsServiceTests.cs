@@ -199,7 +199,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
     {
         // Falsifiability: removing the `if (group.ModelId is null)` branch in PriceGroups turns this red — not by
         // mispricing, but by throwing ArgumentNullException out of Dictionary<string,_>.TryGetValue(null), because
-        // TaskExecution.ModelId is genuinely null here, the same way ExecuteTaskCommandHandler leaves it today.
+        // TaskExecution.ModelId is genuinely null here, the same way a pre-2.8 task loop execution left it.
         var (_, taskId) = SeedProjectWithTask();
         SeedExecution(taskId, Guid.NewGuid(), ModelA, inputTokens: 1000, outputTokens: 2000); // priced: 0.033
         SeedExecution(taskId, Guid.NewGuid(), modelId: null, inputTokens: 700, outputTokens: 300); // unattributed

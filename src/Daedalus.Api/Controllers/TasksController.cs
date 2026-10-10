@@ -4,10 +4,8 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Api.Agents;
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
-using Daedalus.Application.Commands.AbandonTask;
 using Daedalus.Application.Commands.CreateTask;
 using Daedalus.Application.Commands.DeleteTask;
-using Daedalus.Application.Commands.ResumeTask;
 using Daedalus.Application.Commands.UpdateTask;
 using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
@@ -161,50 +159,6 @@ public sealed partial class TasksController(
         if (TaskRunGuard.IsConflict(result.Error))
         {
             return Conflict(new { error = result.Error });
-        }
-
-        return result.Error.Contains("not found", StringComparison.OrdinalIgnoreCase)
-            ? NotFound(new { error = result.Error })
-            : BadRequest(new { error = result.Error });
-    }
-
-    /// <summary>Abandon a task.</summary>
-    [Authorize(Policy = "TaskManagement")]
-    [EnableRateLimiting("write-operations")]
-    [HttpPost("{id:guid}/abandon")]
-    [ProducesResponseType(typeof(TaskDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> AbandonTask(Guid id, [FromBody] AbandonTaskDto dto, CancellationToken ct = default)
-    {
-        var command = new AbandonTaskCommand(id, dto.Reason);
-        var result = await commands.AbandonTaskAsync(command, ct);
-
-        if (result.IsSuccess)
-        {
-            return Ok(result.Value);
-        }
-
-        return result.Error.Contains("not found", StringComparison.OrdinalIgnoreCase)
-            ? NotFound(new { error = result.Error })
-            : BadRequest(new { error = result.Error });
-    }
-
-    /// <summary>Resume an abandoned task.</summary>
-    [Authorize(Policy = "TaskManagement")]
-    [EnableRateLimiting("write-operations")]
-    [HttpPost("{id:guid}/resume")]
-    [ProducesResponseType(typeof(TaskDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ResumeTask(Guid id, [FromBody] ResumeTaskDto dto, CancellationToken ct = default)
-    {
-        var command = new ResumeTaskCommand(id, dto.NewSessionId);
-        var result = await commands.ResumeTaskAsync(command, ct);
-
-        if (result.IsSuccess)
-        {
-            return Ok(result.Value);
         }
 
         return result.Error.Contains("not found", StringComparison.OrdinalIgnoreCase)

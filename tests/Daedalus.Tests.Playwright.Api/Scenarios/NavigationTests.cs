@@ -45,17 +45,6 @@ public class NavigationTests : ApiTestBase
     }
 
     [Test]
-    [Description("Sessions API route is accessible")]
-    public async Task Navigation_SessionsRoute_IsAccessible()
-    {
-        // Act
-        var response = await GetApiResponseAsync("/api/executionsessions").ConfigureAwait(false);
-
-        // Assert
-        response.Ok.Should().BeTrue("Sessions API should be accessible");
-    }
-
-    [Test]
     [Description("Repositories API route is accessible")]
     public async Task Navigation_RepositoriesRoute_IsAccessible()
     {
@@ -104,7 +93,7 @@ public class NavigationTests : ApiTestBase
     [Description("All main API routes respond within acceptable time")]
     public async Task Navigation_ApiRoutes_RespondQuickly()
     {
-        var routes = new[] { "/health", "/api/tasks", "/api/projects", "/api/executionsessions", "/api/repositories" };
+        var routes = new[] { "/health", "/api/tasks", "/api/projects", "/api/repositories" };
 
         foreach (var route in routes)
         {
@@ -122,7 +111,7 @@ public class NavigationTests : ApiTestBase
     [Description("API routes return correct content types")]
     public async Task Navigation_ApiRoutes_ReturnJsonContentType()
     {
-        var jsonRoutes = new[] { "/api/tasks", "/api/projects", "/api/executionsessions", "/api/repositories" };
+        var jsonRoutes = new[] { "/api/tasks", "/api/projects", "/api/repositories" };
 
         foreach (var route in jsonRoutes)
         {

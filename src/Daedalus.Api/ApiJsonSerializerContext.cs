@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using Daedalus.Application.DTOs.Agents;
 using Microsoft.AspNetCore.Mvc;
-using ExecutionSessionDto = Daedalus.Application.DTOs.ExecutionSessionDto;
 using TaskDto = Daedalus.Application.DTOs.TaskDto;
 using TaskExecutionDto = Daedalus.Application.DTOs.TaskExecutionDto;
 
@@ -22,11 +21,9 @@ namespace Daedalus.Api;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = false)]
 [JsonSerializable(typeof(TaskDto))]
-[JsonSerializable(typeof(ExecutionSessionDto))]
 [JsonSerializable(typeof(TaskExecutionDto))]
 [JsonSerializable(typeof(ProjectDto))]
 [JsonSerializable(typeof(PagedResultDto<TaskDto>))]
-[JsonSerializable(typeof(PagedResultDto<ExecutionSessionDto>))]
 [JsonSerializable(typeof(PagedResultDto<TaskExecutionDto>))]
 [JsonSerializable(typeof(PagedResultDto<ProjectDto>))]
 [JsonSerializable(typeof(PrdResponseDto))]

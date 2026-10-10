@@ -29,15 +29,14 @@ public class HomePageBrowserTests : BrowserTestBase
     }
 
     [Test]
-    [Description("Home page should display four stat cards")]
-    public async Task HomePage_ShouldDisplay_FourStatCards()
+    [Description("Home page should display the task and project stat cards")]
+    public async Task HomePage_ShouldDisplay_StatCards()
     {
         await _homePage.NavigateAsync().ConfigureAwait(false);
         await Expect(_homePage.StatsRow).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_homePage.TotalTasksStat).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_homePage.SessionsStat).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_homePage.ActiveSessionsStat).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_homePage.CompletedTasksStat).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_homePage.ProjectsStat).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_homePage.StatCards).ToHaveCountAsync(2).ConfigureAwait(false);
     }
 
     [Test]
@@ -46,9 +45,7 @@ public class HomePageBrowserTests : BrowserTestBase
     {
         await _homePage.NavigateAsync().ConfigureAwait(false);
         await Expect(_homePage.TotalTasksStat).ToContainTextAsync("Total Tasks").ConfigureAwait(false);
-        await Expect(_homePage.SessionsStat).ToContainTextAsync("Execution Sessions").ConfigureAwait(false);
-        await Expect(_homePage.ActiveSessionsStat).ToContainTextAsync("Active Sessions").ConfigureAwait(false);
-        await Expect(_homePage.CompletedTasksStat).ToContainTextAsync("Completed Tasks").ConfigureAwait(false);
+        await Expect(_homePage.ProjectsStat).ToContainTextAsync("Total Projects").ConfigureAwait(false);
     }
 
     [Test]
@@ -58,7 +55,7 @@ public class HomePageBrowserTests : BrowserTestBase
         await _homePage.NavigateAsync().ConfigureAwait(false);
         await Expect(_homePage.QuickActionsCard).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_homePage.CreateTaskButton).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_homePage.ConfigureRalphButton).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_homePage.ViewCostsButton).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_homePage.GeneratePrdButton).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_homePage.ManageProjectsButton).ToBeVisibleAsync().ConfigureAwait(false);
     }
@@ -85,28 +82,6 @@ public class HomePageBrowserTests : BrowserTestBase
         Page.Url.Should().Contain("/tasks");
     }
 
-    [Test]
-    [Description("Clicking Sessions stat card should navigate to Sessions page")]
-    public async Task HomePage_ClickSessionsStat_ShouldNavigateToSessions()
-    {
-        await _homePage.NavigateAsync().ConfigureAwait(false);
-        await Expect(_homePage.SessionsStat).ToBeVisibleAsync().ConfigureAwait(false);
-        await _homePage.SessionsStat.ClickAsync().ConfigureAwait(false);
-        await Page.WaitForURLAsync("**/sessions").ConfigureAwait(false);
-        Page.Url.Should().Contain("/sessions");
-    }
-
-    [Test]
-    [Description("Clicking Active Sessions stat card should navigate to Sessions page")]
-    public async Task HomePage_ClickActiveSessionsStat_ShouldNavigateToSessions()
-    {
-        await _homePage.NavigateAsync().ConfigureAwait(false);
-        await Expect(_homePage.ActiveSessionsStat).ToBeVisibleAsync().ConfigureAwait(false);
-        await _homePage.ActiveSessionsStat.ClickAsync().ConfigureAwait(false);
-        await Page.WaitForURLAsync("**/sessions").ConfigureAwait(false);
-        Page.Url.Should().Contain("/sessions");
-    }
-
     // ── Quick action navigation ──────────────────────────────────────────────
 
     [Test]
@@ -121,14 +96,25 @@ public class HomePageBrowserTests : BrowserTestBase
     }
 
     [Test]
-    [Description("Clicking Configure Ralph Loop should navigate to Ralph Config page")]
-    public async Task HomePage_ClickConfigureRalph_ShouldNavigateToRalphConfig()
+    [Description("Clicking Projects stat card should navigate to Projects page")]
+    public async Task HomePage_ClickProjectsStat_ShouldNavigateToProjects()
     {
         await _homePage.NavigateAsync().ConfigureAwait(false);
-        await Expect(_homePage.ConfigureRalphButton).ToBeVisibleAsync().ConfigureAwait(false);
-        await _homePage.ConfigureRalphButton.ClickAsync().ConfigureAwait(false);
-        await Page.WaitForURLAsync("**/ralph-config").ConfigureAwait(false);
-        Page.Url.Should().Contain("/ralph-config");
+        await Expect(_homePage.ProjectsStat).ToBeVisibleAsync().ConfigureAwait(false);
+        await _homePage.ProjectsStat.ClickAsync().ConfigureAwait(false);
+        await Page.WaitForURLAsync("**/projects").ConfigureAwait(false);
+        Page.Url.Should().Contain("/projects");
+    }
+
+    [Test]
+    [Description("Clicking View Costs should navigate to Costs page")]
+    public async Task HomePage_ClickViewCosts_ShouldNavigateToCosts()
+    {
+        await _homePage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_homePage.ViewCostsButton).ToBeVisibleAsync().ConfigureAwait(false);
+        await _homePage.ViewCostsButton.ClickAsync().ConfigureAwait(false);
+        await Page.WaitForURLAsync("**/costs").ConfigureAwait(false);
+        Page.Url.Should().Contain("/costs");
     }
 
     [Test]
@@ -154,15 +140,6 @@ public class HomePageBrowserTests : BrowserTestBase
     }
 
     // ── Content validation ───────────────────────────────────────────────────
-
-    [Test]
-    [Description("About card should display Daedalus description")]
-    public async Task HomePage_AboutCard_ShouldDisplayDescription()
-    {
-        await _homePage.NavigateAsync().ConfigureAwait(false);
-        await Expect(_homePage.AboutCard).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_homePage.AboutCard).ToContainTextAsync("Ralph Wiggum Technique").ConfigureAwait(false);
-    }
 
     // ── Bug #1 regression: favicon ───────────────────────────────────────────
 

@@ -18,9 +18,7 @@ public sealed class MainPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
     public ILocator DashboardMenuItem => _page.Locator(".rz-sidebar").GetByText("Dashboard", new LocatorGetByTextOptions { Exact = true });
     public ILocator TasksMenuItem => _page.Locator(".rz-sidebar").GetByText("Tasks", new LocatorGetByTextOptions { Exact = true });
     public ILocator ProjectsMenuItem => _page.Locator(".rz-sidebar").GetByText("Projects", new LocatorGetByTextOptions { Exact = true });
-    public ILocator SessionsMenuItem => _page.Locator(".rz-sidebar").GetByText("Sessions", new LocatorGetByTextOptions { Exact = true });
     public ILocator ExecutionsMenuItem => _page.Locator(".rz-sidebar").GetByText("Executions", new LocatorGetByTextOptions { Exact = true });
-    public ILocator RalphConfigMenuItem => _page.Locator(".rz-sidebar").GetByText("Ralph Config", new LocatorGetByTextOptions { Exact = true });
     public ILocator PrdGeneratorMenuItem => _page.Locator(".rz-sidebar").GetByText("PRD Generator", new LocatorGetByTextOptions { Exact = true });
     public ILocator GitRepositoriesMenuItem => _page.Locator(".rz-sidebar").GetByText("Git Repositories", new LocatorGetByTextOptions { Exact = true });
 
