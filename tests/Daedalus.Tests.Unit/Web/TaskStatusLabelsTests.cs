@@ -104,6 +104,22 @@ public sealed class TaskStatusLabelsTests
         new(Guid.NewGuid(), "T-1", Guid.NewGuid(), "t", "d", 1, "p", 0, [], [], 1, "prompt", "promise", maxIterations, 0,
             null, null, 0, DateTime.UtcNow, null, null, null, [], null, pullRequestUrl);
 
+    /// <summary>
+    ///     The Web's edit rule and the server's are two copies of one set; a status the dialog offers Save for must be
+    ///     one the handler accepts. Red per row: change either side's pattern for that status.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void The_web_and_the_server_agree_on_which_statuses_are_editable(int status) =>
+        TaskStatusLabels.IsEditable(status).Should().Be(
+            Daedalus.Application.Services.TaskStatusDerivation.IsEditable((Daedalus.Domain.Entities.TaskStatus)status));
+
     private static TaskDto WithRun(int status, Guid? workflowRunId) =>
         Task(0, pullRequestUrl: null) with { Status = status, WorkflowRunId = workflowRunId };
 }
