@@ -5,7 +5,7 @@ namespace Daedalus.Application.Abstractions;
 /// <summary>
 ///     Simple text-search database of error→fix pairs extracted from past task executions.
 ///     Queries TaskExecution records for error patterns and their subsequent resolutions.
-///     No vectors, no embeddings — just SQL text search deliberately simple.
+///     No vectors, no embeddings — just deliberately simple SQL text search.
 /// </summary>
 public interface IFailurePatternDatabase
 {

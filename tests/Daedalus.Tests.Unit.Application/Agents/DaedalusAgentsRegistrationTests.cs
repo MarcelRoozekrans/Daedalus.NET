@@ -633,10 +633,12 @@ public sealed class DaedalusAgentsRegistrationTests
     ///     <c>Thalos__Memory__RalphRecall__TopK</c> for example, to the defaults. The boot refuses it instead, naming the
     ///     new key. Red: delete the retired-key check; the build succeeds.
     /// </summary>
-    [Fact]
-    public void A_configuration_that_still_sets_the_retired_recall_key_fails_the_boot()
+    [Theory]
+    [InlineData("Thalos:Memory:RalphRecall:TopK", "10")]
+    [InlineData("Thalos:Memory:RalphRecall:MinScore", "0.5")]
+    public void A_configuration_that_still_sets_the_retired_recall_key_fails_the_boot(string key, string value)
     {
-        var build = () => Build(Config(("Thalos:Memory:RalphRecall:TopK", "10")));
+        var build = () => Build(Config((key, value)));
 
         build.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Memory:LearningsRecall*");
     }

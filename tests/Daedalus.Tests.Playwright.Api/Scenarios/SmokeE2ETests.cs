@@ -101,7 +101,7 @@ public class SmokeE2ETests : ApiTestBase
     [Description("Multiple API requests can be made sequentially")]
     public async Task Smoke_MultipleRequests_CanBeMadeSequentially()
     {
-        // Act — simulate worker polling pattern
+        // Act — several different endpoints requested one after another
         var healthResponse = await GetApiResponseAsync("/health").ConfigureAwait(false);
         var tasksResult = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
         var pendingResponse = await GetApiResponseAsync("/api/codeanalysis/next-pending")

@@ -492,7 +492,7 @@ persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Ski
             "Dedupe": { "Enabled": true, "Threshold": 0.95 },
             "ExposeTools": true,
             "VectorDimensions": 768,
-            "RalphRecall": { "TopK": 10, "MinScore": 0.5 },
+            "LearningsRecall": { "TopK": 10, "MinScore": 0.5 },
             "Reindex": { "Enabled": true, "StartupDelay": "00:00:10", "RetryInterval": "00:02:00", "SweepInterval": "00:15:00" }
         },
         "Skills": {
@@ -543,7 +543,7 @@ persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Ski
 | `Thalos:Memory:Dedupe:{Enabled,Threshold}`     | Thalos refuses a near-duplicate `remember` above the similarity threshold and reports the existing memory (`deduped`).                                                                                       |
 | `Thalos:Memory:ExposeTools`                    | Registers the `memory` tool source. Which agents actually see `memory__*` is still decided by their `Tools` glob.                                                                                            |
 | `Thalos:Memory:VectorDimensions`               | Embedding width of the Rag.NET index (`nomic-embed-text` = **768**). Must match the existing `rag_chunks` table — see [Operational notes](#operational-notes).                                              |
-| `Thalos:Memory:RalphRecall:{TopK,MinScore}`    | Daedalus-only: how the Ralph enrichment middleware and the `search_learnings` MCP tool recall shared learnings. `TopK` is clamped to 1–50 (1–20 for the MCP tool).                                           |
+| `Thalos:Memory:LearningsRecall:{TopK,MinScore}` | Daedalus-only: how many shared learnings the `search_learnings` MCP tool and the Thalos learnings recall ask for, and the minimum score. `TopK` is clamped to 1–50 (1–20 for the MCP tool).                                           |
 | `Thalos:Memory:Reindex:*`                      | Daedalus-only: `ReindexPendingMemoriesHostedService` (API host only) — `Enabled`, `StartupDelay`, `RetryInterval` (index unavailable/failed rows), `SweepInterval` (all clear).                              |
 | `Thalos:Skills:Enabled`                        | Master switch for the catalogue and the `skills__*` tools. `false` skips root validation entirely, so a host with no skills folder still starts.                                                              |
 | `Thalos:Skills:Roots[]`                        | Folders holding `<name>/SKILL.md`, resolved against the host content root (like `McpConfigPath`). **A configured root that does not exist fails host start, on purpose** — see [Operational notes](#operational-notes). Empty by default. |
