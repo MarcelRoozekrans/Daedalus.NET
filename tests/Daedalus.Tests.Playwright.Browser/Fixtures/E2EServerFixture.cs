@@ -447,7 +447,7 @@ public class E2EServerFixture
 
             dbContext.Projects.Add(project);
 
-            // TASK-001 stands in for an old Ralph task. Task.Create no longer takes the loop settings, so set them
+            // TASK-001 stands in for an old task-loop task. Task.Create no longer takes the loop settings, so set them
             // as EF does when it reads an old row. TASK-002 stays a new task with none.
             if (task1Result.IsSuccess)
             {

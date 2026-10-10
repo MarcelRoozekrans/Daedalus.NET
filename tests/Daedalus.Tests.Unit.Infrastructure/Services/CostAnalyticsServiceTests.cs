@@ -242,7 +242,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
 
     /// <summary>
     ///     The scope is a claim shipped on the summary, so it is guarded like one: it names every source and the exclusion.
-    ///     Red: restore the old Ralph-only scope string; it names no node-usage, workflow:* or schedule:*.
+    ///     Red: restore the old task-loop-only scope string; it names no node-usage, workflow:* or schedule:*.
     ///     Red: drop the sentence on unpriced session tokens and cache reads from the scope; the last assertion fails.
     /// </summary>
     [Fact]

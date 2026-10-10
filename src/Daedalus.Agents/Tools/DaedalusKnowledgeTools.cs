@@ -10,11 +10,11 @@ namespace Daedalus.Agents.Tools;
 ///     <c>daedalus</c>.
 /// </summary>
 /// <remarks>
-///     A thin wrapper over the existing Ralph MCP tool class (<see cref="DaedalusFailurePatternsTools"/>) so both agent
-///     stacks share one implementation. Thalos's <c>LocalToolSource</c> creates a fresh DI scope per invocation, so the
+///     A thin wrapper over the existing MCP tool class (<see cref="DaedalusFailurePatternsTools"/>) so the MCP server and the Thalos
+///     agents share one implementation. Thalos's <c>LocalToolSource</c> creates a fresh DI scope per invocation, so the
 ///     scoped Infrastructure services behind these tools are never stale.
 /// </remarks>
-/// <param name="failures">The Ralph failure-patterns MCP tool class.</param>
+/// <param name="failures">The failure-patterns MCP tool class.</param>
 [ThalosToolType]
 public sealed class DaedalusKnowledgeTools(DaedalusFailurePatternsTools failures)
 {

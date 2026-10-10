@@ -18,7 +18,7 @@ namespace Daedalus.Infrastructure.Services.GitHub;
 /// <summary>
 ///     Reads repository activity straight from the GitHub REST API, and — for interactive agents only — acts on it.
 ///     Also the one place that opens a pull request on GitHub: <see cref="CreatePullRequestAsync"/> serves the
-///     non-interactive Ralph Loop and workspace orchestrators through
+///     non-interactive code-analysis and workspace orchestrators through
 ///     <c>Daedalus.Infrastructure.Services.CodeAnalysis.GitHubPullRequestFactory</c>, which owns URL parsing and
 ///     keeps its place behind <c>IPullRequestFactory</c>'s platform dispatch but no longer speaks HTTP itself.
 ///     Every request is authenticated up front — an unauthenticated request to a private repository 404s and looks

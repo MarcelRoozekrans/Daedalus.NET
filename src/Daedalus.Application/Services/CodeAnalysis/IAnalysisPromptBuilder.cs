@@ -1,10 +1,10 @@
-using ZeroAlloc.Results;
 using Daedalus.Domain.CodeAnalysis;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Services.CodeAnalysis;
 
 /// <summary>
-///     Generates analysis prompts for Ralph Loop
+///     Generates the prompts for iterative code analysis
 /// </summary>
 public interface IAnalysisPromptBuilder
 {

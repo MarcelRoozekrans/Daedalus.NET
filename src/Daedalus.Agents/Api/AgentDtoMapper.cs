@@ -90,7 +90,7 @@ public static class AgentDtoMapper
     }
 
     /// <summary>
-    ///     Maps a stored memory. <paramref name="sharedOwnerId"/> is the owner of host-written project knowledge (Ralph
+    ///     Maps a stored memory. <paramref name="sharedOwnerId"/> is the owner of host-written project knowledge (the
     ///     learnings): a record owned by it is flagged <c>IsShared</c> so the UI can tell "mine" from "the project's" apart.
     /// </summary>
     public static MemoryDto ToDto(MemoryRecord record, string? sharedOwnerId)

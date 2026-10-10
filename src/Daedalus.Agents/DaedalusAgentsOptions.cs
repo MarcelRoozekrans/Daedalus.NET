@@ -131,20 +131,20 @@ public sealed class MemoryConfig
     /// <summary>Configuration section name: <c>Thalos:Memory</c>.</summary>
     public const string SectionName = "Thalos:Memory";
 
-    /// <summary>Whether memory (auto-recall, <c>memory__*</c> tools, Ralph learnings) is on at all.</summary>
+    /// <summary>Whether memory (auto-recall, <c>memory__*</c> tools, project learnings) is on at all.</summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Owner of host-written project knowledge (Ralph learnings). Recalled for every caller, writable only by host code.</summary>
+    /// <summary>Owner of host-written project knowledge (the learnings). Recalled for every caller, writable only by host code.</summary>
     public string SharedOwnerId { get; set; } = "daedalus";
 
     /// <summary>Dimensions of the embedding model (nomic-embed-text = 768). Must match <c>rag_chunks</c>.</summary>
     public int VectorDimensions { get; set; } = 768;
 
     /// <summary>
-    ///     How the Ralph enrichment/MCP paths recall shared learnings. The type lives in the Application layer because the
-    ///     Ralph side of the port (<c>LearningsEnrichmentMiddleware</c>, <c>search_learnings</c>) binds the same key.
+    ///     How shared learnings are recalled. The type lives in the Application layer because the
+    ///     Infrastructure side of the port (the <c>search_learnings</c> MCP tool) binds the same key.
     /// </summary>
-    public RalphRecallConfiguration RalphRecall { get; } = new();
+    public LearningsRecallConfiguration LearningsRecall { get; } = new();
 
     /// <summary><c>ReindexPendingMemoriesHostedService</c> settings.</summary>
     public ReindexConfig Reindex { get; } = new();

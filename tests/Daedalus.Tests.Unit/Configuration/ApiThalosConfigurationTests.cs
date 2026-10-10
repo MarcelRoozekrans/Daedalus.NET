@@ -258,7 +258,7 @@ public sealed class ApiThalosConfigurationTests
         var cli = Load(CliAppSettingsFileName).GetSection(MemoryConfig.SectionName);
 
         cli.Exists().Should().BeTrue("the CLI is the other host that registers Daedalus memory");
-        foreach (var key in new[] { "SharedOwnerId", "VectorDimensions", "RalphRecall:TopK", "RalphRecall:MinScore" })
+        foreach (var key in new[] { "SharedOwnerId", "VectorDimensions", "LearningsRecall:TopK", "LearningsRecall:MinScore" })
         {
             cli[key].Should().Be(api[key], "Thalos:Memory:{0} must match between the API and Cli hosts", key);
         }

@@ -14,7 +14,7 @@ public sealed class ThalosLearningsMemoryTests
 {
     private readonly IMemoryService _service = Substitute.For<IMemoryService>();
     private readonly MemoryOptions _memoryOptions = new() { SharedOwnerId = "daedalus" };
-    private readonly RalphRecallConfiguration _recall = new();
+    private readonly LearningsRecallConfiguration _recall = new();
 
     private ThalosLearningsMemory Sut() =>
         new(_service, Options.Create(_memoryOptions), _recall, NullLogger<ThalosLearningsMemory>.Instance);

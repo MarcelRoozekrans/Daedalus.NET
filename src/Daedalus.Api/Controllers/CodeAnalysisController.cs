@@ -11,7 +11,7 @@ namespace Daedalus.Api.Controllers;
 #pragma warning disable S6960 // SonarQube complexity
 
 /// <summary>
-///     API endpoints for code analysis and Ralph Loop orchestration
+///     API endpoints for code analysis and its iterative analysis orchestration (issue #279)
 /// </summary>
 [ApiController]
 [ApiVersion("1.0")]

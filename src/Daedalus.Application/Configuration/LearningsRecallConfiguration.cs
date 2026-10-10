@@ -1,15 +1,15 @@
 namespace Daedalus.Application.Configuration;
 
 /// <summary>
-///     How the Ralph enrichment/MCP paths recall shared learnings (<c>Thalos:Memory:RalphRecall</c>). Lives in the
-///     Application layer because both sides of the port need it: <c>LearningsEnrichmentMiddleware</c> and the
-///     <c>search_learnings</c> MCP tool size their requests with it, and the Thalos adapter in <c>Daedalus.Agents</c>
+///     How shared learnings are recalled (<c>Thalos:Memory:LearningsRecall</c>). Lives in the
+///     Application layer because both sides of the port need it: the
+///     <c>search_learnings</c> MCP tool sizes its requests with it, and the Thalos adapter in <c>Daedalus.Agents</c>
 ///     turns it into a Thalos <c>RecallOptions</c>. One class, one configuration key, so the two cannot diverge.
 /// </summary>
-public sealed class RalphRecallConfiguration
+public sealed class LearningsRecallConfiguration
 {
-    /// <summary>Configuration section name: <c>Thalos:Memory:RalphRecall</c>.</summary>
-    public const string SectionName = "Thalos:Memory:RalphRecall";
+    /// <summary>Configuration section name: <c>Thalos:Memory:LearningsRecall</c>.</summary>
+    public const string SectionName = "Thalos:Memory:LearningsRecall";
 
     /// <summary>Smallest number of learnings a recall may ask for.</summary>
     public const int MinTopK = 1;

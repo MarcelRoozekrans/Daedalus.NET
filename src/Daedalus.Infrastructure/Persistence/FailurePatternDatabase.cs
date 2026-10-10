@@ -1,7 +1,7 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Persistence;
 
@@ -143,7 +143,7 @@ public sealed partial class FailurePatternDatabase(
 
     /// <summary>
     ///     Extracts meaningful technical keywords from prompt content for failure pattern search.
-    ///     Simple word extraction — no NLP, aligned with Ralph philosophy.
+    ///     Simple word extraction — no NLP, deliberately simple.
     /// </summary>
     internal static List<string> ExtractSearchKeywords(string promptContent)
     {

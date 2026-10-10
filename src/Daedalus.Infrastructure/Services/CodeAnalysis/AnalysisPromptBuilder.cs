@@ -1,12 +1,12 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
 /// <summary>
-///     Builds analysis prompts with code context for the Ralph Loop
+///     Builds analysis prompts with code context for iterative code analysis
 /// </summary>
 public sealed class AnalysisPromptBuilder(ILogger<AnalysisPromptBuilder> logger) : IAnalysisPromptBuilder
 {

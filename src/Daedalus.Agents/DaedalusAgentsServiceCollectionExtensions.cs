@@ -47,7 +47,7 @@ using Thalos.Workspaces;
 
 namespace Daedalus.Agents;
 
-/// <summary>Composition root for the Thalos-based agent stack. Ralph Loop registrations are untouched (strangler).</summary>
+/// <summary>Composition root for the Thalos-based agent stack. Registers the Thalos agent, memory, workflow and channel services.</summary>
 public static partial class DaedalusAgentsServiceCollectionExtensions
 {
     /// <summary>The Thalos tool-source name of <see cref="DaedalusKnowledgeTools"/>; tools appear as <c>daedalus__{tool}</c>.</summary>
@@ -183,7 +183,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         var connectionString = ResolveConnectionString(configuration);
 
-        // The Ralph MCP failure-patterns tool class doubles as the implementation behind DaedalusKnowledgeTools (fresh
+        // The MCP failure-patterns tool class doubles as the implementation behind DaedalusKnowledgeTools (fresh
         // scope per invocation). search_learnings is not wrapped: agents recall learnings through the memory__* tools.
         services.AddScoped<DaedalusFailurePatternsTools>();
 
@@ -228,9 +228,17 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.AddScoped<IPullRequestPublisher>(sp => sp.GetRequiredService<ThalosPullRequestPublisher>());
         services.AddScoped<IOpenPullRequestLookup>(sp => sp.GetRequiredService<ThalosPullRequestPublisher>());
 
+        // Analysis R6: the key was renamed in phase 2.8. A deployment that still sets the old one would otherwise run on
+        // the defaults without a word.
+        if (configuration.GetSection("Thalos:Memory:RalphRecall").Exists())
+        {
+            throw new InvalidOperationException(
+                $"Thalos:Memory:RalphRecall was renamed to {LearningsRecallConfiguration.SectionName} in phase 2.8. Move its TopK and MinScore there.");
+        }
+
         ValidateMemoryConfig(options.Memory);
         services.TryAddSingleton(options.Memory);
-        services.TryAddSingleton(options.Memory.RalphRecall);
+        services.TryAddSingleton(options.Memory.LearningsRecall);
         services.TryAddSingleton<ILearningsMemory, ThalosLearningsMemory>();
 
         var skillRoots = ResolveSkillRoots(options.Skills, environment);
@@ -1374,16 +1382,16 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 $"{MemoryConfig.SectionName}:VectorDimensions must be greater than 0, but was {config.VectorDimensions}.");
         }
 
-        if (config.RalphRecall.TopK < RalphRecallConfiguration.MinTopK)
+        if (config.LearningsRecall.TopK < LearningsRecallConfiguration.MinTopK)
         {
             throw new InvalidOperationException(
-                $"{RalphRecallConfiguration.SectionName}:TopK must be at least {RalphRecallConfiguration.MinTopK}, but was {config.RalphRecall.TopK}.");
+                $"{LearningsRecallConfiguration.SectionName}:TopK must be at least {LearningsRecallConfiguration.MinTopK}, but was {config.LearningsRecall.TopK}.");
         }
 
-        if (config.RalphRecall.MinScore is < 0 or > 1 || double.IsNaN(config.RalphRecall.MinScore))
+        if (config.LearningsRecall.MinScore is < 0 or > 1 || double.IsNaN(config.LearningsRecall.MinScore))
         {
             throw new InvalidOperationException(
-                $"{RalphRecallConfiguration.SectionName}:MinScore must be in [0, 1], but was {config.RalphRecall.MinScore.ToString(CultureInfo.InvariantCulture)}.");
+                $"{LearningsRecallConfiguration.SectionName}:MinScore must be in [0, 1], but was {config.LearningsRecall.MinScore.ToString(CultureInfo.InvariantCulture)}.");
         }
 
         ValidateInterval(config.Reindex.StartupDelay, nameof(ReindexConfig.StartupDelay));

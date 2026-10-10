@@ -11,7 +11,7 @@ using Thalos.Tools;
 namespace Daedalus.Tests.Unit.Application.Agents;
 
 /// <summary>
-///     The inner Ralph tool classes are sealed with non-virtual methods, so they cannot be substituted; the wrapper is
+///     The inner MCP tool classes are sealed with non-virtual methods, so they cannot be substituted; the wrapper is
 ///     tested through a real inner tool over a substituted <see cref="IFailurePatternDatabase"/>. Learnings are no longer
 ///     exposed here — agents recall them automatically and through the Thalos <c>memory__*</c> tools.
 /// </summary>

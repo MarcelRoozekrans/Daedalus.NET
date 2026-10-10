@@ -1,10 +1,10 @@
-using ZeroAlloc.Results;
 using Daedalus.Domain.CodeAnalysis;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Services.CodeAnalysis;
 
 /// <summary>
-///     Main orchestrator for Ralph Loop code analysis
+///     Main orchestrator for iterative code analysis (issue #279; the Ralph Loop name is kept)
 /// </summary>
 #pragma warning disable CA1054 // Uri parameters should not be strings — URLs passed as strings through the pipeline
 public interface IRalphLoopOrchestrator

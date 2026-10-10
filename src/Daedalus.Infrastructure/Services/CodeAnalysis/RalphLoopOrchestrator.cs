@@ -1,7 +1,7 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
@@ -12,7 +12,7 @@ namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 #pragma warning disable S1135 // TODO/FIXME comments - intentional placeholders for future implementation
 
 /// <summary>
-///     Orchestrates the Ralph Loop workflow for iterative code analysis.
+///     Orchestrates the iterative code-analysis workflow (issue #279; the Ralph Loop name is kept).
 ///     Handles repository initialization, iterative analysis, validation, and finalization.
 /// </summary>
 public sealed class RalphLoopOrchestrator(

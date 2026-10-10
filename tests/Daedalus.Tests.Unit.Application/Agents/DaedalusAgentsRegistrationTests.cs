@@ -553,7 +553,7 @@ public sealed class DaedalusAgentsRegistrationTests
         config.VectorDimensions.Should().Be(512);
         config.Reindex.RetryInterval.Should().Be(TimeSpan.FromSeconds(30));
         config.Enabled.Should().BeTrue();
-        config.RalphRecall.Should().BeEquivalentTo(new { TopK = 10, MinScore = 0.5 });
+        config.LearningsRecall.Should().BeEquivalentTo(new { TopK = 10, MinScore = 0.5 });
 
         var thalos = sp.GetRequiredService<IOptions<MemoryOptions>>().Value;
         thalos.Enabled.Should().BeTrue();
@@ -618,14 +618,27 @@ public sealed class DaedalusAgentsRegistrationTests
     [Theory]
     [InlineData("Thalos:Memory:SharedOwnerId", "  ", "SharedOwnerId")]
     [InlineData("Thalos:Memory:VectorDimensions", "0", "VectorDimensions")]
-    [InlineData("Thalos:Memory:RalphRecall:TopK", "0", "TopK")]
-    [InlineData("Thalos:Memory:RalphRecall:MinScore", "1.5", "MinScore")]
+    [InlineData("Thalos:Memory:LearningsRecall:TopK", "0", "TopK")]
+    [InlineData("Thalos:Memory:LearningsRecall:MinScore", "1.5", "MinScore")]
     [InlineData("Thalos:Memory:Reindex:SweepInterval", "00:00:00", "SweepInterval")]
     public void Out_of_range_memory_settings_fail_fast_naming_the_key(string key, string value, string expectedInMessage)
     {
         var act = () => Build(Config((key, value)));
 
         act.Should().Throw<InvalidOperationException>().WithMessage($"*{expectedInMessage}*");
+    }
+
+    /// <summary>
+    ///     Analysis R6: renaming the key would silently revert a deployment that still sets the old one, through
+    ///     <c>Thalos__Memory__RalphRecall__TopK</c> for example, to the defaults. The boot refuses it instead, naming the
+    ///     new key. Red: delete the retired-key check; the build succeeds.
+    /// </summary>
+    [Fact]
+    public void A_configuration_that_still_sets_the_retired_recall_key_fails_the_boot()
+    {
+        var build = () => Build(Config(("Thalos:Memory:RalphRecall:TopK", "10")));
+
+        build.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Memory:LearningsRecall*");
     }
 
     /// <summary>

@@ -6,7 +6,7 @@ using ZeroAlloc.Results;
 namespace Daedalus.Agents.Workflow;
 
 /// <summary>
-///     Ports Ralph's <c>AGENT.md</c> maintenance loop onto the workflow engine: appends the run's pinned standing
+///     Carries the project's standing <c>AGENT.md</c> instructions through the workflow engine: appends the run's pinned standing
 ///     instructions to the task text of exactly the two nodes that need to see them — <c>implement</c>, which is
 ///     meant to follow them, and <c>retrospect</c>, which proposes a change to them — and passes every other
 ///     node's request through unchanged.

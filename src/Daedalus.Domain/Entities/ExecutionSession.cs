@@ -6,8 +6,8 @@ using ZeroAlloc.Results;
 namespace Daedalus.Domain.Entities;
 
 /// <summary>
-///     Represents a worker session executing Ralph loops.
-///     Used for distributed task claiming and session health tracking.
+///     Represents a worker session of the autonomous task loop that Daedalus retired in phase 2.8.
+///     Kept for the historical <c>ExecutionSessions</c> rows that task executions reference.
 /// </summary>
 public sealed class ExecutionSession : AggregateRoot<Guid>
 {
