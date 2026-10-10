@@ -11,7 +11,8 @@ namespace Daedalus.Agents.Workflow;
 ///     every completion, and <c>NodeUsageBackfill</c> calls it for completions that have no record yet.
 /// </summary>
 /// <remarks>
-///     A failure is logged, not thrown. The completion it describes is already persisted, so throwing would only
+///     A failure is logged, not thrown, and so is a cancelled caller: the append runs under a token of its own, which only
+///     <c>AppendTimeout</c> cancels, never the dispatch's. The completion it describes is already persisted, so throwing would only
 ///     dead-letter a dispatch whose work is done. The next boot's backfill writes the missing record.
 /// </remarks>
 internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, TimeProvider clock, ILogger<NodeUsageRecorder> logger)
@@ -19,10 +20,13 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     /// <summary>The principal of every node-usage record: the host wrote it, no caller did.</summary>
     public const string HostPrincipalId = "host";
 
+    /// <summary>How long one append may take, under a token of its own.</summary>
+    private static readonly TimeSpan AppendTimeout = TimeSpan.FromSeconds(10);
+
     /// <summary>Now, on the host clock, as a UTC <see cref="DateTime"/>.</summary>
     public DateTime UtcNow => clock.GetUtcNow().UtcDateTime;
 
-    /// <summary>Appends the record. Returns whether it was written.</summary>
+    /// <summary>Appends the record. Returns whether it was written. The caller's token is deliberately not passed to the append.</summary>
     public async ValueTask<bool> RecordAsync(
         Guid runId, long seq, string node, string? startedById, TurnUsage usage, DateTime createdAtUtc, CancellationToken ct)
     {
@@ -39,12 +43,13 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
 
         try
         {
+            using var timeout = new CancellationTokenSource(AppendTimeout, clock);
             await using var scope = scopes.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>()
-                .AppendAsync(record.Value, ct).ConfigureAwait(false);
+                .AppendAsync(record.Value, timeout.Token).ConfigureAwait(false);
             return true;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (Exception ex)
         {
             LogAppendFailed(logger, ex, runId, seq);
             return false;
