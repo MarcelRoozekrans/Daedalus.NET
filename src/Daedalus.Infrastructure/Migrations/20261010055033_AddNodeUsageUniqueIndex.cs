@@ -15,6 +15,16 @@ namespace Daedalus.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // A database that already holds two node-usage rows for one (run, seq) would refuse the index. Keep the
+            // lowest Id, the first write. This is the one place a record is ever deleted, and only a duplicate of a kept one.
+            migrationBuilder.Sql(
+                """
+                DELETE FROM "WorkflowRunRecords" d
+                USING "WorkflowRunRecords" k
+                WHERE d."Kind" = 'node-usage' AND k."Kind" = 'node-usage'
+                  AND d."RunId" = k."RunId" AND d."Seq" = k."Seq" AND d."Id" > k."Id"
+                """);
+
             migrationBuilder.CreateIndex(
                 name: "UX_WorkflowRunRecords_NodeUsage_RunId_Seq",
                 table: "WorkflowRunRecords",

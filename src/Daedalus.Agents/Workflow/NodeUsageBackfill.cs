@@ -26,7 +26,7 @@ namespace Daedalus.Agents.Workflow;
 ///     recorded". The list of existing records read first only saves the append round trips.
 ///     </para>
 ///     <para>
-///     A failure is logged and the boot continues. The records feed cost analytics, and a missing figure there is a
+///     A failure is logged and the boot continues, and a run that cannot be read is logged and skipped without stopping the runs after it. The records feed cost analytics, and a missing figure there is a
 ///     smaller harm than a host that will not start. The next boot tries again.
 ///     </para>
 /// </remarks>
@@ -38,8 +38,16 @@ internal sealed partial class NodeUsageBackfill(
     NodeUsageRecorder recorder,
     ILogger<NodeUsageBackfill> logger) : IHostedService
 {
-    /// <summary>The runs that have at least one event with usage. Only <c>run_id</c> and <c>usage</c> are read here.</summary>
-    internal const string RunsWithUsageSql = "SELECT DISTINCT run_id FROM workflow_run_event WHERE usage IS NOT NULL";
+    /// <summary>
+    ///     The runs that have a completion with usage and no node-usage record at its seq, so a boot after a finished
+    ///     backfill finds none and rescans no history. Only <c>run_id</c>, <c>seq</c>, <c>from_node</c> and <c>usage</c> are
+    ///     read from the event table. The usage itself is read back through <see cref="IWorkflowRunHistory"/>.
+    /// </summary>
+    internal const string RunsWithUsageSql =
+        "SELECT DISTINCT e.run_id FROM workflow_run_event e " +
+        "WHERE e.usage IS NOT NULL AND e.from_node IS NOT NULL " +
+        "AND NOT EXISTS (SELECT 1 FROM \"WorkflowRunRecords\" r " +
+        "WHERE r.\"RunId\" = e.run_id AND r.\"Seq\" = e.seq AND r.\"Kind\" = 'node-usage')";
 
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -64,7 +72,15 @@ internal sealed partial class NodeUsageBackfill(
         var written = 0;
         foreach (var runId in await RunsWithUsageAsync(ct).ConfigureAwait(false))
         {
-            written += await BackfillRunAsync(runId, ct).ConfigureAwait(false);
+            try
+            {
+                written += await BackfillRunAsync(runId, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                // One run's unreadable history must not hide every later run on every boot.
+                LogRunFailed(logger, ex, runId);
+            }
         }
 
         return written;
@@ -116,6 +132,9 @@ internal sealed partial class NodeUsageBackfill(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Node-usage backfill wrote {Count} record(s)")]
     private static partial void LogBackfilled(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Node-usage backfill skipped run {RunId}; its unrecorded completions stay unrecorded until it can be read")]
+    private static partial void LogRunFailed(ILogger logger, Exception exception, Guid runId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Node-usage backfill failed; cost analytics misses the unrecorded completions until the next boot")]
     private static partial void LogBackfillFailed(ILogger logger, Exception exception);
