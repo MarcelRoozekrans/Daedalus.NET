@@ -23,7 +23,7 @@ public sealed class UpdateTaskCommandHandler(ITaskRepository taskRepository, IWo
         var taskResult = await taskRepository.GetByIdAsync(command.TaskId, ct);
         if (taskResult.IsFailure)
         {
-            return Result<TaskDto>.Failure($"Task not found: {taskResult.Error}");
+            return Result<TaskDto>.Failure(taskResult.Error);
         }
 
         var task = taskResult.Value;

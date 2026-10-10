@@ -151,4 +151,44 @@ public sealed class TaskRunGuardTests
 
         (await new DeleteTaskCommandHandler(_tasks, _runs).Handle(new DeleteTaskCommand(task.Id), CancellationToken.None)).IsSuccess.Should().BeTrue();
     }
+
+    /// <summary>
+    ///     A failed read is passed through, so only a genuine not-found reads "not found" and maps to 404.
+    ///     Red: wrap the repository error as <c>Task not found: ...</c> again in <c>UpdateTaskCommandHandler</c>.
+    /// </summary>
+    [Fact]
+    public async Task An_update_whose_read_failed_is_not_reported_as_not_found()
+    {
+        _tasks.GetByIdAsync(Guid.Empty, default).ReturnsForAnyArgs(Result<DomainTask>.Failure("Error retrieving task x. The cause is logged."));
+
+        var result = await new UpdateTaskCommandHandler(_tasks, _runs).Handle(Rename(Guid.NewGuid()), CancellationToken.None);
+
+        result.Error.Should().Be("Error retrieving task x. The cause is logged.");
+        result.Error.Should().NotContainEquivalentOf("not found");
+    }
+
+    /// <summary>Red: wrap the repository error as <c>Task not found: ...</c> again in <c>DeleteTaskCommandHandler</c>.</summary>
+    [Fact]
+    public async Task A_delete_whose_read_failed_is_not_reported_as_not_found()
+    {
+        _tasks.GetByIdAsync(Guid.Empty, default).ReturnsForAnyArgs(Result<DomainTask>.Failure("Error retrieving task x. The cause is logged."));
+
+        var result = await new DeleteTaskCommandHandler(_tasks, _runs).Handle(new DeleteTaskCommand(Guid.NewGuid()), CancellationToken.None);
+
+        result.Error.Should().Be("Error retrieving task x. The cause is logged.");
+        result.Error.Should().NotContainEquivalentOf("not found");
+    }
+
+    /// <summary>Red: replace the repository error with fixed text that drops "not found"; a missing task stops answering 404.</summary>
+    [Fact]
+    public async Task A_missing_task_is_still_reported_as_not_found()
+    {
+        _tasks.GetByIdAsync(Guid.Empty, default).ReturnsForAnyArgs(Result<DomainTask>.Failure("Task x not found"));
+
+        var update = await new UpdateTaskCommandHandler(_tasks, _runs).Handle(Rename(Guid.NewGuid()), CancellationToken.None);
+        var delete = await new DeleteTaskCommandHandler(_tasks, _runs).Handle(new DeleteTaskCommand(Guid.NewGuid()), CancellationToken.None);
+
+        update.Error.Should().ContainEquivalentOf("not found");
+        delete.Error.Should().ContainEquivalentOf("not found");
+    }
 }
