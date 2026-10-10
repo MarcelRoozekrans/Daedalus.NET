@@ -71,6 +71,40 @@ public sealed class NodeUsageBackfillTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     The live recorder and the backfill key a record on the same (run, seq): the dispatch's seq is the seq of the
+    ///     completion event the backfill reads. So a restart after a live run writes nothing.
+    ///     Red: pass <c>seq + 1000</c> to <c>RecordAsync</c> in <c>ReviewHandoffWorkflowStore.CompleteNodeAsync</c>; the
+    ///     seq assertion fails. With that assertion removed, the same change makes the restart backfill a second record
+    ///     per completion, and the count assertion fails: 3 expected, 6 found.
+    ///     Red: drop the <c>recorded.Add(seq)</c> skip in the backfill and count every append as written; the further
+    ///     pass returns the completion count instead of 0.
+    /// </summary>
+    [Fact]
+    public async Task A_restart_after_a_live_run_backfills_nothing()
+    {
+        await using var host = await StartHostAsync();
+        using var client = host.Client("a-developer", "developer");
+        var start = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("add a health check endpoint", ScratchWorkflowHost.Repository));
+        start.StatusCode.Should().Be(HttpStatusCode.Created);
+        var runId = (await start.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
+        await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
+
+        var completions = (await host.Factory.Services.GetRequiredService<IWorkflowRunHistory>().ListEventsAsync(runId, CancellationToken.None))
+            .Where(e => e.Usage is not null && e.FromNode is not null)
+            .Select(e => e.Seq)
+            .ToList();
+        var live = await host.RecordsAsync(runId, WorkflowRunRecord.NodeUsageKind);
+        live.Should().NotBeEmpty("the live recorder wrote a record for each completion with usage");
+        live.Select(r => r.Seq).Should().BeEquivalentTo(completions, "a live record carries its completion event's seq");
+
+        await host.RestartAsync(configureServices: null);
+
+        (await host.RecordsAsync(runId, WorkflowRunRecord.NodeUsageKind)).Should().HaveCount(live.Count, "the backfill found every completion recorded");
+        var backfill = host.Factory.Services.GetServices<IHostedService>().OfType<NodeUsageBackfill>().Single();
+        (await backfill.BackfillAsync(CancellationToken.None)).Should().Be(0);
+    }
+
+    /// <summary>
     ///     Hosted services start in registration order, so the backfill finishes before the outbox poller can complete a
     ///     node and append the same (run, seq). Red: register <c>NodeUsageBackfill</c> after <c>WorkflowOutboxDispatchService</c>.
     ///     Red: set <c>HostOptions.ServicesStartConcurrently</c> to true in the host's configuration.
