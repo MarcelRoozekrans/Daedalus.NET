@@ -220,19 +220,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     ///     and writes only such a URL, and no agent node can write it, but a value that does not read as one is still
     ///     reported as data on the view rather than failing the request: the view is what a human at the gate reads.
     /// </summary>
-    private static (Uri? Link, string? Unreadable) ReadPrUrl(WorkflowRun run)
-    {
-        if (!run.Variables.TryGetValue(ReviewHandoff.PrUrlKey, out var value) || value?.ToString() is not { } text)
-        {
-            return (null, null);
-        }
-
-        return Uri.TryCreate(text, UriKind.Absolute, out var link)
-            && (string.Equals(link.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)
-                || string.Equals(link.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal))
-            ? (link, null)
-            : (null, text);
-    }
+    private static (Uri? Link, string? Unreadable) ReadPrUrl(WorkflowRun run) => PullRequestLink.Read(run);
 
     /// <summary>
     ///     Reads one write-audit record. Its payload is <c>{ tool, path }</c> as <c>AuditingToolAuthorizer</c> wrote
