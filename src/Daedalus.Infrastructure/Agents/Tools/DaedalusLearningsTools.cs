@@ -10,7 +10,10 @@ using ModelContextProtocol.Server;
 
 namespace Daedalus.Infrastructure.Agents.Tools;
 
-/// <summary>MCP tool for the Ralph Loop: semantic recall of shared learnings from the agent memory (<see cref="ILearningsMemory"/>).</summary>
+/// <summary>
+///     MCP tool: semantic recall of shared learnings from the agent memory (<see cref="ILearningsMemory"/>).
+///     Its data predates the phase 2.8 retirement: see <c>FrozenHistory</c>.
+/// </summary>
 /// <param name="memory">The learnings memory port (Thalos memory behind the adapter in <c>Daedalus.Agents</c>).</param>
 /// <param name="logger">Logger.</param>
 [McpServerToolType]
@@ -29,7 +32,8 @@ public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILog
     [Description(
         "Search past learnings from previous task executions using semantic similarity. " +
         "Use this when you encounter errors, need context about the codebase, or want to " +
-        "learn from previous approaches that worked or failed.")]
+        "learn from previous approaches that worked or failed. " +
+        FrozenHistory.Notice)]
     public async Task<string> SearchLearnings(
         [Description("Natural language description of what you're looking for")] string query,
         [Description("Maximum number of results (default: 5)")] int maxResults = 5,
@@ -47,7 +51,7 @@ public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILog
 
         if (recalled.Value.Count == 0)
         {
-            return "No matching learnings found.";
+            return "No matching learnings found. " + FrozenHistory.Notice;
         }
 
         LogRecalled(logger, query, recalled.Value.Count);

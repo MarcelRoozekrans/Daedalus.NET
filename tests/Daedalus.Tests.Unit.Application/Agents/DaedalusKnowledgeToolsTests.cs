@@ -31,7 +31,7 @@ public sealed class DaedalusKnowledgeToolsTests
 
         var result = await sut.SearchFailurePatterns("CS0246 type not found", maxResults: 2, ct: CancellationToken.None);
 
-        result.Should().Be("No matching failure patterns found.");
+        result.Should().StartWith("No matching failure patterns found.");
         await _failures.Received(1).SearchByErrorAsync("CS0246 type not found", 2, Arg.Any<CancellationToken>());
     }
 

@@ -11,7 +11,7 @@ namespace Daedalus.Infrastructure.Agents.Tools;
 
 /// <summary>
 ///     MCP tools for searching known failure patterns and their solutions.
-///     Used by the Ralph Loop LLM to find relevant fixes when encountering errors.
+///     Its data predates the phase 2.8 retirement: see <c>FrozenHistory</c>.
 /// </summary>
 [McpServerToolType]
 public sealed partial class DaedalusFailurePatternsTools(
@@ -26,7 +26,8 @@ public sealed partial class DaedalusFailurePatternsTools(
         Idempotent = true)]
     [Description(
         "Search known failure patterns and their solutions. Use this when you encounter " +
-        "a build error, test failure, or runtime exception to find previously discovered fixes.")]
+        "a build error, test failure, or runtime exception to find previously discovered fixes. " +
+        FrozenHistory.Notice)]
     public async Task<string> SearchFailurePatterns(
         [Description("The error message or pattern to search for")] string errorMessage,
         [Description("Maximum number of results (default: 3)")] int maxResults = 3,
@@ -43,7 +44,7 @@ public sealed partial class DaedalusFailurePatternsTools(
                 return FormatResults(result.Value);
             }
 
-            return "No matching failure patterns found.";
+            return "No matching failure patterns found. " + FrozenHistory.Notice;
         }
         catch (Exception ex)
         {
