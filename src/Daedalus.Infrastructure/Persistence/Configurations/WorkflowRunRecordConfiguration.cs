@@ -45,5 +45,12 @@ internal sealed class WorkflowRunRecordConfiguration : IEntityTypeConfiguration<
         // Serves both readers: a run's whole record, and one kind of it, each in Seq order.
         builder.HasIndex(r => new { r.RunId, r.Kind, r.Seq })
             .HasDatabaseName("IX_WorkflowRunRecords_RunId_Kind_Seq");
+
+        // At most one node-usage record per completion. The live append and the startup backfill can race on the same
+        // (RunId, Seq); the database, not either writer, decides which one wins.
+        builder.HasIndex(r => new { r.RunId, r.Seq })
+            .IsUnique()
+            .HasFilter($"\"Kind\" = '{WorkflowRunRecord.NodeUsageKind}'")
+            .HasDatabaseName(WorkflowRunRecord.NodeUsageIndexName);
     }
 }

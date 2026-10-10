@@ -69,11 +69,19 @@ public sealed class WorkflowRunRecord
 
     /// <summary>
     ///     The <see cref="Kind"/> of a record of one completed agent node's token usage. Its payload is a
-    ///     <see cref="NodeUsage"/>. There is at most one per (<see cref="RunId"/>, <see cref="Seq"/>): the live append and
-    ///     the startup backfill both skip a sequence number that already has one. The append is not in the transaction
-    ///     that completes the node, so a crash between the two loses the record until the next boot's backfill writes it.
+    ///     <see cref="NodeUsage"/>. There is at most one per (<see cref="RunId"/>, <see cref="Seq"/>), and the partial unique
+    ///     index <see cref="NodeUsageIndexName"/> is what enforces it: a second append for the same pair violates the index,
+    ///     and the live append and the startup backfill both read that violation as "already recorded". The append is not in
+    ///     the transaction that completes the node, so a crash between the two loses the record until the next boot's
+    ///     backfill writes it.
     /// </summary>
     public const string NodeUsageKind = "node-usage";
+
+    /// <summary>
+    ///     The name of the unique index on (<see cref="RunId"/>, <see cref="Seq"/>) that holds only the
+    ///     <see cref="NodeUsageKind"/> rows, so a duplicate append is refused by the database.
+    /// </summary>
+    public const string NodeUsageIndexName = "UX_WorkflowRunRecords_NodeUsage_RunId_Seq";
 
     /// <summary>Maximum length of <see cref="Node"/>; the column is <c>varchar(128)</c>.</summary>
     public const int MaxNodeLength = 128;
