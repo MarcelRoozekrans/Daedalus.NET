@@ -357,8 +357,14 @@ the logs of a host that stops before its first export are lost. A host whose sta
 ### What is collected
 
 - **Traces:** the sources `thalos`, `thalos.workflow`, `ZeroAlloc.Mediator` and `daedalus.*`, plus ASP.NET Core and
-  `HttpClient`. Requests to `/health` and `/alive` are not traced. The ASP.NET Core and `HttpClient` spans mask query
-  values, so a URL shows as `?key=Redacted`. Npgsql is not traced: the outbox poller would drown the traces.
+  `HttpClient`. Requests to `/health` and `/alive` are not traced. Npgsql is not traced: the outbox poller would drown
+  the traces.
+- **URLs.** An outgoing `HttpClient` span exports only the origin of its call: `url.full` is `scheme://host[:port]`,
+  with no path, query or userinfo, and no other tag or the span name carries the path. A path can hold a secret, such as
+  the Telegram bot token in `/bot{token}/{method}`, so `HttpClientOriginOnlyProcessor` cuts it before any exporter sees
+  it, failed calls and redirect hops included. ASP.NET Core server spans mask the query, so `url.query` shows
+  `?key=Redacted`, but they export the request path in `url.path` unmasked, for example
+  `/api/tasks/<task id>/manufacture`. Task ids are Guids; do not put a secret in a route.
 - **Metrics:** the meters `thalos`, `thalos.workflow` and `daedalus.*`, the built-in `System.Runtime` meter, and the
   ASP.NET Core and `HttpClient` metrics.
 
@@ -742,11 +748,10 @@ is what stops a phone-reachable bot from running mutating Roslyn tools (`roslyn_
 or deleting shared-owner memories. An empty role set still gives the Telegram principal full access to its
 own sessions — ownership is by caller id, not by role.
 
-**Redact or disable HTTP-client OpenTelemetry for `api.telegram.org`.** The bot token sits in the URL path
-of every Bot API call, so an unredacted `url.full` span attribute leaks it into traces. Nothing in
-`Thalos.NET.Channels.Telegram` can prevent this from the library side — it is an operator-side OpenTelemetry
-configuration (span/attribute redaction or exclusion for that host) that must be applied wherever traces are
-collected.
+**The bot token stays out of traces.** The token sits in the URL path of every Bot API call. Daedalus's service
+defaults export an outgoing HTTP call's origin only, `https://api.telegram.org`, so the path and the token never
+reach a trace. See [Observability](#observability). A host that does not use `AddServiceDefaults` must do the same
+itself.
 
 **`Daedalus.Cli`** is a plain console host, run by hand — it is **not** registered in the Aspire AppHost,
 because it needs a real TTY and an AppHost-managed process has none:

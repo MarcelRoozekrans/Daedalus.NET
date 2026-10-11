@@ -87,7 +87,9 @@ public static class AspireExtensions
             .WithTracing(tracing => tracing
                 .AddSource(TracedSources)
                 .AddAspNetCoreInstrumentation(options => options.Filter = IsTracedRequest)
-                .AddHttpClientInstrumentation());
+                .AddHttpClientInstrumentation()
+                // Before any exporter: an outgoing call's path can hold a secret, so only its origin is exported.
+                .AddProcessor(new HttpClientOriginOnlyProcessor()));
 
         // One exporter for all three signals, configured from the standard OTEL_* settings Aspire sets.
         if (exportOtlp)
