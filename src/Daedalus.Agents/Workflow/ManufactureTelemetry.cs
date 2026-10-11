@@ -29,7 +29,10 @@ public static class ManufactureTelemetry
     /// <summary>The run's id, Thalos's own tag name, aliased so the two cannot drift.</summary>
     public const string RunIdTag = WorkflowTelemetry.RunIdTag;
 
-    /// <summary>The allow-listed repository's name.</summary>
+    /// <summary>
+    ///     The allow-listed repository's configured name. Set by <c>ManufactureRunStarter</c> once the allow-list matches,
+    ///     never copied from the request, which is caller input.
+    /// </summary>
     public const string RepositoryTag = "daedalus.repository";
 
     /// <summary>The board task a run was started for, set on the request span.</summary>

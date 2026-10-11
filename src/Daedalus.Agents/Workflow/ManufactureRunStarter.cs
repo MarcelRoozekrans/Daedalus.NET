@@ -84,6 +84,21 @@ public sealed class ManufactureRunStarter(
     private readonly string _standingInstructionsPath = DaedalusAgentsServiceCollectionExtensions.StandingInstructionsRelativePath(
         (config ?? throw new ArgumentNullException(nameof(config))).StandingInstructionsPath);
 
+    /// <summary>
+    ///     Phase 2.9: tags the <c>daedalus.manufacture.start</c> span with the configured name of the allow-listed
+    ///     repository. The request's own value is caller input and is never tagged. Touches only that span, so a host
+    ///     with no listener, or an ambient span such as the request's, is left alone.
+    /// </summary>
+    private static void TagStartSpan(string configuredName)
+    {
+        var span = System.Diagnostics.Activity.Current;
+        if (span is { OperationName: ManufactureTelemetry.StartSpanName } &&
+            string.Equals(span.Source.Name, ManufactureTelemetry.SourceName, StringComparison.Ordinal))
+        {
+            span.SetTag(ManufactureTelemetry.RepositoryTag, configuredName);
+        }
+    }
+
     /// <inheritdoc />
     public async ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct)
     {
@@ -107,6 +122,8 @@ public sealed class ManufactureRunStarter(
         {
             return Fail(ManufactureStartFailureKind.Invalid, $"repository '{request.Repository}' is not allow-listed");
         }
+
+        TagStartSpan(repository.Name);
 
         var runId = Guid.NewGuid();
         var created = await _workspaces.CreateAsync(
