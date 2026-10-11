@@ -20,6 +20,7 @@ on a task board and starts a manufacture run for a task; the task's status follo
 - [Prerequisites](#prerequisites)
 - [Setup](#setup)
 - [Running the Application](#running-the-application)
+- [Observability](#observability)
 - [Configuration](#configuration)
 - [Thalos agents](#thalos-agents)
 - [Authentication & Keycloak Setup](#authentication--keycloak-setup)
@@ -337,6 +338,72 @@ Or via the EF Core CLI:
 ```bash
 dotnet ef database update --project src/Daedalus.Infrastructure --startup-project src/Daedalus.Api
 ```
+
+---
+
+## Observability
+
+Daedalus traces a manufacture run step by step and counts the tokens it spends. Telemetry goes **over OTLP only when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (non-empty). Aspire sets it for every project it runs, so under
+`dotnet run --project src/Daedalus.AppHost` the dashboard on http://localhost:17300 shows traces, metrics and logs.
+Without it nothing is exported. `docker-compose.full.yml` runs no collector and sets no endpoint, so export is off there;
+add a collector service and set `OTEL_EXPORTER_OTLP_ENDPOINT` on the API to enable it.
+
+One `UseOtlpExporter()` carries all three signals, configured from the standard `OTEL_*` variables. When the host stops
+normally, `TelemetryShutdownFlush` flushes logs, traces and metrics within one 5 second budget. It exists because of an
+upstream OpenTelemetry bug (open-telemetry/opentelemetry-dotnet#7915, tracked in Daedalus#332): with `http/protobuf`,
+the logs of a host that stops before its first export are lost. A host whose start fails still loses them.
+
+### What is collected
+
+- **Traces:** the sources `thalos`, `thalos.workflow`, `ZeroAlloc.Mediator` and `daedalus.*`, plus ASP.NET Core and
+  `HttpClient`. Requests to `/health` and `/alive` are not traced. The ASP.NET Core and `HttpClient` spans mask query
+  values, so a URL shows as `?key=Redacted`. Npgsql is not traced: the outbox poller would drown the traces.
+- **Metrics:** the meters `thalos`, `thalos.workflow` and `daedalus.*`, the built-in `System.Runtime` meter, and the
+  ASP.NET Core and `HttpClient` metrics.
+
+### Finding a run
+
+Filter traces by `thalos.run.id`. The spans of a run:
+
+| Span | What it is |
+|------|------------|
+| `POST /api/tasks/{id}/manufacture` | The request span. It carries `daedalus.task.id`. |
+| `daedalus.manufacture.start` | The start. Tags `daedalus.repository` (the configured, allow-listed repository name, set only once the request matched the allow-list) and, on success, `thalos.run.id`. A refused start has Error status described only by the failure kind, a closed enum. |
+| `thalos.workflow.store.start` | The store write that creates the run, a child of the start span. |
+| `thalos.workflow.dispatch` | One workflow step. Each step is **its own trace**, with a link to `thalos.workflow.store.start`, so follow the link back to the start. Tags `thalos.run.id`, `thalos.node`, `thalos.seq`, `thalos.outcome`. |
+| `thalos.workflow.host_action.{type}` | A host action inside a step, named by its CLR type, such as `thalos.workflow.host_action.OpenPullRequestAction`. |
+| `thalos.turn` | An agent turn, from the Thalos turn runtime. |
+| `thalos.workflow.store.resume` | The gate approval: the person approving a gate resumes the run. Other store spans: `.cancel`, `.fail`, `.fail_stranded`, `.retry`. |
+| `daedalus.manufacture.cancel` | A compensating cancel. Tags the run id and `daedalus.cancelled`. |
+
+### Metrics
+
+| Metric | Unit | Tags | Meaning |
+|--------|------|------|---------|
+| `thalos.workflow.runs.started` | `{run}` | `thalos.run.process` | Runs started. |
+| `thalos.workflow.runs.finished` | `{run}` | `thalos.run.process`, `thalos.run.state` | Runs that reached Succeeded, Failed or Cancelled. |
+| `thalos.workflow.dispatch.duration` | ms | `thalos.node`, `thalos.outcome` (`error.type` instead when the dispatch throws) | One step dispatch. |
+| `thalos.workflow.host_action.duration` | ms | `thalos.host_action` | One host action call. |
+| `thalos.workflow.run_tool.duration` | ms | `thalos.tool.source`, `thalos.tool` | One run tool call. |
+| `daedalus.manufacture.tokens` | `{token}` | `thalos.node`, `gen_ai.request.model` (omitted when empty), `daedalus.token.kind` | Tokens a completed node spent. |
+
+`daedalus.token.kind` is `input`, `output`, `cache_read` or `cache_write`. **`input` already includes `cache_read` and
+`cache_write`, so do not sum all four kinds**: that counts cache tokens twice. Tokens are counted at most once per
+completed node. A crash can lose a count but never double it. Backfilled history is not counted.
+
+### No content in telemetry
+
+Span names, tags, status descriptions, events and metric tags carry only ids, names, counts, durations, outcomes and
+error codes. Never prompt or agent text, task titles or descriptions, PR titles or bodies, file content, credentials or
+token values. A failed step sets Error status without a description; the one exception is the start span's failure kind.
+
+This rule does not yet cover exported **logs**. Whether and how to scrub them is an open decision, Daedalus#334.
+
+### Tuning
+
+Sampling follows the standard variables, with no code change: `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG`, for
+example `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG=0.1`.
 
 ---
 
