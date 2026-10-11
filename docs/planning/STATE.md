@@ -25,12 +25,11 @@ marked met.
 
 ## Needs the owner
 
-1. **Release: on hold by owner decision (2026-10-11).** No release for now, and no 1.0.0. The owner closed both the
-   release-please PR #337, which proposed **1.0.0**, and the fix #338. The cause stays in place:
-   `.github/workflows/release-please.yml` passes `release-type: simple`, which makes the action ignore
-   `release-please-config.json` and its `bump-minor-pre-major`, so the next release-please run will again propose
-   1.0.0. Release-please only runs on manual dispatch. When a release is wanted: reopen and merge #338 first, then
-   dispatch release-please and check that its new PR proposes 0.x.
+1. **Release: on hold until the product is polished (owner decision, 2026-10-11).** No release for now. The
+   release-please PR #337, which proposed **1.0.0**, is closed. Its cause is fixed by #338, merged 2026-10-11: the
+   workflow no longer passes `release-type`, so the action reads `release-please-config.json` and
+   `bump-minor-pre-major` keeps breaking changes on 0.x. Release-please only runs on manual dispatch. When a release
+   is wanted: dispatch it and check that the new release PR proposes 0.2.0 before merging it.
 2. **Remove any external `daedalus-console` deployment** (carried from 2.8).
 3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11, #14 and #16, issues #9 and #12.
 4. **Decide:** #325, #327, #328, #332 (the failed-start gap), #334 (does the no-content rule cover logs), #322,
