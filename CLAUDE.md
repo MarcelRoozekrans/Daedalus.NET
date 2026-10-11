@@ -45,6 +45,10 @@ dotnet test tests/Daedalus.Tests.Integration
 dotnet format                                # run before committing
 ```
 
+Telemetry goes over OTLP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (Aspire sets it, dashboard :17300).
+Sources: `thalos`, `thalos.workflow`, `ZeroAlloc.Mediator`, `daedalus.*`. Never tag content; see README,
+Observability.
+
 ## Pattern library: ZeroAlloc.Results (not CSharpFunctionalExtensions)
 
 `using ZeroAlloc.Results.Extensions;` for combinators.

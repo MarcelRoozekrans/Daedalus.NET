@@ -510,6 +510,35 @@ Do not add the raw `Polly` package or hand-roll `HttpPolicyExtensions` /
 `PolicyWrap` — use `AddStandardResilienceHandler` and configure its
 `Retry`/`AttemptTimeout`/`TotalRequestTimeout`/`CircuitBreaker` options.
 
+## Observability
+
+Telemetry goes over OTLP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; the README's "Observability" section lists the
+sources, spans and metrics. This section is how to add a span.
+
+**A span on a seam.** Put `[Instrument(ManufactureTelemetry.SourceName)]` on the interface. On a method that returns a
+`Result`, add `[Trace(Name, ErrorWhen = "IsFailure", ExceptionDescription = false)]`, so a failure marks the span Error
+without copying the message into it. Tag ids with `[TraceTag(Name)]` on a parameter or
+`[TraceTagFromResult(Name, "Value")]` for the result. See `IManufactureRunStarter` and `IWorkflowRunCanceller` in
+`src/Daedalus.Agents/Workflow/`.
+
+**Registering.** The generator emits an `XxxInstrumented` proxy. Register the proxy next to the implementation, as
+`DaedalusAgentsServiceCollectionExtensions` does for `ManufactureRunStarterInstrumented`. Never hand-wrap a proxy to set
+status: use `ErrorWhen`.
+
+**No seam.** Use `Activity.Current?.SetTag` only where there is no seam to attribute, as `TaskManufactureService` does
+for `daedalus.task.id` on the request span, and `ManufactureRunStarter` does for `daedalus.repository`.
+
+**Names.** Declare every span, tag and metric name once, in `ManufactureTelemetry`. Names Thalos owns are aliased from
+`WorkflowTelemetry`, so the two cannot drift.
+
+**Testing.** Use `Thalos.Testing.TelemetryCapture`, and filter on a value only the test produces, such as a fresh run id:
+the capture sees every span in the process, so never assert an unfiltered count. For the host's own pipeline use the
+OpenTelemetry in-memory exporter. `TelemetryEndToEndTests` shows both.
+
+**No content.** A tag, span name, status description, event or metric tag never carries prompt or agent text, task titles
+or descriptions, PR text, file content, credentials or token values. Exported logs are not yet covered by this rule
+(Daedalus#334).
+
 ## Repository pattern
 
 There is no generic `IRepository<T>`. Repositories are one interface per
