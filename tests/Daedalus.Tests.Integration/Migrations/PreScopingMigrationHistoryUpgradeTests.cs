@@ -70,7 +70,11 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
             first.IsSuccess.Should().BeTrue(first.IsFailure ? first.Error : null);
 
             // Red: append "UPDATE __zaorm_migrations SET applied_at = NOW()" to UpgradeSql.
-            (await ReadScopedHistoryAsync(connection)).Should().Equal(ExpectedScopedHistory(LegacyRows));
+            LegacyOnly(await ReadScopedHistoryAsync(connection)).Should().Equal(ExpectedScopedHistory(LegacyRows));
+
+            // The workflow migrations after 1009, such as 1010's trace_parent, are applied once on top of the legacy rows.
+            // Red: skip the workflow runner in ApplyAsync after the upgrade; 1010 is missing.
+            first.Value.Applied.Select(migration => migration.Version).Should().Contain(1010);
 
             var layout = await ReadHistoryLayoutAsync(connection);
 
@@ -106,17 +110,26 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
     {
         await WithDatabaseAsync(async connection =>
         {
-            // History rows without the schema they recorded: a migration applied again then succeeds and shows up
-            // in Applied and in the history, instead of failing on a table that already exists.
+            // History rows without the schema they recorded, and a stub workflow_run table. A migration applied again
+            // then fails, 1001 on 'already exists', instead of succeeding and showing up in Applied.
             await BuildLegacyDatabaseAsync(connection, LegacyRows, withSchema: false);
 
-            var outcome = await WorkflowEngineMigrator.ApplyAsync(connection);
+            // The one table a post-scoping migration alters (1010 adds workflow_run.trace_parent). A re-applied 1001 now
+            // fails on "already exists" instead of showing up in Applied, so the test still goes red when it should.
+            await using (var stub = new NpgsqlCommand("CREATE TABLE workflow_run (id uuid PRIMARY KEY)", connection))
+            {
+                await stub.ExecuteNonQueryAsync();
+            }
+
+            // Red: in PreScopingMigrationHistory.Attribute, assign every row to sources[0].Name, which is what the
+            // runner's own upgrade does. The workflow source then finds no rows of its own, and its re-applied 1001
+            // fails on 'already exists', which ApplyAsync throws, as a migration's own SQL failing always does.
+            var outcome = (await FluentActions.Awaiting(() => WorkflowEngineMigrator.ApplyAsync(connection))
+                .Should().NotThrowAsync()).Subject;
 
             // Red: pass only OutboxOrmMigrations.Postgres to UpgradeAsync, so the nine workflow rows match no source.
             outcome.IsSuccess.Should().BeTrue(outcome.IsFailure ? outcome.Error : null);
 
-            // Red: in PreScopingMigrationHistory.Attribute, assign every row to sources[0].Name, which is what the
-            // runner's own upgrade does. The workflow source then finds no rows of its own and applies all nine again.
             var legacyVersions = LegacyRows.Select(row => row.Version).ToHashSet();
             var pending = WorkflowEngineMigrator.Sources
                 .SelectMany(source => source.GetMigrations())
@@ -125,7 +138,7 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
             outcome.Value.Applied.Select(migration => migration.Version).Should().BeEquivalentTo(pending);
 
             // Red: append "UPDATE __zaorm_migrations SET applied_at = NOW()" to UpgradeSql.
-            (await ReadScopedHistoryAsync(connection)).Should().Equal(ExpectedScopedHistory(LegacyRows));
+            LegacyOnly(await ReadScopedHistoryAsync(connection)).Should().Equal(ExpectedScopedHistory(LegacyRows));
         });
     }
 
@@ -290,6 +303,12 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
     private static List<(string Source, int Version, string Name, DateTime AppliedAt)> ExpectedScopedHistory(
         IEnumerable<(string Source, int Version, string Name)> rows)
         => [.. rows.Select(row => (row.Source, row.Version, row.Name, AppliedAt(row.Version))).OrderBy(row => row.Source, StringComparer.Ordinal).ThenBy(row => row.Version)];
+
+    // A pre-scoping database ended at 1009; every later workflow migration is applied on top of it, once. Comparing only
+    // the legacy rows keeps the pins below about the upgrade, not about how many migrations Thalos has shipped since.
+    private static List<(string Source, int Version, string Name, DateTime AppliedAt)> LegacyOnly(
+        IEnumerable<(string Source, int Version, string Name, DateTime AppliedAt)> history) =>
+        [.. history.Where(row => LegacyRows.Any(legacy => string.Equals(legacy.Source, row.Source, StringComparison.Ordinal) && legacy.Version == row.Version))];
 
     // A distinct, fixed applied_at per row, so a row whose applied_at is rewritten shows up.
     private static DateTime AppliedAt(int version) => new DateTime(2026, 9, 22, 21, 0, 0, DateTimeKind.Utc).AddMinutes(version);

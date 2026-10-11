@@ -336,7 +336,8 @@ public sealed partial class SandboxConfigTests : IDisposable
     {
         await using var sp = BuildShippedApi();
 
-        sp.GetServices<Thalos.Workspaces.IRunToolCallObserver>().Should().ContainSingle().Which.Should().BeOfType<SandboxCallRecorder>();
+        // Red: stop registering SandboxCallRecorder as an IRunToolCallObserver; the filtered sequence is empty.
+        sp.GetServices<Thalos.Workspaces.IRunToolCallObserver>().OfType<SandboxCallRecorder>().Should().ContainSingle();
     }
 
     /// <summary>
