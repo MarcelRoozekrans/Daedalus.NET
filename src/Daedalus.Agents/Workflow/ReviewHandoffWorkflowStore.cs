@@ -165,7 +165,7 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         // Usage is not a variable: a review node's variables are dropped above, and its usage is still recorded.
         if (authored.Usage is { } turnUsage)
         {
-            await _usage.RecordAsync(run.Id, seq, run.CurrentNode, run.StartedBy?.Id, turnUsage, _usage.UtcNow, ct).ConfigureAwait(false);
+            await _usage.RecordCompletionAsync(run.Id, seq, run.CurrentNode, run.StartedBy?.Id, turnUsage, ct).ConfigureAwait(false);
         }
     }
 

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Thalos;
 using Thalos.Git;
+using Thalos.Testing;
 using Thalos.Workflow;
 using Task = System.Threading.Tasks.Task;
 
@@ -73,7 +74,7 @@ public sealed class NodeUsageBackfillTests(PostgresFixture fixture)
     /// <summary>
     ///     The live recorder and the backfill key a record on the same (run, seq): the dispatch's seq is the seq of the
     ///     completion event the backfill reads. So a restart after a live run writes nothing.
-    ///     Red: pass <c>seq + 1000</c> to <c>RecordAsync</c> in <c>ReviewHandoffWorkflowStore.CompleteNodeAsync</c>; the
+    ///     Red: pass <c>seq + 1000</c> to <c>RecordCompletionAsync</c> in <c>ReviewHandoffWorkflowStore.CompleteNodeAsync</c>; the
     ///     seq assertion fails. With that assertion removed, the same change makes the restart backfill a second record
     ///     per completion, and the count assertion fails: 3 expected, 6 found.
     ///     The final <c>Be(0)</c> has no single-change red: the backfill's <c>recorded.Add(seq)</c> skip and the
@@ -106,6 +107,31 @@ public sealed class NodeUsageBackfillTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     Phase 2.9: tokens are counted when they are spent, so the backfill, which writes records for tokens spent before,
+    ///     counts none. Red: make <c>BackfillRunAsync</c> call <c>RecordCompletionAsync</c>; the restart counts the implement
+    ///     node's tokens. The records assertion guards the test: a backfill that wrote nothing would also count nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_backfill_writes_the_missing_records_and_counts_no_tokens()
+    {
+        var model = $"probe-backfill-{Guid.NewGuid():N}";
+        await using var host = await StartHostAsync(ImplementUsage with { ModelId = model });
+        using var client = host.Client("a-developer", "developer");
+        var start = await client.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("add a health check endpoint", ScratchWorkflowHost.Repository));
+        start.StatusCode.Should().Be(HttpStatusCode.Created);
+        var runId = (await start.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
+        await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
+        await ExecuteAsync(host.ConnectionString, $"DELETE FROM \"WorkflowRunRecords\" WHERE \"Kind\" = '{WorkflowRunRecord.NodeUsageKind}'");
+
+        using var capture = new TelemetryCapture(ManufactureTelemetry.SourceName);
+        await host.RestartAsync(configureServices: null);
+
+        (await host.RecordsAsync(runId, WorkflowRunRecord.NodeUsageKind)).Should().NotBeEmpty();
+        capture.MeasurementsOf(ManufactureTelemetry.TokensMetricName)
+            .Should().NotContain(m => model.Equals(m.Tags.GetValueOrDefault(ManufactureTelemetry.ModelTag)));
+    }
+
+    /// <summary>
     ///     Hosted services start in registration order, so the backfill finishes before the outbox poller can complete a
     ///     node and append the same (run, seq). Red: register <c>NodeUsageBackfill</c> after <c>WorkflowOutboxDispatchService</c>.
     ///     Red: set <c>HostOptions.ServicesStartConcurrently</c> to true in the host's configuration.
@@ -135,12 +161,12 @@ public sealed class NodeUsageBackfillTests(PostgresFixture fixture)
         factory.Services.GetServices<IHostedService>().OfType<NodeUsageBackfill>().Should().BeEmpty();
     }
 
-    private Task<ScratchWorkflowHost> StartHostAsync()
+    private Task<ScratchWorkflowHost> StartHostAsync(TurnUsage? usage = null)
     {
         var pullRequests = new FakePullRequestPublisher();
         return ScratchWorkflowHost.StartAsync(
             fixture,
-            new ScriptedManufactureRuntime(ImplementUsage),
+            new ScriptedManufactureRuntime(usage ?? ImplementUsage),
             seed: [("README.md", "usage"), ("AGENT.md", "Run dotnet test.\n")],
             configureServices: services =>
             {
