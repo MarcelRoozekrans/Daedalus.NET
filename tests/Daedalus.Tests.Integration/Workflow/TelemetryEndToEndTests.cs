@@ -52,23 +52,41 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     private static readonly string[] Steps = ["implement", "review", "retrospect", "gate", "publish", "file-findings", "done"];
 
     /// <summary>
-    ///     Red: drop the starter proxy from the enabled registration; no start span exists.
+    ///     Red: drop the starter proxy from the enabled registration; no start span exists (start span ContainSingle).
+    ///     Red: make TagStartSpan tag a different repository value; the repository tag assertion fails.
     ///     Red: delete the task-id SetTag; no request span carries the task id.
-    ///     Red: drop the dispatch span; the step list is empty.
-    ///     Red: parent each dispatch on the stored context instead of linking it; the trace-id assertion fails.
-    ///     Red: drop the links argument; the link assertion fails.
-    ///     Red: drop the host-action wrapping in the dispatcher; the publish host-action span is missing.
-    ///     Red: drop the store proxy from AddWorkflowOrm; the resume span is missing.
+    ///     Red: set Activity.Current to null after the task-id SetTag; the start span roots a new trace and the request
+    ///     span is no longer in it.
+    ///     Red: set Activity.Current to null in ManufactureRunStarter just before the store start; the dispatch link
+    ///     leaves the start trace and the link assertion fails.
+    ///     Red: start a wrapper span before the store start; the store.start span's parent is no longer the start span.
+    ///     Red: replace IWorkflowStore with the concrete OrmWorkflowStore after AddWorkflowOrm; the unproxied store
+    ///     emits no store spans, so the store.start ContainSingle fails, and the resume span would be missing too.
     ///     Red: make ReviewHandoffWorkflowStore call RecordAsync; the token measurements are missing.
     ///     Red: drop thalos.workflow from TracedSources; the OpenTelemetry exporter has no dispatch span.
     ///     Red: drop the ASP.NET Core Filter; the exporter has a /health span.
+    ///     Red: add Npgsql to TracedSources; the exported-source subset check names it.
+    ///     Red: drop thalos from the captured sources in this test; the seen-sources check names it.
+    ///     Red: add Npgsql to Meters; the exported-meter subset check fails.
+    ///     Red: drop daedalus.* from Meters; the exported metric names lack the tokens counter.
+    ///     Red: make Flatten return nothing; the span scanner self-check fails.
+    ///     Red: skip the metric points in the metric scanner; the metric scanner self-check fails.
     ///     Red: add a TraceTag of daedalus.work_intent on the title to IManufactureRunStarter.StartAsync; the content
     ///     assertion names the start span.
     ///     Red: tag the task title on the request span next to the task id; the content assertion names that span.
+    ///     Red: tag the review evidence, or the retrospect reply, on the request span; the content assertion names it.
     ///     Red: tag the task title on a token measurement; the metric content assertion names the tokens instrument.
-    ///     The dispatch, link, host-action and store-proxy lines are Thalos 0.15.0 internals that this repo cannot edit.
-    ///     They were checked by changing the test's input instead: filter that span out of the captured list, or compare
-    ///     the link's trace id with the empty id.
+    ///     Red: add a sentinel to the token counter description; the exported-metric content assertion names it.
+    ///     Red: wait for a node name that never runs; the done-span assertion fails with its message.
+    ///     No exported-span scan exists: the exporter and the capture see the same Activity objects, and the subset check
+    ///     keeps every exported source inside the captured ones, so a second span scan could never differ.
+    ///     Guarded in Thalos 0.15.0, not here: the dispatch span, its own trace per dispatch, its host-action child, the
+    ///     gate outcome and the completed outcome with no error type. They are Thalos internals that this repo cannot
+    ///     edit. See Thalos.NET.Tests.Workflow DispatchTelemetryTests, A_dispatch_is_one_consumer_span_tagged_with_its_run_node_seq_process_and_outcome,
+    ///     A_dispatch_under_an_ambient_activity_is_still_its_own_trace_and_leaves_the_ambient_current,
+    ///     A_gate_dispatch_ends_awaiting, A_run_started_under_an_activity_links_its_dispatch_to_that_context,
+    ///     and HostActionTelemetryTests. The assertions here only prove the wiring reached the real host.
+    ///     Finding text is not exercised: every review lens approves on this path, so file-findings files nothing.
     /// </summary>
     [Fact]
     public async Task A_manufacture_run_is_traced_step_by_step_and_no_span_carries_its_content()
@@ -82,8 +100,8 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         var prompt = $"Probe prompt {marker}: implement it carefully";
         var pullRequests = new FakePullRequestPublisher();
         var runtime = new ScriptedManufactureRuntime(new TurnUsage(1_200, 80, model) { CacheReadTokens = 900, CacheWriteTokens = 150 });
-        var exported = new List<Activity>();
-        var exportedMetrics = new List<Metric>();
+        var exported = new LockedCollection<Activity>();
+        var exportedMetrics = new LockedCollection<Metric>();
         using var capture = new TelemetryCapture([.. Sources, .. Meters]);
 
         await using var host = await ScratchWorkflowHost.StartAsync(
@@ -98,8 +116,8 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
                 services.RemoveAll<IOpenPullRequestLookup>();
                 services.AddSingleton<IPullRequestPublisher>(pullRequests);
                 services.AddSingleton<IOpenPullRequestLookup>(pullRequests);
-                services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddInMemoryExporter(exported));
-                services.ConfigureOpenTelemetryMeterProvider(metrics => metrics.AddInMemoryExporter(exportedMetrics));
+                services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddInMemoryExporter((ICollection<Activity>)exported));
+                services.ConfigureOpenTelemetryMeterProvider(metrics => metrics.AddInMemoryExporter((ICollection<Metric>)exportedMetrics));
             });
 
         var project = Project.Create(Guid.NewGuid(), "Sandbox", "The scratch remote", repositoryUrl: host.Remote.Url).Value;
@@ -124,10 +142,15 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         (await client.GetAsync("/health")).IsSuccessStatusCode.Should().BeTrue();
 
         // The dispatch of the last step finishes after the run row reads Succeeded; wait for its span.
-        await WaitUntilAsync(() => capture.Spans.Any(s => IsSpan(s, WorkflowTelemetry.DispatchSpanName)
+        var doneStopped = await WaitUntilAsync(() => capture.Spans.Any(s => IsSpan(s, WorkflowTelemetry.DispatchSpanName)
             && IsTag(s, WorkflowTelemetry.RunIdTag, runId) && IsTag(s, WorkflowTelemetry.NodeTag, "done")));
+        doneStopped.Should().BeTrue("the done dispatch span must stop within 15 s of the run reading Succeeded");
 
-        var spans = capture.Spans;
+        // One snapshot of each view. The listeners are process-wide, so spans of other tests keep arriving in the
+        // exporter collection and the capture; nothing below reads the live ones again.
+        var spans = capture.Spans.ToList();
+        var exportedSpans = exported.Snapshot();
+        var measurements = capture.Measurements.ToList();
 
         // The start, and the request that made it.
         var startSpan = spans.Should().ContainSingle(s => IsSpan(s, ManufactureTelemetry.StartSpanName) && OfRun(s, runId)).Subject;
@@ -141,13 +164,22 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         dispatches.Select(d => (string?)d.GetTagItem(WorkflowTelemetry.NodeTag)).Should().BeEquivalentTo(Steps);
         dispatches.Should().OnlyContain(d => d.TraceId != startSpan.TraceId && d.Links.Any(l => l.Context.TraceId == startSpan.TraceId));
         dispatches.Select(d => d.TraceId).Should().OnlyHaveUniqueItems();
+        var storeStart = spans.Should().ContainSingle(s => IsSpan(s, WorkflowTelemetry.StoreStartSpanName) && OfRun(s, runId)).Subject;
+        storeStart.ParentSpanId.Should().Be(startSpan.SpanId);
+        dispatches.Should().OnlyContain(d => d.Links.Any(l => l.Context.SpanId == storeStart.SpanId));
         dispatches.Single(d => IsTag(d, WorkflowTelemetry.NodeTag, "gate"))
             .GetTagItem(WorkflowTelemetry.OutcomeTag).Should().Be(WorkflowTelemetry.OutcomeAwaiting);
+
+        // The happy path of the other six: completed, no error status, no error type (preflight A9).
+        var others = dispatches.Where(d => !IsTag(d, WorkflowTelemetry.NodeTag, "gate")).ToList();
+        others.Should().HaveCount(Steps.Length - 1);
+        others.Should().OnlyContain(d => IsTag(d, WorkflowTelemetry.OutcomeTag, WorkflowTelemetry.OutcomeCompleted)
+            && d.Status != ActivityStatusCode.Error && d.GetTagItem(WorkflowTelemetry.ErrorTypeTag) == null);
 
         // The host action nests in its step; the approval is a resume span with its signal.
         var publish = dispatches.Single(d => IsTag(d, WorkflowTelemetry.NodeTag, "publish"));
         var hostActionName = WorkflowTelemetry.HostActionSpanName.Replace("{type}", "OpenPullRequestAction", StringComparison.Ordinal);
-        spans.Should().Contain(s => IsSpan(s, hostActionName) && OfRun(s, runId) && s.TraceId == publish.TraceId);
+        spans.Should().Contain(s => IsSpan(s, hostActionName) && OfRun(s, runId) && s.ParentSpanId == publish.SpanId);
         spans.Should().Contain(s => IsSpan(s, WorkflowTelemetry.StoreResumeSpanName) && OfRun(s, runId)
             && IsTag(s, WorkflowTelemetry.SignalTag, "human_approval"));
 
@@ -158,22 +190,23 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
             .Should().BeEquivalentTo(new (object?, double)[] { ("input", 1_200), ("output", 80), ("cache_read", 900), ("cache_write", 150) });
 
         // The real host's OpenTelemetry pipeline exports the workflow spans, and not the health probe.
-        exported.Should().Contain(a => IsSpan(a, WorkflowTelemetry.DispatchSpanName) && OfRun(a, runId));
-        exported.Should().NotContain(a => string.Equals(a.Source.Name, "Microsoft.AspNetCore", StringComparison.Ordinal) && IsTag(a, "url.path", "/health"));
+        exportedSpans.Should().Contain(a => IsSpan(a, WorkflowTelemetry.DispatchSpanName) && OfRun(a, runId));
+        exportedSpans.Should().NotContain(a => string.Equals(a.Source.Name, "Microsoft.AspNetCore", StringComparison.Ordinal) && IsTag(a, "url.path", "/health"));
 
         // Not vacuous: every source that produced anything is in the list this test captured, so no span reaches the
         // production exporter without also being scanned below. The scratch host emits no thalos.turn span: the scripted
         // runtime replaces the agent runtime (preflight A6), so "thalos" shows only its skills spans.
         // Nor do the mediator or HttpClient sources fire on this path, so they are captured but not required here.
-        exported.Select(a => a.Source.Name).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(Sources);
         var seenSources = spans.Select(s => s.Source.Name).Distinct(StringComparer.Ordinal).ToList();
         seenSources.Should().Contain(
             ["thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, "Microsoft.AspNetCore"],
             "the privacy scan below must have seen spans from each of these sources");
+        exportedSpans.Select(a => a.Source.Name).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(Sources);
 
         host.Factory.Services.GetRequiredService<MeterProvider>().ForceFlush().Should().BeTrue();
-        exportedMetrics.Select(m => m.MeterName).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(Meters);
-        exportedMetrics.Select(m => m.Name).Should().Contain(
+        var exportedMetricList = exportedMetrics.Snapshot();
+        exportedMetricList.Select(m => m.MeterName).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(Meters);
+        exportedMetricList.Select(m => m.Name).Should().Contain(
             [ManufactureTelemetry.TokensMetricName, WorkflowTelemetry.RunsStartedName, WorkflowTelemetry.DispatchDurationName]);
 
         // No content anywhere: not in a span name, a tag, an event, a link, a status description, or a metric tag.
@@ -181,20 +214,20 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         var forbidden = new List<string>
         {
             marker, taskCode, title, description, prompt, project.ProjectName, project.Description, host.Remote.Url, host.DataRoot,
-            "filtered cancelled tasks", "the claim query ignored status", "TaskRepository.cs", "implement done",
+            "filtered cancelled tasks", "the claim query ignored status", "TaskRepository.cs", ScriptedManufactureRuntime.ReviewEvidence,
             "Run dotnet test.", ScriptedManufactureRuntime.LearnedLine, pullRequests.LastBody!, pullRequests.LastTitle!,
         };
+        forbidden.AddRange(runtime.Nodes.Select(node => $"{node} done"));
         forbidden.AddRange(runtime.Nodes.Select(runtime.TaskFor).Where(text => text.Length > 0));
         forbidden.Count.Should().BeGreaterThan(10);
 
         // The scanner itself reads what spans and metrics carry: it finds the one allowed value, the repository name.
         SpanLeaks(spans, [ScratchWorkflowHost.Repository]).Should().NotBeEmpty("the scanner must see tag values");
-        MetricLeaks(exportedMetrics, [model]).Should().NotBeEmpty("the scanner must see metric tag values");
+        MetricLeaks(exportedMetricList, [model]).Should().NotBeEmpty("the scanner must see metric tag values");
 
         SpanLeaks(spans, forbidden).Should().BeEmpty("no captured span may carry content");
-        SpanLeaks(exported, forbidden).Should().BeEmpty("no exported span may carry content");
-        MetricLeaks(capture.Measurements, forbidden).Should().BeEmpty("no captured measurement may carry content");
-        MetricLeaks(exportedMetrics, forbidden).Should().BeEmpty("no exported metric may carry content");
+        MetricLeaks(measurements, forbidden).Should().BeEmpty("no captured measurement may carry content");
+        MetricLeaks(exportedMetricList, forbidden).Should().BeEmpty("no exported metric may carry content");
     }
 
     private static bool IsSpan(Activity span, string name) =>
@@ -205,13 +238,91 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     private static bool IsTag(Activity span, string key, object expected) =>
         string.Equals(span.GetTagItem(key)?.ToString(), expected.ToString(), StringComparison.Ordinal);
 
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    private static async Task<bool> WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (!condition() && DateTime.UtcNow < deadline)
         {
             await Task.Delay(50);
         }
+
+        return condition();
+    }
+
+    /// <summary>
+    ///     The exporter target. The OpenTelemetry in-memory exporter adds to it, without a lock, on whichever thread stops
+    ///     a span, and its listener is process-wide, so spans of parallel tests arrive while this test reads. Only
+    ///     <see cref="Snapshot"/> reads it.
+    /// </summary>
+    private sealed class LockedCollection<T> : ICollection<T>
+    {
+        private readonly Lock _gate = new();
+        private readonly List<T> _items = [];
+
+        public int Count
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _items.Count;
+                }
+            }
+        }
+
+        public bool IsReadOnly => false;
+
+        public IReadOnlyList<T> Snapshot()
+        {
+            lock (_gate)
+            {
+                return [.. _items];
+            }
+        }
+
+        public void Add(T item)
+        {
+            lock (_gate)
+            {
+                _items.Add(item);
+            }
+        }
+
+        public void Clear()
+        {
+            lock (_gate)
+            {
+                _items.Clear();
+            }
+        }
+
+        public bool Contains(T item)
+        {
+            lock (_gate)
+            {
+                return _items.Contains(item);
+            }
+        }
+
+        public void CopyTo(T[] array, int arrayIndex)
+        {
+            lock (_gate)
+            {
+                _items.CopyTo(array, arrayIndex);
+            }
+        }
+
+        public bool Remove(T item)
+        {
+            lock (_gate)
+            {
+                return _items.Remove(item);
+            }
+        }
+
+        public IEnumerator<T> GetEnumerator() => Snapshot().GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private static List<string> SpanLeaks(IEnumerable<Activity> spans, IReadOnlyCollection<string> forbidden)
