@@ -115,6 +115,26 @@ public sealed class ManufactureTelemetryTests
             .GetTagItem(ManufactureTelemetry.RepositoryTag).Should().Be("sandbox");
     }
 
+    /// <summary>
+    ///     The starter tags only the manufacture start span. Called directly, with an ambient span of another source, it
+    ///     leaves that span alone.
+    ///     Red: drop the <c>OperationName</c> and <c>Source</c> guard in <c>TagStartSpan</c>; the ambient span gains the
+    ///     repository tag.
+    /// </summary>
+    [Fact]
+    public async Task The_starter_leaves_an_ambient_span_that_is_not_the_start_span_untagged()
+    {
+        var parentName = $"probe-parent-{Guid.NewGuid():N}";
+        using var parents = new ActivitySource(parentName);
+        using var capture = new TelemetryCapture(parentName);
+        using var parent = parents.StartActivity("probe");
+
+        await RealStarter("sandbox").StartAsync(new ManufactureStartRequest("intent", "sandbox", Starter), CancellationToken.None);
+
+        parent.Should().NotBeNull();
+        parent!.GetTagItem(ManufactureTelemetry.RepositoryTag).Should().BeNull();
+    }
+
     /// <summary>The real starter over substitutes. No active process version, so an allow-listed start fails cleanly.</summary>
     private static ManufactureRunStarter RealStarter(string allowListed)
     {
