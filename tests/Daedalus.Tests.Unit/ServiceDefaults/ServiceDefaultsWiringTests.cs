@@ -8,8 +8,8 @@ using Daedalus.ServiceDefaults;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -44,6 +44,9 @@ public sealed class ServiceDefaultsWiringTests
             using var source = new ActivitySource(name);
             source.StartActivity($"probe {name}")?.Dispose();
         }
+
+        // Dispose first: the provider appends to the list on any thread until then.
+        provider.Dispose();
 
         exported.Where(a => a.OperationName.StartsWith("probe ", StringComparison.Ordinal)).Select(a => a.Source.Name)
             .Should().BeEquivalentTo(SubscribedSources);
@@ -82,20 +85,27 @@ public sealed class ServiceDefaultsWiringTests
     }
 
     /// <summary>
+    ///     A real host: start, emit one span, one metric and one log, stop at once and dispose. The stop comes before the
+    ///     first scheduled log export, so the logs arrive only if the host flushes when it stops.
     ///     Red: drop the <c>UseOtlpExporter()</c> call; the collector receives no request.
     ///     Red: keep only the old logging-only <c>AddOtlpExporter</c>; <c>/v1/traces</c> and <c>/v1/metrics</c> never arrive.
+    ///     Red: remove the <c>TelemetryShutdownFlush</c> registration; <c>/v1/logs</c> never arrives, because with
+    ///     http/protobuf the log export client is created on the first export, which would fall inside disposal.
+    ///     Red: remove <c>logging.AddOpenTelemetry</c> from <c>AddServiceDefaults</c>; <c>/v1/logs</c> never arrives.
     /// </summary>
     [Fact]
-    public async Task With_a_collector_endpoint_traces_metrics_and_logs_reach_it()
+    public async Task With_a_collector_endpoint_traces_metrics_and_logs_reach_it_when_the_host_stops()
     {
         using var collector = new FakeOtlpCollector();
-        var provider = Services(new(StringComparer.Ordinal)
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             [AspireExtensions.OtlpEndpointKey] = collector.Endpoint,
             ["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf",
-        }).BuildServiceProvider();
-        provider.GetRequiredService<TracerProvider>();
-        provider.GetRequiredService<MeterProvider>();
+        });
+        builder.Services.AddServiceDefaults(builder.Configuration);
+        using var host = builder.Build();
+        await host.StartAsync();
 
         using (var source = new ActivitySource("thalos.workflow"))
         {
@@ -104,13 +114,9 @@ public sealed class ServiceDefaultsWiringTests
 
         using var meter = new Meter("thalos.workflow");
         meter.CreateCounter<long>("probe.export").Add(1);
-        provider.GetRequiredService<ILogger<ServiceDefaultsWiringTests>>().LogWarning("probe export");
-
-        // Flush while the container is alive. The OTLP export client is created lazily on the first export, and on a
-        // disposed container that creation throws ObjectDisposedException, so a first export made by Dispose is lost.
-        // That is the OpenTelemetry SDK's behaviour for a process shorter than one batch interval, not a wiring fault.
-        provider.GetRequiredService<LoggerProvider>().ForceFlush();
-        await provider.DisposeAsync();
+        host.Services.GetRequiredService<ILogger<ServiceDefaultsWiringTests>>().LogWarning("probe export");
+        await host.StopAsync();
+        host.Dispose();
 
         string[] expected = ["/v1/traces", "/v1/metrics", "/v1/logs"];
         await collector.WaitForAsync(expected, TimeSpan.FromSeconds(10));
