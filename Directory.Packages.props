@@ -19,6 +19,8 @@
 
     <!-- OpenTelemetry 1.15.0 → 1.17.0 -->
     <PackageVersion Include="OpenTelemetry" Version="1.17.0" />
+    <!-- Tests only: an isolated, per-provider exporter, so a wiring test reads what this provider exported. -->
+    <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
