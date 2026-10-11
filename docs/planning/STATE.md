@@ -25,11 +25,11 @@ marked met.
 
 ## Needs the owner
 
-1. **Release 0.2.0.** The owner decided to stay on 0.x (2026-10-11). release-please PR #337 proposed **1.0.0**
-   because `.github/workflows/release-please.yml` passed `release-type: simple`, which makes the action ignore
-   `release-please-config.json` and its `bump-minor-pre-major`. PR #338 removes that input. Merge #338, re-run
-   release-please, and check that #337 then proposes 0.2.0 with every 2.6 to 2.9 `feat`/`fix` line and the 2.8
-   breaking changes. Do not merge #337 before that.
+1. **Release: on hold by owner decision (2026-10-11).** No release for now, and no 1.0.0. Release-please PR #337
+   proposes **1.0.0** because `.github/workflows/release-please.yml` passes `release-type: simple`, which makes the
+   action ignore `release-please-config.json` and its `bump-minor-pre-major`. PR #338 removes that input and is
+   parked with #337. Release-please only runs on manual dispatch, so nothing ships while they stay open. When a
+   release is wanted: merge #338 first, re-run release-please, and merge #337 only once it proposes 0.x.
 2. **Remove any external `daedalus-console` deployment** (carried from 2.8).
 3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11, #14 and #16, issues #9 and #12.
 4. **Decide:** #325, #327, #328, #332 (the failed-start gap), #334 (does the no-content rule cover logs), #322,
@@ -47,8 +47,7 @@ marked met.
 ## Recommended Next Step
 
 1. Merge the close-out PR for this branch, `chore/complete-phase-2.9`.
-2. Merge #338, re-run release-please, and merge #337 once it proposes 0.2.0.
-3. `start-next-phase`: phase 2.10, per-turn tool selection with ZeroAlloc.Jev.
+2. `start-next-phase`: phase 2.10, per-turn tool selection with ZeroAlloc.Jev.
 
 ---
 
