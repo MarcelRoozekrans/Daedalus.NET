@@ -21,6 +21,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Daedalus.Tests.Unit"/>
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="../Daedalus.Infrastructure/Daedalus.Infrastructure.csproj"/>
     </ItemGroup>
 </Project>
