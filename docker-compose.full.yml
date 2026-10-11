@@ -85,7 +85,8 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: "Server=postgres;Port=5432;Database=daedalus;User Id=daedalus;Password=daedalus"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
+      # No OTLP collector runs in this stack, so telemetry export stays off. To export traces, metrics and
+      # logs, add a collector service and set OTEL_EXPORTER_OTLP_ENDPOINT to it, e.g. http://collector:4317.
     depends_on:
       postgres:
         condition: service_healthy
