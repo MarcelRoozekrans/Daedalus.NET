@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Thalos;
 using Thalos.Workflow;
 
 namespace Daedalus.Agents.Workflow;
@@ -54,4 +56,33 @@ public static class ManufactureTelemetry
 
     internal static readonly Counter<long> Tokens =
         Meter.CreateCounter<long>(TokensMetricName, unit: "{token}", description: "Tokens a completed manufacture node spent");
+
+    /// <summary>
+    ///     Counts a completed node's tokens, one measurement per kind with a count above zero, tagged with the node, the kind
+    ///     and, when the provider reported one, the model. <c>input</c> is the turn's total input and already includes
+    ///     <c>cache_read</c> and <c>cache_write</c>, so summing all four kinds counts cache tokens twice.
+    /// </summary>
+    internal static void RecordTokens(string node, TurnUsage usage)
+    {
+        Add(node, usage.ModelId, "input", usage.InputTokens);
+        Add(node, usage.ModelId, "output", usage.OutputTokens);
+        Add(node, usage.ModelId, "cache_read", usage.CacheReadTokens);
+        Add(node, usage.ModelId, "cache_write", usage.CacheWriteTokens);
+    }
+
+    private static void Add(string node, string? model, string kind, int count)
+    {
+        if (count <= 0)
+        {
+            return;
+        }
+
+        var tags = new TagList { { NodeTag, node }, { TokenKindTag, kind } };
+        if (!string.IsNullOrEmpty(model))
+        {
+            tags.Add(ModelTag, model);
+        }
+
+        Tokens.Add(count, tags);
+    }
 }

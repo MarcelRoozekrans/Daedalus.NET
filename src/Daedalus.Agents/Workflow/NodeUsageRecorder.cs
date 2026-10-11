@@ -9,13 +9,15 @@ namespace Daedalus.Agents.Workflow;
 
 /// <summary>
 ///     Appends one <see cref="WorkflowRunRecord.NodeUsageKind"/> record for a completed agent node, so cost analytics
-///     reads a manufacture run's usage from Daedalus's own table. <see cref="ReviewHandoffWorkflowStore"/> calls it on
-///     every completion, and <see cref="NodeUsageBackfill"/> calls it for completions that have no record yet.
+///     reads a manufacture run's usage from Daedalus's own table. <see cref="ReviewHandoffWorkflowStore"/> calls
+///     <see cref="RecordCompletionAsync"/> on every completion, which also counts the tokens.
+///     <see cref="NodeUsageBackfill"/> calls <see cref="RecordAsync"/> for completions that have no record yet, which counts
+///     nothing: those tokens were spent in the past.
 /// </summary>
 /// <remarks>
 ///     A second append for a (run, seq) that already has a record violates the unique index
-///     <see cref="WorkflowRunRecord.NodeUsageIndexName"/>. That is the expected outcome of the live append racing the backfill,
-///     or of a retried dispatch, so it reads as "already recorded": it returns false and logs at Debug.
+///     <see cref="WorkflowRunRecord.NodeUsageIndexName"/>. That is the expected outcome of the live append racing the
+///     backfill, so it reads as "already recorded": it returns false and logs at Debug.
 ///     A failure is logged, not thrown, and so is a cancelled caller: the append runs under a token of its own, which only
 ///     <c>AppendTimeout</c> cancels, never the dispatch's. The completion it describes is already persisted, so throwing would only
 ///     dead-letter a dispatch whose work is done. The next boot's backfill writes the missing record.
@@ -30,6 +32,20 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
 
     /// <summary>Now, on the host clock, as a UTC <see cref="DateTime"/>.</summary>
     public DateTime UtcNow => clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>
+    ///     The live path, for a completion just persisted: counts its tokens on <c>daedalus.manufacture.tokens</c>, then
+    ///     appends its record as <see cref="RecordAsync"/> does, stamped now. It runs at most once per (run, seq): the
+    ///     caller calls it only after the store committed this seq, the store refuses a second completion of the same seq,
+    ///     and a redelivered dispatch is skipped before its node runs. A crash between the commit and this call loses the
+    ///     count, never doubles it. The count does not depend on the append: a failed append is repaired by the next
+    ///     boot's backfill, which counts nothing. Returns whether the record was written.
+    /// </summary>
+    public ValueTask<bool> RecordCompletionAsync(Guid runId, long seq, string node, string? startedById, TurnUsage usage, CancellationToken ct)
+    {
+        ManufactureTelemetry.RecordTokens(node, usage);
+        return RecordAsync(runId, seq, node, startedById, usage, UtcNow, ct);
+    }
 
     /// <summary>Appends the record. Returns whether it was written: false when the record already existed or the append failed. The caller's token is deliberately not passed to the append.</summary>
     public async ValueTask<bool> RecordAsync(
