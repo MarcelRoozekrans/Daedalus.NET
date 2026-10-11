@@ -344,10 +344,11 @@ dotnet ef database update --project src/Daedalus.Infrastructure --startup-projec
 ## Observability
 
 Daedalus traces a manufacture run step by step and counts the tokens it spends. Telemetry goes **over OTLP only when
-`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (non-empty). Aspire sets it for the projects it runs. The Api, and the Cli when it is pointed at a collector, are the
-hosts that export; Migrations and Web do not. Under `dotnet run --project src/Daedalus.AppHost` the dashboard on
-http://localhost:17300 shows traces, metrics and logs. Without it nothing is exported. `docker-compose.full.yml` runs no collector and sets no endpoint, so export is off there;
-add a collector service and set `OTEL_EXPORTER_OTLP_ENDPOINT` on the API to enable it.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (non-empty). Aspire sets it for the projects it runs. The Api, and the Cli
+when it is pointed at a collector, are the hosts that export; Migrations and Web do not. Under
+`dotnet run --project src/Daedalus.AppHost` the dashboard on http://localhost:17300 shows traces, metrics and logs.
+Without it nothing is exported. `docker-compose.full.yml` runs no collector and sets no endpoint, so export is off
+there; add a collector service and set `OTEL_EXPORTER_OTLP_ENDPOINT` on the API to enable it.
 
 One `UseOtlpExporter()` carries all three signals, configured from the standard `OTEL_*` variables. When the host stops
 normally, `TelemetryShutdownFlush` flushes logs, traces and metrics within one 5 second budget. It exists because of an
@@ -379,7 +380,7 @@ Filter traces by `thalos.run.id`. The spans of a run:
 | `POST api/Tasks/{id:guid}/manufacture` | The request span, named by its route template. It carries `daedalus.task.id`. |
 | `daedalus.manufacture.start` | The start. Tags `daedalus.repository` (the configured, allow-listed repository name, set only once the request matched the allow-list) and, on success, `thalos.run.id`. A refused start has Error status described only by the failure kind, a closed enum. |
 | `thalos.workflow.store.start` | The store write that creates the run, a child of the start span. |
-| `thalos.workflow.dispatch` | One workflow step. Each step is **its own trace**, with a link to `thalos.workflow.store.start`, so follow the link back to the start. Tags `thalos.run.id`, `thalos.node`, `thalos.seq`, `thalos.outcome`. |
+| `thalos.workflow.dispatch` | One workflow step. Each step is **its own trace**, with a link to `thalos.workflow.store.start`, so follow the link back to the start. Tags `thalos.run.id`, `thalos.run.process`, `thalos.node`, `thalos.seq`, `thalos.outcome`. |
 | `thalos.workflow.host_action.{type}` | A host action inside a step, named by its CLR type, such as `thalos.workflow.host_action.OpenPullRequestAction`. |
 | `thalos.turn` | An agent turn, from the Thalos turn runtime. |
 | `thalos.workflow.store.resume` | The gate approval: the person approving a gate resumes the run. Other store spans: `.cancel`, `.fail`, `.fail_stranded`, `.retry`. |
