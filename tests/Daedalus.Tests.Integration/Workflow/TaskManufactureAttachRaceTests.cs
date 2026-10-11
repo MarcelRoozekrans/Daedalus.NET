@@ -24,6 +24,8 @@ public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
     ///     Red: in <c>TaskManufactureService.StartAsync</c>, re-read the task through <c>GetByIdAsync</c> after the start
     ///     and attach the run to that fresh copy; the attach is saved, so the POST answers 201.
     ///     Red: skip the cancel of the unattached run; the run is not Cancelled and <c>runCancelled</c> is false.
+    ///     Red: drop the proxy from the enabled starter's registration; no start span carries the run id.
+    ///     Red: drop <c>TagStartSpan</c> from <c>ManufactureRunStarter</c>; the start span has no repository tag.
     ///     Red: drop the proxy from the enabled canceller's registration; no cancel span exists. Red: drop the enabled
     ///     canceller's <c>Replace</c>; the disabled canceller answers false, and <c>runCancelled</c> is false.
     /// </summary>
@@ -63,6 +65,11 @@ public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("runId").GetGuid().Should().Be(runId);
         body.RootElement.GetProperty("runCancelled").GetBoolean().Should().BeTrue();
+
+        // Phase 2.9: the start went through the traced engine starter, tagged with the configured repository name.
+        capture.SpansNamed(ManufactureTelemetry.StartSpanName)
+            .Should().ContainSingle(s => runId.Equals(s.GetTagItem(ManufactureTelemetry.RunIdTag)))
+            .Which.GetTagItem(ManufactureTelemetry.RepositoryTag).Should().Be(ScratchWorkflowHost.Repository);
 
         // Phase 2.9: the compensating cancel went through the traced engine canceller.
         capture.SpansNamed(ManufactureTelemetry.CancelSpanName)

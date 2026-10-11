@@ -142,6 +142,8 @@ public sealed class DaedalusAgentsRegistrationTests
     }
 
     /// <summary>
+    ///     Phase 2.9: a host with the engine off resolves the disabled starter behind its telemetry proxy, and it reports
+    ///     Disabled.
     ///     Red: drop the proxy from the disabled starter registration; the type assertion fails.
     ///     Red: wrap a starter that succeeds; the Disabled assertion fails.
     /// </summary>

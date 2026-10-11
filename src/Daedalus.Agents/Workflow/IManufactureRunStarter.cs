@@ -17,8 +17,9 @@ namespace Daedalus.Agents.Workflow;
 ///     the tool need something to resolve regardless.
 ///     <para>
 ///         <b>Telemetry.</b> Registered behind the generated <c>ManufactureRunStarterInstrumented</c> proxy. Each start is a
-///         <c>daedalus.manufacture.start</c> span, tagged with the repository and, on success, the run id. A failure is an
-///         error described by its kind.
+///         <c>daedalus.manufacture.start</c> span, tagged on success with the run id. A failure is an error described by
+///         its kind. The repository tag is not taken from the request, which is caller input: <see cref="ManufactureRunStarter"/>
+///         sets it to the configured, allow-listed name once the allow-list matches, so a refused start carries none.
 ///     </para>
 /// </remarks>
 [Instrument(ManufactureTelemetry.SourceName)]
@@ -39,8 +40,7 @@ public interface IManufactureRunStarter
     /// </summary>
     [Trace(ManufactureTelemetry.StartSpanName, ErrorWhen = "IsFailure", ErrorDescription = "Error.Kind", ExceptionDescription = false)]
     [TraceTagFromResult(ManufactureTelemetry.RunIdTag, "Value", When = "IsSuccess")]
-    ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(
-        [TraceTag(ManufactureTelemetry.RepositoryTag, "Repository")] ManufactureStartRequest request, CancellationToken ct);
+    ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct);
 }
 
 /// <summary>Why a manufacture start failed, in terms a caller maps to a response: see <see cref="ManufactureStartFailureKind"/>.</summary>
