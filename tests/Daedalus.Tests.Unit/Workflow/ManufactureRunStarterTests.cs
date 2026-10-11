@@ -388,7 +388,8 @@ public sealed class ManufactureRunStarterTests
             })));
         var store = Substitute.For<IWorkflowStore>();
         WorkflowStartRequest? captured = null;
-        store.StartAsync(Arg.Do<WorkflowStartRequest>(r => captured = r), Arg.Any<CancellationToken>());
+        store.StartAsync(Arg.Do<WorkflowStartRequest>(r => captured = r), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<Guid>>(Result<Guid>.Success(Guid.NewGuid())));
 
         var starter = new ManufactureRunStarter(new WorkflowRunStarter(_definitions, _manifests, store), _workspaces, _baseFiles, _config);
         await starter.StartAsync(Request("sandbox"), CancellationToken.None);

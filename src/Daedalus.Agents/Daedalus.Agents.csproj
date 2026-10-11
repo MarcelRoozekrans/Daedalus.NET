@@ -44,6 +44,7 @@
         <PackageReference Include="Thalos.NET.Sandbox.Docker" />
         <PackageReference Include="ZeroAlloc.Mapping" />
         <PackageReference Include="ZeroAlloc.Results" />
+        <PackageReference Include="ZeroAlloc.Telemetry" />
         <PackageReference Include="ZeroAlloc.Outbox" />
         <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
         <!-- ZeroAlloc.Outbox.Orm/ZeroAlloc.ORM/AdoNet.Async.Adapters: the workflow store's own outbox table,
