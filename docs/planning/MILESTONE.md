@@ -56,8 +56,15 @@ only once something demonstrably better runs in its place.
       `.csproj` and tested it in its sandbox, which was gone about 33 s after the run parked at the
       gate. It opened sandbox PR #8. The earlier run `f6ee2bc2` failed because the agent misread its run
       mode, which process v8 now states. See `docs/plans/2026-10-04-phase-2.6-rulings.md`.
-- [ ] **A run is traceable.** A manufacture run emits spans, per phase 2.9, and a failed run can be
+- [x] **A run is traceable.** A manufacture run emits spans, per phase 2.9, and a failed run can be
       diagnosed from them and the event log without reading agent transcripts.
+
+      **Met 2026-10-11, phase 2.9.** Run `4949a215` from task `OBS-1` exported one trace per step, each
+      linked to the trace of the request that started it, with the agent turns, host actions and outgoing calls
+      inside, and finished `Succeeded` with daedalus-sandbox#16 (PR #336). A failed step ends its dispatch span
+      with Error status and `error.type`, and a refused start names its failure kind; both are test-proven
+      (Thalos `DispatchTelemetryTests`, Daedalus `ManufactureTelemetryTests`), not observed in a live failure.
+      See `docs/plans/2026-10-11-phase-2.9-rulings.md`.
 - [ ] **Spend is visible and bounded.** Agent-turn token usage is aggregated into cost analytics.
       The token budget either caps spend during a turn or is documented as the post-turn check it
       is, sized from measurements rather than picked.

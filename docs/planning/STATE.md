@@ -1,8 +1,58 @@
 # Session State
 
-**Last session:** 2026-10-10, with the owner present
+**Last session:** 2026-10-11, with the owner present
 
-## Current Position - phase 2.8 complete and merged (PR #329, 2026-10-10); phase 2.9 is next
+## Current Position - phase 2.9 complete and merged (PR #336, 2026-10-11); phase 2.10 is next
+
+**Milestone 2, phase 2.9, observability.** Rebase-merged to `main` as PR #336 (25 commits, head `ac366d3`) on
+2026-10-11. Thalos.NET 0.15.0 shipped first (Thalos#293, release #294). Rulings, the live-proof table, incidents
+and carried items are in `docs/plans/2026-10-11-phase-2.9-rulings.md`. Milestone 2 DoD "A run is traceable" is
+marked met.
+
+- **What shipped:**
+  - OTLP export of traces, metrics and logs, only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+  - One trace per workflow step, linked to the run's start; `daedalus.manufacture.start` and `.cancel` spans;
+    `daedalus.task.id` on the request span; the `daedalus.manufacture.tokens` counter.
+  - Outgoing HTTP spans export only the origin. `TelemetryShutdownFlush` flushes on a normal stop.
+  - The dead `OpenTelemetry` settings, the SqlClient instrumentation and the compose stack's phantom collector
+    are gone.
+- **Live proof:** run `4949a215` from task `OBS-1` reached the gate, was approved, and finished `Succeeded` with
+  daedalus-sandbox#16. Traces and metrics were read from the dashboard; no task content in any span.
+- **Found upstream:** an OpenTelemetry 1.16.0 regression drops a short-lived host's http/protobuf logs. Proved with
+  a standalone repro and filed as open-telemetry/opentelemetry-dotnet#7915.
+- **Suites:** Unit 1083, Unit.Application 261, Unit.Domain 346, Unit.Infrastructure 91, Integration 678,
+  Playwright.Api 113, Playwright.Browser 82. CI green.
+
+## Needs the owner
+
+1. **Release 0.2.0.** The owner decided to stay on 0.x (2026-10-11). release-please PR #337 proposed **1.0.0**
+   because `.github/workflows/release-please.yml` passed `release-type: simple`, which makes the action ignore
+   `release-please-config.json` and its `bump-minor-pre-major`. PR #338 removes that input. Merge #338, re-run
+   release-please, and check that #337 then proposes 0.2.0 with every 2.6 to 2.9 `feat`/`fix` line and the 2.8
+   breaking changes. Do not merge #337 before that.
+2. **Remove any external `daedalus-console` deployment** (carried from 2.8).
+3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11, #14 and #16, issues #9 and #12.
+4. **Decide:** #325, #327, #328, #332 (the failed-start gap), #334 (does the no-content rule cover logs), #322,
+   #318 and #319.
+5. **Delete the backup refs** `backup/phase-2.9-before-reword` (Daedalus, local) and
+   `backup/workflow-telemetry-before-wrap` (Thalos).
+
+## Filed or tracked
+
+- New in 2.9: #331, #332, #334, #335; Thalos.NET#292, Thalos.NET#297; ZeroAlloc-Net/ZeroAlloc.Mediator#292;
+  open-telemetry/opentelemetry-dotnet#7915; a comment on #312 (#333 closed as its duplicate).
+- Closed by 2.9: #313.
+- Still open: #325, #326, #327, #328, #322, #318, #319, #312, #311, #295, #280.
+
+## Recommended Next Step
+
+1. Merge the close-out PR for this branch, `chore/complete-phase-2.9`.
+2. Merge #338, re-run release-please, and merge #337 once it proposes 0.2.0.
+3. `start-next-phase`: phase 2.10, per-turn tool selection with ZeroAlloc.Jev.
+
+---
+
+## Previous position (2026-10-10) - phase 2.8 complete and merged (PR #329); phase 2.9 was next
 
 **Milestone 2, phase 2.8, Ralph retirement.** Rebase-merged to `main` as PR #329 (55 commits, head `5ae35b0`) on
 2026-10-10. Rulings P1–P11 and E1–E22, the live-proof table and carried items are in
@@ -27,30 +77,6 @@
   Playwright.Api 113, Playwright.Browser 82. CI green.
 - **Secrets:** the exposed keys from 2.6 were rotated by the owner, and the revoked context7 key is removed from
   `.mcp.json` (it remains in git history, revoked).
-
-## Needs the owner
-
-1. **Cut a release** (release-please, manual dispatch). Then confirm the 2.6, 2.7 and 2.8 `feat:`/`fix:` commits are
-   in its PR, and that the breaking changes from 2.8 (`feat(costs)!`, `refactor(tasks)!`, three `refactor!`) are
-   listed.
-2. **Remove any external `daedalus-console` deployment.** A compose file that pulls `:latest` keeps a frozen worker
-   running against the new schema (R5).
-3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11 and #14, issues #9 and #12.
-4. **Decide:** #325 (learnings and failure patterns rebuild: scope and write mode), #327 (Brainstorm and PRD
-   costs), #328 (project-delete race), #322, #318 and #319.
-5. **Still open:** the Postgres collation mismatch; review has no `blocked` outcome; should the review skill's
-   "search issues first" be strengthened.
-
-## Filed or tracked
-
-- New in 2.8: #325, #326, #327, #328; comments on #279, #290 and #311.
-- Still open: #322, #318, #319, #313, #295, #312, #280.
-- Closed by 2.8: #281, #283, #294.
-
-## Recommended Next Step
-
-1. Merge the close-out PR for this branch, `chore/complete-phase-2.8`.
-2. `start-next-phase`: phase 2.9, observability.
 
 ---
 
