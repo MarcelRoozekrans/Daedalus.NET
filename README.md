@@ -344,8 +344,8 @@ dotnet ef database update --project src/Daedalus.Infrastructure --startup-projec
 ## Observability
 
 Daedalus traces a manufacture run step by step and counts the tokens it spends. Telemetry goes **over OTLP only when
-`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (non-empty). Aspire sets it for every project it runs, so under
-`dotnet run --project src/Daedalus.AppHost` the dashboard on http://localhost:17300 shows traces, metrics and logs.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (non-empty). Aspire sets it for the projects it runs. The Api, and the Cli when it is pointed at a collector, are the hosts that
+export; Migrations and Web do not. Under `dotnet run --project src/Daedalus.AppHost` the dashboard on http://localhost:17300 shows traces, metrics and logs.
 Without it nothing is exported. `docker-compose.full.yml` runs no collector and sets no endpoint, so export is off there;
 add a collector service and set `OTEL_EXPORTER_OTLP_ENDPOINT` on the API to enable it.
 
@@ -374,7 +374,7 @@ Filter traces by `thalos.run.id`. The spans of a run:
 
 | Span | What it is |
 |------|------------|
-| `POST /api/tasks/{id}/manufacture` | The request span. It carries `daedalus.task.id`. |
+| `POST api/Tasks/{id:guid}/manufacture` | The request span, named by its route template. It carries `daedalus.task.id`. |
 | `daedalus.manufacture.start` | The start. Tags `daedalus.repository` (the configured, allow-listed repository name, set only once the request matched the allow-list) and, on success, `thalos.run.id`. A refused start has Error status described only by the failure kind, a closed enum. |
 | `thalos.workflow.store.start` | The store write that creates the run, a child of the start span. |
 | `thalos.workflow.dispatch` | One workflow step. Each step is **its own trace**, with a link to `thalos.workflow.store.start`, so follow the link back to the start. Tags `thalos.run.id`, `thalos.node`, `thalos.seq`, `thalos.outcome`. |
@@ -402,14 +402,15 @@ completed node. A crash can lose a count but never double it. Backfilled history
 
 Span names, tags, status descriptions, events and metric tags carry only ids, names, counts, durations, outcomes and
 error codes. Never prompt or agent text, task titles or descriptions, PR titles or bodies, file content, credentials or
-token values. A failed step sets Error status without a description; the one exception is the start span's failure kind.
+token values. Outgoing HTTP calls export their origin only, see "What is collected". A failed step sets Error status without a description; the one exception is the start span's failure kind.
 
 This rule does not yet cover exported **logs**. Whether and how to scrub them is an open decision, Daedalus#334.
 
 ### Tuning
 
 Sampling follows the standard variables, with no code change: `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG`, for
-example `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG=0.1`.
+example `OTEL_TRACES_SAMPLER=parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG=0.1`. Each step is its own root
+trace, so a ratio sampler keeps or drops each step of a run independently, and a sampled run is usually incomplete.
 
 ---
 
