@@ -23,6 +23,9 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
     /// <summary>The line retrospect proposes adding, and the learning implement reports.</summary>
     public const string LearnedLine = "Integration tests need Docker running.";
 
+    /// <summary>The evidence every review lens pass reports as checked: the review text a telemetry test must not find.</summary>
+    public const string ReviewEvidence = "TaskRepository.ClaimNextAsync now filters cancelled rows";
+
     private static readonly string[] Lenses = ["correctness", "falsifiability", "mechanism"];
 
     private readonly ConcurrentDictionary<SessionId, AgentId> _sessions = new();
@@ -106,7 +109,7 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
             {
                 lens,
                 verdict = "approved",
-                @checked = """["TaskRepository.ClaimNextAsync now filters cancelled rows"]""",
+                @checked = JsonSerializer.Serialize(new[] { ReviewEvidence }),
             }),
             Succeeded: true, "Recorded", TimeSpan.FromMilliseconds(1)),
         Outcome(tool, "approved", null),
