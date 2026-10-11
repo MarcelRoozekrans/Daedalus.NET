@@ -1,10 +1,13 @@
 using Aspire.Hosting;
 using Daedalus.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using OpenTelemetry.Logs;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 
 namespace Daedalus.ServiceDefaults;
 
@@ -19,6 +22,33 @@ public static class AspireExtensions
     /// </summary>
     public const string OtlpEndpointKey = "OTEL_EXPORTER_OTLP_ENDPOINT";
 
+    /// <summary>The health endpoint. Its requests are not traced: a probe every few seconds would bury the real traces.</summary>
+    public const string HealthPath = "/health";
+
+    /// <summary>The liveness endpoint, filtered like <see cref="HealthPath"/>.</summary>
+    public const string AlivePath = "/alive";
+
+    /// <summary>
+    ///     The activity sources traced: Thalos agent turns and stores, the workflow engine, the mediator, and every
+    ///     Daedalus source. No Npgsql source: the outbox poller would drown the traces (decision D3).
+    /// </summary>
+    private static readonly string[] TracedSources = ["thalos", "thalos.workflow", "ZeroAlloc.Mediator", "daedalus.*"];
+
+    /// <summary>The meters collected, plus the .NET runtime's built-in <c>System.Runtime</c> meter.</summary>
+    private static readonly string[] Meters = ["thalos", "thalos.workflow", "daedalus.*", "System.Runtime"];
+
+    /// <summary>
+    ///     Whether ASP.NET Core instrumentation traces this request: every request except those to <see cref="HealthPath"/>
+    ///     or <see cref="AlivePath"/> and their sub-paths, compared case-insensitively.
+    /// </summary>
+    public static bool IsTracedRequest(HttpContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var path = context.Request.Path;
+        return !path.StartsWithSegments(HealthPath, StringComparison.OrdinalIgnoreCase)
+            && !path.StartsWithSegments(AlivePath, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     ///     Adds Aspire service defaults to the distributed application builder.
     /// </summary>
@@ -30,7 +60,9 @@ public static class AspireExtensions
     }
 
     /// <summary>
-    ///     Adds standard service configuration with OpenTelemetry integration.
+    ///     Adds standard service configuration with OpenTelemetry integration. Traces and metrics cover Thalos, the
+    ///     workflow engine, ZeroAlloc.Mediator, Daedalus, ASP.NET Core and HttpClient. All three signals go over OTLP only
+    ///     when <see cref="OtlpEndpointKey"/> is set.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">Read for <see cref="OtlpEndpointKey"/>.</param>
@@ -44,13 +76,23 @@ public static class AspireExtensions
         // on a final export to a collector that is not there.
         var exportOtlp = !string.IsNullOrWhiteSpace(configuration[OtlpEndpointKey]);
 
-        // Configure OpenTelemetry
-        services.AddOpenTelemetry()
+        var telemetry = services.AddOpenTelemetry()
             .WithLogging()
-            .WithMetrics()
-            .WithTracing();
+            .WithMetrics(metrics => metrics
+                .AddMeter(Meters)
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation())
+            .WithTracing(tracing => tracing
+                .AddSource(TracedSources)
+                .AddAspNetCoreInstrumentation(options => options.Filter = IsTracedRequest)
+                .AddHttpClientInstrumentation());
 
-        // Configure structured logging with OpenTelemetry
+        // One exporter for all three signals, configured from the standard OTEL_* settings Aspire sets.
+        if (exportOtlp)
+        {
+            telemetry.UseOtlpExporter();
+        }
+
         services.AddLogging(logging =>
         {
             logging.ClearProviders();
@@ -58,10 +100,6 @@ public static class AspireExtensions
             {
                 options.IncludeScopes = true;
                 options.IncludeFormattedMessage = true;
-                if (exportOtlp)
-                {
-                    options.AddOtlpExporter();
-                }
             });
             logging.AddConsole();
         });

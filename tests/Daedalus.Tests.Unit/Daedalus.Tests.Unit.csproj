@@ -43,6 +43,7 @@
         <PackageReference Include="ZeroAlloc.TestHelpers"/>
         <!-- The host the sandbox image runs, for SandboxImagePinTests to read the Roslyn server environment it sets. -->
         <PackageReference Include="Thalos.NET.Sandbox.Host"/>
+        <PackageReference Include="OpenTelemetry.Exporter.InMemory"/>
     </ItemGroup>
 
     <ItemGroup>

@@ -294,7 +294,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-app.MapHealthChecks("/health"); // Required for Aspire AppHost health checks
+app.MapHealthChecks(AspireExtensions.HealthPath); // Required for Aspire AppHost health checks
 
 await app.RunAsync();
 
