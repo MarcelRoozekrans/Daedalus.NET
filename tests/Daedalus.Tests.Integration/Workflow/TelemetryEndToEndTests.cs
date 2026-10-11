@@ -24,8 +24,9 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     gate, is approved, publishes and succeeds. Only the model and the pull-request host are replaced. Every span is
 ///     captured. The run must show one trace per step, linked back to its start, with the host actions, the approval
 ///     and the token spend visible. No span and no metric may carry the task's text, the agent's text or the PR's text.
-///     Two views are scanned: a <see cref="TelemetryCapture"/> on every source the host listens to, and the host's own
-///     OpenTelemetry in-memory exporters, which see exactly what the production pipeline would export.
+///     Spans are scanned through a <see cref="TelemetryCapture"/> on every source the host listens to. The host's own
+///     OpenTelemetry in-memory exporters, which see exactly what the production pipeline would export, are checked for
+///     their sources, and their metrics are scanned too.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
@@ -62,6 +63,8 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     ///     Red: start a wrapper span before the store start; the store.start span's parent is no longer the start span.
     ///     Red: replace IWorkflowStore with the concrete OrmWorkflowStore after AddWorkflowOrm; the unproxied store
     ///     emits no store spans, so the store.start ContainSingle fails, and the resume span would be missing too.
+    ///     Red: build WorkflowRunGateway over the unproxied OrmWorkflowStore; only the resume span is missing, so the
+    ///     resume span assertion fails.
     ///     Red: make ReviewHandoffWorkflowStore call RecordAsync; the token measurements are missing.
     ///     Red: drop thalos.workflow from TracedSources; the OpenTelemetry exporter has no dispatch span.
     ///     Red: drop the ASP.NET Core Filter; the exporter has a /health span.
@@ -147,9 +150,11 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         doneStopped.Should().BeTrue("the done dispatch span must stop within 15 s of the run reading Succeeded");
 
         // One snapshot of each view. The listeners are process-wide, so spans of other tests keep arriving in the
-        // exporter collection and the capture; nothing below reads the live ones again.
-        var spans = capture.Spans.ToList();
+        // exporter collection and the capture; nothing below reads the live ones again. The exporter is read first: the
+        // capture sees every span the exporter does, so a span that stops between the two lines is captured but not
+        // exported, and the exported-source subset check cannot fail on a span the capture lacks.
         var exportedSpans = exported.Snapshot();
+        var spans = capture.Spans.ToList();
         var measurements = capture.Measurements.ToList();
 
         // The start, and the request that made it.
@@ -184,8 +189,8 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
             && IsTag(s, WorkflowTelemetry.SignalTag, "human_approval"));
 
         // The token spend, from the live completion.
-        capture.MeasurementsOf(ManufactureTelemetry.TokensMetricName)
-            .Where(m => string.Equals(m.Tags.GetValueOrDefault(ManufactureTelemetry.ModelTag)?.ToString(), model, StringComparison.Ordinal))
+        measurements.Where(m => string.Equals(m.Instrument, ManufactureTelemetry.TokensMetricName, StringComparison.Ordinal)
+                && string.Equals(m.Tags.GetValueOrDefault(ManufactureTelemetry.ModelTag)?.ToString(), model, StringComparison.Ordinal))
             .Select(m => (Kind: m.Tags[ManufactureTelemetry.TokenKindTag], m.Value))
             .Should().BeEquivalentTo(new (object?, double)[] { ("input", 1_200), ("output", 80), ("cache_read", 900), ("cache_write", 150) });
 
