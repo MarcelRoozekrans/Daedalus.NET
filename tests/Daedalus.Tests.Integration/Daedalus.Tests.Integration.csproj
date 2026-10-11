@@ -44,6 +44,7 @@
         <PackageReference Include="Spectre.Console.Testing"/>
         <PackageReference Include="Aspire.Hosting"/>
         <PackageReference Include="Aspire.Hosting.PostgreSQL"/>
+        <PackageReference Include="OpenTelemetry.Exporter.InMemory"/>
         <PackageReference Include="Thalos.NET.Testing"/>
         <PackageReference Include="ZeroAlloc.TestHelpers"/>
     </ItemGroup>
