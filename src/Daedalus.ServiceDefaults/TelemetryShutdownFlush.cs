@@ -19,7 +19,7 @@ namespace Daedalus.ServiceDefaults;
 ///     </para>
 ///     <para>
 ///         Not covered: in .NET 10 a host whose <c>StartAsync</c> fails is disposed without <c>StoppedAsync</c> running,
-///         so its unexported logs, startup failures included, are still lost until the upstream fix.
+///         so its unexported logs, startup failures included, are still lost until the upstream fix (issue #332).
 ///     </para>
 ///     <para>
 ///         <see cref="IHostedLifecycleService.StoppedAsync"/> runs after every hosted service has stopped, so their
