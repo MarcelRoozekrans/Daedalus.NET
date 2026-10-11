@@ -1,3 +1,5 @@
+using ZeroAlloc.Telemetry;
+
 namespace Daedalus.Agents.Workflow;
 
 /// <summary>
@@ -9,7 +11,12 @@ namespace Daedalus.Agents.Workflow;
 ///     with the engine off gets <see cref="DisabledWorkflowRunCanceller"/>, which cancels nothing, and
 ///     <c>AddDaedalusWorkflow</c> replaces it with <see cref="WorkflowRunCanceller"/> on a host with the engine on. A run
 ///     can only start on such a host, so a run that needs this compensation always meets the real one.
+///     <para>
+///         <b>Telemetry.</b> Registered behind the generated <c>WorkflowRunCancellerInstrumented</c> proxy. Each cancel is a
+///         <c>daedalus.manufacture.cancel</c> span, tagged with the run id and whether it cancelled. The reason is never tagged.
+///     </para>
 /// </remarks>
+[Instrument(ManufactureTelemetry.SourceName)]
 public interface IWorkflowRunCanceller
 {
     /// <summary>
@@ -22,5 +29,7 @@ public interface IWorkflowRunCanceller
     ///     The caller's token. A compensating cancel deliberately does not observe it: a client that gave up during a
     ///     slow start must not leave its run running. The cancel runs under a token of its own with a short timeout.
     /// </param>
-    ValueTask<bool> CancelAsync(Guid runId, string reason, CancellationToken ct);
+    [Trace(ManufactureTelemetry.CancelSpanName, ExceptionDescription = false)]
+    [TraceTagFromResult(ManufactureTelemetry.CancelledTag)]
+    ValueTask<bool> CancelAsync([TraceTag(ManufactureTelemetry.RunIdTag)] Guid runId, string reason, CancellationToken ct);
 }

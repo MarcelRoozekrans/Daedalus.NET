@@ -306,11 +306,13 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // below replaces this with the real ManufactureRunStarter when Workflow.Enabled; every other host keeps
         // this default, so WorkflowRunsController and DaedalusManufactureTools stay constructible either way and
         // report the engine is off instead of failing DI resolution.
-        services.TryAddSingleton<IManufactureRunStarter, DisabledManufactureRunStarter>();
+        // Phase 2.9: every registration of the two run seams is wrapped in its generated telemetry proxy, on enabled
+        // and disabled hosts alike.
+        services.TryAddSingleton<IManufactureRunStarter>(_ => new ManufactureRunStarterInstrumented(new DisabledManufactureRunStarter()));
 
         // Phase 2.8: always registered, like the starter above. It compensates for a started run that could not be
         // attached to its task; AddDaedalusWorkflow replaces it next to the starter when Workflow.Enabled.
-        services.TryAddSingleton<IWorkflowRunCanceller, DisabledWorkflowRunCanceller>();
+        services.TryAddSingleton<IWorkflowRunCanceller>(_ => new WorkflowRunCancellerInstrumented(new DisabledWorkflowRunCanceller()));
 
         // Phase 2.8, amendment A2: always registered, like the starter above, so task reads resolve on every host.
         // AddDaedalusWorkflow replaces it with the engine reader when Workflow.Enabled.
@@ -553,14 +555,16 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // Replace, not TryAdd: TryAddSingleton is first-registration-wins, and the disabled default was already
         // added before this method ever runs.
         services.Replace(ServiceDescriptor.Singleton<IManufactureRunStarter>(sp =>
-            new ManufactureRunStarter(
+            new ManufactureRunStarterInstrumented(new ManufactureRunStarter(
                 sp.GetRequiredService<WorkflowRunStarter>(),
                 sp.GetRequiredService<IRunWorkspaceProvider>(),
                 sp.GetRequiredService<IRunBaseFileReader>(),
-                sp.GetRequiredService<WorkflowConfig>())));
+                sp.GetRequiredService<WorkflowConfig>()))));
 
         // Phase 2.8: cancels a started run that could not be attached to its task, through WorkflowRunGateway.
-        services.Replace(ServiceDescriptor.Singleton<IWorkflowRunCanceller, WorkflowRunCanceller>());
+        services.AddSingleton<WorkflowRunCanceller>();
+        services.Replace(ServiceDescriptor.Singleton<IWorkflowRunCanceller>(sp =>
+            new WorkflowRunCancellerInstrumented(sp.GetRequiredService<WorkflowRunCanceller>())));
 
         // Phase 2.8: reads a task's run over the undecorated IWorkflowStore, as WorkflowRunGateway does.
         services.Replace(ServiceDescriptor.Singleton<IWorkflowRunStatusReader, WorkflowRunStatusReader>());

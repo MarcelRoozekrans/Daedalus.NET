@@ -5,6 +5,7 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Thalos.Testing;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
@@ -23,6 +24,8 @@ public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
     ///     Red: in <c>TaskManufactureService.StartAsync</c>, re-read the task through <c>GetByIdAsync</c> after the start
     ///     and attach the run to that fresh copy; the attach is saved, so the POST answers 201.
     ///     Red: skip the cancel of the unattached run; the run is not Cancelled and <c>runCancelled</c> is false.
+    ///     Red: drop the proxy from the enabled canceller's registration; no cancel span exists. Red: drop the enabled
+    ///     canceller's <c>Replace</c>; the disabled canceller answers false, and <c>runCancelled</c> is false.
     /// </summary>
     [Fact]
     public async Task A_task_changed_while_its_run_starts_refuses_the_attach_and_cancels_the_run()
@@ -49,6 +52,7 @@ public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
             await db.SaveChangesAsync();
         }
 
+        using var capture = new TelemetryCapture(ManufactureTelemetry.SourceName);
         using var client = host.Client("a-developer", "developer");
         var response = await client.PostAsync($"/api/tasks/{task.Id}/manufacture", content: null);
 
@@ -59,6 +63,11 @@ public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("runId").GetGuid().Should().Be(runId);
         body.RootElement.GetProperty("runCancelled").GetBoolean().Should().BeTrue();
+
+        // Phase 2.9: the compensating cancel went through the traced engine canceller.
+        capture.SpansNamed(ManufactureTelemetry.CancelSpanName)
+            .Should().ContainSingle(s => runId.Equals(s.GetTagItem(ManufactureTelemetry.RunIdTag)))
+            .Which.GetTagItem(ManufactureTelemetry.CancelledTag).Should().Be(true);
 
         var run = await host.Store.FindAsync(runId, CancellationToken.None);
         run!.Status.Should().Be(WorkflowStatus.Cancelled, "a run no task points at must not keep running");

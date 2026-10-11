@@ -25,6 +25,7 @@ using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
 using Thalos.Skills;
 using Thalos.Tools;
+using Thalos.Workflow;
 using ZeroAlloc.Authorization;
 
 namespace Daedalus.Tests.Unit.Application.Agents;
@@ -106,23 +107,30 @@ public sealed class DaedalusAgentsRegistrationTests
     }
 
     /// <summary>
-    ///     Phase 2.8: a host with the engine off still resolves the compensating canceller, which cancels nothing.
-    ///     Red: drop the <c>TryAddSingleton</c> of the disabled canceller; resolution throws.
+    ///     Phase 2.8 and 2.9: a host with the engine off resolves the compensating canceller behind its telemetry proxy, and
+    ///     it cancels nothing.
+    ///     Red: drop the proxy from the disabled registration; the type assertion fails.
+    ///     Red: wrap a canceller that returns true; the result assertion fails.
     /// </summary>
     [Fact]
-    public void A_host_with_the_engine_off_resolves_the_disabled_run_canceller()
+    public async Task A_host_with_the_engine_off_resolves_the_traced_disabled_run_canceller()
     {
         using var sp = Build(Config(("Thalos:Workflow:Enabled", "false")));
 
-        sp.GetRequiredService<IWorkflowRunCanceller>().Should().BeOfType<DisabledWorkflowRunCanceller>();
+        var canceller = sp.GetRequiredService<IWorkflowRunCanceller>();
+        canceller.Should().BeOfType<WorkflowRunCancellerInstrumented>();
+        (await canceller.CancelAsync(Guid.NewGuid(), "r", CancellationToken.None)).Should().BeFalse();
     }
 
     /// <summary>
-    ///     An enabled host replaces it with the engine canceller. Checked on the descriptor, so no workflow store is built.
-    ///     Red: drop the <c>Replace</c> in <c>AddDaedalusWorkflow</c>; the last descriptor is the disabled canceller.
+    ///     An enabled host registers the engine canceller as itself, for the interface's wrapping factory to resolve. Checked
+    ///     on the descriptors, so no workflow store is built. The factory itself cannot be told apart from the disabled
+    ///     one on its descriptor, since both are lambdas: <c>TaskManufactureAttachRaceTests</c> proves the enabled host
+    ///     resolves the traced engine canceller, which cancels, where the disabled one would answer false.
+    ///     Red: drop <c>AddSingleton&lt;WorkflowRunCanceller&gt;</c>; the concrete descriptor is missing.
     /// </summary>
     [Fact]
-    public void A_host_with_the_engine_on_replaces_it_with_the_engine_canceller()
+    public void A_host_with_the_engine_on_registers_the_engine_canceller_for_the_proxy()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -130,7 +138,22 @@ public sealed class DaedalusAgentsRegistrationTests
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(Config(), Environment());
 
-        services.Last(d => d.ServiceType == typeof(IWorkflowRunCanceller)).ImplementationType.Should().Be<WorkflowRunCanceller>();
+        services.Should().ContainSingle(d => d.ServiceType == typeof(WorkflowRunCanceller));
+    }
+
+    /// <summary>
+    ///     Red: drop the proxy from the disabled starter registration; the type assertion fails.
+    ///     Red: wrap a starter that succeeds; the Disabled assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_host_with_the_engine_off_resolves_the_traced_disabled_starter()
+    {
+        using var sp = Build(Config(("Thalos:Workflow:Enabled", "false")));
+
+        var starter = sp.GetRequiredService<IManufactureRunStarter>();
+        starter.Should().BeOfType<ManufactureRunStarterInstrumented>();
+        (await starter.StartAsync(new ManufactureStartRequest("i", "r", new RunPrincipal("u", [])), CancellationToken.None))
+            .Error.Kind.Should().Be(ManufactureStartFailureKind.Disabled);
     }
 
     [Fact]

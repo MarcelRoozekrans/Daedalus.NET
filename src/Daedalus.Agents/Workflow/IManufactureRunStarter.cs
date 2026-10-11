@@ -1,4 +1,5 @@
 using ZeroAlloc.Results;
+using ZeroAlloc.Telemetry;
 
 namespace Daedalus.Agents.Workflow;
 
@@ -14,7 +15,13 @@ namespace Daedalus.Agents.Workflow;
 ///     gets <see cref="DisabledManufactureRunStarter"/>, which reports that plainly instead of failing DI resolution —
 ///     the Integration test suite boots with the engine disabled on every host but one, and both the controller and
 ///     the tool need something to resolve regardless.
+///     <para>
+///         <b>Telemetry.</b> Registered behind the generated <c>ManufactureRunStarterInstrumented</c> proxy. Each start is a
+///         <c>daedalus.manufacture.start</c> span, tagged with the repository and, on success, the run id. A failure is an
+///         error described by its kind.
+///     </para>
 /// </remarks>
+[Instrument(ManufactureTelemetry.SourceName)]
 public interface IManufactureRunStarter
 {
     /// <summary>
@@ -30,7 +37,10 @@ public interface IManufactureRunStarter
     ///     skill on a task node) are all reported through <see cref="Result{T,E}.Error"/> as a <see cref="ManufactureStartFailure"/> whose kind says
     ///     whose fault it is, rather than thrown.
     /// </summary>
-    ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(ManufactureStartRequest request, CancellationToken ct);
+    [Trace(ManufactureTelemetry.StartSpanName, ErrorWhen = "IsFailure", ErrorDescription = "Error.Kind", ExceptionDescription = false)]
+    [TraceTagFromResult(ManufactureTelemetry.RunIdTag, "Value", When = "IsSuccess")]
+    ValueTask<Result<Guid, ManufactureStartFailure>> StartAsync(
+        [TraceTag(ManufactureTelemetry.RepositoryTag, "Repository")] ManufactureStartRequest request, CancellationToken ct);
 }
 
 /// <summary>Why a manufacture start failed, in terms a caller maps to a response: see <see cref="ManufactureStartFailureKind"/>.</summary>
