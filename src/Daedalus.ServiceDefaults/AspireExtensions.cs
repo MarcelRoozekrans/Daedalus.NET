@@ -88,7 +88,9 @@ public static class AspireExtensions
                 .AddSource(TracedSources)
                 .AddAspNetCoreInstrumentation(options => options.Filter = IsTracedRequest)
                 .AddHttpClientInstrumentation()
-                // Before any exporter: an outgoing call's path can hold a secret, so only its origin is exported.
+                // An outgoing call's path can hold a secret, so only its origin is exported. The OTLP exporter is ordered
+                // last by its own pipeline weight, so it always sees the cut span. A hand-added exporter has weight 0 like
+                // this processor and runs in registration order: register it after AddServiceDefaults.
                 .AddProcessor(new HttpClientOriginOnlyProcessor()));
 
         // One exporter for all three signals, configured from the standard OTEL_* settings Aspire sets.

@@ -519,8 +519,8 @@ sources, spans and metrics. This section is how to add a span.
 `ExceptionDescription = false`, because the default copies an escaping exception's message into the span. On a method
 that returns a `Result`, also set `ErrorWhen = "IsFailure"`, so a failure marks the span Error without copying its
 message. Tag ids with `[TraceTag(Name)]` on a parameter, or `[TraceTagFromResult(Name, "Value", When = "IsSuccess")]` for
-the value of a `Result`. Without `When`, the proxy reads `Value` on a failure, and that throws. See `IManufactureRunStarter` and `IWorkflowRunCanceller` in
-`src/Daedalus.Agents/Workflow/`.
+the value of a `Result`. Without `When`, the proxy reads `Value` on a failure, and that throws. See
+`IManufactureRunStarter` and `IWorkflowRunCanceller` in `src/Daedalus.Agents/Workflow/`.
 
 **Registering.** The generator emits an `XxxInstrumented` proxy. Register the proxy next to the implementation, as
 `DaedalusAgentsServiceCollectionExtensions` does for `ManufactureRunStarterInstrumented`. Never hand-wrap a proxy to set
@@ -541,8 +541,8 @@ lock, and it also sees every other host's spans in the process, so filter there 
 `TelemetryEndToEndTests` shows both.
 
 **No content.** A tag, span name, status description, event or metric tag never carries prompt or agent text, task titles
-or descriptions, PR text, file content, credentials or token values. Outgoing HTTP spans export their origin only. Exported logs are not yet covered by this rule
-(Daedalus#334).
+or descriptions, PR text, file content, credentials or token values. Outgoing HTTP spans export their origin only.
+Exported logs are not yet covered by this rule (Daedalus#334).
 
 ## Repository pattern
 

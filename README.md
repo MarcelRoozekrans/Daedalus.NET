@@ -344,9 +344,9 @@ dotnet ef database update --project src/Daedalus.Infrastructure --startup-projec
 ## Observability
 
 Daedalus traces a manufacture run step by step and counts the tokens it spends. Telemetry goes **over OTLP only when
-`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (non-empty). Aspire sets it for the projects it runs. The Api, and the Cli when it is pointed at a collector, are the hosts that
-export; Migrations and Web do not. Under `dotnet run --project src/Daedalus.AppHost` the dashboard on http://localhost:17300 shows traces, metrics and logs.
-Without it nothing is exported. `docker-compose.full.yml` runs no collector and sets no endpoint, so export is off there;
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set** (non-empty). Aspire sets it for the projects it runs. The Api, and the Cli when it is pointed at a collector, are the
+hosts that export; Migrations and Web do not. Under `dotnet run --project src/Daedalus.AppHost` the dashboard on
+http://localhost:17300 shows traces, metrics and logs. Without it nothing is exported. `docker-compose.full.yml` runs no collector and sets no endpoint, so export is off there;
 add a collector service and set `OTEL_EXPORTER_OTLP_ENDPOINT` on the API to enable it.
 
 One `UseOtlpExporter()` carries all three signals, configured from the standard `OTEL_*` variables. When the host stops
@@ -364,7 +364,9 @@ the logs of a host that stops before its first export are lost. A host whose sta
   the Telegram bot token in `/bot{token}/{method}`, so `HttpClientOriginOnlyProcessor` cuts it before any exporter sees
   it, failed calls and redirect hops included. ASP.NET Core server spans mask the query, so `url.query` shows
   `?key=Redacted`, but they export the request path in `url.path` unmasked, for example
-  `/api/tasks/<task id>/manufacture`. Task ids are Guids; do not put a secret in a route.
+  `/api/tasks/<task id>/manufacture`. Task ids are Guids; do not put a secret in a route. A failed outgoing call also
+  carries the runtime's `exception` event, with the exception's type, message and stack trace. Those messages name the
+  host and port, not the path.
 - **Metrics:** the meters `thalos`, `thalos.workflow` and `daedalus.*`, the built-in `System.Runtime` meter, and the
   ASP.NET Core and `HttpClient` metrics.
 
@@ -402,7 +404,8 @@ completed node. A crash can lose a count but never double it. Backfilled history
 
 Span names, tags, status descriptions, events and metric tags carry only ids, names, counts, durations, outcomes and
 error codes. Never prompt or agent text, task titles or descriptions, PR titles or bodies, file content, credentials or
-token values. Outgoing HTTP calls export their origin only, see "What is collected". A failed step sets Error status without a description; the one exception is the start span's failure kind.
+token values. Outgoing HTTP calls export their origin only, see "What is collected". A failed step sets Error status
+without a description; the one exception is the start span's failure kind.
 
 This rule does not yet cover exported **logs**. Whether and how to scrub them is an open decision, Daedalus#334.
 

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using Daedalus.ServiceDefaults;
@@ -14,6 +15,13 @@ namespace Daedalus.Tests.Unit.ServiceDefaults;
 ///     An outgoing HttpClient span exports the origin of its call and nothing of the path. The Telegram channel puts the
 ///     bot token in the path, <c>/bot{token}/{method}</c>, and calls through a plain <c>new HttpClient</c>, so the tests
 ///     do the same, against a loopback listener, through a provider built by <c>AddServiceDefaults</c>.
+///     <para>
+///         What an exporter sees is checked on a copy taken at export time, not on the stored <see cref="Activity"/>: the
+///         processor mutates the same object, so a stored reference passes whether the cut happened before or after the
+///         export. Ordering guarantee: processors of weight 0 run in registration order, and the OTLP exporter is
+///         ordered last by its own pipeline weight. A hand-added exporter must be registered after
+///         <c>AddServiceDefaults</c>, as <c>Host</c> does.
+///     </para>
 /// </summary>
 public sealed class HttpClientSpanRedactionTests
 {
@@ -22,7 +30,9 @@ public sealed class HttpClientSpanRedactionTests
 
     /// <summary>
     ///     Red: removing <c>AddProcessor</c> from <c>AddServiceDefaults</c> exports the runtime's <c>url.full</c>, which
-    ///     keeps the path, so the origin assertion and the leak assertion both fail.
+    ///     keeps the path, so the origin assertion and the leak assertion both fail. Red: registering the exporter before
+    ///     <c>AddServiceDefaults</c> in <c>Host</c> copies the span before the cut, so the copied <c>url.full</c> keeps
+    ///     the path.
     /// </summary>
     [Fact]
     public async Task A_successful_call_exports_only_its_origin()
@@ -36,7 +46,7 @@ public sealed class HttpClientSpanRedactionTests
         }
 
         var span = HttpSpansTo(host, exported, port).Should().ContainSingle().Subject;
-        span.GetTagItem("url.full").Should().Be($"http://127.0.0.1:{port}");
+        span.Tags["url.full"].Should().Be($"http://127.0.0.1:{port}");
         AssertNoPathAnywhere(span);
     }
 
@@ -58,7 +68,7 @@ public sealed class HttpClientSpanRedactionTests
 
         var span = HttpSpansTo(host, exported, port).Should().ContainSingle().Subject;
         span.Status.Should().Be(ActivityStatusCode.Error);
-        span.GetTagItem("url.full").Should().Be($"http://127.0.0.1:{port}");
+        span.Tags["url.full"].Should().Be($"http://127.0.0.1:{port}");
         AssertNoPathAnywhere(span);
     }
 
@@ -77,13 +87,11 @@ public sealed class HttpClientSpanRedactionTests
         { new Uri("http://[::1]:5000/x"), "http://[::1]:5000" },
     };
 
-    private static void AssertNoPathAnywhere(Activity span)
+    private static void AssertNoPathAnywhere(ExportedSpan span)
     {
-        var everything = new List<string?> { span.DisplayName, span.OperationName };
-        everything.AddRange(span.TagObjects.Select(t => t.Key));
-        everything.AddRange(span.TagObjects.Select(t => t.Value?.ToString()));
-        everything.AddRange(span.Events.SelectMany(e => e.Tags.Select(t => t.Value?.ToString())));
-        everything.AddRange(span.Events.Select(e => e.Name));
+        var everything = new List<string?> { span.DisplayName };
+        everything.AddRange(span.Tags.Keys);
+        everything.AddRange(span.Tags.Values);
         everything.Where(v => v is not null).Should().NotContain(
             v => v!.Contains("SECRET-token", StringComparison.Ordinal)
                 || v.Contains("bot123456", StringComparison.Ordinal)
@@ -92,24 +100,29 @@ public sealed class HttpClientSpanRedactionTests
     }
 
     /// <summary>The exporter is read through one snapshot, filtered to this test's port: other tests share the process.</summary>
-    private static List<Activity> HttpSpansTo(ServiceProvider host, LockedActivities exported, int port)
+    private static List<ExportedSpan> HttpSpansTo(ServiceProvider host, CopyingExporter exported, int port)
     {
         host.GetRequiredService<TracerProvider>().ForceFlush().Should().BeTrue();
         return exported.Snapshot()
-            .Where(a => string.Equals(a.Source.Name, "System.Net.Http", StringComparison.Ordinal)
-                && Equals(a.GetTagItem("server.port"), port))
+            .Where(a => string.Equals(a.Source, "System.Net.Http", StringComparison.Ordinal)
+                && a.Tags.TryGetValue("server.port", out var p)
+                && string.Equals(p, port.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
             .ToList();
     }
 
-    private static ServiceProvider Host(out LockedActivities exported)
+    /// <summary>
+    ///     The exporter is registered after <c>AddServiceDefaults</c>, so it runs after the redaction processor, as every
+    ///     hand-added exporter must.
+    /// </summary>
+    private static ServiceProvider Host(out CopyingExporter exported)
     {
         var configuration = new ConfigurationBuilder().Build();
-        var activities = new LockedActivities();
-        exported = activities;
+        var copying = new CopyingExporter();
+        exported = copying;
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
         services.AddServiceDefaults(configuration);
-        services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddInMemoryExporter((ICollection<Activity>)activities));
+        services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddProcessor(new SimpleActivityExportProcessor(copying)));
         var provider = services.BuildServiceProvider();
 
         // The provider subscribes to the sources when it is built, so build it before any call is made.
@@ -149,24 +162,45 @@ public sealed class HttpClientSpanRedactionTests
         return ((IPEndPoint)probe.LocalEndpoint).Port;
     }
 
-    /// <summary>The in-memory exporter adds without a lock, on whichever thread stops a span.</summary>
-    private sealed class LockedActivities : Collection<Activity>
+    /// <summary>What an exporter saw of one span at the moment it was exported.</summary>
+    private sealed record ExportedSpan(
+        string Source, string DisplayName, ActivityStatusCode Status, Dictionary<string, string?> Tags);
+
+    /// <summary>Copies each span's name and tags when it is exported, so later changes to the Activity do not show.</summary>
+    private sealed class CopyingExporter : BaseExporter<Activity>
     {
         private readonly Lock _gate = new();
+        private readonly List<ExportedSpan> _spans = [];
 
-        protected override void InsertItem(int index, Activity item)
+        public override ExportResult Export(in Batch<Activity> batch)
         {
-            lock (_gate)
+            foreach (var activity in batch)
             {
-                base.InsertItem(index, item);
+                var tags = activity.TagObjects.ToDictionary(
+                    t => t.Key, t => t.Value?.ToString(), StringComparer.Ordinal);
+                foreach (var e in activity.Events)
+                {
+                    foreach (var t in e.Tags)
+                    {
+                        tags[$"event:{e.Name}:{t.Key}"] = t.Value?.ToString();
+                    }
+                }
+
+                var copy = new ExportedSpan(activity.Source.Name, activity.DisplayName, activity.Status, tags);
+                lock (_gate)
+                {
+                    _spans.Add(copy);
+                }
             }
+
+            return ExportResult.Success;
         }
 
-        public List<Activity> Snapshot()
+        public List<ExportedSpan> Snapshot()
         {
             lock (_gate)
             {
-                return [.. this];
+                return [.. _spans];
             }
         }
     }

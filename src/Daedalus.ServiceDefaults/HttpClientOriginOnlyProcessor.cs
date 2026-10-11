@@ -17,8 +17,8 @@ namespace Daedalus.ServiceDefaults;
 /// </summary>
 internal sealed class HttpClientOriginOnlyProcessor : BaseProcessor<Activity>
 {
-    /// <summary>The runtime's HttpClient source, and the source of the instrumentation's own spans on older runtimes.</summary>
-    private static readonly string[] HttpSources = ["System.Net.Http", "OpenTelemetry.Instrumentation.Http"];
+    /// <summary>The runtime's HttpClient source, the only one that emits HttpClient spans on .NET 7 and later.</summary>
+    private const string HttpSource = "System.Net.Http";
 
     private const string UrlFullTag = "url.full";
 
@@ -28,7 +28,7 @@ internal sealed class HttpClientOriginOnlyProcessor : BaseProcessor<Activity>
     public override void OnEnd(Activity data)
     {
         ArgumentNullException.ThrowIfNull(data);
-        if (Array.IndexOf(HttpSources, data.Source.Name) < 0)
+        if (!string.Equals(data.Source.Name, HttpSource, StringComparison.Ordinal))
         {
             return;
         }
