@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
@@ -92,7 +93,8 @@ public static class AspireExtensions
         if (exportOtlp)
         {
             telemetry.UseOtlpExporter();
-            services.AddSingleton<IHostedService, TelemetryShutdownFlush>();
+            services.TryAddSingleton(TelemetryShutdownFlushOptions.Default);
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, TelemetryShutdownFlush>());
         }
 
         services.AddLogging(logging =>

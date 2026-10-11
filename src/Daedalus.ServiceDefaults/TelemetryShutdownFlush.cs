@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
@@ -12,9 +13,13 @@ namespace Daedalus.ServiceDefaults;
 ///         log exporter's HTTP client lazily, on the first export, by resolving it from the root service provider
 ///         (opentelemetry-dotnet PR 7298). The only final flush is inside <c>LoggerProvider.Dispose</c>, which runs
 ///         while the container is already disposing, so that resolution throws <see cref="ObjectDisposedException"/>
-///         and the batch is dropped. A host that stops before its first scheduled log export, such as one that fails
-///         at startup, would lose every log record. Traces and metrics create their clients eagerly and are not
-///         affected; they are flushed here for symmetry.
+///         and the batch is dropped. A host that stops normally before its first scheduled log export would lose every
+///         log record. Traces and metrics create their clients eagerly and are not affected; they are flushed here for
+///         symmetry.
+///     </para>
+///     <para>
+///         Not covered: in .NET 10 a host whose <c>StartAsync</c> fails is disposed without <c>StoppedAsync</c> running,
+///         so its unexported logs, startup failures included, are still lost until the upstream fix.
 ///     </para>
 ///     <para>
 ///         <see cref="IHostedLifecycleService.StoppedAsync"/> runs after every hosted service has stopped, so their
@@ -22,10 +27,9 @@ namespace Daedalus.ServiceDefaults;
 ///         lifecycle practice if it is fixed there.
 ///     </para>
 /// </summary>
-internal sealed class TelemetryShutdownFlush(IServiceProvider services) : IHostedLifecycleService
+internal sealed class TelemetryShutdownFlush(IServiceProvider services, TelemetryShutdownFlushOptions options)
+    : IHostedLifecycleService
 {
-    private const int FlushTimeoutMilliseconds = 5000;
-
     public Task StartingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -36,12 +40,46 @@ internal sealed class TelemetryShutdownFlush(IServiceProvider services) : IHoste
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    /// <summary>
+    ///     Flushes logs first, then traces, then metrics, within one <see cref="TelemetryShutdownFlushOptions.Budget"/>.
+    ///     Any provider may be absent, so none is required.
+    /// </summary>
     public Task StoppedAsync(CancellationToken cancellationToken)
     {
-        // Any provider may be absent, so none of them is required.
-        (services.GetService(typeof(LoggerProvider)) as LoggerProvider)?.ForceFlush(FlushTimeoutMilliseconds);
-        (services.GetService(typeof(TracerProvider)) as TracerProvider)?.ForceFlush(FlushTimeoutMilliseconds);
-        (services.GetService(typeof(MeterProvider)) as MeterProvider)?.ForceFlush(FlushTimeoutMilliseconds);
+        Func<int, bool>?[] flushes =
+        [
+            (services.GetService(typeof(LoggerProvider)) as LoggerProvider) is { } logs ? logs.ForceFlush : null,
+            (services.GetService(typeof(TracerProvider)) as TracerProvider) is { } traces ? traces.ForceFlush : null,
+            (services.GetService(typeof(MeterProvider)) as MeterProvider) is { } metrics ? metrics.ForceFlush : null,
+        ];
+        FlushWithinBudget(flushes, options.Budget, cancellationToken);
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    ///     Runs the flushes in order, each given what is left of <paramref name="budget"/> in milliseconds. Once the
+    ///     budget is spent or <paramref name="cancellationToken"/> is cancelled, the rest are skipped.
+    /// </summary>
+    internal static void FlushWithinBudget(
+        IEnumerable<Func<int, bool>?> flushes, TimeSpan budget, CancellationToken cancellationToken)
+    {
+        var clock = Stopwatch.StartNew();
+        foreach (var flush in flushes)
+        {
+            var remaining = budget - clock.Elapsed;
+            if (cancellationToken.IsCancellationRequested || remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            flush?.Invoke((int)Math.Ceiling(remaining.TotalMilliseconds));
+        }
+    }
+}
+
+/// <summary>The time <see cref="TelemetryShutdownFlush"/> may spend flushing, in total, on one stop.</summary>
+internal sealed record TelemetryShutdownFlushOptions(TimeSpan Budget)
+{
+    /// <summary>The budget used by the host.</summary>
+    public static TelemetryShutdownFlushOptions Default { get; } = new(TimeSpan.FromSeconds(5));
 }
