@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
@@ -104,6 +105,10 @@ public sealed partial class TaskManufactureService(
         }
 
         var task = found.Value;
+
+        // Phase 2.9: the request span is the trace's root for this start. The task id, never its title, ties it to the board.
+        Activity.Current?.SetTag(ManufactureTelemetry.TaskIdTag, task.Id);
+
         var project = await projects.GetByIdAsync(task.ProjectId, ct).ConfigureAwait(false);
         if (project.IsFailure)
         {
