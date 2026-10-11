@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Services;
@@ -238,6 +239,39 @@ public sealed class TaskManufactureServiceTests
     }
 
     /// <summary>
+    ///     Phase 2.9: the request span carries the task's id once the task is read, so a trace ties the request to its task
+    ///     without an interface invented for this service.
+    ///     Red: delete the <c>Activity.Current?.SetTag</c> line in <c>StartAsync</c>; the tag is null.
+    ///     Red: tag <c>task.TaskId</c>, the human key, in place of <c>task.Id</c>; the value differs.
+    /// </summary>
+    [Fact]
+    public async Task The_current_request_span_is_tagged_with_the_task_id()
+    {
+        var task = Given();
+        using var request = new Activity("probe-request").Start();
+
+        (await Service().StartAsync(task.Id, Starter, CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        request.GetTagItem(ManufactureTelemetry.TaskIdTag).Should().Be(task.Id);
+    }
+
+    /// <summary>
+    ///     Nothing is tagged when the task is not found, so a probe for an id that does not exist leaves no trace of it.
+    ///     Red: tag <c>taskId</c> before the <c>found.IsFailure</c> check; the tag is not null.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_task_leaves_the_request_span_untagged()
+    {
+        var missing = Guid.NewGuid();
+        _tasks.GetByIdAsync(missing, Arg.Any<CancellationToken>()).Returns(Result<DomainTask>.Failure($"Task {missing} not found"));
+        using var request = new Activity("probe-request").Start();
+
+        (await Service().StartAsync(missing, Starter, CancellationToken.None)).IsFailure.Should().BeTrue();
+
+        request.GetTagItem(ManufactureTelemetry.TaskIdTag).Should().BeNull();
+    }
+
+    /// <summary>
     ///     Once the run has started, the attach is saved under a token of its own, so a caller that goes away while the run
     ///     starts leaves it attached, not cancelled. The save here honours its token, as EF Core's does.
     ///     Red: pass the caller's token to <c>UpdateAsync</c> again, or link it into the save's token; the save fails,
@@ -248,11 +282,13 @@ public sealed class TaskManufactureServiceTests
     {
         var task = Given();
         using var caller = new CancellationTokenSource();
-        _starter.StartAsync(default!, default).ReturnsForAnyArgs(_ =>
+        async ValueTask<Result<Guid, ManufactureStartFailure>> CancelThenStart()
         {
-            caller.Cancel();
-            return new ValueTask<Result<Guid, ManufactureStartFailure>>(Result<Guid, ManufactureStartFailure>.Success(_started));
-        });
+            await caller.CancelAsync();
+            return Result<Guid, ManufactureStartFailure>.Success(_started);
+        }
+
+        _starter.StartAsync(default!, default).ReturnsForAnyArgs(_ => CancelThenStart());
         _tasks.UpdateAsync(default!, default).ReturnsForAnyArgs(call =>
             call.Arg<CancellationToken>().IsCancellationRequested ? Result.Failure("The save was cancelled.") : Result.Success());
 
