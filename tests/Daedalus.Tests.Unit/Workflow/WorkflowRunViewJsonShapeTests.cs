@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Daedalus.Api.Controllers;
 using Daedalus.Application.DTOs.WorkflowRuns;
+using Thalos;
+using Thalos.Workflow;
 
 namespace Daedalus.Tests.Unit.Workflow;
 
@@ -29,6 +31,19 @@ public sealed class WorkflowRunViewJsonShapeTests
         Names(root.GetProperty("deferredFindings")[0]).Should().Equal(
             "id", "lens", "file", "line", "title", "scenario", "reason", "existingIssue", "dropped");
         Names(root.GetProperty("filedFindings")[0]).Should().Equal("findingId", "mode", "issue", "url");
+    }
+
+    /// <summary>
+    ///     The pin view serializes byte for byte as the Thalos pin did, all five members, the agent id value included.
+    ///     Red: change <c>.ToString()</c> in <c>ToPinView</c> to <c>.Value.ToString()</c> or a lowercase form.
+    /// </summary>
+    [Fact]
+    public void The_pin_view_serializes_byte_for_byte_as_the_thalos_pin()
+    {
+        var pin = new NodePin("Implementer", AgentId.New(), "3", "implement-skill", "hash");
+
+        JsonSerializer.Serialize(WorkflowRunsController.ToPinView(pin), JsonSerializerOptions.Web)
+            .Should().Be(JsonSerializer.Serialize(pin, JsonSerializerOptions.Web));
     }
 
     private static IEnumerable<string> Names(JsonElement element) => element.EnumerateObject().Select(p => p.Name);

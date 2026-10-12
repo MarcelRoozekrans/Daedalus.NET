@@ -139,10 +139,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             run.CurrentNode,
             run.AwaitingSignal,
             run.LastError,
-            run.Manifest?.Nodes.ToDictionary(
-                p => p.Key,
-                p => new NodePinView(p.Value.AgentName, p.Value.AgentId.ToString(), p.Value.AgentRevision, p.Value.SkillName, p.Value.SkillHash),
-                StringComparer.Ordinal),
+            run.Manifest?.Nodes.ToDictionary(p => p.Key, p => ToPinView(p.Value), StringComparer.Ordinal),
             StandingInstructionsDiff: StandingInstructionsWriter.Diff(run),
             NodeUsage: [.. events.Where(e => e.Usage is not null && e.FromNode is not null).Select(ToUsageView)],
             PrUrl: prUrl,
@@ -192,6 +189,10 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     private static DeferredFindingView ToDeferredView(IdentifiedDeferredFinding d, IReadOnlySet<string> dropped) =>
         new(d.Id, d.Lens, d.Finding.File, d.Finding.Line, d.Finding.Title, d.Finding.Scenario, d.Finding.Reason,
             d.Finding.ExistingIssue, dropped.Contains(d.Id));
+
+    /// <summary>Maps a Thalos pin to the Thalos-free view. The agent id is its ULID text, which is how Thalos serializes it.</summary>
+    internal static NodePinView ToPinView(NodePin pin) =>
+        new(pin.AgentName, pin.AgentId.ToString(), pin.AgentRevision, pin.SkillName, pin.SkillHash);
 
     private static NodeUsageView ToUsageView(WorkflowRunEvent completion)
     {
