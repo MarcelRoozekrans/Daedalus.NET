@@ -7,7 +7,7 @@ namespace Daedalus.Tests.Unit.Infrastructure.Services.GitHub;
 /// <summary>
 ///     Phase 2.11, decision D3 and defect 1: a write goes out exactly once through the real pipeline, on a 5xx and on a
 ///     timeout alike, while a read still retries, except a 429 (amendment A1). GitHub has no idempotency keys, so a
-///     retried write can land twice. <c>GitHubHost</c> registers <c>TimeProvider.System</c>, so RetryAt is checked
+///     retried write can land twice. <c>AddGitHubApi</c> registers <c>TimeProvider.System</c>, so RetryAt is checked
 ///     against the real clock with a tolerance.
 /// </summary>
 public sealed class GitHubRetryTests
@@ -69,7 +69,7 @@ public sealed class GitHubRetryTests
 
     /// <summary>
     ///     Red: give the read client <c>NeverRetry</c> too; the read is sent once.
-    ///     Red: map a timeout to Transport in <c>GitHubApi.CallAsync</c>; the kind assertion fails.
+    ///     Red: map a timeout to NotSent in the <c>GitHubApi.CallAsync</c> catch; the kind is Transport.
     /// </summary>
     [Fact]
     public async Task A_read_is_still_retried_after_a_timeout()
@@ -86,10 +86,9 @@ public sealed class GitHubRetryTests
     /// <summary>
     ///     Spec amendment A1, ruling P28: a read refused with 429 is sent once and says when to retry, rather than waiting
     ///     out Retry-After until the total timeout turns it into a Timeout.
-    ///     Red: drop the <c>TooManyRequests</c> clause from <c>RetryReadsExceptRateLimits</c>; the read is retried and the
-    ///     count is 4, or the 60-second total timeout ends it as Timeout.
+    ///     Red: drop the <c>TooManyRequests</c> clause from <c>RetryReadsExceptRateLimits</c>; the read is sent 4 times.
     ///     Red: map 429 to Validation in the mapper; the kind assertion fails.
-    ///     Red: drop <c>Retry-After</c> from the mapper's RetryAt; RetryAt is null.
+    ///     Red: drop <c>Retry-After</c> from the mapper's RetryAt; RetryAt falls back to now plus 60 seconds.
     /// </summary>
     [Fact]
     public async Task A_rate_limited_read_is_not_retried_and_says_when()
@@ -97,7 +96,7 @@ public sealed class GitHubRetryTests
         var primary = RecordingHandler.Answering(_ =>
         {
             var refused = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
-            refused.Headers.TryAddWithoutValidation("Retry-After", "120");
+            refused.Headers.TryAddWithoutValidation("Retry-After", "1");
             return refused;
         });
         await using var host = GitHubHost.Build(primary);
@@ -106,7 +105,7 @@ public sealed class GitHubRetryTests
 
         primary.Count.Should().Be(1);
         read.Error.Kind.Should().Be(GitHubErrorKind.RateLimited);
-        read.Error.RetryAt.Should().BeCloseTo(DateTimeOffset.UtcNow.AddSeconds(120), TimeSpan.FromSeconds(10));
+        read.Error.RetryAt.Should().BeCloseTo(DateTimeOffset.UtcNow.AddSeconds(1), TimeSpan.FromSeconds(5));
     }
 
     private static async Task<GitHubError> WriteAsync(GitHubApi api, string write) => write switch
