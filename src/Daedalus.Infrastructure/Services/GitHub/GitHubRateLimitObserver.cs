@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Diagnostics.Metrics;
 using System.Globalization;
 
@@ -11,7 +12,11 @@ namespace Daedalus.Infrastructure.Services.GitHub;
 /// </summary>
 /// <remarks>
 ///     <b>No content.</b> The only tag is GitHub's resource name: no path, repository, token or status. The meter is under
-///     <c>daedalus.*</c>, which the service defaults collect.
+///     <c>daedalus.*</c>, which the service defaults collect. The header is not copied: an upstream such as GitHub
+///     Enterprise Server or a proxy can send any text, and an exported tag with unbounded values makes unbounded series.
+///     So the value is mapped through the resources GitHub documents (<see cref="Resources"/>), compared ordinally,
+///     because GitHub sends them in lowercase and anything else is not a documented name. Any other value is tagged
+///     <c>other</c>; a missing or blank header is tagged <c>unknown</c>.
 /// </remarks>
 public sealed class GitHubRateLimitObserver : DelegatingHandler
 {
@@ -23,6 +28,13 @@ public sealed class GitHubRateLimitObserver : DelegatingHandler
 
     /// <summary>The one tag: GitHub's <c>X-RateLimit-Resource</c>, or <c>unknown</c>.</summary>
     public const string ResourceTag = "daedalus.github.resource";
+
+    private static readonly FrozenSet<string> Resources = new[]
+    {
+        "core", "search", "code_search", "graphql", "integration_manifest", "source_import", "code_scanning_upload",
+        "code_scanning_autofix", "actions_runner_registration", "scim", "dependency_snapshots", "dependency_sbom",
+        "audit_log", "audit_log_streaming",
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly Meter Meter = new(MeterName);
 
@@ -45,6 +57,14 @@ public sealed class GitHubRateLimitObserver : DelegatingHandler
         }
 
         var resource = response.Headers.TryGetValues("X-RateLimit-Resource", out var names) ? names.FirstOrDefault() : null;
-        Remaining.Record(remaining, new KeyValuePair<string, object?>(ResourceTag, string.IsNullOrWhiteSpace(resource) ? "unknown" : resource));
+        Remaining.Record(remaining, new KeyValuePair<string, object?>(ResourceTag, Label(resource)));
+    }
+
+    private static string Label(string? resource)
+    {
+        if (string.IsNullOrWhiteSpace(resource))
+            return "unknown";
+
+        return Resources.Contains(resource) ? resource : "other";
     }
 }
