@@ -94,5 +94,7 @@ internal sealed class TaskConfiguration : IEntityTypeConfiguration<Task>
 
         entity.HasIndex(e => e.ProjectId)
             .HasDatabaseName("IX_Tasks_ProjectId");
+
+        entity.HasIndex(e => e.WorkflowRunId);
     }
 }

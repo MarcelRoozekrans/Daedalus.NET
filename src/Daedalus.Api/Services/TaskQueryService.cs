@@ -40,4 +40,29 @@ public sealed class TaskQueryService(ApplicationDbContext dbContext, IWorkflowRu
 
         return task is null ? null : TaskDtoMapper.ToDto(task, await runs.ReadRunAsync(task, ct).ConfigureAwait(false));
     }
+
+    public async Task<IReadOnlyDictionary<Guid, TaskRunLink>> GetRunLinksAsync(
+        IReadOnlyCollection<Guid> runIds, CancellationToken ct = default)
+    {
+        if (runIds.Count == 0)
+        {
+            return new Dictionary<Guid, TaskRunLink>();
+        }
+
+        var ids = runIds.ToList();
+        var rows = await dbContext.Tasks
+            .AsNoTracking()
+            .Where(t => t.WorkflowRunId != null && ids.Contains(t.WorkflowRunId.Value))
+            .Select(t => new { RunId = t.WorkflowRunId!.Value, t.Id, t.TaskId, t.Title })
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        var links = new Dictionary<Guid, TaskRunLink>(rows.Count);
+        foreach (var row in rows)
+        {
+            links.TryAdd(row.RunId, new TaskRunLink(row.Id, row.TaskId, row.Title));
+        }
+
+        return links;
+    }
 }

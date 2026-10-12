@@ -140,3 +140,13 @@ public sealed record NodeUsageView(long Seq, string Node, int InputTokens, int O
 /// <param name="Path">The path the call named, or <see langword="null"/> when it named none.</param>
 /// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
 public sealed record WriteAuditView(long Seq, string Node, string Tool, string? Path, string? StartedBy);
+
+/// <summary>One page of <c>GET /api/workflow-runs</c>.</summary>
+/// <param name="Runs">The runs, newest first.</param>
+/// <param name="Next">The opaque cursor for the next page, or <see langword="null"/> on the last page.</param>
+public sealed record WorkflowRunList(IReadOnlyList<WorkflowRunListItem> Runs, string? Next);
+
+/// <summary>One run in the list: no variables, no error, and the board task it belongs to when there is one.</summary>
+public sealed record WorkflowRunListItem(
+    Guid Id, string Process, int ProcessVersion, string Status, string CurrentNode, string? AwaitingSignal,
+    string? StartedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? TaskId, string? TaskCode, string? TaskTitle);
