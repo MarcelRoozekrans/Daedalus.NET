@@ -185,11 +185,17 @@ public static class InfrastructureServiceExtensions
 
         // Whichever caller registers this first wins; both mean TimeProvider.System.
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<GitHubConditionalCache>();
+        services.TryAddTransient<GitHubConditionalCacheHandler>();
 
         // Two named clients behind one facade, so that writes can have a pipeline of their own. GitHubApi sets each
         // client's BaseAddress from GitHubOptions.ApiUrl.
-        // A read refused with 429 is not retried: it becomes RateLimited with its retry time at once (spec amendment A1).
-        services.AddHttpClient(GitHubApi.ReadClientName).AddStandardResilienceHandler(options =>
+        // Reads, outside in: the conditional cache, then the resilience pipeline, which retries what is transient except a
+        // 429 (spec amendment A1). The cache sits outside, so a retried attempt keeps its If-None-Match and a 304 is
+        // replayed once.
+        var reads = services.AddHttpClient(GitHubApi.ReadClientName);
+        reads.AddHttpMessageHandler<GitHubConditionalCacheHandler>();
+        reads.AddStandardResilienceHandler(options =>
         {
             ConfigureResilience(options);
             RetryReadsExceptRateLimits(options);
