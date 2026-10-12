@@ -114,9 +114,11 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
             // then fails, 1001 on 'already exists', instead of succeeding and showing up in Applied.
             await BuildLegacyDatabaseAsync(connection, LegacyRows, withSchema: false);
 
-            // The one table a post-scoping migration alters (1010 adds workflow_run.trace_parent). A re-applied 1001 now
-            // fails on "already exists" instead of showing up in Applied, so the test still goes red when it should.
-            await using (var stub = new NpgsqlCommand("CREATE TABLE workflow_run (id uuid PRIMARY KEY)", connection))
+            // The one table the post-scoping migrations alter (1010 adds workflow_run.trace_parent, and 0.16.0 adds an
+            // index on created_at and id, so the stub carries a created_at column). A re-applied 1001 now fails on "already exists" instead
+            // of showing up in Applied, so the test still goes red when it should.
+            await using (var stub = new NpgsqlCommand(
+                "CREATE TABLE workflow_run (id uuid PRIMARY KEY, created_at timestamptz NOT NULL)", connection))
             {
                 await stub.ExecuteNonQueryAsync();
             }

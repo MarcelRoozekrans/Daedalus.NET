@@ -6,8 +6,9 @@
     <!-- 1.7.5 → 1.7.8: floor set by Thalos.NET.Abstractions 0.11.0.
          1.7.8 → 2.1.0, Validation and Testing: floor set by Thalos.NET.Abstractions 0.14.2. 2.0 bundles its source
          generator, so the separate ZeroAlloc.Validation.Generator reference is gone: with both, ZV9001 fails the build.
-         2.1.0 → 2.2.0, Validation and Testing: floor set by Thalos.NET.Channels 0.15.0. -->
-    <ZeroAllocValidationVersion>2.2.0</ZeroAllocValidationVersion>
+         2.1.0 → 2.2.0, Validation and Testing: floor set by Thalos.NET.Channels 0.15.0.
+         2.2.0 → 2.3.1, Validation and Testing: floor set by Thalos.NET.Abstractions 0.16.0. -->
+    <ZeroAllocValidationVersion>2.3.1</ZeroAllocValidationVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -71,27 +72,31 @@
          to commit a sandboxed run's checked index as it stands, and registers IRunWorkspaceGit in
          UseSandboxRunWorkspaces (Thalos #250); 0.14.2 fixes the HTTP MCP connect, with no API change here.
          0.14.2 → 0.15.0 (phase 2.9): workflow telemetry on the `thalos.workflow` source and meter, the
-         `workflow_run.trace_parent` column (migration 1010), and `TelemetryCapture` in Thalos.NET.Testing. -->
-    <PackageVersion Include="Thalos.NET" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Git" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Memory" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Skills" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Channels" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.15.0" />
+         `workflow_run.trace_parent` column (migration 1010), and `TelemetryCapture` in Thalos.NET.Testing.
+         0.15.0 → 0.16.0: IWorkflowRunQuery and IWorkflowRunObserver for phase 2.12's console. -->
+    <PackageVersion Include="Thalos.NET" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Git" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Skills" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Channels" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.16.0" />
     <!-- Phase 2.2 Part B: consume the durable workflow engine Part A shipped. -->
-    <PackageVersion Include="Thalos.NET.Workflow" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.15.0" />
+    <PackageVersion Include="Thalos.NET.Workflow" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.16.0" />
     <!-- Phase 2.6: the per-run Docker sandbox packages, net10.0 only, shipped from 0.14.0. -->
-    <PackageVersion Include="Thalos.NET.Sandbox" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.15.0" />
-    <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.15.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.16.0" />
+    <!-- 1.1.11: Flux.Blazor references Microsoft.AspNetCore.Components; 1.1.10 could not build for browser-wasm. -->
+    <PackageVersion Include="ZeroAlloc.Flux" Version="1.1.11" />
+    <PackageVersion Include="ZeroAlloc.Flux.Blazor" Version="1.1.11" />
     <!-- ZeroAlloc.ORM 1.7.1 → 2.0.1 (#310): ZeroAlloc.Outbox.Orm 3.0.1 declares >= 2.0.0. 2.0.1 → 2.1.1: floor
          set by Thalos.NET.Workflow.Orm 0.11.1, the version it is built against.
          2.0 rejects a migration version collision instead of skipping it: the outbox schema is versions 1-2
@@ -99,31 +104,37 @@
          2.1.1 → 2.2.0: floor set by ZeroAlloc.Outbox.Orm 4.2.0 and Thalos.NET.Workflow.Orm 0.14.x. 2.2 scopes the
          history table's versions by source, and its own upgrade of an older table refuses one both sources wrote,
          so Daedalus.Migrations attributes the rows first: see PreScopingMigrationHistory. -->
-    <PackageVersion Include="ZeroAlloc.ORM" Version="2.2.0" />
+    <!-- 2.2.0 → 2.3.1: floor set by Thalos.NET.Workflow.Orm 0.16.0 -->
+    <PackageVersion Include="ZeroAlloc.ORM" Version="2.3.1" />
     <!-- AdoNet.Async.Adapters: floor set by Thalos.NET.Workflow.Orm 0.7.0's own nuspec (1.4.1) — NOT the
          1.4.0 ZeroAlloc.Outbox.Orm 2.6.0 itself declares; Workflow.Orm's direct pin is the higher one and
          wins under CentralPackageTransitivePinningEnabled, so this must be pinned at 1.4.1 or NU1109 fires
          the moment Thalos.NET.Workflow.Orm is referenced. -->
     <!-- 1.4.1 → 1.5.0: floor set by Thalos.NET.Workflow.Orm 0.15.0 -->
-    <PackageVersion Include="AdoNet.Async.Adapters" Version="1.5.0" />
-    <!-- 1.2.3 → 1.2.4: floor set by Thalos.NET.Abstractions 0.11.1. 1.2.4 → 1.4.0: floor set by ZeroAlloc.Rest 3.3.2 -->
-    <PackageVersion Include="ZeroAlloc.Results" Version="1.4.0" />
+    <!-- 1.5.0 → 1.5.2: floor set by Thalos.NET.Workflow.Orm 0.16.0 -->
+    <PackageVersion Include="AdoNet.Async.Adapters" Version="1.5.2" />
+    <!-- 1.2.3 → 1.2.4: floor set by Thalos.NET.Abstractions 0.11.1. 1.2.4 → 1.4.0: floor set by ZeroAlloc.Rest 3.3.2.
+         1.4.0 → 1.4.1: floor set by Thalos.NET.Abstractions 0.16.0. -->
+    <PackageVersion Include="ZeroAlloc.Results" Version="1.4.1" />
     <!-- Phase 2.11: the generated GitHub and Azure DevOps clients. The source generator ships inside ZeroAlloc.Rest;
          the standalone ZeroAlloc.Rest.Generator package exists only for old direct references, so it is not used. -->
     <PackageVersion Include="ZeroAlloc.Rest" Version="3.3.2" />
     <PackageVersion Include="ZeroAlloc.Rest.SystemTextJson" Version="3.3.2" />
-    <!-- 1.1.11, transitive until now → 1.2.0: floor set by ZeroAlloc.Rest 3.3.2 -->
-    <PackageVersion Include="ZeroAlloc.Collections" Version="1.2.0" />
+    <!-- 1.1.11, transitive until now → 1.2.0: floor set by ZeroAlloc.Rest 3.3.2.
+         1.2.0 → 1.2.1: floor set by AI.Sentinel 2.3.2, via Thalos.NET.Sentinel 0.16.0. -->
+    <PackageVersion Include="ZeroAlloc.Collections" Version="1.2.1" />
     <!-- Phase 2.9: Daedalus.Agents generates [Instrument] proxies. Thalos's own dependency on this package excludes its
          analyzers, so the generator does not flow transitively: Daedalus references it directly. Version: the one
-         Thalos.NET.Workflow 0.15.0's nuspec declares. -->
-    <PackageVersion Include="ZeroAlloc.Telemetry" Version="1.12.0" />
+         Thalos.NET.Workflow 0.15.0's nuspec declares.
+         1.12.0 → 1.12.2: floor set by Thalos.NET.Workflow 0.16.0. -->
+    <PackageVersion Include="ZeroAlloc.Telemetry" Version="1.12.2" />
     <!-- 2.0.10 → 2.0.12: floor set by Thalos.NET.Abstractions 0.13.0 -->
     <!-- 2.0.12 → 2.1.0: floor set by Thalos.NET.Abstractions 0.15.0 -->
-    <PackageVersion Include="ZeroAlloc.ValueObjects" Version="2.1.0" />
+    <!-- 2.1.0 → 2.2.0: floor set by Thalos.NET.Abstractions 0.16.0 -->
+    <PackageVersion Include="ZeroAlloc.ValueObjects" Version="2.2.0" />
     <!-- 2.4.4 → 2.5.0: floor set by ZeroAlloc.Outbox 4.2.0. 2.5.0 → 2.5.1: floor set by AI.Sentinel 2.3.1, via
-         Thalos.NET.Sentinel 0.14.2. -->
-    <PackageVersion Include="ZeroAlloc.Serialisation" Version="2.5.1" />
+         Thalos.NET.Sentinel 0.14.2. 2.5.1 → 2.8.1: floor set by AI.Sentinel 2.3.2, via Thalos.NET.Sentinel 0.16.0. -->
+    <PackageVersion Include="ZeroAlloc.Serialisation" Version="2.8.1" />
     <!-- 2.1.3 → 2.1.5: floor set by Thalos.NET.Abstractions 0.13.0 -->
     <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.5" />
     <PackageVersion Include="ZeroAlloc.Validation" Version="$(ZeroAllocValidationVersion)" />
@@ -134,9 +145,10 @@
          even without WithTelemetry. -->
     <!-- 6.0.2 → 6.1.0, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.14.0.
          6.1.0 → 6.1.1, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.14.2.
-         6.1.1 → 6.4.0, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.15.0. -->
-    <PackageVersion Include="ZeroAlloc.Mediator" Version="6.4.0" />
-    <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="6.4.0" />
+         6.1.1 → 6.4.0, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.15.0.
+         6.4.0 → 6.6.0, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.16.0. -->
+    <PackageVersion Include="ZeroAlloc.Mediator" Version="6.6.0" />
+    <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="6.6.0" />
     <!-- 1.2.2 → 1.3.0: floor set by ZeroAlloc.Mediator 6.1.0. 1.3.0 → 1.4.0: floor set by ZeroAlloc.Validation 2.1.0. -->
     <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.4.0" />
     <!-- 2.7.1 → 3.0.1 (#310), all three together: 3.0 replaces FetchPendingAsync with a lease-based claim,
@@ -148,12 +160,13 @@
          serializer, so AddChannelOutbox calls WithSystemTextJsonSerializer, which writes the same bytes 3.x did;
          and it rejects a second, different store, which Daedalus never registers. No schema change.
          4.0.1 → 4.2.0, ZeroAlloc.Outbox alone: floor set by Thalos.NET.Workflow.Orm 0.13.0. EfCore and Orm stay 4.0.1.
-         4.2.0 → 4.4.0: floor set by Thalos.NET.Workflow.Orm 0.15.0. -->
-    <PackageVersion Include="ZeroAlloc.Outbox" Version="4.4.0" />
+         4.2.0 → 4.4.0: floor set by Thalos.NET.Workflow.Orm 0.15.0.
+         4.4.0 → 4.4.3: floor set by Thalos.NET.Workflow.Orm 0.16.0. -->
+    <PackageVersion Include="ZeroAlloc.Outbox" Version="4.4.3" />
     <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="4.0.1" />
     <!-- 4.0.1 → 4.2.0: floor set by Thalos.NET.Workflow.Orm 0.14.0. 4.2.0 → 4.4.0: floor set by
-         Thalos.NET.Workflow.Orm 0.15.0. -->
-    <PackageVersion Include="ZeroAlloc.Outbox.Orm" Version="4.4.0" />
+         Thalos.NET.Workflow.Orm 0.15.0. 4.4.0 → 4.4.3: floor set by Thalos.NET.Workflow.Orm 0.16.0. -->
+    <PackageVersion Include="ZeroAlloc.Outbox.Orm" Version="4.4.3" />
 
     <!-- ASP.NET Core / Blazor -->
     <PackageVersion Include="Asp.Versioning.Mvc" Version="8.1.0" />
@@ -163,6 +176,8 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.2" />
+    <!-- Phase 2.12: the console's live connection to /hubs/workflow-runs. -->
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
     <PackageVersion Include="Radzen.Blazor" Version="8.7.5" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.12.50" />
 
