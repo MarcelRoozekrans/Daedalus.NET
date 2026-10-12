@@ -1,3 +1,4 @@
+using System.Net;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.Services;
@@ -202,8 +203,21 @@ public static class InfrastructureServiceExtensions
 
         // Two named clients behind one facade, so that writes can have a pipeline of their own. GitHubApi sets each
         // client's BaseAddress from GitHubOptions.ApiUrl.
-        services.AddHttpClient(GitHubApi.ReadClientName).AddStandardResilienceHandler(ConfigureResilience);
-        services.AddHttpClient(GitHubApi.WriteClientName).AddStandardResilienceHandler(ConfigureResilience);
+        // A read refused with 429 is not retried: it becomes RateLimited with its retry time at once (spec amendment A1).
+        services.AddHttpClient(GitHubApi.ReadClientName).AddStandardResilienceHandler(options =>
+        {
+            ConfigureResilience(options);
+            RetryReadsExceptRateLimits(options);
+        });
+
+        // A write goes out once. GitHub has no idempotency keys, so a comment, issue or pull request sent again after a
+        // timeout or a 5xx can land twice. The recovery that is safe stays with the callers: file-findings finds its own
+        // earlier output by its marker, and the publisher looks for an open pull request before it opens one.
+        services.AddHttpClient(GitHubApi.WriteClientName).AddStandardResilienceHandler(options =>
+        {
+            ConfigureResilience(options);
+            NeverRetry(options);
+        });
 
         services.AddTransient<GitHubApi>();
         services.AddScoped<IGitHubReader>(sp => sp.GetRequiredService<GitHubApi>());
@@ -222,4 +236,24 @@ public static class InfrastructureServiceExtensions
         options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
         options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
     }
+
+    /// <summary>
+    ///     Keeps the standard pipeline's timeouts, circuit breaker and limiter, and turns its retry off: the predicate
+    ///     handles no outcome. <c>DisableForUnsafeHttpMethods</c> would say this per method, but it is
+    ///     <c>[Experimental("EXTEXP0001")]</c> in every Microsoft.Extensions.Http.Resilience 10.x release, so a client
+    ///     whose calls are all writes gets this pipeline instead.
+    /// </summary>
+    private static void NeverRetry(HttpStandardResilienceOptions options) =>
+        options.Retry.ShouldHandle = static _ => PredicateResult.False();
+
+    /// <summary>
+    ///     Retries what the standard pipeline treats as transient, except a 429. Waiting out GitHub's Retry-After would
+    ///     block a call for up to the total timeout and then fail it as a timeout with no retry time; resending without
+    ///     one sends refused requests. The one-argument <c>IsTransient</c> is stable; its overload with a
+    ///     <c>CancellationToken</c> is <c>[Experimental("EXTEXP0001")]</c> and is not used.
+    /// </summary>
+    private static void RetryReadsExceptRateLimits(HttpStandardResilienceOptions options) =>
+        options.Retry.ShouldHandle = static args => ValueTask.FromResult(
+            args.Outcome.Result?.StatusCode != HttpStatusCode.TooManyRequests
+            && HttpClientResiliencePredicates.IsTransient(args.Outcome));
 }
