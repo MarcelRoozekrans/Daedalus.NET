@@ -99,10 +99,15 @@ public sealed class RunListEndpointTests(PostgresFixture fixture)
 
     /// <summary>
     ///     An unknown status, take=0, take=101 and a cursor this endpoint did not write are each 400 with a detail.
+    ///     A number and a comma list are not names, so they are 400 too.
     ///     Red: drop each guard in turn. Red: return the 400s without a detail.
+    ///     Red: restore TryParse+IsDefined, so ?status=1 is 200.
+    ///     Red: restore TryParse+IsDefined, so ?status=Awaiting,Succeeded is 200.
     /// </summary>
     [Theory]
     [InlineData("?status=Parked")]
+    [InlineData("?status=1")]
+    [InlineData("?status=Awaiting,Succeeded")]
     [InlineData("?take=0")]
     [InlineData("?take=101")]
     [InlineData("?after=not-a-cursor")]

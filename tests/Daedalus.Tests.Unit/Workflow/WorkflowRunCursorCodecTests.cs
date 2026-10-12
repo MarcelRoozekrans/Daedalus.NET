@@ -29,12 +29,14 @@ public sealed class WorkflowRunCursorCodecTests
     ///     reads as -1.
     ///     Red: accept any length. Red: let a FormatException escape.
     ///     Red: drop the tick range check, so the DateTimeOffset constructor throws.
+    ///     Red: drop the upper tick bound, so 'f' then 31 '_', long.MaxValue ticks, throws.
     /// </summary>
     [Theory]
     [InlineData("")]
     [InlineData("not base64!")]
     [InlineData("AAAA")]
     [InlineData("________________________________")]
+    [InlineData("f_______________________________")]
     public void Anything_else_is_refused(string text) =>
         WorkflowRunCursorCodec.TryDecode(text, out _).Should().BeFalse();
 }
