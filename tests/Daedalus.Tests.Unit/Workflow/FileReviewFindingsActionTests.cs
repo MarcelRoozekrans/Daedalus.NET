@@ -22,6 +22,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
     private const string PrUrl = "https://github.com/MarcelRoozekrans/daedalus-sandbox/pull/7";
     private static readonly Guid RunId = new Guid(0x9b1c2d3e, 0x4f50, 0x4617, 0x8a, 0x9b, 0x0c, 0x1d, 0x2e, 0x3f, 0x4a, 0x5b);
     private static readonly DateTimeOffset ResumedAt = DateTimeOffset.Parse("2026-10-09T12:00:00Z", CultureInfo.InvariantCulture);
+    private static readonly DateTimeOffset RetryAt = new(2026, 10, 11, 14, 5, 0, TimeSpan.Zero);
     private static readonly RepoRef Repo = RepoRef.Parse("MarcelRoozekrans/daedalus-sandbox").Value;
     private static readonly ProcessNode Node = new() { Action = FileReviewFindingsAction.ActionName, Outcomes = ["filed", "none"] };
 
@@ -279,6 +280,57 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("correctness-1").And.Contain("GitHub answered 403").And.NotContain("zqx-said");
         await _writer.DidNotReceive().CommentAsync(SameRepo(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     A rate limit fails the node with the time the admin retry can succeed (spec D5, phase 2.5's retry).
+    ///     Red: return the outcome "filed" despite the failure; the IsFailure assertion fails.
+    ///     Red: drop the time from GitHubError's RateLimited sentence; the "rate-limited until" assertion fails.
+    ///     Red: drop the RateLimited branch from <c>Describe</c>; the "Retry this node after" assertion fails.
+    ///     Red: post the summary despite the failure; the CommentAsync on #7 assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_rate_limited_write_fails_the_node_with_when_to_retry()
+    {
+        Deferred(Entry("one"));
+        _writer.CreateIssueAsync(SameRepo(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result<CreatedIssue, GitHubError>.Failure(GitHubError.FromStatus(403, GitHubErrorKind.RateLimited, RetryAt)));
+
+        var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("rate-limited until 14:05 UTC");
+        result.Error.Should().Contain("Retry this node after 14:05 UTC.");
+        await _writer.DidNotReceive().CommentAsync(SameRepo(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     The same on a read, before anything is written.
+    ///     Red: drop the RateLimited branch from <c>Describe</c>; the assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_rate_limited_read_fails_the_node_with_when_to_retry()
+    {
+        Deferred(Entry("one"));
+        _reader.GetPullRequestHeadShaAsync(SameRepo(), 7, Arg.Any<CancellationToken>())
+            .Returns(Result<string, GitHubError>.Failure(GitHubError.FromStatus(429, GitHubErrorKind.RateLimited, RetryAt)));
+
+        var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        result.Error.Should().Contain("Retry this node after 14:05 UTC.");
+    }
+
+    /// <summary>Red: append the retry sentence for every kind; a forbidden write then says to retry.</summary>
+    [Fact]
+    public async Task A_refusal_that_is_not_a_rate_limit_says_nothing_about_retrying()
+    {
+        Deferred(Entry("one"));
+        _writer.CreateIssueAsync(SameRepo(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result<CreatedIssue, GitHubError>.Failure(GitHubError.FromStatus(403, GitHubErrorKind.Forbidden, null)));
+
+        var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        result.Error.Should().NotContain("Retry this node");
     }
 
     /// <summary>A4. Red: skip the allow-list check; an issue is then created in the removed repository.</summary>

@@ -270,8 +270,14 @@ internal sealed partial class FileReviewFindingsAction(
 
     private static Result<HostActionResult> Failed(string what) => Result<HostActionResult>.Failure(what);
 
-    /// <summary>What the run's error says about a GitHub failure.</summary>
-    private static string Describe(GitHubError error) => error.Message;
+    /// <summary>
+    ///     What the run's error says about a GitHub failure. A rate limit also says when the admin retry can succeed, since
+    ///     retrying this node before then fails the same way. Every other kind is its message alone.
+    /// </summary>
+    private static string Describe(GitHubError error) =>
+        error is { Kind: GitHubErrorKind.RateLimited, RetryAt: { } at }
+            ? $"{error.Message} Retry this node after {at.UtcDateTime.ToString("HH:mm", CultureInfo.InvariantCulture)} UTC."
+            : error.Message;
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Filing the review findings of run {RunId} was cancelled without its dispatch being cancelled")]
     private static partial void LogFilingCancelled(ILogger logger, Exception exception, Guid runId);
