@@ -1,8 +1,57 @@
 # Session State
 
-**Last session:** 2026-10-11, with the owner present
+**Last session:** 2026-10-12, with the owner present
 
-## Current Position - phase 2.9 complete and merged (PR #336, 2026-10-11); phase 2.10 is next
+## Current Position - phase 2.11 complete and merged (PR #343, 2026-10-12); next phase to choose
+
+**Milestone 2, phase 2.11, the GitHub HTTP path.** Rebase-merged to `main` as PR #343 (43 commits, head `218de3a`)
+on 2026-10-12. Rulings, the live-proof table, red-verification notes and carried items are in
+`docs/plans/2026-10-11-phase-2.11-rulings.md`. Phase 2.10 stays blocked on Minos.NET 1.0.
+
+- **What shipped:**
+  - ZeroAlloc.Rest clients for GitHub and Azure DevOps behind the `GitHubApi` facade. Failures are a typed
+    `GitHubError` through `Result<T, GitHubError>`; GitHub's own words reach the agent tools only.
+  - Writes are sent exactly once. Reads retry 5xx, 408, timeouts and connection failures, never a rate limit. A
+    write that may have landed says so; a request Daedalus held back has its own `Rejected` kind.
+  - An in-memory ETag cache for GitHub reads, so a `304` costs no rate limit.
+  - The `daedalus.github.ratelimit.remaining` gauge, tagged by an allow-listed resource.
+  - Publish-path logs carry exception type names only. Fixed on the way: the shared Azure DevOps header,
+    `ProjectApiClient`'s JSON options, the overriding `MaxItemsPerCategory`, and `.git` stripped mid-URL.
+- **Live proof:** run `65270f1c` from task `HTTP-1` reached the gate, was approved, and finished `Succeeded` with
+  daedalus-sandbox#17. One GitHub `POST` and one `GET` in the publish step; a repeated `issues__get` answered `304`;
+  the gauge tagged `core`; no task content in any span.
+- **Suites:** Unit 1177, Unit.Application 261, Unit.Domain 346, Unit.Infrastructure 241, Integration 679,
+  Playwright.Api 113, Playwright.Browser 82. CI green on the PR and on `main`.
+
+## Needs the owner
+
+1. **Release: on hold until the product is polished (owner decision, 2026-10-11).** No release for now. The
+   release-please PR #337, which proposed **1.0.0**, is closed. Its cause is fixed by #338, merged 2026-10-11: the
+   workflow no longer passes `release-type`, so the action reads `release-please-config.json` and
+   `bump-minor-pre-major` keeps breaking changes on 0.x. Release-please only runs on manual dispatch. When a release
+   is wanted: dispatch it and check that the new release PR proposes 0.2.0 before merging it.
+2. **Remove any external `daedalus-console` deployment** (carried from 2.8).
+3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11, #14, #16 and #17, issues #9 and #12.
+4. **Decide:** #325, #327, #328, #332 (the failed-start gap), #334 (does the no-content rule cover logs; 2.11
+   added the list of `LogError(ex, …)` calls outside the publish path), #322, #318 and #319.
+5. **Delete the backup refs** `backup/phase-2.3-before-reword` and `backup/phase-2.9-before-reword` (Daedalus,
+   local) and `backup/workflow-telemetry-before-wrap` (Thalos).
+
+## Filed or tracked
+
+- New in 2.11: #340 (the Web client retries POSTs); comments on #309 (three configuration-binding IL2026 pragmas)
+  and #334.
+- Still open from earlier: #335, #332, #331, #328, #327, #326, #325, #322, #319, #318, #312, #311, #309, #295, #280.
+
+## Recommended Next Step
+
+1. Merge the close-out PR for this branch, `chore/complete-phase-2.11`.
+2. Choose the next phase: 2.10 is blocked on Minos.NET 1.0, so 2.12, the manufacturing console, is the next
+   unblocked row. Or pick up #340, a small fix in the area 2.11 just touched.
+
+---
+
+## Previous position (2026-10-11) - phase 2.9 complete and merged (PR #336); phase 2.10 was next
 
 **Milestone 2, phase 2.9, observability.** Rebase-merged to `main` as PR #336 (25 commits, head `ac366d3`) on
 2026-10-11. Thalos.NET 0.15.0 shipped first (Thalos#293, release #294). Rulings, the live-proof table, incidents
@@ -22,32 +71,6 @@ marked met.
   a standalone repro and filed as open-telemetry/opentelemetry-dotnet#7915.
 - **Suites:** Unit 1083, Unit.Application 261, Unit.Domain 346, Unit.Infrastructure 91, Integration 678,
   Playwright.Api 113, Playwright.Browser 82. CI green.
-
-## Needs the owner
-
-1. **Release: on hold until the product is polished (owner decision, 2026-10-11).** No release for now. The
-   release-please PR #337, which proposed **1.0.0**, is closed. Its cause is fixed by #338, merged 2026-10-11: the
-   workflow no longer passes `release-type`, so the action reads `release-please-config.json` and
-   `bump-minor-pre-major` keeps breaking changes on 0.x. Release-please only runs on manual dispatch. When a release
-   is wanted: dispatch it and check that the new release PR proposes 0.2.0 before merging it.
-2. **Remove any external `daedalus-console` deployment** (carried from 2.8).
-3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11, #14 and #16, issues #9 and #12.
-4. **Decide:** #325, #327, #328, #332 (the failed-start gap), #334 (does the no-content rule cover logs), #322,
-   #318 and #319.
-5. **Delete the backup refs** `backup/phase-2.9-before-reword` (Daedalus, local) and
-   `backup/workflow-telemetry-before-wrap` (Thalos).
-
-## Filed or tracked
-
-- New in 2.9: #331, #332, #334, #335; Thalos.NET#292, Thalos.NET#297; ZeroAlloc-Net/ZeroAlloc.Mediator#292;
-  open-telemetry/opentelemetry-dotnet#7915; a comment on #312 (#333 closed as its duplicate).
-- Closed by 2.9: #313.
-- Still open: #325, #326, #327, #328, #322, #318, #319, #312, #311, #295, #280.
-
-## Recommended Next Step
-
-1. Merge the close-out PR for this branch, `chore/complete-phase-2.9`.
-2. `start-next-phase`: phase 2.10, per-turn tool selection with ZeroAlloc.Jev.
 
 ---
 
