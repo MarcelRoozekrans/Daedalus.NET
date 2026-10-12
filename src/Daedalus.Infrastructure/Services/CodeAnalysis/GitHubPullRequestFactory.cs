@@ -37,8 +37,8 @@ public sealed class GitHubPullRequestFactory(
 
             if (result.IsFailure)
             {
-                logger.LogError("GitHub API error: {Error}", result.Error);
-                return result;
+                logger.LogError("GitHub API error: {Error}", result.Error.Message);
+                return Result<PullRequestResult>.Failure(result.Error.Message);
             }
 
             if (logger.IsEnabled(LogLevel.Information))
@@ -46,7 +46,7 @@ public sealed class GitHubPullRequestFactory(
                 logger.LogInformation("Created GitHub PR: {PrUrl}", result.Value.WebUrl);
             }
 
-            return result;
+            return Result<PullRequestResult>.Success(result.Value);
         }
         catch (Exception ex)
         {
@@ -69,7 +69,10 @@ public sealed class GitHubPullRequestFactory(
             return Result<PullRequestResult?>.Failure(repoRef.Error);
         }
 
-        return await gitHub.FindOpenPullRequestAsync(repoRef.Value, featureBranch, ct).ConfigureAwait(false);
+        var found = await gitHub.FindOpenPullRequestAsync(repoRef.Value, featureBranch, ct).ConfigureAwait(false);
+        return found.IsSuccess
+            ? Result<PullRequestResult?>.Success(found.Value)
+            : Result<PullRequestResult?>.Failure(found.Error.Message);
     }
 
     /// <summary>Owner and repository out of an HTTPS or SSH GitHub remote URL.</summary>

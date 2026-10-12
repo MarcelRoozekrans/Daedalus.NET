@@ -14,6 +14,7 @@ using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Polly;
 
@@ -175,8 +176,8 @@ public static class InfrastructureServiceExtensions
     ///     <see cref="GitHubPullRequestFactory"/>, so PR creation works on any host that registers code analysis
     ///     services alone) and from Daedalus.Agents' agent wiring (for the <c>daedalus__*</c>/<c>repoaction__*</c>
     ///     tool classes, so reads and comments work on any host that registers agents alone). A host that calls
-    ///     both ends up calling this twice; the guard below makes the second call a no-op rather than a second
-    ///     <c>HttpClient</c> registration.
+    ///     both ends up calling this twice; the guard below makes the second call a no-op rather than a second set of named
+    ///     clients and their handlers.
     /// </summary>
     public static IServiceCollection AddGitHubApi(this IServiceCollection services, IConfiguration configuration)
     {
@@ -199,22 +200,26 @@ public static class InfrastructureServiceExtensions
         // Whichever caller registers this first wins; both mean TimeProvider.System.
         services.TryAddSingleton(TimeProvider.System);
 
-        // The same resilience pipeline GitHubPullRequestFactory's own HttpClient used to carry directly now
-        // covers every GitHub call — reads, comments, labels, closes and PR creation alike.
-        services.AddHttpClient<GitHubApi>()
-            .AddStandardResilienceHandler(options =>
-            {
-                options.Retry.MaxRetryAttempts = 3;
-                options.Retry.BackoffType = DelayBackoffType.Exponential;
-                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
-                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
-                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
-                options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
-            });
+        // Two named clients behind one facade, so that writes can have a pipeline of their own. GitHubApi sets each
+        // client's BaseAddress from GitHubOptions.ApiUrl.
+        services.AddHttpClient(GitHubApi.ReadClientName).AddStandardResilienceHandler(ConfigureResilience);
+        services.AddHttpClient(GitHubApi.WriteClientName).AddStandardResilienceHandler(ConfigureResilience);
 
+        services.AddTransient<GitHubApi>();
         services.AddScoped<IGitHubReader>(sp => sp.GetRequiredService<GitHubApi>());
         services.AddScoped<IGitHubWriter>(sp => sp.GetRequiredService<GitHubApi>());
 
         return services;
+    }
+
+    /// <summary>The standard pipeline every GitHub and Azure DevOps client starts from.</summary>
+    private static void ConfigureResilience(HttpStandardResilienceOptions options)
+    {
+        options.Retry.MaxRetryAttempts = 3;
+        options.Retry.BackoffType = DelayBackoffType.Exponential;
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+        options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
     }
 }

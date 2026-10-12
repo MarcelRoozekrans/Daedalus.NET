@@ -45,15 +45,15 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         _records.ListAsync(RunId, null, Arg.Any<CancellationToken>()).Returns(_ => new ValueTask<IReadOnlyList<WorkflowRunRecord>>([.. _stored]));
         _records.When(r => { _ = r.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()); }).Do(c => _stored.Add(c.Arg<WorkflowRunRecord>()));
 
-        _reader.GetAuthenticatedLoginAsync(Arg.Any<CancellationToken>()).Returns(Result<string>.Success(Bot));
-        _reader.GetPullRequestHeadShaAsync(SameRepo(), 7, Arg.Any<CancellationToken>()).Returns(Result<string>.Success("abc123"));
+        _reader.GetAuthenticatedLoginAsync(Arg.Any<CancellationToken>()).Returns(Result<string, GitHubError>.Success(Bot));
+        _reader.GetPullRequestHeadShaAsync(SameRepo(), 7, Arg.Any<CancellationToken>()).Returns(Result<string, GitHubError>.Success("abc123"));
         _reader.ListIssuesUpdatedSinceAsync(SameRepo(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns(Result<IReadOnlyList<IssueText>>.Success([]));
+            .Returns(Result<IReadOnlyList<IssueText>, GitHubError>.Success([]));
         _reader.ListIssueCommentsSinceAsync(SameRepo(), Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns(Result<IReadOnlyList<IssueCommentText>>.Success([]));
+            .Returns(Result<IReadOnlyList<IssueCommentText>, GitHubError>.Success([]));
         _writer.CreateIssueAsync(SameRepo(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result<CreatedIssue>.Success(new CreatedIssue(21, IssueUrl(21))));
-        _writer.CommentAsync(SameRepo(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Result<string>.Success("ok"));
+            .Returns(Result<CreatedIssue, GitHubError>.Success(new CreatedIssue(21, IssueUrl(21))));
+        _writer.CommentAsync(SameRepo(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Result<string, GitHubError>.Success("ok"));
     }
 
     public void Dispose() => _services.Dispose();
@@ -94,17 +94,17 @@ public sealed class FileReviewFindingsActionTests : IDisposable
 
     private void IssuesListed(params IssueText[] issues) =>
         _reader.ListIssuesUpdatedSinceAsync(SameRepo(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns(Result<IReadOnlyList<IssueText>>.Success(issues));
+            .Returns(Result<IReadOnlyList<IssueText>, GitHubError>.Success(issues));
 
     private void CommentsListed(int number, params IssueCommentText[] comments) =>
         _reader.ListIssueCommentsSinceAsync(SameRepo(), number, Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns(Result<IReadOnlyList<IssueCommentText>>.Success(comments));
+            .Returns(Result<IReadOnlyList<IssueCommentText>, GitHubError>.Success(comments));
 
     private static IssueCommentText Comment(string body, string author = Bot) => new(1, body, IssueUrl(1), author);
 
     private void OpenIssue(int number, string state = "open") =>
         _reader.GetIssueAsync(SameRepo(), number, Arg.Any<CancellationToken>())
-            .Returns(Result<IssueDetail?>.Success(new IssueDetail(number, "x", state, "", [], IssueUrl(number), false)));
+            .Returns(Result<IssueDetail?, GitHubError>.Success(new IssueDetail(number, "x", state, "", [], IssueUrl(number), false)));
 
     private static WorkflowRunRecord DropRecord(string attempt, params string[] ids) =>
         WorkflowRunRecord.Create(RunId, 12, "gate", WorkflowRunRecord.FindingsDroppedKind, "u-admin", null,
@@ -228,7 +228,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
     {
         Deferred(Entry("dup", existing: 8));
         _reader.GetIssueAsync(SameRepo(), 8, Arg.Any<CancellationToken>())
-            .Returns(Result<IssueDetail?>.Success(new IssueDetail(8, "x", state, "", [], IssueUrl(8), isPr)));
+            .Returns(Result<IssueDetail?, GitHubError>.Success(new IssueDetail(8, "x", state, "", [], IssueUrl(8), isPr)));
 
         await Action().RunAsync(Run(), Node, CancellationToken.None);
 
@@ -249,7 +249,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         _stored.Add(WorkflowRunRecord.Create(RunId, 14, "file-findings", WorkflowRunRecord.FindingFiledKind, "u-admin", null,
             FindingRecords.FiledPayload(new FiledFinding("correctness-1", FindingRecords.CreatedMode, 21, IssueUrl(21))), DateTime.UtcNow).Value);
         _reader.ListIssuesUpdatedSinceAsync(SameRepo(), Arg.Is<DateTimeOffset>(s => s == ResumedAt - TimeSpan.FromMinutes(5)), Arg.Any<CancellationToken>())
-            .Returns(Result<IReadOnlyList<IssueText>>.Success([new IssueText(22, Marked("correctness-2"), IssueUrl(22), false, Bot)]));
+            .Returns(Result<IReadOnlyList<IssueText>, GitHubError>.Success([new IssueText(22, Marked("correctness-2"), IssueUrl(22), false, Bot)]));
 
         var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
 
@@ -259,18 +259,22 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         FindingRecords.ReadFiled(_stored).Value["correctness-2"].Issue.Should().Be(22);
     }
 
-    /// <summary>A3: a GitHub error fails the run so the admin retry can re-run this node. Red: return outcome "none" on error. Red: post the summary despite the failure; the CommentAsync on #7 assertion fails.</summary>
+    /// <summary>
+    ///     A3: a GitHub error fails the run so the admin retry can re-run this node. Red: return outcome "none" on error.
+    ///     Red: post the summary despite the failure; the CommentAsync on #7 assertion fails.
+    ///     Red: make <c>Describe</c> return <c>error.Kind.ToString()</c>; the message assertion fails.
+    /// </summary>
     [Fact]
     public async Task A_github_error_is_a_failed_result_naming_the_finding_and_posts_no_summary()
     {
         Deferred(Entry("one"));
         _writer.CreateIssueAsync(SameRepo(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result<CreatedIssue>.Failure("GitHub request forbidden. GitHub said: Resource not accessible"));
+            .Returns(Result<CreatedIssue, GitHubError>.Failure(GitHubError.FromStatus(403, GitHubErrorKind.Forbidden, null)));
 
         var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("correctness-1").And.Contain("Resource not accessible");
+        result.Error.Should().Contain("correctness-1").And.Contain("GitHub answered 403");
         await _writer.DidNotReceive().CommentAsync(SameRepo(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
@@ -438,7 +442,7 @@ public sealed class FileReviewFindingsActionTests : IDisposable
     public async Task An_unreadable_authenticated_account_fails_the_run_before_anything_is_written()
     {
         Deferred(Entry("one"));
-        _reader.GetAuthenticatedLoginAsync(Arg.Any<CancellationToken>()).Returns(Result<string>.Failure("no token"));
+        _reader.GetAuthenticatedLoginAsync(Arg.Any<CancellationToken>()).Returns(Result<string, GitHubError>.Failure(GitHubError.NoToken("no token")));
 
         (await Action().RunAsync(Run(), Node, CancellationToken.None)).IsFailure.Should().BeTrue();
         await _writer.DidNotReceiveWithAnyArgs().CreateIssueAsync(default!, default!, default!, default);

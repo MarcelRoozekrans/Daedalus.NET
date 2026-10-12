@@ -131,7 +131,10 @@ public class GitHubApiWriteTests
         payload.Should().Contain("\"title\":\"A title\"").And.Contain("\"body\":\"A body\"");
     }
 
-    /// <summary>Red: retry on failure; two requests are then recorded.</summary>
+    /// <summary>
+    ///     Red: retry on failure; two requests are then recorded.
+    ///     Red: map 403 to Validation in the mapper; the kind assertion fails.
+    /// </summary>
     [Fact]
     public async Task A_failed_issue_create_surfaces_and_is_not_retried()
     {
@@ -141,11 +144,14 @@ public class GitHubApiWriteTests
         var result = await Build(handler).CreateIssueAsync(RepoRef.Parse("owner/repo").Value, "A title", "A body");
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("Resource not accessible");
+        result.Error.Kind.Should().Be(GitHubErrorKind.Forbidden);
         handler.Requests.Should().ContainSingle();
     }
 
-    /// <summary>Red: drop the length check from <c>CreateIssueAsync</c>; the 257-character case sends a request.</summary>
+    /// <summary>
+    ///     Red: drop the length check from <c>CreateIssueAsync</c>; the 257-character case sends a request.
+    ///     Red: write "1 to 255 characters" in <c>CreateIssueAsync</c>'s refusal; the message assertion fails.
+    /// </summary>
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
@@ -158,11 +164,15 @@ public class GitHubApiWriteTests
         var result = await Build(handler).CreateIssueAsync(RepoRef.Parse("owner/repo").Value, effective, "body");
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("1 to 256 characters");
+        result.Error.Message.Should().Contain("1 to 256 characters");
         handler.Requests.Should().BeEmpty();
     }
 
-    /// <summary>Red: read <c>html_url</c> with a null-tolerant fallback; the malformed and missing cases then succeed.</summary>
+    /// <summary>
+    ///     Red: read <c>html_url</c> with a null-tolerant fallback; the malformed and missing cases then succeed.
+    ///     Red: end <c>Unexpected</c>'s text with "could not be read." instead of "was not in the expected shape."; the
+    ///     message assertion fails.
+    /// </summary>
     [Theory]
     [InlineData("""{"number":12,"html_url":"not a url"}""")]
     [InlineData("""{"number":12}""")]
@@ -173,6 +183,6 @@ public class GitHubApiWriteTests
         var result = await Build(handler).CreateIssueAsync(RepoRef.Parse("owner/repo").Value, "A title", "A body");
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("not in the expected shape");
+        result.Error.Message.Should().Contain("not in the expected shape");
     }
 }

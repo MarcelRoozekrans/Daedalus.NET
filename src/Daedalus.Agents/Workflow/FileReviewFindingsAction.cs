@@ -157,12 +157,12 @@ internal sealed partial class FileReviewFindingsAction(
 
         var head = await reader.GetPullRequestHeadShaAsync(repo, prNumber, ct).ConfigureAwait(false);
         if (head.IsFailure)
-            return Failed($"reading pull request #{prNumber} failed: {head.Error}");
+            return Failed($"reading pull request #{prNumber} failed: {Describe(head.Error)}");
 
         // Only what this token wrote counts as a marker: anyone else on a public repository can paste one (D2).
         var login = await reader.GetAuthenticatedLoginAsync(ct).ConfigureAwait(false);
         if (login.IsFailure)
-            return Failed($"reading the authenticated GitHub account failed: {login.Error}");
+            return Failed($"reading the authenticated GitHub account failed: {Describe(login.Error)}");
 
         var scan = new MarkerScan(reader, repo, resume.At - ClockSkew, login.Value);
         var done = new Dictionary<string, FiledFinding>(filed.Value, StringComparer.Ordinal);
@@ -185,13 +185,13 @@ internal sealed partial class FileReviewFindingsAction(
             var marker = DeferredFindingText.Marker(run.Id, FindingRecords.SummaryId);
             var seen = await scan.FindCommentAsync(prNumber, marker, ct).ConfigureAwait(false);
             if (seen.IsFailure)
-                return Failed($"reading the pull request's comments failed: {seen.Error}");
+                return Failed($"reading the pull request's comments failed: {Describe(seen.Error)}");
 
             if (seen.Value is null)
             {
                 var posted = await writer.CommentAsync(repo, prNumber, DeferredFindingText.Summary(run.Id, approved.Deferred, done, dropped.Value), ct).ConfigureAwait(false);
                 if (posted.IsFailure)
-                    return Failed($"posting the summary on pull request #{prNumber} failed: {posted.Error}");
+                    return Failed($"posting the summary on pull request #{prNumber} failed: {Describe(posted.Error)}");
             }
 
             await AppendAsync(store, run, resume.By.Id, new FiledFinding(FindingRecords.SummaryId, FindingRecords.SummaryMode, prNumber, prUrl), ct).ConfigureAwait(false);
@@ -211,7 +211,7 @@ internal sealed partial class FileReviewFindingsAction(
         {
             var existing = await reader.GetIssueAsync(repo, number, ct).ConfigureAwait(false);
             if (existing.IsFailure)
-                return Result<FiledFinding>.Failure($"reading #{number} failed: {existing.Error}");
+                return Result<FiledFinding>.Failure($"reading #{number} failed: {Describe(existing.Error)}");
 
             if (existing.Value is { IsPullRequest: false } issue)
             {
@@ -219,7 +219,7 @@ internal sealed partial class FileReviewFindingsAction(
                 // closed since is found, not answered with a duplicate new issue.
                 var seen = await scan.FindCommentAsync(number, marker, ct).ConfigureAwait(false);
                 if (seen.IsFailure)
-                    return Result<FiledFinding>.Failure(seen.Error);
+                    return Result<FiledFinding>.Failure(Describe(seen.Error));
                 if (seen.Value is not null)
                     return Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CommentedMode, number, issue.HtmlUrl));
             }
@@ -236,21 +236,21 @@ internal sealed partial class FileReviewFindingsAction(
             {
                 var posted = await writer.CommentAsync(repo, number, DeferredFindingText.IssueComment(repo, headSha, prUrl, runId, finding), ct).ConfigureAwait(false);
                 return posted.IsFailure
-                    ? Result<FiledFinding>.Failure(posted.Error)
+                    ? Result<FiledFinding>.Failure(Describe(posted.Error))
                     : Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CommentedMode, number, existing.Value!.HtmlUrl));
             }
         }
 
         var earlier = await scan.FindIssueAsync(marker, ct).ConfigureAwait(false);
         if (earlier.IsFailure)
-            return Result<FiledFinding>.Failure(earlier.Error);
+            return Result<FiledFinding>.Failure(Describe(earlier.Error));
         if (earlier.Value is { } found)
             return Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CreatedMode, found.Number, found.HtmlUrl));
 
         var created = await writer.CreateIssueAsync(repo, DeferredFindingText.Line(finding.Finding.Title), DeferredFindingText.IssueBody(repo, headSha, prUrl, runId, finding, notUsed), ct).ConfigureAwait(false);
         return created.IsSuccess
             ? Result<FiledFinding>.Success(new FiledFinding(finding.Id, FindingRecords.CreatedMode, created.Value.Number, created.Value.HtmlUrl))
-            : Result<FiledFinding>.Failure(created.Error);
+            : Result<FiledFinding>.Failure(Describe(created.Error));
     }
 
     private async ValueTask AppendAsync(IWorkflowRunRecordStore store, WorkflowRun run, string principal, FiledFinding filed, CancellationToken ct)
@@ -270,6 +270,9 @@ internal sealed partial class FileReviewFindingsAction(
 
     private static Result<HostActionResult> Failed(string what) => Result<HostActionResult>.Failure(what);
 
+    /// <summary>What the run's error says about a GitHub failure.</summary>
+    private static string Describe(GitHubError error) => error.Message;
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Filing the review findings of run {RunId} was cancelled without its dispatch being cancelled")]
     private static partial void LogFilingCancelled(ILogger logger, Exception exception, Guid runId);
 
@@ -279,30 +282,30 @@ internal sealed partial class FileReviewFindingsAction(
         private readonly Dictionary<int, IReadOnlyList<IssueCommentText>> _comments = [];
         private IReadOnlyList<IssueText>? _issues;
 
-        public async ValueTask<Result<IssueText?>> FindIssueAsync(string marker, CancellationToken ct)
+        public async ValueTask<Result<IssueText?, GitHubError>> FindIssueAsync(string marker, CancellationToken ct)
         {
             if (_issues is null)
             {
                 var listed = await reader.ListIssuesUpdatedSinceAsync(repo, since, ct).ConfigureAwait(false);
                 if (listed.IsFailure)
-                    return Result<IssueText?>.Failure(listed.Error);
+                    return Result<IssueText?, GitHubError>.Failure(listed.Error);
                 _issues = listed.Value;
             }
 
-            return Result<IssueText?>.Success(_issues.FirstOrDefault(i => !i.IsPullRequest && Ours(i.AuthorLogin) && EndsWithMarker(i.Body, marker)));
+            return Result<IssueText?, GitHubError>.Success(_issues.FirstOrDefault(i => !i.IsPullRequest && Ours(i.AuthorLogin) && EndsWithMarker(i.Body, marker)));
         }
 
-        public async ValueTask<Result<IssueCommentText?>> FindCommentAsync(int number, string marker, CancellationToken ct)
+        public async ValueTask<Result<IssueCommentText?, GitHubError>> FindCommentAsync(int number, string marker, CancellationToken ct)
         {
             if (!_comments.TryGetValue(number, out var comments))
             {
                 var listed = await reader.ListIssueCommentsSinceAsync(repo, number, since, ct).ConfigureAwait(false);
                 if (listed.IsFailure)
-                    return Result<IssueCommentText?>.Failure(listed.Error);
+                    return Result<IssueCommentText?, GitHubError>.Failure(listed.Error);
                 _comments[number] = comments = listed.Value;
             }
 
-            return Result<IssueCommentText?>.Success(comments.FirstOrDefault(c => Ours(c.AuthorLogin) && EndsWithMarker(c.Body, marker)));
+            return Result<IssueCommentText?, GitHubError>.Success(comments.FirstOrDefault(c => Ours(c.AuthorLogin) && EndsWithMarker(c.Body, marker)));
         }
 
         private bool Ours(string author) => string.Equals(author, login, StringComparison.OrdinalIgnoreCase);

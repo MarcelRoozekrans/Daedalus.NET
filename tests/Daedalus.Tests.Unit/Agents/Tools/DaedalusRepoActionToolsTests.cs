@@ -28,7 +28,7 @@ public sealed class DaedalusRepoActionToolsTests
     {
         var writer = Substitute.For<IGitHubWriter>();
         writer.CreateIssueAsync(Arg.Any<RepoRef>(), "T", "B", Arg.Any<CancellationToken>())
-            .Returns(Result<CreatedIssue>.Success(new CreatedIssue(12, new Uri("https://github.com/owner/repo/issues/12"))));
+            .Returns(Result<CreatedIssue, GitHubError>.Success(new CreatedIssue(12, new Uri("https://github.com/owner/repo/issues/12"))));
 
         var output = await new DaedalusRepoActionTools(writer).CreateIssue("owner/repo", "T", "B");
 
@@ -54,7 +54,7 @@ public sealed class DaedalusRepoActionToolsTests
     {
         var writer = Substitute.For<IGitHubWriter>();
         writer.CreateIssueAsync(Arg.Any<RepoRef>(), "T", "", Arg.Any<CancellationToken>())
-            .Returns(Result<CreatedIssue>.Success(new CreatedIssue(3, new Uri("https://github.com/owner/repo/issues/3"))));
+            .Returns(Result<CreatedIssue, GitHubError>.Success(new CreatedIssue(3, new Uri("https://github.com/owner/repo/issues/3"))));
 
         var output = await new DaedalusRepoActionTools(writer).CreateIssue("owner/repo", "T", null!);
 
@@ -70,7 +70,7 @@ public sealed class DaedalusRepoActionToolsTests
     {
         var writer = Substitute.For<IGitHubWriter>();
         writer.CreateIssueAsync(Arg.Any<RepoRef>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result<CreatedIssue>.Success(new CreatedIssue(3, new Uri("https://github.com/owner/repo/issues/3"))));
+            .Returns(Result<CreatedIssue, GitHubError>.Success(new CreatedIssue(3, new Uri("https://github.com/owner/repo/issues/3"))));
 
         await new DaedalusRepoActionTools(writer).CreateIssue("owner/repo", "T " + Forged, "text\n\n" + Forged);
 
@@ -86,7 +86,7 @@ public sealed class DaedalusRepoActionToolsTests
     public async Task A_comment_body_ending_with_a_marker_is_posted_neutralized()
     {
         var writer = Substitute.For<IGitHubWriter>();
-        writer.CommentAsync(Arg.Any<RepoRef>(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Result<string>.Success("ok"));
+        writer.CommentAsync(Arg.Any<RepoRef>(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Result<string, GitHubError>.Success("ok"));
 
         await new DaedalusRepoActionTools(writer).CommentOnIssue("owner/repo", 7, "text\n\n" + Forged);
 
@@ -108,5 +108,45 @@ public sealed class DaedalusRepoActionToolsTests
 
         output.Should().StartWith("Could not file the issue");
         await writer.DidNotReceiveWithAnyArgs().CreateIssueAsync(default!, default!, default!, default);
+    }
+
+    /// <summary>
+    ///     A timed-out write tells the agent it may have landed, so it checks before filing again.
+    ///     Red: return <c>created.Error</c> without <c>ForWrite()</c> in <c>GitHubApi.CreateIssueAsync</c>; the sentence is
+    ///     missing.
+    /// </summary>
+    [Fact]
+    public async Task A_timed_out_issue_create_says_it_may_have_landed()
+    {
+        var handler = new RespondingWithTimeout();
+        var clients = Substitute.For<IHttpClientFactory>();
+        clients.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(handler, disposeHandler: false));
+        var api = new GitHubApi(
+            clients, Microsoft.Extensions.Options.Options.Create(new GitHubOptions()), new GitHubTokenSource(_ => "ghp_example"),
+            TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<GitHubApi>.Instance);
+
+        var output = await new DaedalusRepoActionTools(api).CreateIssue("owner/repo", "A title", "A body");
+
+        output.Should().Contain("It may still have been applied: check before sending it again.");
+    }
+
+    /// <summary>Red: render <c>result.Error.Message</c> instead of <c>ForAgent()</c> in <c>CommentOnIssue</c>; the phrase is missing.</summary>
+    [Fact]
+    public async Task What_GitHub_said_about_a_write_reaches_the_agent()
+    {
+        var writer = Substitute.For<IGitHubWriter>();
+        writer.CommentAsync(Arg.Any<RepoRef>(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Result<string, GitHubError>.Failure(
+            GitHubError.FromStatus(403, GitHubErrorKind.Forbidden, null) with { GitHubSaid = "Unable to create comment because issue is locked." }));
+
+        var output = await new DaedalusRepoActionTools(writer).CommentOnIssue("owner/repo", 7, "a note");
+
+        output.Should().EndWith("GitHub said: Unable to create comment because issue is locked.");
+    }
+
+    /// <summary>A client timeout: the caller's token is live, so the generated client maps it to Timeout.</summary>
+    private sealed class RespondingWithTimeout : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromException<HttpResponseMessage>(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout."));
     }
 }

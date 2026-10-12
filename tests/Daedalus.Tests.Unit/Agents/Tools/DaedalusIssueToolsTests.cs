@@ -21,7 +21,7 @@ public sealed class DaedalusIssueToolsTests
 
     private void Issue(IssueDetail? issue) =>
         _reader.GetIssueAsync(Arg.Any<RepoRef>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result<IssueDetail?>.Success(issue));
+            .Returns(Result<IssueDetail?, GitHubError>.Success(issue));
 
     /// <summary>Red: render a pull request like an issue; the refusal assertion fails.</summary>
     [Fact]
@@ -82,7 +82,7 @@ public sealed class DaedalusIssueToolsTests
     public async Task An_empty_search_names_the_state_it_searched()
     {
         _reader.SearchIssuesAsync(Arg.Any<RepoRef>(), "crash", IssueSearchState.Open, Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result<IReadOnlyList<IssueHit>>.Success([]));
+            .Returns(Result<IReadOnlyList<IssueHit>, GitHubError>.Success([]));
 
         (await Tools.Search("owner/repo", "crash", null)).Should().Contain("No open issue in owner/repo matches 'crash'");
     }
@@ -109,11 +109,70 @@ public sealed class DaedalusIssueToolsTests
     public async Task A_search_asks_for_at_most_ten_hits_and_lists_them()
     {
         _reader.SearchIssuesAsync(Arg.Any<RepoRef>(), "crash", IssueSearchState.All, Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Result<IReadOnlyList<IssueHit>>.Success([new IssueHit(3, "Crash on start", "closed", new Uri("https://github.com/owner/repo/issues/3"))]));
+            .Returns(Result<IReadOnlyList<IssueHit>, GitHubError>.Success([new IssueHit(3, "Crash on start", "closed", new Uri("https://github.com/owner/repo/issues/3"))]));
 
         var output = await Tools.Search("owner/repo", "crash", "all");
 
         output.Should().Contain("#3 (closed) Crash on start");
         await _reader.Received(1).SearchIssuesAsync(Arg.Any<RepoRef>(), "crash", IssueSearchState.All, GitHubApi.MaxSearchHits, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     The agent reads the error's own message, whatever the kind (P15).
+    ///     Red: render <c>read.Error.Kind</c> instead of <c>read.Error.Message</c> in <c>Get</c>; every row fails the
+    ///     whole-text assertion.
+    ///     Red: drop the time from GitHubError's RateLimited sentence; the rate-limit row fails the phrase assertion.
+    /// </summary>
+    [Theory]
+    [InlineData(GitHubErrorKind.RateLimited, "rate-limited until 14:05 UTC")]
+    [InlineData(GitHubErrorKind.NotFound, "does not exist")]
+    [InlineData(GitHubErrorKind.Unauthorized, "token was not accepted")]
+    [InlineData(GitHubErrorKind.Forbidden, "may not do this")]
+    [InlineData(GitHubErrorKind.Validation, "refused the request")]
+    [InlineData(GitHubErrorKind.Conflict, "conflicts")]
+    [InlineData(GitHubErrorKind.Server, "server error")]
+    [InlineData(GitHubErrorKind.Transport, "before GitHub answered")]
+    [InlineData(GitHubErrorKind.Timeout, "timed out")]
+    [InlineData(GitHubErrorKind.Unreadable, "could not be read")]
+    public async Task A_failed_read_tells_the_agent_what_went_wrong(GitHubErrorKind kind, string phrase)
+    {
+        var error = ErrorOf(kind);
+        var reader = Substitute.For<IGitHubReader>();
+        reader.GetIssueAsync(Arg.Any<RepoRef>(), 7, Arg.Any<CancellationToken>()).Returns(Result<IssueDetail?, GitHubError>.Failure(error));
+
+        var output = await new DaedalusIssueTools(reader).Get("owner/repo", 7);
+
+        output.Should().Be($"Could not read owner/repo#7: {error.ForAgent()}");
+        output.Should().Contain(phrase);
+    }
+
+    private static GitHubError ErrorOf(GitHubErrorKind kind) => kind switch
+    {
+        GitHubErrorKind.RateLimited => GitHubError.FromStatus(429, kind, new DateTimeOffset(2026, 10, 11, 14, 5, 0, TimeSpan.Zero)),
+        GitHubErrorKind.NotFound => GitHubError.FromStatus(404, kind, null),
+        GitHubErrorKind.Unauthorized => GitHubError.FromStatus(401, kind, null),
+        GitHubErrorKind.Forbidden => GitHubError.FromStatus(403, kind, null),
+        GitHubErrorKind.Validation => GitHubError.FromStatus(422, kind, null),
+        GitHubErrorKind.Conflict => GitHubError.FromStatus(409, kind, null),
+        GitHubErrorKind.Server => GitHubError.FromStatus(502, kind, null),
+        GitHubErrorKind.Transport => GitHubError.NotSent(),
+        GitHubErrorKind.Timeout => GitHubError.TimedOut(),
+        _ => GitHubError.Unreadable("GitHub's answer could not be read."),
+    };
+
+    /// <summary>
+    ///     GitHub's own words reach the agent, so it can tell a locked issue from a token problem (P9).
+    ///     Red: render <c>read.Error.Message</c> instead of <c>ForAgent()</c> in <c>Get</c>; the phrase is missing.
+    /// </summary>
+    [Fact]
+    public async Task What_GitHub_said_reaches_the_agent()
+    {
+        var reader = Substitute.For<IGitHubReader>();
+        reader.GetIssueAsync(Arg.Any<RepoRef>(), 7, Arg.Any<CancellationToken>()).Returns(Result<IssueDetail?, GitHubError>.Failure(
+            GitHubError.FromStatus(403, GitHubErrorKind.Forbidden, null) with { GitHubSaid = "Issues are disabled for this repo" }));
+
+        var output = await new DaedalusIssueTools(reader).Get("owner/repo", 7);
+
+        output.Should().EndWith("GitHub said: Issues are disabled for this repo");
     }
 }

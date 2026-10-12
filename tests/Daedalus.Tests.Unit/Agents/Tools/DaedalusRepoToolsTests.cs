@@ -1,5 +1,5 @@
-using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Agents.Tools;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
@@ -92,7 +92,7 @@ public class DaedalusRepoToolsTests
     {
         var writer = Substitute.For<IGitHubWriter>();
         writer.CommentAsync(Arg.Any<RepoRef>(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result<string>.Failure("422 Validation Failed"));
+            .Returns(Result<string, GitHubError>.Failure(GitHubError.FromStatus(422, GitHubErrorKind.Validation, null)));
 
         var output = await new DaedalusRepoActionTools(writer).CommentOnIssue("owner/repo", 7, "a note");
 

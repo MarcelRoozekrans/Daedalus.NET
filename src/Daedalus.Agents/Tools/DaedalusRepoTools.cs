@@ -75,7 +75,7 @@ public sealed class DaedalusRepoTools(IGitHubReader reader, TimeProvider clock, 
             return parsedRepo.Error;
 
         var result = await reader.GetDefaultBranchAsync(parsedRepo.Value, ct);
-        return result.IsSuccess ? result.Value : $"Could not determine the default branch: {result.Error}";
+        return result.IsSuccess ? result.Value : $"Could not determine the default branch: {result.Error.ForAgent()}";
     }
 
     private bool TryResolveSince(string? since, out DateTime sinceUtc, out string error)

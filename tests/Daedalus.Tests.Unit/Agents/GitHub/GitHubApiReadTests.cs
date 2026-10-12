@@ -54,6 +54,10 @@ public class GitHubApiReadTests
         activity.FailedRuns.Unavailable.Should().NotBeNullOrWhiteSpace();
     }
 
+    /// <summary>
+    ///     Red: write "is missing" for "does not exist" in GitHubError's NotFound sentence; the first assertion fails.
+    ///     Red: drop ", or the configured token cannot see it" from that sentence; the second assertion fails.
+    /// </summary>
     [Fact]
     public async Task A_404_says_both_things_it_could_mean()
     {
@@ -62,15 +66,20 @@ public class GitHubApiReadTests
         var result = await Build(handler).GetDefaultBranchAsync(RepoRef.Parse("owner/repo").Value);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().ContainEquivalentOf("does not exist");
-        result.Error.Should().ContainEquivalentOf("token",
+        result.Error.Message.Should().ContainEquivalentOf("does not exist");
+        result.Error.Message.Should().ContainEquivalentOf("token",
             "from outside, a missing repository and one the token cannot see are identical");
     }
 
+    /// <summary>
+    ///     Red: drop <c>exhausted ||</c> from the mapper's 403 guard; the kind assertion fails.
+    ///     Red: read <c>X-RateLimit-Reset</c> as milliseconds in the mapper; the RetryAt assertion fails.
+    /// </summary>
     [Fact]
     public async Task A_rate_limited_403_is_distinguished_from_a_forbidden_403_and_says_when_it_resets()
     {
-        var reset = DateTimeOffset.FromUnixTimeSeconds(1789000000);
+        // After the test clock's now: the mapper clamps a reset already past to now.
+        var reset = DateTimeOffset.FromUnixTimeSeconds(1789804000);
         var handler = new StubHandler().Route("/repos/owner/repo", () =>
         {
             var response = new HttpResponseMessage(HttpStatusCode.Forbidden)
@@ -85,10 +94,11 @@ public class GitHubApiReadTests
 
         var result = await Build(handler).GetDefaultBranchAsync(RepoRef.Parse("owner/repo").Value);
 
-        result.Error.Should().ContainEquivalentOf("rate limit");
-        result.Error.Should().Contain(reset.UtcDateTime.ToString("u", CultureInfo.InvariantCulture));
+        result.Error.Kind.Should().Be(GitHubErrorKind.RateLimited);
+        result.Error.RetryAt.Should().Be(reset);
     }
 
+    /// <summary>Red: map every 403 to RateLimited in the mapper; the kind assertion fails.</summary>
     [Fact]
     public async Task A_forbidden_403_that_is_not_rate_limiting_says_so_instead()
     {
@@ -105,7 +115,7 @@ public class GitHubApiReadTests
 
         var result = await Build(handler).GetDefaultBranchAsync(RepoRef.Parse("owner/repo").Value);
 
-        result.Error.Should().NotContainEquivalentOf("rate limit");
+        result.Error.Kind.Should().Be(GitHubErrorKind.Forbidden);
     }
 
     [Fact]
@@ -122,7 +132,7 @@ public class GitHubApiReadTests
     [Fact]
     public async Task A_category_at_the_ceiling_reports_that_it_was_truncated()
     {
-        var many = string.Join(",", Enumerable.Range(0, 50).Select(i =>
+        var many = string.Join(',', Enumerable.Range(0, 50).Select(i =>
             $"{{\"sha\":\"sha{i}\",\"commit\":{{\"message\":\"m{i}\",\"author\":{{\"name\":\"a\",\"date\":\"2026-09-19T06:00:00Z\"}}}}}}"));
 
         var handler = new StubHandler()
@@ -156,9 +166,9 @@ public class GitHubApiReadTests
     [Fact]
     public async Task Truncation_of_merged_pull_requests_is_measured_before_filtering_by_merge_date()
     {
-        var unmergedOrOld = string.Join(",", Enumerable.Range(0, 45).Select(i =>
+        var unmergedOrOld = string.Join(',', Enumerable.Range(0, 45).Select(i =>
             $"{{\"number\":{i},\"title\":\"pr{i}\",\"user\":{{\"login\":\"a\"}},\"updated_at\":\"2026-09-19T06:00:00Z\",\"merged_at\":null}}"));
-        var recentlyMerged = string.Join(",", Enumerable.Range(45, 5).Select(i =>
+        var recentlyMerged = string.Join(',', Enumerable.Range(45, 5).Select(i =>
             $"{{\"number\":{i},\"title\":\"pr{i}\",\"user\":{{\"login\":\"a\"}},\"updated_at\":\"2026-09-19T06:00:00Z\",\"merged_at\":\"2026-09-19T06:00:00Z\"}}"));
 
         var handler = new StubHandler()
@@ -179,9 +189,9 @@ public class GitHubApiReadTests
     [Fact]
     public async Task Truncation_of_issues_is_measured_before_dropping_pull_requests()
     {
-        var pullRequestsFromIssuesEndpoint = string.Join(",", Enumerable.Range(0, 45).Select(i =>
+        var pullRequestsFromIssuesEndpoint = string.Join(',', Enumerable.Range(0, 45).Select(i =>
             $"{{\"number\":{i},\"title\":\"pr{i}\",\"state\":\"open\",\"updated_at\":\"2026-09-19T06:00:00Z\",\"pull_request\":{{}}}}"));
-        var actualIssues = string.Join(",", Enumerable.Range(45, 5).Select(i =>
+        var actualIssues = string.Join(',', Enumerable.Range(45, 5).Select(i =>
             $"{{\"number\":{i},\"title\":\"issue{i}\",\"state\":\"open\",\"updated_at\":\"2026-09-19T06:00:00Z\"}}"));
 
         var handler = new StubHandler()
@@ -202,9 +212,9 @@ public class GitHubApiReadTests
     [Fact]
     public async Task Truncation_of_failed_runs_is_measured_before_filtering_by_start_time()
     {
-        var tooOld = string.Join(",", Enumerable.Range(0, 45).Select(i =>
+        var tooOld = string.Join(',', Enumerable.Range(0, 45).Select(i =>
             $"{{\"id\":{i},\"name\":\"ci\",\"conclusion\":\"failure\",\"head_branch\":\"main\",\"run_started_at\":\"2026-09-01T00:00:00Z\"}}"));
-        var withinWindow = string.Join(",", Enumerable.Range(45, 5).Select(i =>
+        var withinWindow = string.Join(',', Enumerable.Range(45, 5).Select(i =>
             $"{{\"id\":{i},\"name\":\"ci\",\"conclusion\":\"failure\",\"head_branch\":\"main\",\"run_started_at\":\"2026-09-19T06:00:00Z\"}}"));
         var runsJson = "{\"workflow_runs\":[" + tooOld + "," + withinWindow + "]}";
 

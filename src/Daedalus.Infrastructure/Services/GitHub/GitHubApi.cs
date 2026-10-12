@@ -1,504 +1,481 @@
-#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute — JsonSerializer.Serialize
-// over small anonymous write payloads; accepted risk, matching GitHubPullRequestFactory
-// and AzureDevOpsPullRequestFactory elsewhere in this project.
-
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Net;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly;
+using Polly.Timeout;
+using ZeroAlloc.Rest.SystemTextJson;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.GitHub;
 
 /// <summary>
-///     Reads repository activity straight from the GitHub REST API, and — for interactive agents only — acts on it.
-///     Also the one place that opens a pull request on GitHub: <see cref="CreatePullRequestAsync"/> serves the
-///     non-interactive code-analysis orchestrator and the Thalos pull-request publisher through
-///     <c>Daedalus.Infrastructure.Services.CodeAnalysis.GitHubPullRequestFactory</c>, which owns URL parsing and
-///     keeps its place behind <c>IPullRequestFactory</c>'s platform dispatch but no longer speaks HTTP itself.
-///     Every request is authenticated up front — an unauthenticated request to a private repository 404s and looks
-///     identical to a missing repository, so a missing token fails before anything is sent rather than surfacing as
-///     a confusing category error later. Writes carry no retry: a failure is returned to the caller as-is, because a
-///     retried comment or label is a visible action taken twice.
+///     The one class that knows GitHub's HTTP surface. It reads repository activity and issues, writes for interactive
+///     agents and post-gate host actions, and is the one place that opens a pull request on GitHub, for
+///     <c>Daedalus.Infrastructure.Services.CodeAnalysis.GitHubPullRequestFactory</c>.
 /// </summary>
+/// <remarks>
+///     <para>
+///     <b>Transport.</b> Two ZeroAlloc.Rest clients generated from <see cref="IGitHubRestApi"/>, over the named
+///     <c>HttpClient</c>s <see cref="ReadClientName"/> and <see cref="WriteClientName"/>, whose pipelines
+///     <c>InfrastructureServiceExtensions.AddGitHubApi</c> sets up. Everything that is not HTTP stays here: the activity
+///     sweep, paging, the 404-to-null rule of <see cref="GetIssueAsync"/> and the checks on GitHub's answers.
+///     </para>
+///     <para>
+///     <b>Authentication.</b> Every request is authenticated up front. An unauthenticated request to a private repository
+///     404s and looks identical to a missing repository, so a missing token fails before anything is sent rather than
+///     surfacing as a confusing category error later.
+///     </para>
+///     <para>
+///     <b>Errors.</b> Every expected fault is a failed <see cref="GitHubError"/>, never an exception; only a cancellation of
+///     the caller's own token propagates. No message copies GitHub's answer.
+///     </para>
+/// </remarks>
 public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
 {
-    private const string ApiVersion = "2022-11-28";
+    /// <summary>The named <c>HttpClient</c> for GETs.</summary>
+    public const string ReadClientName = "GitHub.Read";
 
-    private readonly HttpClient _http;
+    /// <summary>The named <c>HttpClient</c> for POST and PATCH. Its pipeline never retries.</summary>
+    public const string WriteClientName = "GitHub.Write";
+
+    /// <summary>GitHub's own limit on an issue title.</summary>
+    public const int MaxIssueTitleLength = 256;
+
+    /// <summary>The most hits <see cref="SearchIssuesAsync"/> returns.</summary>
+    public const int MaxSearchHits = 10;
+
+    /// <summary>The most pages of 100 a <c>since</c> listing reads before it gives up rather than read further.</summary>
+    public const int MaxScanPages = 10;
+
+    private const int ScanPageSize = 100;
+
+    private static readonly SystemTextJsonSerializer Serializer = new(GitHubJsonContext.Default);
+
+    // The concrete generated type, not IGitHubRestApi: CA1859 asks for it, and nothing substitutes these fields.
+    private readonly GitHubRestApiClient _reads;
+    private readonly GitHubRestApiClient _writes;
     private readonly GitHubOptions _options;
     private readonly IGitHubTokenSource _tokens;
     private readonly TimeProvider _clock;
     private readonly ILogger<GitHubApi> _logger;
 
-    public GitHubApi(HttpClient http, IOptions<GitHubOptions> options, IGitHubTokenSource tokens, TimeProvider clock, ILogger<GitHubApi> logger)
+    public GitHubApi(IHttpClientFactory httpClients, IOptions<GitHubOptions> options, IGitHubTokenSource tokens, TimeProvider clock, ILogger<GitHubApi> logger)
     {
-        _http = http;
+        ArgumentNullException.ThrowIfNull(httpClients);
+        ArgumentNullException.ThrowIfNull(options);
+
         _options = options.Value;
         _tokens = tokens;
         _clock = clock;
         _logger = logger;
+
+        var mapper = new GitHubErrorMapper(clock);
+        _reads = new GitHubRestApiClient(Rooted(httpClients.CreateClient(ReadClientName)), Serializer, mapper);
+        _writes = new GitHubRestApiClient(Rooted(httpClients.CreateClient(WriteClientName)), Serializer, mapper);
     }
 
-    public async Task<Result<string>> GetDefaultBranchAsync(RepoRef repo, CancellationToken ct = default)
-    {
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<string>.Failure(token.Error);
+    private string UserAgent => _options.UserAgent;
 
-        try
-        {
-            var branch = await FetchDefaultBranchAsync(repo, token.Value, ct).ConfigureAwait(false);
-            return Result<string>.Success(branch);
-        }
-        catch (GitHubRequestException ex)
-        {
-            return Result<string>.Failure(ex.Message);
-        }
-    }
+    // ---- Reads -------------------------------------------------------------------------------------------------
 
-    public async Task<Result<string>> CommentAsync(RepoRef repo, int number, string body, CancellationToken ct = default)
-    {
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<string>.Failure(token.Error);
-
-        var payload = JsonSerializer.Serialize(new { body });
-        return await SendWriteAsync(
-            HttpMethod.Post, $"{IssueUrl(repo, number)}/comments", payload, token.Value,
-            $"Comment posted to {repo}#{number}.", ct).ConfigureAwait(false);
-    }
-
-    public async Task<Result<string>> AddLabelAsync(RepoRef repo, int number, string label, CancellationToken ct = default)
-    {
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<string>.Failure(token.Error);
-
-        var payload = JsonSerializer.Serialize(new { labels = new[] { label } });
-        return await SendWriteAsync(
-            HttpMethod.Post, $"{IssueUrl(repo, number)}/labels", payload, token.Value,
-            $"Label '{label}' added to {repo}#{number}.", ct).ConfigureAwait(false);
-    }
-
-    public async Task<Result<string>> CloseIssueAsync(RepoRef repo, int number, CancellationToken ct = default)
-    {
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<string>.Failure(token.Error);
-
-        var payload = JsonSerializer.Serialize(new { state = "closed" });
-        return await SendWriteAsync(
-            HttpMethod.Patch, IssueUrl(repo, number), payload, token.Value,
-            $"{repo}#{number} closed.", ct).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    ///     Opens a pull request. Unlike the other writes, a successful response body is not a fixed confirmation
-    ///     string — the caller needs the number GitHub assigned and both the API and web URLs — so this does not
-    ///     go through <see cref="SendWriteAsync"/>, which only ever returns the message it was given.
-    /// </summary>
-    public async Task<Result<PullRequestResult>> CreatePullRequestAsync(
-        RepoRef repo, string featureBranch, string baseBranch, string title, string description, CancellationToken ct = default)
-    {
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<PullRequestResult>.Failure(token.Error);
-
-        var payload = JsonSerializer.Serialize(new { title, body = description, head = featureBranch, @base = baseBranch, draft = false });
-
-        // Not disposed here, matching SendWriteAsync: the stub handler in tests keeps this request around so a
-        // test can inspect the body it sent, and disposing it would dispose that content out from under it.
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{RepoUrl(repo)}/pulls")
-        {
-            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
-        };
-        ApplyHeaders(request, token.Value);
-
-        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-            return Result<PullRequestResult>.Failure(MapError(response, body));
-
-        using var doc = JsonDocument.Parse(body);
-        var content = doc.RootElement;
-
-        return Result<PullRequestResult>.Success(new PullRequestResult
-        {
-            PullRequestId = content.GetProperty("number").GetInt32().ToString(CultureInfo.InvariantCulture),
-            PullRequestUrl = content.GetProperty("url").GetString() ?? string.Empty,
-            WebUrl = content.GetProperty("html_url").GetString() ?? string.Empty,
-            Status = PullRequestStatus.Open,
-        });
-    }
-
-    /// <summary>GitHub's own limit on an issue title.</summary>
-    public const int MaxIssueTitleLength = 256;
-
-    /// <summary>
-    ///     Files an issue. Like <see cref="CreatePullRequestAsync"/> it returns what GitHub assigned rather than a fixed
-    ///     confirmation. No retry, and a timeout is a failure. An issue created before the timeout is never found by
-    ///     retrying here: the <c>file-review-findings</c> host action scans for its own marker before it files again,
-    ///     while any other caller, such as the <c>repoaction__create_issue</c> tool, gets a failure that may hide an
-    ///     issue that was in fact created.
-    /// </summary>
-    public async Task<Result<CreatedIssue>> CreateIssueAsync(RepoRef repo, string title, string body, CancellationToken ct = default)
+    public Task<Result<string, GitHubError>> GetDefaultBranchAsync(RepoRef repo, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(repo);
-        if (string.IsNullOrWhiteSpace(title) || title.Length > MaxIssueTitleLength)
-            return Result<CreatedIssue>.Failure($"An issue title must be 1 to {MaxIssueTitleLength} characters.");
+        return ReadDefaultBranchAsync(repo, ct);
+    }
 
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<CreatedIssue>.Failure(token.Error);
+    public async Task<Result<IssueDetail?, GitHubError>> GetIssueAsync(RepoRef repo, int number, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        if (number <= 0)
+            return Result<IssueDetail?, GitHubError>.Failure(GitHubError.Refused("An issue number must be positive."));
 
-        var payload = JsonSerializer.Serialize(new { title, body });
-
-        // Not disposed, matching SendWriteAsync: the test stub keeps the request so a test can read its body.
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{RepoUrl(repo)}/issues")
+        var read = await CallAsync((auth, c) => _reads.GetIssueAsync(repo.Owner, repo.Name, number, auth, UserAgent, c), ct).ConfigureAwait(false);
+        if (read.IsFailure)
         {
-            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+            // A caller asking whether an issue exists is answered, not failed (ruling P10).
+            return read.Error.Kind == GitHubErrorKind.NotFound
+                ? Result<IssueDetail?, GitHubError>.Success(null)
+                : Result<IssueDetail?, GitHubError>.Failure(read.Error);
+        }
+
+        return ToIssueDetail(read.Value) is { } detail
+            ? Result<IssueDetail?, GitHubError>.Success(detail)
+            : Result<IssueDetail?, GitHubError>.Failure(Unexpected("reading an issue"));
+    }
+
+    public async Task<Result<IReadOnlyList<IssueHit>, GitHubError>> SearchIssuesAsync(
+        RepoRef repo, string query, IssueSearchState state, int limit, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        if (string.IsNullOrWhiteSpace(query))
+            return Result<IReadOnlyList<IssueHit>, GitHubError>.Failure(GitHubError.Refused("A search needs some words to search for."));
+
+        // A5: GitHub ORs repo: qualifiers, so one in the query would widen the search past this repository.
+        if (ScopeQualifier().IsMatch(query))
+        {
+            return Result<IReadOnlyList<IssueHit>, GitHubError>.Failure(GitHubError.Refused(
+                "The query may not name its own repo:, org:, user: or owner: qualifier; this search is always limited to the given repository."));
+        }
+
+        var stateQualifier = state switch
+        {
+            IssueSearchState.Open => "state:open ",
+            IssueSearchState.Closed => "state:closed ",
+            _ => "",
         };
-        ApplyHeaders(request, token.Value);
+        var q = $"repo:{repo} is:issue {stateQualifier}{query.Trim()}";
+        var perPage = Math.Clamp(limit, 1, MaxSearchHits);
 
-        try
-        {
-            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-                return Result<CreatedIssue>.Failure(MapError(response, text));
+        var found = await CallAsync((auth, c) => _reads.SearchIssuesAsync(q, perPage, auth, UserAgent, c), ct).ConfigureAwait(false);
+        if (found.IsFailure)
+            return Result<IReadOnlyList<IssueHit>, GitHubError>.Failure(found.Error);
 
-            using var doc = JsonDocument.Parse(text);
-            return ReadShape($"filing an issue in {repo}", () => new CreatedIssue(
-                doc.RootElement.GetProperty("number").GetInt32(),
-                HtmlUrl(doc.RootElement)));
-        }
-        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        var what = "searching issues";
+        if (found.Value.Items is not { } items)
+            return Result<IReadOnlyList<IssueHit>, GitHubError>.Failure(Unexpected(what));
+
+        var repoSuffix = $"/repos/{repo.Owner}/{repo.Name}";
+        var hits = new List<IssueHit>(perPage);
+        foreach (var item in items)
         {
-            return Result<CreatedIssue>.Failure($"Filing an issue in {repo} timed out: {ex.Message}");
+            if (hits.Count == perPage)
+                break;
+            if (IsPresent(item.PullRequest))
+                continue;
+            if (item.RepositoryUrl is not { } repositoryUrl)
+                return Result<IReadOnlyList<IssueHit>, GitHubError>.Failure(Unexpected(what));
+            if (!repositoryUrl.EndsWith(repoSuffix, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (item is not { Number: { } number, Title: { } title, State: { } itemState } || !TryWebUrl(item.HtmlUrl, out var link))
+                return Result<IReadOnlyList<IssueHit>, GitHubError>.Failure(Unexpected(what));
+
+            hits.Add(new IssueHit(number, title, itemState, link));
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            LogReadFailed(_logger, ex, $"filing an issue in {repo}");
-            return Result<CreatedIssue>.Failure($"Filing an issue in {repo} failed: {ex.Message}");
-        }
+
+        return Result<IReadOnlyList<IssueHit>, GitHubError>.Success(hits);
+    }
+
+    public Task<Result<IReadOnlyList<IssueText>, GitHubError>> ListIssuesUpdatedSinceAsync(RepoRef repo, DateTimeOffset since, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        var from = FormatIso(since.UtcDateTime);
+
+        return ScanAsync(
+            (page, auth, c) => _reads.ListIssuesAsync(repo.Owner, repo.Name, from, "all", ScanPageSize, page, auth, UserAgent, c),
+            "listing issues updated since a time",
+            static dto => dto is { Number: { } number, User.Login: { } login } && TryWebUrl(dto.HtmlUrl, out var link)
+                ? new IssueText(number, dto.Body, link, IsPresent(dto.PullRequest), login)
+                : null,
+            ct);
+    }
+
+    public Task<Result<IReadOnlyList<IssueCommentText>, GitHubError>> ListIssueCommentsSinceAsync(
+        RepoRef repo, int number, DateTimeOffset since, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        if (number <= 0)
+            return Task.FromResult(Result<IReadOnlyList<IssueCommentText>, GitHubError>.Failure(GitHubError.Refused("An issue number must be positive.")));
+
+        var from = FormatIso(since.UtcDateTime);
+        return ScanAsync(
+            (page, auth, c) => _reads.ListCommentsAsync(repo.Owner, repo.Name, number, from, ScanPageSize, page, auth, UserAgent, c),
+            "listing an issue's comments",
+            static dto => dto is { Id: { } id, User.Login: { } login } && TryWebUrl(dto.HtmlUrl, out var link)
+                ? new IssueCommentText(id, dto.Body, link, login)
+                : null,
+            ct);
+    }
+
+    public async Task<Result<string, GitHubError>> GetPullRequestHeadShaAsync(RepoRef repo, int number, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        if (number <= 0)
+            return Result<string, GitHubError>.Failure(GitHubError.Refused("A pull request number must be positive."));
+
+        var read = await CallAsync((auth, c) => _reads.GetPullRequestAsync(repo.Owner, repo.Name, number, auth, UserAgent, c), ct).ConfigureAwait(false);
+        if (read.IsFailure)
+            return Result<string, GitHubError>.Failure(read.Error);
+
+        return read.Value.Head?.Sha is { } sha
+            ? Result<string, GitHubError>.Success(sha)
+            : Result<string, GitHubError>.Failure(Unexpected("reading a pull request"));
+    }
+
+    public async Task<Result<string, GitHubError>> GetAuthenticatedLoginAsync(CancellationToken ct = default)
+    {
+        var read = await CallAsync((auth, c) => _reads.GetAuthenticatedUserAsync(auth, UserAgent, c), ct).ConfigureAwait(false);
+        if (read.IsFailure)
+            return Result<string, GitHubError>.Failure(read.Error);
+
+        return read.Value.Login is { } login
+            ? Result<string, GitHubError>.Success(login)
+            : Result<string, GitHubError>.Failure(Unexpected("reading the authenticated GitHub account"));
     }
 
     /// <summary>
     ///     The open pull request whose head is <paramref name="headBranch"/> in <paramref name="repo"/>, or
-    ///     <see langword="null"/> when none is open. GitHub's <c>head</c> filter takes <c>owner:branch</c>; the whole
-    ///     value is URL-encoded, so a branch such as <c>manufacture/&lt;run-id&gt;</c> is sent as
-    ///     <c>manufacture%2F&lt;run-id&gt;</c> rather than splitting the query.
+    ///     <see langword="null"/> when none is open. GitHub's <c>head</c> filter takes <c>owner:branch</c>; the whole value
+    ///     is URL-encoded, so a branch such as <c>manufacture/&lt;run-id&gt;</c> is sent as <c>manufacture%2F&lt;run-id&gt;</c>.
     /// </summary>
-    /// <remarks>
-    ///     Every expected fault is a failed result, never an exception: a network or DNS fault, a timeout of the
-    ///     client's own, a body that is not JSON (a proxy's HTML page on a 200), and an element missing
-    ///     <c>number</c> or <c>html_url</c>. Only a cancellation of <paramref name="ct"/> itself propagates.
-    /// </remarks>
-    public async Task<Result<PullRequestResult?>> FindOpenPullRequestAsync(RepoRef repo, string headBranch, CancellationToken ct = default)
+    public async Task<Result<PullRequestResult?, GitHubError>> FindOpenPullRequestAsync(RepoRef repo, string headBranch, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(repo);
         ArgumentException.ThrowIfNullOrWhiteSpace(headBranch);
 
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<PullRequestResult?>.Failure(token.Error);
-
-        try
+        var listed = await CallAsync(
+            (auth, c) => _reads.ListPullRequestsAsync(repo.Owner, repo.Name, "open", $"{repo.Owner}:{headBranch}", null, null, null, auth, UserAgent, c),
+            ct).ConfigureAwait(false);
+        if (listed.IsFailure)
         {
-            return await QueryOpenPullRequestAsync(repo, headBranch, token.Value, ct).ConfigureAwait(false);
+            LogOpenPullRequestLookupFailed(_logger, listed.Error.Kind);
+            return Result<PullRequestResult?, GitHubError>.Failure(listed.Error);
         }
-        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
-        {
-            return Result<PullRequestResult?>.Failure($"Looking up an open pull request on GitHub timed out: {ex.Message}");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or KeyNotFoundException
-                                       or InvalidOperationException or FormatException)
-        {
-            LogOpenPullRequestLookupFailed(_logger, ex, repo.ToString());
-            return Result<PullRequestResult?>.Failure($"Looking up an open pull request on GitHub failed: {ex.Message}");
-        }
-    }
 
-    private async Task<Result<PullRequestResult?>> QueryOpenPullRequestAsync(
-        RepoRef repo, string headBranch, string token, CancellationToken ct)
-    {
-        var url = $"{RepoUrl(repo)}/pulls?state=open&head={Uri.EscapeDataString($"{repo.Owner}:{headBranch}")}";
+        if (listed.Value.Count == 0)
+            return Result<PullRequestResult?, GitHubError>.Success(null);
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        ApplyHeaders(request, token);
-
-        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-            return Result<PullRequestResult?>.Failure(MapError(response, body));
-
-        using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array)
-            return Result<PullRequestResult?>.Failure($"GitHub returned {doc.RootElement.ValueKind} for a pull request list, not an array.");
-
-        if (doc.RootElement.GetArrayLength() == 0)
-            return Result<PullRequestResult?>.Success(null);
-
-        var content = doc.RootElement[0];
-        return Result<PullRequestResult?>.Success(new PullRequestResult
-        {
-            PullRequestId = content.GetProperty("number").GetInt32().ToString(CultureInfo.InvariantCulture),
-            PullRequestUrl = content.TryGetProperty("url", out var apiUrl) ? apiUrl.GetString() ?? string.Empty : string.Empty,
-            WebUrl = content.GetProperty("html_url").GetString() ?? string.Empty,
-            Status = PullRequestStatus.Open,
-        });
-    }
-
-    /// <summary>
-    ///     Sends a single write request and returns whatever GitHub said, mapped through the same error helper the
-    ///     read side uses. There is no retry here — this method is called exactly once per public write method, and
-    ///     a non-success response returns a failure directly rather than looping or re-queuing.
-    /// </summary>
-    private async Task<Result<string>> SendWriteAsync(
-        HttpMethod method, string url, string jsonPayload, string token, string successMessage, CancellationToken ct)
-    {
-        // Not disposed here (unlike the read path's request): the stub handler in tests keeps this request around
-        // so a test can inspect the body it sent, and disposing it would dispose that content out from under it.
-        var request = new HttpRequestMessage(method, url)
-        {
-            Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json"),
-        };
-        ApplyHeaders(request, token);
-
-        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-
-        return response.IsSuccessStatusCode
-            ? Result<string>.Success(successMessage)
-            : Result<string>.Failure(MapError(response, body));
+        var first = listed.Value[0];
+        return first is { Number: { } number, HtmlUrl: { } webUrl }
+            ? Result<PullRequestResult?, GitHubError>.Success(new PullRequestResult
+            {
+                PullRequestId = number.ToString(CultureInfo.InvariantCulture),
+                PullRequestUrl = first.Url ?? string.Empty,
+                WebUrl = webUrl,
+                Status = PullRequestStatus.Open,
+            })
+            : Result<PullRequestResult?, GitHubError>.Failure(Unexpected("looking up an open pull request"));
     }
 
     public async Task<RepoActivity> GetActivityAsync(RepoRef repo, DateTime sinceUtc, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(repo);
         var windowEnd = _clock.GetUtcNow().UtcDateTime;
-        var token = _tokens.GetToken();
 
-        if (token.IsFailure)
-        {
-            return new RepoActivity(
-                repo,
-                sinceUtc,
-                windowEnd,
-                CategoryResult<CommitSummary>.Failed(token.Error),
-                CategoryResult<PullRequestSummary>.Failed(token.Error),
-                CategoryResult<PullRequestSummary>.Failed(token.Error),
-                CategoryResult<IssueSummary>.Failed(token.Error),
-                CategoryResult<WorkflowRunSummary>.Failed(token.Error));
-        }
-
-        var accessToken = token.Value;
-
-        // Each category is wrapped independently: a dead category must not take the other four down with it.
-        var commits = await RunCategoryAsync("commits", repo, async () =>
-        {
-            var branch = await FetchDefaultBranchAsync(repo, accessToken, ct).ConfigureAwait(false);
-            return await GetCommitsAsync(repo, accessToken, branch, sinceUtc, ct).ConfigureAwait(false);
-        }).ConfigureAwait(false);
-
-        var merged = await RunCategoryAsync("merged pull requests", repo,
-            () => GetMergedPullRequestsAsync(repo, accessToken, sinceUtc, ct)).ConfigureAwait(false);
-
-        var open = await RunCategoryAsync("open pull requests", repo,
-            () => GetOpenPullRequestsAsync(repo, accessToken, ct)).ConfigureAwait(false);
-
-        var issues = await RunCategoryAsync("issues", repo,
-            () => GetIssuesAsync(repo, accessToken, sinceUtc, ct)).ConfigureAwait(false);
-
-        var failedRuns = await RunCategoryAsync("failed workflow runs", repo,
-            () => GetFailedRunsAsync(repo, accessToken, sinceUtc, ct)).ConfigureAwait(false);
+        // Each category stands alone: a dead category must not take the other four down with it.
+        var commits = await ReadCommitsAsync(repo, sinceUtc, ct).ConfigureAwait(false);
+        var merged = await ReadMergedPullRequestsAsync(repo, sinceUtc, ct).ConfigureAwait(false);
+        var open = await ReadOpenPullRequestsAsync(repo, ct).ConfigureAwait(false);
+        var issues = await ReadIssuesAsync(repo, sinceUtc, ct).ConfigureAwait(false);
+        var failedRuns = await ReadFailedRunsAsync(repo, sinceUtc, ct).ConfigureAwait(false);
 
         return new RepoActivity(repo, sinceUtc, windowEnd, commits, merged, open, issues, failedRuns);
     }
 
-    private async Task<CategoryResult<T>> RunCategoryAsync<T>(string category, RepoRef repo, Func<Task<CategoryResult<T>>> read)
+    // ---- Writes: sent once, through the write client ------------------------------------------------------------
+
+    public Task<Result<string, GitHubError>> CommentAsync(RepoRef repo, int number, string body, CancellationToken ct = default)
     {
-        try
-        {
-            return await read().ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // A cancelled request is a caller decision, not a GitHub problem — let it propagate.
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("GitHub read failed for {Repo} in category {Category}", repo, category);
-            return CategoryResult<T>.Failed(ex.Message);
-        }
+        ArgumentNullException.ThrowIfNull(repo);
+        return WriteAsync(
+            (auth, c) => _writes.CreateCommentAsync(repo.Owner, repo.Name, number, new GitHubCommentBody(body), auth, UserAgent, c),
+            $"Comment posted to {repo}#{number}.",
+            ct);
     }
 
-    private async Task<string> FetchDefaultBranchAsync(RepoRef repo, string token, CancellationToken ct)
+    public Task<Result<string, GitHubError>> AddLabelAsync(RepoRef repo, int number, string label, CancellationToken ct = default)
     {
-        using var doc = await GetJsonAsync(RepoUrl(repo), token, ct).ConfigureAwait(false);
-
-        if (doc.RootElement.TryGetProperty("default_branch", out var branchEl) && branchEl.ValueKind == JsonValueKind.String)
-        {
-            var branch = branchEl.GetString();
-            if (!string.IsNullOrWhiteSpace(branch))
-                return branch;
-        }
-
-        // No guessing "main": a caller may name any repository, and a wrong assumed branch would make the
-        // commits query silently return nothing rather than surface as the error this actually is.
-        throw new GitHubRequestException("GitHub did not report a default branch for this repository.");
+        ArgumentNullException.ThrowIfNull(repo);
+        return WriteAsync(
+            (auth, c) => _writes.AddLabelsAsync(repo.Owner, repo.Name, number, new GitHubLabelsBody([label]), auth, UserAgent, c),
+            $"Label '{label}' added to {repo}#{number}.",
+            ct);
     }
 
-    private async Task<CategoryResult<CommitSummary>> GetCommitsAsync(
-        RepoRef repo, string token, string branch, DateTime sinceUtc, CancellationToken ct)
+    public Task<Result<string, GitHubError>> CloseIssueAsync(RepoRef repo, int number, CancellationToken ct = default)
     {
-        var url = $"{RepoUrl(repo)}/commits?sha={Uri.EscapeDataString(branch)}&since={Uri.EscapeDataString(FormatIso(sinceUtc))}" +
-                  $"&per_page={_options.MaxItemsPerCategory}";
-
-        using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
-        var rawCount = doc.RootElement.GetArrayLength();
-
-        var items = new List<CommitSummary>();
-        foreach (var element in doc.RootElement.EnumerateArray())
-        {
-            var sha = element.GetProperty("sha").GetString() ?? "";
-            var commit = element.GetProperty("commit");
-            var message = commit.GetProperty("message").GetString() ?? "";
-
-            var author = commit.TryGetProperty("author", out var authorEl) ? authorEl : default;
-            var authorName = author.ValueKind == JsonValueKind.Object && author.TryGetProperty("name", out var nameEl)
-                ? nameEl.GetString() ?? ""
-                : "";
-            var committedAt = author.ValueKind == JsonValueKind.Object
-                               && author.TryGetProperty("date", out var dateEl)
-                               && dateEl.TryGetDateTime(out var parsedDate)
-                ? parsedDate.ToUniversalTime()
-                : sinceUtc;
-
-            items.Add(new CommitSummary(sha, message, authorName, committedAt));
-        }
-
-        return BuildCategoryResult(items, rawCount);
-    }
-
-    private async Task<CategoryResult<PullRequestSummary>> GetMergedPullRequestsAsync(
-        RepoRef repo, string token, DateTime sinceUtc, CancellationToken ct)
-    {
-        var url = $"{RepoUrl(repo)}/pulls?state=closed&sort=updated&direction=desc&per_page={_options.MaxItemsPerCategory}";
-        using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
-        var rawCount = doc.RootElement.GetArrayLength();
-
-        var items = new List<PullRequestSummary>();
-        foreach (var element in doc.RootElement.EnumerateArray())
-        {
-            if (!element.TryGetProperty("merged_at", out var mergedAtEl) || mergedAtEl.ValueKind != JsonValueKind.String)
-                continue;
-
-            if (!mergedAtEl.TryGetDateTime(out var mergedAt) || mergedAt.ToUniversalTime() < sinceUtc)
-                continue;
-
-            items.Add(MapPullRequest(element, merged: true));
-        }
-
-        return BuildCategoryResult(items, rawCount);
-    }
-
-    private async Task<CategoryResult<PullRequestSummary>> GetOpenPullRequestsAsync(RepoRef repo, string token, CancellationToken ct)
-    {
-        var url = $"{RepoUrl(repo)}/pulls?state=open&per_page={_options.MaxItemsPerCategory}";
-        using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
-
-        var items = doc.RootElement.EnumerateArray().Select(element => MapPullRequest(element, merged: false)).ToList();
-        return BuildCategoryResult(items, doc.RootElement.GetArrayLength());
-    }
-
-    private async Task<CategoryResult<IssueSummary>> GetIssuesAsync(RepoRef repo, string token, DateTime sinceUtc, CancellationToken ct)
-    {
-        var url = $"{RepoUrl(repo)}/issues?since={Uri.EscapeDataString(FormatIso(sinceUtc))}&state=all&per_page={_options.MaxItemsPerCategory}";
-        using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
-        var rawCount = doc.RootElement.GetArrayLength();
-
-        var items = new List<IssueSummary>();
-        foreach (var element in doc.RootElement.EnumerateArray())
-        {
-            // The /issues endpoint also returns pull requests; skip anything carrying that marker or the digest
-            // double-counts pull requests as issues.
-            if (element.TryGetProperty("pull_request", out _))
-                continue;
-
-            var number = element.GetProperty("number").GetInt32();
-            var title = element.GetProperty("title").GetString() ?? "";
-            var state = element.TryGetProperty("state", out var stateEl) ? stateEl.GetString() ?? "" : "";
-            var updatedAt = element.TryGetProperty("updated_at", out var updatedEl) && updatedEl.TryGetDateTime(out var updated)
-                ? updated.ToUniversalTime()
-                : sinceUtc;
-
-            items.Add(new IssueSummary(number, title, state, updatedAt));
-        }
-
-        return BuildCategoryResult(items, rawCount);
-    }
-
-    private async Task<CategoryResult<WorkflowRunSummary>> GetFailedRunsAsync(
-        RepoRef repo, string token, DateTime sinceUtc, CancellationToken ct)
-    {
-        var url = $"{RepoUrl(repo)}/actions/runs?status=failure&per_page={_options.MaxItemsPerCategory}";
-        using var doc = await GetJsonAsync(url, token, ct).ConfigureAwait(false);
-
-        var items = new List<WorkflowRunSummary>();
-        var rawCount = 0;
-        if (doc.RootElement.TryGetProperty("workflow_runs", out var runsEl) && runsEl.ValueKind == JsonValueKind.Array)
-        {
-            rawCount = runsEl.GetArrayLength();
-
-            foreach (var element in runsEl.EnumerateArray())
-            {
-                var startedAt = element.TryGetProperty("run_started_at", out var startedEl) && startedEl.TryGetDateTime(out var started)
-                    ? started.ToUniversalTime()
-                    : DateTime.MinValue;
-
-                if (startedAt < sinceUtc)
-                    continue;
-
-                var id = element.GetProperty("id").GetInt64();
-                var name = element.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
-                var conclusion = element.TryGetProperty("conclusion", out var conclusionEl) ? conclusionEl.GetString() ?? "" : "";
-                var headBranch = element.TryGetProperty("head_branch", out var branchEl) ? branchEl.GetString() ?? "" : "";
-
-                items.Add(new WorkflowRunSummary(id, name, conclusion, headBranch, startedAt));
-            }
-        }
-
-        return BuildCategoryResult(items, rawCount);
-    }
-
-    private static PullRequestSummary MapPullRequest(JsonElement element, bool merged)
-    {
-        var number = element.GetProperty("number").GetInt32();
-        var title = element.GetProperty("title").GetString() ?? "";
-        var author = element.TryGetProperty("user", out var userEl) && userEl.ValueKind == JsonValueKind.Object
-                     && userEl.TryGetProperty("login", out var loginEl)
-            ? loginEl.GetString() ?? ""
-            : "";
-        var updatedAt = element.TryGetProperty("updated_at", out var updatedEl) && updatedEl.TryGetDateTime(out var updated)
-            ? updated.ToUniversalTime()
-            : default;
-
-        return new PullRequestSummary(number, title, author, updatedAt, merged);
+        ArgumentNullException.ThrowIfNull(repo);
+        return WriteAsync(
+            (auth, c) => _writes.UpdateIssueStateAsync(repo.Owner, repo.Name, number, new GitHubIssueStateBody("closed"), auth, UserAgent, c),
+            $"{repo}#{number} closed.",
+            ct);
     }
 
     /// <summary>
-    ///     Builds the category result. <paramref name="rawCount"/> is the length of the array GitHub returned
-    ///     before any client-side filtering — truncation must be judged against what the page could have held, not
-    ///     against what survived filtering, or a full page that filters down to a handful reports as complete.
+    ///     Files an issue and returns what GitHub assigned. Sent once; a timeout is a failure. An issue created before the
+    ///     timeout is never found by retrying here: the <c>file-review-findings</c> host action scans for its own marker
+    ///     before it files again, while any other caller, such as the <c>repoaction__create_issue</c> tool, gets a failure
+    ///     that may hide an issue that was in fact created.
+    /// </summary>
+    public async Task<Result<CreatedIssue, GitHubError>> CreateIssueAsync(RepoRef repo, string title, string body, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+        if (string.IsNullOrWhiteSpace(title) || title.Length > MaxIssueTitleLength)
+            return Result<CreatedIssue, GitHubError>.Failure(GitHubError.Refused($"An issue title must be 1 to {MaxIssueTitleLength} characters."));
+
+        var created = await CallAsync(
+            (auth, c) => _writes.CreateIssueAsync(repo.Owner, repo.Name, new GitHubCreateIssueBody(title, body), auth, UserAgent, c),
+            ct).ConfigureAwait(false);
+        if (created.IsFailure)
+            return Result<CreatedIssue, GitHubError>.Failure(created.Error.ForWrite());
+
+        return created.Value is { Number: { } number } && TryWebUrl(created.Value.HtmlUrl, out var link)
+            ? Result<CreatedIssue, GitHubError>.Success(new CreatedIssue(number, link))
+            : Result<CreatedIssue, GitHubError>.Failure(Unexpected("filing an issue"));
+    }
+
+    /// <summary>Opens a pull request and returns the number GitHub assigned and both its API and web URLs. Sent once.</summary>
+    public async Task<Result<PullRequestResult, GitHubError>> CreatePullRequestAsync(
+        RepoRef repo, string featureBranch, string baseBranch, string title, string description, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(repo);
+
+        var body = new GitHubCreatePullRequestBody(title, description, featureBranch, baseBranch, Draft: false);
+        var created = await CallAsync((auth, c) => _writes.CreatePullRequestAsync(repo.Owner, repo.Name, body, auth, UserAgent, c), ct).ConfigureAwait(false);
+        if (created.IsFailure)
+            return Result<PullRequestResult, GitHubError>.Failure(created.Error.ForWrite());
+
+        return created.Value is { Number: { } number, Url: { } apiUrl, HtmlUrl: { } webUrl }
+            ? Result<PullRequestResult, GitHubError>.Success(new PullRequestResult
+            {
+                PullRequestId = number.ToString(CultureInfo.InvariantCulture),
+                PullRequestUrl = apiUrl,
+                WebUrl = webUrl,
+                Status = PullRequestStatus.Open,
+            })
+            : Result<PullRequestResult, GitHubError>.Failure(Unexpected("opening a pull request"));
+    }
+
+    // ---- The digest's categories --------------------------------------------------------------------------------
+
+    private async Task<Result<string, GitHubError>> ReadDefaultBranchAsync(RepoRef repo, CancellationToken ct)
+    {
+        var read = await CallAsync((auth, c) => _reads.GetRepositoryAsync(repo.Owner, repo.Name, auth, UserAgent, c), ct).ConfigureAwait(false);
+        if (read.IsFailure)
+            return Result<string, GitHubError>.Failure(read.Error);
+
+        // No guessing "main": a caller may name any repository, and a wrong assumed branch would make the commits query
+        // silently return nothing rather than surface as the error this actually is.
+        return string.IsNullOrWhiteSpace(read.Value.DefaultBranch)
+            ? Result<string, GitHubError>.Failure(GitHubError.Unreadable("GitHub did not report a default branch for this repository."))
+            : Result<string, GitHubError>.Success(read.Value.DefaultBranch);
+    }
+
+    private async Task<CategoryResult<CommitSummary>> ReadCommitsAsync(RepoRef repo, DateTime sinceUtc, CancellationToken ct)
+    {
+        var branch = await ReadDefaultBranchAsync(repo, ct).ConfigureAwait(false);
+        if (branch.IsFailure)
+            return Unavailable<CommitSummary>("commits", branch.Error);
+
+        var listed = await CallAsync(
+            (auth, c) => _reads.ListCommitsAsync(repo.Owner, repo.Name, branch.Value, FormatIso(sinceUtc), _options.MaxItemsPerCategory, auth, UserAgent, c),
+            ct).ConfigureAwait(false);
+        if (listed.IsFailure)
+            return Unavailable<CommitSummary>("commits", listed.Error);
+
+        var items = new List<CommitSummary>(listed.Value.Count);
+        foreach (var dto in listed.Value)
+        {
+            if (dto is not { Sha: { } sha, Commit.Message: { } message })
+                return Unavailable<CommitSummary>("commits", Unexpected("listing commits"));
+
+            var author = dto.Commit.Author;
+            var committedAt = TryParseTimestamp(author?.Date, out var date) ? date : sinceUtc;
+            items.Add(new CommitSummary(sha, message, author?.Name ?? "", committedAt));
+        }
+
+        return BuildCategoryResult(items, listed.Value.Count);
+    }
+
+    private async Task<CategoryResult<PullRequestSummary>> ReadMergedPullRequestsAsync(RepoRef repo, DateTime sinceUtc, CancellationToken ct)
+    {
+        var listed = await CallAsync(
+            (auth, c) => _reads.ListPullRequestsAsync(repo.Owner, repo.Name, "closed", null, "updated", "desc", _options.MaxItemsPerCategory, auth, UserAgent, c),
+            ct).ConfigureAwait(false);
+        if (listed.IsFailure)
+            return Unavailable<PullRequestSummary>("merged pull requests", listed.Error);
+
+        var items = new List<PullRequestSummary>();
+        foreach (var dto in listed.Value)
+        {
+            if (!TryParseTimestamp(dto.MergedAt, out var mergedAt) || mergedAt < sinceUtc)
+                continue;
+            if (ToSummary(dto, merged: true) is not { } summary)
+                return Unavailable<PullRequestSummary>("merged pull requests", Unexpected("listing pull requests"));
+
+            items.Add(summary);
+        }
+
+        return BuildCategoryResult(items, listed.Value.Count);
+    }
+
+    private async Task<CategoryResult<PullRequestSummary>> ReadOpenPullRequestsAsync(RepoRef repo, CancellationToken ct)
+    {
+        var listed = await CallAsync(
+            (auth, c) => _reads.ListPullRequestsAsync(repo.Owner, repo.Name, "open", null, null, null, _options.MaxItemsPerCategory, auth, UserAgent, c),
+            ct).ConfigureAwait(false);
+        if (listed.IsFailure)
+            return Unavailable<PullRequestSummary>("open pull requests", listed.Error);
+
+        var items = new List<PullRequestSummary>(listed.Value.Count);
+        foreach (var dto in listed.Value)
+        {
+            if (ToSummary(dto, merged: false) is not { } summary)
+                return Unavailable<PullRequestSummary>("open pull requests", Unexpected("listing pull requests"));
+
+            items.Add(summary);
+        }
+
+        return BuildCategoryResult(items, listed.Value.Count);
+    }
+
+    private async Task<CategoryResult<IssueSummary>> ReadIssuesAsync(RepoRef repo, DateTime sinceUtc, CancellationToken ct)
+    {
+        var listed = await CallAsync(
+            (auth, c) => _reads.ListIssuesAsync(repo.Owner, repo.Name, FormatIso(sinceUtc), "all", _options.MaxItemsPerCategory, null, auth, UserAgent, c),
+            ct).ConfigureAwait(false);
+        if (listed.IsFailure)
+            return Unavailable<IssueSummary>("issues", listed.Error);
+
+        var items = new List<IssueSummary>();
+        foreach (var dto in listed.Value)
+        {
+            // The /issues endpoint also returns pull requests; skip anything carrying that marker or the digest
+            // double-counts pull requests as issues.
+            if (IsPresent(dto.PullRequest))
+                continue;
+            if (dto is not { Number: { } number, Title: { } title })
+                return Unavailable<IssueSummary>("issues", Unexpected("listing issues"));
+
+            var updatedAt = TryParseTimestamp(dto.UpdatedAt, out var updated) ? updated : sinceUtc;
+            items.Add(new IssueSummary(number, title, dto.State ?? "", updatedAt));
+        }
+
+        return BuildCategoryResult(items, listed.Value.Count);
+    }
+
+    private async Task<CategoryResult<WorkflowRunSummary>> ReadFailedRunsAsync(RepoRef repo, DateTime sinceUtc, CancellationToken ct)
+    {
+        var listed = await CallAsync(
+            (auth, c) => _reads.ListWorkflowRunsAsync(repo.Owner, repo.Name, "failure", _options.MaxItemsPerCategory, auth, UserAgent, c),
+            ct).ConfigureAwait(false);
+        if (listed.IsFailure)
+            return Unavailable<WorkflowRunSummary>("failed workflow runs", listed.Error);
+
+        var runs = listed.Value.WorkflowRuns ?? [];
+        var items = new List<WorkflowRunSummary>();
+        foreach (var dto in runs)
+        {
+            var startedAt = TryParseTimestamp(dto.RunStartedAt, out var started) ? started : DateTime.MinValue;
+            if (startedAt < sinceUtc)
+                continue;
+            if (dto.Id is not { } id)
+                return Unavailable<WorkflowRunSummary>("failed workflow runs", Unexpected("listing workflow runs"));
+
+            items.Add(new WorkflowRunSummary(id, dto.Name ?? "", dto.Conclusion ?? "", dto.HeadBranch ?? "", startedAt));
+        }
+
+        return BuildCategoryResult(items, runs.Count);
+    }
+
+    /// <summary>
+    ///     Builds the category result. <paramref name="rawCount"/> is the length of the array GitHub returned before any
+    ///     client-side filtering: truncation must be judged against what the page could have held, not against what
+    ///     survived filtering, or a full page that filters down to a handful reports as complete.
     /// </summary>
     private CategoryResult<T> BuildCategoryResult<T>(List<T> items, int rawCount)
     {
@@ -510,376 +487,176 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
         return CategoryResult<T>.Ok(taken, truncated);
     }
 
-    private async Task<JsonDocument> GetJsonAsync(string url, string token, CancellationToken ct)
+    private CategoryResult<T> Unavailable<T>(string category, GitHubError error)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        ApplyHeaders(request, token);
-
-        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-            throw new GitHubRequestException(MapError(response, body));
-
-        return JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
+        LogCategoryUnavailable(_logger, category, error.Kind);
+        return CategoryResult<T>.Failed(error.Message);
     }
 
-    /// <summary>
-    ///     GETs <paramref name="url"/> and parses the body. 404 is a successful <see langword="null"/>, since a caller
-    ///     asking whether an issue exists is answered, not failed. Every other expected fault is a failed result naming
-    ///     <paramref name="what"/>: another non-success status, a network fault, a timeout of the client's own, and a
-    ///     body that is not JSON. Only a cancellation of <paramref name="ct"/> itself propagates. The caller disposes
-    ///     the document.
-    /// </summary>
-    private async Task<Result<JsonDocument?>> GetJsonAsync(string url, string token, string what, CancellationToken ct)
-    {
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            ApplyHeaders(request, token);
-
-            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.NotFound)
-                return Result<JsonDocument?>.Success(null);
-
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            return response.IsSuccessStatusCode
-                ? Result<JsonDocument?>.Success(JsonDocument.Parse(body))
-                : Result<JsonDocument?>.Failure(MapError(response, body));
-        }
-        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
-        {
-            return Result<JsonDocument?>.Failure($"{what} on GitHub timed out: {ex.Message}");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            LogReadFailed(_logger, ex, what);
-            return Result<JsonDocument?>.Failure($"{what} on GitHub failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>Headers GitHub requires on every request, read or write: the bearer token, User-Agent and API version.</summary>
-    private void ApplyHeaders(HttpRequestMessage request, string token)
-    {
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.UserAgent.ParseAdd(_options.UserAgent);
-        request.Headers.Accept.ParseAdd("application/vnd.github+json");
-        request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
-    }
-
-    private string RepoUrl(RepoRef repo) =>
-        $"{_options.ApiUrl.TrimEnd('/')}/repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Name)}";
-
-    private string IssueUrl(RepoRef repo, int number) => $"{RepoUrl(repo)}/issues/{number}";
-
-    private static string FormatIso(DateTime value) => value.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
-
-    private static string MapError(HttpResponseMessage response, string body)
-    {
-        var message = ExtractMessage(body);
-
-        if (response.StatusCode == HttpStatusCode.NotFound)
-            return $"Repository does not exist, or the configured token does not have access to it. GitHub said: {message}";
-
-        if (response.StatusCode == HttpStatusCode.Forbidden)
-        {
-            var isRateLimited = response.Headers.TryGetValues("X-RateLimit-Remaining", out var remaining)
-                                 && string.Equals(remaining.FirstOrDefault(), "0", StringComparison.Ordinal);
-
-            if (isRateLimited)
-            {
-                var resetHeader = response.Headers.TryGetValues("X-RateLimit-Reset", out var resetValues)
-                    ? resetValues.FirstOrDefault()
-                    : null;
-
-                if (resetHeader is not null && long.TryParse(resetHeader, NumberStyles.Integer, CultureInfo.InvariantCulture, out var resetUnix))
-                {
-                    var resetAt = DateTimeOffset.FromUnixTimeSeconds(resetUnix).UtcDateTime;
-                    return $"GitHub rate limit exceeded; it resets at {resetAt.ToString("u", CultureInfo.InvariantCulture)}.";
-                }
-
-                return "GitHub rate limit exceeded.";
-            }
-
-            return $"GitHub request forbidden. GitHub said: {message}";
-        }
-
-        return $"GitHub request failed with status {(int)response.StatusCode} {response.StatusCode}. GitHub said: {message}";
-    }
-
-    /// <summary>The most hits <see cref="SearchIssuesAsync"/> returns.</summary>
-    public const int MaxSearchHits = 10;
-
-    /// <summary>The most pages of 100 a <c>since</c> listing reads before it gives up rather than read further.</summary>
-    public const int MaxScanPages = 10;
-
-    public async Task<Result<IssueDetail?>> GetIssueAsync(RepoRef repo, int number, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(repo);
-        if (number <= 0)
-            return Result<IssueDetail?>.Failure("An issue number must be positive.");
-
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<IssueDetail?>.Failure(token.Error);
-
-        var what = $"reading {repo}#{number}";
-        var fetched = await GetJsonAsync(IssueUrl(repo, number), token.Value, what, ct).ConfigureAwait(false);
-        if (fetched.IsFailure)
-            return Result<IssueDetail?>.Failure(fetched.Error);
-        if (fetched.Value is not { } doc)
-            return Result<IssueDetail?>.Success(null);
-
-        using (doc)
-        {
-            return ReadShape<IssueDetail?>(what, () =>
-            {
-                var root = doc.RootElement;
-                IReadOnlyList<string> labels = root.TryGetProperty("labels", out var l) && l.ValueKind == JsonValueKind.Array
-                    ? [.. l.EnumerateArray().Select(e => e.GetProperty("name").GetString() ?? "")]
-                    : [];
-                return new IssueDetail(
-                    root.GetProperty("number").GetInt32(),
-                    root.GetProperty("title").GetString() ?? "",
-                    root.GetProperty("state").GetString() ?? "",
-                    root.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.String ? body.GetString() : null,
-                    labels,
-                    HtmlUrl(root),
-                    root.TryGetProperty("pull_request", out _));
-            });
-        }
-    }
-
-    public async Task<Result<IReadOnlyList<IssueHit>>> SearchIssuesAsync(
-        RepoRef repo, string query, IssueSearchState state, int limit, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(repo);
-        if (string.IsNullOrWhiteSpace(query))
-            return Result<IReadOnlyList<IssueHit>>.Failure("A search needs some words to search for.");
-
-        // A5: GitHub ORs repo: qualifiers, so one in the query would widen the search past this repository.
-        if (ScopeQualifier().IsMatch(query))
-        {
-            return Result<IReadOnlyList<IssueHit>>.Failure(
-                $"The query may not name its own repo:, org:, user: or owner: qualifier; this search is always limited to {repo}.");
-        }
-
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<IReadOnlyList<IssueHit>>.Failure(token.Error);
-
-        var stateQualifier = state switch
-        {
-            IssueSearchState.Open => "state:open ",
-            IssueSearchState.Closed => "state:closed ",
-            _ => "",
-        };
-        var q = $"repo:{repo} is:issue {stateQualifier}{query.Trim()}";
-        var perPage = Math.Clamp(limit, 1, MaxSearchHits);
-        var url = $"{_options.ApiUrl.TrimEnd('/')}/search/issues?q={Uri.EscapeDataString(q)}&per_page={perPage}";
-
-        var what = $"searching {repo}'s issues";
-        var fetched = await GetJsonAsync(url, token.Value, what, ct).ConfigureAwait(false);
-        if (fetched.IsFailure)
-            return Result<IReadOnlyList<IssueHit>>.Failure(fetched.Error);
-        if (fetched.Value is not { } doc)
-            return Result<IReadOnlyList<IssueHit>>.Failure($"{repo} does not exist, or the configured token cannot see it.");
-
-        using (doc)
-        {
-            var repoSuffix = $"/repos/{repo.Owner}/{repo.Name}";
-            return ReadShape<IReadOnlyList<IssueHit>>(what, () =>
-            [
-                .. doc.RootElement.GetProperty("items").EnumerateArray()
-                    .Where(i => !i.TryGetProperty("pull_request", out _)
-                                && (i.GetProperty("repository_url").GetString() ?? "").EndsWith(repoSuffix, StringComparison.OrdinalIgnoreCase))
-                    .Take(perPage)
-                    .Select(i => new IssueHit(
-                        i.GetProperty("number").GetInt32(),
-                        i.GetProperty("title").GetString() ?? "",
-                        i.GetProperty("state").GetString() ?? "",
-                        HtmlUrl(i))),
-            ]);
-        }
-    }
-
-    public Task<Result<IReadOnlyList<IssueText>>> ListIssuesUpdatedSinceAsync(RepoRef repo, DateTimeOffset since, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(repo);
-        return ScanAsync(
-            page => $"{RepoUrl(repo)}/issues?state=all&since={Uri.EscapeDataString(FormatIso(since.UtcDateTime))}&per_page=100&page={page}",
-            $"listing {repo}'s issues updated since {FormatIso(since.UtcDateTime)}",
-            e => new IssueText(
-                e.GetProperty("number").GetInt32(),
-                e.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null,
-                HtmlUrl(e),
-                e.TryGetProperty("pull_request", out _),
-                AuthorLogin(e)),
-            ct);
-    }
-
-    public Task<Result<IReadOnlyList<IssueCommentText>>> ListIssueCommentsSinceAsync(
-        RepoRef repo, int number, DateTimeOffset since, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(repo);
-        if (number <= 0)
-            return Task.FromResult(Result<IReadOnlyList<IssueCommentText>>.Failure("An issue number must be positive."));
-
-        return ScanAsync(
-            page => $"{IssueUrl(repo, number)}/comments?since={Uri.EscapeDataString(FormatIso(since.UtcDateTime))}&per_page=100&page={page}",
-            $"listing the comments on {repo}#{number}",
-            e => new IssueCommentText(
-                e.GetProperty("id").GetInt64(),
-                e.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null,
-                HtmlUrl(e),
-                AuthorLogin(e)),
-            ct);
-    }
-
-    public async Task<Result<string>> GetPullRequestHeadShaAsync(RepoRef repo, int number, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(repo);
-        if (number <= 0)
-            return Result<string>.Failure("A pull request number must be positive.");
-
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<string>.Failure(token.Error);
-
-        var what = $"reading pull request {repo}#{number}";
-        var fetched = await GetJsonAsync($"{RepoUrl(repo)}/pulls/{number}", token.Value, what, ct).ConfigureAwait(false);
-        if (fetched.IsFailure)
-            return Result<string>.Failure(fetched.Error);
-        if (fetched.Value is not { } doc)
-            return Result<string>.Failure($"Pull request {repo}#{number} does not exist, or the configured token cannot see it.");
-
-        using (doc)
-        {
-            return ReadShape(what, () => doc.RootElement.GetProperty("head").GetProperty("sha").GetString()
-                ?? throw new InvalidOperationException("head.sha is null"));
-        }
-    }
+    // ---- Transport helpers --------------------------------------------------------------------------------------
 
     /// <summary>
     ///     Reads up to <see cref="MaxScanPages"/> pages of 100 and stops at the first short page. More than that is a
     ///     failure rather than a silent cut, because a marker scan that stopped early would report "not found" for
-    ///     something that exists.
+    ///     something that exists. <paramref name="read"/> returns <see langword="null"/> for an item missing a field.
     /// </summary>
-    private async Task<Result<IReadOnlyList<T>>> ScanAsync<T>(
-        Func<int, string> pageUrl, string what, Func<JsonElement, T> read, CancellationToken ct)
+    private async Task<Result<IReadOnlyList<T>, GitHubError>> ScanAsync<TDto, T>(
+        Func<int, string, CancellationToken, Task<Result<IReadOnlyList<TDto>, GitHubError>>> readPage,
+        string what,
+        Func<TDto, T?> read,
+        CancellationToken ct)
+        where T : class
     {
-        var token = _tokens.GetToken();
-        if (token.IsFailure)
-            return Result<IReadOnlyList<T>>.Failure(token.Error);
-
         var found = new List<T>();
         for (var page = 1; page <= MaxScanPages; page++)
         {
-            var fetched = await GetJsonAsync(pageUrl(page), token.Value, what, ct).ConfigureAwait(false);
-            if (fetched.IsFailure)
-                return Result<IReadOnlyList<T>>.Failure(fetched.Error);
-            if (fetched.Value is not { } doc)
-                return Result<IReadOnlyList<T>>.Failure($"{what}: GitHub answered 404.");
+            var current = page;
+            var listed = await CallAsync((auth, c) => readPage(current, auth, c), ct).ConfigureAwait(false);
+            if (listed.IsFailure)
+                return Result<IReadOnlyList<T>, GitHubError>.Failure(listed.Error);
 
-            using (doc)
+            foreach (var dto in listed.Value)
             {
-                var items = ReadShape<IReadOnlyList<T>>(what, () => [.. doc.RootElement.EnumerateArray().Select(read)]);
-                if (items.IsFailure)
-                    return items;
+                if (read(dto) is not { } item)
+                    return Result<IReadOnlyList<T>, GitHubError>.Failure(Unexpected(what));
 
-                found.AddRange(items.Value);
-                if (items.Value.Count < 100)
-                    return Result<IReadOnlyList<T>>.Success(found);
+                found.Add(item);
             }
+
+            if (listed.Value.Count < ScanPageSize)
+                return Result<IReadOnlyList<T>, GitHubError>.Success(found);
         }
 
-        return Result<IReadOnlyList<T>>.Failure($"{what}: the scan read the {MaxScanPages * 100}-item cap and stops rather than read further.");
+        return Result<IReadOnlyList<T>, GitHubError>.Failure(GitHubError.Refused(
+            $"{what}: the scan read the {MaxScanPages * ScanPageSize}-item cap and stops rather than read further."));
     }
 
-    public async Task<Result<string>> GetAuthenticatedLoginAsync(CancellationToken ct = default)
+    /// <summary>
+    ///     Every call with an answer goes through here: the token first, so a missing one sends nothing, then the call. A
+    ///     Polly rejection, which no generated client maps, becomes a <see cref="GitHubError"/> too (ruling P13).
+    /// </summary>
+    private async Task<Result<T, GitHubError>> CallAsync<T>(
+        Func<string, CancellationToken, Task<Result<T, GitHubError>>> call, CancellationToken ct)
     {
         var token = _tokens.GetToken();
         if (token.IsFailure)
-            return Result<string>.Failure(token.Error);
+            return Result<T, GitHubError>.Failure(GitHubError.NoToken(token.Error));
 
-        const string What = "reading the authenticated GitHub account";
-        var fetched = await GetJsonAsync($"{_options.ApiUrl.TrimEnd('/')}/user", token.Value, What, ct).ConfigureAwait(false);
-        if (fetched.IsFailure)
-            return Result<string>.Failure(fetched.Error);
-        if (fetched.Value is not { } doc)
-            return Result<string>.Failure("GitHub answered 404 for the authenticated account, so the configured token cannot be used to tell which comments are Daedalus's own.");
-
-        using (doc)
-        {
-            return ReadShape(What, () => doc.RootElement.GetProperty("login").GetString()
-                ?? throw new InvalidOperationException("login is null"));
-        }
-    }
-
-    /// <summary>The <c>user.login</c> of an issue or comment; a missing user, such as a deleted account, is a <see cref="InvalidOperationException"/>, which <see cref="ReadShape{T}"/> turns into a failed result.</summary>
-    private static string AuthorLogin(JsonElement element) =>
-        element.GetProperty("user").GetProperty("login").GetString()
-            ?? throw new InvalidOperationException("user.login is null");
-
-    /// <summary>GitHub's <c>html_url</c>; one that is not an absolute URL is a <see cref="FormatException"/>, which <see cref="ReadShape{T}"/> turns into a failed result.</summary>
-    private static Uri HtmlUrl(JsonElement element) =>
-        new(element.GetProperty("html_url").GetString() ?? "", UriKind.Absolute);
-
-    /// <summary>A body of the wrong shape, such as a missing property, is a failed result rather than an exception.</summary>
-    private static Result<T> ReadShape<T>(string what, Func<T> read)
-    {
         try
         {
-            return Result<T>.Success(read());
+            return await call("Bearer " + token.Value, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or FormatException)
+        catch (TimeoutRejectedException)
         {
-            return Result<T>.Failure($"GitHub's answer to {what} was not in the expected shape: {ex.Message}");
+            return Result<T, GitHubError>.Failure(GitHubError.TimedOut());
+        }
+        catch (ExecutionRejectedException ex)
+        {
+            LogRejected(_logger, ex.GetType().Name);
+            return Result<T, GitHubError>.Failure(GitHubError.NotSent());
         }
     }
+
+    /// <summary>As <see cref="CallAsync{T}"/>, for a write without an answer; success is <paramref name="confirmation"/>.</summary>
+    private async Task<Result<string, GitHubError>> WriteAsync(
+        Func<string, CancellationToken, Task<UnitResult<GitHubError>>> send, string confirmation, CancellationToken ct)
+    {
+        var token = _tokens.GetToken();
+        if (token.IsFailure)
+            return Result<string, GitHubError>.Failure(GitHubError.NoToken(token.Error));
+
+        UnitResult<GitHubError> sent;
+        try
+        {
+            sent = await send("Bearer " + token.Value, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutRejectedException)
+        {
+            return Result<string, GitHubError>.Failure(GitHubError.TimedOut().ForWrite());
+        }
+        catch (ExecutionRejectedException ex)
+        {
+            LogRejected(_logger, ex.GetType().Name);
+            return Result<string, GitHubError>.Failure(GitHubError.NotSent().ForWrite());
+        }
+
+        return sent.IsSuccess
+            ? Result<string, GitHubError>.Success(confirmation)
+            : Result<string, GitHubError>.Failure(sent.Error.ForWrite());
+    }
+
+    /// <summary>
+    ///     <see cref="IHttpClientFactory.CreateClient"/> returns a new <c>HttpClient</c> per call, so setting its base address
+    ///     here, before anything is sent, changes nothing shared. The trailing slash keeps a GitHub Enterprise path such as
+    ///     <c>/api/v3</c>, since every route is relative.
+    /// </summary>
+    private HttpClient Rooted(HttpClient http)
+    {
+        // Interpolated, not concatenated: Sonar S1075 reads a "/" or '/' operand of + as a hard-coded path delimiter.
+        http.BaseAddress = new Uri($"{_options.ApiUrl.TrimEnd('/')}/", UriKind.Absolute);
+        return http;
+    }
+
+    // ---- Mapping GitHub's answers -------------------------------------------------------------------------------
+
+    private static IssueDetail? ToIssueDetail(GitHubIssueDto dto)
+    {
+        if (dto is not { Number: { } number, Title: { } title, State: { } state } || !TryWebUrl(dto.HtmlUrl, out var link))
+            return null;
+
+        var labels = new List<string>();
+        foreach (var label in dto.Labels ?? [])
+        {
+            if (label?.Name is not { } name)
+                return null;
+
+            labels.Add(name);
+        }
+
+        return new IssueDetail(number, title, state, dto.Body, labels, link, IsPresent(dto.PullRequest));
+    }
+
+    private static PullRequestSummary? ToSummary(GitHubPullRequestDto dto, bool merged)
+    {
+        if (dto is not { Number: { } number, Title: { } title })
+            return null;
+
+        var updatedAt = TryParseTimestamp(dto.UpdatedAt, out var updated) ? updated : default;
+        return new PullRequestSummary(number, title, dto.User?.Login ?? "", updatedAt, merged);
+    }
+
+    /// <summary><c>pull_request</c> marks a pull request whether it holds an object or <c>null</c>; only its absence marks an issue.</summary>
+    private static bool IsPresent(JsonElement marker) => marker.ValueKind != JsonValueKind.Undefined;
+
+    private static bool TryWebUrl(string? value, [NotNullWhen(true)] out Uri? link) =>
+        Uri.TryCreate(value, UriKind.Absolute, out link);
+
+    private static bool TryParseTimestamp(string? value, out DateTime utc)
+    {
+        if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            utc = parsed.UtcDateTime;
+            return true;
+        }
+
+        utc = default;
+        return false;
+    }
+
+    private static GitHubError Unexpected(string what) =>
+        GitHubError.Unreadable($"GitHub's answer to {what} was not in the expected shape.");
+
+    private static string FormatIso(DateTime value) => value.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
     [GeneratedRegex(@"(?:^|[\s(""])-?(?:repo|org|user|owner):", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex ScopeQualifier();
 
-    [LoggerMessage(EventId = 511, Level = LogLevel.Warning, Message = "GitHub read failed: {What}")]
-    private static partial void LogReadFailed(ILogger logger, Exception exception, string what);
+    [LoggerMessage(EventId = 510, Level = LogLevel.Warning, Message = "Looking up an open pull request failed: {Kind}")]
+    private static partial void LogOpenPullRequestLookupFailed(ILogger logger, GitHubErrorKind kind);
 
-    [LoggerMessage(EventId = 510, Level = LogLevel.Warning,
-        Message = "Looking up an open pull request for {Repository} failed")]
-    private static partial void LogOpenPullRequestLookupFailed(ILogger logger, Exception exception, string repository);
+    [LoggerMessage(EventId = 511, Level = LogLevel.Warning, Message = "GitHub read failed in category {Category}: {Kind}")]
+    private static partial void LogCategoryUnavailable(ILogger logger, string category, GitHubErrorKind kind);
 
-    private static string ExtractMessage(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body))
-            return "no message";
-
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("message", out var messageEl) && messageEl.ValueKind == JsonValueKind.String)
-                return messageEl.GetString() ?? "no message";
-        }
-        catch (JsonException)
-        {
-            // Not JSON, or not shaped as expected — fall back to the raw body below.
-        }
-
-        return body;
-    }
-}
-
-/// <summary>A GitHub REST request returned a non-success status. Carries the already-mapped, user-facing reason.</summary>
-public sealed class GitHubRequestException : Exception
-{
-    public GitHubRequestException()
-    {
-    }
-
-    public GitHubRequestException(string message) : base(message)
-    {
-    }
-
-    public GitHubRequestException(string message, Exception innerException) : base(message, innerException)
-    {
-    }
+    [LoggerMessage(EventId = 512, Level = LogLevel.Warning, Message = "The resilience pipeline refused a GitHub request: {Rejection}")]
+    private static partial void LogRejected(ILogger logger, string rejection);
 }
