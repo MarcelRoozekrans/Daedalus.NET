@@ -233,7 +233,7 @@ public sealed class RunHubTests(PostgresFixture fixture)
     {
         var server = host.Factory.Server;
         var builder = new HubConnectionBuilder()
-            .WithUrl(new Uri(server.BaseAddress, WorkflowRunsHub.Path.TrimStart('/')), options =>
+            .WithUrl(new Uri(server.BaseAddress, WorkflowRunsHub.Path), options =>
             {
                 options.Transports = HttpTransportType.WebSockets;
                 options.SkipNegotiation = true;

@@ -121,7 +121,7 @@ public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<Ru
             await LoadRunAsync(change.Id, ct);
         }
 
-        if (state.List is not null && (state.Query.After is null || state.List.Runs.Any(r => r.Id == change.Id)))
+        if (state.ListRequested && (state.Query.After is null || (state.List?.Runs.Any(r => r.Id == change.Id) ?? false)))
         {
             await LoadListAsync(state.Query, ct);
         }
@@ -138,7 +138,7 @@ public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<Ru
             await LoadRunAsync(id, ct);
         }
 
-        if (state.List is not null)
+        if (state.ListRequested)
         {
             await LoadListAsync(state.Query, ct);
         }

@@ -133,6 +133,26 @@ public sealed class RunsEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     A list page whose first load failed is re-fetched on a change and on a reconnect, so it recovers.
+    ///     Red: gate the change's list re-fetch on List is not null. Red: gate RefreshAllAsync on List is not null.
+    /// </summary>
+    [Fact]
+    public async Task A_list_whose_load_failed_is_re_fetched()
+    {
+        var first = RunListQuery.First;
+        _handler.OnJson(first.ToPath(), "<html>down</html>", HttpStatusCode.BadGateway);
+        await _effects.LoadListAsync(first, CancellationToken.None);
+        _handler.Requests.Clear();
+
+        await _effects.OnRunChangedAsync(new WorkflowRunChanged(Guid.NewGuid(), "Running", "build", null), CancellationToken.None);
+        _handler.Paths.Should().Contain(first.ToPath(), "a change re-fetches the list page that failed");
+
+        _handler.Requests.Clear();
+        await _effects.RefreshAllAsync(CancellationToken.None);
+        _handler.Paths.Should().Contain(first.ToPath(), "a reconnect re-fetches the list page that failed");
+    }
+
+    /// <summary>
     ///     Once the run page is left, a change for that run fetches no run, and its gate draft is gone.
     ///     Red: keep SelectedId on RunClosed. Red: keep the Gate on RunClosed.
     /// </summary>
@@ -155,7 +175,7 @@ public sealed class RunsEffectsTests : IDisposable
 
     /// <summary>
     ///     Once the list page is left, a change fetches no list, even for a run the list showed on the first page.
-    ///     Red: keep List on RunListClosed.
+    ///     Red: keep ListRequested on RunListClosed.
     /// </summary>
     [Fact]
     public async Task After_the_list_is_closed_a_change_fetches_no_list()

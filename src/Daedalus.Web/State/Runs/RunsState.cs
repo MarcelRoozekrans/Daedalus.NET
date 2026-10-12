@@ -18,6 +18,11 @@ namespace Daedalus.Web.State.Runs;
 /// <param name="AwaitingApproval">How many runs await human approval, up to one page of 100.</param>
 /// <param name="AwaitingApprovalMore">Whether more runs await than that page holds.</param>
 /// <param name="Hub">The state of the live connection.</param>
+/// <param name="ListRequested">
+///     Whether the list page has asked for a page since it was last closed, whatever came of it. A change and a
+///     reconnect re-fetch the list on it, so a list whose load failed refreshes too; a late page or failure that
+///     lands after the close is ignored on it.
+/// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct RunsState(
     RunListQuery Query,
@@ -33,11 +38,13 @@ public readonly partial record struct RunsState(
     GateDraft Gate,
     int AwaitingApproval,
     bool AwaitingApprovalMore,
-    HubStatus Hub)
+    HubStatus Hub,
+    bool ListRequested)
 {
     /// <summary>The state before anything has loaded: the first page, no run open, disconnected.</summary>
     public static RunsState Initial(IServiceProvider services) =>
-        new(RunListQuery.First, [], null, false, null, null, null, false, false, null, GateDraft.Empty, 0, false, HubStatus.Disconnected);
+        new(RunListQuery.First, [], null, false, null, null, null, false, false, null, GateDraft.Empty, 0, false, HubStatus.Disconnected,
+            ListRequested: false);
 }
 
 /// <summary>What the operator has chosen at the gate but not yet sent.</summary>
