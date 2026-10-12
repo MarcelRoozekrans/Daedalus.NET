@@ -1,5 +1,6 @@
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;

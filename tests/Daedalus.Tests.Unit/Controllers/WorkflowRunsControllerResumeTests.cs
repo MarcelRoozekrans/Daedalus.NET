@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Tests.Unit.Workflow;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;

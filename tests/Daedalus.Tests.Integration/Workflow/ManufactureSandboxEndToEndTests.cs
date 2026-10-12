@@ -5,6 +5,7 @@ using AwesomeAssertions.Execution;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.AI;
