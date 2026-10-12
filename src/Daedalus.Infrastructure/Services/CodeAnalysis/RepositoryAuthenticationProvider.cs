@@ -8,7 +8,7 @@ namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 /// <summary>
 ///     Manages repository authentication
 /// </summary>
-public sealed class RepositoryAuthenticationProvider(
+public sealed partial class RepositoryAuthenticationProvider(
     ILogger<RepositoryAuthenticationProvider> logger) : IRepositoryAuthenticationProvider
 {
     public Task<Result<string>> GetAuthTokenAsync(
@@ -34,7 +34,7 @@ public sealed class RepositoryAuthenticationProvider(
 
             if (string.IsNullOrWhiteSpace(token))
             {
-                logger.LogWarning("No authentication token found for platform {Platform}", platform);
+                LogNoToken(logger, platform);
                 return Result<string>.Failure($"No authentication token configured for {platform}");
             }
 
@@ -42,10 +42,16 @@ public sealed class RepositoryAuthenticationProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error getting authentication token for platform {Platform}", platform);
+            LogReadFailed(logger, platform, ex.GetType().Name);
             return Result<string>.Failure($"Error getting the auth token for {platform}");
         }
     }
+
+    [LoggerMessage(EventId = 2360, Level = LogLevel.Warning, Message = "No authentication token found for platform {Platform}")]
+    private static partial void LogNoToken(ILogger logger, RepositoryPlatform platform);
+
+    [LoggerMessage(EventId = 2361, Level = LogLevel.Error, Message = "Error getting authentication token for platform {Platform}: {ExceptionType}")]
+    private static partial void LogReadFailed(ILogger logger, RepositoryPlatform platform, string exceptionType);
 
     public async Task<Result> ConfigureGitCredentialsAsync(
         RepositoryPlatform platform,

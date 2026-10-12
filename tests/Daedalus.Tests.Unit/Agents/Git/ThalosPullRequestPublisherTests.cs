@@ -138,6 +138,31 @@ public sealed class ThalosPullRequestPublisherTests : IDisposable
     ///     Red: drop the text from <c>Detail</c>; the detail assertion fails.
     ///     Red: keep the fixed "Failed to open pull request" message; the message assertion fails.
     /// </summary>
+    /// <summary>
+    ///     The exception's own words reach neither the log, which is exported over OTLP, nor the error detail, which the
+    ///     run's log carries: both name its type.
+    ///     Red: attach <c>ex</c> to <c>LogRemoteReadFailed</c> again, as before; a log line carries the exception's text.
+    ///     Red: put <c>ex.Message</c> in the detail again, as before; the detail assertion fails.
+    ///     Red: drop the log call; the type line assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_repository_git_cannot_read_leaks_no_exception_text_to_the_log_or_the_detail()
+    {
+        InitRepositoryWithOriginRemote("https://github.com/owner/repo.git");
+        await File.WriteAllTextAsync(Path.Combine(_repositoryPath, ".git", "config"), "[core\n\tbroken = = =\n");
+        var thrown = Assert.ThrowsAny<LibGit2SharpException>(() => new Repository(_repositoryPath).Dispose());
+        var logger = new CapturingLogger<ThalosPullRequestPublisher>();
+        var sut = new ThalosPullRequestPublisher(Substitute.For<IPullRequestFactory>(), logger);
+
+        var result = await sut.OpenPullRequestAsync(
+            _repositoryPath, "feature", "main", "title", "body", CancellationToken.None);
+
+        thrown.Message.Should().NotBeEmpty();
+        result.Error.Detail.Should().Be(thrown.GetType().Name);
+        logger.Lines.Should().Contain(line => line.Contains(thrown.GetType().Name, StringComparison.Ordinal));
+        logger.Lines.Should().NotContain(line => line.Contains(thrown.Message, StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task A_factory_failure_maps_to_a_GitOperationFailed_agent_error()
     {
@@ -296,6 +321,8 @@ public sealed class ThalosPullRequestPublisherTests : IDisposable
         public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             _lines.Enqueue(formatter(state, exception));
+            if (exception is not null)
+                _lines.Enqueue(exception.ToString());
             if (state is IEnumerable<KeyValuePair<string, object?>> values)
             {
                 foreach (var value in values)
