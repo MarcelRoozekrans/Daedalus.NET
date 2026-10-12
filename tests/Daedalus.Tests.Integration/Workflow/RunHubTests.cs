@@ -7,6 +7,8 @@ using Daedalus.Api.Controllers;
 using Daedalus.Api.Hubs;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,10 +37,21 @@ public sealed class RunHubTests(PostgresFixture fixture)
     /// <summary>The gate the manufacture process parks at, and the signal it awaits there.</summary>
     private const string GateSignal = "human_approval";
 
+    /// <summary>What the test server's WebSocket client throws when the upgrade is answered with a status instead.</summary>
+    private const string HandshakeRefused = "Incomplete handshake, status code: ";
+
+    /// <summary>The policy scheme test 4 authenticates with: test headers when present, the JWT bearer scheme otherwise.</summary>
+    private const string HeaderOrBearer = "HeaderOrBearer";
+
+    /// <summary>The log category of the JWT bearer handler.</summary>
+    private const string JwtBearerCategory = "Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerHandler";
+
     /// <summary>
-    ///     No caller, and a caller without developer or admin, cannot open the connection.
+    ///     No caller is refused with 401 and a caller without developer or admin with 403, while a developer connects
+    ///     to the same host.
     ///     Red: remove [Authorize] from the hub: the anonymous connection opens.
     ///     Red: authorize the hub with TaskRead instead of WorkflowResume: the analyst's connection opens.
+    ///     Red: do not map the hub: every connection is a 404, the developer's included.
     /// </summary>
     [Fact]
     public async Task A_caller_without_developer_or_admin_cannot_connect()
@@ -46,9 +59,14 @@ public sealed class RunHubTests(PostgresFixture fixture)
         await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
         await using var anonymous = Connect(host, user: null, roles: null);
         await using var analyst = Connect(host, "an-analyst", "analyst");
+        await using var developer = Connect(host, Developer, "developer");
 
-        await FluentActions.Awaiting(() => anonymous.StartAsync()).Should().ThrowAsync<Exception>();
-        await FluentActions.Awaiting(() => analyst.StartAsync()).Should().ThrowAsync<Exception>();
+        await FluentActions.Awaiting(() => anonymous.StartAsync()).Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage(HandshakeRefused + "401");
+        await FluentActions.Awaiting(() => analyst.StartAsync()).Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage(HandshakeRefused + "403");
+        await developer.StartAsync();
+        developer.State.Should().Be(HubConnectionState.Connected);
     }
 
     /// <summary>
@@ -108,7 +126,8 @@ public sealed class RunHubTests(PostgresFixture fixture)
     ///     A developer's connection and an anonymous one, each carrying a sentinel in access_token the way a browser
     ///     does, leave the sentinel in no exported span, no exported log record and no captured log line, with every
     ///     category logging at every level, the hosting diagnostics category configured on at Information, and the
-    ///     instrumentation's own query redaction configured off. The request was seen: an exported ASP.NET Core span of the hub carries
+    ///     instrumentation's own query redaction configured off. The anonymous connection authenticates through the real
+    ///     JWT bearer scheme, so its token also passes JwtBearerHandler and IdentityModel. The request was seen: an exported ASP.NET Core span of the hub carries
     ///     access_token=Redacted, for the accepted connection and for the refused one, and both log views saw the hub
     ///     path.
     ///     Red: remove ServerQueryRedactionProcessor: the span scan names the url.query of the hub request.
@@ -119,6 +138,7 @@ public sealed class RunHubTests(PostgresFixture fixture)
     ///     Red: connect the second client as the developer: no hub span has a 401.
     ///     Red: make the copying log exporter record nothing: the exported-record hub path check fails.
     ///     Red: make the capturing provider record nothing: the log line hub path check fails.
+    ///     Red: delete the JwtBearerEvents wiring line in Program.cs: no token-validation failure is logged.
     /// </summary>
     [Fact]
     public async Task The_access_token_appears_in_no_span_and_no_log()
@@ -149,6 +169,21 @@ public sealed class RunHubTests(PostgresFixture fixture)
                 services.ConfigureOpenTelemetryLoggerProvider(logging => logging.AddProcessor(
                     new SimpleLogRecordExportProcessor(new CopyingLogExporter(records))));
                 services.AddSingleton<ILoggerProvider>(lines);
+
+                // A caller with the test headers is the header handler's; any other goes through the real JWT bearer
+                // scheme, so the refused connection's token is read by the hub token reader and fails in
+                // JwtBearerHandler and IdentityModel, whose own logging the scans below then cover.
+                services.AddAuthentication().AddPolicyScheme(HeaderOrBearer, HeaderOrBearer, options =>
+                    options.ForwardDefaultSelector = context =>
+                        context.Request.Headers.ContainsKey(HeaderTestAuthHandler.UserHeader)
+                            ? HeaderTestAuthHandler.SchemeName
+                            : JwtBearerDefaults.AuthenticationScheme);
+                services.PostConfigureAll<AuthenticationOptions>(options =>
+                {
+                    options.DefaultAuthenticateScheme = HeaderOrBearer;
+                    options.DefaultChallengeScheme = HeaderOrBearer;
+                    options.DefaultScheme = HeaderOrBearer;
+                });
             });
 
         await using (var developer = Connect(host, Developer, "developer", accessToken: accepted))
@@ -181,6 +216,10 @@ public sealed class RunHubTests(PostgresFixture fixture)
             "the exported log records must include the hub requests, or their scan proves nothing");
         lines.Lines.Should().Contain(l => l.Contains(WorkflowRunsHub.Path, StringComparison.Ordinal),
             "the captured log lines must include the hub requests, or their scan proves nothing");
+        lines.Lines.Should().Contain(
+            l => l.Contains(JwtBearerCategory, StringComparison.Ordinal)
+                && l.Contains("Failed to validate the token", StringComparison.Ordinal),
+            "the refused connection's token must have been read and rejected by the JWT bearer handler");
     }
 
     /// <summary>
