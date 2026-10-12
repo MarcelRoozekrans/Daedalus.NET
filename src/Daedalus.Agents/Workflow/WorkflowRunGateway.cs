@@ -97,7 +97,7 @@ public sealed partial class WorkflowRunGateway(
         if (visit.IsFailure)
             return Result<IReadOnlyList<IdentifiedDeferredFinding>>.Failure(visit.Error);
 
-        return Result<IReadOnlyList<IdentifiedDeferredFinding>>.Success(visit.Value is { Approved: true } approved ? approved.Deferred : []);
+        return Result<IReadOnlyList<IdentifiedDeferredFinding>>.Success(ReviewVisit.DeferredOf(visit.Value));
     }
 
     /// <summary>
