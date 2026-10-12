@@ -172,6 +172,8 @@ public class GitHubApiWriteTests
     ///     Red: read <c>html_url</c> with a null-tolerant fallback; the malformed and missing cases then succeed.
     ///     Red: end <c>Unexpected</c>'s text with "could not be read." instead of "was not in the expected shape."; the
     ///     message assertion fails.
+    ///     Red: drop <c>.ForWrite()</c> from the <c>Unexpected</c> failure in <c>CreateIssueAsync</c>; the hint assertion
+    ///     fails.
     /// </summary>
     [Theory]
     [InlineData("""{"number":12,"html_url":"not a url"}""")]
@@ -184,5 +186,24 @@ public class GitHubApiWriteTests
 
         result.IsFailure.Should().BeTrue();
         result.Error.Message.Should().Contain("not in the expected shape");
+        result.Error.Message.Should().Contain(GitHubError.MayHaveLanded, "the 2xx says the issue was filed");
+    }
+
+    /// <summary>
+    ///     GitHub answered 201, so the pull request exists even though the answer is unusable.
+    ///     Red: read <c>url</c> with a null-tolerant fallback in <c>CreatePullRequestAsync</c>; the call succeeds.
+    ///     Red: drop <c>.ForWrite()</c> from the <c>Unexpected</c> failure in <c>CreatePullRequestAsync</c>; the hint
+    ///     assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_created_pull_request_in_the_wrong_shape_is_a_failure_that_may_have_landed()
+    {
+        var handler = new StubHandler().Route("/pulls", HttpStatusCode.Created, """{"number":42,"html_url":"https://github.com/owner/repo/pull/42"}""");
+
+        var result = await Build(handler).CreatePullRequestAsync(
+            RepoRef.Parse("owner/repo").Value, "feature", "main", "a title", "a description");
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Message.Should().Contain(GitHubError.MayHaveLanded, "the 2xx says the pull request was opened");
     }
 }
