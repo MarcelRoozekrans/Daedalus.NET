@@ -105,6 +105,32 @@ public sealed class GitHubPullRequestFactoryTests
         handler.Count.Should().Be(0);
     }
 
+    /// <summary>
+    ///     Only a trailing <c>.git</c>, in any case, is stripped from the repository name.
+    ///     Red: strip every <c>.git</c> in <c>ParseRepository</c> again, as before; the my.github.io rows read owner/myhub.io
+    ///     and the .github row reads owner/, which fails to parse.
+    ///     Red: stop stripping a trailing <c>.git</c>; the rows that end in .git or .GIT keep the suffix.
+    ///     Red: strip <c>.git</c> case-sensitively; the .GIT row keeps the suffix.
+    /// </summary>
+    [Theory]
+    [InlineData("https://github.com/owner/repo", "repo")]
+    [InlineData("https://github.com/owner/repo.git", "repo")]
+    [InlineData("git@github.com:owner/repo.GIT", "repo")]
+    [InlineData("https://github.com/owner/my.github.io", "my.github.io")]
+    [InlineData("https://github.com/owner/my.github.io.git", "my.github.io")]
+    [InlineData("https://github.com/owner/.github", ".github")]
+    public async Task Only_a_trailing_git_suffix_is_stripped_from_the_repository(string remote, string repository)
+    {
+        var handler = RecordingHandler.Answering(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("[]", Encoding.UTF8, "application/json"),
+        });
+
+        await Factory(handler).FindOpenPullRequestAsync(remote, "manufacture/abc");
+
+        handler.Sent[0].Uri.AbsolutePath.Should().StartWith($"/repos/owner/{repository}/");
+    }
+
     /// <summary>Red: put <c>{repo}</c> back into <c>FindOpenPullRequestAsync</c>'s <c>Unexpected</c> text; the text names owner/repo.</summary>
     [Fact]
     public async Task An_unreadable_lookup_answer_names_no_repository()

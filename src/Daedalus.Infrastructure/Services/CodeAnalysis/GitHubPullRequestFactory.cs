@@ -77,12 +77,15 @@ public sealed partial class GitHubPullRequestFactory(
         var urlParts = repositoryUrl
             .Replace("https://github.com/", "", StringComparison.OrdinalIgnoreCase)
             .Replace("git@github.com:", "", StringComparison.OrdinalIgnoreCase)
-            .Replace(".git", "", StringComparison.OrdinalIgnoreCase)
             .Split('/');
 
-        var parsed = urlParts.Length < 2 ? Result<RepoRef>.Failure(NotAGitHubUrl) : RepoRef.Parse($"{urlParts[0]}/{urlParts[1]}");
+        // Only a trailing ".git" is a suffix of the remote: a repository such as my.github.io or .github keeps its name.
+        var parsed = urlParts.Length < 2 ? Result<RepoRef>.Failure(NotAGitHubUrl) : RepoRef.Parse($"{urlParts[0]}/{WithoutGitSuffix(urlParts[1])}");
         return parsed.IsSuccess ? parsed : Result<RepoRef>.Failure(NotAGitHubUrl);
     }
+
+    private static string WithoutGitSuffix(string repository) =>
+        repository.EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? repository[..^".git".Length] : repository;
 
     [LoggerMessage(EventId = 2340, Level = LogLevel.Error, Message = "GitHub refused to create a pull request: {Kind} {StatusCode}")]
     private static partial void LogCreateRefused(ILogger logger, GitHubErrorKind kind, int? statusCode);
