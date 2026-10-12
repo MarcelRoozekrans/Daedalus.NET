@@ -10,9 +10,10 @@ namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 /// <summary>
 ///     Factory for creating pull requests on GitHub — the GitHub-specific leg of <see cref="PullRequestFactory"/>'s
 ///     platform dispatch. Owns only URL parsing here; the actual HTTP call is delegated to <see cref="GitHubApi"/>,
-///     which is the single client that ever speaks to the GitHub REST API from this codebase.
+///     which is the single client that ever speaks to the GitHub REST API from this codebase. It catches nothing:
+///     <c>GitHubApi</c> returns every expected failure, and its text is shown on a run.
 /// </summary>
-public sealed class GitHubPullRequestFactory(
+public sealed partial class GitHubPullRequestFactory(
     GitHubApi gitHub,
     ILogger<GitHubPullRequestFactory> logger)
 {
@@ -24,35 +25,23 @@ public sealed class GitHubPullRequestFactory(
         string description,
         CancellationToken ct = default)
     {
-        try
+        var repoRef = ParseRepository(repositoryUrl);
+        if (repoRef.IsFailure)
         {
-            var repoRef = ParseRepository(repositoryUrl);
-            if (repoRef.IsFailure)
-            {
-                return Result<PullRequestResult>.Failure(repoRef.Error);
-            }
-
-            var result = await gitHub.CreatePullRequestAsync(
-                repoRef.Value, featureBranch, baseBranch, title, description, ct).ConfigureAwait(false);
-
-            if (result.IsFailure)
-            {
-                logger.LogError("GitHub API error: {Error}", result.Error.Message);
-                return Result<PullRequestResult>.Failure(result.Error.Message);
-            }
-
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation("Created GitHub PR: {PrUrl}", result.Value.WebUrl);
-            }
-
-            return Result<PullRequestResult>.Success(result.Value);
+            return Result<PullRequestResult>.Failure(repoRef.Error);
         }
-        catch (Exception ex)
+
+        var result = await gitHub.CreatePullRequestAsync(
+            repoRef.Value, featureBranch, baseBranch, title, description, ct).ConfigureAwait(false);
+
+        if (result.IsFailure)
         {
-            logger.LogError(ex, "Error creating GitHub pull request");
-            return Result<PullRequestResult>.Failure($"Error creating PR: {ex.Message}");
+            LogCreateRefused(logger, result.Error.Kind, result.Error.StatusCode);
+            return Result<PullRequestResult>.Failure(result.Error.Message);
         }
+
+        LogCreated(logger, result.Value.PullRequestId);
+        return Result<PullRequestResult>.Success(result.Value);
     }
 
     /// <summary>
@@ -75,7 +64,14 @@ public sealed class GitHubPullRequestFactory(
             : Result<PullRequestResult?>.Failure(found.Error.Message);
     }
 
-    /// <summary>Owner and repository out of an HTTPS or SSH GitHub remote URL.</summary>
+    /// <summary>The fixed failure for a remote this factory cannot read as a GitHub repository.</summary>
+    public const string NotAGitHubUrl = "The repository URL is not a GitHub repository URL.";
+
+    /// <summary>
+    ///     Owner and repository out of an HTTPS or SSH GitHub remote URL. A failure never repeats the URL or any part of it:
+    ///     a configured remote can carry credentials in its user info, such as <c>https://user:token@host/...</c>, and this
+    ///     text reaches the run's error through the publisher (P30).
+    /// </summary>
     private static Result<RepoRef> ParseRepository(string repositoryUrl)
     {
         var urlParts = repositoryUrl
@@ -84,8 +80,13 @@ public sealed class GitHubPullRequestFactory(
             .Replace(".git", "", StringComparison.OrdinalIgnoreCase)
             .Split('/');
 
-        return urlParts.Length < 2
-            ? Result<RepoRef>.Failure("Invalid GitHub URL format")
-            : RepoRef.Parse($"{urlParts[0]}/{urlParts[1]}");
+        var parsed = urlParts.Length < 2 ? Result<RepoRef>.Failure(NotAGitHubUrl) : RepoRef.Parse($"{urlParts[0]}/{urlParts[1]}");
+        return parsed.IsSuccess ? parsed : Result<RepoRef>.Failure(NotAGitHubUrl);
     }
+
+    [LoggerMessage(EventId = 2340, Level = LogLevel.Error, Message = "GitHub refused to create a pull request: {Kind} {StatusCode}")]
+    private static partial void LogCreateRefused(ILogger logger, GitHubErrorKind kind, int? statusCode);
+
+    [LoggerMessage(EventId = 2341, Level = LogLevel.Information, Message = "Created GitHub PR {PullRequestId}")]
+    private static partial void LogCreated(ILogger logger, string pullRequestId);
 }

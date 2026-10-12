@@ -32,6 +32,13 @@ namespace Daedalus.Agents.Git;
 ///         class reads the working tree's <c>origin</c> remote via LibGit2Sharp to recover the URL
 ///         <see cref="IPullRequestFactory"/> needs, then delegates everything else to it.
 ///     </para>
+///     <para>
+///         <b>What a run shows.</b> <c>OpenPullRequestAction</c> shows an agent error's message on the run and only logs its
+///         detail. The factory's text goes into the message, because every <see cref="IPullRequestFactory"/> failure is
+///         body-free, repository-free and exception-free: GitHub's is a <c>GitHubError</c> message, built from the kind,
+///         the status and the retry time, never what GitHub said, and Azure DevOps's names the status. So a GitHub rate
+///         limit names, on the run, when the admin retry can succeed.
+///     </para>
 /// </remarks>
 public sealed partial class ThalosPullRequestPublisher(
     IPullRequestFactory pullRequestFactory,
@@ -83,10 +90,9 @@ public sealed partial class ThalosPullRequestPublisher(
 
         if (result.IsFailure)
         {
-            logger.LogError(
-                "Failed to open pull request for {RepositoryUrl}: {Error}", repositoryUrl, result.Error);
+            LogOpenFailed(logger, result.Error);
             return Result<PullRequestResult, AgentError>.Failure(
-                AgentError.GitOperationFailed("Failed to open pull request", result.Error));
+                AgentError.GitOperationFailed($"Failed to open pull request: {result.Error}", result.Error));
         }
 
         if (logger.IsEnabled(LogLevel.Information))
@@ -111,9 +117,9 @@ public sealed partial class ThalosPullRequestPublisher(
 
         if (result.IsFailure)
         {
-            LogLookupFailed(logger, remoteUrl, result.Error);
+            LogLookupFailed(logger, result.Error);
             return Result<PullRequestResult?, AgentError>.Failure(
-                AgentError.GitOperationFailed("Failed to look up an open pull request", result.Error));
+                AgentError.GitOperationFailed($"Failed to look up an open pull request: {result.Error}", result.Error));
         }
 
         return Result<PullRequestResult?, AgentError>.Success(
@@ -129,6 +135,12 @@ public sealed partial class ThalosPullRequestPublisher(
     [LoggerMessage(
         EventId = 2320,
         Level = LogLevel.Error,
-        Message = "Failed to look up an open pull request for {RepositoryUrl}: {Error}")]
-    private static partial void LogLookupFailed(ILogger logger, string repositoryUrl, string error);
+        Message = "Failed to look up an open pull request: {Error}")]
+    private static partial void LogLookupFailed(ILogger logger, string error);
+
+    [LoggerMessage(
+        EventId = 2322,
+        Level = LogLevel.Error,
+        Message = "Failed to open pull request: {Error}")]
+    private static partial void LogOpenFailed(ILogger logger, string error);
 }
