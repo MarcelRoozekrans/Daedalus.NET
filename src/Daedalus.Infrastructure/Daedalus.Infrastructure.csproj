@@ -34,6 +34,8 @@
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
         <PackageReference Include="ZeroAlloc.Results" />
+        <PackageReference Include="ZeroAlloc.Rest" />
+        <PackageReference Include="ZeroAlloc.Rest.SystemTextJson" />
         <PackageReference Include="Anthropic" />
         <PackageReference Include="ZLinq" />
         <PackageReference Include="LibGit2Sharp" />

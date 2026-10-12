@@ -106,8 +106,14 @@
          the moment Thalos.NET.Workflow.Orm is referenced. -->
     <!-- 1.4.1 → 1.5.0: floor set by Thalos.NET.Workflow.Orm 0.15.0 -->
     <PackageVersion Include="AdoNet.Async.Adapters" Version="1.5.0" />
-    <!-- 1.2.3 → 1.2.4: floor set by Thalos.NET.Abstractions 0.11.1 -->
-    <PackageVersion Include="ZeroAlloc.Results" Version="1.2.4" />
+    <!-- 1.2.3 → 1.2.4: floor set by Thalos.NET.Abstractions 0.11.1. 1.2.4 → 1.4.0: floor set by ZeroAlloc.Rest 3.3.2 -->
+    <PackageVersion Include="ZeroAlloc.Results" Version="1.4.0" />
+    <!-- Phase 2.11: the generated GitHub and Azure DevOps clients. The source generator ships inside ZeroAlloc.Rest;
+         the standalone ZeroAlloc.Rest.Generator package exists only for old direct references, so it is not used. -->
+    <PackageVersion Include="ZeroAlloc.Rest" Version="3.3.2" />
+    <PackageVersion Include="ZeroAlloc.Rest.SystemTextJson" Version="3.3.2" />
+    <!-- 1.1.11, transitive until now → 1.2.0: floor set by ZeroAlloc.Rest 3.3.2 -->
+    <PackageVersion Include="ZeroAlloc.Collections" Version="1.2.0" />
     <!-- Phase 2.9: Daedalus.Agents generates [Instrument] proxies. Thalos's own dependency on this package excludes its
          analyzers, so the generator does not flow transitively: Daedalus references it directly. Version: the one
          Thalos.NET.Workflow 0.15.0's nuspec declares. -->
