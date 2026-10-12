@@ -17,6 +17,15 @@ public readonly record struct RunListPagedForward(string Next);
 /// <summary>The operator moved back to the page before this one.</summary>
 public readonly record struct RunListPagedBack;
 
+/// <summary>
+///     The list page was left. Its rows are dropped, so a change no longer re-fetches a list nobody sees; the query is
+///     kept, and the page reloads its own on return.
+/// </summary>
+public readonly record struct RunListClosed;
+
+/// <summary>The open run was left, so a change no longer re-fetches a run nobody sees.</summary>
+public readonly record struct RunClosed;
+
 /// <summary>A run was opened.</summary>
 public readonly record struct RunSelected(Guid Id);
 

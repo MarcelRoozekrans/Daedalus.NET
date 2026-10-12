@@ -5,7 +5,7 @@ namespace Daedalus.Web.State.Runs;
 
 /// <summary>
 ///     The runs feature's I/O. Each method dispatches what it starts and what it got; an expected failure is an
-///     action, never an exception. Cancellation propagates.
+///     action, never an exception. The effects never catch cancellation; ApiClient reports it as a failed Result.
 /// </summary>
 public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<RunsState> runs)
 {
