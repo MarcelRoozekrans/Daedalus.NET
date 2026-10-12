@@ -8,7 +8,7 @@ namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 /// <summary>
 ///     Router for creating pull requests on appropriate platform
 /// </summary>
-public sealed class PullRequestFactory(
+public sealed partial class PullRequestFactory(
     GitHubPullRequestFactory github,
     AzureDevOpsPullRequestFactory azureDevOps,
     IRepositoryPlatformDetector detector,
@@ -24,10 +24,7 @@ public sealed class PullRequestFactory(
     {
         var platform = detector.DetectPlatform(repositoryUrl);
 
-        if (logger.IsEnabled(LogLevel.Information))
-        {
-            logger.LogInformation("Creating PR on {Platform}", platform);
-        }
+        LogCreating(logger, platform);
 
         return platform switch
         {
@@ -59,4 +56,7 @@ public sealed class PullRequestFactory(
             _ => Result<PullRequestResult?>.Failure($"Unsupported platform: {platform}")
         };
     }
+
+    [LoggerMessage(EventId = 2350, Level = LogLevel.Information, Message = "Creating PR on {Platform}")]
+    private static partial void LogCreating(ILogger logger, RepositoryPlatform platform);
 }
