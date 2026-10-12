@@ -34,7 +34,11 @@ public sealed class GitHubConditionalCacheHandlerTests
         second.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
     }
 
-    /// <summary>Red: read the first body as a stream into the cache without buffering it; the client then reads it empty.</summary>
+    /// <summary>
+    ///     The answer is read through <c>ReadAsStreamAsync</c>, the way the generated client reads it; ReadAsStringAsync
+    ///     re-serializes a byte-array content and would hide a consumed stream.
+    ///     Red: read the first body as a stream into the cache without buffering it; the client then reads it empty.
+    /// </summary>
     [Fact]
     public async Task The_answer_that_is_stored_still_reaches_the_client_whole()
     {
@@ -43,7 +47,9 @@ public sealed class GitHubConditionalCacheHandlerTests
 
         using var first = await invoker.SendAsync(Get(Url), CancellationToken.None);
 
-        (await first.Content.ReadAsStringAsync()).Should().Be(IssueJson);
+        await using var stream = await first.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        (await reader.ReadToEndAsync()).Should().Be(IssueJson);
     }
 
     /// <summary>
