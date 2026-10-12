@@ -15,7 +15,11 @@ public sealed record IdentifiedDeferredFinding(string Id, string Lens, DeferredF
 ///     a visit with a rejection sends the run back to implement, and anything it deferred points at code about to change.
 /// </summary>
 public sealed record ReviewVisit(
-    long Seq, bool Approved, string? RejectedLens, IReadOnlyList<LensApproval> Lenses, IReadOnlyList<IdentifiedDeferredFinding> Deferred);
+    long Seq, bool Approved, string? RejectedLens, IReadOnlyList<LensApproval> Lenses, IReadOnlyList<IdentifiedDeferredFinding> Deferred)
+{
+    /// <summary>The deferred findings of <paramref name="visit"/> when it is an approval; otherwise none, including before review has run.</summary>
+    public static IReadOnlyList<IdentifiedDeferredFinding> DeferredOf(ReviewVisit? visit) => visit is { Approved: true } approved ? approved.Deferred : [];
+}
 
 /// <summary>
 ///     Reads the latest review visit off a run's <see cref="WorkflowRunRecord.ReviewEvidenceKind"/> records: those at the

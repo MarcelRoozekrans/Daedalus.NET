@@ -123,7 +123,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var events = await runs.ListEventsAsync(run.Id, ct);
         var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
         var review = await runs.ReadReviewAsync(run.Id, ct);
-        IReadOnlyList<IdentifiedDeferredFinding> deferred = review.IsSuccess && review.Value is { Approved: true } approved ? approved.Deferred : [];
+        IReadOnlyList<IdentifiedDeferredFinding> deferred = review.IsSuccess ? ReviewVisit.DeferredOf(review.Value) : [];
         IReadOnlyList<LensCheckedView> checkedItems = review.IsSuccess && review.Value is { } visit
             ? [.. visit.Lenses.Select(l => new LensCheckedView(l.Lens, l.Checked))]
             : [];

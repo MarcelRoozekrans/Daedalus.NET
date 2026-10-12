@@ -98,7 +98,7 @@ public sealed record WorkflowRunView(
 /// <param name="OutputTokens">Output tokens of that turn, or <see langword="null"/>.</param>
 /// <param name="CacheReadTokens">Input tokens of that turn read from a prompt cache, or <see langword="null"/>.</param>
 /// <param name="At">When the event was recorded.</param>
-/// <param name="Actor">Who caused the event, for a resume or a retry; otherwise <see langword="null"/>.</param>
+/// <param name="Actor">Who retried the node, for a Retried event; otherwise <see langword="null"/>.</param>
 public sealed record WorkflowRunStepView(
     long Seq, string Kind, string? FromNode, string ToNode, string Status, string? Outcome, string? Error,
     int? InputTokens, int? OutputTokens, int? CacheReadTokens, DateTimeOffset At, string? Actor);
