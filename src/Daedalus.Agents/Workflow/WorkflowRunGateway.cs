@@ -83,13 +83,17 @@ public sealed partial class WorkflowRunGateway(
             .ListAsync(runId, kind, ct).ConfigureAwait(false);
     }
 
+    /// <summary>The run's latest review visit, or <see langword="null"/> before review has run.</summary>
+    public async ValueTask<Result<ReviewVisit?>> ReadReviewAsync(Guid runId, CancellationToken ct) =>
+        ApprovingReview.Read(await ListRecordsAsync(runId, WorkflowRunRecord.ReviewEvidenceKind, ct).ConfigureAwait(false));
+
     /// <summary>
     ///     The deferred findings of the run's approving review visit, with their ids. Empty when the latest visit is not
     ///     an approval or no review evidence exists; a failure only when a record cannot be read.
     /// </summary>
     public async ValueTask<Result<IReadOnlyList<IdentifiedDeferredFinding>>> ListDeferredFindingsAsync(Guid runId, CancellationToken ct)
     {
-        var visit = ApprovingReview.Read(await ListRecordsAsync(runId, WorkflowRunRecord.ReviewEvidenceKind, ct).ConfigureAwait(false));
+        var visit = await ReadReviewAsync(runId, ct).ConfigureAwait(false);
         if (visit.IsFailure)
             return Result<IReadOnlyList<IdentifiedDeferredFinding>>.Failure(visit.Error);
 

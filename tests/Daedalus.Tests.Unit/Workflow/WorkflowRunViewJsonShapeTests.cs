@@ -22,7 +22,11 @@ public sealed class WorkflowRunViewJsonShapeTests
         Names(root).Should().Equal(
             "id", "process", "processVersion", "status", "currentNode", "awaitingSignal", "lastError", "pins",
             "standingInstructionsDiff", "nodeUsage", "prUrl", "unreadablePullRequestLink", "startedBy", "writeAudit",
-            "deferredFindings", "deferredFindingsError", "filedFindings");
+            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "checked");
+        Names(root.GetProperty("steps")[0]).Should().Equal(
+            "seq", "kind", "fromNode", "toNode", "status", "outcome", "error", "inputTokens", "outputTokens",
+            "cacheReadTokens", "at", "actor");
+        Names(root.GetProperty("checked")[0]).Should().Equal("lens", "checked");
         Names(root.GetProperty("pins").GetProperty("implement")).Should().Equal(
             "agentName", "agentId", "agentRevision", "skillName", "skillHash");
         Names(root.GetProperty("nodeUsage")[0]).Should().Equal(
@@ -54,5 +58,7 @@ public sealed class WorkflowRunViewJsonShapeTests
         "diff", [new NodeUsageView(1, "implement", 10, 2, 5, 1, "m")], new Uri("https://example.test/pr/1"), null, "u",
         [new WriteAuditView(1, "implement", "roslyn__apply", "a.cs", "u")],
         [new DeferredFindingView("mechanism-1", "mechanism", "a.cs", 3, "t", "s", "different-area", null, false)],
-        null, [new FiledFindingView("mechanism-1", "created", 12, new Uri("https://example.test/issues/12"))]);
+        null, [new FiledFindingView("mechanism-1", "created", 12, new Uri("https://example.test/issues/12"))],
+        [new WorkflowRunStepView(0, "Entered", null, "implement", "Running", null, null, null, null, null, DateTimeOffset.UnixEpoch, null)],
+        [new LensCheckedView("mechanism", ["a.cs:3"])]);
 }

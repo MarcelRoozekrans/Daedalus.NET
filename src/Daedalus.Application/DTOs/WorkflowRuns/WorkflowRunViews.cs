@@ -57,6 +57,14 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 ///     What <c>file-review-findings</c> did with each deferred finding, and the pull-request summary, from its
 ///     <c>finding-filed</c> records. Empty before the action has run, and when those records cannot be read, which the error says.
 /// </param>
+/// <param name="Steps">
+///     The run's event log in seq order: every start, completion, branch, park, resume, failure, retry and
+///     cancellation.
+/// </param>
+/// <param name="Checked">
+///     Each lens's <c>checked[]</c> from the latest review visit, approving or rejecting; empty before review has run,
+///     and when the review records cannot be read, which <paramref name="DeferredFindingsError"/> says.
+/// </param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
@@ -74,7 +82,31 @@ public sealed record WorkflowRunView(
     IReadOnlyList<WriteAuditView> WriteAudit,
     IReadOnlyList<DeferredFindingView> DeferredFindings,
     string? DeferredFindingsError,
-    IReadOnlyList<FiledFindingView> FiledFindings);
+    IReadOnlyList<FiledFindingView> FiledFindings,
+    IReadOnlyList<WorkflowRunStepView> Steps,
+    IReadOnlyList<LensCheckedView> Checked);
+
+/// <summary>One entry of a run's event log, as the console's timeline shows it.</summary>
+/// <param name="Seq">The seq the event was recorded at.</param>
+/// <param name="Kind">The event kind, as the engine names it.</param>
+/// <param name="FromNode">The node the run left, or <see langword="null"/> for the start.</param>
+/// <param name="ToNode">The node the run is at after the event.</param>
+/// <param name="Status">The run's status after the event.</param>
+/// <param name="Outcome">The outcome the completed node reported, or <see langword="null"/>.</param>
+/// <param name="Error">The failure or cancellation reason, or <see langword="null"/>.</param>
+/// <param name="InputTokens">Input tokens of the agent turn the event closes, or <see langword="null"/> when it ran none.</param>
+/// <param name="OutputTokens">Output tokens of that turn, or <see langword="null"/>.</param>
+/// <param name="CacheReadTokens">Input tokens of that turn read from a prompt cache, or <see langword="null"/>.</param>
+/// <param name="At">When the event was recorded.</param>
+/// <param name="Actor">Who caused the event, for a resume or a retry; otherwise <see langword="null"/>.</param>
+public sealed record WorkflowRunStepView(
+    long Seq, string Kind, string? FromNode, string ToNode, string Status, string? Outcome, string? Error,
+    int? InputTokens, int? OutputTokens, int? CacheReadTokens, DateTimeOffset At, string? Actor);
+
+/// <summary>What one review lens recorded as checked on the run's latest review visit.</summary>
+/// <param name="Lens">The lens name.</param>
+/// <param name="Checked">What the lens reports it checked.</param>
+public sealed record LensCheckedView(string Lens, IReadOnlyList<string> Checked);
 
 /// <summary>The write-once agent and skill pin of one task node, as the run's manifest recorded it.</summary>
 /// <param name="AgentName">The agent the node runs.</param>

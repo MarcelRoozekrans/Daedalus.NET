@@ -122,13 +122,17 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     {
         var events = await runs.ListEventsAsync(run.Id, ct);
         var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
-        var deferred = await runs.ListDeferredFindingsAsync(run.Id, ct);
+        var review = await runs.ReadReviewAsync(run.Id, ct);
+        IReadOnlyList<IdentifiedDeferredFinding> deferred = review.IsSuccess && review.Value is { Approved: true } approved ? approved.Deferred : [];
+        IReadOnlyList<LensCheckedView> checkedItems = review.IsSuccess && review.Value is { } visit
+            ? [.. visit.Lenses.Select(l => new LensCheckedView(l.Lens, l.Checked))]
+            : [];
         var drops = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDroppedKind, ct);
         var voids = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDropVoidedKind, ct);
         var filed = await runs.ListFiledFindingsAsync(run.Id, ct);
         var dropped = FindingRecords.ReadDropped([.. drops, .. voids]);
         var droppedIds = dropped.IsSuccess ? dropped.Value.Ids : DroppedFindings.None.Ids;
-        var error = string.Join("; ", new[] { deferred.IsFailure ? deferred.Error : null, dropped.IsFailure ? dropped.Error : null, filed.IsFailure ? filed.Error : null }.Where(e => e is not null));
+        var error = string.Join("; ", new[] { review.IsFailure ? review.Error : null, dropped.IsFailure ? dropped.Error : null, filed.IsFailure ? filed.Error : null }.Where(e => e is not null));
 
         var (prUrl, unreadableLink) = ReadPrUrl(run);
         return new WorkflowRunView(
@@ -146,9 +150,11 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             UnreadablePullRequestLink: unreadableLink,
             StartedBy: run.StartedBy?.Id,
             WriteAudit: [.. writes.Select(ToWriteAuditView)],
-            DeferredFindings: deferred.IsSuccess ? [.. deferred.Value.Select(d => ToDeferredView(d, droppedIds))] : [],
+            DeferredFindings: [.. deferred.Select(d => ToDeferredView(d, droppedIds))],
             DeferredFindingsError: error.Length > 0 ? error : null,
-            FiledFindings: filed.IsSuccess ? [.. filed.Value.Values.Order(FiledOrder.Instance).Select(f => new FiledFindingView(f.FindingId, f.Mode, f.Issue, f.Url))] : []);
+            FiledFindings: filed.IsSuccess ? [.. filed.Value.Values.Order(FiledOrder.Instance).Select(f => new FiledFindingView(f.FindingId, f.Mode, f.Issue, f.Url))] : [],
+            Steps: WorkflowRunStepProjection.Project(events),
+            Checked: checkedItems);
     }
 
     /// <summary>Findings in the order a human reads them: by lens, then by number (so 2 comes before 10), with the summary last.</summary>
