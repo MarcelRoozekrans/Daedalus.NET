@@ -79,8 +79,11 @@ public sealed partial class RepositoryAuthenticationProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error configuring git credentials");
-            return Result.Failure($"Error configuring credentials: {ex.Message}");
+            LogConfigureFailed(logger, platform, ex.GetType().Name);
+            return Result.Failure($"Error configuring credentials for {platform}");
         }
     }
+
+    [LoggerMessage(EventId = 2362, Level = LogLevel.Error, Message = "Error configuring git credentials for platform {Platform}: {ExceptionType}")]
+    private static partial void LogConfigureFailed(ILogger logger, RepositoryPlatform platform, string exceptionType);
 }
