@@ -104,7 +104,8 @@ internal sealed class GitHubConditionalCacheHandler(GitHubConditionalCache cache
             && response.Content.Headers.ContentLength is null or <= GitHubConditionalCache.MaxEntryBytes)
         {
             // ReadAsByteArrayAsync buffers the content, so the client still reads the whole body after this. A body without
-            // a declared length is checked once read.
+            // a declared length is checked once read. Buffering a large body that is then not stored is accepted: callers
+            // deserialize the whole body anyway.
             var body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
             if (body.Length <= GitHubConditionalCache.MaxEntryBytes)
                 cache.Store(new GitHubConditionalCache.Entry(key, etag.ToString(), body, response.Content.Headers.ContentType?.ToString()));
