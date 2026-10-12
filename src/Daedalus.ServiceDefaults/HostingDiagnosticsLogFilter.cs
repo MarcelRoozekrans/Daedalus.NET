@@ -10,20 +10,21 @@ namespace Daedalus.ServiceDefaults;
 /// <remarks>
 ///     A plain <c>AddFilter</c> rule is not enough: the logger factory prefers any rule that names a provider, so a
 ///     setting such as <c>Logging:Console:LogLevel:Default</c> would turn the line back on for that provider. This runs
-///     as a post-configuration, after every configuration source is bound, and gives every rule a filter that refuses
-///     the category, so whichever rule the factory picks refuses it too. The added category rule, wrapped the same way,
-///     covers a provider no rule names.
+///     as a post-configuration, after every configuration source is bound, and gives every rule the factory could pick
+///     for the category a filter that refuses it, so whichever rule it picks refuses the line too. Only those rules are
+///     wrapped, so no other category pays for a filter call. The added category rule, wrapped the same way, covers a
+///     provider no rule names.
 /// </remarks>
 internal static class HostingDiagnosticsLogFilter
 {
     /// <summary>The category of ASP.NET Core's per-request hosting log lines.</summary>
     internal const string Category = "Microsoft.AspNetCore.Hosting.Diagnostics";
 
-    /// <summary>Wraps every rule of <paramref name="options"/> and adds the category rule.</summary>
+    /// <summary>Wraps every rule of <paramref name="options"/> that could apply to the category, and adds the category rule.</summary>
     internal static void Apply(LoggerFilterOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var rules = options.Rules.Select(Wrap).ToList();
+        var rules = options.Rules.Select(rule => CouldApply(rule) ? Wrap(rule) : rule).ToList();
         rules.Add(Wrap(new LoggerFilterRule(null, Category, LogLevel.Warning, null)));
         options.Rules.Clear();
         foreach (var rule in rules)
@@ -38,6 +39,15 @@ internal static class HostingDiagnosticsLogFilter
         && category is not null
         && (string.Equals(category, Category, StringComparison.Ordinal)
             || category.StartsWith(Category + ".", StringComparison.Ordinal));
+
+    /// <summary>
+    ///     Whether the logger factory could pick <paramref name="rule"/> for the category: a rule with no category, a
+    ///     wildcard category, or a category the category starts with, compared as the factory compares them, ignoring case.
+    /// </summary>
+    private static bool CouldApply(LoggerFilterRule rule) =>
+        rule.CategoryName is not { } category
+        || category.Contains('*', StringComparison.Ordinal)
+        || Category.StartsWith(category, StringComparison.OrdinalIgnoreCase);
 
     private static LoggerFilterRule Wrap(LoggerFilterRule rule)
     {
