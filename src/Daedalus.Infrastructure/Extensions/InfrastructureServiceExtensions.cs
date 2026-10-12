@@ -187,12 +187,14 @@ public static class InfrastructureServiceExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<GitHubConditionalCache>();
         services.TryAddTransient<GitHubConditionalCacheHandler>();
+        services.TryAddTransient<GitHubRateLimitObserver>();
 
         // Two named clients behind one facade, so that writes can have a pipeline of their own. GitHubApi sets each
         // client's BaseAddress from GitHubOptions.ApiUrl.
-        // Reads, outside in: the conditional cache, then the resilience pipeline, which retries what is transient except a
-        // 429 (spec amendment A1). The cache sits outside, so a retried attempt keeps its If-None-Match and a 304 is
-        // replayed once.
+        // Reads, outside in: the conditional cache, the resilience pipeline, which retries what is transient except a
+        // 429 (spec amendment A1), then the rate-limit observer. The cache sits outside, so a retried attempt keeps its
+        // If-None-Match and a 304 is replayed once. The observer sits innermost, so it sees every attempt's headers,
+        // 304s included, and a replay from the cache never reaches it: no reading is counted twice.
         var reads = services.AddHttpClient(GitHubApi.ReadClientName);
         reads.AddHttpMessageHandler<GitHubConditionalCacheHandler>();
         reads.AddStandardResilienceHandler(options =>
@@ -200,15 +202,18 @@ public static class InfrastructureServiceExtensions
             ConfigureResilience(options);
             RetryReadsExceptRateLimits(options);
         });
+        reads.AddHttpMessageHandler<GitHubRateLimitObserver>();
 
         // A write goes out once. GitHub has no idempotency keys, so a comment, issue or pull request sent again after a
         // timeout or a 5xx can land twice. The recovery that is safe stays with the callers: file-findings finds its own
         // earlier output by its marker, and the publisher looks for an open pull request before it opens one.
-        services.AddHttpClient(GitHubApi.WriteClientName).AddStandardResilienceHandler(options =>
+        var writes = services.AddHttpClient(GitHubApi.WriteClientName);
+        writes.AddStandardResilienceHandler(options =>
         {
             ConfigureResilience(options);
             NeverRetry(options);
         });
+        writes.AddHttpMessageHandler<GitHubRateLimitObserver>();
 
         services.AddTransient<GitHubApi>();
         services.AddScoped<IGitHubReader>(sp => sp.GetRequiredService<GitHubApi>());

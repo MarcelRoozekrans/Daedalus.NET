@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.ServiceDefaults;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -23,7 +24,7 @@ namespace Daedalus.Tests.Unit.ServiceDefaults;
 public sealed class ServiceDefaultsWiringTests
 {
     private static readonly string[] SubscribedSources = ["thalos", "thalos.workflow", "ZeroAlloc.Mediator", "daedalus.manufacture"];
-    private static readonly string[] SubscribedMeters = ["thalos", "thalos.workflow", "daedalus.manufacture"];
+    private static readonly string[] SubscribedMeters = ["thalos", "thalos.workflow", "daedalus.manufacture", GitHubRateLimitObserver.MeterName];
 
     /// <summary>
     ///     Red, per source: remove it from <c>TracedSources</c>. For <c>daedalus.manufacture</c>, write <c>"daedalus"</c> in
@@ -55,6 +56,7 @@ public sealed class ServiceDefaultsWiringTests
     /// <summary>
     ///     Red, per meter: remove it from <c>Meters</c>; that meter's probe is missing.
     ///     Red: add <c>"*"</c> to <c>Meters</c>; the Npgsql probe is exported.
+    ///     Red: rename <c>GitHubRateLimitObserver.MeterName</c> to <c>github</c>; its probe is missing.
     /// </summary>
     [Fact]
     public void The_meter_provider_exports_the_thalos_workflow_and_daedalus_meters_and_not_npgsql()
