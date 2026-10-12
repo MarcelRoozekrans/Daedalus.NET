@@ -1033,6 +1033,8 @@ namespace Daedalus.Infrastructure.Migrations
                     b.HasIndex("Status")
                         .HasDatabaseName("IX_Task_Status");
 
+                    b.HasIndex("WorkflowRunId");
+
                     b.ToTable("Tasks", t =>
                         {
                             t.HasCheckConstraint("CK_Tasks_Status_Stored", "\"Status\" BETWEEN 0 AND 4");

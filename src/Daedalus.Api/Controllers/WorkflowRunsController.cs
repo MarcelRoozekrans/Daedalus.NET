@@ -3,6 +3,7 @@ using Asp.Versioning;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Agents;
+using Daedalus.Api.Services;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -12,7 +13,7 @@ using Thalos.Workflow;
 namespace Daedalus.Api.Controllers;
 
 /// <summary>
-///     Starts, resumes, cancels, retries and reads back manufacture runs. Every action on this controller requires
+///     Starts, lists, resumes, cancels, retries and reads back manufacture runs. Every action on this controller requires
 ///     the <c>WorkflowResume</c> authorization policy (<c>Program.cs</c>: <c>developer</c> or <c>admin</c> role),
 ///     the same criterion <c>Thalos:ToolPolicies</c> binds <c>git__*</c>, <c>repoaction__*</c> and <c>manufacture__*</c>
 ///     to. It is enforced here by ASP.NET Core's own role-based authorization rather than <c>DefaultToolAuthorizer</c>,
@@ -102,6 +103,64 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 
         return CreatedAtAction(nameof(Get), new { id = result.Value }, new StartWorkflowRunResponse(result.Value));
     }
+
+    /// <summary>
+    ///     Runs newest first, one page at a time, with the board task each belongs to. Never a run's variables or its
+    ///     error. 400 for an unknown status, a take outside 1 to 100, or a cursor this endpoint did not write.
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(WorkflowRunList), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> List(
+        [FromQuery] string? status,
+        [FromQuery] string? process,
+        [FromQuery] string? after,
+        [FromQuery] int? take,
+        [FromServices] IWorkflowRunQuery query,
+        [FromServices] ITaskQueryService tasks,
+        CancellationToken ct)
+    {
+        WorkflowStatus? statusFilter = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<WorkflowStatus>(status, ignoreCase: true, out var parsed) || !Enum.IsDefined(parsed))
+            {
+                return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "status must be Running, Awaiting, Succeeded, Failed or Cancelled.");
+            }
+
+            statusFilter = parsed;
+        }
+
+        var pageSize = take ?? 25;
+        if (pageSize is < 1 or > WorkflowRunFilter.MaxTake)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "take must be between 1 and 100.");
+        }
+
+        WorkflowRunCursor? cursor = null;
+        if (!string.IsNullOrEmpty(after))
+        {
+            if (!WorkflowRunCursorCodec.TryDecode(after, out var decoded))
+            {
+                return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "after is not a cursor this list returned.");
+            }
+
+            cursor = decoded;
+        }
+
+        var page = await query.ListAsync(
+            new WorkflowRunFilter { Status = statusFilter, Process = string.IsNullOrWhiteSpace(process) ? null : process, After = cursor, Take = pageSize },
+            ct).ConfigureAwait(false);
+        var links = await tasks.GetRunLinksAsync([.. page.Runs.Select(r => r.Id)], ct).ConfigureAwait(false);
+
+        return Ok(new WorkflowRunList(
+            [.. page.Runs.Select(r => ToListItem(r, links.GetValueOrDefault(r.Id)))],
+            page.Next is null ? null : WorkflowRunCursorCodec.Encode(page.Next)));
+    }
+
+    private static WorkflowRunListItem ToListItem(WorkflowRunSummary run, TaskRunLink? task) => new(
+        run.Id, run.Process, run.ProcessVersion, run.Status.ToString(), run.CurrentNode, run.AwaitingSignal,
+        run.StartedBy?.Id, run.CreatedAt, run.UpdatedAt, task?.TaskId, task?.TaskCode, task?.Title);
 
     /// <summary>Reads back one run's current state, including its write-once manifest pins when it has one.</summary>
     [HttpGet("{id:guid}")]
