@@ -201,6 +201,12 @@ public sealed class GitHubApiRequestShapeTests
     ///     Red: in <c>GetPullRequestHeadShaAsync</c>, return <c>Success("")</c> when the document is null; the
     ///     pull-request-head row fails on <c>isSuccess</c>.
     ///     Red: return an empty issue instead of null on 404; the issue row fails on the value.
+    ///     Red: in <c>ScanAsync</c>, return <c>Success(found)</c> when the document is null; the issues-since and
+    ///     comments-since rows fail on <c>isSuccess</c>.
+    ///     Red: in <c>SearchIssuesAsync</c>, return an empty list when the document is null; the search row fails
+    ///     on <c>isSuccess</c>.
+    ///     Red: in <c>GetAuthenticatedLoginAsync</c>, return <c>Success("")</c> when the document is null; the login
+    ///     row fails on <c>isSuccess</c>.
     /// </summary>
     [Theory]
     [InlineData("issue", true)]

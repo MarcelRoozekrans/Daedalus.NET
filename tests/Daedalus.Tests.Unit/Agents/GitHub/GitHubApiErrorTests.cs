@@ -20,6 +20,7 @@ public sealed class GitHubApiErrorTests
     ///     Red: read <c>X-RateLimit-Remaining</c> as exhausted at <c>1</c>; the exhausted row reads "forbidden".
     ///     Red: format the reset with <c>"o"</c>; the exhausted row's time fails.
     ///     Red: treat a 429 as rate-limited; the 429 row fails.
+    ///     Red: drop the status number from <c>MapError</c>'s fallback text; the 401, 429 and 500 rows fail.
     /// </summary>
     [Theory]
     [InlineData(404, "", "does not exist")]
