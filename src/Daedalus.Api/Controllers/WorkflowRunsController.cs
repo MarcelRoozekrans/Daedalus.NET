@@ -123,12 +123,13 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         WorkflowStatus? statusFilter = null;
         if (!string.IsNullOrWhiteSpace(status))
         {
-            if (!Enum.TryParse<WorkflowStatus>(status, ignoreCase: true, out var parsed) || !Enum.IsDefined(parsed))
+            statusFilter = ParseStatusName(status);
+            if (statusFilter is null)
             {
-                return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "status must be Running, Awaiting, Succeeded, Failed or Cancelled.");
+                return Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    detail: $"status must be one of {string.Join(", ", Enum.GetNames<WorkflowStatus>())}.");
             }
-
-            statusFilter = parsed;
         }
 
         var pageSize = take ?? 25;
@@ -156,6 +157,24 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         return Ok(new WorkflowRunList(
             [.. page.Runs.Select(r => ToListItem(r, links.GetValueOrDefault(r.Id)))],
             page.Next is null ? null : WorkflowRunCursorCodec.Encode(page.Next)));
+    }
+
+    /// <summary>
+    ///     The <see cref="WorkflowStatus"/> member <paramref name="name"/> names, ignoring case, or <see langword="null"/>.
+    ///     Names only: <see cref="Enum.TryParse{TEnum}(string, bool, out TEnum)"/> would also take a number such as
+    ///     <c>1</c> and a comma list such as <c>Awaiting,Succeeded</c>, which it ORs into another member.
+    /// </summary>
+    private static WorkflowStatus? ParseStatusName(string name)
+    {
+        foreach (var member in Enum.GetValues<WorkflowStatus>())
+        {
+            if (string.Equals(member.ToString(), name, StringComparison.OrdinalIgnoreCase))
+            {
+                return member;
+            }
+        }
+
+        return null;
     }
 
     private static WorkflowRunListItem ToListItem(WorkflowRunSummary run, TaskRunLink? task) => new(
