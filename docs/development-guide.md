@@ -522,7 +522,8 @@ An external REST API, as GitHub and Azure DevOps are, is a ZeroAlloc.Rest client
 
 - **An internal `[ZeroAllocRestClient(MaxErrorBodyBytes = ...)]` interface**, one method per endpoint, with relative
   routes and no leading slash, so a base address's own path is kept. Read no more error body than you use: `0` for Azure
-  DevOps, whose client decodes and logs none, and 2 KiB for GitHub, whose body is summarised for the agent only. A
+  DevOps, whose client decodes and logs none, and 2 KiB for GitHub, whose body is summarised for the agent and read to
+  recognise a secondary rate limit. A
   limit of `0` means the application reads no body; do not take it to mean that no bytes are transferred.
 - **A source-generated `JsonSerializerContext`** over DTOs whose fields are all nullable, passed as
   `new SystemTextJsonSerializer(Context.Default)`. No reflection serialization and no IL2026 suppression.
@@ -540,9 +541,10 @@ An external REST API, as GitHub and Azure DevOps are, is a ZeroAlloc.Rest client
   `GitHubConditionalCacheHandler` outside the resilience handler and `GitHubRateLimitObserver` inside it. The observer's
   tag, `daedalus.github.resource`, comes from an allow-list of GitHub's documented resource names, so an unexpected
   header cannot create unbounded series: any other value is `other`, and a missing or blank one is `unknown`.
-- **Nothing identifying in what a run can see.** The publish path, `ThalosPullRequestPublisher`,
-  `GitHubPullRequestFactory`, `PullRequestFactory` and `RepositoryAuthenticationProvider`, puts no URL, repository
-  slug, response body or exception message in a run-visible text or a log. A log carries an exception's type name only.
+- **Nothing identifying in what a run can see.** On the publish path, `ThalosPullRequestPublisher`,
+  `GitHubPullRequestFactory`, `PullRequestFactory` and `RepositoryAuthenticationProvider`, the error paths and the
+  texts a run shows carry no URL, repository slug, response body or exception message. A log of a failure carries an
+  exception's type name only. The Information-level success confirmations do carry the pull request's web URL.
 
 **Testing.** A generated client disposes its request when the call returns, so a test handler reads the body when the
 request is sent, as `StubHandler` and `RecordingHandler` do. `GitHubHost` builds the real `AddGitHubApi` pipelines over a
