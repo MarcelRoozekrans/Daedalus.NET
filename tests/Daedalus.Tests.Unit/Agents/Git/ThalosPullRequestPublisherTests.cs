@@ -134,11 +134,6 @@ public sealed class ThalosPullRequestPublisherTests : IDisposable
     }
 
     /// <summary>
-    ///     Red: map the failure to another code; the code assertion fails.
-    ///     Red: drop the text from <c>Detail</c>; the detail assertion fails.
-    ///     Red: keep the fixed "Failed to open pull request" message; the message assertion fails.
-    /// </summary>
-    /// <summary>
     ///     The exception's own words reach neither the log, which is exported over OTLP, nor the error detail, which the
     ///     run's log carries: both name its type.
     ///     Red: attach <c>ex</c> to <c>LogRemoteReadFailed</c> again, as before; a log line carries the exception's text.
@@ -163,6 +158,11 @@ public sealed class ThalosPullRequestPublisherTests : IDisposable
         logger.Lines.Should().NotContain(line => line.Contains(thrown.Message, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    ///     Red: map the failure to another code; the code assertion fails.
+    ///     Red: drop the text from <c>Detail</c>; the detail assertion fails.
+    ///     Red: keep the fixed "Failed to open pull request" message; the message assertion fails.
+    /// </summary>
     [Fact]
     public async Task A_factory_failure_maps_to_a_GitOperationFailed_agent_error()
     {
