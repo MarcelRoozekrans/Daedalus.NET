@@ -142,22 +142,7 @@ public static class InfrastructureServiceExtensions
         // resolve, and IPullRequestFactory/IRalphLoopOrchestrator both fail with it.
         services.AddTransient<GitHubPullRequestFactory>();
 
-        // Register resilient HTTP client for Azure DevOps API calls
-        // Uses Microsoft.Extensions.Http.Resilience (Polly v8) standard resilience pipeline:
-        // retry (exponential backoff), circuit breaker, and timeout
-        services.AddHttpClient<AzureDevOpsPullRequestFactory>(client =>
-            {
-                client.DefaultRequestHeaders.Add("User-Agent", "Daedalus");
-            })
-            .AddStandardResilienceHandler(options =>
-            {
-                options.Retry.MaxRetryAttempts = 3;
-                options.Retry.BackoffType = DelayBackoffType.Exponential;
-                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
-                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
-                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
-                options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
-            });
+        services.AddAzureDevOpsPullRequestFactory();
 
         // Register pull request factory
         services.AddScoped<IPullRequestFactory, PullRequestFactory>();
@@ -222,6 +207,22 @@ public static class InfrastructureServiceExtensions
         services.AddTransient<GitHubApi>();
         services.AddScoped<IGitHubReader>(sp => sp.GetRequiredService<GitHubApi>());
         services.AddScoped<IGitHubWriter>(sp => sp.GetRequiredService<GitHubApi>());
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers <see cref="AzureDevOpsPullRequestFactory"/>'s typed client. Its one call is a POST that opens a pull
+    ///     request, so its pipeline never retries: a create sent twice opens two.
+    /// </summary>
+    public static IServiceCollection AddAzureDevOpsPullRequestFactory(this IServiceCollection services)
+    {
+        services.AddHttpClient<AzureDevOpsPullRequestFactory>(client => client.DefaultRequestHeaders.Add("User-Agent", "Daedalus"))
+            .AddStandardResilienceHandler(options =>
+            {
+                ConfigureResilience(options);
+                NeverRetry(options);
+            });
 
         return services;
     }
