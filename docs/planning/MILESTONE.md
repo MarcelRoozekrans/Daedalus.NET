@@ -20,7 +20,7 @@ only once something demonstrably better runs in its place.
 
 ## Definition of Done
 
-- [ ] **All planned phases complete.** Phases 2.1 through 2.12 are merged.
+- [ ] **All planned phases complete.** Phases 2.1 through 2.13 are merged.
 - [x] **One manufacture run proven live from intent to reviewed pull request.** It is started
       through `POST /api/workflow-runs`, against a repository the owner chooses. Every step is
       recorded in the run's event log, not asserted:
@@ -86,10 +86,11 @@ only once something demonstrably better runs in its place.
 | 2.6 | Sandboxed run pods | complete (2026-10-04; #320) |
 | 2.7 | Issues as a first-class output | complete (2026-10-09; #323) |
 | 2.8 | Ralph retirement | complete (2026-10-10; #329) |
-| 2.9 | Observability | pending |
-| 2.10 | Per-turn tool selection with ZeroAlloc.Jev | pending |
-| 2.11 | The scout HTTP path | pending |
+| 2.9 | Observability | complete (2026-10-11; #336) |
+| 2.10 | Per-turn tool selection with Minos.NET | blocked on Minos.NET 1.0 |
+| 2.11 | The GitHub HTTP path | complete (2026-10-12; #343) |
 | 2.12 | Manufacturing console | pending |
+| 2.13 | Flux across the Web app | pending |
 
 Full phase text, including what each completed phase actually proved and carried forward, is in
 `docs/planning/ROADMAP.md`.
