@@ -108,6 +108,62 @@ public sealed class TasksEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     Once the Tasks page is left, a change for a listed task's run fetches no task.
+    ///     Red: keep Items on TasksClosed.
+    /// </summary>
+    [Fact]
+    public async Task After_the_board_is_closed_a_change_fetches_no_task()
+    {
+        var runId = Guid.NewGuid();
+        var watched = Board(Guid.NewGuid(), runId, "watched");
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([watched], 1, 1, 200)))
+            .OnJson($"/api/tasks/{watched.Id}", RunViews.Json(watched));
+        await _effects.LoadAsync(CancellationToken.None);
+        await _provider.GetRequiredService<IDispatcher>().DispatchAsync(new TasksClosed());
+        _handler.Requests.Clear();
+
+        await _effects.OnRunChangedAsync(new WorkflowRunChanged(runId, "Succeeded", "done", null), CancellationToken.None);
+
+        _handler.Requests.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Once the Tasks page is left, a reconnect loads no board.
+    ///     Red: keep LoadRequested on TasksClosed.
+    /// </summary>
+    [Fact]
+    public async Task After_the_board_is_closed_a_reconnect_loads_no_board()
+    {
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([Board(Guid.NewGuid(), null, "one")], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        await _provider.GetRequiredService<IDispatcher>().DispatchAsync(new TasksClosed());
+        _handler.Requests.Clear();
+
+        await _effects.RefreshAsync(CancellationToken.None);
+
+        _handler.Requests.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     A board still in flight when the page closed does not come back, and a start in flight survives the close.
+    ///     Red: drop the LoadRequested guard in the TasksLoaded reducer. Red: clear Starting on TasksClosed.
+    /// </summary>
+    [Fact]
+    public void A_board_that_lands_after_the_page_closed_is_ignored()
+    {
+        var starting = Guid.NewGuid();
+        var state = TasksState.Initial(null!);
+        state = TasksReducers.On(state, new TasksLoadStarted());
+        state = TasksReducers.On(state, new TaskStartRequested(starting));
+        state = TasksReducers.On(state, new TasksClosed());
+
+        state = TasksReducers.On(state, new TasksLoaded([Board(Guid.NewGuid(), null, "late")], 1));
+
+        state.Items.Should().BeEmpty();
+        state.Starting.Should().Equal(starting);
+    }
+
+    /// <summary>
     ///     Manufacture marks the task as starting while the call is in flight, returns the run id, and clears the flag
     ///     on success and on failure.
     ///     Red: never dispatch TaskStartRequested. Red: return a fixed failure when the API succeeds.

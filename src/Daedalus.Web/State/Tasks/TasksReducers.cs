@@ -8,11 +8,19 @@ public static class TasksReducers
     [Reducer]
     public static TasksState On(TasksState s, TasksLoadStarted _) => s with { Loading = true, Error = null, LoadRequested = true };
 
+    /// <summary>A board that lands after the page closed, with no load asked for since, is ignored.</summary>
     [Reducer]
-    public static TasksState On(TasksState s, TasksLoaded a) => s with { Items = a.Items, Total = a.Total, Loading = false };
+    public static TasksState On(TasksState s, TasksLoaded a) =>
+        !s.LoadRequested ? s : s with { Items = a.Items, Total = a.Total, Loading = false };
 
     [Reducer]
-    public static TasksState On(TasksState s, TasksLoadFailed a) => s with { Error = a.Error, Loading = false };
+    public static TasksState On(TasksState s, TasksLoadFailed a) =>
+        !s.LoadRequested ? s : s with { Error = a.Error, Loading = false };
+
+    /// <summary>Drops the board but keeps <see cref="TasksState.Starting"/>, so a start in flight still finishes.</summary>
+    [Reducer]
+    public static TasksState On(TasksState s, TasksClosed _) =>
+        s with { Items = [], Total = 0, Loading = false, Error = null, LoadRequested = false };
 
     [Reducer]
     public static TasksState On(TasksState s, TaskStartRequested a) => s with { Starting = new HashSet<Guid>(s.Starting) { a.Id } };
