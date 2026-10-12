@@ -1,8 +1,12 @@
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
+using Daedalus.Api.Hubs;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Thalos;
+using Thalos.Workflow;
 
 namespace Daedalus.Tests.Integration.Workflow;
 
@@ -64,6 +68,24 @@ public sealed class WorkflowDisabledHostTests(PostgresFixture fixture)
 
         unauthenticated.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
+    ///     A disabled host has no live channel: no run observer, no broadcaster among the hosted services, and no hub, so
+    ///     a developer's request to the hub path is a 404.
+    ///     Red: hoist the IWorkflowRunObserver registration out of the engine check: the observer list is not empty.
+    ///     Red: hoist the broadcaster's hosted-service registration out: the hosted services include it.
+    ///     Red: hoist MapHub out: the hub path answers something other than 404.
+    /// </summary>
+    [Fact]
+    public async Task A_disabled_host_has_no_run_observer_broadcaster_or_hub()
+    {
+        await using var factory = new ApiWebApplicationFactory(fixture.ConnectionString, Substitute.For<IAgentRuntime>());
+        using var client = Client(factory, "a-developer", "developer");
+
+        factory.Services.GetServices<IWorkflowRunObserver>().Should().BeEmpty();
+        factory.Services.GetServices<IHostedService>().Should().NotContain(s => s is WorkflowRunChangeBroadcaster);
+        (await client.GetAsync(WorkflowRunsHub.Path)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     private static HttpClient Client(ApiWebApplicationFactory factory, string user, string role)
