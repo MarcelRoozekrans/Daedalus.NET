@@ -98,6 +98,7 @@ public sealed class GitHubErrorTests
     ///     Red: drop <c>Transport</c>; the transport row fails. Red: drop <c>Timeout</c>; the timeout row fails.
     ///     Red: drop <c>Unreadable</c>: GitHub answered 2xx but the answer could not be read, so the write may have landed.
     ///     Red: append the sentence to every kind; the forbidden row and the every-other-kind test fail.
+    ///     Red: add <c>Rejected</c> to <c>ForWrite</c>'s kinds; the rejected row fails.
     /// </summary>
     [Theory]
     [InlineData(GitHubErrorKind.Timeout, true)]
@@ -105,6 +106,7 @@ public sealed class GitHubErrorTests
     [InlineData(GitHubErrorKind.Transport, true)]
     [InlineData(GitHubErrorKind.Unreadable, true)]
     [InlineData(GitHubErrorKind.Forbidden, false)]
+    [InlineData(GitHubErrorKind.Rejected, false)]
     public void A_write_that_may_have_landed_says_so(GitHubErrorKind kind, bool mayHaveLanded)
     {
         var error = kind switch
@@ -112,6 +114,7 @@ public sealed class GitHubErrorTests
             GitHubErrorKind.Timeout => GitHubError.TimedOut(),
             GitHubErrorKind.Transport => GitHubError.NotSent(),
             GitHubErrorKind.Unreadable => GitHubError.Unreadable("GitHub's answer could not be read.", 200),
+            GitHubErrorKind.Rejected => GitHubError.Rejected(),
             GitHubErrorKind.Server => GitHubError.FromStatus(502, kind, null),
             _ => GitHubError.FromStatus(403, kind, null),
         };

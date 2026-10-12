@@ -32,6 +32,9 @@ public enum GitHubErrorKind
     /// <summary>The request timed out, or GitHub answered 408.</summary>
     Timeout,
 
+    /// <summary>Daedalus's own resilience pipeline refused the request before it was sent: an open circuit or a limiter.</summary>
+    Rejected,
+
     /// <summary>GitHub's answer could not be read, or lacked a field Daedalus needs.</summary>
     Unreadable,
 }
@@ -70,13 +73,14 @@ public readonly record struct GitHubError(GitHubErrorKind Kind, int? StatusCode,
     public static GitHubError NotSent() => new(GitHubErrorKind.Transport, null, null, "The request to GitHub failed before GitHub answered.");
 
     /// <summary>
-    ///     The resilience pipeline refused the request before it went out: an open circuit or a rate limiter. Unlike
-    ///     <see cref="NotSent"/>, whose transport failure can follow a sent request, nothing reached GitHub.
+    ///     The resilience pipeline refused the request before it went out: an open circuit or a limiter. Unlike
+    ///     <see cref="NotSent"/>, whose transport failure can follow a sent request, nothing reached GitHub, so
+    ///     <see cref="ForWrite"/> adds no hint to this kind.
     /// </summary>
-    public static GitHubError Rejected() => new(GitHubErrorKind.Transport, null, null, RejectedMessage);
+    public static GitHubError Rejected() => new(GitHubErrorKind.Rejected, null, null, RejectedMessage);
 
     /// <summary>The text of <see cref="Rejected"/>.</summary>
-    public const string RejectedMessage = "The request to GitHub was not sent: Daedalus's own request limits refused it.";
+    public const string RejectedMessage = "The request to GitHub was not sent: Daedalus is holding back calls to GitHub after recent failures or too many calls. It can be tried again shortly.";
 
     /// <summary>The sentence <see cref="ForWrite"/> adds to a write that may have landed.</summary>
     public const string MayHaveLanded = "It may still have been applied: check before sending it again.";
@@ -114,6 +118,7 @@ public readonly record struct GitHubError(GitHubErrorKind Kind, int? StatusCode,
         GitHubErrorKind.Validation => $"GitHub answered {status}: it refused the request as invalid.",
         GitHubErrorKind.Conflict => $"GitHub answered {status}: the request conflicts with the repository's current state.",
         GitHubErrorKind.Timeout => $"GitHub answered {status}: the request timed out.",
+        GitHubErrorKind.Rejected => RejectedMessage,
         _ => $"GitHub answered {status}: a server error.",
     };
 }

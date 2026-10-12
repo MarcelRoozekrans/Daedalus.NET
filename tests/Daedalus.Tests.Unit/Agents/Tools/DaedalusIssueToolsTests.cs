@@ -132,6 +132,7 @@ public sealed class DaedalusIssueToolsTests
     [InlineData(GitHubErrorKind.Conflict, "conflicts")]
     [InlineData(GitHubErrorKind.Server, "server error")]
     [InlineData(GitHubErrorKind.Transport, "before GitHub answered")]
+    [InlineData(GitHubErrorKind.Rejected, "holding back calls")]
     [InlineData(GitHubErrorKind.Timeout, "timed out")]
     [InlineData(GitHubErrorKind.Unreadable, "could not be read")]
     public async Task A_failed_read_tells_the_agent_what_went_wrong(GitHubErrorKind kind, string phrase)
@@ -157,6 +158,7 @@ public sealed class DaedalusIssueToolsTests
         GitHubErrorKind.Server => GitHubError.FromStatus(502, kind, null),
         GitHubErrorKind.Transport => GitHubError.NotSent(),
         GitHubErrorKind.Timeout => GitHubError.TimedOut(),
+        GitHubErrorKind.Rejected => GitHubError.Rejected(),
         _ => GitHubError.Unreadable("GitHub's answer could not be read."),
     };
 
