@@ -96,12 +96,14 @@ public sealed class GitHubErrorTests
     /// <summary>
     ///     Red: drop <c>Server</c> from <c>ForWrite</c>'s kinds; the server row fails.
     ///     Red: drop <c>Transport</c>; the transport row fails. Red: drop <c>Timeout</c>; the timeout row fails.
-    ///     Red: append the sentence to every kind; the forbidden row fails.
+    ///     Red: drop <c>Unreadable</c>: GitHub answered 2xx but the answer could not be read, so the write may have landed.
+    ///     Red: append the sentence to every kind; the forbidden row and the every-other-kind test fail.
     /// </summary>
     [Theory]
     [InlineData(GitHubErrorKind.Timeout, true)]
     [InlineData(GitHubErrorKind.Server, true)]
     [InlineData(GitHubErrorKind.Transport, true)]
+    [InlineData(GitHubErrorKind.Unreadable, true)]
     [InlineData(GitHubErrorKind.Forbidden, false)]
     public void A_write_that_may_have_landed_says_so(GitHubErrorKind kind, bool mayHaveLanded)
     {
@@ -109,11 +111,45 @@ public sealed class GitHubErrorTests
         {
             GitHubErrorKind.Timeout => GitHubError.TimedOut(),
             GitHubErrorKind.Transport => GitHubError.NotSent(),
+            GitHubErrorKind.Unreadable => GitHubError.Unreadable("GitHub's answer could not be read.", 200),
             GitHubErrorKind.Server => GitHubError.FromStatus(502, kind, null),
             _ => GitHubError.FromStatus(403, kind, null),
         };
 
-        error.ForWrite().Message.Contains("It may still have been applied: check before sending it again.", StringComparison.Ordinal)
-            .Should().Be(mayHaveLanded);
+        error.ForWrite().Message.Contains(GitHubError.MayHaveLanded, StringComparison.Ordinal).Should().Be(mayHaveLanded);
+    }
+
+    /// <summary>Red: add any other kind, for example <c>Conflict</c>, to <c>ForWrite</c>'s kinds; that kind fails.</summary>
+    [Fact]
+    public void A_write_that_was_refused_does_not_say_it_may_have_landed()
+    {
+        GitHubErrorKind[] mayHaveLanded = [GitHubErrorKind.Timeout, GitHubErrorKind.Server, GitHubErrorKind.Transport, GitHubErrorKind.Unreadable];
+
+        var refused = Enum.GetValues<GitHubErrorKind>().Except(mayHaveLanded).ToArray();
+
+        foreach (var kind in refused)
+        {
+            GitHubError.FromStatus(403, kind, null).ForWrite().Message.Should().NotContain(GitHubError.MayHaveLanded, $"{kind} is a refusal");
+        }
+    }
+
+    /// <summary>
+    ///     Red: give <c>NoToken</c> kind <c>Forbidden</c>; the NoToken kind fails. Red: give it a status; its status fails.
+    ///     Red: swap <c>Unreadable</c>'s message and status; the Unreadable assertions fail.
+    ///     Red: default <c>Unreadable</c>'s status parameter to 0 instead of null; the last assertion fails.
+    /// </summary>
+    [Fact]
+    public void A_missing_token_and_an_unreadable_answer_keep_their_text_kind_and_status()
+    {
+        var noToken = GitHubError.NoToken("No GitHub token is configured.");
+        var unreadable = GitHubError.Unreadable("GitHub's answer could not be read.", 200);
+
+        noToken.Kind.Should().Be(GitHubErrorKind.Unauthorized);
+        noToken.StatusCode.Should().BeNull();
+        noToken.Message.Should().Be("No GitHub token is configured.");
+        unreadable.Kind.Should().Be(GitHubErrorKind.Unreadable);
+        unreadable.StatusCode.Should().Be(200);
+        unreadable.Message.Should().Be("GitHub's answer could not be read.");
+        GitHubError.Unreadable("x").StatusCode.Should().BeNull();
     }
 }

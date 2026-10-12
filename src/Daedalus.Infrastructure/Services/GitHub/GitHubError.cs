@@ -83,11 +83,11 @@ public readonly record struct GitHubError(GitHubErrorKind Kind, int? StatusCode,
     public string ForAgent() => GitHubSaid is { } said ? $"{Message} GitHub said: {said}" : Message;
 
     /// <summary>
-    ///     The error of a write: a timeout, a server error or a transport failure may have happened after GitHub applied the
-    ///     write, so the message says to check before sending it again. GitHub has no idempotency keys.
+    ///     The error of a write: a timeout, a server error, a transport failure or an answer that could not be read may have
+    ///     happened after GitHub applied the write, so the message says to check before sending it again. GitHub has no idempotency keys.
     /// </summary>
     public GitHubError ForWrite() =>
-        Kind is GitHubErrorKind.Timeout or GitHubErrorKind.Server or GitHubErrorKind.Transport
+        Kind is GitHubErrorKind.Timeout or GitHubErrorKind.Server or GitHubErrorKind.Transport or GitHubErrorKind.Unreadable
             ? this with { Message = $"{Message} {MayHaveLanded}" }
             : this;
 

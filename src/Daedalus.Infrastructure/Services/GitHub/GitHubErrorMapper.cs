@@ -21,8 +21,8 @@ internal sealed class GitHubErrorMapper(TimeProvider clock) : IHttpErrorMapper<G
     /// <summary>The largest Unix time <see cref="DateTimeOffset.FromUnixTimeSeconds"/> accepts, 9999-12-31T23:59:59Z.</summary>
     private const long MaxUnixSeconds = 253_402_300_799;
 
-    /// <summary>GitHub's documented minimum wait after a secondary rate limit that names no time.</summary>
-    private static readonly TimeSpan SecondaryLimitWait = TimeSpan.FromSeconds(60);
+    /// <summary>GitHub's documented minimum wait after a rate limit that names no time.</summary>
+    private static readonly TimeSpan RateLimitMinimumWait = TimeSpan.FromSeconds(60);
 
     public GitHubError Map(HttpError error)
     {
@@ -72,6 +72,11 @@ internal sealed class GitHubErrorMapper(TimeProvider clock) : IHttpErrorMapper<G
         {
             return null;
         }
+        catch (InvalidOperationException)
+        {
+            // A string with invalid UTF-8 parses, then GetString throws this.
+            return null;
+        }
     }
 
     private GitHubError FromStatus(HttpError error)
@@ -96,12 +101,14 @@ internal sealed class GitHubErrorMapper(TimeProvider clock) : IHttpErrorMapper<G
             409 => GitHubErrorKind.Conflict,
             >= 500 and <= 599 => GitHubErrorKind.Server,
             >= 400 and <= 499 => GitHubErrorKind.Validation,
+            // Only a 1xx, 2xx or 3xx reaches here, which a ZeroAlloc.Rest status failure does not produce today; it is
+            // read as a server fault rather than left unmapped.
             _ => GitHubErrorKind.Server,
         };
 
-        // GitHub: honour Retry-After when it is present, otherwise wait for X-RateLimit-Reset, otherwise, after a secondary
-        // limit, wait at least one minute.
-        var retryAt = retryAfter ?? Reset(error.Headers) ?? (secondary ? clock.GetUtcNow() + SecondaryLimitWait : null);
+        // GitHub's rule: honour Retry-After when it is present; otherwise wait for X-RateLimit-Reset, but only when the
+        // remaining count is 0, because GitHub sends the reset on every response; otherwise wait at least one minute.
+        var retryAt = retryAfter ?? (exhausted ? Reset(error.Headers) : null) ?? clock.GetUtcNow() + RateLimitMinimumWait;
         return GitHubError.FromStatus(status, kind, retryAt) with
         {
             GitHubSaid = error.BodyTruncated ? null : Summarize(error.Body),
@@ -148,11 +155,17 @@ internal sealed class GitHubErrorMapper(TimeProvider clock) : IHttpErrorMapper<G
         return trimmed.Length <= MaxSaidLength ? trimmed : string.Concat(trimmed.AsSpan(0, MaxSaidLength - 1), "…");
     }
 
-    private static DateTimeOffset? Reset(IReadOnlyDictionary<string, IReadOnlyList<string>> headers) =>
-        long.TryParse(First(headers, "X-RateLimit-Reset"), NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
-        && seconds <= MaxUnixSeconds
-            ? DateTimeOffset.FromUnixTimeSeconds(seconds)
-            : null;
+    /// <summary>The reset time, never earlier than now: a reset already past would read "rate-limited until" a past time.</summary>
+    private DateTimeOffset? Reset(IReadOnlyDictionary<string, IReadOnlyList<string>> headers)
+    {
+        if (!long.TryParse(First(headers, "X-RateLimit-Reset"), NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
+            || seconds > MaxUnixSeconds)
+            return null;
+
+        var reset = DateTimeOffset.FromUnixTimeSeconds(seconds);
+        var now = clock.GetUtcNow();
+        return reset < now ? now : reset;
+    }
 
     /// <summary>The first value of <paramref name="name"/>. The generated client's dictionary ignores case; a hand-built one may not.</summary>
     private static string? First(IReadOnlyDictionary<string, IReadOnlyList<string>> headers, string name)
