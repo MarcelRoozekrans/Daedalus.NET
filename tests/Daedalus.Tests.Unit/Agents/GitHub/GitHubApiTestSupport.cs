@@ -15,15 +15,20 @@ internal static class GitHubApiTestSupport
 {
     public static readonly DateTime Now = new(2026, 9, 19, 7, 0, 0, DateTimeKind.Utc);
 
-    public static GitHubApi Build(StubHandler handler, string? token = "ghp_example")
-    {
-        var http = new HttpClient(handler);
-        return new GitHubApi(
-            http,
+    public static GitHubApi Build(StubHandler handler, string? token = "ghp_example") =>
+        new(
+            Clients(handler),
             Options.Create(new GitHubOptions()),
             new GitHubTokenSource(_ => token),
             new FakeTimeProvider(new DateTimeOffset(Now)),
             NullLogger<GitHubApi>.Instance);
+
+    /// <summary>Both named clients over one handler, so a test reads every request whichever client sent it.</summary>
+    public static IHttpClientFactory Clients(HttpMessageHandler handler)
+    {
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(handler, disposeHandler: false));
+        return factory;
     }
 
     /// <summary>A request's query as name to unescaped value, so a test compares parameters rather than their order.</summary>

@@ -13,12 +13,14 @@ public sealed class GitHubApiFindOpenPullRequestTests
 {
     private static RepoRef Repo() => RepoRef.Parse("o/r").Value;
 
-    private static GitHubApi Build(HttpMessageHandler handler) => new(
-        new HttpClient(handler),
-        Options.Create(new GitHubOptions()),
-        new GitHubTokenSource(_ => "ghp_example"),
-        TimeProvider.System,
-        NullLogger<GitHubApi>.Instance);
+    private static GitHubApi Build(HttpMessageHandler handler)
+    {
+        var clients = Substitute.For<IHttpClientFactory>();
+        clients.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(handler, disposeHandler: false));
+        return new GitHubApi(
+            clients, Options.Create(new GitHubOptions()), new GitHubTokenSource(_ => "ghp_example"),
+            TimeProvider.System, NullLogger<GitHubApi>.Instance);
+    }
 
     /// <summary>
     ///     Falsifiable per assertion: failing on a list that is not an array of one fails the first, returning
@@ -32,7 +34,7 @@ public sealed class GitHubApiFindOpenPullRequestTests
 
         var result = await Build(handler).FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : null);
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : null);
         result.Value.Should().NotBeNull("an open pull request was listed");
         result.Value!.WebUrl.Should().Be("https://github.com/o/r/pull/7");
         result.Value.PullRequestId.Should().Be("7");
@@ -63,11 +65,14 @@ public sealed class GitHubApiFindOpenPullRequestTests
 
         var result = await Build(handler).FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : null);
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : null);
         result.Value.Should().BeNull();
     }
 
-    /// <summary>Falsifiable: ignoring the status code and parsing the error body as an empty list turns this red.</summary>
+    /// <summary>
+    ///     Falsifiable: ignoring the status code and parsing the error body as an empty list turns this red, and mapping
+    ///     401 to Forbidden fails the kind assertion.
+    /// </summary>
     [Fact]
     public async Task An_unauthorized_response_is_a_failure()
     {
@@ -76,25 +81,27 @@ public sealed class GitHubApiFindOpenPullRequestTests
         var result = await Build(handler).FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("Bad credentials");
+        result.Error.Kind.Should().Be(GitHubErrorKind.Unauthorized);
     }
 
     /// <summary>
     ///     A network or DNS fault is a failed result, not an exception. Falsifiable per assertion: removing the
     ///     catch makes the call throw, and <c>act</c> fails on <c>NotThrowAsync</c>; answering <c>Success(null)</c>
-    ///     from the catch fails <c>IsFailure</c>; returning a failure without the exception's message fails the last.
+    ///     from the catch fails <c>IsFailure</c>; mapping a transport failure to Server fails the kind assertion, and
+    ///     putting the exception's message into the error fails the last.
     /// </summary>
     [Fact]
     public async Task A_network_fault_is_a_failure_not_an_exception()
     {
         var api = Build(new ThrowingHandler(new HttpRequestException("No such host is known.")));
-        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?> result = default!;
+        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?, GitHubError> result = default;
 
         var act = async () => result = await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
 
         await act.Should().NotThrowAsync();
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("No such host is known.");
+        result.Error.Kind.Should().Be(GitHubErrorKind.Transport);
+        result.Error.Message.Should().NotContain("No such host");
     }
 
     /// <summary>
@@ -107,7 +114,7 @@ public sealed class GitHubApiFindOpenPullRequestTests
     public async Task A_timeout_of_the_clients_own_is_a_failure()
     {
         var api = Build(new ThrowingHandler(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout.")));
-        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?> result = default!;
+        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?, GitHubError> result = default;
 
         var act = async () => result = await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
 
@@ -140,7 +147,7 @@ public sealed class GitHubApiFindOpenPullRequestTests
     public async Task A_body_that_is_not_json_is_a_failure()
     {
         var api = Build(new RespondingHandler(HttpStatusCode.OK, "<html><body>Proxy login</body></html>"));
-        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?> result = default!;
+        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?, GitHubError> result = default;
 
         var act = async () => result = await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
 
@@ -157,7 +164,7 @@ public sealed class GitHubApiFindOpenPullRequestTests
     public async Task A_listed_pull_request_missing_its_web_url_is_a_failure()
     {
         var api = Build(new RespondingHandler(HttpStatusCode.OK, """[{"number":7}]"""));
-        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?> result = default!;
+        Result<Daedalus.Domain.CodeAnalysis.PullRequestResult?, GitHubError> result = default;
 
         var act = async () => result = await api.FindOpenPullRequestAsync(Repo(), "manufacture/abc", CancellationToken.None);
 

@@ -99,8 +99,10 @@ public sealed class PullRequestFactoryDispatchTests
         // GitHubPullRequestFactory now delegates to GitHubApi rather than owning an HttpClient itself (Task 5's
         // consolidation) — wired over the same recording handler, so the assertion below still observes the real
         // outbound request rather than anything about how the factory gets there.
+        var clients = Substitute.For<IHttpClientFactory>();
+        clients.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(githubHandler, disposeHandler: false));
         var gitHubApi = new GitHubApi(
-            new HttpClient(githubHandler), Options.Create(new GitHubOptions()),
+            clients, Options.Create(new GitHubOptions()),
             new GitHubTokenSource(_ => "a-token"), TimeProvider.System, NullLogger<GitHubApi>.Instance);
         var github = new GitHubPullRequestFactory(gitHubApi, NullLogger<GitHubPullRequestFactory>.Instance);
 

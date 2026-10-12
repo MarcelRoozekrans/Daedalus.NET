@@ -12,8 +12,8 @@ namespace Daedalus.Agents.Tools;
 ///     <b>Only <see cref="IGitHubWriter"/>.</b> This class cannot reach <see cref="IGitHubReader"/> or
 ///     <c>GitHubApi</c> directly. Pairing the reader and the writer in one class would quietly defeat the
 ///     read/write split this phase exists to establish — every method here takes a real, visible action against a
-///     real repository, and a failure is surfaced to the caller rather than swallowed, because otherwise an agent
-///     reports success to a person when the write never happened.
+///     real repository, sent exactly once, and a failure is surfaced to the caller rather than swallowed, because
+///     otherwise an agent reports success to a person when the write never happened.
 /// </remarks>
 /// <param name="writer">The one seam this tool acts on a repository through.</param>
 [ThalosToolType]
@@ -36,7 +36,7 @@ public sealed class DaedalusRepoActionTools(IGitHubWriter writer)
 
         // Escaped, so a comment this account writes can never end with a marker the file-findings action trusts.
         var result = await writer.CommentAsync(parsedRepo.Value, number, HtmlCommentText.Neutralize(body ?? ""), ct);
-        return result.IsSuccess ? result.Value : $"Could not post the comment: {result.Error}";
+        return result.IsSuccess ? result.Value : $"Could not post the comment: {result.Error.ForAgent()}";
     }
 
     /// <summary>Adds a label to an issue or pull request.</summary>
@@ -55,7 +55,7 @@ public sealed class DaedalusRepoActionTools(IGitHubWriter writer)
             return parsedRepo.Error;
 
         var result = await writer.AddLabelAsync(parsedRepo.Value, number, label, ct);
-        return result.IsSuccess ? result.Value : $"Could not add the label: {result.Error}";
+        return result.IsSuccess ? result.Value : $"Could not add the label: {result.Error.ForAgent()}";
     }
 
     /// <summary>Closes an issue or pull request.</summary>
@@ -73,7 +73,7 @@ public sealed class DaedalusRepoActionTools(IGitHubWriter writer)
             return parsedRepo.Error;
 
         var result = await writer.CloseIssueAsync(parsedRepo.Value, number, ct);
-        return result.IsSuccess ? result.Value : $"Could not close the issue: {result.Error}";
+        return result.IsSuccess ? result.Value : $"Could not close the issue: {result.Error.ForAgent()}";
     }
 
     /// <summary>Files a new issue.</summary>
@@ -103,6 +103,6 @@ public sealed class DaedalusRepoActionTools(IGitHubWriter writer)
         var result = await writer.CreateIssueAsync(parsedRepo.Value, posted, HtmlCommentText.Neutralize(body ?? ""), ct);
         return result.IsSuccess
             ? $"Filed {parsedRepo.Value}#{result.Value.Number}: {result.Value.HtmlUrl}"
-            : $"Could not file the issue: {result.Error}";
+            : $"Could not file the issue: {result.Error.ForAgent()}";
     }
 }

@@ -55,7 +55,7 @@ public sealed class DaedalusIssueTools(IGitHubReader reader)
 
         var read = await reader.GetIssueAsync(parsedRepo.Value, number, ct);
         if (read.IsFailure)
-            return $"Could not read {parsedRepo.Value}#{number}: {read.Error}";
+            return $"Could not read {parsedRepo.Value}#{number}: {read.Error.ForAgent()}";
         if (read.Value is not { } issue)
             return $"{parsedRepo.Value}#{number} does not exist, or the configured token cannot see it.";
         if (issue.IsPullRequest)
@@ -111,7 +111,7 @@ public sealed class DaedalusIssueTools(IGitHubReader reader)
 
         var hits = await reader.SearchIssuesAsync(parsedRepo.Value, query, searchState, GitHubApi.MaxSearchHits, ct);
         if (hits.IsFailure)
-            return $"Could not search {parsedRepo.Value}'s issues: {hits.Error}";
+            return $"Could not search {parsedRepo.Value}'s issues: {hits.Error.ForAgent()}";
         if (hits.Value.Count == 0)
             return $"No {StateName(searchState)} issue in {parsedRepo.Value} matches '{query}'.";
 

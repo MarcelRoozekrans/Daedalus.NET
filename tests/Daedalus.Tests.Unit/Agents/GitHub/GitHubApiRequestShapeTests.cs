@@ -251,7 +251,7 @@ public sealed class GitHubApiRequestShapeTests
     };
 
     /// <summary>The one place that knows the facade's result type; Task 5 retypes it.</summary>
-    private static (bool IsSuccess, object? Value) Outcome<T>(Result<T> result) =>
+    private static (bool IsSuccess, object? Value) Outcome<T>(Result<T, GitHubError> result) =>
         (result.IsSuccess, result.IsSuccess ? result.Value : null);
 
     private static StubHandler WithActivityRoutes(StubHandler handler, string defaultBranch = """{"default_branch":"trunk"}""") =>
