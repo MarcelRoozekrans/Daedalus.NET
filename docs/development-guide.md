@@ -488,27 +488,65 @@ There is no dependency on the `Polly` NuGet package directly. Resilient HTTP
 clients use `Microsoft.Extensions.Http.Resilience` (which wraps Polly v8
 internally) via `AddStandardResilienceHandler`, used in
 `src/Daedalus.Infrastructure/Extensions/InfrastructureServiceExtensions.cs`
-and `src/Daedalus.Web/Program.cs`:
+and `src/Daedalus.Web/Program.cs`.
+`InfrastructureServiceExtensions` holds one configuration, `ConfigureResilience`, that every GitHub and Azure DevOps
+client starts from:
 
 ```csharp
-services.AddHttpClient<AzureDevOpsPullRequestFactory>(client =>
-    {
-        client.DefaultRequestHeaders.Add("User-Agent", "Daedalus");
-    })
-    .AddStandardResilienceHandler(options =>
-    {
-        options.Retry.MaxRetryAttempts = 3;
-        options.Retry.BackoffType = DelayBackoffType.Exponential;
-        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
-        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
-        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
-        options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
-    });
+private static void ConfigureResilience(HttpStandardResilienceOptions options)
+{
+    options.Retry.MaxRetryAttempts = 3;
+    options.Retry.BackoffType = DelayBackoffType.Exponential;
+    options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
+    options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
+    options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+    options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
+}
 ```
 
-Do not add the raw `Polly` package or hand-roll `HttpPolicyExtensions` /
-`PolicyWrap` — use `AddStandardResilienceHandler` and configure its
-`Retry`/`AttemptTimeout`/`TotalRequestTimeout`/`CircuitBreaker` options.
+**Never retry a write.** A POST, PATCH, PUT or DELETE to an API without idempotency keys, which is GitHub's and Azure
+DevOps's, goes out once: a retried comment, issue or pull request lands twice. A client whose calls are writes gets
+`NeverRetry` on top, which keeps the timeouts and circuit breaker and sets a retry predicate that handles nothing. Do not
+use `DisableForUnsafeHttpMethods` or `GetRequestMessage`: both are `[Experimental("EXTEXP0001")]`. A facade that both
+reads and writes, as `GitHubApi` does, uses two named clients. A read client against a rate-limited API retries what
+`HttpClientResiliencePredicates.IsTransient` calls transient except a 429, as `RetryReadsExceptRateLimits` does. The
+Web's `Daedalus.Api` client in `src/Daedalus.Web/Program.cs` does not follow this rule yet: see #340.
+
+Do not add the raw `Polly` package or hand-roll `HttpPolicyExtensions` / `PolicyWrap`. Polly's own rejections,
+`TimeoutRejectedException` and the other `ExecutionRejectedException`s, are not HTTP failures to a generated client, so
+the facade catches them and returns a failed result.
+
+## External HTTP APIs
+
+An external REST API, as GitHub and Azure DevOps are, is a ZeroAlloc.Rest client behind a facade:
+
+- **An internal `[ZeroAllocRestClient(MaxErrorBodyBytes = ...)]` interface**, one method per endpoint, with relative
+  routes and no leading slash, so a base address's own path is kept. Read no more error body than you use: `0` for Azure
+  DevOps, whose client decodes and logs none, and 2 KiB for GitHub, whose body is summarised for the agent only. A
+  limit of `0` means the application reads no body; do not take it to mean that no bytes are transferred.
+- **A source-generated `JsonSerializerContext`** over DTOs whose fields are all nullable, passed as
+  `new SystemTextJsonSerializer(Context.Default)`. No reflection serialization and no IL2026 suppression.
+- **A typed error and an `[ErrorMapper]`**, as `GitHubError` and `GitHubErrorMapper`. The message is built from the
+  kind, the status and the retry time, never from a body or an exception's message, because it reaches logs, run errors
+  and span status. What the API said goes into a separate, bounded field, `GitHubSaid`, that only agent tools render
+  through `ForAgent()`. A rate limit always carries a retry time: `Retry-After`, else `X-RateLimit-Reset` when
+  `X-RateLimit-Remaining` is 0, else a minute from now. `ForWrite()` adds "it may still have been applied" to the kinds
+  where a write may have landed: timeout, server, transport and unreadable.
+- **Credentials per call**, as a `[Header("Authorization")]` parameter. Never set a token on a client's
+  `DefaultRequestHeaders`: an `HttpClient` can be shared, and two calls at once would send each other's token.
+- **The facade** owns everything that is not HTTP, such as paging, required fields and which failure means "not there".
+  It creates its clients from `IHttpClientFactory` and sets their `BaseAddress` before anything is sent.
+- **Handlers** for what the generated client cannot see, such as success headers. GitHub's read client carries
+  `GitHubConditionalCacheHandler` outside the resilience handler and `GitHubRateLimitObserver` inside it. The observer's
+  tag, `daedalus.github.resource`, comes from an allow-list of GitHub's documented resource names, so an unexpected
+  header cannot create unbounded series: any other value is `other`, and a missing or blank one is `unknown`.
+- **Nothing identifying in what a run can see.** The publish path, `ThalosPullRequestPublisher`,
+  `GitHubPullRequestFactory`, `PullRequestFactory` and `RepositoryAuthenticationProvider`, puts no URL, repository
+  slug, response body or exception message in a run-visible text or a log. A log carries an exception's type name only.
+
+**Testing.** A generated client disposes its request when the call returns, so a test handler reads the body when the
+request is sent, as `StubHandler` and `RecordingHandler` do. `GitHubHost` builds the real `AddGitHubApi` pipelines over a
+test handler with zero retry delays; a standard pipeline's options are named `{client}-standard`.
 
 ## Observability
 

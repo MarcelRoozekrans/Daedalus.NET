@@ -396,6 +396,7 @@ Filter traces by `thalos.run.id`. The spans of a run:
 | `thalos.workflow.host_action.duration` | ms | `thalos.host_action` | One host action call. |
 | `thalos.workflow.run_tool.duration` | ms | `thalos.tool.source`, `thalos.tool` | One run tool call. |
 | `daedalus.manufacture.tokens` | `{token}` | `thalos.node`, `gen_ai.request.model` (omitted when empty), `daedalus.token.kind` | Tokens a completed node spent. |
+| `daedalus.github.ratelimit.remaining` | `{request}` | `daedalus.github.resource` (one of GitHub's documented resources such as `core` or `search`, `other` for any other value, `unknown` when the header is missing or blank) | Requests left in GitHub's current rate-limit window, from the last answer, 304s included. A read answered by a 304 costs nothing, so the value does not drop. |
 
 `daedalus.token.kind` is `input`, `output`, `cache_read` or `cache_write`. **`input` already includes `cache_read` and
 `cache_write`, so do not sum all four kinds**: that counts cache tokens twice. Tokens are counted at most once per
@@ -506,8 +507,30 @@ configuration key holds one:
 | GitLab       | `GITLAB_TOKEN`       |
 | Azure DevOps | `AZURE_DEVOPS_TOKEN` |
 
-`ExternalServices:Platforms:GitHub` configures the GitHub client: `ApiUrl`, `UserAgent`, `MaxItemsPerCategory` and
-`DefaultLookback`.
+`ExternalServices:Platforms:GitHub` configures the GitHub client: `ApiUrl`, `UserAgent`, `MaxItemsPerCategory` (default
+15, set in code) and `DefaultLookback`.
+
+#### The GitHub client
+
+Every GitHub call goes through `GitHubApi`, over two ZeroAlloc.Rest clients generated from `IGitHubRestApi`:
+
+- **Reads** use the `GitHub.Read` client. They retry on 5xx, 408 and timeouts. A 429 is not retried: it fails at once
+  as a rate limit with the time it lifts. A repeated read is sent with `If-None-Match`, and GitHub's `304 Not Modified`,
+  which costs no rate limit, is answered from an in-memory cache of 200 answers of at most 256 KiB each. A restart
+  empties it.
+- **Writes**, comments, labels, closes, issues and pull requests, use the `GitHub.Write` client and are sent **exactly
+  once**, never retried: GitHub has no idempotency keys, so a retried write can land twice. The Azure DevOps pull request
+  create follows the same rule.
+- **Errors** are a typed `GitHubError` with a kind, such as `RateLimited`, `NotFound` or `Forbidden`, the status, and
+  for a rate limit the time it lifts. A 429, a 403 with `X-RateLimit-Remaining: 0`, a 403 with `Retry-After` and a 403
+  whose body names a secondary rate limit are all rate limits. The time is `Retry-After` when GitHub sends it, else
+  `X-RateLimit-Reset` when no requests remain (a reset already past counts as now), else a minute from now. An agent
+  tool also shows a one-line summary of what GitHub said, at most 300 characters. Logs, run errors and the publish
+  node never repeat GitHub's response body, a URL, a repository slug or an exception's message; a log names an
+  exception's type only. A write that failed in a way that may have reached GitHub, a timeout, a server error, a
+  transport failure or a 2xx answer that could not be read, says so.
+- **The remaining rate limit** is the gauge `daedalus.github.ratelimit.remaining`, see "Metrics". Nothing throttles
+  before GitHub refuses.
 
 #### Authentication (API)
 
