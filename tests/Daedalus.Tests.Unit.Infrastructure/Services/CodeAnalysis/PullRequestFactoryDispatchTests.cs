@@ -3,6 +3,7 @@ using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Services.GitHub;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -92,7 +93,24 @@ public sealed class PullRequestFactoryDispatchTests
         result.Error.Should().Be("finding an open pull request is not supported for Azure DevOps");
     }
 
-    private static PullRequestFactory BuildSut(RecordingHandler githubHandler, RecordingHandler azureHandler)
+    /// <summary>
+    ///     The dispatcher logs which platform it creates on, never the URL, which can carry credentials.
+    ///     Red: log <c>repositoryUrl</c> in "Creating PR on {Platform}" again, as before; a line contains "SECRET".
+    /// </summary>
+    [Fact]
+    public async Task Creating_a_pull_request_never_logs_the_remote_url()
+    {
+        var logger = new CapturingLogger<PullRequestFactory>();
+        var sut = BuildSut(new RecordingHandler(HttpStatusCode.ServiceUnavailable), new RecordingHandler(HttpStatusCode.ServiceUnavailable), logger);
+
+        await sut.CreatePullRequestAsync("https://u:SECRET@dev.azure.com/org/project/_git/repo", "feature", "main", "title", "description");
+
+        logger.Lines.Should().Contain(line => line.Contains("AzureDevOps", StringComparison.Ordinal));
+        logger.Lines.Should().NotContain(line => line.Contains("SECRET", StringComparison.Ordinal));
+    }
+
+    private static PullRequestFactory BuildSut(
+        RecordingHandler githubHandler, RecordingHandler azureHandler, ILogger<PullRequestFactory>? logger = null)
     {
         var authProvider = AuthProviderReturningToken();
 
@@ -111,7 +129,7 @@ public sealed class PullRequestFactoryDispatchTests
 
         var detector = new RepositoryPlatformDetector(NullLogger<RepositoryPlatformDetector>.Instance);
 
-        return new PullRequestFactory(github, azure, detector, NullLogger<PullRequestFactory>.Instance);
+        return new PullRequestFactory(github, azure, detector, logger ?? NullLogger<PullRequestFactory>.Instance);
     }
 
     /// <summary>Returns a fixed success token for every platform, so both factories get past authentication and reach their HTTP call.</summary>
@@ -123,6 +141,28 @@ public sealed class PullRequestFactoryDispatchTests
             provider.GetAuthTokenAsync(Arg.Any<RepositoryPlatform>(), Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult(Result<string>.Success(token)));
             return provider;
+        }
+    }
+
+    /// <summary>Every formatted message and every structured value, so a value logged as a parameter is caught too.</summary>
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _lines = new();
+
+        public IReadOnlyList<string> Lines => [.. _lines];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            _lines.Enqueue(formatter(state, exception));
+            if (state is IEnumerable<KeyValuePair<string, object?>> values)
+            {
+                foreach (var value in values)
+                    _lines.Enqueue(value.Value?.ToString() ?? "");
+            }
         }
     }
 

@@ -26,7 +26,7 @@ public sealed class PullRequestFactory(
 
         if (logger.IsEnabled(LogLevel.Information))
         {
-            logger.LogInformation("Creating PR on {Platform} for {RepositoryUrl}", platform, repositoryUrl);
+            logger.LogInformation("Creating PR on {Platform}", platform);
         }
 
         return platform switch

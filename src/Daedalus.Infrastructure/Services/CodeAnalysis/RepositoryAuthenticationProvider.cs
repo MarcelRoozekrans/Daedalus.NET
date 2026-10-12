@@ -1,7 +1,7 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
@@ -11,17 +11,24 @@ namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 public sealed class RepositoryAuthenticationProvider(
     ILogger<RepositoryAuthenticationProvider> logger) : IRepositoryAuthenticationProvider
 {
-    public async Task<Result<string>> GetAuthTokenAsync(
+    public Task<Result<string>> GetAuthTokenAsync(
         RepositoryPlatform platform,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        Task.FromResult(ReadToken(platform, Environment.GetEnvironmentVariable, logger));
+
+    /// <summary>
+    ///     The token of <paramref name="platform"/>, read through <paramref name="read"/>. A failure's text names the platform
+    ///     only: it can reach a run's error through the publisher, so the exception stays in the log.
+    /// </summary>
+    internal static Result<string> ReadToken(RepositoryPlatform platform, Func<string, string?> read, ILogger logger)
     {
         try
         {
             var token = platform switch
             {
-                RepositoryPlatform.GitHub => Environment.GetEnvironmentVariable("GITHUB_TOKEN"),
-                RepositoryPlatform.AzureDevOps => Environment.GetEnvironmentVariable("AZURE_DEVOPS_TOKEN"),
-                RepositoryPlatform.GitLab => Environment.GetEnvironmentVariable("GITLAB_TOKEN"),
+                RepositoryPlatform.GitHub => read("GITHUB_TOKEN"),
+                RepositoryPlatform.AzureDevOps => read("AZURE_DEVOPS_TOKEN"),
+                RepositoryPlatform.GitLab => read("GITLAB_TOKEN"),
                 _ => null
             };
 
@@ -31,12 +38,12 @@ public sealed class RepositoryAuthenticationProvider(
                 return Result<string>.Failure($"No authentication token configured for {platform}");
             }
 
-            return await Task.FromResult(Result<string>.Success(token)).ConfigureAwait(false);
+            return Result<string>.Success(token);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting authentication token for platform {Platform}", platform);
-            return Result<string>.Failure($"Error getting auth token: {ex.Message}");
+            return Result<string>.Failure($"Error getting the auth token for {platform}");
         }
     }
 

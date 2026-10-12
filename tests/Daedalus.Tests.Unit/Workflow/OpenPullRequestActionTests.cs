@@ -297,6 +297,23 @@ public sealed class OpenPullRequestActionTests : IDisposable
         await _publisher.DidNotReceiveWithAnyArgs().OpenPullRequestAsync(default!, default!, default!, default!, default!, default);
     }
 
+    /// <summary>
+    ///     The publish node's error shows the publisher's message, so a GitHub rate limit names its retry time on the run.
+    ///     Red: make <c>Explain</c> return a fixed text for <c>GitOperationFailed</c>; the assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_rate_limited_lookup_fails_the_node_with_the_retry_time()
+    {
+        const string Why = "GitHub answered 429: rate-limited until 14:05 UTC.";
+        _lookup.FindOpenPullRequestAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<PullRequestResult?, AgentError>>(Result<PullRequestResult?, AgentError>.Failure(
+                AgentError.GitOperationFailed($"Failed to look up an open pull request: {Why}", Why))));
+
+        var result = await Action().RunAsync(Run(), PublishNode, CancellationToken.None);
+
+        result.Error.Should().Contain("rate-limited until 14:05 UTC");
+    }
+
     [Fact]
     public async Task A_publisher_answering_success_with_no_pull_request_is_a_clean_failure()
     {
