@@ -315,7 +315,7 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
 
         return created.Value is { Number: { } number } && TryWebUrl(created.Value.HtmlUrl, out var link)
             ? Result<CreatedIssue, GitHubError>.Success(new CreatedIssue(number, link))
-            : Result<CreatedIssue, GitHubError>.Failure(Unexpected("filing an issue"));
+            : Result<CreatedIssue, GitHubError>.Failure(Unexpected("filing an issue").ForWrite());
     }
 
     /// <summary>Opens a pull request and returns the number GitHub assigned and both its API and web URLs. Sent once.</summary>
@@ -337,7 +337,7 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
                 WebUrl = webUrl,
                 Status = PullRequestStatus.Open,
             })
-            : Result<PullRequestResult, GitHubError>.Failure(Unexpected("opening a pull request"));
+            : Result<PullRequestResult, GitHubError>.Failure(Unexpected("opening a pull request").ForWrite());
     }
 
     // ---- The digest's categories --------------------------------------------------------------------------------
