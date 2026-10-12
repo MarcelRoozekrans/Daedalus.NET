@@ -1,0 +1,110 @@
+namespace Daedalus.Application.DTOs.WorkflowRuns;
+
+/// <summary>Request body for <c>WorkflowRunsController.Resume</c>.</summary>
+/// <param name="Signal">The signal the caller believes the run is parked awaiting.</param>
+/// <param name="Payload">Carried into <c>WorkflowRun.Variables</c>["payload"] by <c>IWorkflowStore.ResumeAsync</c>.</param>
+/// <param name="ApplyStandingInstructions">
+///     Task B5. Defaults to <see langword="false"/>, so every existing caller of this endpoint is unaffected.
+///     Set <see langword="true"/> only when a human operator has decided to accept the run's proposed standing
+///     instructions — this is the one flag that makes <c>WorkflowRunGateway</c> write to disk at all.
+/// </param>
+/// <param name="DropFindings">
+///     Phase 2.7. The ids of deferred findings the human decided not to file. An id the run does not have is a 422 and
+///     nothing is resumed.
+/// </param>
+public sealed record ResumeWorkflowRunRequest(
+    string Signal, string? Payload, bool ApplyStandingInstructions = false, IReadOnlyList<string>? DropFindings = null);
+
+/// <summary>Request body for <c>WorkflowRunsController.Cancel</c>.</summary>
+/// <param name="Reason">A human-readable reason recorded against the run; defaults when omitted.</param>
+public sealed record CancelWorkflowRunRequest(string? Reason);
+
+/// <summary>Response body for <c>WorkflowRunsController.Get</c>.</summary>
+/// <param name="Id">The run's identity.</param>
+/// <param name="Process">The process name this run is executing.</param>
+/// <param name="ProcessVersion">The version of the process this run is executing.</param>
+/// <param name="Status">The run's lifecycle status (<c>WorkflowStatus</c>, as text).</param>
+/// <param name="CurrentNode">The node the run is currently positioned at.</param>
+/// <param name="AwaitingSignal">The signal a parked run is waiting on, or <see langword="null"/> otherwise.</param>
+/// <param name="LastError">The most recent error recorded against this run, or <see langword="null"/> if it has not failed.</param>
+/// <param name="Pins">
+///     The run's write-once agent/skill pins, keyed by task node name, or <see langword="null"/> for a run started
+///     before manifests existed or through the legacy positional <c>StartAsync</c> overload.
+/// </param>
+/// <param name="StandingInstructionsDiff">
+///     A unified-style line diff of the run's pinned standing instructions against its <c>retrospect</c>
+///     proposal (see <c>StandingInstructionsWriter.Diff</c>), or
+///     <see langword="null"/> when the run carries no proposal — including every run started before phase 2.4
+///     task B4 added the <c>retrospect</c> node at all.
+/// </param>
+/// <param name="NodeUsage">
+///     Each completed agent node's token and cache usage, in seq order, read off the run's completion events and never
+///     off its variables. A node that ran no agent turn, such as a gate or a host action, has no entry.
+/// </param>
+/// <param name="PrUrl">The run's <c>pr_url</c> variable, which the <c>open-pull-request</c> action writes, or <see langword="null"/> before it has.</param>
+/// <param name="UnreadablePullRequestLink">
+///     The run's <c>pr_url</c> as stored when it is not an absolute http or https URL, and so is not shown as
+///     <paramref name="PrUrl"/>; otherwise <see langword="null"/>.
+/// </param>
+/// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
+/// <param name="WriteAudit">Every workspace write the run was allowed, from its write-audit records, in seq order.</param>
+/// <param name="DeferredFindings">
+///     The deferred findings of the run's approving review visit, each marked dropped when the latest
+///     <c>findings-dropped</c> record names it. Empty when the findings cannot be read. When only the drop records cannot be read, none is marked dropped and the error says so.
+/// </param>
+/// <param name="DeferredFindingsError">Why a review-evidence, findings-dropped or finding-filed record could not be read, otherwise <see langword="null"/>.</param>
+/// <param name="FiledFindings">
+///     What <c>file-review-findings</c> did with each deferred finding, and the pull-request summary, from its
+///     <c>finding-filed</c> records. Empty before the action has run, and when those records cannot be read, which the error says.
+/// </param>
+public sealed record WorkflowRunView(
+    Guid Id,
+    string Process,
+    int ProcessVersion,
+    string Status,
+    string CurrentNode,
+    string? AwaitingSignal,
+    string? LastError,
+    IReadOnlyDictionary<string, NodePinView>? Pins,
+    string? StandingInstructionsDiff,
+    IReadOnlyList<NodeUsageView> NodeUsage,
+    Uri? PrUrl,
+    string? UnreadablePullRequestLink,
+    string? StartedBy,
+    IReadOnlyList<WriteAuditView> WriteAudit,
+    IReadOnlyList<DeferredFindingView> DeferredFindings,
+    string? DeferredFindingsError,
+    IReadOnlyList<FiledFindingView> FiledFindings);
+
+/// <summary>The write-once agent and skill pin of one task node, as the run's manifest recorded it.</summary>
+/// <param name="AgentName">The agent the node runs.</param>
+/// <param name="AgentId">The agent's catalog id.</param>
+/// <param name="AgentRevision">The agent's revision when the run started.</param>
+/// <param name="SkillName">The skill the node runs.</param>
+/// <param name="SkillHash">The skill's content hash when the run started.</param>
+public sealed record NodePinView(string AgentName, string AgentId, string? AgentRevision, string SkillName, string SkillHash);
+
+/// <summary>Where one deferred finding went: <c>created</c> or <c>commented</c> on <paramref name="Issue"/>, or the <c>summary</c> on the pull request.</summary>
+public sealed record FiledFindingView(string FindingId, string Mode, int Issue, Uri Url);
+
+/// <summary>One deferred finding of the approving review visit, as the gate shows it.</summary>
+public sealed record DeferredFindingView(
+    string Id, string Lens, string File, int Line, string Title, string Scenario, string Reason, int? ExistingIssue, bool Dropped);
+
+/// <summary>The token usage one completed agent node reported, read off its completion event.</summary>
+/// <param name="Seq">The seq of the node execution the completion event closes.</param>
+/// <param name="Node">The node that completed.</param>
+/// <param name="InputTokens">Input tokens, cache reads and writes included.</param>
+/// <param name="OutputTokens">Output tokens.</param>
+/// <param name="CacheReadTokens">Input tokens read from a prompt cache.</param>
+/// <param name="CacheWriteTokens">Input tokens written to a prompt cache.</param>
+/// <param name="ModelId">The model that served the node, or empty when the turn reported none.</param>
+public sealed record NodeUsageView(long Seq, string Node, int InputTokens, int OutputTokens, int CacheReadTokens, int CacheWriteTokens, string ModelId);
+
+/// <summary>One workspace write the tool authorizer allowed and recorded, read off the run's write-audit records.</summary>
+/// <param name="Seq">The run's seq when the write was allowed.</param>
+/// <param name="Node">The node the run was on.</param>
+/// <param name="Tool">The qualified name of the write tool.</param>
+/// <param name="Path">The path the call named, or <see langword="null"/> when it named none.</param>
+/// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
+public sealed record WriteAuditView(long Seq, string Node, string Tool, string? Path, string? StartedBy);
