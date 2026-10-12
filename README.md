@@ -526,8 +526,9 @@ Every GitHub call goes through `GitHubApi`, over two ZeroAlloc.Rest clients gene
   whose body names a secondary rate limit are all rate limits. The time is `Retry-After` when GitHub sends it, else
   `X-RateLimit-Reset` when no requests remain (a reset already past counts as now), else a minute from now. An agent
   tool also shows a one-line summary of what GitHub said, at most 300 characters. Logs, run errors and the publish
-  node never repeat GitHub's response body, a URL, a repository slug or an exception's message; a log names an
-  exception's type only. A write that failed in a way that may have reached GitHub, a timeout, a server error, a
+  node never repeat GitHub's response body or an exception's message, and an error text carries no URL or repository
+  slug; a failure log names an exception's type only. Only the success confirmation of a pull request carries its
+  web URL. A write that failed in a way that may have reached GitHub, a timeout, a server error, a
   transport failure or a 2xx answer that could not be read, says so.
 - **The remaining rate limit** is the gauge `daedalus.github.ratelimit.remaining`, see "Metrics". Nothing throttles
   before GitHub refuses.
