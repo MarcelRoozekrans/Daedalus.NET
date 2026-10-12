@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Daedalus.Web.Services;
 
 /// <summary>Implementation of project API client.</summary>
@@ -26,8 +24,8 @@ public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient)
                 return Result<ProjectDto>.Failure($"Failed to create project: {error}");
             }
 
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            var result = JsonSerializer.Deserialize<ProjectDto>(json);
+            // The API answers in camelCase. ReadFromJsonAsync reads with the web defaults, as ApiClient does.
+            var result = await response.Content.ReadFromJsonAsync<ProjectDto>(ct).ConfigureAwait(false);
             return result is not null
                 ? Result<ProjectDto>.Success(result)
                 : Result<ProjectDto>.Failure("Failed to deserialize response");
@@ -50,8 +48,8 @@ public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient)
                 return Result<ProjectDto>.Failure($"Failed to update project: {error}");
             }
 
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            var result = JsonSerializer.Deserialize<ProjectDto>(json);
+            // The API answers in camelCase. ReadFromJsonAsync reads with the web defaults, as ApiClient does.
+            var result = await response.Content.ReadFromJsonAsync<ProjectDto>(ct).ConfigureAwait(false);
             return result is not null
                 ? Result<ProjectDto>.Success(result)
                 : Result<ProjectDto>.Failure("Failed to deserialize response");
