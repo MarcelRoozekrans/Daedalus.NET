@@ -69,6 +69,15 @@ public readonly record struct GitHubError(GitHubErrorKind Kind, int? StatusCode,
     /// <summary>The request failed before GitHub answered, or was not sent at all.</summary>
     public static GitHubError NotSent() => new(GitHubErrorKind.Transport, null, null, "The request to GitHub failed before GitHub answered.");
 
+    /// <summary>
+    ///     The resilience pipeline refused the request before it went out: an open circuit or a rate limiter. Unlike
+    ///     <see cref="NotSent"/>, whose transport failure can follow a sent request, nothing reached GitHub.
+    /// </summary>
+    public static GitHubError Rejected() => new(GitHubErrorKind.Transport, null, null, RejectedMessage);
+
+    /// <summary>The text of <see cref="Rejected"/>.</summary>
+    public const string RejectedMessage = "The request to GitHub was not sent: Daedalus's own request limits refused it.";
+
     /// <summary>The sentence <see cref="ForWrite"/> adds to a write that may have landed.</summary>
     public const string MayHaveLanded = "It may still have been applied: check before sending it again.";
 

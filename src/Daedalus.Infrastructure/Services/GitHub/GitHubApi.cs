@@ -553,7 +553,7 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
         catch (ExecutionRejectedException ex)
         {
             LogRejected(_logger, ex.GetType().Name);
-            return Result<T, GitHubError>.Failure(GitHubError.NotSent());
+            return Result<T, GitHubError>.Failure(GitHubError.Rejected());
         }
     }
 
@@ -577,7 +577,8 @@ public sealed partial class GitHubApi : IGitHubReader, IGitHubWriter
         catch (ExecutionRejectedException ex)
         {
             LogRejected(_logger, ex.GetType().Name);
-            return Result<string, GitHubError>.Failure(GitHubError.NotSent().ForWrite());
+            // A rejection is raised before the request goes out, so nothing can have landed: no ForWrite hint.
+            return Result<string, GitHubError>.Failure(GitHubError.Rejected());
         }
 
         return sent.IsSuccess
