@@ -169,7 +169,9 @@ public class GitHubApiWriteTests
     }
 
     /// <summary>
-    ///     Red: read <c>html_url</c> with a null-tolerant fallback; the malformed and missing cases then succeed.
+    ///     Red: in <c>CreateIssueAsync</c>, read <c>html_url</c> with a null-tolerant fallback; the missing case then
+    ///     succeeds.
+    ///     Red: make <c>TryWebUrl</c> accept a relative URI; the malformed case then succeeds.
     ///     Red: end <c>Unexpected</c>'s text with "could not be read." instead of "was not in the expected shape."; the
     ///     message assertion fails.
     ///     Red: drop <c>.ForWrite()</c> from the <c>Unexpected</c> failure in <c>CreateIssueAsync</c>; the hint assertion
