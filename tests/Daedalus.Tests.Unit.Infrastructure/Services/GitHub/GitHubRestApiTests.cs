@@ -28,15 +28,17 @@ public sealed class GitHubRestApiTests
     /// <summary>
     ///     Red: give <c>GetRepositoryAsync</c> the route <c>/repos/{owner}/{repo}</c>, with a leading slash; the base path
     ///     <c>/api/v3</c> is then dropped.
+    ///     Red: emit <c>{owner}</c> unescaped; <c>#</c> then starts a fragment and the URI reads <c>repos/o#w/r</c>, not <c>o%23w</c>.
+    ///     A space would not do: <see cref="Uri"/> repairs a raw space itself.
     /// </summary>
     [Fact]
     public async Task A_route_is_escaped_and_relative_to_the_base_address()
     {
         var handler = RecordingHandler.Answering(_ => Json("""{"default_branch":"trunk"}"""));
 
-        await Client(handler, "https://ghe.example/api/v3/").GetRepositoryAsync("o w", "r", "Bearer t", "Daedalus", CancellationToken.None);
+        await Client(handler, "https://ghe.example/api/v3/").GetRepositoryAsync("o#w", "r", "Bearer t", "Daedalus", CancellationToken.None);
 
-        handler.Sent[0].Uri.AbsoluteUri.Should().Be("https://ghe.example/api/v3/repos/o%20w/r");
+        handler.Sent[0].Uri.AbsoluteUri.Should().Be("https://ghe.example/api/v3/repos/o%23w/r");
     }
 
     /// <summary>
@@ -59,9 +61,15 @@ public sealed class GitHubRestApiTests
         headers["User-Agent"].Should().Be("Daedalus");
     }
 
-    /// <summary>Red: declare <c>perPage</c> before <c>state</c> in <c>ListPullRequestsAsync</c>; the query order changes.</summary>
+    /// <summary>
+    ///     Pins the pulls listing only; the issue scan declares <c>since</c> before <c>state</c>, unlike today's
+    ///     <c>GitHubApi</c> URL, so Task 5 must not rely on this for it.
+    ///     Red: declare <c>perPage</c> before <c>state</c> in <c>ListPullRequestsAsync</c>; the query order changes.
+    ///     Red: pass <c>""</c> instead of null for <c>head</c>; it is sent as <c>head=</c> and the query differs. The
+    ///     generator decides on the runtime value, so declaring <c>head</c> non-nullable changes nothing.
+    /// </summary>
     [Fact]
-    public async Task A_null_query_value_is_left_out_and_the_rest_keep_todays_order()
+    public async Task A_null_query_value_is_left_out_and_the_pulls_listing_keeps_todays_order()
     {
         var handler = RecordingHandler.Answering(_ => Json("[]"));
 
