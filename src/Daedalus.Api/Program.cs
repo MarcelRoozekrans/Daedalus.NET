@@ -5,10 +5,12 @@ using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Security;
+using Daedalus.Api.Hubs;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Extensions;
 using Daedalus.Application.Services.Brainstorm;
 using Daedalus.Infrastructure.Extensions;
@@ -20,6 +22,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Scalar.AspNetCore;
+using Thalos.Workflow;
 
 [assembly:
     UnconditionalSuppressMessage("Trimming", "IL2026",
@@ -138,6 +141,24 @@ builder.Services.AddControllers(options =>
     options.Filters.Add<ZeroAllocValidationFilter>();
 });
 
+// The console's live channel. The run hub's messages serialize through their source-generated context, first in the
+// chain, so the payload is the four properties of WorkflowRunChanged and nothing a reflection fallback would add.
+builder.Services.AddSignalR().AddJsonProtocol(options =>
+    options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, WorkflowRunsJsonContext.Default));
+
+// Read exactly as AddDaedalusAgents reads it, so the hub and the engine are on or off together: a disabled host maps
+// no hub and registers no broadcaster, and the console's connection fails and shows Offline, which is true.
+var agentsOptions = new DaedalusAgentsOptions();
+builder.Configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(agentsOptions);
+var workflowEngineEnabled = agentsOptions.Workflow.Enabled;
+if (workflowEngineEnabled)
+{
+    // One instance: the store's observer queues, and the same instance's background loop sends.
+    builder.Services.AddSingleton<WorkflowRunChangeBroadcaster>();
+    builder.Services.AddSingleton<IWorkflowRunObserver>(sp => sp.GetRequiredService<WorkflowRunChangeBroadcaster>());
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<WorkflowRunChangeBroadcaster>());
+}
+
 // Add response compression (reduces JSON payloads by ~80%)
 builder.Services.AddResponseCompression(options =>
 {
@@ -199,6 +220,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
         options.TokenValidationParameters.ValidateIssuer = true;
         options.TokenValidationParameters.ValidateAudience = true;
+
+        // A browser WebSocket cannot send an Authorization header, so the hub reads access_token from the query, on
+        // /hubs only. ServerQueryRedactionProcessor and the hosting diagnostics filter keep it out of telemetry and logs.
+        options.Events = new JwtBearerEvents { OnMessageReceived = HubAccessToken.ReadFromQueryAsync };
     });
 // Add RBAC authorization policies
 builder.Services.AddAuthorization(options =>
@@ -294,6 +319,11 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+if (workflowEngineEnabled)
+{
+    app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path);
+}
+
 app.MapHealthChecks(AspireExtensions.HealthPath); // Required for Aspire AppHost health checks
 
 await app.RunAsync();
