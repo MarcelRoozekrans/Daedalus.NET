@@ -6,6 +6,7 @@ using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
+using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Tests.Unit.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -76,6 +77,7 @@ public sealed class AzureDevOpsPullRequestFactoryTests
     ///     standard backoff.
     ///     Red: raise <c>MaxErrorBodyBytes</c> on <c>IAzureDevOpsRestApi</c> to 2048 and append
     ///     <c>Encoding.UTF8.GetString(error.Body.Span)</c> to the Status arm of <c>Describe</c>; the text assertion fails.
+    ///     Red: drop <c>MayHaveLanded</c> from the 5xx arm of <c>Describe</c>; the text lacks the hint.
     /// </summary>
     [Fact]
     public async Task A_create_is_sent_once_when_Azure_DevOps_answers_503_and_its_body_is_not_repeated()
@@ -90,7 +92,7 @@ public sealed class AzureDevOpsPullRequestFactoryTests
 
         var result = await provider.GetRequiredService<AzureDevOpsPullRequestFactory>().CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
 
-        result.Error.Should().Be("Azure DevOps API error: ServiceUnavailable");
+        result.Error.Should().Be($"Azure DevOps API error: ServiceUnavailable. {GitHubError.MayHaveLanded}");
         handler.Count.Should().Be(1);
     }
 
@@ -131,6 +133,21 @@ public sealed class AzureDevOpsPullRequestFactoryTests
         await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
 
         logger.Lines.Should().NotContain(line => line.Contains("zqx-body-text", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    ///     A refusal below 500 was not applied, so it carries no hint.
+    ///     Red: add <c>MayHaveLanded</c> to the plain Status arm of <c>Describe</c>; the text assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_refusal_below_500_says_nothing_about_having_landed()
+    {
+        var handler = RecordingHandler.Answering(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var factory = new AzureDevOpsPullRequestFactory(new HttpClient(handler), Tokens("pat-1"), NullLogger<AzureDevOpsPullRequestFactory>.Instance);
+
+        var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
+
+        result.Error.Should().Be("Azure DevOps API error: BadRequest");
     }
 
     /// <summary>
@@ -175,6 +192,7 @@ public sealed class AzureDevOpsPullRequestFactoryTests
     /// <summary>
     ///     Red: give the <c>TimeoutRejectedException</c> catch a filter that never holds; it falls to the rejection catch and says "was not sent".
     ///     Red: return <c>ex.Message</c> as the timeout text; the text assertion fails on the message.
+    ///     Red: drop <c>MayHaveLanded</c> from the timeout catch; the text lacks the hint.
     /// </summary>
     [Fact]
     public async Task A_pipeline_timeout_is_a_failure_without_the_exceptions_words()
@@ -183,7 +201,7 @@ public sealed class AzureDevOpsPullRequestFactoryTests
 
         var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
 
-        result.Error.Should().Be("Azure DevOps API error: the request timed out");
+        result.Error.Should().Be($"Azure DevOps API error: the request timed out. {GitHubError.MayHaveLanded}");
     }
 
     /// <summary>
@@ -210,6 +228,7 @@ public sealed class AzureDevOpsPullRequestFactoryTests
     ///     A created answer that lacks a field used to throw; now it is a failure.
     ///     Red: give <c>PullRequestId</c> a default of 0 in <c>AzureDevOpsPullRequestDto</c>; row one succeeds with id 0.
     ///     Red: give <c>Url</c> a default of an empty string in <c>AzureDevOpsPullRequestDto</c>; row two succeeds.
+    ///     Red: drop <c>MayHaveLanded</c> from the shape failure; the text lacks the hint.
     /// </summary>
     [Theory]
     [InlineData("""{"url":"https://dev.azure.com/org/_apis/git/pullrequests/1"}""")]
@@ -221,11 +240,12 @@ public sealed class AzureDevOpsPullRequestFactoryTests
 
         var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
 
-        result.Error.Should().Be("Azure DevOps API error: the answer was not in the expected shape");
+        result.Error.Should().Be($"Azure DevOps API error: the answer was not in the expected shape. {GitHubError.MayHaveLanded}");
     }
 
     /// <summary>
     ///     Red: remove the Timeout arm of <c>Describe</c>; the text is "could not be read".
+    ///     Red: drop <c>MayHaveLanded</c> from the Timeout arm of <c>Describe</c>; the text lacks the hint.
     /// </summary>
     [Fact]
     public async Task A_request_cancelled_by_something_else_is_a_timeout_failure()
@@ -234,11 +254,12 @@ public sealed class AzureDevOpsPullRequestFactoryTests
 
         var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
 
-        result.Error.Should().Be("Azure DevOps API error: the request timed out");
+        result.Error.Should().Be($"Azure DevOps API error: the request timed out. {GitHubError.MayHaveLanded}");
     }
 
     /// <summary>
     ///     Red: return <c>error.Message</c> in the Transport arm of <c>Describe</c>; the text carries the exception's words.
+    ///     Red: drop <c>MayHaveLanded</c> from the Transport arm of <c>Describe</c>; the text lacks the hint.
     /// </summary>
     [Fact]
     public async Task A_transport_failure_says_so_without_the_exceptions_words()
@@ -247,11 +268,12 @@ public sealed class AzureDevOpsPullRequestFactoryTests
 
         var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
 
-        result.Error.Should().Be("Azure DevOps API error: Azure DevOps could not be reached");
+        result.Error.Should().Be($"Azure DevOps API error: Azure DevOps could not be reached. {GitHubError.MayHaveLanded}");
     }
 
     /// <summary>
     ///     Red: change the fallback arm of <c>Describe</c> to <c>error.Message</c>; the text carries the parser's words.
+    ///     Red: drop <c>MayHaveLanded</c> from the fallback arm of <c>Describe</c>; the text lacks the hint.
     /// </summary>
     [Fact]
     public async Task An_answer_that_is_not_json_is_a_failure_without_the_parsers_words()
@@ -261,7 +283,7 @@ public sealed class AzureDevOpsPullRequestFactoryTests
 
         var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
 
-        result.Error.Should().Be("Azure DevOps API error: the answer could not be read");
+        result.Error.Should().Be($"Azure DevOps API error: the answer could not be read. {GitHubError.MayHaveLanded}");
     }
 
     private static AzureDevOpsPullRequestFactory FactoryThrowing(Exception thrown, Microsoft.Extensions.Logging.ILogger<AzureDevOpsPullRequestFactory>? logger = null) =>

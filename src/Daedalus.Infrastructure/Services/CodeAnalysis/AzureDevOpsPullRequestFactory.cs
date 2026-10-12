@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Timeout;
@@ -62,7 +63,7 @@ public sealed partial class AzureDevOpsPullRequestFactory(
         }
         catch (TimeoutRejectedException)
         {
-            return Result<PullRequestResult>.Failure("Azure DevOps API error: the request timed out");
+            return Result<PullRequestResult>.Failure(MayHaveLanded("Azure DevOps API error: the request timed out"));
         }
         catch (ExecutionRejectedException ex)
         {
@@ -77,7 +78,7 @@ public sealed partial class AzureDevOpsPullRequestFactory(
         }
 
         if (created.Value is not { PullRequestId: { } id, Url: { } url })
-            return Result<PullRequestResult>.Failure("Azure DevOps API error: the answer was not in the expected shape");
+            return Result<PullRequestResult>.Failure(MayHaveLanded("Azure DevOps API error: the answer was not in the expected shape"));
 
         var result = new PullRequestResult
         {
@@ -113,14 +114,21 @@ public sealed partial class AzureDevOpsPullRequestFactory(
         return true;
     }
 
-    /// <summary>The run-visible text of a failure: the status name, never the body.</summary>
+    /// <summary>
+    ///     The run-visible text of a failure: the status name, never the body. A timeout, a 5xx, a transport failure and an
+    ///     unreadable answer can each follow a pull request that was created, so they end with the sentence GitHub's write
+    ///     errors use. Nothing looks for an existing Azure DevOps pull request before a retry, so this text is the warning.
+    /// </summary>
     private static string Describe(HttpError error) => error.Kind switch
     {
+        HttpErrorKind.Status when (int)error.StatusCode >= 500 => MayHaveLanded($"Azure DevOps API error: {error.StatusCode}"),
         HttpErrorKind.Status => $"Azure DevOps API error: {error.StatusCode}",
-        HttpErrorKind.Timeout => "Azure DevOps API error: the request timed out",
-        HttpErrorKind.Transport => "Azure DevOps API error: Azure DevOps could not be reached",
-        _ => "Azure DevOps API error: the answer could not be read",
+        HttpErrorKind.Timeout => MayHaveLanded("Azure DevOps API error: the request timed out"),
+        HttpErrorKind.Transport => MayHaveLanded("Azure DevOps API error: Azure DevOps could not be reached"),
+        _ => MayHaveLanded("Azure DevOps API error: the answer could not be read"),
     };
+
+    private static string MayHaveLanded(string text) => $"{text}. {GitHubError.MayHaveLanded}";
 
     [LoggerMessage(EventId = 2330, Level = LogLevel.Error, Message = "Azure DevOps refused to create a pull request: {Kind} {StatusCode}")]
     private static partial void LogCreateFailed(ILogger logger, HttpErrorKind kind, int statusCode);
