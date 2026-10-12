@@ -32,17 +32,26 @@ public sealed class GitHubApiResilienceRejectionTests
     ///     Red: delete the <c>TimeoutRejectedException</c> catch in <c>WriteAsync</c>; the timeout row reads Transport.
     ///     Red: delete the <c>ExecutionRejectedException</c> catch in <c>WriteAsync</c>; the circuit row throws.
     ///     Red: drop <c>.ForWrite()</c> from <c>WriteAsync</c>'s timeout failure; the timeout row lacks the hint.
-    ///     Red: drop <c>.ForWrite()</c> from <c>WriteAsync</c>'s rejection failure; the circuit row lacks the hint.
+    ///     Red: add <c>.ForWrite()</c> to <c>WriteAsync</c>'s rejection failure; the circuit row carries the hint.
+    ///     Red: return <c>NotSent</c> instead of <c>Rejected</c> from <c>WriteAsync</c>'s rejection failure; the circuit row
+    ///     does not say the request was not sent.
     /// </summary>
     [Theory]
-    [InlineData("timeout", GitHubErrorKind.Timeout)]
-    [InlineData("circuit", GitHubErrorKind.Transport)]
-    public async Task A_rejected_write_is_a_failed_result_that_may_have_landed(string rejection, GitHubErrorKind kind)
+    [InlineData("timeout", GitHubErrorKind.Timeout, true)]
+    [InlineData("circuit", GitHubErrorKind.Transport, false)]
+    public async Task A_rejected_write_says_it_may_have_landed_only_when_it_was_sent(
+        string rejection, GitHubErrorKind kind, bool mayHaveLanded)
     {
         var result = await Api(rejection).CommentAsync(Repo, 7, "a note");
 
         result.Error.Kind.Should().Be(kind);
-        result.Error.Message.Should().Contain(GitHubError.MayHaveLanded);
+        if (mayHaveLanded)
+            result.Error.Message.Should().Contain(GitHubError.MayHaveLanded);
+        else
+        {
+            result.Error.Message.Should().NotContain(GitHubError.MayHaveLanded);
+            result.Error.Message.Should().Be(GitHubError.RejectedMessage);
+        }
     }
 
     private static GitHubApi Api(string rejection)
