@@ -1,0 +1,47 @@
+using System.Net;
+using System.Text;
+using Daedalus.Web.Services;
+
+namespace Daedalus.Tests.Unit.Web;
+
+/// <summary>One request the <see cref="RecordingHandler"/> saw, with its body read at send time.</summary>
+internal sealed record RecordedRequest(HttpMethod Method, string PathAndQuery, string? Body);
+
+/// <summary>
+///     An <see cref="HttpMessageHandler"/> that answers each request by its path and query, and records every
+///     request with its body buffered before the call returns. An unrouted request is a 404.
+/// </summary>
+internal sealed class RecordingHandler : HttpMessageHandler
+{
+    private readonly Dictionary<string, Func<HttpResponseMessage>> _routes = new(StringComparer.Ordinal);
+
+    public List<RecordedRequest> Requests { get; } = [];
+
+    /// <summary>The path and query of every recorded request, in order.</summary>
+    public IReadOnlyList<string> Paths => [.. Requests.Select(r => r.PathAndQuery)];
+
+    /// <summary>Routes <paramref name="pathAndQuery"/> to <paramref name="respond"/>, replacing any earlier route.</summary>
+    public RecordingHandler On(string pathAndQuery, Func<HttpResponseMessage> respond)
+    {
+        _routes[pathAndQuery] = respond;
+        return this;
+    }
+
+    /// <summary>Routes <paramref name="pathAndQuery"/> to a JSON response.</summary>
+    public RecordingHandler OnJson(string pathAndQuery, string json, HttpStatusCode code = HttpStatusCode.OK) =>
+        On(pathAndQuery, () => Json(code, json));
+
+    public ApiClient Client() => new(new HttpClient(this) { BaseAddress = new Uri("http://localhost") });
+
+    public static HttpResponseMessage Json(HttpStatusCode code, string json) =>
+        new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+        var path = request.RequestUri!.PathAndQuery;
+        Requests.Add(new RecordedRequest(request.Method, path, body));
+        return _routes.TryGetValue(path, out var respond) ? respond() : new HttpResponseMessage(HttpStatusCode.NotFound);
+    }
+}
