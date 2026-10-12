@@ -514,7 +514,7 @@ configuration key holds one:
 
 Every GitHub call goes through `GitHubApi`, over two ZeroAlloc.Rest clients generated from `IGitHubRestApi`:
 
-- **Reads** use the `GitHub.Read` client. They retry on 5xx, 408 and timeouts. A 429 is not retried: it fails at once
+- **Reads** use the `GitHub.Read` client. They retry on 5xx, 408, timeouts and connection failures. A 429 is not retried: it fails at once
   as a rate limit with the time it lifts. A repeated read is sent with `If-None-Match`, and GitHub's `304 Not Modified`,
   which costs no rate limit, is answered from an in-memory cache of 200 answers of at most 256 KiB each. A restart
   empties it.

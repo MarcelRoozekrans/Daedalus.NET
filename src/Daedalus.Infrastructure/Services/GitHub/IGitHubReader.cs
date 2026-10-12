@@ -13,7 +13,7 @@ public interface IGitHubReader
 
     Task<Result<string, GitHubError>> GetDefaultBranchAsync(RepoRef repo, CancellationToken ct = default);
 
-    /// <summary>One issue, or <see langword="null"/> when GitHub answers 404. Other failures are failed results.</summary>
+    /// <summary>One issue, or <see langword="null"/> when GitHub answers 404 or 410. Other failures are failed results.</summary>
     Task<Result<IssueDetail?, GitHubError>> GetIssueAsync(RepoRef repo, int number, CancellationToken ct = default);
 
     /// <summary>
