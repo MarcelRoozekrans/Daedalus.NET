@@ -1,5 +1,8 @@
 global using ZeroAlloc.Results;
+using System.Net;
 using Daedalus.Application.DTOs.Scheduling;
+using Daedalus.Application.DTOs.WorkflowRuns;
+using Daedalus.Web.State.Runs;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
 using BrainstormSessionDto = Daedalus.Application.DTOs.BrainstormSessionDto;
@@ -190,6 +193,69 @@ public sealed class ApiClient(HttpClient httpClient)
     public Task<Result<StartWorkflowRunResponse>> ManufactureTaskAsync(Guid id, CancellationToken ct = default) =>
         SendAsync<StartWorkflowRunResponse>(
             token => httpClient.PostAsync(new Uri($"/api/tasks/{id}/manufacture", UriKind.Relative), content: null, token),
+            ct);
+
+    // Workflow runs
+    /// <summary>One page of runs, as <paramref name="query"/> asks for it.</summary>
+    public Task<Result<WorkflowRunList>> GetRunsAsync(RunListQuery query, CancellationToken ct = default) =>
+        SendAsync<WorkflowRunList>(token => httpClient.GetAsync(new Uri(query.ToPath(), UriKind.Relative), token), ct);
+
+    /// <summary>
+    ///     One run's view. A run that does not exist is a success with no value, so the page can say so; every other
+    ///     refusal carries the server's reason.
+    /// </summary>
+    public async Task<Result<WorkflowRunView?>> GetRunAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await httpClient.GetAsync(new Uri($"/api/workflow-runs/{id}", UriKind.Relative), ct);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return Result<WorkflowRunView?>.Success(null);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return Result<WorkflowRunView?>.Failure(await ReadFailureReasonAsync(response, ct));
+            }
+
+            return await TryReadJsonAsync<WorkflowRunView>(response, ct) is { } view
+                ? Result<WorkflowRunView?>.Success(view)
+                : Result<WorkflowRunView?>.Failure("No data returned from server");
+        }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result<WorkflowRunView?>.Failure("Please log in to perform this action.");
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result<WorkflowRunView?>.Failure($"API error: {ex.Message}");
+        }
+        catch (OperationCanceledException)
+        {
+            return Result<WorkflowRunView?>.Failure("Request was cancelled");
+        }
+    }
+
+    /// <summary>Approves the run at its human gate, dropping the named deferred findings.</summary>
+    public Task<Result> ApproveRunAsync(
+        Guid id, IReadOnlyCollection<string> dropFindings, bool applyStandingInstructions, CancellationToken ct = default) =>
+        PostAsync(
+            $"/api/workflow-runs/{id}/resume",
+            new ResumeWorkflowRunRequest(RunSignals.HumanApproval, Payload: null, applyStandingInstructions, [.. dropFindings]),
+            ct);
+
+    /// <summary>Cancels the run; a blank reason is sent as none, so the server records its default.</summary>
+    public Task<Result> CancelRunAsync(Guid id, string? reason, CancellationToken ct = default) =>
+        PostAsync(
+            $"/api/workflow-runs/{id}/cancel",
+            new CancelWorkflowRunRequest(string.IsNullOrWhiteSpace(reason) ? null : reason),
+            ct);
+
+    /// <summary>Retries the run's failed node.</summary>
+    public Task<Result> RetryRunAsync(Guid id, CancellationToken ct = default) =>
+        SendAsync(
+            token => httpClient.PostAsync(new Uri($"/api/workflow-runs/{id}/retry", UriKind.Relative), content: null, token),
             ct);
 
     private static async Task<T?> TryReadJsonAsync<T>(HttpResponseMessage response, CancellationToken ct) where T : class

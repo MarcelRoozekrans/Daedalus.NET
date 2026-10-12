@@ -1,10 +1,16 @@
+using System.Security.Claims;
 using Daedalus.Web;
+using Daedalus.Web.Auth;
+using Daedalus.Web.State;
+using Daedalus.Web.State.Runs;
+using Daedalus.Web.State.Tasks;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using OpenTelemetry.Logs;
 using Polly;
 using Radzen;
+using ZeroAlloc.Flux.Generated;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -100,6 +106,14 @@ builder.Services.AddScoped<AgentApiClient>();
 builder.Services.AddScoped<IProjectApiClient, ProjectApiClient>();
 builder.Services.AddRadzenComponents();
 
+// The console's state: the Flux stores and dispatcher, the effects that fill them, and the one live connection
+// to the run hub, all per app instance.
+builder.Services.AddSingleton(new ApiBaseAddress(new Uri(apiBaseAddress)));
+builder.Services.AddZeroAllocFlux();
+builder.Services.AddScoped<RunsEffects>();
+builder.Services.AddScoped<TasksEffects>();
+builder.Services.AddScoped<RunHubConnection>();
+
 if (testMode)
 {
     // Test mode: bypass OIDC, use AlwaysAuthenticatedStateProvider
@@ -109,10 +123,13 @@ if (testMode)
 else
 {
     // Production: configure OIDC authentication — provider-agnostic, reads from appsettings "Oidc" section
+    // Keycloak sends realm roles as one JSON array claim; the factory splits it into role claims so IsInRole works.
     builder.Services.AddOidcAuthentication(options =>
-    {
-        builder.Configuration.Bind("Oidc", options.ProviderOptions);
-    });
+        {
+            builder.Configuration.Bind("Oidc", options.ProviderOptions);
+            options.UserOptions.RoleClaim = ClaimTypes.Role;
+        })
+        .AddAccountClaimsPrincipalFactory<RolesClaimsPrincipalFactory>();
 }
 
 await builder.Build().RunAsync();
