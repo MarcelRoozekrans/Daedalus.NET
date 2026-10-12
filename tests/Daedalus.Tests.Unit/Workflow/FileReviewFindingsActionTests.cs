@@ -262,19 +262,22 @@ public sealed class FileReviewFindingsActionTests : IDisposable
     /// <summary>
     ///     A3: a GitHub error fails the run so the admin retry can re-run this node. Red: return outcome "none" on error.
     ///     Red: post the summary despite the failure; the CommentAsync on #7 assertion fails.
-    ///     Red: make <c>Describe</c> return <c>error.Kind.ToString()</c>; the message assertion fails.
+    ///     Red: make <c>Describe</c> return <c>error.Kind.ToString()</c>; the "GitHub answered 403" assertion fails.
+    ///     Red: make <c>Describe</c> return <c>error.ForAgent()</c>; the run error carries what GitHub said, and the
+    ///     NotContain assertion fails.
     /// </summary>
     [Fact]
     public async Task A_github_error_is_a_failed_result_naming_the_finding_and_posts_no_summary()
     {
         Deferred(Entry("one"));
         _writer.CreateIssueAsync(SameRepo(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Result<CreatedIssue, GitHubError>.Failure(GitHubError.FromStatus(403, GitHubErrorKind.Forbidden, null)));
+            .Returns(Result<CreatedIssue, GitHubError>.Failure(
+                GitHubError.FromStatus(403, GitHubErrorKind.Forbidden, null) with { GitHubSaid = "zqx-said" }));
 
         var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("correctness-1").And.Contain("GitHub answered 403");
+        result.Error.Should().Contain("correctness-1").And.Contain("GitHub answered 403").And.NotContain("zqx-said");
         await _writer.DidNotReceive().CommentAsync(SameRepo(), 7, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
