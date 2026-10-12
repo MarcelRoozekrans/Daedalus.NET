@@ -90,7 +90,7 @@ public sealed class GitHubErrorMapperTests
     }
 
     /// <summary>
-    ///     ZeroAlloc.Rest reads no body for these clients, but a mapper handed one must still not copy it.
+    ///     The GitHub client reads up to 2 KiB of an error body; the message must still never copy it.
     ///     Red: append <c>Encoding.UTF8.GetString(error.Body.Span)</c> to the message; it then contains the text.
     /// </summary>
     [Theory]
@@ -191,6 +191,70 @@ public sealed class GitHubErrorMapperTests
         });
 
         error.RetryAt.Should().Be(Now.AddMinutes(2));
+    }
+
+    /// <summary>
+    ///     Red: GitHub sends the reset on every response. Use <c>Reset</c> without the <c>exhausted</c> condition; the
+    ///     secondary-limit and plain 429 rows get the reset instead of a minute.
+    ///     Red: drop the minute fallback; the secondary-limit and plain 429 rows have no RetryAt.
+    /// </summary>
+    [Theory]
+    [InlineData(403, """{"message":"You have exceeded a secondary rate limit."}""")]
+    [InlineData(429, "{}")]
+    public void A_limit_that_is_not_exhausted_waits_a_minute_whatever_the_reset_says(int status, string body)
+    {
+        var error = Mapper().Map(new HttpError((HttpStatusCode)status, Headers("X-RateLimit-Remaining=4999;X-RateLimit-Reset=1791727500"))
+        {
+            Body = Encoding.UTF8.GetBytes(body),
+        });
+
+        error.Kind.Should().Be(GitHubErrorKind.RateLimited);
+        error.RetryAt.Should().Be(Now.AddSeconds(60));
+    }
+
+    /// <summary>Red: return the reset without clamping it to now; RetryAt is the past reset.</summary>
+    [Fact]
+    public void A_reset_already_in_the_past_retries_now()
+    {
+        var error = Mapper().Map(Status(403, "X-RateLimit-Remaining=0;X-RateLimit-Reset=1791720000"));
+
+        error.RetryAt.Should().Be(Now);
+    }
+
+    /// <summary>
+    ///     Invalid UTF-8 inside a JSON string parses, then fails when read.
+    ///     Red: remove the <c>InvalidOperationException</c> catch in <c>Summarize</c>; <c>Map</c> throws.
+    /// </summary>
+    [Fact]
+    public void A_body_with_invalid_utf8_gives_no_summary()
+    {
+        byte[] body = [.. "{\"message\":\""u8, 0xC3, 0x28, .. "\"}"u8];
+
+        var error = Mapper().Map(new HttpError(HttpStatusCode.Forbidden, Headers("")) { Body = body });
+
+        error.Kind.Should().Be(GitHubErrorKind.Forbidden);
+        error.GitHubSaid.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     Red: append <c>error.Message</c> to the message of any of these three; that row fails.
+    ///     Red: say something other than the fixed sentence for Deserialization; the message assertion fails.
+    /// </summary>
+    [Theory]
+    [InlineData(HttpErrorKind.Timeout, "The request to GitHub timed out.")]
+    [InlineData(HttpErrorKind.Transport, "The request to GitHub failed before GitHub answered.")]
+    [InlineData(HttpErrorKind.Deserialization, "GitHub's answer could not be read.")]
+    public void An_exceptions_text_never_reaches_the_message(HttpErrorKind failure, string expected)
+    {
+        var error = Mapper().Map(new HttpError(HttpStatusCode.OK, Headers(""))
+        {
+            Kind = failure,
+            Message = "zqx-ex",
+            Exception = new InvalidOperationException("zqx-ex"),
+        });
+
+        error.Message.Should().Be(expected);
+        error.Message.Should().NotContain("zqx-ex");
     }
 
     private static GitHubErrorMapper Mapper() => new(new FakeTimeProvider(Now));
