@@ -85,10 +85,12 @@ public sealed class GitHubApiFindOpenPullRequestTests
     }
 
     /// <summary>
-    ///     A network or DNS fault is a failed result, not an exception. Falsifiable per assertion: removing the
-    ///     catch makes the call throw, and <c>act</c> fails on <c>NotThrowAsync</c>; answering <c>Success(null)</c>
-    ///     from the catch fails <c>IsFailure</c>; mapping a transport failure to Server fails the kind assertion, and
-    ///     putting the exception's message into the error fails the last.
+    ///     A network or DNS fault is a failed result, not an exception.
+    ///     Red: throw from the mapper's Transport arm instead of returning <c>NotSent()</c>; <c>act</c> fails on
+    ///     <c>NotThrowAsync</c>.
+    ///     Red: in <c>FindOpenPullRequestAsync</c>, answer a failed lookup with <c>Success(null)</c>; <c>IsFailure</c> fails.
+    ///     Red: map a transport failure to Server in the mapper; the kind assertion fails.
+    ///     Red: put the exception's message into the mapper's Transport error; the last assertion fails.
     /// </summary>
     [Fact]
     public async Task A_network_fault_is_a_failure_not_an_exception()
@@ -106,9 +108,9 @@ public sealed class GitHubApiFindOpenPullRequestTests
 
     /// <summary>
     ///     A client-side timeout surfaces as an <see cref="OperationCanceledException"/> while the caller's token is
-    ///     not cancelled, and is a failed result. Falsifiable: letting every <see cref="OperationCanceledException"/>
-    ///     through, whatever the caller's token says, makes <c>act</c> throw, and answering
-    ///     <c>Success(null)</c> from the catch fails <c>IsFailure</c>.
+    ///     not cancelled, and is a failed result. The generated client tells the two apart and reports a Timeout.
+    ///     Red: throw from the mapper's Timeout arm instead of returning <c>TimedOut()</c>; <c>act</c> throws.
+    ///     Red: in <c>FindOpenPullRequestAsync</c>, answer a failed lookup with <c>Success(null)</c>; <c>IsFailure</c> fails.
     /// </summary>
     [Fact]
     public async Task A_timeout_of_the_clients_own_is_a_failure()
@@ -123,8 +125,9 @@ public sealed class GitHubApiFindOpenPullRequestTests
     }
 
     /// <summary>
-    ///     A cancellation of the caller's own token still propagates. Falsifiable: catching every
-    ///     <see cref="OperationCanceledException"/> as a failure turns this red.
+    ///     A cancellation of the caller's own token still propagates.
+    ///     Red: in <c>CallAsync</c>, catch <see cref="OperationCanceledException"/> as <c>TimedOut()</c>; the call returns
+    ///     instead of throwing.
     /// </summary>
     [Fact]
     public async Task A_cancellation_of_the_callers_token_propagates()
@@ -139,9 +142,9 @@ public sealed class GitHubApiFindOpenPullRequestTests
     }
 
     /// <summary>
-    ///     A 200 whose body is not JSON, such as a proxy's HTML page, is a failure. Falsifiable: removing the catch
-    ///     makes <c>act</c> throw <see cref="System.Text.Json.JsonException"/>, and answering <c>Success(null)</c> from
-    ///     the catch fails <c>IsFailure</c>.
+    ///     A 200 whose body is not JSON, such as a proxy's HTML page, is a failure.
+    ///     Red: throw from the mapper's last arm, the one for an answer it could not read; <c>act</c> throws.
+    ///     Red: in <c>FindOpenPullRequestAsync</c>, answer a failed lookup with <c>Success(null)</c>; <c>IsFailure</c> fails.
     /// </summary>
     [Fact]
     public async Task A_body_that_is_not_json_is_a_failure()
@@ -156,9 +159,10 @@ public sealed class GitHubApiFindOpenPullRequestTests
     }
 
     /// <summary>
-    ///     A listed pull request without <c>html_url</c> is a failure. Falsifiable: removing the catch makes
-    ///     <c>act</c> throw <see cref="KeyNotFoundException"/>, and answering <c>Success(null)</c> from the catch fails
-    ///     <c>IsFailure</c>.
+    ///     A listed pull request without <c>html_url</c> is a failure.
+    ///     Red: in <c>FindOpenPullRequestAsync</c>, read <c>html_url</c> as <c>first.HtmlUrl ?? throw</c> instead of
+    ///     matching it; <c>act</c> throws.
+    ///     Red: read it as <c>first.HtmlUrl ?? string.Empty</c> instead; <c>IsFailure</c> fails.
     /// </summary>
     [Fact]
     public async Task A_listed_pull_request_missing_its_web_url_is_a_failure()

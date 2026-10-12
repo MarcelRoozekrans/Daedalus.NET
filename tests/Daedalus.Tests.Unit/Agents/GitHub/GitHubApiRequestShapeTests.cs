@@ -42,11 +42,12 @@ public sealed class GitHubApiRequestShapeTests
     /// <summary>
     ///     Every endpoint is answered 404, so what is checked is only what was sent.
     ///     Red: send <c>CloseIssueAsync</c> as a POST; the close row fails on the method.
-    ///     Red: build <c>RepoUrl</c> on another host; every repository row fails on the host.
+    ///     Red: in <c>Rooted</c>, root the clients on another host; every row fails on the host.
     ///     Red: drop <c>/comments</c> from <c>CommentAsync</c>'s URL; the comment row fails on the path.
     ///     Red: drop <c>&amp;per_page=100</c> from the issue scan's URL; the issues-since row fails on the query.
     ///     Red: rename <c>body</c> to <c>text</c> in <c>CommentAsync</c>'s payload; the comment row fails on the body.
-    ///     Red: give the repository read a JSON body; the default-branch row fails on the null-body check.
+    ///     Red: give <c>IGitHubRestApi.GetRepositoryAsync</c> a <c>[Body]</c> and send one; the default-branch row fails on
+    ///     the null-body check.
     /// </summary>
     [Theory]
     [MemberData(nameof(Requests))]
@@ -68,12 +69,15 @@ public sealed class GitHubApiRequestShapeTests
     }
 
     /// <summary>
-    ///     Red: drop the Authorization line from <c>ApplyHeaders</c>; the scheme assertion throws on a null header.
-    ///     Red: send the token with the scheme <c>token</c>; the scheme assertion fails.
-    ///     Red: send a constant instead of the token; the parameter assertion fails.
-    ///     Red: drop the User-Agent line; the user-agent assertion fails.
-    ///     Red: send API version <c>2026-03-10</c>; the version assertion fails.
-    ///     Red: send <c>Accept: application/json</c> only; the media-type assertion fails.
+    ///     Red: in <c>CallAsync</c>, pass an empty authorization instead of the bearer token; the read rows' scheme
+    ///     assertion throws on a null header.
+    ///     Red: in <c>CallAsync</c> and <c>WriteAsync</c>, send the token with the scheme <c>token</c>; the scheme assertion
+    ///     fails.
+    ///     Red: in <c>CallAsync</c> and <c>WriteAsync</c>, send a constant instead of the token; the parameter assertion
+    ///     fails.
+    ///     Red: replace "Daedalus" in <c>GitHubApi.UserAgent</c>; the user-agent assertion fails.
+    ///     Red: set <c>GitHubRestHeaders.ApiVersion</c> to <c>2026-03-10</c>; the version assertion fails.
+    ///     Red: set <c>GitHubRestHeaders.Accept</c> to <c>application/json</c>; the media-type assertion fails.
     /// </summary>
     [Theory]
     [MemberData(nameof(Endpoints))]
@@ -113,7 +117,7 @@ public sealed class GitHubApiRequestShapeTests
             "/repos/owner/repo/actions/runs?per_page=15&status=failure");
     }
 
-    /// <summary>Red: in <c>RunCategoryAsync</c>, rethrow instead of returning <c>Failed</c>; the call throws.</summary>
+    /// <summary>Red: make <c>Unavailable</c> throw instead of returning <c>Failed</c>; the call throws.</summary>
     [Theory]
     [InlineData("/commits", "commits")]
     [InlineData("pulls?state=closed", "merged")]
@@ -198,15 +202,16 @@ public sealed class GitHubApiRequestShapeTests
     /// <summary>
     ///     404 answers "no such issue" only for an issue read; everywhere else it is a failure.
     ///     Red: map 404 to a failure in the issue read; the issue row fails on <c>isSuccess</c>.
-    ///     Red: in <c>GetPullRequestHeadShaAsync</c>, return <c>Success("")</c> when the document is null; the
+    ///     Red: in <c>GetPullRequestHeadShaAsync</c>, answer a failed read with <c>Success("")</c>; the
     ///     pull-request-head row fails on <c>isSuccess</c>.
-    ///     Red: return an empty issue instead of null on 404; the issue row fails on the value.
-    ///     Red: in <c>ScanAsync</c>, return <c>Success(found)</c> when the document is null; the issues-since and
-    ///     comments-since rows fail on <c>isSuccess</c>.
-    ///     Red: in <c>SearchIssuesAsync</c>, return an empty list when the document is null; the search row fails
+    ///     Red: in <c>GetIssueAsync</c>, answer NotFound with an empty issue instead of null; the issue row fails on the
+    ///     value.
+    ///     Red: in <c>ScanAsync</c>, answer a failed page with <c>Success(found)</c>; the issues-since and comments-since
+    ///     rows fail on <c>isSuccess</c>.
+    ///     Red: in <c>SearchIssuesAsync</c>, answer a failed search with an empty list; the search row fails on
+    ///     <c>isSuccess</c>.
+    ///     Red: in <c>GetAuthenticatedLoginAsync</c>, answer a failed read with <c>Success("")</c>; the login row fails
     ///     on <c>isSuccess</c>.
-    ///     Red: in <c>GetAuthenticatedLoginAsync</c>, return <c>Success("")</c> when the document is null; the login
-    ///     row fails on <c>isSuccess</c>.
     /// </summary>
     [Theory]
     [InlineData("issue", true)]
