@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -21,7 +22,26 @@ internal static class GitHubApiTestSupport
             http,
             Options.Create(new GitHubOptions()),
             new GitHubTokenSource(_ => token),
-            new FakeTimeProvider(Now),
+            new FakeTimeProvider(new DateTimeOffset(Now)),
             NullLogger<GitHubApi>.Instance);
     }
+
+    /// <summary>A request's query as name to unescaped value, so a test compares parameters rather than their order.</summary>
+    public static IReadOnlyDictionary<string, string> QueryOf(HttpRequestMessage request) =>
+        request.RequestUri!.Query.TrimStart('?')
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair => pair.Split('=', 2))
+            .ToDictionary(
+                pair => Uri.UnescapeDataString(pair[0]),
+                pair => pair.Length > 1 ? Uri.UnescapeDataString(pair[1]) : "",
+                StringComparer.Ordinal);
+
+    /// <summary>The query as <c>name=value</c> pairs sorted by name and unescaped, or empty when there is none.</summary>
+    public static string CanonicalQuery(HttpRequestMessage request) =>
+        string.Join('&', QueryOf(request).OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value}"));
+
+    /// <summary>Compares JSON by value, so a serializer's property order and escaping do not matter.</summary>
+    public static void ShouldBeJson(string? actual, string expected) =>
+        JsonNode.DeepEquals(JsonNode.Parse(actual ?? "null"), JsonNode.Parse(expected))
+            .Should().BeTrue($"the body sent was {actual ?? "<none>"}");
 }

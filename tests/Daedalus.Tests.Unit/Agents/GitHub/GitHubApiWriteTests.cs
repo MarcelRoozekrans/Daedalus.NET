@@ -41,7 +41,7 @@ public class GitHubApiWriteTests
 
         var sent = handler.Requests.Should().ContainSingle().Subject;
         sent.Method.Should().Be(HttpMethod.Patch);
-        (await sent.Content!.ReadAsStringAsync()).Should().Contain("closed");
+        handler.Bodies[0].Should().Contain("closed");
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class GitHubApiWriteTests
         var sent = handler.Requests.Should().ContainSingle().Subject;
         sent.Method.Should().Be(HttpMethod.Post);
         sent.RequestUri!.AbsolutePath.Should().Be("/repos/owner/repo/pulls");
-        var body = await sent.Content!.ReadAsStringAsync();
+        var body = handler.Bodies[0];
         body.Should().Contain("\"head\":\"feature\"").And.Contain("\"base\":\"main\"").And.Contain("\"title\":\"a title\"");
     }
 
@@ -127,7 +127,7 @@ public class GitHubApiWriteTests
         var sent = handler.Requests.Should().ContainSingle().Subject;
         sent.Method.Should().Be(HttpMethod.Post);
         sent.RequestUri!.AbsolutePath.Should().Be("/repos/owner/repo/issues");
-        var payload = await sent.Content!.ReadAsStringAsync();
+        var payload = handler.Bodies[0];
         payload.Should().Contain("\"title\":\"A title\"").And.Contain("\"body\":\"A body\"");
     }
 
