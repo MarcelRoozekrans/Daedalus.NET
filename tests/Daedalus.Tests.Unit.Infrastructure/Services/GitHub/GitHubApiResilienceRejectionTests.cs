@@ -17,10 +17,11 @@ public sealed class GitHubApiResilienceRejectionTests
     /// <summary>
     ///     Red: delete the <c>TimeoutRejectedException</c> catch in <c>CallAsync</c>; the timeout row reads Transport.
     ///     Red: delete the <c>ExecutionRejectedException</c> catch in <c>CallAsync</c>; the circuit row throws.
+    ///     Red: return <c>NotSent</c> from that catch; the circuit row reads Transport.
     /// </summary>
     [Theory]
     [InlineData("timeout", GitHubErrorKind.Timeout)]
-    [InlineData("circuit", GitHubErrorKind.Transport)]
+    [InlineData("circuit", GitHubErrorKind.Rejected)]
     public async Task A_rejected_read_is_a_failed_result(string rejection, GitHubErrorKind kind)
     {
         var result = await Api(rejection).GetDefaultBranchAsync(Repo);
@@ -29,28 +30,42 @@ public sealed class GitHubApiResilienceRejectionTests
     }
 
     /// <summary>
-    ///     Red: delete the <c>TimeoutRejectedException</c> catch in <c>WriteAsync</c>; the timeout row reads Transport.
-    ///     Red: delete the <c>ExecutionRejectedException</c> catch in <c>WriteAsync</c>; the circuit row throws.
-    ///     Red: drop <c>.ForWrite()</c> from <c>WriteAsync</c>'s timeout failure; the timeout row lacks the hint.
-    ///     Red: add <c>.ForWrite()</c> to <c>WriteAsync</c>'s rejection failure; the circuit row carries the hint.
-    ///     Red: return <c>NotSent</c> instead of <c>Rejected</c> from <c>WriteAsync</c>'s rejection failure; the circuit row
-    ///     does not say the request was not sent.
+    ///     Every write goes through the rejection catch of <c>CallAsync</c> or <c>WriteAsync</c>; the creates then pass
+    ///     the error through <c>ForWrite</c>, which must leave a rejection alone.
+    ///     Red: delete the <c>TimeoutRejectedException</c> catch in <c>WriteAsync</c> or <c>CallAsync</c>; a timeout row reads Transport.
+    ///     Red: delete the <c>ExecutionRejectedException</c> catch in <c>WriteAsync</c> or <c>CallAsync</c>; a circuit row throws.
+    ///     Red: drop <c>.ForWrite()</c> from the timeout failure of <c>WriteAsync</c>; the comment timeout row lacks the hint.
+    ///     Red: add <c>Rejected</c> to <c>ForWrite</c>'s kinds; every circuit row carries the hint.
+    ///     Red: return <c>NotSent</c> instead of <c>Rejected</c> from either catch; the circuit rows read Transport.
+    ///     Red: drop <c>.ForWrite()</c> from the failure of <c>CreateIssueAsync</c>; the issue timeout row lacks the hint.
+    ///     Red: drop <c>.ForWrite()</c> from the failure of <c>CreatePullRequestAsync</c>; the pull request timeout row lacks the hint.
     /// </summary>
     [Theory]
-    [InlineData("timeout", GitHubErrorKind.Timeout, true)]
-    [InlineData("circuit", GitHubErrorKind.Transport, false)]
+    [InlineData("comment", "timeout", GitHubErrorKind.Timeout, true)]
+    [InlineData("comment", "circuit", GitHubErrorKind.Rejected, false)]
+    [InlineData("issue", "timeout", GitHubErrorKind.Timeout, true)]
+    [InlineData("issue", "circuit", GitHubErrorKind.Rejected, false)]
+    [InlineData("pull request", "timeout", GitHubErrorKind.Timeout, true)]
+    [InlineData("pull request", "circuit", GitHubErrorKind.Rejected, false)]
     public async Task A_rejected_write_says_it_may_have_landed_only_when_it_was_sent(
-        string rejection, GitHubErrorKind kind, bool mayHaveLanded)
+        string write, string rejection, GitHubErrorKind kind, bool mayHaveLanded)
     {
-        var result = await Api(rejection).CommentAsync(Repo, 7, "a note");
+        var api = Api(rejection);
 
-        result.Error.Kind.Should().Be(kind);
+        var error = write switch
+        {
+            "comment" => (await api.CommentAsync(Repo, 7, "a note")).Error,
+            "issue" => (await api.CreateIssueAsync(Repo, "a title", "a body")).Error,
+            _ => (await api.CreatePullRequestAsync(Repo, "feature", "main", "a title", "a body")).Error,
+        };
+
+        error.Kind.Should().Be(kind);
         if (mayHaveLanded)
-            result.Error.Message.Should().Contain(GitHubError.MayHaveLanded);
+            error.Message.Should().Contain(GitHubError.MayHaveLanded);
         else
         {
-            result.Error.Message.Should().NotContain(GitHubError.MayHaveLanded);
-            result.Error.Message.Should().Be(GitHubError.RejectedMessage);
+            error.Message.Should().NotContain(GitHubError.MayHaveLanded);
+            error.Message.Should().Be(GitHubError.RejectedMessage);
         }
     }
 
