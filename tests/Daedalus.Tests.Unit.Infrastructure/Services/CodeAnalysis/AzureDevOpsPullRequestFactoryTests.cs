@@ -74,7 +74,8 @@ public sealed class AzureDevOpsPullRequestFactoryTests
     /// <summary>
     ///     Red: drop <c>NeverRetry</c> from <c>AddAzureDevOpsPullRequestFactory</c>; the create is sent 4 times, after the
     ///     standard backoff.
-    ///     Red: append the response body to the failure text; the text assertion fails.
+    ///     Red: raise <c>MaxErrorBodyBytes</c> on <c>IAzureDevOpsRestApi</c> to 2048 and append
+    ///     <c>Encoding.UTF8.GetString(error.Body.Span)</c> to the Status arm of <c>Describe</c>; the text assertion fails.
     /// </summary>
     [Fact]
     public async Task A_create_is_sent_once_when_Azure_DevOps_answers_503_and_its_body_is_not_repeated()
@@ -94,26 +95,31 @@ public sealed class AzureDevOpsPullRequestFactoryTests
     }
 
     /// <summary>
-    ///     Red: parse with <c>new Uri(repositoryUrl)</c> and no catch, as before the catch-all was removed; the call throws.
-    ///     Red: make <c>TryParse</c> return <c>true</c> with empty segments when <c>Uri.TryCreate</c> fails; a request is
-    ///     sent and the count is 1.
+    ///     The second row is a valid URL without <c>_git</c>, with a secret in its user info.
+    ///     Red: append <c>repositoryUrl</c> to the failure text; the no-secret assertion fails on the second row.
+    ///     Red: drop the word "format" from the failure text; the text assertion fails on both rows.
+    ///     Red: on a failed shape check, send the create with placeholder segments before returning the failure;
+    ///     the count assertion fails.
     /// </summary>
-    [Fact]
-    public async Task A_url_that_is_not_one_is_a_failure_and_sends_nothing()
+    [Theory]
+    [InlineData("not a url")]
+    [InlineData("https://u:SECRET@dev.azure.com/org/project/repo")]
+    public async Task A_url_that_is_not_one_is_a_failure_and_sends_nothing(string remote)
     {
         var handler = RecordingHandler.Answering(_ => Created(1));
         var factory = new AzureDevOpsPullRequestFactory(new HttpClient(handler), Tokens("pat-1"), NullLogger<AzureDevOpsPullRequestFactory>.Instance);
 
-        var result = await factory.CreatePullRequestAsync("not a url", "feature", "main", "t", "d");
+        var result = await factory.CreatePullRequestAsync(remote, "feature", "main", "t", "d");
 
+        result.Error.Should().NotContain("SECRET");
         result.Error.Should().Be("Invalid Azure DevOps URL format");
         handler.Count.Should().Be(0);
     }
 
     /// <summary>
-    ///     Today's factory logged the refusal's raw body. Red: log <c>await response.Content.ReadAsStringAsync()</c> again,
-    ///     after raising <c>MaxErrorBodyBytes</c> and logging <c>Encoding.UTF8.GetString(created.Error.Body.Span)</c>; the
-    ///     log assertion fails.
+    ///     Today's factory logged the refusal's raw body. Red: raise <c>MaxErrorBodyBytes</c> to 2048, put
+    ///     <c>Encoding.UTF8.GetString(created.Error.Body.Span)</c> in a local variable and pass it to a logger message
+    ///     (inline, the argument trips CA1873); the log assertion fails.
     /// </summary>
     [Fact]
     public async Task A_refusal_logs_its_status_and_never_its_body()
@@ -147,6 +153,122 @@ public sealed class AzureDevOpsPullRequestFactoryTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    /// <summary>
+    ///     The Azure DevOps client reads no error body at all.
+    ///     Red: raise <c>MaxErrorBodyBytes</c> on <c>IAzureDevOpsRestApi</c> to 2048; the body is no longer empty.
+    /// </summary>
+    [Fact]
+    public async Task The_generated_client_leaves_a_refusals_body_empty()
+    {
+        var handler = RecordingHandler.Answering(_ => new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("zqx-body-text") });
+        var client = new AzureDevOpsRestApiClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://dev.azure.com/") },
+            new ZeroAlloc.Rest.SystemTextJson.SystemTextJsonSerializer(AzureDevOpsJsonContext.Default));
+
+        var result = await client.CreatePullRequestAsync("org", "project", "repo", "7.0", new AzureDevOpsCreatePullRequestBody("a", "b", "t", "d", []), "Basic x", CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ZeroAlloc.Rest.HttpErrorKind.Status);
+        result.Error.Body.IsEmpty.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     Red: give the <c>TimeoutRejectedException</c> catch a filter that never holds; it falls to the rejection catch and says "was not sent".
+    ///     Red: return <c>ex.Message</c> as the timeout text; the text assertion fails on the message.
+    /// </summary>
+    [Fact]
+    public async Task A_pipeline_timeout_is_a_failure_without_the_exceptions_words()
+    {
+        var factory = FactoryThrowing(new Polly.Timeout.TimeoutRejectedException("zqx-exception-text"));
+
+        var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
+
+        result.Error.Should().Be("Azure DevOps API error: the request timed out");
+    }
+
+    /// <summary>
+    ///     Red: give the <c>ExecutionRejectedException</c> catch a filter that never holds; the exception escapes and the
+    ///     call throws.
+    ///     Red: return <c>ex.Message</c> as the text; the text assertion fails.
+    ///     Red: log the type name followed by <c>ex.Message</c>; the no-message assertion fails.
+    ///     Red: log <c>ex.Message</c> instead of the type name; the type-name assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_rejection_by_the_pipeline_logs_the_exception_type_and_never_its_message()
+    {
+        var logger = new CapturingLogger();
+        var factory = FactoryThrowing(new Polly.CircuitBreaker.BrokenCircuitException("zqx-exception-text"), logger);
+
+        var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
+
+        result.Error.Should().Be("Azure DevOps API error: the request was not sent");
+        logger.Lines.Should().Contain(line => line.Contains(nameof(Polly.CircuitBreaker.BrokenCircuitException), StringComparison.Ordinal));
+        logger.Lines.Should().NotContain(line => line.Contains("zqx-exception-text", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    ///     A created answer that lacks a field used to throw; now it is a failure.
+    ///     Red: give <c>PullRequestId</c> a default of 0 in <c>AzureDevOpsPullRequestDto</c>; row one succeeds with id 0.
+    ///     Red: give <c>Url</c> a default of an empty string in <c>AzureDevOpsPullRequestDto</c>; row two succeeds.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"url":"https://dev.azure.com/org/_apis/git/pullrequests/1"}""")]
+    [InlineData("""{"pullRequestId":1}""")]
+    public async Task An_answer_missing_a_field_is_a_failure(string answer)
+    {
+        var handler = RecordingHandler.Answering(_ => new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent(answer, Encoding.UTF8, "application/json") });
+        var factory = new AzureDevOpsPullRequestFactory(new HttpClient(handler), Tokens("pat-1"), NullLogger<AzureDevOpsPullRequestFactory>.Instance);
+
+        var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
+
+        result.Error.Should().Be("Azure DevOps API error: the answer was not in the expected shape");
+    }
+
+    /// <summary>
+    ///     Red: remove the Timeout arm of <c>Describe</c>; the text is "could not be read".
+    /// </summary>
+    [Fact]
+    public async Task A_request_cancelled_by_something_else_is_a_timeout_failure()
+    {
+        var factory = FactoryThrowing(new TaskCanceledException("zqx-exception-text"));
+
+        var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
+
+        result.Error.Should().Be("Azure DevOps API error: the request timed out");
+    }
+
+    /// <summary>
+    ///     Red: return <c>error.Message</c> in the Transport arm of <c>Describe</c>; the text carries the exception's words.
+    /// </summary>
+    [Fact]
+    public async Task A_transport_failure_says_so_without_the_exceptions_words()
+    {
+        var factory = FactoryThrowing(new HttpRequestException("zqx-exception-text"));
+
+        var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
+
+        result.Error.Should().Be("Azure DevOps API error: Azure DevOps could not be reached");
+    }
+
+    /// <summary>
+    ///     Red: change the fallback arm of <c>Describe</c> to <c>error.Message</c>; the text carries the parser's words.
+    /// </summary>
+    [Fact]
+    public async Task An_answer_that_is_not_json_is_a_failure_without_the_parsers_words()
+    {
+        var handler = RecordingHandler.Answering(_ => new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("zqx-not-json", Encoding.UTF8, "application/json") });
+        var factory = new AzureDevOpsPullRequestFactory(new HttpClient(handler), Tokens("pat-1"), NullLogger<AzureDevOpsPullRequestFactory>.Instance);
+
+        var result = await factory.CreatePullRequestAsync(Remote, "feature", "main", "t", "d");
+
+        result.Error.Should().Be("Azure DevOps API error: the answer could not be read");
+    }
+
+    private static AzureDevOpsPullRequestFactory FactoryThrowing(Exception thrown, Microsoft.Extensions.Logging.ILogger<AzureDevOpsPullRequestFactory>? logger = null) =>
+        new(
+            new HttpClient(new RecordingHandler((_, _) => throw thrown)),
+            Tokens("pat-1"),
+            logger ?? NullLogger<AzureDevOpsPullRequestFactory>.Instance);
 
     private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<AzureDevOpsPullRequestFactory>
     {
