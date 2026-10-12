@@ -38,7 +38,8 @@ public sealed partial class RepositoryAuthenticationProvider(
                 return Result<string>.Failure($"No authentication token configured for {platform}");
             }
 
-            return Result<string>.Success(token);
+            // An env file or a secret store often ends the value with a newline, which must not reach a Basic header.
+            return Result<string>.Success(token.Trim());
         }
         catch (Exception ex)
         {
@@ -53,29 +54,32 @@ public sealed partial class RepositoryAuthenticationProvider(
     [LoggerMessage(EventId = 2361, Level = LogLevel.Error, Message = "Error getting authentication token for platform {Platform}: {ExceptionType}")]
     private static partial void LogReadFailed(ILogger logger, RepositoryPlatform platform, string exceptionType);
 
-    public async Task<Result> ConfigureGitCredentialsAsync(
+    public Task<Result> ConfigureGitCredentialsAsync(
         RepositoryPlatform platform,
         string workTreePath,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        Task.FromResult(ConfigureCredentials(platform, Environment.GetEnvironmentVariable, logger));
+
+    /// <summary>
+    ///     Checks that the token of <paramref name="platform"/> is configured, read through <paramref name="read"/>, and logs
+    ///     that git credentials are configured. Nothing is written yet: credential storage is left to a secure credential
+    ///     manager. A failure's text names the platform only, so the exception stays in the log.
+    /// </summary>
+    internal static Result ConfigureCredentials(RepositoryPlatform platform, Func<string, string?> read, ILogger logger)
     {
         try
         {
-            var token = await GetAuthTokenAsync(platform, ct).ConfigureAwait(false);
+            var token = ReadToken(platform, read, logger);
 
             if (token.IsFailure)
             {
                 return Result.Failure(token.Error);
             }
 
-            // Note: Actual credential storage would be handled by secure credential manager
             // Placeholder commands: "git config --local credential.helper store", "git config --local credential.useHttpPath true"
+            LogConfigured(logger, platform);
 
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation("Configured git credentials for {Platform}", platform);
-            }
-
-            return await Task.FromResult(Result.Success()).ConfigureAwait(false);
+            return Result.Success();
         }
         catch (Exception ex)
         {
@@ -83,6 +87,9 @@ public sealed partial class RepositoryAuthenticationProvider(
             return Result.Failure($"Error configuring credentials for {platform}");
         }
     }
+
+    [LoggerMessage(EventId = 2363, Level = LogLevel.Information, Message = "Configured git credentials for {Platform}")]
+    private static partial void LogConfigured(ILogger logger, RepositoryPlatform platform);
 
     [LoggerMessage(EventId = 2362, Level = LogLevel.Error, Message = "Error configuring git credentials for platform {Platform}: {ExceptionType}")]
     private static partial void LogConfigureFailed(ILogger logger, RepositoryPlatform platform, string exceptionType);
