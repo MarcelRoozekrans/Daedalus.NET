@@ -333,6 +333,23 @@ public sealed class FileReviewFindingsActionTests : IDisposable
         result.Error.Should().NotContain("Retry this node");
     }
 
+    /// <summary>
+    ///     A rate limit with no retry time has nothing to tell the admin to wait for.
+    ///     Red: change <c>Describe</c> to use <c>error.RetryAt ?? DateTimeOffset.MinValue</c>; the NotContain assertion fails.
+    ///     Red: drop the no-time sentence from GitHubError's RateLimited message; the "no time to retry" assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_rate_limit_without_a_retry_time_does_not_say_when_to_retry()
+    {
+        Deferred(Entry("one"));
+        _writer.CreateIssueAsync(SameRepo(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result<CreatedIssue, GitHubError>.Failure(GitHubError.FromStatus(429, GitHubErrorKind.RateLimited, null)));
+
+        var result = await Action().RunAsync(Run(), Node, CancellationToken.None);
+
+        result.Error.Should().Contain("no time to retry").And.NotContain("Retry this node after");
+    }
+
     /// <summary>A4. Red: skip the allow-list check; an issue is then created in the removed repository.</summary>
     [Fact]
     public async Task A_repository_no_longer_allow_listed_is_refused()
