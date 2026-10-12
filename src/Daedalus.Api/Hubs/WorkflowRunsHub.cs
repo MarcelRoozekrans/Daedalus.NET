@@ -1,3 +1,4 @@
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -10,9 +11,9 @@ namespace Daedalus.Api.Hubs;
 [Authorize(Policy = "WorkflowResume")]
 public sealed class WorkflowRunsHub : Hub
 {
-    /// <summary>Where the hub is mapped.</summary>
-    public const string Path = "/hubs/workflow-runs";
+    /// <summary>Where the hub is mapped, as <see cref="WorkflowRunsHubContract.Path"/> shares it with the Web.</summary>
+    public const string Path = WorkflowRunsHubContract.Path;
 
-    /// <summary>The client method every change is sent to.</summary>
-    public const string RunChangedMethod = "RunChanged";
+    /// <summary>The client method every change is sent to, as <see cref="WorkflowRunsHubContract.RunChangedMethod"/>.</summary>
+    public const string RunChangedMethod = WorkflowRunsHubContract.RunChangedMethod;
 }

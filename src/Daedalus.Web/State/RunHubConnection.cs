@@ -25,8 +25,6 @@ public sealed class RunHubConnection(
     RunsEffects runs,
     TasksEffects tasks) : IAsyncDisposable
 {
-    private const string Path = "hubs/workflow-runs";
-    private const string RunChangedMethod = "RunChanged";
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HubConnection? _connection;
 
@@ -52,7 +50,7 @@ public sealed class RunHubConnection(
             }
 
             _connection = Build();
-            _connection.On<WorkflowRunChanged>(RunChangedMethod, OnChangedAsync);
+            _connection.On<WorkflowRunChanged>(WorkflowRunsHubContract.RunChangedMethod, OnChangedAsync);
             _connection.Reconnecting += _ => SetStatusAsync(HubStatus.Reconnecting);
             _connection.Reconnected += _ => OnReconnectedAsync();
             _connection.Closed += _ => SetStatusAsync(HubStatus.Disconnected);
@@ -84,8 +82,15 @@ public sealed class RunHubConnection(
         _gate.Dispose();
     }
 
+    /// <summary>
+    ///     The hub's address for an API at <paramref name="apiBase"/>. The hub path is root-relative, as every
+    ///     <see cref="ApiClient"/> route is, so the hub and the API resolve against the same origin whatever path or
+    ///     trailing slash the base has.
+    /// </summary>
+    public static Uri HubUri(Uri apiBase) => new(apiBase, WorkflowRunsHubContract.Path);
+
     private HubConnection Build() => new HubConnectionBuilder()
-        .WithUrl(new Uri(api.Value, Path), options =>
+        .WithUrl(HubUri(api.Value), options =>
         {
             options.Transports = HttpTransportType.WebSockets;
             options.SkipNegotiation = true;
