@@ -48,7 +48,8 @@ public sealed class GitHubConditionalCacheHandlerTests
 
     /// <summary>
     ///     Red: store a 200 without an ETag under an empty tag; the second request then carries <c>If-None-Match</c>.
-    ///     Red: the same change; the count is 1.
+    ///     Red: the same change, with the condition for sending <c>If-None-Match</c> narrowed to a non-empty tag; the header
+    ///     assertion stays green and the count is 1.
     /// </summary>
     [Fact]
     public async Task A_200_without_an_etag_is_not_stored()
@@ -149,6 +150,31 @@ public sealed class GitHubConditionalCacheHandlerTests
     }
 
     /// <summary>
+    ///     GitHub sends compressed, chunked JSON, so the length is unknown until the body is read; only the check on the
+    ///     bytes read keeps a large scan page out of the cache.
+    ///     Red: drop the check on the bytes read from the handler; the count is 1.
+    ///     Red: answer an over-cap response with an empty body instead of passing it through; the length assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task An_answer_over_the_size_cap_with_no_declared_length_is_not_stored()
+    {
+        var cache = new GitHubConditionalCache();
+        var large = "\"" + new string('x', GitHubConditionalCache.MaxEntryBytes) + "\"";
+        var inner = RecordingHandler.Answering(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new UnsizedContent(large) };
+            response.Headers.TryAddWithoutValidation("ETag", "\"big\"");
+            return response;
+        });
+        using var invoker = Invoker(cache, inner);
+
+        using var answer = await invoker.SendAsync(Get(Url), CancellationToken.None);
+
+        cache.Count.Should().Be(0);
+        (await answer.Content.ReadAsStringAsync()).Length.Should().Be(large.Length);
+    }
+
+    /// <summary>
     ///     Red: drop the eviction loop from <c>Store</c>; the count is 201.
     ///     Red: evict the most recent entry instead of the oldest; key 1 survives.
     ///     Red: leave <c>Find</c> from moving an entry to the front; key 0 is evicted.
@@ -187,6 +213,19 @@ public sealed class GitHubConditionalCacheHandlerTests
 
         second.Value.Should().BeEquivalentTo(first.Value);
         primary.Sent[1].Headers["If-None-Match"].Should().Be("W/\"v1\"");
+    }
+
+    /// <summary>Content whose length is not known up front, as a decompressed chunked body is.</summary>
+    private sealed class UnsizedContent(string text) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            stream.WriteAsync(Encoding.UTF8.GetBytes(text)).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 
     private static HttpMessageInvoker Invoker(GitHubConditionalCache cache, HttpMessageHandler inner) =>
