@@ -6,7 +6,7 @@ namespace Daedalus.Web.State.Tasks;
 public static class TasksReducers
 {
     [Reducer]
-    public static TasksState On(TasksState s, TasksLoadStarted _) => s with { Loading = true, Error = null };
+    public static TasksState On(TasksState s, TasksLoadStarted _) => s with { Loading = true, Error = null, LoadRequested = true };
 
     [Reducer]
     public static TasksState On(TasksState s, TasksLoaded a) => s with { Items = a.Items, Total = a.Total, Loading = false };

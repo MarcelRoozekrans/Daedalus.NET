@@ -5,7 +5,8 @@ namespace Daedalus.Web.State.Tasks;
 
 /// <summary>
 ///     The tasks feature's I/O. Each method dispatches what it starts and what it got; an expected failure is an
-///     action or a Result, never an exception. Cancellation propagates.
+///     action or a Result, never an exception. The effects never catch cancellation; ApiClient reports it as a
+///     failed Result.
 /// </summary>
 public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<TasksState> tasks)
 {
@@ -50,12 +51,13 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
     }
 
     /// <summary>
-    ///     Re-fetches the board after a reconnect, when it has been loaded, because any task may have gained or moved a
-    ///     run meanwhile. A board never loaded is left alone.
+    ///     Re-fetches the board after a reconnect, when a load was ever asked for, because any task may have gained or
+    ///     moved a run meanwhile. An empty board and a board whose load failed are re-fetched too; a board never
+    ///     asked for is left alone.
     /// </summary>
     public async Task RefreshAsync(CancellationToken ct)
     {
-        if (tasks.Value.Items.Count > 0)
+        if (tasks.Value.LoadRequested)
         {
             await LoadAsync(ct);
         }

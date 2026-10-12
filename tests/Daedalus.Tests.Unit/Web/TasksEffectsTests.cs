@@ -88,17 +88,19 @@ public sealed class TasksEffectsTests : IDisposable
     }
 
     /// <summary>
-    ///     A reconnect re-fetches a loaded board and leaves a board never loaded alone.
-    ///     Red: drop the reload from RefreshAsync. Red: reload even when the board is empty.
+    ///     A reconnect leaves a board never asked for alone, and re-fetches one that was, even when its load failed.
+    ///     Red: reload whatever the state. Red: gate on Items.Count instead of LoadRequested.
+    ///     Red: drop the reload from RefreshAsync.
     /// </summary>
     [Fact]
-    public async Task Reconnect_re_fetches_only_a_loaded_board()
+    public async Task Reconnect_re_fetches_only_a_board_that_was_asked_for()
     {
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([Board(Guid.NewGuid(), null, "one")], 1, 1, 200)));
+        _handler.OnJson(ListPath, "<html>down</html>", HttpStatusCode.BadGateway);
 
         await _effects.RefreshAsync(CancellationToken.None);
         _handler.Requests.Should().BeEmpty();
 
+        // The board's load fails with a 502, so it holds no items.
         await _effects.LoadAsync(CancellationToken.None);
         _handler.Requests.Clear();
         await _effects.RefreshAsync(CancellationToken.None);

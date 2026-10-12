@@ -68,4 +68,19 @@ public sealed class RunsReducersTests
 
         after.List.Should().BeNull();
     }
+
+    /// <summary>
+    ///     A list response still in flight when the list page closes does not bring the list back.
+    ///     Red: drop the shown-or-loading guard in the RunListLoaded reducer. Red: leave ListLoading set on RunListClosed.
+    /// </summary>
+    [Fact]
+    public void A_list_that_lands_after_the_page_closed_is_ignored()
+    {
+        var loading = RunsReducers.On(Empty, new RunListRequested(RunListQuery.First));
+        var closed = RunsReducers.On(loading, new RunListClosed());
+
+        var after = RunsReducers.On(closed, new RunListLoaded(RunListQuery.First, new WorkflowRunList([], null)));
+
+        after.List.Should().BeNull();
+    }
 }

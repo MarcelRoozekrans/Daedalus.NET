@@ -14,9 +14,29 @@ public static class RunsReducers
         ListError = null,
     };
 
+    /// <summary>
+    ///     A page for another query is stale. So is any page that arrives while no list is shown or loading, which is
+    ///     a response still in flight when the list page was closed.
+    /// </summary>
     [Reducer]
     public static RunsState On(RunsState s, RunListLoaded a) =>
-        a.Query != s.Query ? s : s with { List = a.List, ListLoading = false, ListError = null };
+        a.Query != s.Query || (!s.ListLoading && s.List is null)
+            ? s
+            : s with { List = a.List, ListLoading = false, ListError = null };
+
+    [Reducer]
+    public static RunsState On(RunsState s, RunListClosed _) => s with { List = null, ListLoading = false, ListError = null };
+
+    [Reducer]
+    public static RunsState On(RunsState s, RunClosed _) => s with
+    {
+        SelectedId = null,
+        Selected = null,
+        SelectedLoading = false,
+        SelectedNotFound = false,
+        SelectedError = null,
+        Gate = GateDraft.Empty,
+    };
 
     [Reducer]
     public static RunsState On(RunsState s, RunListFailed a) =>

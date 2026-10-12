@@ -8,10 +8,14 @@ namespace Daedalus.Web.State.Tasks;
 /// <param name="Loading">Whether the board is being fetched.</param>
 /// <param name="Error">Why the last fetch failed, or <see langword="null"/>.</param>
 /// <param name="Starting">The ids of the tasks whose Manufacture call is in flight.</param>
+/// <param name="LoadRequested">
+///     Whether a board load was ever asked for, whatever came of it. Set by <see cref="TasksLoadStarted"/> rather
+///     than on success, so a reconnect also re-fetches a board that came back empty or failed to load.
+/// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct TasksState(
-    IReadOnlyList<TaskDto> Items, int Total, bool Loading, string? Error, IReadOnlySet<Guid> Starting)
+    IReadOnlyList<TaskDto> Items, int Total, bool Loading, string? Error, IReadOnlySet<Guid> Starting, bool LoadRequested)
 {
     /// <summary>The state before the board has loaded.</summary>
-    public static TasksState Initial(IServiceProvider services) => new([], 0, false, null, new HashSet<Guid>());
+    public static TasksState Initial(IServiceProvider services) => new([], 0, false, null, new HashSet<Guid>(), false);
 }

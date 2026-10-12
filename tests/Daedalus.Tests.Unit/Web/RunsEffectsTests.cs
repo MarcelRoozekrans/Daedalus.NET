@@ -133,6 +133,45 @@ public sealed class RunsEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     Once the run page is left, a change for that run fetches no run, and its gate draft is gone.
+    ///     Red: keep SelectedId on RunClosed. Red: keep the Gate on RunClosed.
+    /// </summary>
+    [Fact]
+    public async Task After_the_run_is_closed_a_change_fetches_no_run()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson($"/api/workflow-runs/{id}", RunViews.Json(RunViews.Sample(id)));
+        var dispatcher = _provider.GetRequiredService<IDispatcher>();
+        await _effects.LoadRunAsync(id, CancellationToken.None);
+        await dispatcher.DispatchAsync(new GateFindingToggled("mechanism-1", Dropped: true));
+        await dispatcher.DispatchAsync(new RunClosed());
+        _handler.Requests.Clear();
+
+        await _effects.OnRunChangedAsync(new WorkflowRunChanged(id, "Succeeded", "done", null), CancellationToken.None);
+
+        _handler.Paths.Should().NotContain($"/api/workflow-runs/{id}");
+        _store.Value.Gate.Dropped.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Once the list page is left, a change fetches no list, even for a run the list showed on the first page.
+    ///     Red: keep List on RunListClosed.
+    /// </summary>
+    [Fact]
+    public async Task After_the_list_is_closed_a_change_fetches_no_list()
+    {
+        var listed = Guid.NewGuid();
+        _handler.OnJson(RunListQuery.First.ToPath(), RunViews.Json(new WorkflowRunList([RunViews.Item(listed)], null)));
+        await _effects.LoadListAsync(RunListQuery.First, CancellationToken.None);
+        await _provider.GetRequiredService<IDispatcher>().DispatchAsync(new RunListClosed());
+        _handler.Requests.Clear();
+
+        await _effects.OnRunChangedAsync(new WorkflowRunChanged(listed, "Failed", "build", null), CancellationToken.None);
+
+        _handler.Paths.Should().Equal(CountPath);
+    }
+
+    /// <summary>
     ///     The awaiting-approval count counts only human_approval rows, and says there are more when Next is set.
     ///     Red: count every Awaiting row. Red: ignore Next.
     /// </summary>
