@@ -91,7 +91,11 @@ public static class AspireExtensions
                 // An outgoing call's path can hold a secret, so only its origin is exported. The OTLP exporter is ordered
                 // last by its own pipeline weight, so it always sees the cut span. A hand-added exporter has weight 0 like
                 // this processor and runs in registration order: register it after AddServiceDefaults.
-                .AddProcessor(new HttpClientOriginOnlyProcessor()));
+                .AddProcessor(new HttpClientOriginOnlyProcessor())
+                // The console's hub connection carries its bearer token in the query string, which the server span
+                // exports as url.query. The instrumentation's own redaction can be turned off by a setting, so the
+                // token's value is redacted here too, before any exporter sees it.
+                .AddProcessor(new ServerQueryRedactionProcessor()));
 
         // One exporter for all three signals, configured from the standard OTEL_* settings Aspire sets.
         if (exportOtlp)
@@ -111,6 +115,11 @@ public static class AspireExtensions
             });
             logging.AddConsole();
         });
+
+        // The hosting diagnostics' "Request starting" line carries the query string, and the console's hub connection
+        // carries its bearer token there. Filtered in code, after every configuration source, so no setting can turn it
+        // back on; see HostingDiagnosticsLogFilter for why a plain AddFilter rule is not enough.
+        services.PostConfigure<LoggerFilterOptions>(HostingDiagnosticsLogFilter.Apply);
 
         return services;
     }

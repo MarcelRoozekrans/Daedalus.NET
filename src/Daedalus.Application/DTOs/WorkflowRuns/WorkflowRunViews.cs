@@ -150,3 +150,13 @@ public sealed record WorkflowRunList(IReadOnlyList<WorkflowRunListItem> Runs, st
 public sealed record WorkflowRunListItem(
     Guid Id, string Process, int ProcessVersion, string Status, string CurrentNode, string? AwaitingSignal,
     string? StartedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? TaskId, string? TaskCode, string? TaskTitle);
+
+/// <summary>
+///     What the console's hub sends when a run changes: which run, and where it now stands. Nothing else, ever: no
+///     outcome, error, variable or payload, so it can go to every connected operator.
+/// </summary>
+/// <param name="Id">The run that changed.</param>
+/// <param name="Status">The run's status after the change (<c>WorkflowStatus</c>, as text).</param>
+/// <param name="CurrentNode">The node the run is at after the change.</param>
+/// <param name="AwaitingSignal">The signal the run waits on after the change, or <see langword="null"/>.</param>
+public sealed record WorkflowRunChanged(Guid Id, string Status, string CurrentNode, string? AwaitingSignal);

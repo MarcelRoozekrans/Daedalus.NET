@@ -1,0 +1,18 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
+
+namespace Daedalus.Api.Hubs;
+
+/// <summary>
+///     The console's live channel. Clients only listen: the server sends <see cref="RunChangedMethod"/> with a
+///     <c>WorkflowRunChanged</c> whenever the store commits a change, and clients re-fetch through the REST API.
+/// </summary>
+[Authorize(Policy = "WorkflowResume")]
+public sealed class WorkflowRunsHub : Hub
+{
+    /// <summary>Where the hub is mapped.</summary>
+    public const string Path = "/hubs/workflow-runs";
+
+    /// <summary>The client method every change is sent to.</summary>
+    public const string RunChangedMethod = "RunChanged";
+}
