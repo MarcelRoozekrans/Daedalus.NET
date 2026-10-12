@@ -12,20 +12,25 @@ public static class RunsReducers
         PreviousCursors = a.Query.After is null ? [] : s.PreviousCursors,
         ListLoading = true,
         ListError = null,
+        ListRequested = true,
     };
 
     /// <summary>
-    ///     A page for another query is stale. So is any page that arrives while no list is shown or loading, which is
-    ///     a response still in flight when the list page was closed.
+    ///     A page for another query is stale. So is a page that lands after the list page closed, with no page asked
+    ///     for since.
     /// </summary>
     [Reducer]
     public static RunsState On(RunsState s, RunListLoaded a) =>
-        a.Query != s.Query || (!s.ListLoading && s.List is null)
-            ? s
-            : s with { List = a.List, ListLoading = false, ListError = null };
+        a.Query != s.Query || !s.ListRequested ? s : s with { List = a.List, ListLoading = false, ListError = null };
+
+    /// <summary>A failure is stale on the same terms as <see cref="RunListLoaded"/>.</summary>
+    [Reducer]
+    public static RunsState On(RunsState s, RunListFailed a) =>
+        a.Query != s.Query || !s.ListRequested ? s : s with { ListLoading = false, ListError = a.Error };
 
     [Reducer]
-    public static RunsState On(RunsState s, RunListClosed _) => s with { List = null, ListLoading = false, ListError = null };
+    public static RunsState On(RunsState s, RunListClosed _) =>
+        s with { List = null, ListLoading = false, ListError = null, ListRequested = false };
 
     [Reducer]
     public static RunsState On(RunsState s, RunClosed _) => s with
@@ -37,10 +42,6 @@ public static class RunsReducers
         SelectedError = null,
         Gate = GateDraft.Empty,
     };
-
-    [Reducer]
-    public static RunsState On(RunsState s, RunListFailed a) =>
-        a.Query != s.Query ? s : s with { ListLoading = false, ListError = a.Error };
 
     [Reducer]
     public static RunsState On(RunsState s, RunListPagedForward a) =>
