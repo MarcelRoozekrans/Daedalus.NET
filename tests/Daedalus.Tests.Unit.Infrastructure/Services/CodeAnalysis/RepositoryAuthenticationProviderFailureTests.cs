@@ -40,24 +40,16 @@ public sealed class RepositoryAuthenticationProviderFailureTests
     ///     The text of a failure to configure credentials reaches a run's error, so it names the platform and carries no
     ///     exception text. The failure is made by a logger that throws on the success line.
     ///     Red: return <c>$"Error configuring credentials: {ex.Message}"</c> as before; the text carries the exception's message.
+    ///     Red: return <c>Result.Success()</c> from the catch; the failure assertion fails.
     /// </summary>
     [Fact]
-    public async Task A_failure_to_configure_credentials_returns_text_without_the_exception_message()
+    public void A_failure_to_configure_credentials_returns_text_without_the_exception_message()
     {
-        Environment.SetEnvironmentVariable("AZURE_DEVOPS_TOKEN", "token-for-test");
-        try
-        {
-            var provider = new RepositoryAuthenticationProvider(new ThrowingOnInformationLogger());
+        var result = RepositoryAuthenticationProvider.ConfigureCredentials(
+            RepositoryPlatform.AzureDevOps, _ => "token-for-test", new ThrowingOnInformationLogger());
 
-            var result = await provider.ConfigureGitCredentialsAsync(RepositoryPlatform.AzureDevOps, "/tmp/work", CancellationToken.None);
-
-            result.IsFailure.Should().BeTrue();
-            result.Error.Should().Be("Error configuring credentials for AzureDevOps");
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("AZURE_DEVOPS_TOKEN", null);
-        }
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be("Error configuring credentials for AzureDevOps");
     }
 
     /// <summary>
@@ -66,23 +58,39 @@ public sealed class RepositoryAuthenticationProviderFailureTests
     ///     Red: drop the log call; the type line assertion fails.
     /// </summary>
     [Fact]
-    public async Task A_failure_to_configure_credentials_logs_the_exception_type_and_not_its_text()
+    public void A_failure_to_configure_credentials_logs_the_exception_type_and_not_its_text()
     {
-        Environment.SetEnvironmentVariable("AZURE_DEVOPS_TOKEN", "token-for-test");
-        try
-        {
-            var logger = new ThrowingOnInformationLogger();
-            var provider = new RepositoryAuthenticationProvider(logger);
+        var logger = new ThrowingOnInformationLogger();
 
-            await provider.ConfigureGitCredentialsAsync(RepositoryPlatform.AzureDevOps, "/tmp/work", CancellationToken.None);
+        RepositoryAuthenticationProvider.ConfigureCredentials(RepositoryPlatform.AzureDevOps, _ => "token-for-test", logger);
 
-            logger.Lines.Should().Contain(line => line.Contains("InvalidOperationException", StringComparison.Ordinal));
-            logger.Lines.Should().NotContain(line => line.Contains("zqx-exception-text", StringComparison.Ordinal));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("AZURE_DEVOPS_TOKEN", null);
-        }
+        logger.Lines.Should().Contain(line => line.Contains("InvalidOperationException", StringComparison.Ordinal));
+        logger.Lines.Should().NotContain(line => line.Contains("zqx-exception-text", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    ///     Red: return <c>token</c> untrimmed from <c>ReadToken</c>; the token keeps its spaces and newline.
+    /// </summary>
+    [Fact]
+    public void A_token_read_with_surrounding_whitespace_is_trimmed()
+    {
+        var result = RepositoryAuthenticationProvider.ReadToken(
+            RepositoryPlatform.AzureDevOps, _ => "  pat-1\r\n", NullLogger.Instance);
+
+        result.Value.Should().Be("pat-1");
+    }
+
+    /// <summary>
+    ///     A missing token fails the configuration before anything is logged as configured.
+    ///     Red: drop the <c>token.IsFailure</c> check in <c>ConfigureCredentials</c>; the call succeeds.
+    /// </summary>
+    [Fact]
+    public void A_missing_token_fails_the_configuration()
+    {
+        var result = RepositoryAuthenticationProvider.ConfigureCredentials(
+            RepositoryPlatform.AzureDevOps, _ => null, NullLogger.Instance);
+
+        result.IsFailure.Should().BeTrue();
     }
 
     /// <summary>A capturing logger that throws when the success line is written, which is inside the method's try block.</summary>
