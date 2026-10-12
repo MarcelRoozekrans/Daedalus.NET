@@ -26,7 +26,10 @@ public sealed class GitHubRateLimitObserver : DelegatingHandler
     /// <summary>The gauge's name.</summary>
     public const string RemainingName = "daedalus.github.ratelimit.remaining";
 
-    /// <summary>The one tag: GitHub's <c>X-RateLimit-Resource</c>, or <c>unknown</c>.</summary>
+    /// <summary>
+    ///     The one tag: GitHub's <c>X-RateLimit-Resource</c> when it is one of the documented names in <see cref="Resources"/>,
+    ///     <c>other</c> for any undocumented value, or <c>unknown</c> when the header is missing or blank.
+    /// </summary>
     public const string ResourceTag = "daedalus.github.resource";
 
     private static readonly FrozenSet<string> Resources = new[]
