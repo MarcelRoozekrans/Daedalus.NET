@@ -98,10 +98,12 @@ A task on the board becomes work only when a person starts a manufacture run for
    so a task from the Ralph era keeps `Completed`, `Failed` or `Abandoned`. When the workflow engine is disabled on a
    host, the run cannot be read, and the stored status shows. While a task's run is live, updating or deleting the task
    answers `409`. The Manufacture button shows for `Pending`, `Failed`, `Abandoned` and `Cancelled` tasks.
-4. **Approve at the gate.** The run waits for `human_approval`. A developer or admin approves it with
-   `POST /api/workflow-runs/{runId}/resume` and the body `{ "signal": "human_approval", "payload": null }`.
-   `applyStandingInstructions` (default `false`) and `dropFindings` are optional. This is the workflow run's gate, not
-   the retired task `resume` endpoint.
+4. **Approve at the gate.** The run waits for `human_approval`. Open it in the console: the **Runs** item lists the runs
+   and shows a count of those awaiting approval. A run's page shows the timeline, the review, the usage and the writes.
+   Its gate panel lets a developer or admin approve, drop findings, or cancel the run. The page updates live, with no
+   refresh. A script can do the same with `POST /api/workflow-runs/{runId}/resume` and the body
+   `{ "signal": "human_approval", "payload": null }`; `applyStandingInstructions` (default `false`) and `dropFindings`
+   are optional. This is the workflow run's gate, not the retired task `resume` endpoint.
 5. **Follow the pull request.** Once the run publishes, the task shows a link to its pull request (`pullRequestUrl` on
    `GET /api/tasks/{id}`).
 6. **Read the costs.** `/costs` and `GET /api/cost-analytics/summary` combine four sources:
@@ -408,6 +410,9 @@ Span names, tags, status descriptions, events and metric tags carry only ids, na
 error codes. Never prompt or agent text, task titles or descriptions, PR titles or bodies, file content, credentials or
 token values. Outgoing HTTP calls export their origin only, see "What is collected". A failed step sets Error status
 without a description; the one exception is the start span's failure kind.
+
+The console's live connection sends its bearer token in the `access_token` query value of the hub URL. The API
+redacts it from server spans and keeps it out of logs.
 
 This rule does not yet cover exported **logs**. Whether and how to scrub them is an open decision, Daedalus#334.
 

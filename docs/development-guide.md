@@ -584,6 +584,56 @@ lock, and it also sees every other host's spans in the process, so filter there 
 or descriptions, PR text, file content, credentials or token values. Outgoing HTTP spans export their origin only.
 Exported logs are not yet covered by this rule (Daedalus#334).
 
+## Web state with ZeroAlloc.Flux
+
+The manufacturing console keeps its state in ZeroAlloc.Flux stores. Tasks use the same pattern; 2.13 moves the
+remaining pages.
+
+- **Features** live in `Daedalus.Web/State`, one folder per feature (`Runs`, `Tasks`). Each state is a
+  `readonly partial record struct` marked `[Feature(InitialState = nameof(Initial))]`, because the default state leaves
+  collections `null`. See `RunsState` and `TasksState`.
+- **Reducers** are pure static `On` methods (`RunsReducers`). A reducer for a response compares the request it answers,
+  the query or the id, and ignores a stale one. It also ignores a response that lands after the page closed, using the
+  `ListRequested` flag on `RunsState` and the `LoadRequested` flag on `TasksState`.
+- **Effects** are scoped services that inject `ApiClient` and `IDispatcher`, as `RunsEffects` does. They dispatch every
+  outcome as an action and never throw for an expected failure. `ApiClient` reports a cancellation as a failed
+  `Result`, so an effect checks for cancellation before it re-fetches after a failure.
+- **Components** inherit `FluxComponent`, override `SubscribeStores()` and call `Subscribe`, and never override
+  `OnInitialized`. A page dispatches `RunClosed`, `RunListClosed` or `TasksClosed` from `DisposeAsync`, after it
+  unsubscribes, so a live change does not re-fetch what is off screen.
+- **Status text** for a run comes from `RunStatusLabels`. Who may see the console comes from `RunAccess` in
+  `Daedalus.Web/Auth`: `CanView` is `developer` or `admin`, `CanRetry` is `admin`. `RolesClaimsPrincipalFactory` splits
+  Keycloak's `roles` array into role claims so `IsInRole` works.
+
+## Live run updates
+
+A run's page and the Runs list change without a refresh. The path from a store commit to the browser:
+
+1. Thalos calls `IWorkflowRunObserver` after each commit, once the store has released its connection.
+   `WorkflowRunChangeBroadcaster` implements it and only queues the change into a bounded channel of 256 entries that
+   drops the oldest when full. A slow client never blocks a commit.
+2. The same singleton is a hosted service. Its loop reads the channel and sends `WorkflowRunChanged` to every client
+   on the hub `WorkflowRunsHub`, mapped at `/hubs/workflow-runs`, as the client method `RunChanged`. The path and the
+   method name are shared constants in `WorkflowRunsHubContract` in `Daedalus.Application`. The broadcaster and the
+   observer are registered only while `Thalos:Workflow:Enabled` is true.
+3. `WorkflowRunChanged` carries exactly `Id`, `Status`, `CurrentNode` and `AwaitingSignal`. It carries no task content,
+   variables or error text, because every signed-in client receives it. The client uses it only as a signal.
+4. `RunHubConnection` in the Web re-fetches what is on screen on each change and again on reconnect, so a dropped
+   message is repaired by the next fetch. It uses WebSockets with `SkipNegotiation`.
+5. A send failure is logged by exception type name only, never the message or the exception object.
+
+**The `access_token` rule.** A browser WebSocket cannot set an `Authorization` header, so the hub's bearer token travels
+in the `access_token` query value. `HubAccessToken`, wired through `JwtBearerEvents.OnMessageReceived`, reads it from
+the query only on paths under `/hubs`. The token must not reach telemetry or logs:
+`OpenTelemetry.Instrumentation.AspNetCore` already redacts `url.query` by default, and `ServerQueryRedactionProcessor`
+in `Daedalus.ServiceDefaults` covers a host where `OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION`
+turns that off. `HostingDiagnosticsLogFilter` holds the hosting "Request starting" line, which prints the query, at
+Warning. It is a post-configure on `LoggerFilterOptions`, because a plain `AddFilter` is overridden by
+provider-specific configuration.
+
+**One API instance.** The channel and the hub live in one process. A scaled-out API would need a backplane, such as
+Redis, so that a change committed on one instance reaches the clients of another. Daedalus has none.
+
 ## Repository pattern
 
 There is no generic `IRepository<T>`. Repositories are one interface per
