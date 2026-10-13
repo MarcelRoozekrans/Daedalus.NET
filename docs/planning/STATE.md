@@ -1,8 +1,56 @@
 # Session State
 
-**Last session:** 2026-10-12, with the owner present
+**Last session:** 2026-10-13, with the owner present
 
-## Current Position - phase 2.11 complete and merged (PR #343, 2026-10-12); next phase to choose
+## Current Position - phase 2.12 complete and merged (PR #352, 2026-10-13); next is phase 2.13
+
+**Milestone 2, phase 2.12, the manufacturing console.** Rebase-merged to `main` as PR #352 (66 commits, head
+`5a87ef2`) on 2026-10-13. ZeroAlloc.Flux 1.1.11 (ZeroAlloc.Flux#156, release #158) and Thalos.NET 0.16.0
+(Thalos#321, release #322) shipped first. Rulings, the live-proof table, red-verification notes and carried items are
+in `docs/plans/2026-10-12-phase-2.12-rulings.md`; the UI review in `docs/plans/2026-10-13-ui-review-phase-2.12.md`.
+
+- **What shipped:**
+  - `/runs` and `/runs/{id}`: an operator follows a run live from Manufacture to its pull request and decides the
+    gate in the browser; `/tasks` links each task to its run. Web state on ZeroAlloc.Flux.
+  - `GET /api/workflow-runs` with the board task; `Steps` and `Checked` on the run view; `/hubs/workflow-runs`
+    broadcasting a content-free `WorkflowRunChanged` from a Thalos run observer.
+  - The hub token is read only under `/hubs`, redacted from server spans and kept out of logs; the rate limiter runs
+    after authentication and keys on the caller's subject.
+  - Fixed during the live proof: the console follows a late sign-in, one content width on every page, Git
+    Repositories for admins only, `[Authorize]` on the run pages, the invisible sidebar toggle, the cap step label.
+- **Live proof:** run `23e8b6ff` (task "Add Inventory.Clear") was approved at the gate by the owner in the console and
+  opened daedalus-sandbox#18; run `e47eeac0` failed at the review cap (5 rejections by the falsifiability lens) and the
+  console showed it; both followed live without a reload; no task content and no token in 999 spans.
+- **Suites:** Unit 1287, Unit.Application 261, Unit.Domain 346, Unit.Infrastructure 241, Integration 702,
+  Playwright.Api 113, Playwright.Browser 100. CI green on the PR.
+- **Roadmap:** new phase 2.13, navigation and flow review (owner, 2026-10-13); Flux across the Web app is now 2.14.
+
+## Needs the owner
+
+1. **Release: on hold until the product is polished (owner decision, 2026-10-11).** Unchanged: release-please only
+   runs on manual dispatch; check the release PR proposes 0.2.0 before merging it.
+2. **Remove any external `daedalus-console` deployment** (carried from 2.8).
+3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11, #14, #16, #17 and now #18; issues #9 and #12.
+4. **Decide:** #345 (which proxies to trust for the rate limiter's IP fallback), #346 and #347 (the manufacture
+   review loop and its cap), and the earlier #325, #327, #328, #332, #334, #322, #318, #319.
+5. **Delete the backup refs** `backup/phase-2.3-before-reword` and `backup/phase-2.9-before-reword` (Daedalus,
+   local) and `backup/workflow-telemetry-before-wrap` (Thalos).
+
+## Filed or tracked
+
+- New in 2.12: #345, #346, #347, and #348 to #351, the app-wide UI findings that are the input of phase 2.13.
+- Still open from earlier: #340, #335, #332, #331, #328, #327, #326, #325, #322, #319, #318, #312, #311, #309, #295,
+  #280.
+
+## Recommended Next Step
+
+1. Merge this close-out PR.
+2. Start phase 2.13, the navigation and flow review, from `docs/regression-report-2026-10-13-1033.md` and #348 to
+   #351. Or first fix #346, so manufacture runs stop looping to the review cap.
+
+---
+
+## Previous position (2026-10-12) - phase 2.11 complete and merged (PR #343); next phase was to choose
 
 **Milestone 2, phase 2.11, the GitHub HTTP path.** Rebase-merged to `main` as PR #343 (43 commits, head `218de3a`)
 on 2026-10-12. Rulings, the live-proof table, red-verification notes and carried items are in
@@ -21,33 +69,8 @@ on 2026-10-12. Rulings, the live-proof table, red-verification notes and carried
   daedalus-sandbox#17. One GitHub `POST` and one `GET` in the publish step; a repeated `issues__get` answered `304`;
   the gauge tagged `core`; no task content in any span.
 - **Suites:** Unit 1177, Unit.Application 261, Unit.Domain 346, Unit.Infrastructure 241, Integration 679,
-  Playwright.Api 113, Playwright.Browser 82. CI green on the PR and on `main`.
-
-## Needs the owner
-
-1. **Release: on hold until the product is polished (owner decision, 2026-10-11).** No release for now. The
-   release-please PR #337, which proposed **1.0.0**, is closed. Its cause is fixed by #338, merged 2026-10-11: the
-   workflow no longer passes `release-type`, so the action reads `release-please-config.json` and
-   `bump-minor-pre-major` keeps breaking changes on 0.x. Release-please only runs on manual dispatch. When a release
-   is wanted: dispatch it and check that the new release PR proposes 0.2.0 before merging it.
-2. **Remove any external `daedalus-console` deployment** (carried from 2.8).
-3. **Close the sandbox leftovers:** daedalus-sandbox PRs #10, #11, #14, #16 and #17, issues #9 and #12.
-4. **Decide:** #325, #327, #328, #332 (the failed-start gap), #334 (does the no-content rule cover logs; 2.11
-   added the list of `LogError(ex, …)` calls outside the publish path), #322, #318 and #319.
-5. **Delete the backup refs** `backup/phase-2.3-before-reword` and `backup/phase-2.9-before-reword` (Daedalus,
-   local) and `backup/workflow-telemetry-before-wrap` (Thalos).
-
-## Filed or tracked
-
-- New in 2.11: #340 (the Web client retries POSTs); comments on #309 (three configuration-binding IL2026 pragmas)
-  and #334.
-- Still open from earlier: #335, #332, #331, #328, #327, #326, #325, #322, #319, #318, #312, #311, #309, #295, #280.
-
-## Recommended Next Step
-
-1. Merge the close-out PR for this branch, `chore/complete-phase-2.11`.
-2. Choose the next phase: 2.10 is blocked on Minos.NET 1.0, so 2.12, the manufacturing console, is the next
-   unblocked row. Or pick up #340, a small fix in the area 2.11 just touched.
+  Playwright.Api 113, Playwright.Browser 82. CI green on the PR and on `main`. Filed: #340 (the Web client retries
+  POSTs); comments on #309 and #334.
 
 ---
 
