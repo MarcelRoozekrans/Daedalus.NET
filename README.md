@@ -412,7 +412,8 @@ token values. Outgoing HTTP calls export their origin only, see "What is collect
 without a description; the one exception is the start span's failure kind.
 
 The console's live connection sends its bearer token in the `access_token` query value of the hub URL. The API
-redacts it from server spans and keeps it out of logs.
+redacts it from server spans and keeps it out of logs. It cannot reach the logs it does not write, so strip
+`access_token` from the access logs of any proxy or ingress in front of the API.
 
 This rule does not yet cover exported **logs**. Whether and how to scrub them is an open decision, Daedalus#334.
 
