@@ -37,9 +37,13 @@ public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<Ru
         {
             await dispatcher.DispatchAsync(new RunLoadFailed(id, result.Error));
         }
-        else if (result.Value is { } run)
+        else if (result.Value is { Run: { } run })
         {
             await dispatcher.DispatchAsync(new RunLoaded(run));
+        }
+        else if (result.Value.Forbidden)
+        {
+            await dispatcher.DispatchAsync(new RunForbidden(id));
         }
         else
         {
@@ -59,8 +63,10 @@ public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<Ru
     }
 
     /// <summary>
-    ///     Sends the open run's gate draft as an approval. A refusal stays on the draft with its reason, and the run is
-    ///     re-fetched, because a refusal usually means it moved on.
+    ///     Sends the open run's gate draft as an approval, then re-fetches the run either way. On success the draft
+    ///     stays busy until the run is seen off the gate, here or on a later change; the fetch here covers a page that
+    ///     is offline and so gets no change. A refusal stays on the draft with its reason, because a refusal usually
+    ///     means the run moved on. A cancelled call fetches nothing: the page that made it is gone.
     /// </summary>
     public async Task<Result> ApproveAsync(CancellationToken ct)
     {
@@ -79,17 +85,9 @@ public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<Ru
         else
         {
             await dispatcher.DispatchAsync(new GateSubmitFailed(result.Error));
-            await LoadRunAsync(id, ct);
         }
 
-        return result;
-    }
-
-    /// <summary>Cancels the run; a refusal re-fetches it.</summary>
-    public async Task<Result> CancelAsync(Guid id, string? reason, CancellationToken ct)
-    {
-        var result = await api.CancelRunAsync(id, reason, ct);
-        if (result.IsFailure)
+        if (!ct.IsCancellationRequested)
         {
             await LoadRunAsync(id, ct);
         }
@@ -97,11 +95,23 @@ public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<Ru
         return result;
     }
 
-    /// <summary>Retries the run's failed node; a refusal re-fetches it.</summary>
+    /// <summary>Cancels the run; a refusal re-fetches it, unless the call itself was cancelled.</summary>
+    public async Task<Result> CancelAsync(Guid id, string? reason, CancellationToken ct)
+    {
+        var result = await api.CancelRunAsync(id, reason, ct);
+        if (result.IsFailure && !ct.IsCancellationRequested)
+        {
+            await LoadRunAsync(id, ct);
+        }
+
+        return result;
+    }
+
+    /// <summary>Retries the run's failed node; a refusal re-fetches it, unless the call itself was cancelled.</summary>
     public async Task<Result> RetryAsync(Guid id, CancellationToken ct)
     {
         var result = await api.RetryRunAsync(id, ct);
-        if (result.IsFailure)
+        if (result.IsFailure && !ct.IsCancellationRequested)
         {
             await LoadRunAsync(id, ct);
         }

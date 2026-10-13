@@ -120,8 +120,23 @@ public sealed record NodePinView(string AgentName, string AgentId, string? Agent
 public sealed record FiledFindingView(string FindingId, string Mode, int Issue, Uri Url);
 
 /// <summary>One deferred finding of the approving review visit, as the gate shows it.</summary>
+/// <param name="Id">The finding's id, its lens and its number within that lens.</param>
+/// <param name="Lens">The review lens that deferred it.</param>
+/// <param name="File">The file the finding is in.</param>
+/// <param name="Line">The line the finding is at.</param>
+/// <param name="Title">The finding's one-line title.</param>
+/// <param name="Scenario">How the defect shows.</param>
+/// <param name="Reason">Why the reviewer deferred it instead of fixing it in the run.</param>
+/// <param name="ExistingIssue">An open issue the reviewer found already tracking it, or <see langword="null"/>.</param>
+/// <param name="Dropped">Whether the latest drop record names it, so it will not be filed.</param>
+/// <param name="ExistingIssueUrl">
+///     The web link of <paramref name="ExistingIssue"/> in the repository of the run's pull request, the repository
+///     <c>file-review-findings</c> resolves it in; <see langword="null"/> when the finding names no issue or the run has
+///     no readable github.com pull request link yet.
+/// </param>
 public sealed record DeferredFindingView(
-    string Id, string Lens, string File, int Line, string Title, string Scenario, string Reason, int? ExistingIssue, bool Dropped);
+    string Id, string Lens, string File, int Line, string Title, string Scenario, string Reason, int? ExistingIssue, bool Dropped,
+    Uri? ExistingIssueUrl);
 
 /// <summary>The token usage one completed agent node reported, read off its completion event.</summary>
 /// <param name="Seq">The seq of the node execution the completion event closes.</param>

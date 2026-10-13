@@ -38,6 +38,9 @@ public readonly record struct RunLoaded(WorkflowRunView Run);
 /// <summary>The server said the run does not exist.</summary>
 public readonly record struct RunNotFound(Guid Id);
 
+/// <summary>The server refused the run to this user: a 403.</summary>
+public readonly record struct RunForbidden(Guid Id);
+
 /// <summary>The run could not be fetched.</summary>
 public readonly record struct RunLoadFailed(Guid Id, string Error);
 
@@ -50,7 +53,7 @@ public readonly record struct GateApplyToggled(bool Apply);
 /// <summary>The approval was sent.</summary>
 public readonly record struct GateSubmitStarted;
 
-/// <summary>The approval was accepted.</summary>
+/// <summary>The approval was accepted. The draft stays busy until a fetch shows the run off the gate.</summary>
 public readonly record struct GateSubmitSucceeded;
 
 /// <summary>The approval was refused.</summary>

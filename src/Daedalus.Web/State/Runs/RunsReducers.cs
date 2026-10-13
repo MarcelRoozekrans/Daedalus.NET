@@ -1,3 +1,4 @@
+using Daedalus.Application.DTOs.WorkflowRuns;
 using ZeroAlloc.Flux;
 
 namespace Daedalus.Web.State.Runs;
@@ -39,6 +40,7 @@ public static class RunsReducers
         Selected = null,
         SelectedLoading = false,
         SelectedNotFound = false,
+        SelectedForbidden = false,
         SelectedError = null,
         Gate = GateDraft.Empty,
     };
@@ -59,21 +61,51 @@ public static class RunsReducers
     [Reducer]
     public static RunsState On(RunsState s, RunSelected a) => a.Id == s.SelectedId
         ? s
-        : s with { SelectedId = a.Id, Selected = null, SelectedNotFound = false, SelectedError = null, Gate = GateDraft.Empty };
+        : s with
+        {
+            SelectedId = a.Id,
+            Selected = null,
+            SelectedNotFound = false,
+            SelectedForbidden = false,
+            SelectedError = null,
+            Gate = GateDraft.Empty,
+        };
 
     [Reducer]
     public static RunsState On(RunsState s, RunLoadStarted a) =>
         a.Id != s.SelectedId ? s : s with { SelectedLoading = s.Selected is null };
 
+    /// <summary>
+    ///     A run that has left the human gate drops the gate draft, which ends a busy approval; one still at the gate
+    ///     keeps it, so a re-fetch neither clears the operator's choices nor un-busies an accepted approval.
+    /// </summary>
     [Reducer]
-    public static RunsState On(RunsState s, RunLoaded a) =>
-        a.Run.Id != s.SelectedId
-            ? s
-            : s with { Selected = a.Run, SelectedLoading = false, SelectedNotFound = false, SelectedError = null };
+    public static RunsState On(RunsState s, RunLoaded a)
+    {
+        if (a.Run.Id != s.SelectedId)
+        {
+            return s;
+        }
+
+        var gate = IsAtGate(a.Run) ? s.Gate : GateDraft.Empty;
+        return s with
+        {
+            Selected = a.Run,
+            SelectedLoading = false,
+            SelectedNotFound = false,
+            SelectedForbidden = false,
+            SelectedError = null,
+            Gate = gate,
+        };
+    }
 
     [Reducer]
     public static RunsState On(RunsState s, RunNotFound a) =>
-        a.Id != s.SelectedId ? s : s with { Selected = null, SelectedLoading = false, SelectedNotFound = true };
+        a.Id != s.SelectedId ? s : s with { Selected = null, SelectedLoading = false, SelectedNotFound = true, SelectedForbidden = false };
+
+    [Reducer]
+    public static RunsState On(RunsState s, RunForbidden a) =>
+        a.Id != s.SelectedId ? s : s with { Selected = null, SelectedLoading = false, SelectedNotFound = false, SelectedForbidden = true };
 
     [Reducer]
     public static RunsState On(RunsState s, RunLoadFailed a) =>
@@ -102,8 +134,9 @@ public static class RunsReducers
     [Reducer]
     public static RunsState On(RunsState s, GateSubmitStarted _) => s with { Gate = s.Gate with { Submitting = true, Error = null } };
 
+    /// <summary>The draft stays as sent and busy; <see cref="RunLoaded"/> resets it once the run is off the gate.</summary>
     [Reducer]
-    public static RunsState On(RunsState s, GateSubmitSucceeded _) => s with { Gate = GateDraft.Empty };
+    public static RunsState On(RunsState s, GateSubmitSucceeded _) => s with { Gate = s.Gate with { Submitting = true, Error = null } };
 
     [Reducer]
     public static RunsState On(RunsState s, GateSubmitFailed a) =>
@@ -115,4 +148,9 @@ public static class RunsReducers
 
     [Reducer]
     public static RunsState On(RunsState s, HubStatusChanged a) => s with { Hub = a.Status };
+
+    /// <summary>Whether <paramref name="run"/> is parked at the human approval gate.</summary>
+    public static bool IsAtGate(WorkflowRunView run) =>
+        string.Equals(run.Status, "Awaiting", StringComparison.Ordinal)
+        && string.Equals(run.AwaitingSignal, RunSignals.HumanApproval, StringComparison.Ordinal);
 }

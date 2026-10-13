@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.GitHub;
@@ -81,6 +82,10 @@ public sealed class RepoRef
         var name = segments[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? segments[1][..^4] : segments[1];
         return Parse($"{segments[0]}/{name}");
     }
+
+    /// <summary>The github.com web link of issue <paramref name="number"/> in this repository.</summary>
+    public Uri IssueUrl(int number) =>
+        new(string.Create(CultureInfo.InvariantCulture, $"https://github.com/{Owner}/{Name}/issues/{number}"), UriKind.Absolute);
 
     public override string ToString() => $"{Owner}/{Name}";
 }

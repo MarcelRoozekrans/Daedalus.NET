@@ -9,6 +9,7 @@ using Daedalus.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Thalos.Workflow;
+using RepoRef = Daedalus.Infrastructure.Services.GitHub.RepoRef;
 
 namespace Daedalus.Api.Controllers;
 
@@ -213,6 +214,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var error = string.Join("; ", new[] { review.IsFailure ? review.Error : null, dropped.IsFailure ? dropped.Error : null, filed.IsFailure ? filed.Error : null }.Where(e => e is not null));
 
         var (prUrl, unreadableLink) = ReadPrUrl(run);
+        var issueRepo = PullRequestLink.TryParse(prUrl, out var repo, out _) ? repo : null;
         return new WorkflowRunView(
             run.Id,
             run.Process,
@@ -228,7 +230,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             UnreadablePullRequestLink: unreadableLink,
             StartedBy: run.StartedBy?.Id,
             WriteAudit: [.. writes.Select(ToWriteAuditView)],
-            DeferredFindings: [.. deferred.Select(d => ToDeferredView(d, droppedIds))],
+            DeferredFindings: [.. deferred.Select(d => ToDeferredView(d, droppedIds, issueRepo))],
             DeferredFindingsError: error.Length > 0 ? error : null,
             FiledFindings: filed.IsSuccess ? [.. filed.Value.Values.Order(FiledOrder.Instance).Select(f => new FiledFindingView(f.FindingId, f.Mode, f.Issue, f.Url))] : [],
             Steps: WorkflowRunStepProjection.Project(events),
@@ -270,9 +272,14 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         }
     }
 
-    private static DeferredFindingView ToDeferredView(IdentifiedDeferredFinding d, IReadOnlySet<string> dropped) =>
+    /// <summary>
+    ///     Maps one deferred finding. Its existing issue links into the pull request's repository, which is where
+    ///     <c>file-review-findings</c> resolves that number; with no such repository there is no link, only the number.
+    /// </summary>
+    private static DeferredFindingView ToDeferredView(IdentifiedDeferredFinding d, IReadOnlySet<string> dropped, RepoRef? issueRepo) =>
         new(d.Id, d.Lens, d.Finding.File, d.Finding.Line, d.Finding.Title, d.Finding.Scenario, d.Finding.Reason,
-            d.Finding.ExistingIssue, dropped.Contains(d.Id));
+            d.Finding.ExistingIssue, dropped.Contains(d.Id),
+            d.Finding.ExistingIssue is { } issue && issueRepo is not null ? issueRepo.IssueUrl(issue) : null);
 
     /// <summary>Maps a Thalos pin to the Thalos-free view. The agent id is its ULID text, which is how Thalos serializes it.</summary>
     internal static NodePinView ToPinView(NodePin pin) =>

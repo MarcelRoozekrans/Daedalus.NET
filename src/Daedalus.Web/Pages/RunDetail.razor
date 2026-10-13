@@ -16,9 +16,9 @@
 {
     <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small"/>
 }
-else if (!_canView)
+else if (!_canView || (Runs.Value is { SelectedForbidden: true } denied && denied.SelectedId == Id))
 {
-    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" data-testid="run-forbidden">
         You need the developer or admin role to view runs.
     </RadzenAlert>
 }
@@ -42,7 +42,7 @@ else if (Runs.Value.Selected is not { } run || run.Id != Id)
 else
 {
     <RunHeader Run="@run" CanRetry="@_canRetry" OnRetry="@RetryAsync"/>
-    @if (IsAtGate(run))
+    @if (RunsReducers.IsAtGate(run))
     {
         <GatePanel @key="run.Id" Run="@run" Draft="@Runs.Value.Gate" FocusApprove="@_gateOnArrival"
                    OnToggle="@ToggleFindingAsync" OnApply="@ToggleApplyAsync"
@@ -104,9 +104,6 @@ else
 
     private Task LoadAsync() => Effects.LoadRunAsync(Id, _cts.Token);
 
-    private static bool IsAtGate(WorkflowRunView run) =>
-        run.Status == "Awaiting" && string.Equals(run.AwaitingSignal, RunSignals.HumanApproval, StringComparison.Ordinal);
-
     /// <summary>
     ///     Runs before each re-render. The first load of this run decides whether the gate was there on arrival; every
     ///     later status change is announced and stops the gate from taking focus.
@@ -121,7 +118,7 @@ else
         var text = RunStatusLabels.Text(run.Status, run.AwaitingSignal);
         if (_lastStatus is null)
         {
-            _gateOnArrival = IsAtGate(run);
+            _gateOnArrival = RunsReducers.IsAtGate(run);
         }
         else if (!string.Equals(_lastStatus, text, StringComparison.Ordinal))
         {

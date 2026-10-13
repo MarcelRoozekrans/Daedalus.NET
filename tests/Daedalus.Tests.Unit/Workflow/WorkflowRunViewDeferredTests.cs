@@ -17,7 +17,12 @@ public sealed class WorkflowRunViewDeferredTests
     private static WorkflowRunRecord Record(string kind, string payload) =>
         WorkflowRunRecord.Create(RunId, 4, "gate", kind, "p", null, payload, DateTime.UtcNow).Value;
 
-    private static async Task<WorkflowRunView> ViewWith(params WorkflowRunRecord[] extra)
+    private const string OneDeferred =
+        """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked"}] }""";
+
+    private static Task<WorkflowRunView> ViewWith(params WorkflowRunRecord[] extra) => ViewOf(OneDeferred, prUrl: null, extra);
+
+    private static async Task<WorkflowRunView> ViewOf(string evidencePayload, string? prUrl, params WorkflowRunRecord[] extra)
     {
         var run = new WorkflowRun
         {
@@ -28,14 +33,15 @@ public sealed class WorkflowRunViewDeferredTests
             CurrentSeq = 4,
             Status = WorkflowStatus.Awaiting,
             Visits = new Dictionary<string, int>(StringComparer.Ordinal),
+            Variables = prUrl is null
+                ? new Dictionary<string, object?>(StringComparer.Ordinal)
+                : new Dictionary<string, object?>(StringComparer.Ordinal) { [ReviewHandoff.PrUrlKey] = prUrl },
         };
         var store = Substitute.For<IWorkflowStore>();
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
         var history = Substitute.For<IWorkflowRunHistory>();
         history.ListEventsAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<IReadOnlyList<WorkflowRunEvent>>([]));
-        var evidence = Record(
-            WorkflowRunRecord.ReviewEvidenceKind,
-            """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked"}] }""");
+        var evidence = Record(WorkflowRunRecord.ReviewEvidenceKind, evidencePayload);
         var records = Substitute.For<IWorkflowRunRecordStore>();
         records.ListAsync(run.Id, Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
@@ -82,6 +88,23 @@ public sealed class WorkflowRunViewDeferredTests
         var view = await ViewWith(Record(WorkflowRunRecord.FindingsDroppedKind, FindingRecords.DroppedPayload(["correctness-1"], "admin", "a")));
 
         view.DeferredFindings.Should().ContainSingle().Which.Dropped.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     A deferred finding that names an existing issue links it in the pull request's repository, where filing
+    ///     resolves it; a finding with no issue has no link.
+    ///     Red: return null for ExistingIssueUrl in ToDeferredView. Red: build the link without the issue number.
+    ///     Red: link an issue-less finding to the repository anyway.
+    /// </summary>
+    [Fact]
+    public async Task An_existing_issue_links_into_the_pull_requests_repository()
+    {
+        const string Evidence =
+            """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked","existingIssue":42},{"file":"b.cs","line":2,"title":"u","scenario":"s","reason":"blocked"}] }""";
+
+        var view = await ViewOf(Evidence, "https://github.com/acme/widgets/pull/17");
+
+        view.DeferredFindings.Select(d => d.ExistingIssueUrl).Should().Equal(new Uri("https://github.com/acme/widgets/issues/42"), null);
     }
 
     /// <summary>Red: leave FiledFindings empty; the single finding is missing.</summary>
