@@ -154,6 +154,11 @@
 
     private async Task ManufactureTask(TaskDto task)
     {
+        if (TaskStore.Value.Starting.Contains(task.Id))
+        {
+            return;
+        }
+
         var result = await Effects.ManufactureAsync(task.Id, _cts.Token);
         if (result.IsSuccess)
         {
