@@ -65,6 +65,9 @@
     --rz-header-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
     --rz-header-border: none;
     --rz-header-min-height: 3.5rem;
+    /* Material draws the sidebar toggle in --rz-on-primary for a primary-coloured header; this header is white, so the
+       toggle follows the header's own text colour, or it is white on white and invisible at every width. */
+    --rz-sidebar-toggle-color: var(--rz-header-color);
 
     /* ── Sidebar / Panel Menu ────────────────────────────────────────── */
     --rz-panel-menu-item-border: none;
