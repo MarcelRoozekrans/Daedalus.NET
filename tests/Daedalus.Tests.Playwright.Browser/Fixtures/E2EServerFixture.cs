@@ -72,9 +72,16 @@ public class E2EServerFixture
     ];
 
     /// <summary>
-    ///     Every hosted service the host runs once the background work is gone: the seven AddDaedalusAgents leaves, which
-    ///     run today with the engine off and dispatch, sweep and sync no workflow state; the console's broadcaster; and
-    ///     the two ASP.NET Core adds itself, for data protection and for AddHealthChecks.
+    ///     Every hosted service the host runs once the background work is gone. None reads or writes workflow state:
+    ///     <list type="bullet">
+    ///         <item>agent session crash recovery and the schedule reconciler: agent sessions and schedules;</item>
+    ///         <item>the Rag.NET schema initializer and memory reindex: the agent memory tables;</item>
+    ///         <item>skill and charter sync: content files into the skill and charter catalogs;</item>
+    ///         <item>the C# write-binding check: a boot-time configuration check;</item>
+    ///         <item>the console's broadcaster: it only relays committed run changes to the hub;</item>
+    ///         <item>data protection and the health-check publisher, which ASP.NET Core adds itself.</item>
+    ///     </list>
+    ///     The first seven are the ones AddDaedalusAgents and AddThalos leave, and run today with the engine off.
     /// </summary>
     private static readonly string[] HostedServicesKept =
     [
