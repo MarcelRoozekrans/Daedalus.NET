@@ -1,4 +1,5 @@
 using Daedalus.Tests.Playwright.Browser.PageObjects;
+using Daedalus.Tests.Playwright.Browser.Utilities;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 
@@ -103,6 +104,37 @@ public class NavigationBrowserTests : BrowserTestBase
         await _mainPage.SidebarToggle.ClickAsync().ConfigureAwait(false);
         await Task.Delay(300).ConfigureAwait(false);
         await Expect(_mainPage.DashboardMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Git Repositories and its Configuration heading are for admins only, as the repositories API is, and follow a
+    ///     role change without a reload: absent for an analyst, present once an admin, absent again as a developer.
+    ///     Red: <c>MainLayout</c> shows the item to everyone; the analyst sees it.
+    ///     Red: the item rendered for admins, but its Configuration heading outside the <c>AuthorizeView</c>; the analyst
+    ///     sees the heading.
+    /// </summary>
+    [Test]
+    [Description("Git Repositories is shown to admins only, and follows a role change")]
+    public async Task Sidebar_GitRepositories_IsForAdminsOnly()
+    {
+        await using var context = await Browser.NewContextAsync().ConfigureAwait(false);
+        await TestRoles.WriteAsync(context, BaseUrl, "analyst").ConfigureAwait(false);
+        var page = await context.NewPageAsync().ConfigureAwait(false);
+        var main = new MainPage(page, BaseUrl);
+        await main.NavigateToAsync("/").ConfigureAwait(false);
+
+        // The header names the user only once the user is known, so the absence is checked after it.
+        await Expect(main.Header).ToContainTextAsync("E2E Test User").ConfigureAwait(false);
+        await Expect(main.GitRepositoriesMenuItem).ToHaveCountAsync(0).ConfigureAwait(false);
+        await Expect(main.ConfigurationDivider).ToHaveCountAsync(0).ConfigureAwait(false);
+
+        await TestRoles.WriteAsync(context, BaseUrl, "admin").ConfigureAwait(false);
+        await Expect(main.GitRepositoriesMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(main.ConfigurationDivider).ToBeVisibleAsync().ConfigureAwait(false);
+
+        await TestRoles.WriteAsync(context, BaseUrl, "developer").ConfigureAwait(false);
+        await Expect(main.GitRepositoriesMenuItem).ToHaveCountAsync(0).ConfigureAwait(false);
+        await Expect(main.ConfigurationDivider).ToHaveCountAsync(0).ConfigureAwait(false);
     }
 
     // ── Bug #2 regression: sidebar section dividers ──────────────────────────
