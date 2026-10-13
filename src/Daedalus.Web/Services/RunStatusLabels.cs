@@ -23,18 +23,26 @@ public static class RunStatusLabels
         _ => BadgeStyle.Light,
     };
 
-    /// <summary>The badge text of a timeline step: the outcome a completion reported, else the event kind.</summary>
-    public static string StepText(string kind, string? outcome) => outcome ?? kind;
+    /// <summary>
+    ///     The badge text of a timeline step. A kind that carries the step's meaning, Failed, CapExceeded, Cancelled,
+    ///     Resumed or Retried, shows as itself whatever outcome it holds; any other step shows the outcome a
+    ///     completion reported, else the event kind.
+    /// </summary>
+    public static string StepText(string kind, string? outcome) => IsSignificantKind(kind) ? kind : outcome ?? kind;
 
     /// <summary>The badge severity of a timeline step.</summary>
     public static BadgeStyle StepStyle(string kind, string? outcome) => (kind, outcome) switch
     {
-        (_, "approved" or "published") => BadgeStyle.Success,
-        (_, "rejected") => BadgeStyle.Danger,
         ("Failed" or "CapExceeded", _) => BadgeStyle.Danger,
         ("Resumed" or "Retried", _) => BadgeStyle.Info,
+        ("Cancelled", _) => BadgeStyle.Light,
+        (_, "approved" or "published") => BadgeStyle.Success,
+        (_, "rejected") => BadgeStyle.Danger,
         _ => BadgeStyle.Light,
     };
+
+    private static bool IsSignificantKind(string kind) =>
+        kind is "Failed" or "CapExceeded" or "Cancelled" or "Resumed" or "Retried";
 }
 
 /// <summary>The signal the manufacture process's human gate awaits.</summary>

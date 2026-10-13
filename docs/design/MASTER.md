@@ -143,12 +143,13 @@ For a manufacture run, phase 2.12's console maps a run status and a timeline ste
 
 | Timeline event kind or outcome | Badge text | Severity |
 |---|---|---|
-| outcome `approved`, `published` | the outcome | Success |
-| outcome `rejected`; kind `Failed`, `CapExceeded` | the outcome or kind | Danger |
-| kind `Resumed`, `Retried` | the kind, plus "by `<actor>`" as caption text | Info |
+| outcome `approved`, `published` (any kind below excepted) | the outcome | Success |
+| outcome `rejected`; kind `Failed`, `CapExceeded` | the outcome, or for those two kinds the kind | Danger |
+| kind `Resumed`, `Retried` | the kind, whatever the outcome, plus "by `<actor>`" as caption text | Info |
 | anything else | the outcome, else the kind | Light / muted |
 
-A cancelled run's step has kind `Cancelled` and falls under "anything else": text `Cancelled`, Light.
+A step of kind `Failed`, `CapExceeded`, `Cancelled`, `Resumed` or `Retried` always shows its kind, whatever outcome it
+holds; a cancelled run's step has kind `Cancelled`: text `Cancelled`, Light.
 
 ## Stack-Specific Notes
 
