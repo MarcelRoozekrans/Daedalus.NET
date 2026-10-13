@@ -1,0 +1,82 @@
+@page "/runs"
+@inherits FluxComponent
+@implements IAsyncDisposable
+@inject IStore<RunsState> RunStore
+@inject IDispatcher Dispatcher
+@inject RunsEffects Effects
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Runs · Daedalus</PageTitle>
+
+<RadzenStack Gap="0.25rem" class="rz-mb-4">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween">
+        <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Runs</RadzenText>
+        @if (_canView)
+        {
+            <LiveIndicator/>
+        }
+    </RadzenStack>
+    <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+        Manufacture runs, newest first. Open one to follow it or to decide its gate.
+    </RadzenText>
+</RadzenStack>
+
+@if (!_checked)
+{
+    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small"/>
+}
+else if (!_canView)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+        You need the developer or admin role to view runs.
+    </RadzenAlert>
+}
+else
+{
+    <RadzenCard class="rz-mb-4" data-testid="runs-filter-card">
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.End" Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenFormField Text="Status" Style="width: 200px;">
+                <RadzenDropDown TValue="string" Value="@RunStore.Value.Query.Status" Data="@Statuses" AllowClear="true"
+                                Change="@(value => FilterAsync(value as string, RunStore.Value.Query.Process))"
+                                data-testid="runs-status-filter"/>
+            </RadzenFormField>
+            <RadzenFormField Text="Process" Style="width: 200px;">
+                <RadzenTextBox Value="@RunStore.Value.Query.Process"
+                               Change="@(value => FilterAsync(RunStore.Value.Query.Status, value))"
+                               data-testid="runs-process-filter"/>
+            </RadzenFormField>
+        </RadzenStack>
+    </RadzenCard>
+
+    <RunsGrid CancellationToken="@_cts.Token"/>
+}
+
+@code {
+    private static readonly string[] Statuses = ["Running", "Awaiting", "Succeeded", "Failed", "Cancelled"];
+    private readonly CancellationTokenSource _cts = new();
+    private bool _checked;
+    private bool _canView;
+
+    protected override void SubscribeStores() => Subscribe(RunStore);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canView = RunAccess.CanView((await Authentication.GetAuthenticationStateAsync()).User);
+        _checked = true;
+        if (_canView)
+        {
+            await Effects.LoadListAsync(RunStore.Value.Query, _cts.Token);
+        }
+    }
+
+    private Task FilterAsync(string? status, string? process) =>
+        Effects.LoadListAsync(new RunListQuery(status, string.IsNullOrWhiteSpace(process) ? null : process, null), _cts.Token);
+
+    public async ValueTask DisposeAsync()
+    {
+        await _cts.CancelAsync();
+        _cts.Dispose();
+        await Dispatcher.DispatchAsync(new RunListClosed());
+        Dispose();
+    }
+}

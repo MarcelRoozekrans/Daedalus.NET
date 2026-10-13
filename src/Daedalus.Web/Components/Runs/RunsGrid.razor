@@ -1,0 +1,87 @@
+@inherits FluxComponent
+@inject IStore<RunsState> Runs
+@inject IDispatcher Dispatcher
+@inject RunsEffects Effects
+
+<RadzenCard class="rz-mb-4" data-testid="runs-card">
+    @if (Runs.Value.ListError is { } error)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4">
+            @error
+            <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@ReloadAsync"/>
+        </RadzenAlert>
+    }
+    else if (Runs.Value.List is { Runs.Count: 0 } && !Runs.Value.ListLoading)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+            No runs yet. Start one with Manufacture on a board task.
+        </RadzenAlert>
+    }
+    else
+    {
+        <RadzenDataGrid TItem="WorkflowRunListItem" Data="@(Runs.Value.List?.Runs ?? [])" AllowSorting="true"
+                        IsLoading="@Runs.Value.ListLoading" Style="height: auto;" data-testid="runs-grid">
+            <Columns>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Title="Status" Width="170px">
+                    <Template Context="run">
+                        <a href="@($"runs/{run.Id}")" aria-label="@($"Open run {run.Id.ToString()[..8]}")">
+                            <RunStatusBadge Status="@run.Status" AwaitingSignal="@run.AwaitingSignal"/>
+                        </a>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Title="Process" Width="170px"
+                                      CssClass="runs-col-tablet" HeaderCssClass="runs-col-tablet">
+                    <Template Context="run">@run.Process v@(run.ProcessVersion)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="CurrentNode" Title="Current node" Width="140px"/>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Title="Task">
+                    <Template Context="run">
+                        @if (run.TaskTitle is { } title)
+                        {
+                            <RadzenLink Path="tasks" Text="@($"{run.TaskCode} {title}")"/>
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="StartedBy" Title="Started by" Width="140px"
+                                      CssClass="runs-col-wide" HeaderCssClass="runs-col-wide"/>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="CreatedAt" Title="Started" FormatString="{0:g}" Width="150px"
+                                      CssClass="runs-col-tablet" HeaderCssClass="runs-col-tablet"/>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="UpdatedAt" Title="Updated" FormatString="{0:g}" Width="150px"
+                                      CssClass="runs-col-wide" HeaderCssClass="runs-col-wide"/>
+            </Columns>
+        </RadzenDataGrid>
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center" Gap="0.5rem" class="rz-mt-2">
+            <RadzenButton Text="Previous" ButtonStyle="ButtonStyle.Light" Disabled="@(Runs.Value.PreviousCursors.Count == 0)"
+                          Click="@PreviousAsync" data-testid="runs-previous"/>
+            <RadzenButton Text="Next" ButtonStyle="ButtonStyle.Light" Disabled="@(Runs.Value.List?.Next is null)"
+                          Click="@NextAsync" data-testid="runs-next"/>
+        </RadzenStack>
+    }
+</RadzenCard>
+
+@code {
+    [Parameter] public CancellationToken CancellationToken { get; set; }
+
+    protected override void SubscribeStores() => Subscribe(Runs);
+
+    private Task ReloadAsync() => Effects.LoadListAsync(Runs.Value.Query, CancellationToken);
+
+    private async Task NextAsync()
+    {
+        if (Runs.Value.List?.Next is { } next)
+        {
+            await Dispatcher.DispatchAsync(new RunListPagedForward(next));
+            await Effects.LoadListAsync(Runs.Value.Query, CancellationToken);
+        }
+    }
+
+    private async Task PreviousAsync()
+    {
+        await Dispatcher.DispatchAsync(new RunListPagedBack());
+        await Effects.LoadListAsync(Runs.Value.Query, CancellationToken);
+    }
+}

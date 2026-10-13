@@ -1,0 +1,8 @@
+<RadzenBadge Text="@RunStatusLabels.Text(Status, AwaitingSignal)"
+             BadgeStyle="@RunStatusLabels.Style(Status, AwaitingSignal)"
+             Shade="Shade.Lighter" data-testid="run-status"/>
+
+@code {
+    [Parameter, EditorRequired] public string Status { get; set; } = "";
+    [Parameter] public string? AwaitingSignal { get; set; }
+}

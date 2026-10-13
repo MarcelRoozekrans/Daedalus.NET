@@ -98,4 +98,18 @@ public sealed class RunsReducersTests
 
         after.ListError.Should().BeNull();
     }
+
+    /// <summary>
+    ///     A first-page request, which is what a filter change sends, empties the cursor stack; a later page keeps it.
+    ///     Red: keep PreviousCursors on a first-page request. Red: clear PreviousCursors on a request with a cursor.
+    /// </summary>
+    [Fact]
+    public void A_first_page_request_clears_the_cursor_stack()
+    {
+        var paged = RunsReducers.On(Empty, new RunListPagedForward("c1"));
+        paged.PreviousCursors.Should().HaveCount(1);
+
+        RunsReducers.On(paged, new RunListRequested(new RunListQuery("Failed", null, null))).PreviousCursors.Should().BeEmpty();
+        RunsReducers.On(paged, new RunListRequested(new RunListQuery(null, null, "c1"))).PreviousCursors.Should().HaveCount(1);
+    }
 }
