@@ -5,7 +5,7 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Api;
 
 /// <summary>
-///     The Api's global rate limit, 100 requests a minute, is each signed-in user's own: it partitions by the user
+///     The Api's global rate limit, 100 requests a minute, is each signed-in user's own: it partitions by the subject
 ///     authentication set, so one user spending the budget leaves another's untouched.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
@@ -15,9 +15,12 @@ public sealed class RateLimitPartitionTests(PostgresFixture fixture)
     private const int GlobalPermits = 100;
 
     /// <summary>
-    ///     A user who spends the whole budget is refused with 429, while a second user on the same address is not.
+    ///     A user who spends the whole budget is refused with 429, while a second user on the same address is not. Both
+    ///     carry a Keycloak token's claim shape, with no identity name.
     ///     Red: run <c>UseRateLimiter</c> before <c>UseAuthentication</c>: both users fall into one partition by
     ///     address, and the second user's request is a 429.
+    ///     Red: key the partition on the identity name: it is null, both users fall back to the address, and the
+    ///     second user's request is a 429.
     ///     Red: drop <c>UseRateLimiter</c>: the first user's extra request is not a 429.
     /// </summary>
     [Fact]
@@ -45,6 +48,8 @@ public sealed class RateLimitPartitionTests(PostgresFixture fixture)
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, user);
         client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, "reader");
+        // A real token's claims: sub but no ClaimTypes.Name, so the user's identity name is null.
+        client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.KeycloakShapeHeader, "true");
         return client;
     }
 }

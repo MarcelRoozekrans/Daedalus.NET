@@ -253,12 +253,10 @@ builder.Services.AddAuthorization(options =>
 // Add rate limiting — protects write and LLM endpoints from abuse
 builder.Services.AddRateLimiter(options =>
 {
-    // Global: 100 requests per minute per user
+    // Global: 100 requests per minute per signed-in subject, or per address for a request with none
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.User?.Identity?.Name
-                          ?? context.Connection.RemoteIpAddress?.ToString()
-                          ?? "anonymous",
+            partitionKey: RateLimitPartitionKey.For(context),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 100,
