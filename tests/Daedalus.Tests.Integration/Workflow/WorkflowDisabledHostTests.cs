@@ -21,13 +21,14 @@ namespace Daedalus.Tests.Integration.Workflow;
 public sealed class WorkflowDisabledHostTests(PostgresFixture fixture)
 {
     /// <summary>
-    ///     A write that starts a run, a read, and two writes on a run all answer the same 503 problem details naming
-    ///     the disabled engine, with no <c>Retry-After</c>, because no retry gets past a host setting. Red, per
-    ///     assertion: remove the attribute, and the status fails; add a <c>Retry-After</c> to the filter's answer, and
-    ///     the header fails; change the filter's detail, and the detail fails.
+    ///     A write that starts a run, the list, a read, and three writes on a run all answer the same 503 problem
+    ///     details naming the disabled engine, with no <c>Retry-After</c>, because no retry gets past a host setting.
+    ///     Red, per assertion: remove the attribute, and the status fails; add a <c>Retry-After</c> to the filter's
+    ///     answer, and the header fails; change the filter's detail, and the detail fails.
     /// </summary>
     [Theory]
     [InlineData("POST", "/api/workflow-runs")]
+    [InlineData("GET", "/api/workflow-runs")]
     [InlineData("GET", "/api/workflow-runs/00000000-0000-0000-0000-000000000001")]
     [InlineData("POST", "/api/workflow-runs/00000000-0000-0000-0000-000000000001/resume")]
     [InlineData("POST", "/api/workflow-runs/00000000-0000-0000-0000-000000000001/cancel")]
