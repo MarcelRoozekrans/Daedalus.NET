@@ -1,4 +1,3 @@
-using System.Data.Async.Adapters;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.RateLimiting;
@@ -16,6 +15,7 @@ using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Infrastructure.Services;
+using Daedalus.Migrations;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -30,9 +30,6 @@ using Npgsql;
 using Thalos;
 using Thalos.Memory;
 using Thalos.Workflow;
-using Thalos.Workflow.Orm;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Playwright.Browser;
@@ -516,21 +513,19 @@ public class E2EServerFixture
         ?? descriptor.ImplementationFactory?.Method.ReturnType;
 
     /// <summary>
-    ///     The workflow engine's raw-SQL schema on this fixture's fresh database. It runs the two sources
-    ///     <c>WorkflowEngineMigrator.Sources</c> lists, in its order: the outbox first, because the store enqueues into it
-    ///     in the same transaction as the run, then the workflow tables. It cannot call <c>WorkflowEngineMigrator</c>
-    ///     itself, which lives in Daedalus.Migrations, a project this one does not reference, and it skips that
-    ///     migrator's pre-scoping history upgrade, which a fresh database has nothing for. A source added there must be
-    ///     added here too, the same way <c>ScratchWorkflowHost</c> in the Integration tests runs them.
+    ///     The workflow engine's raw-SQL schema, through the same step Daedalus.Migrations runs at deploy,
+    ///     <see cref="WorkflowEngineMigrator.ApplyAsync"/>, so the sources and their order cannot drift from it. A refusal
+    ///     fails set-up with the migrator's reason.
     /// </summary>
     private static async Task MigrateWorkflowEngineAsync(string connectionString)
     {
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync().ConfigureAwait(false);
-        var asyncConnection = connection.AsAsync();
-        var dialect = new PostgresMigrationDialect();
-        await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync().ConfigureAwait(false);
-        await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync().ConfigureAwait(false);
+        var outcome = await WorkflowEngineMigrator.ApplyAsync(connection).ConfigureAwait(false);
+        if (outcome.IsFailure)
+        {
+            throw new InvalidOperationException($"The workflow engine migration was refused: {outcome.Error}");
+        }
     }
 
     private static void RemoveAndReplace<TService, TImplementation>(IServiceCollection services)

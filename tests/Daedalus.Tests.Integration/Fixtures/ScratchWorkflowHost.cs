@@ -1,17 +1,14 @@
-using System.Data.Async.Adapters;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Migrations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Thalos;
 using Thalos.Workflow;
-using Thalos.Workflow.Orm;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Fixtures;
@@ -333,12 +330,15 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
             await db.Database.MigrateAsync();
         }
 
+        // The workflow engine's raw-SQL schema through the step Daedalus.Migrations runs at deploy, so the sources and
+        // their order cannot drift from it.
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
-        var asyncConnection = connection.AsAsync();
-        var dialect = new PostgresMigrationDialect();
-        await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-        await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
+        var outcome = await WorkflowEngineMigrator.ApplyAsync(connection);
+        if (outcome.IsFailure)
+        {
+            throw new InvalidOperationException($"The workflow engine migration was refused: {outcome.Error}");
+        }
     }
 
     private static async Task ExecuteOnServerAsync(PostgresFixture fixture, string sql)
