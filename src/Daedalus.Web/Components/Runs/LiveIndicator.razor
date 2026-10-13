@@ -8,6 +8,9 @@
         case HubStatus.Connected:
             <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin: 0;">Live</RadzenText>
             break;
+        case HubStatus.Connecting:
+            <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin: 0;">Connecting…</RadzenText>
+            break;
         case HubStatus.Reconnecting:
             <RadzenText TextStyle="TextStyle.Caption" Style="color: var(--rz-warning); margin: 0;">Reconnecting…</RadzenText>
             break;
