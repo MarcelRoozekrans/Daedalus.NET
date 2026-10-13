@@ -368,8 +368,9 @@ public class E2EServerFixture
             app.UseBlazorFrameworkFiles();
             app.UseStaticFiles();
 
-            app.UseRateLimiter();
+            // The Api's order: the limiter partitions by the signed-in user, so it runs after authentication.
             app.UseAuthentication();
+            app.UseRateLimiter();
             app.UseAuthorization();
 
             app.MapControllers();
