@@ -145,6 +145,8 @@ public class NavigationBrowserTests : BrowserTestBase
     ///     Red: <c>#app</c> centres its child again, as the loading screen's style did; the Dashboard's body is narrower
     ///     than the Tasks one's.
     ///     Red: no <c>scrollbar-gutter</c> on the body; a page long enough to scroll has a narrower body.
+    ///     Red: only the pages too short to scroll measured, /costs and /agent left out; no measured page scrolls.
+    ///     Red: <c>.rz-body &gt; div { min-width: 2000px; }</c> in the theme; every page scrolls sideways.
     /// </summary>
     [Test]
     [Description("The content column has the same width and start on every page")]
@@ -176,6 +178,10 @@ public class NavigationBrowserTests : BrowserTestBase
 
             var report = string.Join("; ", measured.Select(m => $"{m.Path} {m.Width}w {m.StartX}x {m.Overflow}o {m.Scrolls}s"));
             await TestContext.Progress.WriteLineAsync($"{width}x{height}: {report}").ConfigureAwait(false);
+
+            // The widths compare a page that scrolls with one that does not, or the gutter goes unchecked.
+            measured.Should().Contain(m => m.Scrolls, $"a page long enough to scroll is measured at {width}x{height}: {report}");
+            measured.Should().Contain(m => !m.Scrolls, $"a page too short to scroll is measured at {width}x{height}: {report}");
             measured.Should().OnlyContain(m => Math.Abs(m.Width - measured[0].Width) <= 1,
                 $"the body is as wide on every page at {width}x{height}: {report}");
             measured.Should().OnlyContain(m => Math.Abs(m.StartX - measured[0].StartX) <= 1,
