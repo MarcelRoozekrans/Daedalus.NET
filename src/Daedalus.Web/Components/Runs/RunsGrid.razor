@@ -4,6 +4,7 @@
 @inject RunsEffects Effects
 
 <RadzenCard class="rz-mb-4" data-testid="runs-card">
+<div class="runs-grid">
     @if (Runs.Value.ListError is { } error)
     {
         <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4">
@@ -14,7 +15,9 @@
     else if (Runs.Value.List is { Runs.Count: 0 } && !Runs.Value.ListLoading)
     {
         <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
-            No runs yet. Start one with Manufacture on a board task.
+            @(Runs.Value.Query is { Status: not null } or { Process: not null }
+                ? "No runs match these filters."
+                : "No runs yet. Start one with Manufacture on a board task.")
         </RadzenAlert>
     }
     else
@@ -24,7 +27,7 @@
             <Columns>
                 <RadzenDataGridColumn TItem="WorkflowRunListItem" Title="Status" Width="170px">
                     <Template Context="run">
-                        <a href="@($"runs/{run.Id}")" aria-label="@($"Open run {run.Id.ToString()[..8]}")">
+                        <a href="@($"runs/{run.Id}")" aria-label="@($"Open run {run.Id.ToString()[..8]}, {RunStatusLabels.Text(run.Status, run.AwaitingSignal)}")">
                             <RunStatusBadge Status="@run.Status" AwaitingSignal="@run.AwaitingSignal"/>
                         </a>
                     </Template>
@@ -55,12 +58,13 @@
             </Columns>
         </RadzenDataGrid>
         <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center" Gap="0.5rem" class="rz-mt-2">
-            <RadzenButton Text="Previous" ButtonStyle="ButtonStyle.Light" Disabled="@(Runs.Value.PreviousCursors.Count == 0)"
+            <RadzenButton Text="Previous" ButtonStyle="ButtonStyle.Light" Disabled="@(Runs.Value.ListLoading || Runs.Value.PreviousCursors.Count == 0)"
                           Click="@PreviousAsync" data-testid="runs-previous"/>
-            <RadzenButton Text="Next" ButtonStyle="ButtonStyle.Light" Disabled="@(Runs.Value.List?.Next is null)"
+            <RadzenButton Text="Next" ButtonStyle="ButtonStyle.Light" Disabled="@(Runs.Value.ListLoading || Runs.Value.List?.Next is null)"
                           Click="@NextAsync" data-testid="runs-next"/>
         </RadzenStack>
     }
+</div>
 </RadzenCard>
 
 @code {

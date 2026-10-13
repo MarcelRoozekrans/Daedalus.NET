@@ -101,6 +101,7 @@ public sealed class RunsReducersTests
 
     /// <summary>
     ///     A first-page request, which is what a filter change sends, empties the cursor stack; a later page keeps it.
+    ///     Red: don't push the cursor on RunListPagedForward.
     ///     Red: keep PreviousCursors on a first-page request. Red: clear PreviousCursors on a request with a cursor.
     /// </summary>
     [Fact]
