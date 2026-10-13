@@ -74,6 +74,25 @@ public class E2EServerFixture
         "Daedalus.Agents.Workflow.RunWorkspaceSweepService",
     ];
 
+    /// <summary>
+    ///     Every hosted service the host runs once the background work is gone: the seven AddDaedalusAgents leaves, which
+    ///     run today with the engine off and dispatch, sweep and sync no workflow state; the console's broadcaster; and
+    ///     the two ASP.NET Core adds itself, for data protection and for AddHealthChecks.
+    /// </summary>
+    private static readonly string[] HostedServicesKept =
+    [
+        "Daedalus.Agents.Sessions.AgentSessionCrashRecovery",
+        "Daedalus.Agents.Scheduling.ScheduleReconcilerHostedService",
+        "Thalos.Memory.RagNet.RagNetMemorySchemaInitializer",
+        "Thalos.Skills.SkillSyncService",
+        "Thalos.Skills.Charters.CharterSyncService",
+        "Daedalus.Agents.Memory.ReindexPendingMemoriesHostedService",
+        "Daedalus.Agents.Security.CSharpWriteBindingCheck",
+        "Daedalus.Api.Hubs.WorkflowRunChangeBroadcaster",
+        "Microsoft.AspNetCore.DataProtection.Internal.DataProtectionHostedService",
+        "Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckPublisherHostedService",
+    ];
+
     public static HttpClient CreateClient()
     {
         if (ServerUrl == null)
@@ -300,6 +319,8 @@ public class E2EServerFixture
                 options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser());
             });
 
+            ExpectOnlyKeptHostedServices(builder.Services);
+
             // 4. Build and configure middleware
             var app = builder.Build();
             _app = app;
@@ -440,7 +461,7 @@ public class E2EServerFixture
     private static void RemoveWorkflowBackgroundWork(IServiceCollection services)
     {
         var found = services
-            .Where(d => d.ServiceType == typeof(IHostedService)
+            .Where(d => IsHostedService(d)
                         && HostedServiceType(d)?.FullName is { } name
                         && WorkflowBackgroundWork.Contains(name, StringComparer.Ordinal))
             .ToList();
@@ -462,6 +483,32 @@ public class E2EServerFixture
         }
     }
 
+    /// <summary>
+    ///     Fails the fixture unless the hosted services left are exactly <see cref="HostedServicesKept"/>, so a service
+    ///     added to the composition root later cannot start dispatching against the seeded runs unnoticed.
+    /// </summary>
+    private static void ExpectOnlyKeptHostedServices(IServiceCollection services)
+    {
+        var remaining = services
+            .Where(IsHostedService)
+            .Select(d => HostedServiceType(d)?.FullName ?? "(unknown)")
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        var expected = HostedServicesKept.Order(StringComparer.Ordinal).ToList();
+        if (!remaining.SequenceEqual(expected, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The hosted services left are not the ones kept: " + string.Join(", ", remaining));
+        }
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="descriptor"/> registers a hosted service. A keyed descriptor is never one the host
+    ///     starts, and reading its implementation members throws, so it is ruled out first.
+    /// </summary>
+    private static bool IsHostedService(ServiceDescriptor descriptor) =>
+        !descriptor.IsKeyedService && descriptor.ServiceType == typeof(IHostedService);
+
     /// <summary>The type a hosted service registration runs: its implementation type, instance or factory return type.</summary>
     private static Type? HostedServiceType(ServiceDescriptor descriptor) =>
         descriptor.ImplementationType
@@ -469,8 +516,12 @@ public class E2EServerFixture
         ?? descriptor.ImplementationFactory?.Method.ReturnType;
 
     /// <summary>
-    ///     The workflow engine's raw-SQL schema, as Daedalus.Migrations applies it: the outbox first, because the store
-    ///     enqueues into it in the same transaction as the run, then the workflow tables.
+    ///     The workflow engine's raw-SQL schema on this fixture's fresh database. It runs the two sources
+    ///     <c>WorkflowEngineMigrator.Sources</c> lists, in its order: the outbox first, because the store enqueues into it
+    ///     in the same transaction as the run, then the workflow tables. It cannot call <c>WorkflowEngineMigrator</c>
+    ///     itself, which lives in Daedalus.Migrations, a project this one does not reference, and it skips that
+    ///     migrator's pre-scoping history upgrade, which a fresh database has nothing for. A source added there must be
+    ///     added here too, the same way <c>ScratchWorkflowHost</c> in the Integration tests runs them.
     /// </summary>
     private static async Task MigrateWorkflowEngineAsync(string connectionString)
     {
