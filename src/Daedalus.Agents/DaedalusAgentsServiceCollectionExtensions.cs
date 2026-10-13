@@ -980,23 +980,71 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     Phase 2.10: every pinned review-lens model must be one the reviewer may use, else the pin would widen past the
     ///     menu that the cost table is checked against.
     /// </summary>
-    /// <exception cref="InvalidOperationException">A <c>PinnedLensModels</c> value is not in the reviewer's <c>AllowedModels</c>.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     <c>Model</c> is blank, <c>Timeout</c> is not positive, a probability is outside 0 to 1, an <c>AllowedModels</c> entry
+    ///     is blank or repeated, or a <c>PinnedLensModels</c> value is not in the reviewer's <c>AllowedModels</c>.
+    /// </exception>
     private static void ValidateDecisionsConfig(DaedalusAgentsOptions options)
     {
+        const string section = DecisionsConfig.SectionName;
         var decisions = options.Decisions;
+        if (string.IsNullOrWhiteSpace(decisions.Model))
+        {
+            throw new InvalidOperationException($"{section}:Model must not be blank. It names the OpenRouter model that decides.");
+        }
+
+        if (decisions.Timeout <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException($"{section}:Timeout must be greater than zero, got {decisions.Timeout}.");
+        }
+
+        if (decisions.ModelConfidence is < 0 or > 1)
+        {
+            throw new InvalidOperationException($"{section}:ModelConfidence must be between 0 and 1, got {decisions.ModelConfidence}.");
+        }
+
+        if (decisions.ToolFamilyProbability is < 0 or > 1)
+        {
+            throw new InvalidOperationException($"{section}:ToolFamilyProbability must be between 0 and 1, got {decisions.ToolFamilyProbability}.");
+        }
+
+        for (var i = 0; i < options.Agents.Count; i++)
+        {
+            var models = options.Agents[i].AllowedModels;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var model in models)
+            {
+                if (string.IsNullOrWhiteSpace(model))
+                {
+                    throw new InvalidOperationException($"Thalos:Agents:{i}:AllowedModels must not contain a blank entry.");
+                }
+
+                if (!seen.Add(model))
+                {
+                    throw new InvalidOperationException($"Thalos:Agents:{i}:AllowedModels lists '{model}' more than once.");
+                }
+            }
+        }
+
         if (decisions.PinnedLensModels.Count == 0)
         {
             return;
         }
 
-        var reviewerModels = options.Agents.FirstOrDefault(a => string.Equals(a.Name, "reviewer", StringComparison.Ordinal))?.AllowedModels ?? [];
+        var reviewer = options.Agents.FirstOrDefault(a => string.Equals(a.Name, "reviewer", StringComparison.Ordinal));
         foreach (var (lens, model) in decisions.PinnedLensModels)
         {
-            if (!reviewerModels.Contains(model, StringComparer.Ordinal))
+            if (reviewer is null)
             {
                 throw new InvalidOperationException(
-                    $"{DecisionsConfig.SectionName}:PinnedLensModels:{lens} is '{model}', which is not in the reviewer's " +
-                    $"AllowedModels ({string.Join(", ", reviewerModels)}). A pinned lens model must be one the reviewer may use.");
+                    $"{section}:PinnedLensModels:{lens} is '{model}', but no agent named reviewer is configured, so there is no AllowedModels menu to pin from.");
+            }
+
+            if (!reviewer.AllowedModels.Contains(model, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:PinnedLensModels:{lens} is '{model}', which is not in the reviewer's " +
+                    $"AllowedModels ({string.Join(", ", reviewer.AllowedModels)}). A pinned lens model must be one the reviewer may use.");
             }
         }
     }

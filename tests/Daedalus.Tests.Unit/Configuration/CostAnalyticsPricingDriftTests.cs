@@ -87,7 +87,7 @@ public sealed class CostAnalyticsPricingDriftTests
     /// <summary>
     ///     Phase 2.10: a decision may pick any <c>AllowedModels</c> entry, so each needs a price or its spend lands in
     ///     ExcludedCostDto. Reads the bound options, not the catalog: the menu is not in the Thalos envelope until 0.17.
-    ///     Red: delete claude-opus-5-5 from ModelPricing:Models, or add an unpriced model to a menu.
+    ///     Red: delete claude-opus-5-5 from ModelPricing:Models, or set its input or output price to 0.
     /// </summary>
     [Fact]
     public void Every_allowed_model_has_a_price()
@@ -100,5 +100,22 @@ public sealed class CostAnalyticsPricingDriftTests
 
         allowed.Should().NotBeEmpty("the shipped implementer and reviewer declare menus");
         allowed.Should().OnlyContain(m => pricing.Models.ContainsKey(m));
+        allowed.Should().OnlyContain(m => pricing.Models[m].InputTokenPricePerMillion > 0 && pricing.Models[m].OutputTokenPricePerMillion > 0,
+            "a zero price would count the spend as free");
+    }
+
+    /// <summary>
+    ///     The three 5.5 prices exactly. Red: change any of the six numbers in appsettings.json, for example Opus input 4.00 to 5.00.
+    /// </summary>
+    [Theory]
+    [InlineData("claude-haiku-5-5", 0.10, 0.50)]
+    [InlineData("claude-sonnet-5-5", 2.00, 10.00)]
+    [InlineData("claude-opus-5-5", 4.00, 20.00)]
+    public void The_5_5_models_carry_their_published_prices(string model, double input, double output)
+    {
+        var price = RealPricing().Models[model];
+
+        price.InputTokenPricePerMillion.Should().Be((decimal)input);
+        price.OutputTokenPricePerMillion.Should().Be((decimal)output);
     }
 }
