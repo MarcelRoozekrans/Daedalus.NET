@@ -586,8 +586,8 @@ Exported logs are not yet covered by this rule (Daedalus#334).
 
 ## Web state with ZeroAlloc.Flux
 
-The manufacturing console keeps its state in ZeroAlloc.Flux stores. Tasks use the same pattern; 2.13 moves the
-remaining pages.
+The manufacturing console keeps its state in ZeroAlloc.Flux stores. Tasks use the same pattern; phase 2.14 moves
+the remaining pages, once 2.13 has decided which of them stay.
 
 - **Features** live in `Daedalus.Web/State`, one folder per feature (`Runs`, `Tasks`). Each state is a
   `readonly partial record struct` marked `[Feature(InitialState = nameof(Initial))]`, because the default state leaves
