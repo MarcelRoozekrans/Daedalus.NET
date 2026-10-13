@@ -128,6 +128,9 @@
          Thalos.NET.Workflow 0.15.0's nuspec declares.
          1.12.0 → 1.12.2: floor set by Thalos.NET.Workflow 0.16.0. -->
     <PackageVersion Include="ZeroAlloc.Telemetry" Version="1.12.2" />
+    <!-- Minos.NET 1.0.1: per-node model and tool selection, phase 2.10. Not referenced by a project yet. -->
+    <PackageVersion Include="Minos.NET" Version="1.0.1" />
+    <PackageVersion Include="Minos.NET.SystemOne" Version="1.0.1" />
     <!-- 2.0.10 → 2.0.12: floor set by Thalos.NET.Abstractions 0.13.0 -->
     <!-- 2.0.12 → 2.1.0: floor set by Thalos.NET.Abstractions 0.15.0 -->
     <!-- 2.1.0 → 2.2.0: floor set by Thalos.NET.Abstractions 0.16.0 -->
