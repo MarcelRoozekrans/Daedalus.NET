@@ -72,6 +72,21 @@ public class TasksPageBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     The icon-only row buttons are named for what they do, not for the icon's ligature text.
+    ///     Red: drop the aria-label from the Manufacture button; the attribute is missing.
+    /// </summary>
+    [Test]
+    [Description("The row action buttons have accessible names")]
+    public async Task TasksPage_RowButtons_HaveAccessibleNames()
+    {
+        await _tasksPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_tasksPage.GetManufactureButton("Implement feature A")).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_tasksPage.GetManufactureButton("Implement feature A")).ToHaveAttributeAsync("aria-label", "Manufacture").ConfigureAwait(false);
+        await Expect(_tasksPage.GetEditButton("Implement feature A")).ToHaveAttributeAsync("aria-label", "Edit task").ConfigureAwait(false);
+        await Expect(_tasksPage.GetDeleteButton("Implement feature A")).ToHaveAttributeAsync("aria-label", "Delete task").ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     A pending task offers Manufacture. The seeded project has no repository URL, so the server refuses with 422 and
     ///     "The project has no repository URL.", and the page shows that reason. Red: show a generic message instead of the problem detail; the reason is
     ///     missing. Red: hide the button for status 0; it is not visible.
