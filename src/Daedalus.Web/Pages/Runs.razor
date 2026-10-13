@@ -65,7 +65,7 @@ else
         _checked = true;
         if (_canView)
         {
-            await Effects.LoadListAsync(RunStore.Value.Query, _cts.Token);
+            await Effects.LoadListAsync(RunStore.Value.Query with { After = null }, _cts.Token);
         }
     }
 
@@ -74,9 +74,9 @@ else
 
     public async ValueTask DisposeAsync()
     {
+        Dispose();
         await _cts.CancelAsync();
         _cts.Dispose();
         await Dispatcher.DispatchAsync(new RunListClosed());
-        Dispose();
     }
 }
