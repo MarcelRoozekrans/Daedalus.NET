@@ -10,7 +10,7 @@ public enum Demand
     Routine,
 
     /// <summary>Ordinary feature work.</summary>
-    [Level("Moderate work: a feature or fix that spans several files and needs some design judgement, but breaks no new ground.")]
+    [Level("Moderate work: a feature or fix that spans several files or needs some design judgement.")]
     Moderate,
 
     /// <summary>Work that needs the strongest model.</summary>
@@ -19,7 +19,7 @@ public enum Demand
 }
 
 /// <summary>
-///     The questions asked once before a manufacture node runs. The state is the node's task text and role; the answers
+///     The questions asked once before a manufacture node runs. The state is a JSON object of the node's role, node, visit and work_intent; the answers
 ///     pick a model and the tool families to keep. <c>workspace</c> and <c>daedalus</c> are never asked: they are never removable.
 /// </summary>
 [Questions]

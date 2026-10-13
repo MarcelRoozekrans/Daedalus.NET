@@ -61,7 +61,7 @@ public class NodeSelectionMapperTests
         var selection = NodeSelectionMapper.Map(await AnswerAsync(Demand.Hard), menu, new DecisionsConfig(), true);
 
         selection.Model.Should().Be("default-model");
-        selection.Fallback.Should().Be("low-confidence");
+        selection.Fallback.Should().Be("no-allowed-models");
     }
 
     /// <summary>Red: compare with &gt; instead of &gt;= (the 0.5 case), or reorder the kept list, and this fails.</summary>
@@ -108,5 +108,34 @@ public class NodeSelectionMapperTests
         var selection = NodeSelectionMapper.Default(Menu, "timeout");
 
         selection.Should().Be(new NodeSelection("default-model", null, "default", 8, "timeout"));
+    }
+
+    /// <summary>Red: change / 2 to (Count - 1) / 2 and Moderate picks the first entry.</summary>
+    [Fact]
+    public async Task Moderate_on_a_two_model_menu_picks_the_stronger_model()
+    {
+        var menu = Menu with { AllowedModels = ["cheap", "strong"] };
+
+        NodeSelectionMapper.Map(await AnswerAsync(Demand.Moderate), menu, new DecisionsConfig(), true).Model.Should().Be("strong");
+    }
+
+    /// <summary>Red: change _ =&gt; true to false and the unknown family is removed.</summary>
+    [Fact]
+    public async Task A_family_the_questions_do_not_cover_is_kept()
+    {
+        var menu = Menu with { Tools = [.. Tools, "jira__*"] };
+        var answers = await AnswerAsync(Demand.Moderate, 0.9, 0, 0, 0, 0, 0, 0);
+
+        NodeSelectionMapper.Map(answers, menu, new DecisionsConfig(), true).ToolFilter.Should().Equal("workspace__*", "daedalus__*", "jira__*");
+    }
+
+    /// <summary>Red: change &lt; to &lt;= in the confidence check and exactly 0.6 falls back.</summary>
+    [Fact]
+    public async Task Confidence_exactly_at_the_threshold_is_taken()
+    {
+        var selection = NodeSelectionMapper.Map(await AnswerAsync(Demand.Hard, confidence: 0.6), Menu, new DecisionsConfig(), true);
+
+        selection.Model.Should().Be("strong");
+        selection.Fallback.Should().BeNull();
     }
 }
