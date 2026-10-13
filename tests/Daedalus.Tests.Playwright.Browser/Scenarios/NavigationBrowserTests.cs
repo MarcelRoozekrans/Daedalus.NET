@@ -107,6 +107,40 @@ public class NavigationBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     The sidebar toggle can be seen against the header: its icon's contrast with the header background is at least
+    ///     3:1, the WCAG minimum for a user-interface component. Below 1280px the sidebar starts collapsed, so this button
+    ///     is the only way to the menu.
+    ///     Red: drop <c>--rz-sidebar-toggle-color</c> from daedalus-theme.css; Material draws the icon white on the white
+    ///     header, a contrast of 1:1.
+    /// </summary>
+    [Test]
+    [Description("The sidebar toggle is visible against the header")]
+    public async Task SidebarToggle_IsVisibleAgainstTheHeader()
+    {
+        await NavigateToAsync("/").ConfigureAwait(false);
+        await Expect(_mainPage.SidebarToggle).ToBeVisibleAsync().ConfigureAwait(false);
+
+        var contrast = await Page.EvaluateAsync<double>(ContrastScript).ConfigureAwait(false);
+
+        contrast.Should().BeGreaterThanOrEqualTo(3.0, "the toggle must be visible on the header");
+    }
+
+    private const string ContrastScript = """
+        () => {
+            const rgb = c => c.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
+            const lum = ([r, g, b]) => {
+                const ch = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+                return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+            };
+            const icon = document.querySelector('.rz-sidebar-toggle i, .rz-sidebar-toggle .rzi');
+            const header = document.querySelector('.rz-header');
+            const a = lum(rgb(getComputedStyle(icon).color));
+            const b = lum(rgb(getComputedStyle(header).backgroundColor));
+            return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        }
+        """;
+
+    /// <summary>
     ///     Git Repositories and its Configuration heading are for admins only, as the repositories API is, and follow a
     ///     role change without a reload: absent for an analyst, present once an admin, absent again as a developer.
     ///     Red: <c>MainLayout</c> shows the item to everyone; the analyst sees it.
