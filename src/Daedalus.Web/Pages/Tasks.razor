@@ -54,12 +54,12 @@
                 @if (task.WorkflowRunId is { } runId)
                 {
                     <a href="@($"runs/{runId}")" aria-label="@($"Open run, {TaskStatusLabels.Name(task.Status)}")">
-                        <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
+                        <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)" Shade="Shade.Lighter"/>
                     </a>
                 }
                 else
                 {
-                    <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
+                    <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)" Shade="Shade.Lighter"/>
                 }
                 @if (TaskStatusLabels.PullRequestHref(task) is { } pullRequestHref)
                 {
@@ -106,14 +106,14 @@
             <Template Context="task">
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" JustifyContent="JustifyContent.Center">
                     <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
-                                  Click="@(() => OpenEditDialog(task))" title="Edit"/>
+                                  Click="@(() => OpenEditDialog(task))" title="Edit task" aria-label="Edit task"/>
                     @if (TaskStatusLabels.IsStartable(task))
                     {
                         <RadzenButton Icon="precision_manufacturing" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Success"
-                                      Disabled="@TaskStore.Value.Starting.Contains(task.Id)" Click="@(() => ManufactureTask(task))" title="Manufacture"/>
+                                      Disabled="@TaskStore.Value.Starting.Contains(task.Id)" Click="@(() => ManufactureTask(task))" title="Manufacture" aria-label="Manufacture"/>
                     }
                     <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"
-                                  Click="@(() => DeleteTask(task))" title="Delete"/>
+                                  Click="@(() => DeleteTask(task))" title="Delete task" aria-label="Delete task"/>
                 </RadzenStack>
             </Template>
         </RadzenDataGridColumn>
