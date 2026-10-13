@@ -17,6 +17,9 @@ public static class TasksReducers
     public static TasksState On(TasksState s, TasksLoadFailed a) =>
         !s.LoadRequested ? s : s with { Error = a.Error, Loading = false };
 
+    [Reducer]
+    public static TasksState On(TasksState s, TasksErrorDismissed _) => s with { Error = null };
+
     /// <summary>Drops the board but keeps <see cref="TasksState.Starting"/>, so a start in flight still finishes.</summary>
     [Reducer]
     public static TasksState On(TasksState s, TasksClosed _) =>

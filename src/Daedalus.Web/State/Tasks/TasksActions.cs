@@ -15,6 +15,9 @@ public readonly record struct TasksClosed;
 /// <summary>The board could not be fetched.</summary>
 public readonly record struct TasksLoadFailed(string Error);
 
+/// <summary>The person closed the board's error alert.</summary>
+public readonly record struct TasksErrorDismissed;
+
 /// <summary>A task's Manufacture call was sent.</summary>
 public readonly record struct TaskStartRequested(Guid Id);
 
