@@ -257,6 +257,37 @@ public sealed class RunsEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     A list closed while the open run is being fetched is not fetched again, on a change or on a reconnect: the
+    ///     list is judged on the state after the run's fetch.
+    ///     Red: judge the change's list re-fetch on the state read before the run's fetch.
+    ///     Red: judge RefreshAllAsync's list re-fetch on the state read before the run's fetch.
+    /// </summary>
+    [Fact]
+    public async Task A_list_closed_while_the_run_is_fetched_is_not_fetched_again()
+    {
+        var id = Guid.NewGuid();
+        var dispatcher = _provider.GetRequiredService<IDispatcher>();
+        _handler.OnJson(RunListQuery.First.ToPath(), RunViews.Json(new WorkflowRunList([RunViews.Item(id)], null)))
+            .OnJson($"/api/workflow-runs/{id}", RunViews.Json(RunViews.Sample(id)));
+        await _effects.LoadListAsync(RunListQuery.First, CancellationToken.None);
+        await _effects.LoadRunAsync(id, CancellationToken.None);
+        _handler.On($"/api/workflow-runs/{id}", async () =>
+        {
+            await dispatcher.DispatchAsync(new RunListClosed());
+            return RecordingHandler.Json(HttpStatusCode.OK, RunViews.Json(RunViews.Sample(id)));
+        });
+
+        _handler.Requests.Clear();
+        await _effects.OnRunChangedAsync(new WorkflowRunChanged(id, "Running", "build", null), CancellationToken.None);
+        _handler.Paths.Should().Equal([$"/api/workflow-runs/{id}", CountPath], "the list was closed during the run's fetch");
+
+        await _effects.LoadListAsync(RunListQuery.First, CancellationToken.None);
+        _handler.Requests.Clear();
+        await _effects.RefreshAllAsync(CancellationToken.None);
+        _handler.Paths.Should().Equal([$"/api/workflow-runs/{id}", CountPath], "the list was closed during the run's fetch");
+    }
+
+    /// <summary>
     ///     The awaiting-approval count counts only human_approval rows, and says there are more when Next is set.
     ///     Red: count every Awaiting row. Red: ignore Next.
     /// </summary>
