@@ -57,10 +57,7 @@
                     </RadzenText>
                     <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
                         @finding.Lens · <span style="font-family: monospace;">@finding.File:@finding.Line</span> · @finding.Reason
-                        @if (finding.ExistingIssue is { } issue)
-                        {
-                            <span> · existing issue #@issue</span>
-                        }
+                        <ExistingIssueText Finding="@finding"/>
                     </RadzenText>
                     <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@finding.Scenario</RadzenText>
                 </RadzenStack>

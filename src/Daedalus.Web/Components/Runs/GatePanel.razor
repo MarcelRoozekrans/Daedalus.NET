@@ -15,17 +15,17 @@
             @foreach (var finding in Run.DeferredFindings)
             {
                 var id = $"gate-drop-{finding.Id}";
+                var label = $"Drop {finding.Id}: {finding.Title}";
+                var dropped = Draft.Dropped.Contains(finding.Id);
                 <RadzenStack @key="finding.Id" Orientation="Orientation.Horizontal" AlignItems="AlignItems.Start" Gap="0.5rem">
-                    <RadzenCheckBox TValue="bool" Name="@id" Value="@Draft.Dropped.Contains(finding.Id)" Disabled="@Draft.Submitting"
-                                    Change="@(dropped => OnToggle.InvokeAsync((finding.Id, dropped)))" data-testid="@id"/>
+                    <RadzenCheckBox TValue="bool" Name="@id" Value="@dropped" Disabled="@Draft.Submitting"
+                                    Change="@(drop => OnToggle.InvokeAsync((finding.Id, drop)))" data-testid="@id"
+                                    role="checkbox" aria-checked="@AriaChecked(dropped)" aria-label="@label" InputAttributes="@HiddenInput"/>
                     <RadzenStack Gap="0.1rem">
-                        <RadzenLabel Component="@id" Text="@($"Drop {finding.Id}: {finding.Title}")"/>
+                        <RadzenLabel Component="@id" Text="@label"/>
                         <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
                             @finding.Lens · <span style="font-family: monospace;">@finding.File:@finding.Line</span> · @finding.Reason
-                            @if (finding.ExistingIssue is { } issue)
-                            {
-                                <span> · existing issue #@issue</span>
-                            }
+                            <ExistingIssueText Finding="@finding"/>
                         </RadzenText>
                         <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@finding.Scenario</RadzenText>
                     </RadzenStack>
@@ -38,7 +38,9 @@
         <pre class="rz-mt-4" style="font-family: monospace; white-space: pre-wrap; overflow-x: auto;" data-testid="gate-diff">@diff</pre>
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
             <RadzenCheckBox TValue="bool" Name="gate-apply" Value="@Draft.ApplyStandingInstructions" Disabled="@Draft.Submitting"
-                            Change="@OnApply" data-testid="gate-apply"/>
+                            Change="@OnApply" data-testid="gate-apply"
+                            role="checkbox" aria-checked="@AriaChecked(Draft.ApplyStandingInstructions)"
+                            aria-label="Apply standing instructions" InputAttributes="@HiddenInput"/>
             <RadzenLabel Component="gate-apply" Text="Apply standing instructions"/>
         </RadzenStack>
     }
@@ -58,6 +60,15 @@
 </section>
 
 @code {
+    /// <summary>
+    ///     Radzen's checkbox takes focus on its outer div, so that div carries the checkbox role, state and name; the
+    ///     visually hidden input it also renders is hidden from assistive technology, so the box is announced once.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, object> HiddenInput = new Dictionary<string, object>(StringComparer.Ordinal)
+    {
+        ["aria-hidden"] = "true",
+    };
+
     private RadzenButton? _approve;
 
     /// <summary>The parked run: its deferred findings and its standing-instructions diff.</summary>
@@ -83,6 +94,8 @@
 
     /// <summary>The operator asked to cancel the run.</summary>
     [Parameter] public EventCallback OnCancel { get; set; }
+
+    private static string AriaChecked(bool value) => value ? "true" : "false";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

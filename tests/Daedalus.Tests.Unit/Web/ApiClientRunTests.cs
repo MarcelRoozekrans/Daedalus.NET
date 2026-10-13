@@ -1,4 +1,5 @@
 using System.Net;
+using Daedalus.Web.Services;
 using Daedalus.Web.State.Runs;
 
 namespace Daedalus.Tests.Unit.Web;
@@ -28,7 +29,7 @@ public sealed class ApiClientRunTests
 
     /// <summary>
     ///     A 404 for a run is a success with no run; a 409 with a ProblemDetails is a failure with its detail.
-    ///     Red: treat 404 as a failure. Red: report "API error" instead of the detail.
+    ///     Red: treat 404 as a failure. Red: report "API error" instead of the detail. Red: answer 404 as Denied.
     /// </summary>
     [Fact]
     public async Task A_missing_run_is_null_and_a_conflict_carries_its_reason()
@@ -44,8 +45,24 @@ public sealed class ApiClientRunTests
         var refused = await client.GetRunAsync(conflicted, CancellationToken.None);
 
         // Value throws on a failed Result and a successful one carries no error, so each line pins the outcome too.
-        none.Value.Should().BeNull();
+        none.Value.Should().Be(RunLookup.NotFound);
         refused.Error.Should().Be("The run moved on.");
+    }
+
+    /// <summary>
+    ///     A 403 for a run is a success that says the run is forbidden, so the page shows the role message rather than
+    ///     an error.
+    ///     Red: drop the 403 branch in GetRunAsync, so it is a failure. Red: answer 403 as RunLookup.NotFound.
+    /// </summary>
+    [Fact]
+    public async Task A_forbidden_run_is_a_denied_lookup()
+    {
+        var id = Guid.NewGuid();
+        var handler = new RecordingHandler().On($"/api/workflow-runs/{id}", () => new HttpResponseMessage(HttpStatusCode.Forbidden));
+
+        var lookup = await handler.Client().GetRunAsync(id, CancellationToken.None);
+
+        lookup.Value.Should().Be(RunLookup.Denied);
     }
 
     /// <summary>

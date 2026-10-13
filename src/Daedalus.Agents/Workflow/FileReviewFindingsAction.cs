@@ -74,27 +74,6 @@ internal sealed partial class FileReviewFindingsAction(
         }
     }
 
-    /// <summary>The repository and number of a github.com pull request link, and nothing else.</summary>
-    public static bool TryParsePullRequest(string? url, out RepoRef repo, out int number)
-    {
-        repo = null!;
-        number = 0;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
-            return false;
-
-        var owner = RepoRef.FromGitHubUrl(url);
-        if (owner.IsFailure)
-            return false;
-
-        var segments = parsed.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length != 4 || !string.Equals(segments[2], "pull", StringComparison.Ordinal)
-            || !int.TryParse(segments[3], NumberStyles.None, CultureInfo.InvariantCulture, out number) || number <= 0)
-            return false;
-
-        repo = owner.Value;
-        return true;
-    }
-
     private bool IsAllowListed(RepoRef repo)
     {
         foreach (var configured in config.Repositories)
@@ -142,10 +121,9 @@ internal sealed partial class FileReviewFindingsAction(
             return Outcome(NoneOutcome);
 
         var prLink = run.Variables.GetValueOrDefault(ReviewHandoff.PrUrlKey) as string;
-        if (!TryParsePullRequest(prLink, out var repo, out var prNumber))
+        if (!Uri.TryCreate(prLink, UriKind.Absolute, out var prUrl) || !PullRequestLink.TryParse(prUrl, out var repo, out var prNumber))
             return Failed($"the run's '{ReviewHandoff.PrUrlKey}' is not a github.com pull request link, so there is nothing to file the findings against");
 
-        var prUrl = new Uri(prLink!, UriKind.Absolute);
         if (!IsAllowListed(repo))
             return Failed($"repository '{repo}' is no longer allow-listed");
 

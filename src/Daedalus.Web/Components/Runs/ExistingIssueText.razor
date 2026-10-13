@@ -1,0 +1,20 @@
+@if (Finding.ExistingIssue is { } issue)
+{
+    <span> · existing issue </span>
+    @if (Finding.ExistingIssueUrl is { } url)
+    {
+        <a href="@url" target="_blank" rel="noopener" data-testid="existing-issue-link">#@issue</a>
+    }
+    else
+    {
+        <span>#@issue</span>
+    }
+}
+
+@code {
+    /// <summary>
+    ///     The deferred finding whose existing issue to show: a link when the server could place it in the pull
+    ///     request's repository, else the number alone.
+    /// </summary>
+    [Parameter, EditorRequired] public DeferredFindingView Finding { get; set; } = default!;
+}

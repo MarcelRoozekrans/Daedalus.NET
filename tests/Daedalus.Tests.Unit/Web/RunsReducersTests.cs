@@ -56,6 +56,74 @@ public sealed class RunsReducersTests
     }
 
     /// <summary>
+    ///     An accepted approval keeps the draft as sent and keeps it busy, so Approve and Cancel stay disabled until
+    ///     the run is seen off the gate.
+    ///     Red: reset Gate to GateDraft.Empty on GateSubmitSucceeded. Red: clear Submitting on GateSubmitSucceeded.
+    /// </summary>
+    [Fact]
+    public void An_accepted_approval_keeps_the_draft_busy()
+    {
+        var state = RunsReducers.On(Empty, new GateFindingToggled("a", Dropped: true));
+        state = RunsReducers.On(state, new GateApplyToggled(true));
+        state = RunsReducers.On(state, new GateSubmitStarted());
+
+        state = RunsReducers.On(state, new GateSubmitSucceeded());
+
+        state.Gate.Dropped.Should().BeEquivalentTo(["a"]);
+        state.Gate.ApplyStandingInstructions.Should().BeTrue();
+        state.Gate.Submitting.Should().BeTrue();
+    }
+
+    /// <summary>
+    ///     A loaded run that has left the gate drops the draft, which ends a busy approval.
+    ///     Red: keep s.Gate in the RunLoaded reducer whatever the run's status.
+    /// </summary>
+    [Fact]
+    public void A_run_loaded_off_the_gate_resets_the_draft()
+    {
+        var id = Guid.NewGuid();
+        var state = RunsReducers.On(RunsReducers.On(Empty, new RunSelected(id)), new GateFindingToggled("a", Dropped: true));
+        state = RunsReducers.On(RunsReducers.On(state, new GateSubmitStarted()), new GateSubmitSucceeded());
+
+        state = RunsReducers.On(state, new RunLoaded(RunViews.Sample(id, "Running", awaitingSignal: null)));
+
+        state.Gate.Should().Be(GateDraft.Empty);
+    }
+
+    /// <summary>
+    ///     A loaded run still at the gate keeps the operator's draft, as a re-fetch after a change does.
+    ///     Red: always reset Gate in the RunLoaded reducer.
+    /// </summary>
+    [Fact]
+    public void A_run_loaded_at_the_gate_keeps_the_draft()
+    {
+        var id = Guid.NewGuid();
+        var state = RunsReducers.On(RunsReducers.On(Empty, new RunSelected(id)), new GateFindingToggled("a", Dropped: true));
+
+        state = RunsReducers.On(state, new RunLoaded(RunViews.Sample(id)));
+
+        state.Gate.Dropped.Should().BeEquivalentTo(["a"]);
+    }
+
+    /// <summary>
+    ///     A 403 for the open run marks it forbidden; one for another run is ignored, and opening another run clears it.
+    ///     Red: drop the id check in the RunForbidden reducer. Red: set SelectedNotFound instead of SelectedForbidden.
+    ///     Red: keep SelectedForbidden on RunSelected of another run.
+    /// </summary>
+    [Fact]
+    public void A_forbidden_run_is_marked_until_another_run_opens()
+    {
+        var id = Guid.NewGuid();
+        var selected = RunsReducers.On(Empty, new RunSelected(id));
+
+        RunsReducers.On(selected, new RunForbidden(Guid.NewGuid())).SelectedForbidden.Should().BeFalse();
+        var forbidden = RunsReducers.On(selected, new RunForbidden(id));
+        forbidden.SelectedForbidden.Should().BeTrue();
+        forbidden.SelectedNotFound.Should().BeFalse();
+        RunsReducers.On(forbidden, new RunSelected(Guid.NewGuid())).SelectedForbidden.Should().BeFalse();
+    }
+
+    /// <summary>
     ///     A list response that arrives after the query changed is ignored.
     ///     Red: drop the query comparison in the RunListLoaded reducer.
     /// </summary>

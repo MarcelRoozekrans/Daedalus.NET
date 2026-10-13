@@ -133,6 +133,71 @@ public sealed class RunsEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     An accepted approval re-fetches the run, so a page with no live connection still sees it leave the gate,
+    ///     and the draft resets once it has.
+    ///     Red: re-fetch the run only after a refused approve.
+    /// </summary>
+    [Fact]
+    public async Task An_accepted_approve_re_fetches_the_run()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson($"/api/workflow-runs/{id}", RunViews.Json(RunViews.Sample(id)))
+            .On($"/api/workflow-runs/{id}/resume", () => new HttpResponseMessage(HttpStatusCode.Accepted));
+        await _effects.LoadRunAsync(id, CancellationToken.None);
+        await _provider.GetRequiredService<IDispatcher>().DispatchAsync(new GateFindingToggled("mechanism-1", Dropped: true));
+        _handler.OnJson($"/api/workflow-runs/{id}", RunViews.Json(RunViews.Sample(id, "Running", awaitingSignal: null)));
+        _handler.Requests.Clear();
+
+        var result = await _effects.ApproveAsync(CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _handler.Paths.Should().Equal($"/api/workflow-runs/{id}/resume", $"/api/workflow-runs/{id}");
+        _store.Value.Gate.Should().Be(GateDraft.Empty);
+    }
+
+    /// <summary>
+    ///     A call made with a token already cancelled, as a page that closed leaves it, re-fetches nothing: cancel and
+    ///     retry do not re-open the closed run, and approve records no load failure on the open one.
+    ///     Red: drop the IsCancellationRequested guard from CancelAsync. Red: drop it from RetryAsync.
+    ///     Red: drop it from ApproveAsync.
+    /// </summary>
+    [Fact]
+    public async Task A_cancelled_call_re_fetches_nothing()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson($"/api/workflow-runs/{id}", RunViews.Json(RunViews.Sample(id)));
+        var dispatcher = _provider.GetRequiredService<IDispatcher>();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await _effects.LoadRunAsync(id, CancellationToken.None);
+        (await _effects.ApproveAsync(cancelled.Token)).IsSuccess.Should().BeFalse();
+        _store.Value.SelectedError.Should().BeNull("approve's cancelled call must not re-fetch the run");
+
+        await dispatcher.DispatchAsync(new RunClosed());
+        (await _effects.CancelAsync(id, null, cancelled.Token)).IsSuccess.Should().BeFalse();
+        _store.Value.SelectedId.Should().BeNull("cancel's cancelled call must not re-open the closed run");
+        (await _effects.RetryAsync(id, cancelled.Token)).IsSuccess.Should().BeFalse();
+        _store.Value.SelectedId.Should().BeNull("retry's cancelled call must not re-open the closed run");
+    }
+
+    /// <summary>
+    ///     A 403 for the run marks it forbidden rather than missing or failed.
+    ///     Red: dispatch RunNotFound for a forbidden lookup.
+    /// </summary>
+    [Fact]
+    public async Task A_forbidden_run_is_marked_forbidden()
+    {
+        var id = Guid.NewGuid();
+        _handler.On($"/api/workflow-runs/{id}", () => new HttpResponseMessage(HttpStatusCode.Forbidden));
+
+        await _effects.LoadRunAsync(id, CancellationToken.None);
+
+        _store.Value.SelectedForbidden.Should().BeTrue();
+        _store.Value.SelectedNotFound.Should().BeFalse();
+    }
+
+    /// <summary>
     ///     A list page whose first load failed is re-fetched on a change and on a reconnect, so it recovers.
     ///     Red: gate the change's list re-fetch on List is not null. Red: gate RefreshAllAsync on List is not null.
     /// </summary>

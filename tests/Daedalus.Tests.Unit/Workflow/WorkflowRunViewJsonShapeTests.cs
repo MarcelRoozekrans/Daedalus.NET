@@ -33,7 +33,7 @@ public sealed class WorkflowRunViewJsonShapeTests
             "seq", "node", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "modelId");
         Names(root.GetProperty("writeAudit")[0]).Should().Equal("seq", "node", "tool", "path", "startedBy");
         Names(root.GetProperty("deferredFindings")[0]).Should().Equal(
-            "id", "lens", "file", "line", "title", "scenario", "reason", "existingIssue", "dropped");
+            "id", "lens", "file", "line", "title", "scenario", "reason", "existingIssue", "dropped", "existingIssueUrl");
         Names(root.GetProperty("filedFindings")[0]).Should().Equal("findingId", "mode", "issue", "url");
     }
 
@@ -57,7 +57,7 @@ public sealed class WorkflowRunViewJsonShapeTests
         new Dictionary<string, NodePinView>(StringComparer.Ordinal) { ["implement"] = new NodePinView("Implementer", "01M4RQEQYETH43BEQ1H20BQ25X", "3", "implement-skill", "hash") },
         "diff", [new NodeUsageView(1, "implement", 10, 2, 5, 1, "m")], new Uri("https://example.test/pr/1"), null, "u",
         [new WriteAuditView(1, "implement", "roslyn__apply", "a.cs", "u")],
-        [new DeferredFindingView("mechanism-1", "mechanism", "a.cs", 3, "t", "s", "different-area", null, false)],
+        [new DeferredFindingView("mechanism-1", "mechanism", "a.cs", 3, "t", "s", "different-area", 7, false, new Uri("https://github.com/o/r/issues/7"))],
         null, [new FiledFindingView("mechanism-1", "created", 12, new Uri("https://example.test/issues/12"))],
         [new WorkflowRunStepView(0, "Entered", null, "implement", "Running", null, null, null, null, null, DateTimeOffset.UnixEpoch, null)],
         [new LensCheckedView("mechanism", ["a.cs:3"])]);

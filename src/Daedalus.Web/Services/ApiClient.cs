@@ -201,39 +201,44 @@ public sealed class ApiClient(HttpClient httpClient)
         SendAsync<WorkflowRunList>(token => httpClient.GetAsync(new Uri(query.ToPath(), UriKind.Relative), token), ct);
 
     /// <summary>
-    ///     One run's view. A run that does not exist is a success with no value, so the page can say so; every other
-    ///     refusal carries the server's reason.
+    ///     One run's view. A run that does not exist and a run this user may not see are successes the page states
+    ///     itself, 404 and 403; every other refusal carries the server's reason.
     /// </summary>
-    public async Task<Result<WorkflowRunView?>> GetRunAsync(Guid id, CancellationToken ct = default)
+    public async Task<Result<RunLookup>> GetRunAsync(Guid id, CancellationToken ct = default)
     {
         try
         {
             using var response = await httpClient.GetAsync(new Uri($"/api/workflow-runs/{id}", UriKind.Relative), ct);
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                return Result<WorkflowRunView?>.Success(null);
+                return Result<RunLookup>.Success(RunLookup.NotFound);
+            }
+
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                return Result<RunLookup>.Success(RunLookup.Denied);
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                return Result<WorkflowRunView?>.Failure(await ReadFailureReasonAsync(response, ct));
+                return Result<RunLookup>.Failure(await ReadFailureReasonAsync(response, ct));
             }
 
             return await TryReadJsonAsync<WorkflowRunView>(response, ct) is { } view
-                ? Result<WorkflowRunView?>.Success(view)
-                : Result<WorkflowRunView?>.Failure("No data returned from server");
+                ? Result<RunLookup>.Success(RunLookup.Found(view))
+                : Result<RunLookup>.Failure("No data returned from server");
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result<WorkflowRunView?>.Failure("Please log in to perform this action.");
+            return Result<RunLookup>.Failure("Please log in to perform this action.");
         }
         catch (HttpRequestException ex)
         {
-            return Result<WorkflowRunView?>.Failure($"API error: {ex.Message}");
+            return Result<RunLookup>.Failure($"API error: {ex.Message}");
         }
         catch (OperationCanceledException)
         {
-            return Result<WorkflowRunView?>.Failure("Request was cancelled");
+            return Result<RunLookup>.Failure("Request was cancelled");
         }
     }
 
