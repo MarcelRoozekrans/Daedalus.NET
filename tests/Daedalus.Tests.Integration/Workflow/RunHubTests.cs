@@ -77,7 +77,7 @@ public sealed class RunHubTests(PostgresFixture fixture)
     ///     Red: map the hub without CloseOnAuthenticationExpiration: the option is false on its endpoints.
     /// </summary>
     [Fact]
-    public async Task The_hub_closes_a_connection_whose_sign_in_expired()
+    public async Task The_hub_is_mapped_to_close_a_connection_whose_sign_in_expired()
     {
         await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
 
