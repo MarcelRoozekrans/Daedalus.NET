@@ -684,9 +684,10 @@ public sealed class CleanArchitectureTests
     /// </summary>
     private static List<string> FindCsprojFilesOutsideWorktrees()
     {
+        var root = FindRepositoryRoot();
         var files = Directory
-            .EnumerateFiles(FindRepositoryRoot(), "*.csproj", SearchOption.AllDirectories)
-            .Where(IsOutsideWorktrees)
+            .EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories)
+            .Where(path => IsOutsideWorktrees(root, path))
             .ToList();
 
         files.Count.Should().BeGreaterThanOrEqualTo(15,
@@ -705,9 +706,14 @@ public sealed class CleanArchitectureTests
     ///     1.7 task 6 — it happened not to be tripped because no worktree csproj referenced ZeroAlloc.Saga or
     ///     ZeroAlloc.Scheduling, but a worktree checkout's <c>Directory.Packages.props</c> did already contain
     ///     the literal string "FluentValidation", which is what surfaced the gap.
+    ///     <para>
+    ///     Only the part of <paramref name="path"/> below <paramref name="root"/> is checked. When the checkout under test
+    ///     is itself a worktree, its own root sits under <c>.claude/worktrees/</c>, and checking the absolute path excluded
+    ///     every project, which the floor in <see cref="FindCsprojFilesOutsideWorktrees"/> then failed on.
+    ///     </para>
     /// </summary>
-    private static bool IsOutsideWorktrees(string path) =>
-        !path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
+    private static bool IsOutsideWorktrees(string root, string path) =>
+        !Path.GetRelativePath(root, path).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
             .Any(segment => segment is ".claude" or "worktrees");
 
     /// <summary>Walks up from <see cref="AppContext.BaseDirectory"/> to the directory containing <c>Daedalus.sln</c>.</summary>
