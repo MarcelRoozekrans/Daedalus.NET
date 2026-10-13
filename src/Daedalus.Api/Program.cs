@@ -315,8 +315,11 @@ app.UseExceptionHandler(); // Global exception handler for non-development envir
 
 app.UseResponseCompression(); // Enable Gzip compression for responses
 app.UseCors("RestrictedCors");
-app.UseRateLimiter();
+// The limiter partitions by the signed-in user, so it runs after authentication has set one; before
+// authorization, so a refused request still counts against its caller's budget; after CORS, so a 429 carries
+// the CORS headers a browser needs to read it.
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.MapControllers();
 if (workflowEngineEnabled)
