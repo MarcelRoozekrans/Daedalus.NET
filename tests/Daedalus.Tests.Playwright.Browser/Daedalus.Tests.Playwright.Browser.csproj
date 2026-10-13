@@ -57,6 +57,9 @@
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Domain\Daedalus.Domain.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj"/>
+        <!-- E2EServerFixture applies the workflow engine's schema through Daedalus.Migrations' own step,
+             WorkflowEngineMigrator, so its source list cannot drift from the deploy's. -->
+        <ProjectReference Include="..\..\src\Daedalus.Migrations\Daedalus.Migrations.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Web\Daedalus.Web.csproj"/>
     </ItemGroup>
 
