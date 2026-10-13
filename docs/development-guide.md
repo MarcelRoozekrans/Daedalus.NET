@@ -620,7 +620,10 @@ A run's page and the Runs list change without a refresh. The path from a store c
    variables or error text, because the broadcast goes to every client connected to the hub and is not scoped per
    user. The client uses it only as a signal.
 4. `RunHubConnection` in the Web re-fetches what is on screen on each change and again on reconnect, so a dropped
-   message is repaired by the next fetch. It uses WebSockets with `SkipNegotiation`.
+   message is repaired by the next fetch. It uses WebSockets with `SkipNegotiation`. A dropped connection and a first
+   start that failed are both tried again on `HubRetryPolicy`'s schedule, at once and then after 2, 5 and 10 seconds,
+   then every 30 seconds without end. A failed start of any kind is a Disconnected status, never an exception. The
+   Api maps the hub with `CloseOnAuthenticationExpiration`, so a connection closes when its token expires.
 5. A send failure is logged by exception type name only, never the message or the exception object.
 
 **The `access_token` rule.** A browser WebSocket cannot set an `Authorization` header, so the hub's bearer token travels

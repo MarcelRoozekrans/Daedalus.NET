@@ -35,4 +35,9 @@
         <ProjectReference Include="../Daedalus.Application/Daedalus.Application.csproj"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- RunHubConnection's retry policy and transport seams. -->
+        <InternalsVisibleTo Include="Daedalus.Tests.Unit"/>
+    </ItemGroup>
+
 </Project>
