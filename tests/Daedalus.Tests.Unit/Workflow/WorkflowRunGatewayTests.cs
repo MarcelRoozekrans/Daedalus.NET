@@ -34,7 +34,7 @@ public sealed class WorkflowRunGatewayTests
     public async Task An_apply_on_a_gateway_built_without_a_writer_fails_loudly()
     {
         var store = Substitute.For<IWorkflowStore>();
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var act = async () => await gateway.ResumeAsync(
             Guid.NewGuid(), Signal, null, applyStandingInstructions: true, null, Approver, CancellationToken.None);
@@ -60,7 +60,7 @@ public sealed class WorkflowRunGatewayTests
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir), NullLogger<StandingInstructionsWriter>.Instance);
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
 
         var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, null, Approver, CancellationToken.None);
 
@@ -89,7 +89,7 @@ public sealed class WorkflowRunGatewayTests
             .Returns<Result>(_ => throw new WorkflowConcurrencyException("another writer already resumed this run"));
 
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir), NullLogger<StandingInstructionsWriter>.Instance);
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
 
         await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, null, Approver, CancellationToken.None);
 
@@ -114,7 +114,7 @@ public sealed class WorkflowRunGatewayTests
         store.ResumeAsync(run.Id, Arg.Any<WorkflowResumeRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Success()));
 
-        var result = await new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance).ResumeAsync(
+        var result = await new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance).ResumeAsync(
             run.Id, Signal, null, applyStandingInstructions: false, null, Approver, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
@@ -142,7 +142,7 @@ public sealed class WorkflowRunGatewayTests
     {
         var store = Substitute.For<IWorkflowStore>();
         store.FindAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>((WorkflowRun?)null));
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var result = await gateway.RetryAsync(Guid.NewGuid(), Approver, CancellationToken.None);
 
@@ -164,7 +164,7 @@ public sealed class WorkflowRunGatewayTests
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
         store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Success()));
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var result = await gateway.RetryAsync(run.Id, Approver, CancellationToken.None);
 
@@ -184,7 +184,7 @@ public sealed class WorkflowRunGatewayTests
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
         store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Failure("run changed since it was read")));
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var result = await gateway.RetryAsync(run.Id, Approver, CancellationToken.None);
 
@@ -219,7 +219,7 @@ public sealed class WorkflowRunGatewayTests
         var records = Substitute.For<IWorkflowRunRecordStore>();
         records.ListAsync(GateRunId, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>(evidence));
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
         return (gateway, store, records);
     }
 
@@ -305,7 +305,7 @@ public sealed class WorkflowRunGatewayTests
             return ValueTask.CompletedTask;
         });
         var log = new CapturingLogger();
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, log);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, log);
         return (gateway, store, appended, log);
     }
 
@@ -366,7 +366,7 @@ public sealed class WorkflowRunGatewayTests
         var (_, store, records) = GateWith(ApprovedWithDeferred());
         records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns<ValueTask>(_ => throw new InvalidOperationException("database down"));
         var log = new CapturingLogger();
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, log);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, log);
 
         var result = await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, CancellationToken.None);
 
@@ -393,7 +393,7 @@ public sealed class WorkflowRunGatewayTests
         records.ListAsync(run.Id, WorkflowRunRecord.ReviewEvidenceKind, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([evidence]));
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, Workspaces(run, dir), NullLogger<StandingInstructionsWriter>.Instance);
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
 
         var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, ["nope-1"], Approver, CancellationToken.None);
 
@@ -427,7 +427,7 @@ public sealed class WorkflowRunGatewayTests
         handoff.CheckoutForPublishAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<Result<RunWorkspace, AgentError>>(
             Result<RunWorkspace, AgentError>.Failure(AgentError.Validation("the change touches protected path '.github/workflows/ci.yml'; publish refused"))));
         var writer = new StandingInstructionsWriter(new WorkflowConfig { StandingInstructionsPath = "AGENT.md" }, handoff, NullLogger<StandingInstructionsWriter>.Instance);
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance, writer);
 
         var result = await gateway.ResumeAsync(run.Id, Signal, null, applyStandingInstructions: true, ["correctness-1"], Approver, CancellationToken.None);
 
@@ -462,7 +462,7 @@ public sealed class WorkflowRunGatewayTests
             return ValueTask.CompletedTask;
         });
         // The drop is appended before the cancel, so only the void sees a cancelled request token.
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
         var result = await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, cts.Token);
 
@@ -499,7 +499,7 @@ public sealed class WorkflowRunGatewayTests
 
             return ValueTask.CompletedTask;
         });
-        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), clock, NullLogger<WorkflowRunGateway>.Instance);
+        var gateway = new WorkflowRunGateway(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), clock, NullLogger<WorkflowRunGateway>.Instance);
 
         await gateway.ResumeAsync(GateRunId, Signal, null, false, ["correctness-1"], Approver, CancellationToken.None);
 

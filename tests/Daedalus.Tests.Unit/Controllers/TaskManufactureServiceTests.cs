@@ -9,6 +9,7 @@ using Daedalus.Tests.Unit.Workflow;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
+using Thalos.Workspaces;
 using ZeroAlloc.Results;
 using DomainTask = Daedalus.Domain.Entities.Task;
 using Task = System.Threading.Tasks.Task;
@@ -47,7 +48,8 @@ public sealed class TaskManufactureServiceTests
 
     /// <summary>The real gateway over <paramref name="store"/>, as the engine-on host registers it.</summary>
     internal static WorkflowRunGateway Gateway(IWorkflowStore store) =>
-        new(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+        new(store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(),
+            TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
     /// <summary>A task on a project with <paramref name="repositoryUrl"/>, alone in its project.</summary>
     private DomainTask Given(string repositoryUrl = Sandbox) => GivenInProject(Guid.NewGuid(), repositoryUrl);

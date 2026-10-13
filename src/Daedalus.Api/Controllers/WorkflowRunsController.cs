@@ -214,7 +214,10 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var error = string.Join("; ", new[] { review.IsFailure ? review.Error : null, dropped.IsFailure ? dropped.Error : null, filed.IsFailure ? filed.Error : null }.Where(e => e is not null));
 
         var (prUrl, unreadableLink) = ReadPrUrl(run);
-        var issueRepo = PullRequestLink.TryParse(prUrl, out var repo, out _) ? repo : null;
+        // The repository a deferred finding's existing issue number lives in. At the gate there is no pull request
+        // yet: publish runs after it, so the run's workspace names the repository. Once a pull request exists,
+        // its repository is the one file-review-findings resolved the number in, so it wins.
+        var issueRepo = PullRequestLink.TryParse(prUrl, out var repo, out _) ? repo : await runs.FindRepositoryAsync(run.Id, ct);
         return new WorkflowRunView(
             run.Id,
             run.Process,
@@ -273,8 +276,9 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     }
 
     /// <summary>
-    ///     Maps one deferred finding. Its existing issue links into the pull request's repository, which is where
-    ///     <c>file-review-findings</c> resolves that number; with no such repository there is no link, only the number.
+    ///     Maps one deferred finding. Its existing issue links into <paramref name="issueRepo"/>, the repository of
+    ///     the run's pull request or, before there is one, of its workspace; with no repository there is no link, only
+    ///     the number.
     /// </summary>
     private static DeferredFindingView ToDeferredView(IdentifiedDeferredFinding d, IReadOnlySet<string> dropped, RepoRef? issueRepo) =>
         new(d.Id, d.Lens, d.Finding.File, d.Finding.Line, d.Finding.Title, d.Finding.Scenario, d.Finding.Reason,

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Tests.Unit.Workflow;
@@ -7,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
+using Thalos.Workspaces;
 
 namespace Daedalus.Tests.Unit.Controllers;
 
@@ -24,7 +26,7 @@ public sealed class WorkflowRunsControllerStartTests
     public WorkflowRunsControllerStartTests()
     {
         var gateway = new WorkflowRunGateway(
-            Substitute.For<IWorkflowStore>(), Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+            Substitute.For<IWorkflowStore>(), Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddMvcCore().AddApiExplorer();

@@ -1,5 +1,6 @@
 using System.Data.Async.Adapters;
 using System.Security.Claims;
+using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
@@ -19,6 +20,7 @@ using Thalos.Skills;
 using Thalos.Tools;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
+using Thalos.Workspaces;
 using ZeroAlloc.ORM.Migrations;
 using ZeroAlloc.Outbox.Orm;
 using ZeroAlloc.Results;
@@ -342,7 +344,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
             var runId = await ParkedAtGateAsync(store, "c1");
 
             var result = await gateway.ResumeAsync(runId, "ci_passed", payload: null, TestApprover, CancellationToken.None);
@@ -358,7 +360,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
 
             var result = await gateway.ResumeAsync(Guid.NewGuid(), "human_approval", payload: null, TestApprover, CancellationToken.None);
 
@@ -373,7 +375,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+            var gateway = new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
             var runId = await ParkedAtGateAsync(store, "c2");
 
             var result = await gateway.ResumeAsync(runId, "human_approval", payload: null, TestApprover, CancellationToken.None);
@@ -401,7 +403,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
+            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 
             var result = await controller.Resume(
                 Guid.NewGuid(), new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
@@ -416,7 +418,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
+            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 
             var result = await controller.Cancel(Guid.NewGuid(), new CancelWorkflowRunRequest("test"), CancellationToken.None);
 
@@ -452,7 +454,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var services = new ServiceCollection();
             services.AddScoped<IWorkflowRunRecordStore>(_ => records);
             var gateway = new WorkflowRunGateway(
-                store.Store, store.Store, services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
+                store.Store, store.Store, services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
             var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "u-dev"), new Claim(ClaimTypes.Role, "developer")], "Test"));
             var controller = WithUser(new WorkflowRunsController(gateway), user);
 
@@ -481,7 +483,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         await WithScratchDatabaseAsync(async store =>
         {
             var runId = await ParkedAtGateAsync(store, "no-subject");
-            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance)), DeveloperWithoutSubject());
+            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance)), DeveloperWithoutSubject());
 
             var result = await controller.Resume(
                 runId, new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
@@ -505,7 +507,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var starter = Substitute.For<IManufactureRunStarter>();
             starter.StartAsync(Arg.Any<ManufactureStartRequest>(), Arg.Any<CancellationToken>())
                 .Returns(new ValueTask<Result<Guid, ManufactureStartFailure>>(Result<Guid, ManufactureStartFailure>.Success(Guid.NewGuid())));
-            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance)), DeveloperWithoutSubject());
+            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance)), DeveloperWithoutSubject());
 
             var result = await controller.Start(new StartWorkflowRunRequest("Tighten a guard.", "sandbox"), starter, CancellationToken.None);
 
