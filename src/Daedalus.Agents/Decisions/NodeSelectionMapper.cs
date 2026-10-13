@@ -1,10 +1,17 @@
 namespace Daedalus.Agents.Decisions;
 
-/// <summary>Pure mapping from a Minos answer onto a <see cref="NodeSelection"/>. No I/O, no client call.</summary>
+/// <summary>
+///     Pure mapping from a Minos answer onto a <see cref="NodeSelection"/>. No I/O, no client call. Routine takes the first
+///     allowed model, Hard the last and Moderate the middle one; on a two-model menu Moderate and Hard both pick the
+///     stronger model, since quality comes first.
+/// </summary>
 public static class NodeSelectionMapper
 {
     /// <summary>Fallback reason when the demand answer is below <see cref="DecisionsConfig.ModelConfidence"/>.</summary>
     public const string LowConfidence = "low-confidence";
+
+    /// <summary>Fallback reason when the agent offers no allowed models, so there is nothing to choose between.</summary>
+    public const string NoAllowedModels = "no-allowed-models";
 
     private static readonly string[] NeverRemovable = ["workspace", "daedalus"];
 
@@ -25,7 +32,7 @@ public static class NodeSelectionMapper
         var allowed = menu.AllowedModels;
         if (allowed.Count == 0)
         {
-            return (menu.DefaultModel, "default", LowConfidence);
+            return (menu.DefaultModel, "default", NoAllowedModels);
         }
 
         var demand = answers.Demand;
