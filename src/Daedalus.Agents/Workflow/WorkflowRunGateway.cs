@@ -93,11 +93,23 @@ public sealed partial class WorkflowRunGateway(
     ///     The github.com repository the run works on: its workspace names the allow-listed repository, and that
     ///     entry's configured remote gives the owner and name. Matched by name, so it does not depend on the remote a
     ///     workspace provider records, which in sandbox mode is not the configured one. <see langword="null"/> when the
-    ///     run has no workspace, its repository is no longer allow-listed, or the remote is not on github.com.
+    ///     run has no workspace, its repository is no longer allow-listed, or the remote is not on github.com; also
+    ///     <see langword="null"/>, logged with the exception's type only, when the workspace lookup throws, because the
+    ///     repository only turns an issue number into a link and a run view must not fail for want of one.
     /// </summary>
     public async ValueTask<RepoRef?> FindRepositoryAsync(Guid runId, CancellationToken ct)
     {
-        var workspace = await _workspaces.FindAsync(runId, ct).ConfigureAwait(false);
+        RunWorkspace? workspace;
+        try
+        {
+            workspace = await _workspaces.FindAsync(runId, ct).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            LogRepositoryLookupFailed(_logger, runId, exception.GetType().FullName);
+            return null;
+        }
+
         if (workspace is null)
             return null;
 
@@ -359,6 +371,9 @@ public sealed partial class WorkflowRunGateway(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Run {RunId}: the resume failed but findings-dropped attempt {Attempt} could not be voided, so its drop list may still read as the latest")]
     private static partial void LogDropVoidFailed(ILogger logger, Exception exception, Guid runId, string attempt);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Run {RunId}: the workspace lookup for its repository failed with {ExceptionType}, so its existing issues show without a link")]
+    private static partial void LogRepositoryLookupFailed(ILogger logger, Guid runId, string? exceptionType);
 
     /// <summary>
     ///     <paramref name="run"/> is parked awaiting exactly <paramref name="signal"/>, or a failure naming what

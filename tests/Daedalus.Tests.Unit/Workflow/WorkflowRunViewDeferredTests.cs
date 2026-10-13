@@ -24,7 +24,15 @@ public sealed class WorkflowRunViewDeferredTests
 
     private static Task<WorkflowRunView> ViewWith(params WorkflowRunRecord[] extra) => ViewOf(OneDeferred, prUrl: null, extra);
 
-    private static async Task<WorkflowRunView> ViewOf(string evidencePayload, string? prUrl, params WorkflowRunRecord[] extra)
+    private static Task<WorkflowRunView> ViewOf(string evidencePayload, string? prUrl, params WorkflowRunRecord[] extra) =>
+        ViewOf(evidencePayload, prUrl, workspaces: null, extra);
+
+    /// <param name="evidencePayload">The review evidence record's payload.</param>
+    /// <param name="prUrl">The run's pull request link, or none.</param>
+    /// <param name="workspaces">The workspace provider, or <see langword="null"/> for one that names the allow-listed gizmos.</param>
+    /// <param name="extra">More records of the run.</param>
+    private static async Task<WorkflowRunView> ViewOf(
+        string evidencePayload, string? prUrl, IRunWorkspaceProvider? workspaces, WorkflowRunRecord[] extra)
     {
         var run = new WorkflowRun
         {
@@ -53,9 +61,13 @@ public sealed class WorkflowRunViewDeferredTests
         });
         // The run's workspace names the allow-listed repository; its own remote is the sandbox's, not github.com, so
         // only the configured entry, found by name, can say where the repository lives.
-        var workspaces = Substitute.For<IRunWorkspaceProvider>();
-        workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(
-            new RunWorkspace(run.Id, "gizmos", "sandbox://gizmos", "main", $"manufacture/{run.Id}", "sandbox://run", null)));
+        if (workspaces is null)
+        {
+            workspaces = Substitute.For<IRunWorkspaceProvider>();
+            workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(
+                new RunWorkspace(run.Id, "gizmos", "sandbox://gizmos", "main", $"manufacture/{run.Id}", "sandbox://run", null)));
+        }
+
         var config = new WorkflowConfig();
         config.Repositories.Add(new RepositoryConfig { Name = "gizmos", Remote = "https://github.com/acme/gizmos.git" });
         var controller = new WorkflowRunsController(new WorkflowRunGateway(
@@ -131,6 +143,41 @@ public sealed class WorkflowRunViewDeferredTests
         var view = await ViewOf(Evidence, prUrl: null);
 
         view.DeferredFindings.Should().ContainSingle().Which.ExistingIssueUrl.Should().Be(new Uri("https://github.com/acme/gizmos/issues/42"));
+    }
+
+    /// <summary>
+    ///     A view whose deferred findings carry no issue number has nothing to link, so it never looks the workspace up.
+    ///     Red: look the repository up whenever the run has no pull request.
+    /// </summary>
+    [Fact]
+    public async Task A_view_with_no_issue_number_to_link_looks_no_workspace_up()
+    {
+        var workspaces = Substitute.For<IRunWorkspaceProvider>();
+
+        var view = await ViewOf(OneDeferred, prUrl: null, workspaces, []);
+
+        view.DeferredFindings.Should().ContainSingle().Which.ExistingIssueUrl.Should().BeNull();
+        await workspaces.DidNotReceive().FindAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     A workspace lookup that throws leaves the issue number as text, with no link, and the view still answers.
+    ///     Red: let the lookup's exception escape FindRepositoryAsync: the view throws instead of answering.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_workspace_lookup_leaves_the_issue_number_without_a_link()
+    {
+        const string Evidence =
+            """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked","existingIssue":42}] }""";
+        var workspaces = Substitute.For<IRunWorkspaceProvider>();
+        workspaces.FindAsync(RunId, Arg.Any<CancellationToken>())
+            .Returns(_ => ValueTask.FromException<RunWorkspace?>(new InvalidOperationException("The workspace store is down.")));
+
+        var view = await ViewOf(Evidence, prUrl: null, workspaces, []);
+
+        var finding = view.DeferredFindings.Should().ContainSingle().Subject;
+        finding.ExistingIssue.Should().Be(42);
+        finding.ExistingIssueUrl.Should().BeNull();
     }
 
     /// <summary>Red: leave FiledFindings empty; the single finding is missing.</summary>

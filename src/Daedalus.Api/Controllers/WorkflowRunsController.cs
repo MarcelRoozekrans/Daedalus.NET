@@ -216,8 +216,17 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var (prUrl, unreadableLink) = ReadPrUrl(run);
         // The repository a deferred finding's existing issue number lives in. At the gate there is no pull request
         // yet: publish runs after it, so the run's workspace names the repository. Once a pull request exists,
-        // its repository is the one file-review-findings resolved the number in, so it wins.
-        var issueRepo = PullRequestLink.TryParse(prUrl, out var repo, out _) ? repo : await runs.FindRepositoryAsync(run.Id, ct);
+        // its repository is the one file-review-findings resolved the number in, so it wins. The workspace is looked
+        // up only when a deferred finding has an issue number to link.
+        RepoRef? issueRepo = null;
+        if (PullRequestLink.TryParse(prUrl, out var repo, out _))
+        {
+            issueRepo = repo;
+        }
+        else if (deferred.Any(d => d.Finding.ExistingIssue is not null))
+        {
+            issueRepo = await runs.FindRepositoryAsync(run.Id, ct);
+        }
         return new WorkflowRunView(
             run.Id,
             run.Process,
