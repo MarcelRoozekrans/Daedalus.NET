@@ -73,7 +73,7 @@ public class TasksPageBrowserTests : BrowserTestBase
 
     /// <summary>
     ///     The icon-only row buttons are named for what they do, not for the icon's ligature text.
-    ///     Red: drop the aria-label from the Manufacture button; the attribute is missing.
+    ///     Red: drop the aria-label from the Manufacture button; the exact role-name lookup no longer finds it.
     /// </summary>
     [Test]
     [Description("The row action buttons have accessible names")]
