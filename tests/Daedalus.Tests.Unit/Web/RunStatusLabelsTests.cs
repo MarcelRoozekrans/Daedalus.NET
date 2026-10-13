@@ -27,6 +27,7 @@ public sealed class RunStatusLabelsTests
     /// <summary>
     ///     Each step kind or outcome maps to the contract's severity and text.
     ///     Red: map rejected to Light. Red: show the kind instead of the outcome for a completion.
+    ///     Red: restore outcome ?? kind in StepText: the CapExceeded and Failed rows with outcome changed fail.
     /// </summary>
     [Theory]
     [InlineData("Completed", "approved", "approved", BadgeStyle.Success)]
@@ -39,6 +40,10 @@ public sealed class RunStatusLabelsTests
     [InlineData("Completed", "done", "done", BadgeStyle.Light)]
     [InlineData("Entered", null, "Entered", BadgeStyle.Light)]
     [InlineData("Cancelled", null, "Cancelled", BadgeStyle.Light)]
+    [InlineData("CapExceeded", "changed", "CapExceeded", BadgeStyle.Danger)]
+    [InlineData("Failed", "changed", "Failed", BadgeStyle.Danger)]
+    [InlineData("Cancelled", "approved", "Cancelled", BadgeStyle.Light)]
+    [InlineData("Retried", "approved", "Retried", BadgeStyle.Info)]
     public void Step(string kind, string? outcome, string text, BadgeStyle style)
     {
         RunStatusLabels.StepText(kind, outcome).Should().Be(text);
