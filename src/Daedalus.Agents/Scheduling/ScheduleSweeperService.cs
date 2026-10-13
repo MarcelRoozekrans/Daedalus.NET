@@ -81,7 +81,10 @@ public sealed partial class ScheduleSweeperService : BackgroundService
             var store = scope.ServiceProvider.GetRequiredService<ScheduledRunStore>();
 
             var fired = await store.ClaimAndEnqueueDueAsync(ct).ConfigureAwait(false);
-            if (fired > 0) { LogFired(_logger, fired); }
+            if (fired > 0)
+            {
+                LogFired(_logger, fired);
+            }
         }
         // A normal host shutdown cancels ct mid-sweep; that is not a sweep failure and must propagate so the
         // BackgroundService loop above stops promptly instead of logging a spurious error on the way out.

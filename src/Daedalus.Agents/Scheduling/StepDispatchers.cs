@@ -34,7 +34,10 @@ public sealed partial class RunScoutStepDispatcher(
         // Cheap pre-check before paying for a turn. The store re-checks inside its transaction, which is what
         // actually settles a race; this one only avoids billing for a step that is already done (e.g. a
         // redelivery arriving after a restart already advanced this execution past Scout).
-        if (execution.Step != RunStep.Scout) { return; }
+        if (execution.Step != RunStep.Scout)
+        {
+            return;
+        }
 
         // Repository is not on the execution row (see GetScheduleRepositoryAsync's remarks): read it off the
         // firing ScheduledRun. Null here means either the schedule was deleted mid-run or RepoDigestRepositoryValidator
@@ -129,7 +132,10 @@ public sealed partial class RunWriterStepDispatcher(
         }
 
         // Same cheap pre-check as RunScoutStepDispatcher: the store's transaction is what actually settles a race.
-        if (execution.Step != RunStep.Writer) { return; }
+        if (execution.Step != RunStep.Writer)
+        {
+            return;
+        }
 
         // execution.Findings! is safe only because the step check above already required RunStep.Writer, and
         // RecordFindings (ScheduledRunExecutionStore.TryCompleteScoutAsync) is the only transition into Writer —
@@ -210,7 +216,10 @@ public sealed partial class DeliverDigestDispatcher(
         }
 
         // Same cheap pre-check as the other step dispatchers.
-        if (execution.Step != RunStep.Deliver) { return; }
+        if (execution.Step != RunStep.Deliver)
+        {
+            return;
+        }
 
         try
         {

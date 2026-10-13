@@ -100,6 +100,11 @@ jobs:
       - name: Build
         run: dotnet build Daedalus.sln --configuration Release --no-restore -p:Version="$APP_VERSION"
 
+      # .editorconfig is the formatting contract and .gitattributes pins LF, so this runs the same on every machine.
+      # Nothing checked it before, and import order, brace layout and stray BOMs drifted in 50 files unnoticed.
+      - name: Check formatting
+        run: dotnet format Daedalus.sln --verify-no-changes --no-restore
+
       - name: Run Unit Tests
         run: |
           dotnet test Daedalus.sln \

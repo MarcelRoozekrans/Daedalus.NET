@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Daedalus.Api.Controllers;
 
 #pragma warning disable S6960 // SonarQube complexity: reads and the one write they enable belong on one
-                              // resource per the reviewer's ruling, not split into two controllers.
+// resource per the reviewer's ruling, not split into two controllers.
 
 /// <summary>
 ///     Answers "a digest did not arrive — where did it die?" over HTTP, and offers the one remedy the page
