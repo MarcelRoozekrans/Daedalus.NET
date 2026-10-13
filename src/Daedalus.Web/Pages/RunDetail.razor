@@ -12,11 +12,7 @@
 
 <div aria-live="polite" class="sr-only" data-testid="run-status-live">@_announcement</div>
 
-@if (!_checked)
-{
-    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small"/>
-}
-else if (!_canView || (Runs.Value is { SelectedForbidden: true } denied && denied.SelectedId == Id))
+@if (!_canView || (Runs.Value is { SelectedForbidden: true } denied && denied.SelectedId == Id))
 {
     <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" data-testid="run-forbidden">
         You need the developer or admin role to view runs.
@@ -68,7 +64,6 @@ else
     /// <summary>The run last loaded for a viewer, or <see langword="null"/> while none is.</summary>
     private Guid? _loaded;
 
-    private bool _checked;
     private bool _canView;
     private bool _canRetry;
 
@@ -90,19 +85,21 @@ else
 
     /// <summary>
     ///     The signed-in user, replaced whenever the authentication state changes, so the page follows a change of
-    ///     roles. The page is <c>[Authorize]</c>: <c>AuthorizeRouteView</c> sends an anonymous visitor to the login, so
-    ///     the user here is always signed in.
+    ///     roles. <c>AddCascadingAuthenticationState</c> always provides it. The page is <c>[Authorize]</c>, so
+    ///     <c>AuthorizeRouteView</c> renders it only once this task has completed for a signed-in user, and sends an
+    ///     anonymous visitor to the login.
     /// </summary>
-    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationState { get; set; } = null!;
 
     /// <summary>
     ///     Decides access for each new authentication state, then loads the run when the user may view it and it is not
-    ///     loaded yet: a new <see cref="Id"/>, or a user who just became a viewer. The spinner shows only until the
-    ///     first state is read; then a user without the role gets the role message.
+    ///     loaded yet: a new <see cref="Id"/>, or a user who just became a viewer. A user without the role gets the
+    ///     role message.
     /// </summary>
     protected override async Task OnParametersSetAsync()
     {
-        if (AuthenticationState is { } state && !ReferenceEquals(state, _evaluated))
+        var state = AuthenticationState;
+        if (!ReferenceEquals(state, _evaluated))
         {
             _evaluated = state;
             var user = (await state).User;
@@ -112,7 +109,6 @@ else
                 return;
             }
 
-            _checked = true;
             _canView = RunAccess.CanView(user);
             _canRetry = RunAccess.CanRetry(user);
         }
