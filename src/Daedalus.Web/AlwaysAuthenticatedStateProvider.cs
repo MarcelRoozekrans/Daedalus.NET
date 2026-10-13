@@ -14,9 +14,12 @@ namespace Daedalus.Web;
 /// <remarks>
 ///     The user's roles are <see cref="DefaultRoles" /> unless the browser's <c>localStorage</c> holds a comma-separated
 ///     list under <see cref="RolesKey" />, which lets a browser test sign in as a narrower user in a context of its own.
-///     The identity claims never change. This provider is registered only in test mode, so nothing else reads the key.
+///     A write to the key from another page of the same origin raises the <c>storage</c> event, which
+///     <c>js/test-roles.js</c> passes to <see cref="OnRolesChanged" />: the roles are read again and the new state is
+///     announced, as a sign-in that completes after the app rendered announces it. The identity claims never change.
+///     This provider is registered only in test mode, so nothing else reads the key or loads the module.
 /// </remarks>
-public sealed class AlwaysAuthenticatedStateProvider(IJSRuntime js) : AuthenticationStateProvider
+public sealed class AlwaysAuthenticatedStateProvider(IJSRuntime js) : AuthenticationStateProvider, IAsyncDisposable
 {
     /// <summary>The <c>localStorage</c> key a test sets to choose the user's roles.</summary>
     public const string RolesKey = "daedalus.test-roles";
@@ -24,12 +27,60 @@ public sealed class AlwaysAuthenticatedStateProvider(IJSRuntime js) : Authentica
     private static readonly string[] DefaultRoles = ["admin", "task-manager", "project-manager", "analyst"];
 
     private Task<AuthenticationState>? _state;
+    private DotNetObjectReference<AlwaysAuthenticatedStateProvider>? _self;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _watcher;
 
     /// <inheritdoc />
-    public override Task<AuthenticationState> GetAuthenticationStateAsync() => _state ??= CreateAsync();
+    public override Task<AuthenticationState> GetAuthenticationStateAsync() => _state ??= CreateAsync(watch: true);
 
-    private async Task<AuthenticationState> CreateAsync()
+    /// <summary>Called from <c>js/test-roles.js</c> when another page of this origin wrote <see cref="RolesKey"/>.</summary>
+    /// <remarks>
+    ///     The state is announced already read, as the OIDC service announces a completed sign-in: an unfinished task
+    ///     would make <c>AuthorizeRouteView</c> show its Authorizing content and build the page again, which hides
+    ///     whether the page itself follows the change.
+    /// </remarks>
+    [JSInvokable]
+    public async Task OnRolesChanged()
     {
+        var state = await CreateAsync(watch: false);
+        _state = Task.FromResult(state);
+        NotifyAuthenticationStateChanged(_state);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_watcher is not null)
+            {
+                await _watcher.InvokeVoidAsync("dispose");
+                await _watcher.DisposeAsync();
+            }
+
+            if (_module is not null)
+            {
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The page is gone, and its listener with it.
+        }
+
+        _self?.Dispose();
+    }
+
+    private async Task<AuthenticationState> CreateAsync(bool watch)
+    {
+        if (watch)
+        {
+            _self = DotNetObjectReference.Create(this);
+            _module = await js.InvokeAsync<IJSObjectReference>("import", "./js/test-roles.js");
+            _watcher = await _module.InvokeAsync<IJSObjectReference>("watchRoles", _self, RolesKey);
+        }
+
         var stored = await js.InvokeAsync<string?>("localStorage.getItem", RolesKey);
         var roles = string.IsNullOrWhiteSpace(stored)
             ? DefaultRoles

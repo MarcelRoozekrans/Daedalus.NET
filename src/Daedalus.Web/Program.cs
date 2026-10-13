@@ -114,6 +114,10 @@ builder.Services.AddScoped<RunsEffects>();
 builder.Services.AddScoped<TasksEffects>();
 builder.Services.AddScoped<RunHubConnection>();
 
+// The signed-in user as a cascading value that is replaced whenever the authentication state changes, so the layout
+// and the pages follow a sign-in that completes after they rendered.
+builder.Services.AddCascadingAuthenticationState();
+
 if (testMode)
 {
     // Test mode: bypass OIDC, use AlwaysAuthenticatedStateProvider
