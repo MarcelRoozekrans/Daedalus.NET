@@ -1,5 +1,5 @@
-using ZeroAlloc.Results;
 using ZeroAlloc.Mediator;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Commands.DeleteProject;
 

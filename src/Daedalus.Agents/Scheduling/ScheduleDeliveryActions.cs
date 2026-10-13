@@ -1,12 +1,12 @@
 using Daedalus.Agents.Channels;
 using Daedalus.Application.Abstractions;
 using Daedalus.Infrastructure.Persistence;
-using ZeroAlloc.Results;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZeroAlloc.Outbox;
 using ZeroAlloc.Outbox.EfCore;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Scheduling;
 

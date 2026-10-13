@@ -1,6 +1,6 @@
-using ZeroAlloc.Results;
 using LibGit2Sharp;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Results;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Daedalus.Infrastructure.Services.Git;

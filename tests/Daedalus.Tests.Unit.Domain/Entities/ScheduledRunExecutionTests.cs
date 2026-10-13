@@ -167,14 +167,22 @@ public class ScheduledRunExecutionTests
 
     private static void Drive(ScheduledRunExecution execution, RunStep target)
     {
-        if (target is RunStep.Pending) return;
+        if (target is RunStep.Pending)
+            return;
         execution.BeginScout(Now);
-        if (target is RunStep.Scout) return;
+        if (target is RunStep.Scout)
+            return;
         execution.RecordFindings("seed", Now);
-        if (target is RunStep.Writer) return;
+        if (target is RunStep.Writer)
+            return;
         execution.RecordDigest("seed", Now);
-        if (target is RunStep.Deliver) return;
-        if (target is RunStep.Done) { execution.Complete(Now); return; }
+        if (target is RunStep.Deliver)
+            return;
+        if (target is RunStep.Done)
+        {
+            execution.Complete(Now);
+            return;
+        }
         execution.Fail("seed", Now);
     }
 

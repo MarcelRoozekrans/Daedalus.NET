@@ -1,8 +1,8 @@
 using AwesomeAssertions;
-using ZeroAlloc.Results;
 using Daedalus.Infrastructure.Services.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
+using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Unit.Infrastructure.Services.CodeAnalysis;

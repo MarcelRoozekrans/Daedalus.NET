@@ -1,6 +1,6 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Tests.Playwright.Browser;
 

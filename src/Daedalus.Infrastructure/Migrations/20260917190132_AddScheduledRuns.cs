@@ -1,4 +1,4 @@
-﻿#pragma warning disable CA1861 // generated migration: composite-index column arrays run once at migration time
+#pragma warning disable CA1861 // generated migration: composite-index column arrays run once at migration time
 
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;

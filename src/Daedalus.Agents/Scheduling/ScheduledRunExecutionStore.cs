@@ -1,8 +1,8 @@
 using System.Data.Common;
 using Daedalus.Agents.Channels;
-using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
@@ -489,7 +489,7 @@ public sealed partial class ScheduledRunExecutionStore(
         var previousOccurrenceAt = await _db.ScheduledRunExecutions.AsNoTracking()
             .Where(e => e.ScheduleId == scheduleId && e.Step == RunStep.Done && e.OccurrenceAt < occurrenceAtUtc)
             .OrderByDescending(e => e.OccurrenceAt)
-            .Select(e => (DateTime?) e.OccurrenceAt)
+            .Select(e => (DateTime?)e.OccurrenceAt)
             .FirstOrDefaultAsync(ct).ConfigureAwait(false);
 
         return previousOccurrenceAt ?? _time.GetUtcNow().UtcDateTime - _gitHubOptions.Value.DefaultLookback;

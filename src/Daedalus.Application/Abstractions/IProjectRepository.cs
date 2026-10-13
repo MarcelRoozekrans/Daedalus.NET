@@ -1,5 +1,5 @@
-using ZeroAlloc.Results;
 using Daedalus.Domain.Entities;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Abstractions;
 

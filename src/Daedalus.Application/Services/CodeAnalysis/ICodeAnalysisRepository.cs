@@ -1,5 +1,5 @@
-using ZeroAlloc.Results;
 using Daedalus.Domain.CodeAnalysis;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Services.CodeAnalysis;
 

@@ -1,6 +1,6 @@
-using ZeroAlloc.Results;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
+using ZeroAlloc.Results;
 
 namespace Daedalus.Application.Abstractions;
 

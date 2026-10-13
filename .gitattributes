@@ -1,0 +1,4 @@
+# Every text file is stored and checked out with LF, on every machine, matching .editorconfig.
+# Without this, a Windows checkout with core.autocrlf and a Linux one disagreed, and
+# `dotnet format` flagged every file on whichever side did not match.
+* text=auto eol=lf

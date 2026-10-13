@@ -325,7 +325,7 @@ public sealed class ScheduleReconcilerHostedService(IServiceScopeFactory scopeFa
         var defaultAgent = configuration[DefaultAgentConfigurationKey];
         var names = string.IsNullOrWhiteSpace(defaultAgent)
             ? RepoDigestPrompts.AgentNames
-            : (IReadOnlyList<string>) [defaultAgent, .. RepoDigestPrompts.AgentNames];
+            : (IReadOnlyList<string>)[defaultAgent, .. RepoDigestPrompts.AgentNames];
 
         var catalog = scope.ServiceProvider.GetRequiredService<IAgentCatalog>();
         AgentNameValidator.Validate(catalog, names);
