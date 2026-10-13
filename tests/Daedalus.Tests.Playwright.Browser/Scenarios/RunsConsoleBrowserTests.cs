@@ -305,28 +305,104 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
     }
 
     /// <summary>
-    ///     The Runs grid drops its least needed columns on narrower screens: at 1024 wide, Started by and Updated; at 375,
-    ///     Process and Started too. Only the hidden headers are asserted: the Task column has no width of its own and is
-    ///     squeezed to nothing up to about 1300 wide, a product defect reported in the task B10 report.
-    ///     Red: remove the <c>.runs-grid</c> wrapper div from <c>RunsGrid</c>; at 1024 Started by shows.
-    ///     Red: drop <c>runs-col-wide</c> from the Updated column; at 1024 Updated shows.
-    ///     Red: drop <c>runs-col-tablet</c> from the Process column; at 375 Process shows.
-    ///     Red: drop <c>runs-col-tablet</c> from the Started column; at 375 Started shows.
+    ///     The Runs grid keeps the contract's columns at each breakpoint: all seven at 1280 wide; without Started by and
+    ///     Updated at 1024; only Status, Current node and Task at 375. At each width every shown header sits over its
+    ///     first-row cell, no column is narrower than its declared width (the Task column's being its minimum), and the
+    ///     Running run's task link can be seen, with the grid scrolling inside its card when the card is narrower.
+    ///     Red: <c>Visible</c> of Updated always false; at 1280 Updated is missing.
+    ///     Red: <c>Visible</c> of the Task column false; at 1280 the widths check has no Task.
+    ///     Red: a column hidden by CSS on its cells, as before fix round 1, leaves its col width behind and squeezes the
+    ///     Task column to nothing; at 1280 the widths check names Task at 0.
+    ///     Red: <c>Visible</c> of Updated bound to the tablet query; at 1024 Updated shows.
+    ///     Red: <c>Visible</c> of Started by always true; at 1024 Started by shows.
+    ///     Red: <c>Visible</c> of Process always true; at 375 Process shows.
+    ///     Red: <c>Visible</c> of Started always true; at 375 Started shows.
+    ///     Red: a header-only CSS rule hides the Process header but not its cells; at 1280 6 headers sit over 7 cells.
+    ///     Red: <c>MinGridWidth</c> leaves out the Task column's minimum; at 1280 the widths check names Task.
+    ///     Red: the Task template renders the task as plain text; at 1280 the task link is missing.
+    ///     Red: the task link is pushed out of its cell with a relative offset; at 1280 none of it shows.
+    ///     Red: <c>.runs-grid</c> with <c>overflow-x: visible</c>; at 1280 the grid sticks 184px out of its card.
     /// </summary>
     [Test]
-    [Description("The Runs grid hides columns at tablet and phone widths")]
+    [Description("The Runs grid keeps the contract's columns, aligned, at desktop, tablet and phone widths")]
     public async Task Runs_Grid_HidesColumnsOnNarrowScreens()
     {
-        await Page.SetViewportSizeAsync(1024, 800).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(1280, 800).ConfigureAwait(false);
         await _runsPage.NavigateAsync().ConfigureAwait(false);
         await Expect(_runsPage.RowFor(Runs.Failed)).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_runsPage.Header("Updated")).ToBeVisibleAsync().ConfigureAwait(false);
+        await ExpectGridLaidOutAsync("1280").ConfigureAwait(false);
 
+        await Page.SetViewportSizeAsync(1024, 800).ConfigureAwait(false);
         await Expect(_runsPage.Header("Started by")).ToBeHiddenAsync().ConfigureAwait(false);
         await Expect(_runsPage.Header("Updated")).ToBeHiddenAsync().ConfigureAwait(false);
+        await ExpectGridLaidOutAsync("1024").ConfigureAwait(false);
 
         await Page.SetViewportSizeAsync(375, 812).ConfigureAwait(false);
-
         await Expect(_runsPage.Header("Process")).ToBeHiddenAsync().ConfigureAwait(false);
         await Expect(_runsPage.Header("Started")).ToBeHiddenAsync().ConfigureAwait(false);
+        await ExpectGridLaidOutAsync("375").ConfigureAwait(false);
     }
+
+    /// <summary>
+    ///     Every shown header cell over its first-row cell, within 1px in x and width; no shown column narrower than
+    ///     <see cref="DeclaredWidths"/>; the Running run's task link with a width; and no sideways scroll on the page.
+    /// </summary>
+    private async Task ExpectGridLaidOutAsync(string viewport)
+    {
+        var misaligned = await Page.EvaluateAsync<string>(AlignmentScript).ConfigureAwait(false);
+        misaligned.Should().BeEmpty($"each header sits over its cell at {viewport}");
+
+        var widths = JsonSerializer.Deserialize<Dictionary<string, double>>(
+            await Page.EvaluateAsync<string>(WidthsScript).ConfigureAwait(false))!;
+        widths.Should().ContainKeys("Status", "Current node", "Task");
+        // The grid's 1px border on each side comes out of the Task column, the one without a fixed width.
+        widths.Where(w => w.Value + 2 < DeclaredWidths[w.Key]).Should()
+            .BeEmpty($"no column is narrower than its declared width at {viewport}");
+
+        // The link's box clipped to its cell: a link in a column squeezed to nothing keeps its own box but shows none of it.
+        await Expect(_runsPage.TaskLink(Runs.Running)).ToHaveCountAsync(1).ConfigureAwait(false);
+        var shownWidth = await _runsPage.TaskLink(Runs.Running).EvaluateAsync<double>(
+            "a => { const l = a.getBoundingClientRect(), c = a.closest('td').getBoundingClientRect(); return Math.min(l.right, c.right) - Math.max(l.left, c.left); }")
+            .ConfigureAwait(false);
+        shownWidth.Should().BeGreaterThan(0, $"the task link can be seen at {viewport}");
+
+        // The layout's body is the page's scroll container, so the card is measured: nothing may stick out of it.
+        var cardOverflow = await Page.Locator("[data-testid='runs-card']").EvaluateAsync<int>("card => card.scrollWidth - card.clientWidth")
+            .ConfigureAwait(false);
+        cardOverflow.Should().BeLessThanOrEqualTo(0, $"the grid scrolls inside its card, never the page, at {viewport}");
+    }
+
+    /// <summary>The width RunsGrid declares for each column; the Task column's is its minimum.</summary>
+    private static readonly Dictionary<string, double> DeclaredWidths = new(StringComparer.Ordinal)
+    {
+        ["Status"] = 170,
+        ["Process"] = 170,
+        ["Current node"] = 140,
+        ["Task"] = 200,
+        ["Started by"] = 140,
+        ["Started"] = 150,
+        ["Updated"] = 150,
+    };
+
+    private const string AlignmentScript = """
+        () => {
+            const table = document.querySelector("[data-testid='runs-grid'] table");
+            const shown = cell => getComputedStyle(cell).display !== 'none';
+            const headers = [...table.querySelectorAll('thead th')].filter(shown);
+            const cells = [...table.querySelector('tbody tr').querySelectorAll('td')].filter(shown);
+            if (headers.length !== cells.length) return `${headers.length} headers over ${cells.length} cells`;
+            return headers.map((h, i) => {
+                const a = h.getBoundingClientRect(), b = cells[i].getBoundingClientRect();
+                return Math.abs(a.x - b.x) > 1 || Math.abs(a.width - b.width) > 1
+                    ? `${h.textContent.trim()}: header ${a.x}+${a.width}, cell ${b.x}+${b.width}` : '';
+            }).filter(m => m).join('; ');
+        }
+        """;
+
+    private const string WidthsScript = """
+        () => JSON.stringify(Object.fromEntries([...document.querySelectorAll("[data-testid='runs-grid'] thead th")]
+            .filter(h => getComputedStyle(h).display !== 'none')
+            .map(h => [h.textContent.trim(), h.getBoundingClientRect().width])))
+        """;
 }
