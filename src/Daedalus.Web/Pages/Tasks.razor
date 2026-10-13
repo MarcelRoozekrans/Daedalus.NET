@@ -21,10 +21,10 @@
                   data-testid="btn-create-task"/>
 </RadzenStack>
 
-@if (!string.IsNullOrEmpty(TaskStore.Value.Error) && TaskStore.Value.Error != _dismissedError)
+@if (!string.IsNullOrEmpty(TaskStore.Value.Error))
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4"
-                 Close="@(() => _dismissedError = TaskStore.Value.Error)">
+                 Close="@(() => Dispatcher.DispatchAsync(new TasksErrorDismissed()).AsTask())">
         @TaskStore.Value.Error
     </RadzenAlert>
 }
@@ -122,7 +122,6 @@
 
 @code {
     private readonly CancellationTokenSource _cts = new();
-    private string? _dismissedError;
 
     protected override void SubscribeStores() => Subscribe(TaskStore);
 

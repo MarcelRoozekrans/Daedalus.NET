@@ -164,6 +164,27 @@ public sealed class TasksEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     Dismissing the error clears it and leaves the board alone, so the same failure after a retry shows again.
+    ///     Red: the reducer keeps Error. Red: the reducer clears Items too.
+    /// </summary>
+    [Fact]
+    public void Dismissing_the_error_clears_it_and_keeps_the_board()
+    {
+        var task = Board(Guid.NewGuid(), null, "kept");
+        var state = TasksState.Initial(null!);
+        state = TasksReducers.On(state, new TasksLoadStarted());
+        state = TasksReducers.On(state, new TasksLoaded([task], 1));
+        state = TasksReducers.On(state, new TasksLoadStarted());
+        state = TasksReducers.On(state, new TasksLoadFailed("boom"));
+        state.Error.Should().Be("boom");
+
+        state = TasksReducers.On(state, new TasksErrorDismissed());
+
+        state.Error.Should().BeNull();
+        state.Items.Should().ContainSingle();
+    }
+
+    /// <summary>
     ///     Manufacture marks the task as starting while the call is in flight, returns the run id, and clears the flag
     ///     on success and on failure.
     ///     Red: never dispatch TaskStartRequested. Red: return a fixed failure when the API succeeds.
