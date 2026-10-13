@@ -1,0 +1,64 @@
+<RadzenCard class="rz-mb-4" data-testid="run-timeline">
+    @if (Steps.Count == 0)
+    {
+        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">No steps recorded yet.</RadzenText>
+    }
+    else
+    {
+        <RadzenStack Gap="0.5rem">
+            @for (var i = 0; i < Steps.Count; i++)
+            {
+                var step = Steps[i];
+                TimeSpan? duration = i == 0 ? null : step.At - Steps[i - 1].At;
+                <RadzenStack @key="step.Seq" Gap="0.1rem" data-testid="run-step">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; font-family: monospace;">#@step.Seq</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@NodeText(step)</RadzenText>
+                        <RadzenBadge Text="@RunStatusLabels.StepText(step.Kind, step.Outcome)"
+                                     BadgeStyle="@RunStatusLabels.StepStyle(step.Kind, step.Outcome)" Shade="Shade.Lighter"/>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
+                            @step.At.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)@(duration is { } d ? $" · +{Duration(d)}" : "")@(step.Actor is { } actor ? $" · by {actor}" : "")
+                        </RadzenText>
+                    </RadzenStack>
+                    @if (step.Error is { } error)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" Style="color: var(--rz-danger); margin: 0;">@error</RadzenText>
+                    }
+                    @if (Tokens(step) is { } tokens)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin: 0;">@tokens</RadzenText>
+                    }
+                </RadzenStack>
+            }
+        </RadzenStack>
+    }
+    @if (Run.Status == "Running")
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" class="rz-mt-2" data-testid="run-step-running">
+            <RadzenBadge Text="@($"Running: {Run.CurrentNode}")" BadgeStyle="BadgeStyle.Info" Shade="Shade.Lighter"/>
+        </RadzenStack>
+    }
+</RadzenCard>
+
+@code {
+    /// <summary>The run's event log, ascending by seq.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<WorkflowRunStepView> Steps { get; set; } = [];
+
+    /// <summary>The run, for the final row while it is running.</summary>
+    [Parameter, EditorRequired] public WorkflowRunView Run { get; set; } = default!;
+
+    /// <summary>The step's node, or where it went from when it moved between two nodes.</summary>
+    private static string NodeText(WorkflowRunStepView step) =>
+        step.FromNode is { } from && !string.Equals(from, step.ToNode, StringComparison.Ordinal) ? $"{from} → {step.ToNode}" : step.ToNode;
+
+    /// <summary>The time since the previous step as <c>m:ss</c>; minutes keep counting past the hour.</summary>
+    private static string Duration(TimeSpan span) =>
+        string.Create(CultureInfo.InvariantCulture, $"{(int)span.TotalMinutes}:{span.Seconds:00}");
+
+    /// <summary>The agent turn's token usage, or <see langword="null"/> when the step carries none.</summary>
+    private static string? Tokens(WorkflowRunStepView step) =>
+        step.InputTokens is null && step.OutputTokens is null && step.CacheReadTokens is null
+            ? null
+            : string.Create(CultureInfo.CurrentCulture,
+                $"{step.InputTokens ?? 0:N0} in · {step.OutputTokens ?? 0:N0} out · {step.CacheReadTokens ?? 0:N0} cached");
+}

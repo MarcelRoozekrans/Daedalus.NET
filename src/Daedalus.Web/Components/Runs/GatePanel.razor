@@ -1,0 +1,96 @@
+<section role="region" aria-label="Approval gate" class="gate-panel" data-testid="gate-panel">
+<RadzenCard class="rz-mb-4">
+    <RadzenText TextStyle="TextStyle.H6">Approval gate</RadzenText>
+    @if (Run.DeferredFindingsError is { } findingsError)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4">@findingsError</RadzenAlert>
+    }
+    @if (Run.DeferredFindings.Count == 0)
+    {
+        <RadzenText TextStyle="TextStyle.Body2">No deferred findings.</RadzenText>
+    }
+    else
+    {
+        <RadzenStack Gap="0.75rem">
+            @foreach (var finding in Run.DeferredFindings)
+            {
+                var id = $"gate-drop-{finding.Id}";
+                <RadzenStack @key="finding.Id" Orientation="Orientation.Horizontal" AlignItems="AlignItems.Start" Gap="0.5rem">
+                    <RadzenCheckBox TValue="bool" Name="@id" Value="@Draft.Dropped.Contains(finding.Id)" Disabled="@Draft.Submitting"
+                                    Change="@(dropped => OnToggle.InvokeAsync((finding.Id, dropped)))" data-testid="@id"/>
+                    <RadzenStack Gap="0.1rem">
+                        <RadzenLabel Component="@id" Text="@($"Drop {finding.Id}: {finding.Title}")"/>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
+                            @finding.Lens · <span style="font-family: monospace;">@finding.File:@finding.Line</span> · @finding.Reason
+                            @if (finding.ExistingIssue is { } issue)
+                            {
+                                <span> · existing issue #@issue</span>
+                            }
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@finding.Scenario</RadzenText>
+                    </RadzenStack>
+                </RadzenStack>
+            }
+        </RadzenStack>
+    }
+    @if (Run.StandingInstructionsDiff is { } diff)
+    {
+        <pre class="rz-mt-4" style="font-family: monospace; white-space: pre-wrap; overflow-x: auto;" data-testid="gate-diff">@diff</pre>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+            <RadzenCheckBox TValue="bool" Name="gate-apply" Value="@Draft.ApplyStandingInstructions" Disabled="@Draft.Submitting"
+                            Change="@OnApply" data-testid="gate-apply"/>
+            <RadzenLabel Component="gate-apply" Text="Apply standing instructions"/>
+        </RadzenStack>
+    }
+    @if (Draft.Error is { } error)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" class="rz-mt-4" data-testid="gate-error">@error</RadzenAlert>
+    }
+    <div class="gate-actions rz-mt-4">
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+            <RadzenButton @ref="_approve" Text="Approve" ButtonStyle="ButtonStyle.Primary" IsBusy="@Draft.Submitting"
+                          Disabled="@Draft.Submitting" Click="@OnApprove" data-testid="gate-approve"/>
+            <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined" IsBusy="@Draft.Submitting"
+                          Disabled="@Draft.Submitting" Click="@OnCancel" data-testid="gate-cancel"/>
+        </RadzenStack>
+    </div>
+</RadzenCard>
+</section>
+
+@code {
+    private RadzenButton? _approve;
+
+    /// <summary>The parked run: its deferred findings and its standing-instructions diff.</summary>
+    [Parameter, EditorRequired] public WorkflowRunView Run { get; set; } = default!;
+
+    /// <summary>What the operator has chosen and not yet sent.</summary>
+    [Parameter, EditorRequired] public GateDraft Draft { get; set; } = default!;
+
+    /// <summary>
+    ///     Whether Approve takes focus when the panel first renders. The page sets it only for a panel present on
+    ///     arrival; a panel that appears through a live update never moves focus.
+    /// </summary>
+    [Parameter] public bool FocusApprove { get; set; }
+
+    /// <summary>A finding's drop mark changed: its id and whether it is now dropped.</summary>
+    [Parameter] public EventCallback<(string FindingId, bool Dropped)> OnToggle { get; set; }
+
+    /// <summary>The apply-standing-instructions choice changed.</summary>
+    [Parameter] public EventCallback<bool> OnApply { get; set; }
+
+    /// <summary>The operator approved the draft.</summary>
+    [Parameter] public EventCallback OnApprove { get; set; }
+
+    /// <summary>The operator asked to cancel the run.</summary>
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Only the panel's first render may take focus, and only when the page asked for it then; a parameter that
+        // turns true later, or a re-render, never moves focus.
+        if (firstRender && FocusApprove && _approve is not null)
+        {
+            await _approve.Element.FocusAsync();
+        }
+    }
+}

@@ -1,0 +1,8 @@
+/* Below 768px the gate's actions stack: each button takes the full row, so the wrapping stack puts one per line,
+   and each is at least 44px tall to be an easy touch target. */
+@media (max-width: 767px) {
+    .gate-actions ::deep .rz-button {
+        width: 100%;
+        min-height: 44px;
+    }
+}

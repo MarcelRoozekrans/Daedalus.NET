@@ -1,0 +1,51 @@
+<RadzenCard class="rz-mb-4" data-testid="node-usage">
+    @if (Usage.Count == 0)
+    {
+        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">No agent turns yet.</RadzenText>
+    }
+    else
+    {
+        <div style="overflow-x: auto;">
+            <RadzenDataGrid TItem="NodeUsageView" Data="@Usage" AllowSorting="true" Style="height: auto; min-width: 640px;">
+                <Columns>
+                    <RadzenDataGridColumn TItem="NodeUsageView" Property="Seq" Title="Seq" Width="80px">
+                        <FooterTemplate><strong>Total</strong></FooterTemplate>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="NodeUsageView" Property="Node" Title="Node"/>
+                    <RadzenDataGridColumn TItem="NodeUsageView" Property="ModelId" Title="Model">
+                        <Template Context="usage">@(usage.ModelId is { Length: > 0 } model ? model : "—")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="NodeUsageView" Property="InputTokens" Title="Input" FormatString="{0:N0}" TextAlign="TextAlign.Right">
+                        <FooterTemplate><strong>@Total(u => u.InputTokens)</strong></FooterTemplate>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="NodeUsageView" Property="OutputTokens" Title="Output" FormatString="{0:N0}" TextAlign="TextAlign.Right">
+                        <FooterTemplate><strong>@Total(u => u.OutputTokens)</strong></FooterTemplate>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="NodeUsageView" Property="CacheReadTokens" Title="Cache read" FormatString="{0:N0}" TextAlign="TextAlign.Right">
+                        <FooterTemplate><strong>@Total(u => u.CacheReadTokens)</strong></FooterTemplate>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="NodeUsageView" Property="CacheWriteTokens" Title="Cache write" FormatString="{0:N0}" TextAlign="TextAlign.Right">
+                        <FooterTemplate><strong>@Total(u => u.CacheWriteTokens)</strong></FooterTemplate>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        </div>
+    }
+</RadzenCard>
+
+@code {
+    /// <summary>Each completed agent node's token usage, in seq order.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<NodeUsageView> Usage { get; set; } = [];
+
+    /// <summary>The column's total over every node, summed as a long so a long run cannot overflow it.</summary>
+    private string Total(Func<NodeUsageView, int> tokens)
+    {
+        long total = 0;
+        foreach (var usage in Usage)
+        {
+            total += tokens(usage);
+        }
+
+        return total.ToString("N0", CultureInfo.CurrentCulture);
+    }
+}
