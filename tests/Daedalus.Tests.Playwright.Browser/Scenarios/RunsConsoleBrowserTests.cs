@@ -349,6 +349,30 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     The header's pull request link wears Radzen's link style and opens in a new tab, and the header and the list
+    ///     name the starter by display name, not by the principal id.
+    ///     Red: <c>RunHeader</c> renders a plain anchor again; it lacks the <c>rz-link</c> class.
+    ///     Red: <c>RunHeader</c> shows <c>Run.StartedBy</c>; it reads "e2e-test-user".
+    ///     Red: <c>RunsGrid</c> shows <c>run.StartedBy</c>; the row reads "e2e-test-user".
+    /// </summary>
+    [Test]
+    [Description("The pull request link is a Radzen link, and the starter is named")]
+    public async Task RunDetail_PullRequestLinkAndStarter()
+    {
+        await _runPage.NavigateAsync(Runs.Succeeded).ConfigureAwait(false);
+
+        var link = Page.Locator("[data-testid='run-pr-link']");
+        await Expect(link).ToHaveTextAsync("Pull request #42").ConfigureAwait(false);
+        await Expect(link).ToHaveClassAsync(new Regex(@"(^|\s)rz-link(\s|$)")).ConfigureAwait(false);
+        await Expect(link).ToHaveAttributeAsync("target", "_blank").ConfigureAwait(false);
+        await Expect(link).ToHaveAttributeAsync("href", RunSeeds.PullRequestUrl).ConfigureAwait(false);
+        await Expect(_runPage.Header).ToContainTextAsync($"started by {RunSeeds.StarterName}").ConfigureAwait(false);
+
+        await _runsPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_runsPage.RowFor(Runs.Succeeded)).ToContainTextAsync(RunSeeds.StarterName).ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     The task carrying the Running run links its status badge to that run.
     ///     Red: <c>Tasks.razor</c> renders the badge without the link; there is no link.
     ///     Red: <c>Tasks.razor</c> links to <c>runs/{task.Id}</c>; the URL is not the run's.

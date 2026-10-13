@@ -47,6 +47,7 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 ///     <paramref name="PrUrl"/>; otherwise <see langword="null"/>.
 /// </param>
 /// <param name="StartedBy">The id of the principal that started the run, or <see langword="null"/> when it carries none.</param>
+/// <param name="StartedByName">The display name of the principal that started the run, or <see langword="null"/> when it carries none.</param>
 /// <param name="WriteAudit">Every workspace write the run was allowed, from its write-audit records, in seq order.</param>
 /// <param name="DeferredFindings">
 ///     The deferred findings of the run's approving review visit, each marked dropped when the latest
@@ -84,7 +85,8 @@ public sealed record WorkflowRunView(
     string? DeferredFindingsError,
     IReadOnlyList<FiledFindingView> FiledFindings,
     IReadOnlyList<WorkflowRunStepView> Steps,
-    IReadOnlyList<LensCheckedView> Checked);
+    IReadOnlyList<LensCheckedView> Checked,
+    string? StartedByName);
 
 /// <summary>One entry of a run's event log, as the console's timeline shows it.</summary>
 /// <param name="Seq">The seq the event was recorded at.</param>
@@ -165,7 +167,8 @@ public sealed record WorkflowRunList(IReadOnlyList<WorkflowRunListItem> Runs, st
 /// <summary>One run in the list: no variables, no error, and the board task it belongs to when there is one.</summary>
 public sealed record WorkflowRunListItem(
     Guid Id, string Process, int ProcessVersion, string Status, string CurrentNode, string? AwaitingSignal,
-    string? StartedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? TaskId, string? TaskCode, string? TaskTitle);
+    string? StartedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? TaskId, string? TaskCode, string? TaskTitle,
+    string? StartedByName);
 
 /// <summary>
 ///     What the console's hub sends when a run changes: which run, and where it now stands. Nothing else, ever: no

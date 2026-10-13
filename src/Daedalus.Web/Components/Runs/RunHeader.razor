@@ -7,10 +7,10 @@
         <LiveIndicator/>
     </RadzenStack>
     <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
-        @Run.Process v@(Run.ProcessVersion) · at @Run.CurrentNode@(Run.StartedBy is { } by ? $" · started by {by}" : "")
+        @Run.Process v@(Run.ProcessVersion) · at @Run.CurrentNode@((Run.StartedByName ?? Run.StartedBy) is { } by ? $" · started by {by}" : "")
         @if (Run.PrUrl is { } pr)
         {
-            <span> · </span><a href="@pr" target="_blank" rel="noopener" data-testid="run-pr-link">Pull request #@pr.Segments[^1].TrimEnd('/')</a>
+            <span> · </span><RadzenLink Path="@pr.AbsoluteUri" Target="_blank" rel="noopener" Text="@($"Pull request #{pr.Segments[^1].TrimEnd('/')}")" data-testid="run-pr-link"/>
         }
     </RadzenText>
     @if (Run.UnreadablePullRequestLink is { } unreadable)

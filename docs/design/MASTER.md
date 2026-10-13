@@ -146,7 +146,7 @@ For a manufacture run, phase 2.12's console maps a run status and a timeline ste
 | outcome `approved`, `published` (except the five kinds below) | the outcome | Success |
 | outcome `rejected`; kind `Failed`, `CapExceeded` | the outcome, or for those two kinds the kind | Danger |
 | kind `Resumed`, `Retried` | the kind, whatever the outcome, plus "by `<actor>`" as caption text | Info |
-| anything else | the outcome, else the kind | Light / muted |
+| anything else | the outcome, else the kind; an outcome of `none` counts as no outcome | Light / muted |
 
 A step of kind `Failed`, `CapExceeded`, `Cancelled`, `Resumed` or `Retried` always shows its kind, whatever outcome it
 holds; a cancelled run's step has kind `Cancelled`: text `Cancelled`, Light.

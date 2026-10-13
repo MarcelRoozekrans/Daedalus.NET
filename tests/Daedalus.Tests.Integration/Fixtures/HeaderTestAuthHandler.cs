@@ -28,6 +28,9 @@ internal sealed class HeaderTestAuthHandler(
     /// </summary>
     public const string KeycloakShapeHeader = "X-Test-Keycloak-Shape";
 
+    /// <summary>Present: the caller also carries this value as its <c>preferred_username</c>, apart from its id.</summary>
+    public const string PreferredUsernameHeader = "X-Test-Preferred-Username";
+
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var user = Request.Headers[UserHeader].ToString();
@@ -39,6 +42,12 @@ internal sealed class HeaderTestAuthHandler(
         var claims = Request.Headers.ContainsKey(KeycloakShapeHeader)
             ? new List<Claim> { new("sub", user), new("preferred_username", user), new("name", user) }
             : new List<Claim> { new("sub", user), new(ClaimTypes.Name, user) };
+        if (Request.Headers.TryGetValue(PreferredUsernameHeader, out var preferred))
+        {
+            claims.RemoveAll(c => string.Equals(c.Type, "preferred_username", StringComparison.Ordinal));
+            claims.Add(new Claim("preferred_username", preferred.ToString()));
+        }
+
         claims.AddRange(Request.Headers[RolesHeader].ToString()
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(role => new Claim(ClaimTypes.Role, role)));
