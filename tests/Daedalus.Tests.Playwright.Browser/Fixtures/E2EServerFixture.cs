@@ -1,11 +1,14 @@
+using System.Data.Async.Adapters;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Daedalus.Agents;
+using Daedalus.Api.Hubs;
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Extensions;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.Entities;
@@ -21,9 +24,15 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Npgsql;
 using Thalos;
 using Thalos.Memory;
+using Thalos.Workflow;
+using Thalos.Workflow.Orm;
+using ZeroAlloc.ORM.Migrations;
+using ZeroAlloc.Outbox.Orm;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Playwright.Browser;
@@ -46,6 +55,24 @@ public class E2EServerFixture
     public static string? StartupFailure { get; private set; }
 
     public static int Port { get; private set; }
+
+    /// <summary>The seeded runs and the store they were written through; set during set-up, before the server starts.</summary>
+    public static RunSeeds Runs { get; private set; } = null!;
+
+    /// <summary>
+    ///     The engine's background work, by implementation type: the hosted services that dispatch, sweep or sync workflow
+    ///     state. Matched by full name because several are internal to Daedalus.Agents.
+    /// </summary>
+    private static readonly string[] WorkflowBackgroundWork =
+    [
+        "ZeroAlloc.Outbox.OutboxWorkerService",
+        "Thalos.Sandbox.SandboxReconcileService",
+        "Daedalus.Agents.Workflow.ProcessDefinitionSyncHostedService",
+        "Daedalus.Agents.Workflow.NodeUsageBackfill",
+        "Daedalus.Agents.Workflow.WorkflowOutboxDispatchService",
+        "Daedalus.Agents.Workflow.WorkflowStrandedRunSweepService",
+        "Daedalus.Agents.Workflow.RunWorkspaceSweepService",
+    ];
 
     public static HttpClient CreateClient()
     {
@@ -162,15 +189,13 @@ public class E2EServerFixture
                 new Dictionary<string, string?>(StringComparer.Ordinal)
                 {
                     ["ConnectionStrings:daedalus"] = ConnectionString,
-                    // Same reason ApiWebApplicationFactory (Daedalus.Tests.Integration) sets this: this fixture's
-                    // schema is EF Core's model only, never Thalos.NET.Workflow.Orm's raw-SQL tables.
-                    // processes/manufacture.yaml (Task 11) is a real file on Thalos:Workflow's ProcessesRoot now,
-                    // and flows into this host's output the same way skills/*.SKILL.md does - left enabled,
-                    // ProcessDefinitionSyncHostedService.StartAsync has something to sync and fails the whole host
-                    // on 42P01 against a schema with no process_definition table.
-                    ["Thalos:Workflow:Enabled"] = "false",
+                    // The console's scenarios read runs through the real workflow store, so the engine is on and its
+                    // tables are migrated below. Its background work is removed right after AddDaedalusAgents, so
+                    // nothing dispatches, sweeps or syncs: a seeded run stays exactly where its seed left it.
+                    ["Thalos:Workflow:Enabled"] = "true",
                 });
             builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
+            RemoveWorkflowBackgroundWork(builder.Services);
             foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IAgentRuntime)).ToList())
             {
                 builder.Services.Remove(descriptor);
@@ -203,6 +228,15 @@ public class E2EServerFixture
             // Controllers — load from the Api assembly
             builder.Services.AddControllers()
                 .AddApplicationPart(typeof(Daedalus.Api.Program).Assembly);
+
+            // The console's live channel, as Program.cs wires it on a host with the engine on: the run hub's messages
+            // serialize through their source-generated context, and one broadcaster instance is both the store's
+            // observer and the hosted loop that sends. Registered after the background work is removed, so it stays.
+            builder.Services.AddSignalR().AddJsonProtocol(options =>
+                options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, WorkflowRunsJsonContext.Default));
+            builder.Services.AddSingleton<WorkflowRunChangeBroadcaster>();
+            builder.Services.AddSingleton<IWorkflowRunObserver>(sp => sp.GetRequiredService<WorkflowRunChangeBroadcaster>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<WorkflowRunChangeBroadcaster>());
 
             // Rate limiter — required for [EnableRateLimiting] attributes on write endpoints
             builder.Services.AddRateLimiter(options =>
@@ -314,6 +348,7 @@ public class E2EServerFixture
             app.UseAuthorization();
 
             app.MapControllers();
+            app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path);
             app.MapHealthChecks("/health");
             app.MapFallbackToFile("index.html");
 
@@ -324,9 +359,14 @@ public class E2EServerFixture
                 // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
                 await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
                 await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
+                await MigrateWorkflowEngineAsync(ConnectionString).ConfigureAwait(false);
                 await SeedTestDataAsync(dbContext).ConfigureAwait(false);
                 await SeedMemoriesAsync(dbContext).ConfigureAwait(false);
             }
+
+            var runs = new RunSeeds(app.Services.GetRequiredService<IWorkflowStore>(), app.Services.GetRequiredService<IServiceScopeFactory>());
+            await runs.SeedAsync(CancellationToken.None).ConfigureAwait(false);
+            Runs = runs;
 
             // 6. Start the server
             await app.StartAsync().ConfigureAwait(false);
@@ -391,6 +431,57 @@ public class E2EServerFixture
         return false;
     }
 
+    /// <summary>
+    ///     Removes each <see cref="WorkflowBackgroundWork"/> hosted service, and fails the fixture unless each was
+    ///     registered exactly once. A renamed service, or a factory that starts returning another type, then breaks set-up
+    ///     instead of leaving a dispatcher running against the seeded runs. A factory registration is matched by its
+    ///     factory's declared return type, which for every one of these is the concrete service.
+    /// </summary>
+    private static void RemoveWorkflowBackgroundWork(IServiceCollection services)
+    {
+        var found = services
+            .Where(d => d.ServiceType == typeof(IHostedService)
+                        && HostedServiceType(d)?.FullName is { } name
+                        && WorkflowBackgroundWork.Contains(name, StringComparer.Ordinal))
+            .ToList();
+
+        foreach (var descriptor in found)
+        {
+            services.Remove(descriptor);
+        }
+
+        var counts = WorkflowBackgroundWork
+            .Select(name => (Name: name, Count: found.Count(d => string.Equals(HostedServiceType(d)?.FullName, name, StringComparison.Ordinal))))
+            .Where(c => c.Count != 1)
+            .ToList();
+        if (counts.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Workflow background work not removed exactly once: "
+                + string.Join(", ", counts.Select(c => $"{c.Name} x{c.Count}")));
+        }
+    }
+
+    /// <summary>The type a hosted service registration runs: its implementation type, instance or factory return type.</summary>
+    private static Type? HostedServiceType(ServiceDescriptor descriptor) =>
+        descriptor.ImplementationType
+        ?? descriptor.ImplementationInstance?.GetType()
+        ?? descriptor.ImplementationFactory?.Method.ReturnType;
+
+    /// <summary>
+    ///     The workflow engine's raw-SQL schema, as Daedalus.Migrations applies it: the outbox first, because the store
+    ///     enqueues into it in the same transaction as the run, then the workflow tables.
+    /// </summary>
+    private static async Task MigrateWorkflowEngineAsync(string connectionString)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync().ConfigureAwait(false);
+        var asyncConnection = connection.AsAsync();
+        var dialect = new PostgresMigrationDialect();
+        await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync().ConfigureAwait(false);
+        await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync().ConfigureAwait(false);
+    }
+
     private static void RemoveAndReplace<TService, TImplementation>(IServiceCollection services)
         where TService : class
         where TImplementation : class, TService
@@ -443,6 +534,19 @@ public class E2EServerFixture
             if (task2Result.IsSuccess)
             {
                 project.AddTask(task2Result.Value);
+            }
+
+            // TASK-003 carries the seeded Running run (RunSeeds), so the Tasks grid links its badge to that run. It is a
+            // task of its own so TASK-001 stays Pending with Manufacture on offer for the board's scenarios.
+            var task3Result = Domain.Entities.Task.Create(
+                Guid.NewGuid(), project.Id, RunSeeds.LinkedTaskId, RunSeeds.LinkedTaskTitle,
+                "A task whose manufacture run the console follows",
+                Priority.Low, "Backend", 1,
+                Complexity.Low,
+                "Follow the run from the board");
+            if (task3Result.IsSuccess)
+            {
+                project.AddTask(task3Result.Value);
             }
 
             dbContext.Projects.Add(project);
