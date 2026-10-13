@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ZeroAlloc.Flux;
 
 namespace Daedalus.Web.State;
@@ -19,13 +20,14 @@ namespace Daedalus.Web.State;
 ///     while disconnected are lost. A dropped connection and a start that failed are both tried again on
 ///     <see cref="HubRetryPolicy"/>'s schedule, without end, until the connection is disposed.
 /// </summary>
-public sealed class RunHubConnection(
+public sealed partial class RunHubConnection(
     ApiBaseAddress api,
     AuthenticationStateProvider authentication,
     IServiceProvider services,
     IDispatcher dispatcher,
     RunsEffects runs,
-    TasksEffects tasks) : IAsyncDisposable
+    TasksEffects tasks,
+    ILogger<RunHubConnection> logger) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _disposing = new();
@@ -130,6 +132,9 @@ public sealed class RunHubConnection(
         {
             // Every failure, not a list of the expected ones: a handshake timeout, a hub error or an unreadable
             // handshake would otherwise escape into the layout and replace every page with Blazor's error UI.
+            // Only the type name is logged: the hub URL carries the access token in its query, and an exception's
+            // message or ToString can repeat it.
+            LogStartFailed(logger, exception.GetType().Name);
         }
         finally
         {
@@ -221,6 +226,9 @@ public sealed class RunHubConnection(
         await runs.OnRunChangedAsync(change, CancellationToken.None);
         await tasks.OnRunChangedAsync(change, CancellationToken.None);
     }
+
+    [LoggerMessage(EventId = 3100, Level = LogLevel.Warning, Message = "The run hub failed to start: {ExceptionType}")]
+    private static partial void LogStartFailed(ILogger logger, string exceptionType);
 
     private async Task SetStatusAsync(HubStatus status) => await dispatcher.DispatchAsync(new HubStatusChanged(status));
 

@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ZeroAlloc.Flux;
 using ZeroAlloc.Flux.Generated;
 
@@ -25,6 +26,7 @@ public sealed class RunHubConnectionTests : IDisposable
     private readonly RecordingHandler _handler = new();
     private readonly ServiceProvider _provider = new ServiceCollection().AddZeroAllocFlux().BuildServiceProvider();
     private readonly RecordingDispatcher _dispatcher = new();
+    private readonly RecordingLogger _logger = new();
 
     public void Dispose()
     {
@@ -77,6 +79,27 @@ public sealed class RunHubConnectionTests : IDisposable
         await hub.EnsureStartedAsync(CancellationToken.None);
 
         _dispatcher.Actions.Should().Equal(new HubStatusChanged(HubStatus.Disconnected));
+    }
+
+    /// <summary>
+    ///     A failed start is logged once at Warning with the exception's type name and nothing else: the hub URL
+    ///     carries the access token in its query, and the exception's message can repeat it.
+    ///     Red: drop the log: no entry is recorded.
+    ///     Red: log the exception object or its message: the entry carries an exception, or the token-bearing text.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_start_logs_only_the_exception_type_name()
+    {
+        await using var hub = Hub(User("developer"), options => options.WebSocketFactory = (_, _) =>
+            ValueTask.FromException<WebSocket>(new TimeoutException("wss://h/hubs/workflow-runs?access_token=SECRET")));
+
+        await hub.EnsureStartedAsync(CancellationToken.None);
+
+        var entry = _logger.Entries.Should().ContainSingle().Subject;
+        entry.Level.Should().Be(LogLevel.Warning);
+        entry.Message.Should().Be("The run hub failed to start: TimeoutException");
+        entry.Message.Should().NotContain("SECRET");
+        entry.Exception.Should().BeNull("the exception object would carry the token-bearing message");
     }
 
     /// <summary>
@@ -246,7 +269,8 @@ public sealed class RunHubConnectionTests : IDisposable
             _provider,
             _dispatcher,
             new RunsEffects(api, dispatcher, _provider.GetRequiredService<IStore<RunsState>>()),
-            new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()))
+            new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()),
+            _logger)
         {
             ConfigureTransport = transport,
             RetryPolicy = retries ?? new FixedDelay(TimeSpan.FromHours(1)),
@@ -344,6 +368,19 @@ public sealed class RunHubConnectionTests : IDisposable
     {
         public override Task<AuthenticationState> GetAuthenticationStateAsync() =>
             Task.FromResult(new AuthenticationState(user));
+    }
+
+    private sealed class RecordingLogger : ILogger<RunHubConnection>
+    {
+        public List<(LogLevel Level, string Message, Exception? Exception)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception), exception));
     }
 
     private sealed class RecordingDispatcher : IDispatcher

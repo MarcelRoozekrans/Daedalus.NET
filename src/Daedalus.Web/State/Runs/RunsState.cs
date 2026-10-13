@@ -43,9 +43,9 @@ public readonly partial record struct RunsState(
     HubStatus Hub,
     bool ListRequested)
 {
-    /// <summary>The state before anything has loaded: the first page, no run open, disconnected.</summary>
+    /// <summary>The state before anything has loaded: the first page, no run open, and the live connection still being made.</summary>
     public static RunsState Initial(IServiceProvider services) =>
-        new(RunListQuery.First, [], null, false, null, null, null, false, false, false, null, GateDraft.Empty, 0, false, HubStatus.Disconnected,
+        new(RunListQuery.First, [], null, false, null, null, null, false, false, false, null, GateDraft.Empty, 0, false, HubStatus.Connecting,
             ListRequested: false);
 }
 
@@ -66,6 +66,9 @@ public sealed record GateDraft(IReadOnlySet<string> Dropped, bool ApplyStandingI
 /// <summary>The state of the live connection, as the LiveIndicator shows it.</summary>
 public enum HubStatus
 {
+    /// <summary>The first connection is still being made; nothing has failed yet.</summary>
+    Connecting,
+
     /// <summary>Connected; changes arrive as they happen.</summary>
     Connected,
 

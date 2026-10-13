@@ -168,6 +168,20 @@ public sealed class RunsReducersTests
     }
 
     /// <summary>
+    ///     Before any start has finished the connection is Connecting, not Disconnected, so the LiveIndicator does not
+    ///     claim Offline while the first connection is still being made; a reported status replaces it.
+    ///     Red: make the initial status Disconnected: the first assertion fails.
+    ///     Red: drop the Hub assignment in the HubStatusChanged reducer: the later assertions fail.
+    /// </summary>
+    [Fact]
+    public void The_connection_is_connecting_until_a_start_reports()
+    {
+        Empty.Hub.Should().Be(HubStatus.Connecting);
+        RunsReducers.On(Empty, new HubStatusChanged(HubStatus.Disconnected)).Hub.Should().Be(HubStatus.Disconnected);
+        RunsReducers.On(Empty, new HubStatusChanged(HubStatus.Connected)).Hub.Should().Be(HubStatus.Connected);
+    }
+
+    /// <summary>
     ///     A first-page request, which is what a filter change sends, empties the cursor stack; a later page keeps it.
     ///     Red: don't push the cursor on RunListPagedForward.
     ///     Red: keep PreviousCursors on a first-page request. Red: clear PreviousCursors on a request with a cursor.
