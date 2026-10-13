@@ -1,0 +1,11 @@
+@media (max-width: 1279px) {
+    ::deep .runs-col-wide {
+        display: none;
+    }
+}
+
+@media (max-width: 767px) {
+    ::deep .runs-col-tablet {
+        display: none;
+    }
+}

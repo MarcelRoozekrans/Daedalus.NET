@@ -1,0 +1,38 @@
+@inherits FluxComponent
+@inject IStore<RunsState> Runs
+@inject RunsEffects Effects
+@inject RunHubConnection Hub
+@inject AuthenticationStateProvider Authentication
+
+@if (_canView)
+{
+    <RadzenPanelMenuItem Text="Runs" Icon="precision_manufacturing" Path="runs">
+        <Template>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                <span>Runs</span>
+                @if (Runs.Value.AwaitingApproval > 0)
+                {
+                    <RadzenBadge BadgeStyle="BadgeStyle.Warning" Shade="Shade.Lighter" data-testid="runs-awaiting-count"
+                                 Text="@(Runs.Value.AwaitingApprovalMore ? "100+" : Runs.Value.AwaitingApproval.ToString(CultureInfo.InvariantCulture))"
+                                 title="Runs awaiting approval"/>
+                }
+            </RadzenStack>
+        </Template>
+    </RadzenPanelMenuItem>
+}
+
+@code {
+    private bool _canView;
+
+    protected override void SubscribeStores() => Subscribe(Runs);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canView = RunAccess.CanView((await Authentication.GetAuthenticationStateAsync()).User);
+        if (_canView)
+        {
+            await Hub.EnsureStartedAsync(CancellationToken.None);
+            await Effects.LoadAwaitingApprovalAsync(CancellationToken.None);
+        }
+    }
+}
