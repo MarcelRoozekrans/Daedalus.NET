@@ -1,4 +1,5 @@
 @page "/runs"
+@attribute [Authorize]
 @inherits FluxComponent
 @implements IAsyncDisposable
 @inject IStore<RunsState> RunStore
@@ -58,16 +59,17 @@ else
     private bool _canView;
 
     /// <summary>
-    ///     The signed-in user, replaced whenever the authentication state changes, so a page opened before a sign-in
-    ///     completed loads once it has.
+    ///     The signed-in user, replaced whenever the authentication state changes, so the page follows a change of
+    ///     roles. The page is <c>[Authorize]</c>: <c>AuthorizeRouteView</c> sends an anonymous visitor to the login, so
+    ///     the user here is always signed in.
     /// </summary>
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
     protected override void SubscribeStores() => Subscribe(RunStore);
 
     /// <summary>
-    ///     Decides access for each new authentication state and loads the list when the user becomes a viewer. Until a
-    ///     user is signed in the spinner stays, so the role message is only for a signed-in user without the role.
+    ///     Decides access for each new authentication state and loads the list when the user becomes a viewer. The
+    ///     spinner shows only until the first state is read; then a user without the role gets the role message.
     /// </summary>
     protected override async Task OnParametersSetAsync()
     {
@@ -85,8 +87,8 @@ else
         }
 
         var couldView = _canView;
-        _checked = user.Identity?.IsAuthenticated == true;
-        _canView = _checked && RunAccess.CanView(user);
+        _checked = true;
+        _canView = RunAccess.CanView(user);
         if (_canView && !couldView)
         {
             await Effects.LoadListAsync(RunStore.Value.Query with { After = null }, _cts.Token);
