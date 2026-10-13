@@ -43,7 +43,9 @@ public readonly partial record struct RunsState(
     HubStatus Hub,
     bool ListRequested)
 {
-    /// <summary>The state before anything has loaded: the first page, no run open, and the live connection still being made.</summary>
+    /// <summary>
+    ///     The state before anything has loaded: the first page, no run open, and the live connection still being made.
+    /// </summary>
     public static RunsState Initial(IServiceProvider services) =>
         new(RunListQuery.First, [], null, false, null, null, null, false, false, false, null, GateDraft.Empty, 0, false, HubStatus.Connecting,
             ListRequested: false);
