@@ -617,7 +617,8 @@ A run's page and the Runs list change without a refresh. The path from a store c
    method name are shared constants in `WorkflowRunsHubContract` in `Daedalus.Application`. The broadcaster and the
    observer are registered only while `Thalos:Workflow:Enabled` is true.
 3. `WorkflowRunChanged` carries exactly `Id`, `Status`, `CurrentNode` and `AwaitingSignal`. It carries no task content,
-   variables or error text, because every signed-in client receives it. The client uses it only as a signal.
+   variables or error text, because the broadcast goes to every client connected to the hub and is not scoped per
+   user. The client uses it only as a signal.
 4. `RunHubConnection` in the Web re-fetches what is on screen on each change and again on reconnect, so a dropped
    message is repaired by the next fetch. It uses WebSockets with `SkipNegotiation`.
 5. A send failure is logged by exception type name only, never the message or the exception object.
