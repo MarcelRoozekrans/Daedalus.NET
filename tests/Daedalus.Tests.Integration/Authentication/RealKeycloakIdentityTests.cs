@@ -2,7 +2,12 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Json;
 using Daedalus.Agents.Security;
+using Daedalus.Api.Middleware;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Thalos;
 using ZeroAlloc.Authorization;
 using Task = System.Threading.Tasks.Task;
@@ -76,5 +81,29 @@ public sealed class RealKeycloakIdentityTests(PostgresFixture postgres, Keycloak
         var response = await _client.SendAsync(request);
 
         response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    ///     A real token, run through the production JWT Bearer handler with its inbound claim mapping as configured,
+    ///     gives a principal the rate limiter keys on the token's subject, not on the address: a Keycloak token has no
+    ///     claim the handler maps to the identity name.
+    ///     Red: key the partition on the identity name: the key is the address one.
+    /// </summary>
+    [Fact]
+    public async Task A_real_token_is_rate_limited_by_its_subject()
+    {
+        var token = await keycloak.ObtainUserAccessTokenAsync();
+        using var payload = JsonDocument.Parse(KeycloakFixture.DecodeBase64Url(token.Split('.')[1]));
+        var sub = payload.RootElement.GetProperty("sub").GetString();
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        context.Request.Headers.Authorization = "Bearer " + token;
+        context.Connection.RemoteIpAddress = IPAddress.Loopback;
+
+        var result = await context.AuthenticateAsync(JwtBearerDefaults.AuthenticationScheme);
+
+        result.Succeeded.Should().BeTrue(result.Failure?.Message);
+        context.User = result.Principal!;
+        RateLimitPartitionKey.For(context).Should().Be("user:" + sub);
     }
 }

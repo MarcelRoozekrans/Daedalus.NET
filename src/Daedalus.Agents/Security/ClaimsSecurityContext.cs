@@ -33,10 +33,7 @@ public sealed class ClaimsSecurityContext : ISecurityContext
     {
         ArgumentNullException.ThrowIfNull(principal);
 
-        Id = FirstNonEmpty(principal, "sub")
-             ?? FirstNonEmpty(principal, ClaimTypes.NameIdentifier)
-             ?? NonEmpty(principal.Identity?.Name)
-             ?? AnonymousSecurityContext.AnonymousId;
+        Id = SubjectOf(principal) ?? AnonymousSecurityContext.AnonymousId;
 
         Roles = principal.FindAll(IsRoleClaim)
             .Select(c => c.Value)
@@ -52,6 +49,19 @@ public sealed class ClaimsSecurityContext : ISecurityContext
 
     /// <inheritdoc />
     public string Id { get; }
+
+    /// <summary>
+    ///     The subject <paramref name="principal"/> names: its <c>sub</c>, or <see cref="ClaimTypes.NameIdentifier"/>
+    ///     when inbound claim mapping renamed <c>sub</c>, or its identity name; <see langword="null"/> when it names
+    ///     none. The one resolver of a caller's id, for <see cref="Id"/> and for anything else keyed on the caller.
+    /// </summary>
+    public static string? SubjectOf(ClaimsPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        return FirstNonEmpty(principal, "sub")
+               ?? FirstNonEmpty(principal, ClaimTypes.NameIdentifier)
+               ?? NonEmpty(principal.Identity?.Name);
+    }
 
     /// <inheritdoc />
     public IReadOnlySet<string> Roles { get; }
