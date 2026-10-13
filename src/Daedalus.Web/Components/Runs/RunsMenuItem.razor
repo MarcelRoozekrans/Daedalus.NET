@@ -31,8 +31,10 @@
         _canView = RunAccess.CanView((await Authentication.GetAuthenticationStateAsync()).User);
         if (_canView)
         {
-            await Hub.EnsureStartedAsync(CancellationToken.None);
-            await Effects.LoadAwaitingApprovalAsync(CancellationToken.None);
+            // Both at once, so a slow connect does not hold back the badge.
+            await Task.WhenAll(
+                Hub.EnsureStartedAsync(CancellationToken.None),
+                Effects.LoadAwaitingApprovalAsync(CancellationToken.None));
         }
     }
 }
