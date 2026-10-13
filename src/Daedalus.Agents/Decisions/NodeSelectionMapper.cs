@@ -1,0 +1,85 @@
+namespace Daedalus.Agents.Decisions;
+
+/// <summary>Pure mapping from a Minos answer onto a <see cref="NodeSelection"/>. No I/O, no client call.</summary>
+public static class NodeSelectionMapper
+{
+    /// <summary>Fallback reason when the demand answer is below <see cref="DecisionsConfig.ModelConfidence"/>.</summary>
+    public const string LowConfidence = "low-confidence";
+
+    private static readonly string[] NeverRemovable = ["workspace", "daedalus"];
+
+    /// <summary>The selection when nothing was decided: the default model, the full tool list.</summary>
+    public static NodeSelection Default(RoleMenu menu, string fallback) =>
+        new(menu.DefaultModel, null, "default", CountFamilies(menu.Tools), fallback);
+
+    /// <summary>Maps an answered question set onto a model and, when <paramref name="narrowTools"/>, a narrowed tool filter.</summary>
+    public static NodeSelection Map(NodeQuestions answers, RoleMenu menu, DecisionsConfig config, bool narrowTools)
+    {
+        var (model, level, fallback) = PickModel(answers, menu, config);
+        var (filter, kept) = PickTools(answers, menu.Tools, config.ToolFamilyProbability, narrowTools);
+        return new NodeSelection(model, filter, level, kept, fallback);
+    }
+
+    private static (string Model, string Level, string? Fallback) PickModel(NodeQuestions answers, RoleMenu menu, DecisionsConfig config)
+    {
+        var allowed = menu.AllowedModels;
+        if (allowed.Count == 0)
+        {
+            return (menu.DefaultModel, "default", LowConfidence);
+        }
+
+        var demand = answers.Demand;
+        if (demand.Confidence < config.ModelConfidence)
+        {
+            return (menu.DefaultModel, "default", LowConfidence);
+        }
+
+        var model = demand.Value switch
+        {
+            Demand.Routine => allowed[0],
+            Demand.Hard => allowed[^1],
+            _ => allowed[allowed.Count / 2],
+        };
+        return (model, demand.Value.ToString(), null);
+    }
+
+    private static (IReadOnlyList<string>? Filter, int Kept) PickTools(
+        NodeQuestions answers, IReadOnlyList<string> tools, double threshold, bool narrowTools)
+    {
+        if (!narrowTools)
+        {
+            return (null, CountFamilies(tools));
+        }
+
+        var kept = tools.Where(pattern => IsKept(Family(pattern), answers, threshold)).ToList();
+        return kept.Count == tools.Count ? (null, CountFamilies(tools)) : (kept, CountFamilies(kept));
+    }
+
+    private static bool IsKept(string family, NodeQuestions answers, double threshold)
+    {
+        if (NeverRemovable.Contains(family, StringComparer.Ordinal))
+        {
+            return true;
+        }
+
+        return family switch
+        {
+            "roslyn" => answers.NeedsRoslyn.Probability >= threshold,
+            "sandbox" => answers.NeedsSandbox.Probability >= threshold,
+            "memory" => answers.NeedsMemory.Probability >= threshold,
+            "skills" => answers.NeedsSkills.Probability >= threshold,
+            "context7" => answers.NeedsContext7.Probability >= threshold,
+            "issues" => answers.NeedsIssues.Probability >= threshold,
+            _ => true, // a family the question set does not cover is never removed
+        };
+    }
+
+    private static string Family(string pattern)
+    {
+        var at = pattern.IndexOf("__", StringComparison.Ordinal);
+        return at < 0 ? pattern : pattern[..at];
+    }
+
+    private static int CountFamilies(IEnumerable<string> patterns) =>
+        patterns.Select(Family).Distinct(StringComparer.Ordinal).Count();
+}
