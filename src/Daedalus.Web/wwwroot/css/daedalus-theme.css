@@ -169,6 +169,14 @@
     letter-spacing: 0.01em;
 }
 
+/* ── Content column ──────────────────────────────────────────────────── */
+/* The body is the page's scroll container. Reserving the scrollbar's gutter on every page keeps a long page's
+   content as wide as a short one's. The column itself already takes the remaining width: Radzen's grid is
+   auto 1fr, and the body's own overflow lets it shrink below its content. */
+.rz-layout .rz-body {
+    scrollbar-gutter: stable;
+}
+
 /* ── Page content fade-in ────────────────────────────────────────────── */
 .rz-body > div {
     animation: daedalusFadeIn 0.25s ease-out;
