@@ -13,7 +13,7 @@ internal sealed record RecordedRequest(HttpMethod Method, string PathAndQuery, s
 /// </summary>
 internal sealed class RecordingHandler : HttpMessageHandler
 {
-    private readonly Dictionary<string, Func<HttpResponseMessage>> _routes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Func<Task<HttpResponseMessage>>> _routes = new(StringComparer.Ordinal);
 
     public List<RecordedRequest> Requests { get; } = [];
 
@@ -21,7 +21,14 @@ internal sealed class RecordingHandler : HttpMessageHandler
     public IReadOnlyList<string> Paths => [.. Requests.Select(r => r.PathAndQuery)];
 
     /// <summary>Routes <paramref name="pathAndQuery"/> to <paramref name="respond"/>, replacing any earlier route.</summary>
-    public RecordingHandler On(string pathAndQuery, Func<HttpResponseMessage> respond)
+    public RecordingHandler On(string pathAndQuery, Func<HttpResponseMessage> respond) =>
+        On(pathAndQuery, () => Task.FromResult(respond()));
+
+    /// <summary>
+    ///     Routes <paramref name="pathAndQuery"/> to <paramref name="respond"/>, which may do something, such as
+    ///     dispatch an action, while the request is in flight; replaces any earlier route.
+    /// </summary>
+    public RecordingHandler On(string pathAndQuery, Func<Task<HttpResponseMessage>> respond)
     {
         _routes[pathAndQuery] = respond;
         return this;
@@ -42,6 +49,6 @@ internal sealed class RecordingHandler : HttpMessageHandler
         var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
         var path = request.RequestUri!.PathAndQuery;
         Requests.Add(new RecordedRequest(request.Method, path, body));
-        return _routes.TryGetValue(path, out var respond) ? respond() : new HttpResponseMessage(HttpStatusCode.NotFound);
+        return _routes.TryGetValue(path, out var respond) ? await respond() : new HttpResponseMessage(HttpStatusCode.NotFound);
     }
 }

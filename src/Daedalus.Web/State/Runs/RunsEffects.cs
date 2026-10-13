@@ -121,16 +121,17 @@ public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<Ru
 
     /// <summary>
     ///     Re-fetches what <paramref name="change"/> could alter on screen: the open run when it is the one, the list
-    ///     when the run is on it or the first page is shown, and the awaiting-approval count.
+    ///     when the run is on it or the first page is shown, and the awaiting-approval count. The list is judged on the
+    ///     state after the run's fetch, so a list closed meanwhile is not fetched again.
     /// </summary>
     public async Task OnRunChangedAsync(WorkflowRunChanged change, CancellationToken ct)
     {
-        var state = runs.Value;
-        if (state.SelectedId == change.Id)
+        if (runs.Value.SelectedId == change.Id)
         {
             await LoadRunAsync(change.Id, ct);
         }
 
+        var state = runs.Value;
         if (state.ListRequested && (state.Query.After is null || (state.List?.Runs.Any(r => r.Id == change.Id) ?? false)))
         {
             await LoadListAsync(state.Query, ct);
@@ -139,15 +140,18 @@ public sealed class RunsEffects(ApiClient api, IDispatcher dispatcher, IStore<Ru
         await LoadAwaitingApprovalAsync(ct);
     }
 
-    /// <summary>Re-fetches everything on screen, after a reconnect lost whatever changed meanwhile.</summary>
+    /// <summary>
+    ///     Re-fetches everything on screen, after a reconnect lost whatever changed meanwhile. The list is judged on the
+    ///     state after the run's fetch, so a list closed meanwhile is not fetched again.
+    /// </summary>
     public async Task RefreshAllAsync(CancellationToken ct)
     {
-        var state = runs.Value;
-        if (state.SelectedId is { } id)
+        if (runs.Value.SelectedId is { } id)
         {
             await LoadRunAsync(id, ct);
         }
 
+        var state = runs.Value;
         if (state.ListRequested)
         {
             await LoadListAsync(state.Query, ct);
