@@ -88,6 +88,34 @@ public sealed class RunViewUsageTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     The view and the list name the starter by the display name the run stored, which is the caller's
+    ///     <c>preferred_username</c>, apart from the id they keep. Red: map StartedByName from the principal id; it
+    ///     reads "a-developer" and not "dev.eloper". Red: leave it null in either mapping.
+    /// </summary>
+    [Fact]
+    public async Task The_view_and_the_list_carry_the_starters_display_name()
+    {
+        await WithHostAsync(async host =>
+        {
+            using var named = host.Factory.CreateClient();
+            named.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, Starter);
+            named.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, "developer");
+            named.DefaultRequestHeaders.Add(HeaderTestAuthHandler.PreferredUsernameHeader, "dev.eloper");
+            var runId = await StartAsync(new Host(host.Factory, named, host.Store));
+            await WaitForAsync(host, runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
+
+            var view = await host.Client.GetFromJsonAsync<WorkflowRunView>($"/api/workflow-runs/{runId}");
+            var list = await host.Client.GetFromJsonAsync<WorkflowRunList>("/api/workflow-runs");
+
+            view!.StartedBy.Should().Be(Starter);
+            view.StartedByName.Should().Be("dev.eloper");
+            var item = list!.Runs.Should().ContainSingle(r => r.Id == runId).Subject;
+            item.StartedBy.Should().Be(Starter);
+            item.StartedByName.Should().Be("dev.eloper");
+        });
+    }
+
+    /// <summary>
     ///     The pull request URL is the run's <c>pr_url</c> variable: absent at the gate, before the
     ///     <c>open-pull-request</c> action has run, and the URL the host reported once it has. Red per assertion:
     ///     falling back to any URL when <c>pr_url</c> is absent fails the null assertion; reading a variable other

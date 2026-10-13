@@ -180,7 +180,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 
     private static WorkflowRunListItem ToListItem(WorkflowRunSummary run, TaskRunLink? task) => new(
         run.Id, run.Process, run.ProcessVersion, run.Status.ToString(), run.CurrentNode, run.AwaitingSignal,
-        run.StartedBy?.Id, run.CreatedAt, run.UpdatedAt, task?.TaskId, task?.TaskCode, task?.Title);
+        run.StartedBy?.Id, run.CreatedAt, run.UpdatedAt, task?.TaskId, task?.TaskCode, task?.Title, run.StartedBy?.DisplayName);
 
     /// <summary>Reads back one run's current state, including its write-once manifest pins when it has one.</summary>
     [HttpGet("{id:guid}")]
@@ -246,7 +246,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             DeferredFindingsError: error.Length > 0 ? error : null,
             FiledFindings: filed.IsSuccess ? [.. filed.Value.Values.Order(FiledOrder.Instance).Select(f => new FiledFindingView(f.FindingId, f.Mode, f.Issue, f.Url))] : [],
             Steps: WorkflowRunStepProjection.Project(events),
-            Checked: checkedItems);
+            Checked: checkedItems,
+            StartedByName: run.StartedBy?.DisplayName);
     }
 
     /// <summary>Findings in the order a human reads them: by lens, then by number (so 2 comes before 10), with the summary last.</summary>

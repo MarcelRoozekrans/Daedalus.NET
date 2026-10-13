@@ -34,7 +34,13 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     /// <summary>A run parked at the human gate, with two deferred findings, <c>mechanism-1</c> and <c>mechanism-2</c>.</summary>
     public Guid AwaitingApproval { get; private set; }
 
-    /// <summary>A run that finished.</summary>
+    /// <summary>The pull request the <see cref="Succeeded"/> run opened, as its <c>pr_url</c> variable.</summary>
+    public const string PullRequestUrl = "https://github.com/acme/widgets/pull/42";
+
+    /// <summary>The display name the seeded runs record for their starter, apart from the principal id.</summary>
+    public const string StarterName = "e2e.starter";
+
+    /// <summary>A run that finished, with a pull request.</summary>
     public Guid Succeeded { get; private set; }
 
     /// <summary>A run that failed, seeded first so it is the oldest.</summary>
@@ -50,7 +56,9 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
         await store.FailAsync(Failed, "The publish step failed.", ct).ConfigureAwait(false);
 
         Succeeded = await StartAsync("e2e-succeeded", ct).ConfigureAwait(false);
-        await CompleteAsync(Succeeded, new WorkflowTransition("done", WorkflowStatus.Succeeded, null, WorkflowEventKind.Completed), ct)
+        await CompleteAsync(
+                Succeeded, new WorkflowTransition("done", WorkflowStatus.Succeeded, null, WorkflowEventKind.Completed), ct,
+                new NodeResult("ok", new Dictionary<string, object?>(StringComparer.Ordinal) { ["pr_url"] = PullRequestUrl }))
             .ConfigureAwait(false);
 
         AwaitingApproval = await StartAsync("e2e-gate", ct).ConfigureAwait(false);
@@ -78,7 +86,7 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
                 Version = 9,
                 CorrelationKey = correlationKey,
                 StartNode = "implement",
-                StartedBy = new RunPrincipal("e2e-test-user", ["admin"]),
+                StartedBy = new RunPrincipal("e2e-test-user", ["admin"]) { DisplayName = StarterName },
             },
             ct).ConfigureAwait(false);
         if (started.IsFailure)
@@ -90,14 +98,14 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     }
 
     /// <summary>
-    ///     Completes the node <paramref name="runId"/> is at with <see cref="Ok"/> and applies
+    ///     Completes the node <paramref name="runId"/> is at with <paramref name="result"/>, else <see cref="Ok"/>, and applies
     ///     <paramref name="transition"/>, at the run's current seq. Returns that seq.
     /// </summary>
-    public async Task<long> CompleteAsync(Guid runId, WorkflowTransition transition, CancellationToken ct)
+    public async Task<long> CompleteAsync(Guid runId, WorkflowTransition transition, CancellationToken ct, NodeResult? result = null)
     {
         var run = await store.FindAsync(runId, ct).ConfigureAwait(false)
                   ?? throw new InvalidOperationException($"Seeded run {runId} is not in the store.");
-        await store.CompleteNodeAsync(runId, run.CurrentSeq, transition, Ok, ct).ConfigureAwait(false);
+        await store.CompleteNodeAsync(runId, run.CurrentSeq, transition, result ?? Ok, ct).ConfigureAwait(false);
 
         var after = await store.FindAsync(runId, ct).ConfigureAwait(false);
         if (after is null || after.Status != transition.NextStatus || !string.Equals(after.CurrentNode, transition.NextNode, StringComparison.Ordinal))

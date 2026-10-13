@@ -52,7 +52,9 @@
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="StartedBy" Title="Started by" Width="@Px(StartedByWidth)"
-                                      Visible="@_desktop"/>
+                                      Visible="@_desktop">
+                    <Template Context="run">@(run.StartedByName ?? run.StartedBy)</Template>
+                </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="CreatedAt" Title="Started" FormatString="{0:g}" Width="@Px(StartedWidth)"
                                       Visible="@_tablet"/>
                 <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="UpdatedAt" Title="Updated" FormatString="{0:g}" Width="@Px(UpdatedWidth)"

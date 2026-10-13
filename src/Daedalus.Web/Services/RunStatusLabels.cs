@@ -28,7 +28,8 @@ public static class RunStatusLabels
     ///     Resumed or Retried, shows as itself whatever outcome it holds; any other step shows the outcome a
     ///     completion reported, else the event kind.
     /// </summary>
-    public static string StepText(string kind, string? outcome) => IsSignificantKind(kind) ? kind : outcome ?? kind;
+    public static string StepText(string kind, string? outcome) =>
+        IsSignificantKind(kind) || IsNoOutcome(outcome) ? kind : outcome!;
 
     /// <summary>The badge severity of a timeline step.</summary>
     public static BadgeStyle StepStyle(string kind, string? outcome) => (kind, outcome) switch
@@ -40,6 +41,10 @@ public static class RunStatusLabels
         (_, "rejected") => BadgeStyle.Danger,
         _ => BadgeStyle.Light,
     };
+
+    /// <summary>The engine reports <c>none</c> when a node completed with no outcome; it is not a meaningful outcome to show.</summary>
+    private static bool IsNoOutcome(string? outcome) =>
+        outcome is null || string.Equals(outcome, "none", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSignificantKind(string kind) =>
         kind is "Failed" or "CapExceeded" or "Cancelled" or "Resumed" or "Retried";

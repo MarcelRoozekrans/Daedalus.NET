@@ -3,7 +3,7 @@
     <span> · existing issue </span>
     @if (Finding.ExistingIssueUrl is { } url)
     {
-        <a href="@url" target="_blank" rel="noopener" data-testid="existing-issue-link">#@issue</a>
+        <RadzenLink Path="@url.AbsoluteUri" Target="_blank" rel="noopener" Text="@($"#{issue}")" data-testid="existing-issue-link"/>
     }
     else
     {
