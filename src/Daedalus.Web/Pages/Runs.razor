@@ -4,7 +4,6 @@
 @inject IStore<RunsState> RunStore
 @inject IDispatcher Dispatcher
 @inject RunsEffects Effects
-@inject AuthenticationStateProvider Authentication
 
 <PageTitle>Runs · Daedalus</PageTitle>
 
@@ -27,7 +26,7 @@
 }
 else if (!_canView)
 {
-    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" data-testid="runs-forbidden">
         You need the developer or admin role to view runs.
     </RadzenAlert>
 }
@@ -54,16 +53,41 @@ else
 @code {
     private static readonly string[] Statuses = ["Running", "Awaiting", "Succeeded", "Failed", "Cancelled"];
     private readonly CancellationTokenSource _cts = new();
+    private Task<AuthenticationState>? _evaluated;
     private bool _checked;
     private bool _canView;
 
+    /// <summary>
+    ///     The signed-in user, replaced whenever the authentication state changes, so a page opened before a sign-in
+    ///     completed loads once it has.
+    /// </summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
     protected override void SubscribeStores() => Subscribe(RunStore);
 
-    protected override async Task OnInitializedAsync()
+    /// <summary>
+    ///     Decides access for each new authentication state and loads the list when the user becomes a viewer. Until a
+    ///     user is signed in the spinner stays, so the role message is only for a signed-in user without the role.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
     {
-        _canView = RunAccess.CanView((await Authentication.GetAuthenticationStateAsync()).User);
-        _checked = true;
-        if (_canView)
+        if (AuthenticationState is not { } state || ReferenceEquals(state, _evaluated))
+        {
+            return;
+        }
+
+        _evaluated = state;
+        var user = (await state).User;
+        if (!ReferenceEquals(state, _evaluated))
+        {
+            // A newer state arrived while this one was read; that one decides.
+            return;
+        }
+
+        var couldView = _canView;
+        _checked = user.Identity?.IsAuthenticated == true;
+        _canView = _checked && RunAccess.CanView(user);
+        if (_canView && !couldView)
         {
             await Effects.LoadListAsync(RunStore.Value.Query with { After = null }, _cts.Token);
         }

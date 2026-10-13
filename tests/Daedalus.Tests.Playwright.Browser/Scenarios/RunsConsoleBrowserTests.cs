@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
 using Daedalus.Tests.Playwright.Browser.PageObjects;
+using Daedalus.Tests.Playwright.Browser.Utilities;
 using Thalos.Workflow;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
@@ -233,6 +234,68 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
 
         await Expect(developerRun.Header).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(developerRun.Retry).ToHaveCountAsync(0).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The console follows the user's roles as they change, without a reload, as it must follow an OIDC sign-in that
+    ///     completes after the layout rendered. An analyst on /runs sees the role message and no Runs item; becoming a
+    ///     developer shows the item and loads the rows; becoming an analyst again hides the item and shows the message.
+    ///     Red: <c>RunsMenuItem</c> computes <c>CanView</c> once in <c>OnInitializedAsync</c>; the Runs item never shows.
+    ///     Red: <c>Runs</c> computes <c>CanView</c> once in <c>OnInitializedAsync</c>; the role message stays and no row
+    ///     loads.
+    ///     Red: <c>RunsMenuItem</c> keeps <c>_canView</c> once it is true; back as an analyst the item stays.
+    /// </summary>
+    [Test]
+    [Description("The Runs item and the Runs page follow a role change without a reload")]
+    public async Task Console_FollowsARoleChange_WithoutReload()
+    {
+        await using var context = await Browser.NewContextAsync().ConfigureAwait(false);
+        await TestRoles.WriteAsync(context, BaseUrl, "analyst").ConfigureAwait(false);
+        var page = await context.NewPageAsync().ConfigureAwait(false);
+        var runs = new RunsPage(page, BaseUrl);
+        await runs.NavigateAsync().ConfigureAwait(false);
+
+        // The message shows only once the user is known, so the item's absence is checked after it.
+        await Expect(runs.Forbidden).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(runs.MenuItem).ToHaveCountAsync(0).ConfigureAwait(false);
+        await page.EvaluateAsync("() => { window.__noReload = true; }").ConfigureAwait(false);
+
+        await TestRoles.WriteAsync(context, BaseUrl, "developer").ConfigureAwait(false);
+
+        await Expect(runs.MenuItem).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(runs.RowFor(Runs.Failed)).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(runs.Forbidden).ToHaveCountAsync(0).ConfigureAwait(false);
+        (await page.EvaluateAsync<bool>("() => window.__noReload === true").ConfigureAwait(false))
+            .Should().BeTrue("the roles changed without a reload");
+
+        await TestRoles.WriteAsync(context, BaseUrl, "analyst").ConfigureAwait(false);
+
+        await Expect(runs.MenuItem).ToHaveCountAsync(0).ConfigureAwait(false);
+        await Expect(runs.Forbidden).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     A run opened as an analyst shows the role message; becoming an admin, without a reload, loads the run and
+    ///     shows Retry on the failed run.
+    ///     Red: <c>RunDetail</c> computes its access once in <c>OnInitializedAsync</c>; the header never shows.
+    ///     Red: <c>RunDetail</c> keeps the <c>_canRetry</c> of the first state it saw; the header shows without Retry.
+    /// </summary>
+    [Test]
+    [Description("The run page loads the run once the user gains the role, without a reload")]
+    public async Task RunDetail_FollowsARoleChange_WithoutReload()
+    {
+        await using var context = await Browser.NewContextAsync().ConfigureAwait(false);
+        await TestRoles.WriteAsync(context, BaseUrl, "analyst").ConfigureAwait(false);
+        var page = await context.NewPageAsync().ConfigureAwait(false);
+        var run = new RunDetailPage(page, BaseUrl);
+        await run.NavigateAsync(Runs.Failed).ConfigureAwait(false);
+        await Expect(run.Forbidden).ToBeVisibleAsync().ConfigureAwait(false);
+
+        await TestRoles.WriteAsync(context, BaseUrl, "admin").ConfigureAwait(false);
+
+        await Expect(run.Header).ToContainTextAsync($"Run {Runs.Failed.ToString()[..8]}").ConfigureAwait(false);
+        await Expect(run.Retry).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(run.Forbidden).ToHaveCountAsync(0).ConfigureAwait(false);
     }
 
     /// <summary>

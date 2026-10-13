@@ -6,7 +6,6 @@
 @inject RunsEffects Effects
 @inject DialogService DialogService
 @inject NotificationService NotificationService
-@inject AuthenticationStateProvider Authentication
 
 <PageTitle>Run @Id.ToString()[..8] · Daedalus</PageTitle>
 
@@ -63,6 +62,11 @@ else
 @code {
     private const int NotificationMilliseconds = 4000;
     private readonly CancellationTokenSource _cts = new();
+    private Task<AuthenticationState>? _evaluated;
+
+    /// <summary>The run last loaded for a viewer, or <see langword="null"/> while none is.</summary>
+    private Guid? _loaded;
+
     private bool _checked;
     private bool _canView;
     private bool _canRetry;
@@ -83,18 +87,43 @@ else
 
     protected override void SubscribeStores() => Subscribe(Runs, OnRunsChanged);
 
-    protected override async Task OnInitializedAsync()
-    {
-        var user = (await Authentication.GetAuthenticationStateAsync()).User;
-        _canView = RunAccess.CanView(user);
-        _canRetry = RunAccess.CanRetry(user);
-        _checked = true;
-    }
+    /// <summary>
+    ///     The signed-in user, replaced whenever the authentication state changes, so a page opened before a sign-in
+    ///     completed loads once it has.
+    /// </summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
+    /// <summary>
+    ///     Decides access for each new authentication state, then loads the run when the user may view it and it is not
+    ///     loaded yet: a new <see cref="Id"/>, or a user who just became a viewer. Until a user is signed in the spinner
+    ///     stays, so the role message is only for a signed-in user without the role.
+    /// </summary>
     protected override async Task OnParametersSetAsync()
     {
-        if (_canView)
+        if (AuthenticationState is { } state && !ReferenceEquals(state, _evaluated))
         {
+            _evaluated = state;
+            var user = (await state).User;
+            if (!ReferenceEquals(state, _evaluated))
+            {
+                // A newer state arrived while this one was read; that one decides.
+                return;
+            }
+
+            _checked = user.Identity?.IsAuthenticated == true;
+            _canView = _checked && RunAccess.CanView(user);
+            _canRetry = _checked && RunAccess.CanRetry(user);
+        }
+
+        if (!_canView)
+        {
+            _loaded = null;
+            return;
+        }
+
+        if (_loaded != Id)
+        {
+            _loaded = Id;
             _lastStatus = null;
             _announcement = "";
             _gateOnArrival = false;

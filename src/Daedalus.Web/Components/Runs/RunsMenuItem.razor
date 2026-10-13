@@ -2,7 +2,6 @@
 @inject IStore<RunsState> Runs
 @inject RunsEffects Effects
 @inject RunHubConnection Hub
-@inject AuthenticationStateProvider Authentication
 
 @if (_canView)
 {
@@ -22,14 +21,39 @@
 }
 
 @code {
+    private Task<AuthenticationState>? _evaluated;
     private bool _canView;
+
+    /// <summary>
+    ///     The signed-in user, replaced whenever the authentication state changes: the layout renders before an OIDC
+    ///     sign-in completes, so the item follows the user rather than reading it once.
+    /// </summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
     protected override void SubscribeStores() => Subscribe(Runs);
 
-    protected override async Task OnInitializedAsync()
+    /// <summary>
+    ///     Shows the item once the user may view runs, and then opens the hub and loads the count; hides it again when
+    ///     the user no longer may.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
     {
-        _canView = RunAccess.CanView((await Authentication.GetAuthenticationStateAsync()).User);
-        if (_canView)
+        if (AuthenticationState is not { } state || ReferenceEquals(state, _evaluated))
+        {
+            return;
+        }
+
+        _evaluated = state;
+        var canView = RunAccess.CanView((await state).User);
+        if (!ReferenceEquals(state, _evaluated))
+        {
+            // A newer state arrived while this one was read; that one decides.
+            return;
+        }
+
+        var becameViewer = canView && !_canView;
+        _canView = canView;
+        if (becameViewer)
         {
             // Both at once, so a slow connect does not hold back the badge.
             await Task.WhenAll(

@@ -21,6 +21,12 @@ public sealed class RunsPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
             HasTextRegex = new Regex($@"^\s*{Regex.Escape(title)}\s*$"),
         });
 
+    /// <summary>The message for a signed-in user without the developer or admin role.</summary>
+    public ILocator Forbidden => _page.Locator("[data-testid='runs-forbidden']");
+
+    /// <summary>The menu's Runs item.</summary>
+    public ILocator MenuItem => _page.Locator(".rz-sidebar").GetByText("Runs", new LocatorGetByTextOptions { Exact = true });
+
     /// <summary>The menu's count of runs awaiting approval.</summary>
     public ILocator AwaitingCount => _page.Locator("[data-testid='runs-awaiting-count']");
 
