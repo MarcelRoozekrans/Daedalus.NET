@@ -1,0 +1,38 @@
+<RadzenCard class="rz-mb-4" data-testid="write-audit">
+    @if (Audit.Count == 0)
+    {
+        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">No writes.</RadzenText>
+    }
+    else
+    {
+        <div style="overflow-x: auto;">
+            <RadzenDataGrid TItem="WriteAuditView" Data="@Audit" AllowSorting="true" Style="height: auto; min-width: 640px;">
+                <Columns>
+                    <RadzenDataGridColumn TItem="WriteAuditView" Property="Seq" Title="Seq" Width="80px"/>
+                    <RadzenDataGridColumn TItem="WriteAuditView" Property="Node" Title="Node" Width="140px"/>
+                    <RadzenDataGridColumn TItem="WriteAuditView" Property="Tool" Title="Tool" Width="200px"/>
+                    <RadzenDataGridColumn TItem="WriteAuditView" Property="Path" Title="Path">
+                        <Template Context="write">
+                            @if (write.Path is { } path)
+                            {
+                                <span style="font-family: monospace; word-break: break-all;">@path</span>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="WriteAuditView" Property="StartedBy" Title="Started by" Width="140px">
+                        <Template Context="write">@(write.StartedBy ?? "—")</Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        </div>
+    }
+</RadzenCard>
+
+@code {
+    /// <summary>Every workspace write the run was allowed, in seq order.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<WriteAuditView> Audit { get; set; } = [];
+}

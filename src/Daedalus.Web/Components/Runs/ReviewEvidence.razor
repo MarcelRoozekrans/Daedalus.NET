@@ -1,0 +1,93 @@
+<RadzenCard class="rz-mb-4" data-testid="review-evidence">
+    @if (Run.DeferredFindingsError is { } evidenceError)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4">@evidenceError</RadzenAlert>
+    }
+
+    <RadzenText TextStyle="TextStyle.H6">Checked</RadzenText>
+    @if (Run.Checked.Count == 0)
+    {
+        <RadzenText TextStyle="TextStyle.Body2">None</RadzenText>
+    }
+    else
+    {
+        <RadzenStack Gap="0.5rem" class="rz-mb-4">
+            @foreach (var lens in Run.Checked)
+            {
+                <div @key="lens.Lens">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin: 0;">@lens.Lens</RadzenText>
+                    @if (lens.Checked.Count == 0)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">None</RadzenText>
+                    }
+                    else
+                    {
+                        <ul style="margin: 0;">
+                            @foreach (var item in lens.Checked)
+                            {
+                                <li><RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@item</RadzenText></li>
+                            }
+                        </ul>
+                    }
+                </div>
+            }
+        </RadzenStack>
+    }
+
+    <RadzenText TextStyle="TextStyle.H6">Deferred</RadzenText>
+    @if (Run.DeferredFindings.Count == 0)
+    {
+        <RadzenText TextStyle="TextStyle.Body2">None</RadzenText>
+    }
+    else
+    {
+        <RadzenStack Gap="0.75rem" class="rz-mb-4">
+            @foreach (var finding in Run.DeferredFindings)
+            {
+                <RadzenStack @key="finding.Id" Gap="0.1rem" data-testid="review-deferred">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                        @if (finding.Dropped)
+                        {
+                            <s>@finding.Id: @finding.Title</s><span> · dropped</span>
+                        }
+                        else
+                        {
+                            @($"{finding.Id}: {finding.Title}")
+                        }
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
+                        @finding.Lens · <span style="font-family: monospace;">@finding.File:@finding.Line</span> · @finding.Reason
+                        @if (finding.ExistingIssue is { } issue)
+                        {
+                            <span> · existing issue #@issue</span>
+                        }
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@finding.Scenario</RadzenText>
+                </RadzenStack>
+            }
+        </RadzenStack>
+    }
+
+    <RadzenText TextStyle="TextStyle.H6">Filed</RadzenText>
+    @if (Run.FiledFindings.Count == 0)
+    {
+        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">None</RadzenText>
+    }
+    else
+    {
+        <RadzenStack Gap="0.25rem">
+            @foreach (var filed in Run.FiledFindings)
+            {
+                <RadzenText @key="filed" TextStyle="TextStyle.Body2" Style="margin: 0;" data-testid="review-filed">
+                    <span style="font-family: monospace;">@filed.FindingId</span> · @filed.Mode ·
+                    <a href="@filed.Url" target="_blank" rel="noopener">#@filed.Issue</a>
+                </RadzenText>
+            }
+        </RadzenStack>
+    }
+</RadzenCard>
+
+@code {
+    /// <summary>The run whose review evidence, deferred findings and filed findings the tab shows.</summary>
+    [Parameter, EditorRequired] public WorkflowRunView Run { get; set; } = default!;
+}

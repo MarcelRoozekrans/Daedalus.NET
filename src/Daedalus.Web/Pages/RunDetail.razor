@@ -1,0 +1,184 @@
+@page "/runs/{Id:guid}"
+@inherits FluxComponent
+@implements IAsyncDisposable
+@inject IStore<RunsState> Runs
+@inject IDispatcher Dispatcher
+@inject RunsEffects Effects
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Run @Id.ToString()[..8] · Daedalus</PageTitle>
+
+<div aria-live="polite" class="sr-only" data-testid="run-status-live">@_announcement</div>
+
+@if (!_checked)
+{
+    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small"/>
+}
+else if (!_canView)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+        You need the developer or admin role to view runs.
+    </RadzenAlert>
+}
+else if (Runs.Value is { SelectedNotFound: true } notFound && notFound.SelectedId == Id)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" data-testid="run-not-found">
+        Run not found. <RadzenLink Path="runs" Text="Back to Runs"/>
+    </RadzenAlert>
+}
+else if (Runs.Value is { Selected: null, SelectedError: { } error } failed && failed.SelectedId == Id)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="run-error">
+        @error
+        <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@LoadAsync"/>
+    </RadzenAlert>
+}
+else if (Runs.Value.Selected is not { } run || run.Id != Id)
+{
+    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"/>
+}
+else
+{
+    <RunHeader Run="@run" CanRetry="@_canRetry" OnRetry="@RetryAsync"/>
+    @if (IsAtGate(run))
+    {
+        <GatePanel @key="run.Id" Run="@run" Draft="@Runs.Value.Gate" FocusApprove="@_gateOnArrival"
+                   OnToggle="@ToggleFindingAsync" OnApply="@ToggleApplyAsync"
+                   OnApprove="@ApproveAsync" OnCancel="@CancelAsync"/>
+    }
+    <div class="run-tabs">
+        <RadzenTabs RenderMode="TabRenderMode.Client">
+            <Tabs>
+                <RadzenTabsItem Text="Timeline"><RunTimeline Steps="@run.Steps" Run="@run"/></RadzenTabsItem>
+                <RadzenTabsItem Text="Review"><ReviewEvidence Run="@run"/></RadzenTabsItem>
+                <RadzenTabsItem Text="Usage"><NodeUsageTable Usage="@run.NodeUsage"/></RadzenTabsItem>
+                <RadzenTabsItem Text="Writes"><WriteAuditTable Audit="@run.WriteAudit"/></RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    </div>
+}
+
+@code {
+    private const int NotificationMilliseconds = 4000;
+    private readonly CancellationTokenSource _cts = new();
+    private bool _checked;
+    private bool _canView;
+    private bool _canRetry;
+
+    /// <summary>
+    ///     Whether the gate panel was on screen when this run first loaded, so Approve may take focus. A status change
+    ///     clears it, so a panel that appears through a live update never moves focus.
+    /// </summary>
+    private bool _gateOnArrival;
+
+    /// <summary>The badge text last seen for this run, or <see langword="null"/> before it has loaded.</summary>
+    private string? _lastStatus;
+
+    private string _announcement = "";
+
+    /// <summary>The run to show.</summary>
+    [Parameter] public Guid Id { get; set; }
+
+    protected override void SubscribeStores() => Subscribe(Runs, OnRunsChanged);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        _canView = RunAccess.CanView(user);
+        _canRetry = RunAccess.CanRetry(user);
+        _checked = true;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_canView)
+        {
+            _lastStatus = null;
+            _announcement = "";
+            _gateOnArrival = false;
+            await LoadAsync();
+        }
+    }
+
+    private Task LoadAsync() => Effects.LoadRunAsync(Id, _cts.Token);
+
+    private static bool IsAtGate(WorkflowRunView run) =>
+        run.Status == "Awaiting" && string.Equals(run.AwaitingSignal, RunSignals.HumanApproval, StringComparison.Ordinal);
+
+    /// <summary>
+    ///     Runs before each re-render. The first load of this run decides whether the gate was there on arrival; every
+    ///     later status change is announced and stops the gate from taking focus.
+    /// </summary>
+    private void OnRunsChanged(RunsState state)
+    {
+        if (state.Selected is not { } run || run.Id != Id)
+        {
+            return;
+        }
+
+        var text = RunStatusLabels.Text(run.Status, run.AwaitingSignal);
+        if (_lastStatus is null)
+        {
+            _gateOnArrival = IsAtGate(run);
+        }
+        else if (!string.Equals(_lastStatus, text, StringComparison.Ordinal))
+        {
+            _announcement = $"Status: {text}";
+            _gateOnArrival = false;
+        }
+
+        _lastStatus = text;
+    }
+
+    private async Task ToggleFindingAsync((string FindingId, bool Dropped) toggle) =>
+        await Dispatcher.DispatchAsync(new GateFindingToggled(toggle.FindingId, toggle.Dropped));
+
+    private async Task ToggleApplyAsync(bool apply) => await Dispatcher.DispatchAsync(new GateApplyToggled(apply));
+
+    private async Task ApproveAsync()
+    {
+        var result = await Effects.ApproveAsync(_cts.Token);
+        if (result.IsSuccess)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success, Summary = "Run approved", Duration = NotificationMilliseconds,
+            });
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        object? closed = await DialogService.OpenAsync<CancelRunDialog>("Cancel this run?",
+            new Dictionary<string, object> { [nameof(CancelRunDialog.RunId)] = Id });
+        if (closed is true)
+        {
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Success, Summary = "Run cancelled", Duration = NotificationMilliseconds,
+            });
+        }
+    }
+
+    private async Task RetryAsync()
+    {
+        if (await DialogService.Confirm("Retry the failed step of this run?", "Retry run",
+                new ConfirmOptions { OkButtonText = "Retry", CancelButtonText = "Keep as is" }) is true)
+        {
+            var result = await Effects.RetryAsync(Id, _cts.Token);
+            NotificationService.Notify(result.IsSuccess
+                ? new NotificationMessage { Severity = NotificationSeverity.Success, Summary = "Retry started", Duration = NotificationMilliseconds }
+                : new NotificationMessage { Severity = NotificationSeverity.Error, Summary = "Could not retry", Detail = result.Error });
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+        await _cts.CancelAsync();
+        _cts.Dispose();
+        await Dispatcher.DispatchAsync(new RunClosed());
+    }
+}

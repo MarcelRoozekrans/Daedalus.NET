@@ -1,0 +1,24 @@
+/* Radzen 8.7.5 ships no screen-reader-only utility, so the status announcement uses the standard visually-hidden
+   rule: read aloud, never seen. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Below 768px the tab strip scrolls sideways instead of widening the page. */
+@media (max-width: 767px) {
+    .run-tabs ::deep .rz-tabview-nav {
+        overflow-x: auto;
+    }
+
+    .run-tabs ::deep .rz-tabview-nav li {
+        flex-shrink: 0;
+    }
+}

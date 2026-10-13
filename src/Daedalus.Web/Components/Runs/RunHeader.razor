@@ -1,0 +1,42 @@
+<RadzenStack Gap="0.25rem" class="rz-mb-4" data-testid="run-header">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap">
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+            <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Run @Run.Id.ToString()[..8]</RadzenText>
+            <RunStatusBadge Status="@Run.Status" AwaitingSignal="@Run.AwaitingSignal"/>
+        </RadzenStack>
+        <LiveIndicator/>
+    </RadzenStack>
+    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
+        @Run.Process v@(Run.ProcessVersion) · at @Run.CurrentNode@(Run.StartedBy is { } by ? $" · started by {by}" : "")
+        @if (Run.PrUrl is { } pr)
+        {
+            <span> · </span><a href="@pr" target="_blank" rel="noopener" data-testid="run-pr-link">Pull request #@pr.Segments[^1].TrimEnd('/')</a>
+        }
+    </RadzenText>
+    @if (Run.UnreadablePullRequestLink is { } unreadable)
+    {
+        <RadzenText TextStyle="TextStyle.Caption" Style="color: var(--rz-warning); margin: 0;">Pull request link could not be read: @unreadable</RadzenText>
+    }
+    @if (Run.LastError is { } lastError)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="run-last-error">@lastError</RadzenAlert>
+    }
+    @if (CanRetry && Run.Status == "Failed")
+    {
+        <div>
+            <RadzenButton Text="Retry" Icon="refresh" ButtonStyle="ButtonStyle.Light" Variant="Variant.Outlined" Click="@OnRetry"
+                          data-testid="run-retry"/>
+        </div>
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>The run whose identity, place and failure the header shows.</summary>
+    [Parameter, EditorRequired] public WorkflowRunView Run { get; set; } = default!;
+
+    /// <summary>Whether the user holds admin, and so may retry a failed run.</summary>
+    [Parameter, EditorRequired] public bool CanRetry { get; set; }
+
+    /// <summary>Asks to retry the failed node; the page confirms first.</summary>
+    [Parameter] public EventCallback OnRetry { get; set; }
+}

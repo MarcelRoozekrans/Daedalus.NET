@@ -1,0 +1,58 @@
+@implements IDisposable
+@inject RunsEffects Effects
+@inject DialogService DialogService
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+        The run stops where it is. A cancelled run cannot be resumed.
+    </RadzenText>
+    <RadzenFormField Text="Reason (optional)" Style="width: 100%;">
+        <RadzenTextArea @bind-Value="@_reason" Rows="3" MaxLength="1000" Disabled="@_submitting" data-testid="cancel-reason"/>
+    </RadzenFormField>
+    @if (_error is { } error)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="cancel-error">@error</RadzenAlert>
+    }
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        <RadzenButton Text="Keep run" ButtonStyle="ButtonStyle.Light" Disabled="@_submitting" Click="@(() => DialogService.Close(null))"
+                      data-testid="cancel-keep"/>
+        <RadzenButton Text="Cancel run" ButtonStyle="ButtonStyle.Danger" IsBusy="@_submitting" Disabled="@_submitting" Click="@CancelAsync"
+                      data-testid="cancel-confirm"/>
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+    private string? _reason;
+    private bool _submitting;
+    private string? _error;
+
+    /// <summary>The run to cancel.</summary>
+    [Parameter, EditorRequired] public Guid RunId { get; set; }
+
+    /// <summary>
+    ///     Sends the cancel. A refusal stays in the dialog with the server's reason; success closes it with
+    ///     <see langword="true"/>, and the page reflects the cancel when the change arrives.
+    /// </summary>
+    private async Task CancelAsync()
+    {
+        _submitting = true;
+        _error = null;
+        var result = await Effects.CancelAsync(RunId, string.IsNullOrWhiteSpace(_reason) ? null : _reason.Trim(), _cts.Token);
+        _submitting = false;
+        if (result.IsSuccess)
+        {
+            DialogService.Close(true);
+        }
+        else
+        {
+            _error = result.Error;
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}
