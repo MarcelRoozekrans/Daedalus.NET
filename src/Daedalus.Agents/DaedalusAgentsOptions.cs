@@ -58,6 +58,9 @@ public sealed class DaedalusAgentsOptions
 
     /// <summary>Periodic content resync settings (<c>Thalos:Content</c>): whether <see cref="ContentResyncService"/> runs at all.</summary>
     public ContentConfig Content { get; } = new();
+
+    /// <summary>Per-node model and tool decisions (<c>Thalos:Decisions</c>), phase 2.10.</summary>
+    public DecisionsConfig Decisions { get; } = new();
 }
 
 /// <summary>One agent definition as declared in configuration.</summary>
@@ -86,6 +89,15 @@ public sealed class AgentConfig
     ///     to a pre-populated list, so the default lives in the mapping, not here) → everything (<c>*</c>).
     /// </summary>
     public IList<string> Tools { get; } = [];
+
+    /// <summary>
+    ///     Models a per-node decision may pick for this agent, cheapest first (<c>Thalos:Agents:N:AllowedModels</c>).
+    ///     Empty → no choice: the agent runs on its default model (<see cref="Model"/>, its charter's model, or
+    ///     <c>Thalos:Anthropic:DefaultModel</c>). The default model need not be listed; a decision can only narrow to
+    ///     this list or fall back to that default, never reach beyond both. Every entry needs a
+    ///     <c>ModelPricing:Models</c> price, which <c>CostAnalyticsPricingDriftTests</c> guards.
+    /// </summary>
+    public IList<string> AllowedModels { get; } = [];
 
     /// <summary>
     ///     Glob allow-list over skill names (<c>*</c> for every skill, <c>daedalus-*</c> for a family). Empty → the agent
@@ -396,4 +408,39 @@ public sealed class ContentConfig
     ///     or <c>processes/*.yaml</c> on the next tick instead.
     /// </summary>
     public TimeSpan? ResyncInterval { get; set; }
+}
+
+/// <summary>
+///     <c>Thalos:Decisions</c>: whether a cheap Minos decision, made through OpenRouter, picks a node's model and
+///     narrows its tool families before the node runs. Off unless the owner confirms a zero-data-retention account
+///     and a key is present: task text goes to OpenRouter, so nothing is sent otherwise.
+/// </summary>
+public sealed class DecisionsConfig
+{
+    /// <summary>Configuration section name: <c>Thalos:Decisions</c>.</summary>
+    public const string SectionName = "Thalos:Decisions";
+
+    /// <summary>The owner's confirmation that the OpenRouter account has zero data retention. Default <see langword="false"/>.</summary>
+    public bool ZeroDataRetentionAccount { get; set; }
+
+    /// <summary>The OpenRouter model that makes the decision.</summary>
+    public string Model { get; set; } = "jev-latest";
+
+    /// <summary>How long a decision may take before the node falls back to its default model and full tool list.</summary>
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>Minimum confidence for a model choice to be taken instead of the default.</summary>
+    public double ModelConfidence { get; set; } = 0.6;
+
+    /// <summary>Minimum probability for a tool family to be kept.</summary>
+    public double ToolFamilyProbability { get; set; } = 0.5;
+
+    /// <summary>
+    ///     Review lens name → model, pinned instead of decided. Each value must be in the reviewer's
+    ///     <see cref="AgentConfig.AllowedModels"/>; start-up refuses it otherwise.
+    /// </summary>
+    public IDictionary<string, string> PinnedLensModels { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Whether decisions run: the account is confirmed zero-retention and a key is present. Only decides; reads nothing.</summary>
+    public bool IsEnabled(string? apiKey) => ZeroDataRetentionAccount && !string.IsNullOrEmpty(apiKey);
 }
