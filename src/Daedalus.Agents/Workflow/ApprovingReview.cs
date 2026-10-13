@@ -13,9 +13,16 @@ public sealed record IdentifiedDeferredFinding(string Id, string Lens, DeferredF
 /// <summary>
 ///     The latest review visit as the host recorded it. <see cref="Deferred"/> is empty unless <see cref="Approved"/>:
 ///     a visit with a rejection sends the run back to implement, and anything it deferred points at code about to change.
+///     <see cref="Findings"/> is the other way round: the findings of <see cref="RejectedLens"/>, which the implement turn
+///     the rejection sends the run back to is given, and empty on an approval.
 /// </summary>
 public sealed record ReviewVisit(
-    long Seq, bool Approved, string? RejectedLens, IReadOnlyList<LensApproval> Lenses, IReadOnlyList<IdentifiedDeferredFinding> Deferred)
+    long Seq,
+    bool Approved,
+    string? RejectedLens,
+    IReadOnlyList<LensApproval> Lenses,
+    IReadOnlyList<IdentifiedDeferredFinding> Deferred,
+    IReadOnlyList<ReviewFinding> Findings)
 {
     /// <summary>The deferred findings of <paramref name="visit"/> when it is an approval; otherwise none, including before review has run.</summary>
     public static IReadOnlyList<IdentifiedDeferredFinding> DeferredOf(ReviewVisit? visit) => visit is { Approved: true } approved ? approved.Deferred : [];
@@ -26,8 +33,8 @@ public sealed record ReviewVisit(
 ///     highest <see cref="WorkflowRunRecord.Seq"/>, the last record per lens. A redelivered review node records its
 ///     lenses again at the same seq, and the store lists records in append order within a seq, so the last one is the
 ///     visit's final word. Payloads are read as parsed JSON, since <c>jsonb</c> keeps no text. One reader for
-///     <c>open-pull-request</c>, the gate and <c>file-review-findings</c>, so the three cannot disagree about which
-///     findings exist or what their ids are.
+///     <c>open-pull-request</c>, the gate, <c>file-review-findings</c> and <see cref="ReviewFindingsRunner"/>, so they
+///     cannot disagree about which findings exist or what their ids are.
 /// </summary>
 public static class ApprovingReview
 {
@@ -47,7 +54,7 @@ public static class ApprovingReview
             return Result<ReviewVisit?>.Success(null);
 
         var seq = evidence.Max(r => r.Seq);
-        var lenses = new List<(string Lens, bool Approved, IReadOnlyList<string> Checked, IReadOnlyList<DeferredFinding> Deferred)>();
+        var lenses = new List<LensRecord>();
         foreach (var record in evidence.Where(r => r.Seq == seq))
         {
             var read = ReadRecord(record);
@@ -61,18 +68,22 @@ public static class ApprovingReview
                 lenses.Add(read.Value);
         }
 
-        var rejected = lenses.FirstOrDefault(l => !l.Approved).Lens;
-        var approved = rejected is null;
+        var rejecting = lenses.Find(l => !l.Approved);
+        var rejected = rejecting?.Lens;
+        var approved = rejecting is null;
         IReadOnlyList<IdentifiedDeferredFinding> deferred = approved
             ? [.. lenses.SelectMany(l => l.Deferred.Select((d, i) => new IdentifiedDeferredFinding($"{l.Lens}-{i + 1}", l.Lens, d)))]
             : [];
 
         return Result<ReviewVisit?>.Success(new ReviewVisit(
-            seq, approved, rejected, [.. lenses.Select(l => new LensApproval(l.Lens, l.Checked))], deferred));
+            seq, approved, rejected, [.. lenses.Select(l => new LensApproval(l.Lens, l.Checked))], deferred,
+            rejecting?.Findings ?? []));
     }
 
-    private static Result<(string Lens, bool Approved, IReadOnlyList<string> Checked, IReadOnlyList<DeferredFinding> Deferred)> ReadRecord(
-        WorkflowRunRecord record)
+    private sealed record LensRecord(
+        string Lens, bool Approved, IReadOnlyList<string> Checked, IReadOnlyList<DeferredFinding> Deferred, IReadOnlyList<ReviewFinding> Findings);
+
+    private static Result<LensRecord> ReadRecord(WorkflowRunRecord record)
     {
         try
         {
@@ -85,6 +96,7 @@ public static class ApprovingReview
                 && examined.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String))
             {
                 IReadOnlyList<DeferredFinding> deferred = [];
+                IReadOnlyList<ReviewFinding> findings = [];
                 var wellFormed = true;
                 if (root.TryGetProperty("deferred", out var d) && d.ValueKind != JsonValueKind.Null)
                 {
@@ -98,14 +110,27 @@ public static class ApprovingReview
                         deferred = [.. entries.Select(e => e!)];
                 }
 
-                if (!wellFormed)
-                    return Result<(string, bool, IReadOnlyList<string>, IReadOnlyList<DeferredFinding>)>.Failure(Unreadable(record));
+                if (root.TryGetProperty("findings", out var f) && f.ValueKind != JsonValueKind.Null)
+                {
+                    // The same rule as deferred: the host wrote validated evidence, so any other shape is corrupt.
+                    var entries = f.ValueKind == JsonValueKind.Array
+                        ? JsonSerializer.Deserialize<ReviewFinding?[]>(f.GetRawText(), JsonOptions)
+                        : null;
+                    if (entries is null || !entries.All(IsComplete))
+                        wellFormed = false;
+                    else
+                        findings = [.. entries.Select(e => e!)];
+                }
 
-                return Result<(string, bool, IReadOnlyList<string>, IReadOnlyList<DeferredFinding>)>.Success((
+                if (!wellFormed)
+                    return Result<LensRecord>.Failure(Unreadable(record));
+
+                return Result<LensRecord>.Success(new LensRecord(
                     lens.GetString()!,
                     string.Equals(verdict.GetString(), ReviewEvidence.Approved, StringComparison.Ordinal),
                     [.. examined.EnumerateArray().Select(e => e.GetString()!)],
-                    deferred));
+                    deferred,
+                    findings));
             }
         }
         catch (JsonException)
@@ -113,12 +138,14 @@ public static class ApprovingReview
             // Reported below with the record's id, the same as a payload of the wrong shape.
         }
 
-        return Result<(string, bool, IReadOnlyList<string>, IReadOnlyList<DeferredFinding>)>.Failure(
-            Unreadable(record));
+        return Result<LensRecord>.Failure(Unreadable(record));
     }
 
     private static string Unreadable(WorkflowRunRecord record) =>
-        $"review evidence record {record.Id} has no readable lens, verdict, checked list and deferred list";
+        $"review evidence record {record.Id} has no readable lens, verdict, checked list, findings list and deferred list";
+
+    private static bool IsComplete(ReviewFinding? f) =>
+        f is not null && !string.IsNullOrWhiteSpace(f.File) && !string.IsNullOrWhiteSpace(f.Scenario) && f.Line > 0;
 
     private static bool IsComplete(DeferredFinding? f) =>
         f is not null

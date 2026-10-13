@@ -262,6 +262,26 @@ public sealed partial class ManufactureImplementSkillContentTests
     }
 
     /// <summary>
+    ///     Issue #346: the skill names the section and the block <see cref="Daedalus.Agents.Workflow.ReviewFindingsRunner"/>
+    ///     writes, so a renamed heading or tag cannot leave the implementer looking for text that is no longer there, and it
+    ///     asks for an answer to every finding in <c>review_response</c>. Red: renaming
+    ///     <see cref="Daedalus.Agents.Workflow.ReviewFindingsRunner.Heading"/> or the tag, deleting the "When a review sent
+    ///     you back" section, or dropping either answer form.
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_says_how_to_answer_a_rejected_review()
+    {
+        var skill = ImplementSkill();
+        var normalized = Normalize(skill);
+
+        skill.Should().Contain(Daedalus.Agents.Workflow.ReviewFindingsRunner.Heading);
+        skill.Should().Contain(Daedalus.Agents.Workflow.ReviewFindingsRunner.OpenTagPrefix + ">");
+        normalized.Should().ContainEquivalentOf("Answer every finding before you report changed");
+        normalized.Should().ContainEquivalentOf("Report what you did as " + Daedalus.Agents.Workflow.ReviewHandoff.ReviewResponseKey);
+        normalized.Should().ContainEquivalentOf("starting with addressed: or disputed:");
+    }
+
+    /// <summary>
     ///     <c>roslyn__apply_code_action</c> is still in the implementer's list, and it still writes nothing unless the
     ///     call passes <c>preview: false</c>. The call succeeds either way, so the skill must name the argument. Red:
     ///     deleting the argument from the Roslyn paragraph.

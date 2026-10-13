@@ -200,6 +200,29 @@ public sealed class ProposalAuthorshipTests
     }
 
     /// <summary>
+    ///     Issue #346: <see cref="ReviewHandoff.ReviewResponseKey"/> is the implementer's answer to the review, so no other
+    ///     node writes it. Retrospect is the row that can fail: a review node's variables are dropped whatever the table
+    ///     says. Red: removing the <c>review_response</c> row lets retrospect's forged value through; keying it on any skill
+    ///     but implement strips implement's own.
+    /// </summary>
+    [Fact]
+    public async Task Only_implement_may_write_the_review_response()
+    {
+        var forged = await CompleteAsync(RunAt("reflect"), "none", new(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.ReviewResponseKey] = "forged",
+        });
+        var own = await CompleteAsync(RunAt("implement"), "changed", new(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.ReviewResponseKey] = "addressed: src/A.cs:7 - added the casing test",
+        });
+
+        forged.Variables.Should().NotContainKey(ReviewHandoff.ReviewResponseKey);
+        own.Variables.Should().ContainKey(ReviewHandoff.ReviewResponseKey)
+            .WhoseValue.Should().Be("addressed: src/A.cs:7 - added the casing test");
+    }
+
+    /// <summary>
     ///     Both rebuilds of the report carry the node's token usage across. Falsifiable per row: dropping the
     ///     <c>Usage</c> copy on the stripped rebuild turns the <c>implement</c> row red, and dropping it on the
     ///     cleared rebuild turns the <c>reflect</c> row red.

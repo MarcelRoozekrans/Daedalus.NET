@@ -346,6 +346,10 @@ public sealed class CleanArchitectureTests
         // RunModeRunner (phase 2.6, ruling R61) is the fifth, and the same shape once more: a decorator that appends
         // the host's statement of the run's mode to a request's Task before forwarding to the runner it wraps
         // (StandingInstructionsRunner), never dispatching a turn of its own.
+        //
+        // ReviewFindingsRunner (issue #346) is the sixth, and the same shape: a decorator that appends the rejecting
+        // review lens's findings to an implement request's Task before forwarding to the runner it wraps
+        // (StandingInstructionsRunner), never dispatching a turn of its own.
         var rule = Types().That().Are(DaedalusOwnTypes).And().DependOnAny(SubagentRunnerType)
             .And().DoNotHaveFullName(typeof(SubagentRunExecutor).FullName!)
             .And().DoNotHaveFullName(typeof(WorkflowNodeDispatcherFactory).FullName!)
@@ -353,9 +357,10 @@ public sealed class CleanArchitectureTests
             .And().DoNotHaveFullName(typeof(ReviewLensRunner).FullName!)
             .And().DoNotHaveFullName(typeof(StandingInstructionsRunner).FullName!)
             .And().DoNotHaveFullName(typeof(RunModeRunner).FullName!)
+            .And().DoNotHaveFullName(typeof(ReviewFindingsRunner).FullName!)
             .Should().NotExist()
             .Because("SubagentRunExecutor, WorkflowNodeDispatcherFactory, BudgetedSubagentRunner, " +
-                      "ReviewLensRunner, StandingInstructionsRunner and RunModeRunner are the only Daedalus types permitted to " +
+                      "ReviewLensRunner, StandingInstructionsRunner, RunModeRunner and ReviewFindingsRunner are the only Daedalus types permitted to " +
                       "depend on Thalos' ISubagentRunner; every other caller must go through " +
                       "ISubagentRunExecutor instead");
 

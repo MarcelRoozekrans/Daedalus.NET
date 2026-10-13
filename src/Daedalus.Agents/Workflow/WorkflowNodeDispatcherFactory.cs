@@ -68,16 +68,22 @@ internal static class WorkflowNodeDispatcherFactory
         // it sits, but sitting outside means the eligibility check runs once per node dispatch rather than once
         // per lens pass. RunModeRunner sits outside it for the same reason: it states the run's mode once per node
         // dispatch, and every lens pass ReviewLensRunner composes from the request it was handed carries the statement.
+        // ReviewFindingsRunner (issue #346) acts on implement alone, so it sits outside the lens runner as well and reads
+        // the run's review evidence once per implement dispatch.
         new RunModeRunner(
-            new StandingInstructionsRunner(
-                new ReviewLensRunner(
-                    new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
-                    sp.GetRequiredService<IProcessDefinitionStore>(),
-                    // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
-                    // dependency.
-                    sp.GetRequiredService<IServiceScopeFactory>(),
-                    sp.GetRequiredService<TimeProvider>(),
-                    sp.GetRequiredService<ILogger<ReviewLensRunner>>()))),
+            new ReviewFindingsRunner(
+                new StandingInstructionsRunner(
+                    new ReviewLensRunner(
+                        new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+                        sp.GetRequiredService<IProcessDefinitionStore>(),
+                        // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
+                        // dependency.
+                        sp.GetRequiredService<IServiceScopeFactory>(),
+                        sp.GetRequiredService<TimeProvider>(),
+                        sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
+                // The same reason: each read resolves the record store through a fresh scope.
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<ILogger<ReviewFindingsRunner>>())),
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
         sp.GetRequiredService<ISkillStore>(),

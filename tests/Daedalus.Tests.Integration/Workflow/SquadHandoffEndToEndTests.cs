@@ -423,6 +423,26 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     Issue #346: the implement turn a rejection sends the run back to is told what the rejecting lens found, so it
+    ///     can fix that rather than guess. The first implement turn, which no review preceded, is told nothing. Red: drop
+    ///     <see cref="ReviewFindingsRunner"/> from the dispatcher's chain, and the second implement task carries no finding.
+    /// </summary>
+    [Fact]
+    public async Task The_implement_turn_after_a_rejection_is_given_the_rejecting_lens_findings()
+    {
+        var result = await RunAsync(squadEnabled: true, rejectFirstReview: true);
+
+        var implement = result.TasksByNode["implement"];
+        implement.Should().HaveCount(2, "the rejection sends the run back to implement once");
+        implement[0].Should().NotContain(RejectedFinding.Scenario, "no review has run before the first implement turn");
+        implement[0].Should().NotContain(ReviewFindingsRunner.OpenTagPrefix);
+        implement[1].Should().Contain(ReviewFindingsRunner.OpenTagPrefix)
+            .And.Contain("correctness")
+            .And.Contain($"{RejectedFinding.File}:{RejectedFinding.Line}")
+            .And.Contain(RejectedFinding.Scenario);
+    }
+
+    /// <summary>
     ///     A pass that fails validation is not recorded: the record holds only evidence the runner accepted. The
     ///     second pass approves with nothing checked, which fails the node.
     /// </summary>

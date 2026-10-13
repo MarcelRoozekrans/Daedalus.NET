@@ -141,6 +141,44 @@ public sealed class ApprovingReviewTests
         result.Error.Should().Contain("review evidence record");
     }
 
+    private static WorkflowRunRecord WithFindings(long seq, string lens, string verdict, string findings) =>
+        WorkflowRunRecord.Create(RunId, seq, "review", WorkflowRunRecord.ReviewEvidenceKind, "p", null,
+            $$"""{ "lens": "{{lens}}", "verdict": "{{verdict}}", "checked": [], "findings": {{findings}}, "deferred": [] }""",
+            DateTime.UtcNow).Value;
+
+    private static string Finding(string scenario) => $$"""[{"file":"src/A.cs","line":7,"scenario":"{{scenario}}"}]""";
+
+    /// <summary>
+    ///     Issue #346: a rejected visit carries its rejecting lens's findings, for the implement turn it sends the run back
+    ///     to. Red: leave Findings empty; read every seq instead of the highest, and the earlier visit's mechanism rejection,
+    ///     which no later record of that lens replaces, is the one found first, so "stale" appears.
+    /// </summary>
+    [Fact]
+    public void A_rejected_visit_carries_the_rejecting_lens_findings()
+    {
+        var visit = ApprovingReview.Read([
+            WithFindings(5, "mechanism", "rejected", Finding("stale")),
+            WithFindings(9, "correctness", "approved", "[]"),
+            WithFindings(9, "falsifiability", "rejected", Finding("casing untested")),
+        ]).Value!;
+
+        visit.Findings.Should().ContainSingle().Which.Should().Be(new ReviewFinding("src/A.cs", 7, "casing untested"));
+    }
+
+    /// <summary>An approval has nothing to fix. Red: carry any lens's findings regardless of verdict.</summary>
+    [Fact]
+    public void An_approved_visit_carries_no_findings() =>
+        ApprovingReview.Read([WithFindings(9, "correctness", "approved", Finding("x"))]).Value!.Findings.Should().BeEmpty();
+
+    /// <summary>Red: drop the completeness check, or treat a non-array as none; the read then succeeds.</summary>
+    [Theory]
+    [InlineData("""{"file":"a.cs"}""")]
+    [InlineData("[null]")]
+    [InlineData("""[{"file":"a.cs","line":0,"scenario":"s"}]""")]
+    [InlineData("""[{"file":"a.cs","line":3}]""")]
+    public void A_malformed_findings_list_is_a_failure(string findings) =>
+        ApprovingReview.Read([WithFindings(9, "correctness", "rejected", findings)]).IsFailure.Should().BeTrue();
+
     /// <summary>Red: append a redelivered lens at the end; ids then list falsifiability before correctness.</summary>
     [Fact]
     public void A_redelivered_lens_keeps_its_original_position()
