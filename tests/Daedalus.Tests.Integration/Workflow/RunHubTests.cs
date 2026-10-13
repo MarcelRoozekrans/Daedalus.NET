@@ -9,7 +9,9 @@ using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -67,6 +69,27 @@ public sealed class RunHubTests(PostgresFixture fixture)
             .WithMessage(HandshakeRefused + "403");
         await developer.StartAsync();
         developer.State.Should().Be(HubConnectionState.Connected);
+    }
+
+    /// <summary>
+    ///     The hub is mapped to close a connection once the sign-in it opened with expires, so run changes stop
+    ///     reaching a lapsed token and any new connection has to authenticate again.
+    ///     Red: map the hub without CloseOnAuthenticationExpiration: the option is false on its endpoints.
+    /// </summary>
+    [Fact]
+    public async Task The_hub_closes_a_connection_whose_sign_in_expired()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
+
+        // The hub's dispatcher options, which SignalR hangs on the hub's endpoints as metadata; not on every one.
+        var options = host.Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
+            .Where(e => e.RoutePattern.RawText?.StartsWith(WorkflowRunsHub.Path, StringComparison.Ordinal) ?? false)
+            .Select(e => e.Metadata.GetMetadata<HttpConnectionDispatcherOptions>())
+            .OfType<HttpConnectionDispatcherOptions>()
+            .ToList();
+
+        options.Should().NotBeEmpty("the engine is on, so the hub is mapped with its options");
+        options.Should().OnlyContain(o => o.CloseOnAuthenticationExpiration);
     }
 
     /// <summary>

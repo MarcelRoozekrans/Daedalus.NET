@@ -324,7 +324,9 @@ app.UseAuthorization();
 app.MapControllers();
 if (workflowEngineEnabled)
 {
-    app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path);
+    // A connection would otherwise outlive the token it opened with; closing it when that token expires stops run
+    // changes reaching a lapsed sign-in, and any new connection has to authenticate again.
+    app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path, options => options.CloseOnAuthenticationExpiration = true);
 }
 
 app.MapHealthChecks(AspireExtensions.HealthPath); // Required for Aspire AppHost health checks

@@ -374,7 +374,7 @@ public class E2EServerFixture
             app.UseAuthorization();
 
             app.MapControllers();
-            app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path);
+            app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path, options => options.CloseOnAuthenticationExpiration = true);
             app.MapHealthChecks("/health");
             app.MapFallbackToFile("index.html");
 
