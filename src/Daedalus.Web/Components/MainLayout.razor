@@ -32,10 +32,14 @@
             <RadzenPanelMenuItem Text="Agent" Icon="smart_toy" Path="agent"/>
         </RadzenPanelMenu>
 
-        <div class="sidebar-section-divider">Configuration</div>
-        <RadzenPanelMenu>
-            <RadzenPanelMenuItem Text="Git Repositories" Icon="source" Path="repositories"/>
-        </RadzenPanelMenu>
+        @* Admins only: every /api/repositories action needs the API's Admin policy, the admin role. The section holds
+           nothing else, so its heading goes with it. *@
+        <AuthorizeView Roles="admin">
+            <div class="sidebar-section-divider">Configuration</div>
+            <RadzenPanelMenu>
+                <RadzenPanelMenuItem Text="Git Repositories" Icon="source" Path="repositories"/>
+            </RadzenPanelMenu>
+        </AuthorizeView>
 
         <div class="sidebar-section-divider">AI Tools</div>
         <RadzenPanelMenu>
