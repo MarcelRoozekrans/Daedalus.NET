@@ -151,6 +151,11 @@ Daedalus supplies a second tool that does.
 No value may contain a NUL character. A report over these limits is refused, so name the most
 important findings and group related checked items.
 
+**A rejection's findings are what the implementer is given.** The run goes back to `implement` with
+your `findings` as written, each as `file:line - scenario`, and nothing else from your turn. Write
+each one so an implementer who has not seen your reasoning can act on it: the scenario that fails,
+and what would make it pass.
+
 **This tool refuses a hollow report.** An `approved` with an empty or missing `checked` is rejected
 by the tool and not recorded; so is a `rejected` whose findings lack a file, a positive line
 number, or a scenario. You will get the error back as that call's result and you must fix the call.

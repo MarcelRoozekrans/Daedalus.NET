@@ -6,9 +6,10 @@ namespace Daedalus.Agents.Workflow;
 ///     The variable contract between the manufacturing pipeline's <c>implement</c> and <c>review</c> nodes, and
 ///     the projection that enforces it:
 ///     <code>
-///     implement  writes  { summary, files_touched, rationale }
+///     implement  writes  { summary, files_touched, rationale, review_response }
 ///     review     reads   { work_intent, files_touched, run_mode }
 ///                writes  { verdict, findings[], checked[] }
+///     implement  is given the rejecting lens's findings[] on a revisit, by ReviewFindingsRunner
 ///     </code>
 /// </summary>
 /// <remarks>
@@ -62,6 +63,14 @@ public static class ReviewHandoff
     public const string RationaleKey = "rationale";
 
     /// <summary>
+    ///     Issue #346: how the implementer handled each finding of the rejection that sent the run back to it, one entry
+    ///     per finding, each addressed or disputed. It stays in the run record for a human, where a finding that keeps
+    ///     coming back is visible. Withheld from the reviewer like <see cref="SummaryKey"/>, by not being in
+    ///     <see cref="ReviewReads"/>: a dispute is the implementer's argument, and the reviewer judges the artifact.
+    /// </summary>
+    public const string ReviewResponseKey = "review_response";
+
+    /// <summary>
     ///     The implementer's own build/run/test observations, optionally reported alongside its outcome. The one
     ///     thing <c>retrospect</c> reads — see <see cref="RetrospectReads"/> — and, like <see cref="FilesTouchedKey"/>,
     ///     a narrow, factual pointer rather than the implementer's narrative.
@@ -110,6 +119,10 @@ public static class ReviewHandoff
     ///             <c>open-pull-request</c> renders it into the pull request body as the implementer's account, so no
     ///             review lens or retrospect turn may write that account for it.
     ///         </item>
+    ///         <item>
+    ///             <see cref="ReviewResponseKey"/>: only <see cref="ImplementSkillName"/>. It is the implementer's answer
+    ///             to the review, so no other node may write one for it.
+    ///         </item>
     ///     </list>
     /// </summary>
     public static readonly FrozenDictionary<string, string> Authors =
@@ -117,6 +130,7 @@ public static class ReviewHandoff
         {
             [ProposedStandingInstructionsKey] = RetrospectSkillName,
             [SummaryKey] = ImplementSkillName,
+            [ReviewResponseKey] = ImplementSkillName,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>The pull request URL <c>open-pull-request</c> records once it has published. The run view shows it as a link.</summary>
