@@ -89,7 +89,7 @@ only once something demonstrably better runs in its place.
 | 2.9 | Observability | complete (2026-10-11; #336) |
 | 2.10 | Per-turn tool selection with Minos.NET | blocked on Minos.NET 1.0 |
 | 2.11 | The GitHub HTTP path | complete (2026-10-12; #343) |
-| 2.12 | Manufacturing console | pending |
+| 2.12 | Manufacturing console | complete (2026-10-13; #352) |
 | 2.13 | Navigation and flow review | pending |
 | 2.14 | Flux across the Web app | pending |
 
