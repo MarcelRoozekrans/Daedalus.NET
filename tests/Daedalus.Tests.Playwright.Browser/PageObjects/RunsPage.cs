@@ -30,6 +30,9 @@ public sealed class RunsPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
     public ILocator RowFor(Guid id) =>
         Rows.Filter(new LocatorFilterOptions { Has = _page.Locator($"a[href='runs/{id}']") });
 
+    /// <summary>The link to the board in run <paramref name="id"/>'s Task cell.</summary>
+    public ILocator TaskLink(Guid id) => RowFor(id).Locator("a[href='tasks']");
+
     /// <summary>Chooses <paramref name="status"/> in the status filter.</summary>
     public async Task FilterByStatusAsync(string status)
     {

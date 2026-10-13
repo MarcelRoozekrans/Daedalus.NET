@@ -1,11 +1,4 @@
-@media (max-width: 1279px) {
-    .runs-grid ::deep .runs-col-wide {
-        display: none;
-    }
-}
-
-@media (max-width: 767px) {
-    .runs-grid ::deep .runs-col-tablet {
-        display: none;
-    }
+/* The grid keeps every shown column at its width (RunsGrid's MinGridWidth) and scrolls inside the card, never the page. */
+.runs-grid {
+    overflow-x: auto;
 }
