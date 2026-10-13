@@ -256,6 +256,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.TryAddSingleton<SquadAgentResolver>();
 
         ValidateContentConfig(options.Content);
+        ValidateDecisionsConfig(options);
 
         // Checked whether or not the engine is on: Daedalus.Cli ships the same write grant with the engine off, and a
         // grant that only fails validation once someone flips Enabled is a grant nobody reviewed.
@@ -972,6 +973,31 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             throw new InvalidOperationException(
                 $"{ContentConfig.SectionName}:ResyncInterval must be greater than zero when set, but was " +
                 $"{interval.ToString(null, CultureInfo.InvariantCulture)}.");
+        }
+    }
+
+    /// <summary>
+    ///     Phase 2.10: every pinned review-lens model must be one the reviewer may use, else the pin would widen past the
+    ///     menu that the cost table is checked against.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A <c>PinnedLensModels</c> value is not in the reviewer's <c>AllowedModels</c>.</exception>
+    private static void ValidateDecisionsConfig(DaedalusAgentsOptions options)
+    {
+        var decisions = options.Decisions;
+        if (decisions.PinnedLensModels.Count == 0)
+        {
+            return;
+        }
+
+        var reviewerModels = options.Agents.FirstOrDefault(a => string.Equals(a.Name, "reviewer", StringComparison.Ordinal))?.AllowedModels ?? [];
+        foreach (var (lens, model) in decisions.PinnedLensModels)
+        {
+            if (!reviewerModels.Contains(model, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"{DecisionsConfig.SectionName}:PinnedLensModels:{lens} is '{model}', which is not in the reviewer's " +
+                    $"AllowedModels ({string.Join(", ", reviewerModels)}). A pinned lens model must be one the reviewer may use.");
+            }
         }
     }
 

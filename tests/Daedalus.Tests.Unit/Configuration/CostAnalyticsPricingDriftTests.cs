@@ -83,4 +83,22 @@ public sealed class CostAnalyticsPricingDriftTests
             "otherwise adding an agent on a new model leaves its spend folded into ExcludedCostDto and missing " +
             "from every total, which is quiet in a different way than the relabelling bffa4c9 removed");
     }
+
+    /// <summary>
+    ///     Phase 2.10: a decision may pick any <c>AllowedModels</c> entry, so each needs a price or its spend lands in
+    ///     ExcludedCostDto. Reads the bound options, not the catalog: the menu is not in the Thalos envelope until 0.17.
+    ///     Red: delete claude-opus-5-5 from ModelPricing:Models, or add an unpriced model to a menu.
+    /// </summary>
+    [Fact]
+    public void Every_allowed_model_has_a_price()
+    {
+        var pricing = RealPricing();
+        var options = new Daedalus.Agents.DaedalusAgentsOptions();
+        LoadApiConfiguration().GetSection(Daedalus.Agents.DaedalusAgentsOptions.SectionName).Bind(options);
+
+        var allowed = options.Agents.SelectMany(a => a.AllowedModels).ToList();
+
+        allowed.Should().NotBeEmpty("the shipped implementer and reviewer declare menus");
+        allowed.Should().OnlyContain(m => pricing.Models.ContainsKey(m));
+    }
 }
