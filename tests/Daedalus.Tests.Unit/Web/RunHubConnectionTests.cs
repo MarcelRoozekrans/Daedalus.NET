@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Claims;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.State;
 using Daedalus.Web.State.Runs;
 using Daedalus.Web.State.Tasks;
@@ -18,6 +19,9 @@ namespace Daedalus.Tests.Unit.Web;
 /// <summary>The run hub connection: its address, who it opens for, and that a failed start is a status, not an exception.</summary>
 public sealed class RunHubConnectionTests : IDisposable
 {
+    /// <summary>The awaiting-approval count's request, which every refresh makes.</summary>
+    private const string CountPath = "/api/workflow-runs?take=100&status=Awaiting";
+
     private readonly RecordingHandler _handler = new();
     private readonly ServiceProvider _provider = new ServiceCollection().AddZeroAllocFlux().BuildServiceProvider();
     private readonly RecordingDispatcher _dispatcher = new();
@@ -164,11 +168,49 @@ public sealed class RunHubConnectionTests : IDisposable
             await Task.Delay(10);
         }
 
-
         // DisposeAsync awaits the retries, so it completes only once they have stopped.
         await FluentActions.Awaiting(() => hub.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)))
             .Should().NotThrowAsync("disposing stops the retries");
         Volatile.Read(ref tries).Should().BeGreaterThanOrEqualTo(3, "the failed start is tried again without a caller");
+    }
+
+    /// <summary>
+    ///     A start that succeeds after a failed one re-fetches what is on screen, because changes sent while no
+    ///     connection was open are lost; here the awaiting-approval count, which a refresh always fetches.
+    ///     Red: drop the re-fetch after a start that recovers: no request is made.
+    /// </summary>
+    [Fact]
+    public async Task A_start_that_recovers_from_a_failure_re_fetches_what_is_on_screen()
+    {
+        using var hubServer = new HandshakingHub();
+        var tries = 0;
+        var hub = Hub(
+            User("developer"),
+            options => options.WebSocketFactory = (_, ct) => Interlocked.Increment(ref tries) == 1
+                ? ValueTask.FromException<WebSocket>(new TimeoutException("The first start failed."))
+                : hubServer.AcceptAsync(ct),
+            new FixedDelay(TimeSpan.FromMilliseconds(10)));
+        _handler.OnJson(CountPath, RunViews.Json(new WorkflowRunList([], null)));
+
+        try
+        {
+            await hub.EnsureStartedAsync(CancellationToken.None);
+            _handler.Paths.Should().BeEmpty("the first start failed, so nothing was fetched");
+
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!_handler.Paths.Contains(CountPath, StringComparer.Ordinal) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(10);
+            }
+        }
+        finally
+        {
+            await hub.DisposeAsync();
+        }
+
+        _dispatcher.Actions.Take(2).Should().Equal(
+            new HubStatusChanged(HubStatus.Disconnected), new HubStatusChanged(HubStatus.Connected));
+        _handler.Paths.Should().Contain(CountPath, "the recovered start re-fetches what is on screen");
     }
 
     /// <summary>
@@ -214,6 +256,75 @@ public sealed class RunHubConnectionTests : IDisposable
     private sealed class FixedDelay(TimeSpan delay) : IRetryPolicy
     {
         public TimeSpan? NextRetryDelay(RetryContext retryContext) => delay;
+    }
+
+    /// <summary>
+    ///     The server end of a hub connection over a loopback socket pair: it answers SignalR's JSON handshake with an
+    ///     empty handshake response, then reads until the client closes.
+    /// </summary>
+    private sealed class HandshakingHub : IDisposable
+    {
+        private const byte RecordSeparator = 0x1e;
+
+        /// <summary>An empty JSON handshake response, <c>{}</c>, and the record separator that ends it.</summary>
+        private static readonly byte[] HandshakeResponse = [(byte)'{', (byte)'}', RecordSeparator];
+
+        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly List<IDisposable> _owned = [];
+
+        public HandshakingHub() => _listener.Start();
+
+        /// <summary>Connects a client socket to a fresh server end and returns the client's WebSocket.</summary>
+        public async ValueTask<WebSocket> AcceptAsync(CancellationToken ct)
+        {
+            var client = new TcpClient();
+            _owned.Add(client);
+            await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)_listener.LocalEndpoint).Port, ct);
+            var server = await _listener.AcceptTcpClientAsync(ct);
+            _owned.Add(server);
+            var serverSocket = WebSocket.CreateFromStream(server.GetStream(), isServer: true, subProtocol: null, Timeout.InfiniteTimeSpan);
+            _owned.Add(serverSocket);
+            _ = ServeAsync(serverSocket);
+            return WebSocket.CreateFromStream(client.GetStream(), isServer: false, subProtocol: null, Timeout.InfiniteTimeSpan);
+        }
+
+        public void Dispose()
+        {
+            foreach (var owned in _owned)
+            {
+                owned.Dispose();
+            }
+
+            _listener.Stop();
+            _listener.Dispose();
+        }
+
+        private static async Task ServeAsync(WebSocket server)
+        {
+            var buffer = new byte[4096];
+            try
+            {
+                // The client's handshake request ends with the record separator.
+                WebSocketReceiveResult received;
+                do
+                {
+                    received = await server.ReceiveAsync(buffer, CancellationToken.None);
+                }
+                while (received.Count == 0 || buffer[received.Count - 1] != RecordSeparator);
+
+                await server.SendAsync(HandshakeResponse, WebSocketMessageType.Text, true, CancellationToken.None);
+                while (received.MessageType != WebSocketMessageType.Close)
+                {
+                    received = await server.ReceiveAsync(buffer, CancellationToken.None);
+                }
+
+                await server.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None);
+            }
+            catch (Exception exception) when (exception is WebSocketException or ObjectDisposedException or IOException)
+            {
+                // The test tore the socket pair down first.
+            }
+        }
     }
 
     private static ClaimsPrincipal User(string role) =>
