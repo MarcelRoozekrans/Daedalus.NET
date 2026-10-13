@@ -149,7 +149,11 @@ else
     private async Task CancelAsync()
     {
         object? closed = await DialogService.OpenAsync<CancelRunDialog>("Cancel this run?",
-            new Dictionary<string, object> { [nameof(CancelRunDialog.RunId)] = Id });
+            new Dictionary<string, object>
+            {
+                [nameof(CancelRunDialog.RunId)] = Id,
+                [nameof(CancelRunDialog.CancellationToken)] = _cts.Token,
+            });
         if (closed is true)
         {
             NotificationService.Notify(new NotificationMessage

@@ -1,9 +1,11 @@
+using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
+using Thalos.Workspaces;
 using Task = System.Threading.Tasks.Task;
 using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
@@ -49,7 +51,15 @@ public sealed class WorkflowRunViewDeferredTests
             IReadOnlyList<WorkflowRunRecord> all = [evidence, .. extra];
             return new ValueTask<IReadOnlyList<WorkflowRunRecord>>([.. all.Where(r => kind is null || string.Equals(r.Kind, kind, StringComparison.Ordinal))]);
         });
-        var controller = new WorkflowRunsController(new WorkflowRunGateway(store, history, RecordStoreScopes.For(records), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
+        // The run's workspace names the allow-listed repository; its own remote is the sandbox's, not github.com, so
+        // only the configured entry, found by name, can say where the repository lives.
+        var workspaces = Substitute.For<IRunWorkspaceProvider>();
+        workspaces.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<RunWorkspace?>(
+            new RunWorkspace(run.Id, "gizmos", "sandbox://gizmos", "main", $"manufacture/{run.Id}", "sandbox://run", null)));
+        var config = new WorkflowConfig();
+        config.Repositories.Add(new RepositoryConfig { Name = "gizmos", Remote = "https://github.com/acme/gizmos.git" });
+        var controller = new WorkflowRunsController(new WorkflowRunGateway(
+            store, history, RecordStoreScopes.For(records), workspaces, config, TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 
         var response = await controller.Get(run.Id, CancellationToken.None);
 
@@ -91,10 +101,10 @@ public sealed class WorkflowRunViewDeferredTests
     }
 
     /// <summary>
-    ///     A deferred finding that names an existing issue links it in the pull request's repository, where filing
-    ///     resolves it; a finding with no issue has no link.
+    ///     Once the run has a pull request, a deferred finding's existing issue links into that repository, where
+    ///     filing resolves it, even when the workspace names another; a finding with no issue has no link.
     ///     Red: return null for ExistingIssueUrl in ToDeferredView. Red: build the link without the issue number.
-    ///     Red: link an issue-less finding to the repository anyway.
+    ///     Red: link an issue-less finding to the repository anyway. Red: prefer the workspace repository.
     /// </summary>
     [Fact]
     public async Task An_existing_issue_links_into_the_pull_requests_repository()
@@ -105,6 +115,22 @@ public sealed class WorkflowRunViewDeferredTests
         var view = await ViewOf(Evidence, "https://github.com/acme/widgets/pull/17");
 
         view.DeferredFindings.Select(d => d.ExistingIssueUrl).Should().Equal(new Uri("https://github.com/acme/widgets/issues/42"), null);
+    }
+
+    /// <summary>
+    ///     At the gate the run has no pull request yet, since publish runs after it, so the existing issue links into
+    ///     the allow-listed repository the run's workspace names.
+    ///     Red: drop the workspace fallback in ToViewAsync. Red: read the repository from the workspace's own remote.
+    /// </summary>
+    [Fact]
+    public async Task At_the_gate_an_existing_issue_links_into_the_workspace_repository()
+    {
+        const string Evidence =
+            """{ "lens": "correctness", "verdict": "approved", "checked": ["x"], "findings": [], "deferred": [{"file":"a.cs","line":1,"title":"t","scenario":"s","reason":"blocked","existingIssue":42}] }""";
+
+        var view = await ViewOf(Evidence, prUrl: null);
+
+        view.DeferredFindings.Should().ContainSingle().Which.ExistingIssueUrl.Should().Be(new Uri("https://github.com/acme/gizmos/issues/42"));
     }
 
     /// <summary>Red: leave FiledFindings empty; the single finding is missing.</summary>

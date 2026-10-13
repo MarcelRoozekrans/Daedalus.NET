@@ -1,7 +1,9 @@
 using Daedalus.Domain.Entities;
+using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Thalos.Workflow;
+using Thalos.Workspaces;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Workflow;
@@ -45,12 +47,14 @@ namespace Daedalus.Agents.Workflow;
 /// <param name="store">The workflow store every read and write of the run itself goes through.</param>
 /// <param name="history">Reads the run's event log back, including each completed node's token usage.</param>
 /// <param name="scopes">Creates the scope each read of the run's host-written records resolves <see cref="IWorkflowRunRecordStore"/> from.</param>
+/// <param name="workspaces">Finds the run's workspace, which names the configured repository the run works on.</param>
+/// <param name="config">The workflow configuration whose allow-listed repositories give that repository's remote.</param>
 /// <param name="clock">The time <c>findings-dropped</c> records are stamped with.</param>
 /// <param name="logger">Receives the failure of a findings-dropped or findings-drop-voided append.</param>
 /// <param name="writer">Writes an approved standing-instructions proposal; see the remarks.</param>
 public sealed partial class WorkflowRunGateway(
-    IWorkflowStore store, IWorkflowRunHistory history, IServiceScopeFactory scopes, TimeProvider clock, ILogger<WorkflowRunGateway> logger,
-    StandingInstructionsWriter? writer = null)
+    IWorkflowStore store, IWorkflowRunHistory history, IServiceScopeFactory scopes, IRunWorkspaceProvider workspaces, WorkflowConfig config,
+    TimeProvider clock, ILogger<WorkflowRunGateway> logger, StandingInstructionsWriter? writer = null)
 {
     /// <summary>How long voiding a drop record may take once the resume after it failed; the request's own token does not bound it.</summary>
     private static readonly TimeSpan VoidTimeout = TimeSpan.FromSeconds(10);
@@ -58,6 +62,8 @@ public sealed partial class WorkflowRunGateway(
     private readonly IWorkflowStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly IWorkflowRunHistory _history = history ?? throw new ArgumentNullException(nameof(history));
     private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
+    private readonly IRunWorkspaceProvider _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
+    private readonly WorkflowConfig _config = config ?? throw new ArgumentNullException(nameof(config));
     private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly ILogger<WorkflowRunGateway> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly StandingInstructionsWriter? _writer = writer;
@@ -81,6 +87,26 @@ public sealed partial class WorkflowRunGateway(
         await using var scope = _scopes.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>()
             .ListAsync(runId, kind, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The github.com repository the run works on: its workspace names the allow-listed repository, and that
+    ///     entry's configured remote gives the owner and name. Matched by name, so it does not depend on the remote a
+    ///     workspace provider records, which in sandbox mode is not the configured one. <see langword="null"/> when the
+    ///     run has no workspace, its repository is no longer allow-listed, or the remote is not on github.com.
+    /// </summary>
+    public async ValueTask<RepoRef?> FindRepositoryAsync(Guid runId, CancellationToken ct)
+    {
+        var workspace = await _workspaces.FindAsync(runId, ct).ConfigureAwait(false);
+        if (workspace is null)
+            return null;
+
+        var configured = _config.Repositories.FirstOrDefault(r => string.Equals(r.Name, workspace.Repository, StringComparison.Ordinal));
+        if (configured is null)
+            return null;
+
+        var repo = RepoRef.FromGitHubUrl(configured.Remote);
+        return repo.IsSuccess ? repo.Value : null;
     }
 
     /// <summary>The run's latest review visit, or <see langword="null"/> before review has run.</summary>

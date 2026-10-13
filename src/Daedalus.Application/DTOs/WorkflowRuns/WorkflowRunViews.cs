@@ -130,9 +130,10 @@ public sealed record FiledFindingView(string FindingId, string Mode, int Issue, 
 /// <param name="ExistingIssue">An open issue the reviewer found already tracking it, or <see langword="null"/>.</param>
 /// <param name="Dropped">Whether the latest drop record names it, so it will not be filed.</param>
 /// <param name="ExistingIssueUrl">
-///     The web link of <paramref name="ExistingIssue"/> in the repository of the run's pull request, the repository
-///     <c>file-review-findings</c> resolves it in; <see langword="null"/> when the finding names no issue or the run has
-///     no readable github.com pull request link yet.
+///     The web link of <paramref name="ExistingIssue"/>: in the repository of the run's pull request once there is
+///     one, which is where <c>file-review-findings</c> resolves it, and before that, as at the gate, in the
+///     allow-listed repository the run's workspace was created for. <see langword="null"/> when the finding names no
+///     issue or neither repository can be read as a github.com one.
 /// </param>
 public sealed record DeferredFindingView(
     string Id, string Lens, string File, int Line, string Title, string Scenario, string Reason, int? ExistingIssue, bool Dropped,

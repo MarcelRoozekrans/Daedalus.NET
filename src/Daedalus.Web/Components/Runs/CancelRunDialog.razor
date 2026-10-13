@@ -30,18 +30,23 @@
     /// <summary>The run to cancel.</summary>
     [Parameter, EditorRequired] public Guid RunId { get; set; }
 
+    /// <summary>The page's token: leaving the page cancels the request, closing the dialog does not.</summary>
+    [Parameter] public CancellationToken CancellationToken { get; set; }
+
     /// <summary>
     ///     Sends the cancel. A refusal stays in the dialog with the server's reason; success closes it with
     ///     <see langword="true"/>, and the page reflects the cancel when the change arrives.
-    ///     The request is never cancelled from here: Escape can close the dialog while it is in flight, and the server
-    ///     may already have applied it, so it runs to its end and the run's change reports the outcome. A dialog
-    ///     closed meanwhile does nothing with the result, so it never closes another dialog or reports into nothing.
+    ///     Closing the dialog never cancels the request: Escape can close it while the request is in flight, and the
+    ///     server may already have applied it, so it runs to its end and the run's change reports the outcome. Leaving
+    ///     the page does cancel it, through the page's token, so a refused cancel's re-fetch cannot re-open a run
+    ///     nobody is looking at. A dialog closed meanwhile does nothing with the result, so it never closes another
+    ///     dialog or reports into nothing.
     /// </summary>
     private async Task CancelAsync()
     {
         _submitting = true;
         _error = null;
-        var result = await Effects.CancelAsync(RunId, string.IsNullOrWhiteSpace(_reason) ? null : _reason.Trim(), CancellationToken.None);
+        var result = await Effects.CancelAsync(RunId, string.IsNullOrWhiteSpace(_reason) ? null : _reason.Trim(), CancellationToken);
         _submitting = false;
         if (_closed)
         {
