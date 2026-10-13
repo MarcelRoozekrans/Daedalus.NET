@@ -129,6 +129,27 @@ Status is communicated by badge colour plus text, never colour alone. For phase 
 `Undelivered` is danger rather than warning on purpose: the run succeeded, so every other signal on
 the page says healthy, and the delivery failure is the one thing the operator must not scan past.
 
+For a manufacture run, phase 2.12's console maps a run status and a timeline step. A page that shows either calls
+`RunStatusLabels` (`Daedalus.Web/Services/RunStatusLabels.cs`) and never writes a new mapping.
+
+| Run status | Badge text | Severity |
+|---|---|---|
+| `Running` | Running | Info |
+| `Awaiting`, signal `human_approval` | Awaiting approval | Warning |
+| `Awaiting`, any other signal | Waiting: `<signal>` | Warning |
+| `Succeeded` | Succeeded | Success |
+| `Failed` | Failed | Danger |
+| `Cancelled` | Cancelled | Light / muted |
+
+| Timeline event kind or outcome | Badge text | Severity |
+|---|---|---|
+| outcome `approved`, `published` | the outcome | Success |
+| outcome `rejected`; kind `Failed`, `CapExceeded` | the outcome or kind | Danger |
+| kind `Resumed`, `Retried` | the kind, plus "by `<actor>`" as caption text | Info |
+| anything else | the outcome, else the kind | Light / muted |
+
+A cancelled run's step has kind `Cancelled` and falls under "anything else": text `Cancelled`, Light.
+
 ## Stack-Specific Notes
 
 - **Radzen, not MudBlazor.** The generic Blazor guidance recommends MudBlazor; this project chose
