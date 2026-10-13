@@ -129,4 +129,85 @@ public sealed class DecisionsConfigTests
 
         act.Should().NotThrow();
     }
+
+    /// <summary>
+    ///     Red: delete the matching check in <c>ValidateDecisionsConfig</c>, or loosen its bound.
+    /// </summary>
+    [Theory]
+    [InlineData("blank-model", "*Decisions:Model*blank*")]
+    [InlineData("zero-timeout", "*Decisions:Timeout*greater than zero*")]
+    [InlineData("negative-timeout", "*Decisions:Timeout*greater than zero*")]
+    [InlineData("confidence-above-one", "*Decisions:ModelConfidence*between 0 and 1*")]
+    [InlineData("confidence-below-zero", "*Decisions:ModelConfidence*between 0 and 1*")]
+    [InlineData("probability-above-one", "*Decisions:ToolFamilyProbability*between 0 and 1*")]
+    [InlineData("probability-below-zero", "*Decisions:ToolFamilyProbability*between 0 and 1*")]
+    [InlineData("blank-allowed-model", "*AllowedModels*blank entry*")]
+    [InlineData("duplicate-allowed-model", "*AllowedModels*'claude-sonnet-5-5' more than once*")]
+    public void An_invalid_decisions_value_is_refused_at_startup(string rule, string expectedMessage)
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        var implementer = options.Agents.Single(a => string.Equals(a.Name, "implementer", StringComparison.Ordinal));
+        switch (rule)
+        {
+            case "blank-model":
+                options.Decisions.Model = " ";
+                break;
+            case "zero-timeout":
+                options.Decisions.Timeout = TimeSpan.Zero;
+                break;
+            case "negative-timeout":
+                options.Decisions.Timeout = TimeSpan.FromSeconds(-1);
+                break;
+            case "confidence-above-one":
+                options.Decisions.ModelConfidence = 1.01;
+                break;
+            case "confidence-below-zero":
+                options.Decisions.ModelConfidence = -0.01;
+                break;
+            case "probability-above-one":
+                options.Decisions.ToolFamilyProbability = 1.01;
+                break;
+            case "probability-below-zero":
+                options.Decisions.ToolFamilyProbability = -0.01;
+                break;
+            case "blank-allowed-model":
+                implementer.AllowedModels.Add("");
+                break;
+            case "duplicate-allowed-model":
+                implementer.AllowedModels.Add("claude-sonnet-5-5");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(rule), rule, "no such rule");
+        }
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage(expectedMessage);
+    }
+
+    /// <summary>The boundary values 0 and 1 are valid. Red: make a bound exclusive.</summary>
+    [Fact]
+    public void The_probability_bounds_zero_and_one_boot()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        options.Decisions.ModelConfidence = 1;
+        options.Decisions.ToolFamilyProbability = 0;
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().NotThrow();
+    }
+
+    /// <summary>Red: restore the empty-menu message, or drop the null-reviewer branch.</summary>
+    [Fact]
+    public void A_pinned_lens_model_without_a_reviewer_agent_says_so()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        options.Agents.Remove(options.Agents.Single(a => string.Equals(a.Name, "reviewer", StringComparison.Ordinal)));
+        options.Decisions.PinnedLensModels["security"] = "claude-opus-5-5";
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*no agent named reviewer is configured*");
+    }
 }
