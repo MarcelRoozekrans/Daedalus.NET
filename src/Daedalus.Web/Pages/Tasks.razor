@@ -1,7 +1,12 @@
 @page "/tasks"
+@inherits FluxComponent
 @inject ApiClient Api
 @inject DialogService DialogService
 @inject NotificationService NotificationService
+@inject NavigationManager Navigation
+@inject IStore<TasksState> TaskStore
+@inject IDispatcher Dispatcher
+@inject TasksEffects Effects
 @implements IAsyncDisposable
 
 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
@@ -16,17 +21,17 @@
                   data-testid="btn-create-task"/>
 </RadzenStack>
 
-@if (!string.IsNullOrEmpty(_errorMessage))
+@if (!string.IsNullOrEmpty(TaskStore.Value.Error) && TaskStore.Value.Error != _dismissedError)
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4"
-                 Close="@(() => _errorMessage = "")">
-        @_errorMessage
+                 Close="@(() => _dismissedError = TaskStore.Value.Error)">
+        @TaskStore.Value.Error
     </RadzenAlert>
 }
 
-<RadzenDataGrid TItem="TaskDto" Data="@_tasks" Count="@_totalCount" AllowPaging="true" PageSize="15" AllowSorting="true"
-                AllowColumnResize="true" PagerHorizontalAlign="HorizontalAlign.Center" ShowPagingSummary="true"
-                IsLoading="@_loading" Style="height: auto;" data-testid="tasks-grid">
+<RadzenDataGrid TItem="TaskDto" Data="@TaskStore.Value.Items" Count="@TaskStore.Value.Total" AllowPaging="true" PageSize="15"
+                AllowSorting="true" AllowColumnResize="true" PagerHorizontalAlign="HorizontalAlign.Center"
+                ShowPagingSummary="true" IsLoading="@TaskStore.Value.Loading" Style="height: auto;" data-testid="tasks-grid">
     <Columns>
         <RadzenDataGridColumn TItem="TaskDto" Property="Title" Title="Title" Width="200px">
             <Template Context="task">
@@ -46,7 +51,16 @@
         <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="120px"
                               TextAlign="TextAlign.Center">
             <Template Context="task">
-                <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
+                @if (task.WorkflowRunId is { } runId)
+                {
+                    <a href="@($"runs/{runId}")" aria-label="@($"Open run, {TaskStatusLabels.Name(task.Status)}")">
+                        <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
+                    </a>
+                }
+                else
+                {
+                    <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
+                }
                 @if (TaskStatusLabels.PullRequestHref(task) is { } pullRequestHref)
                 {
                     <RadzenLink Path="@pullRequestHref" Text="PR" Target="_blank" title="Pull request" data-testid="task-pr-link" Style="margin-left: 0.5rem;"/>
@@ -96,7 +110,7 @@
                     @if (TaskStatusLabels.IsStartable(task))
                     {
                         <RadzenButton Icon="precision_manufacturing" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Success"
-                                      Disabled="@_starting.Contains(task.Id)" Click="@(() => ManufactureTask(task))" title="Manufacture"/>
+                                      Disabled="@TaskStore.Value.Starting.Contains(task.Id)" Click="@(() => ManufactureTask(task))" title="Manufacture"/>
                     }
                     <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"
                                   Click="@(() => DeleteTask(task))" title="Delete"/>
@@ -107,50 +121,14 @@
 </RadzenDataGrid>
 
 @code {
-    private IEnumerable<TaskDto>? _tasks;
-    private int _totalCount;
-    private bool _loading = true;
-    private string _errorMessage = "";
-    private CancellationTokenSource? _cts;
+    private readonly CancellationTokenSource _cts = new();
+    private string? _dismissedError;
 
-    protected override async Task OnInitializedAsync()
-    {
-        _cts = new CancellationTokenSource();
-        await LoadTasks();
-    }
+    protected override void SubscribeStores() => Subscribe(TaskStore);
 
-    private async Task LoadTasks()
-    {
-        try
-        {
-            _loading = true;
-            _errorMessage = "";
-            var result = await Api.GetTasksAsync(1, 200, _cts?.Token ?? CancellationToken.None);
-            if (result.IsSuccess)
-            {
-                _tasks = result.Value.Items;
-                _totalCount = result.Value.Total;
-            }
-            else
-            {
-                _errorMessage = result.Error;
-                _tasks = null;
-                _totalCount = 0;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            /* Expected on cancellation */
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Error loading tasks: {ex.Message}";
-        }
-        finally
-        {
-            _loading = false;
-        }
-    }
+    protected override async Task OnInitializedAsync() => await Effects.LoadAsync(_cts.Token);
+
+    private Task LoadTasks() => Effects.LoadAsync(_cts.Token);
 
     private async Task OpenCreateDialog()
     {
@@ -175,32 +153,16 @@
         }
     }
 
-    private readonly HashSet<Guid> _starting = [];
-
     private async Task ManufactureTask(TaskDto task)
     {
-        if (!_starting.Add(task.Id))
+        var result = await Effects.ManufactureAsync(task.Id, _cts.Token);
+        if (result.IsSuccess)
         {
+            Navigation.NavigateTo($"runs/{result.Value.RunId}");
             return;
         }
 
-        try
-        {
-            var result = await Api.ManufactureTaskAsync(task.Id, _cts?.Token ?? CancellationToken.None);
-            if (result.IsSuccess)
-            {
-                NotificationService.Notify(NotificationSeverity.Success, "Manufacture started", $"Run {result.Value.RunId}");
-            }
-            else
-            {
-                NotificationService.Notify(NotificationSeverity.Error, "Could not start", result.Error);
-            }
-        }
-        finally
-        {
-            _starting.Remove(task.Id);
-        }
-
+        NotificationService.Notify(NotificationSeverity.Error, "Could not start", result.Error);
         await LoadTasks();
     }
 
@@ -228,11 +190,10 @@
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        if (_cts is not null)
-        {
-            await _cts.CancelAsync();
-            _cts.Dispose();
-        }
+        Dispose();
+        await _cts.CancelAsync();
+        _cts.Dispose();
+        await Dispatcher.DispatchAsync(new TasksClosed());
     }
 
     private static string GetPriorityName(int priority)
