@@ -1,10 +1,14 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Security.Claims;
 using Daedalus.Web.State;
 using Daedalus.Web.State.Runs;
 using Daedalus.Web.State.Tasks;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Http.Connections.Client;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using ZeroAlloc.Flux;
 using ZeroAlloc.Flux.Generated;
@@ -57,8 +61,9 @@ public sealed class RunHubConnectionTests : IDisposable
     }
 
     /// <summary>
-    ///     A start that cannot reach the hub is one Disconnected status and no exception; a second call does not retry.
-    ///     Red: narrow the catch filter to HttpRequestException. Red: forget the connection after a failed start.
+    ///     A start that cannot reach the hub is one Disconnected status and no exception.
+    ///     Red: narrow the catch filter to InvalidOperationException: the refused connect escapes.
+    ///     Red: drop the Disconnected dispatch from a failed start: no action is recorded.
     /// </summary>
     [Fact]
     public async Task A_failed_start_is_disconnected_not_an_exception()
@@ -66,12 +71,130 @@ public sealed class RunHubConnectionTests : IDisposable
         await using var hub = Hub(User("developer"));
 
         await hub.EnsureStartedAsync(CancellationToken.None);
+
+        _dispatcher.Actions.Should().Equal(new HubStatusChanged(HubStatus.Disconnected));
+    }
+
+    /// <summary>
+    ///     A start that fails with something other than a refused connect, a handshake timeout, a cancellation the
+    ///     caller did not ask for, a hub error or an unreadable handshake, is a Disconnected status too, never an
+    ///     exception that would reach the layout.
+    ///     Red: restore the narrow filter, HttpRequestException, WebSocketException or InvalidOperationException:
+    ///     each of these escapes EnsureStartedAsync.
+    /// </summary>
+    [Theory]
+    [InlineData(typeof(TimeoutException))]
+    [InlineData(typeof(OperationCanceledException))]
+    [InlineData(typeof(HubException))]
+    [InlineData(typeof(InvalidDataException))]
+    public async Task A_start_that_fails_any_way_is_disconnected_not_an_exception(Type failure)
+    {
+        await using var hub = Hub(User("developer"), options => options.WebSocketFactory = (_, _) =>
+            ValueTask.FromException<WebSocket>((Exception)Activator.CreateInstance(failure, "The start failed.")!));
+
         await hub.EnsureStartedAsync(CancellationToken.None);
 
         _dispatcher.Actions.Should().Equal(new HubStatusChanged(HubStatus.Disconnected));
     }
 
-    private RunHubConnection Hub(ClaimsPrincipal user)
+    /// <summary>
+    ///     A cancellation the caller asked for is the caller's, so it is thrown, not reported as a status.
+    ///     Red: catch every OperationCanceledException: nothing is thrown.
+    /// </summary>
+    [Fact]
+    public async Task A_start_the_caller_cancels_is_thrown()
+    {
+        using var cancel = new CancellationTokenSource();
+        await using var hub = Hub(User("developer"), options => options.WebSocketFactory = async (_, ct) =>
+        {
+            await cancel.CancelAsync();
+            ct.ThrowIfCancellationRequested();
+            throw new InvalidOperationException("The cancellation did not reach the start.");
+        });
+
+        await FluentActions.Awaiting(() => hub.EnsureStartedAsync(cancel.Token)).Should().ThrowAsync<OperationCanceledException>();
+        _dispatcher.Actions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     After a failed start, a later call tries again at once rather than keep the failed connection.
+    ///     Red: keep the failed connection: the second call returns without a try.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_start_is_tried_again_by_a_later_call()
+    {
+        var tries = 0;
+        await using var hub = Hub(User("developer"), options => options.WebSocketFactory = (_, _) =>
+        {
+            Interlocked.Increment(ref tries);
+            return ValueTask.FromException<WebSocket>(new TimeoutException("The start failed."));
+        });
+
+        await hub.EnsureStartedAsync(CancellationToken.None);
+        await hub.EnsureStartedAsync(CancellationToken.None);
+
+        tries.Should().Be(2);
+        _dispatcher.Actions.Should().Equal(
+            new HubStatusChanged(HubStatus.Disconnected), new HubStatusChanged(HubStatus.Disconnected));
+    }
+
+    /// <summary>
+    ///     A failed start is tried again in the background, without a caller, and the tries stop once the connection is
+    ///     disposed.
+    ///     Red: start no background retry after a failed start: the tries stay at one.
+    ///     Red: do not cancel the retries on dispose: the dispose never completes.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_start_is_tried_again_in_the_background_until_disposed()
+    {
+        var tries = 0;
+        var hub = Hub(
+            User("developer"),
+            options => options.WebSocketFactory = (_, _) =>
+            {
+                Interlocked.Increment(ref tries);
+                return ValueTask.FromException<WebSocket>(new TimeoutException("The start failed."));
+            },
+            new FixedDelay(TimeSpan.FromMilliseconds(10)));
+
+        await hub.EnsureStartedAsync(CancellationToken.None);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (Volatile.Read(ref tries) < 3 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+
+        // DisposeAsync awaits the retries, so it completes only once they have stopped.
+        await FluentActions.Awaiting(() => hub.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)))
+            .Should().NotThrowAsync("disposing stops the retries");
+        Volatile.Read(ref tries).Should().BeGreaterThanOrEqualTo(3, "the failed start is tried again without a caller");
+    }
+
+    /// <summary>
+    ///     The retry schedule: at once, then 2, 5 and 10 seconds, then 30 seconds for every try after, never giving up.
+    ///     Red: return null after the fourth try: the later delays are null. Red: keep doubling past 10 seconds: the
+    ///     later delays exceed the cap. Red: give up after a thousand tries: the 10,000th delay is null.
+    /// </summary>
+    [Fact]
+    public void The_retry_schedule_is_capped_and_never_gives_up()
+    {
+        var policy = new HubRetryPolicy();
+
+        TimeSpan? After(long retries) => policy.NextRetryDelay(new RetryContext { PreviousRetryCount = retries });
+
+        Enumerable.Range(0, 7).Select(n => After(n)).Should().Equal(
+            TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        After(10_000).Should().Be(HubRetryPolicy.Cap);
+        After(long.MaxValue).Should().Be(HubRetryPolicy.Cap);
+    }
+
+    /// <summary>
+    ///     A connection whose background retries wait an hour unless a test passes another policy, so a test sees only
+    ///     the tries it makes itself.
+    /// </summary>
+    private RunHubConnection Hub(ClaimsPrincipal user, Action<HttpConnectionOptions>? transport = null, IRetryPolicy? retries = null)
     {
         var dispatcher = _provider.GetRequiredService<IDispatcher>();
         var api = _handler.Client();
@@ -81,7 +204,16 @@ public sealed class RunHubConnectionTests : IDisposable
             _provider,
             _dispatcher,
             new RunsEffects(api, dispatcher, _provider.GetRequiredService<IStore<RunsState>>()),
-            new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()));
+            new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()))
+        {
+            ConfigureTransport = transport,
+            RetryPolicy = retries ?? new FixedDelay(TimeSpan.FromHours(1)),
+        };
+    }
+
+    private sealed class FixedDelay(TimeSpan delay) : IRetryPolicy
+    {
+        public TimeSpan? NextRetryDelay(RetryContext retryContext) => delay;
     }
 
     private static ClaimsPrincipal User(string role) =>
