@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Daedalus.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +22,17 @@ namespace Daedalus.Agents.Workflow;
 ///     A failure is logged, not thrown, and so is a cancelled caller: the append runs under a token of its own, which only
 ///     <c>AppendTimeout</c> cancels, never the dispatch's. The completion it describes is already persisted, so throwing would only
 ///     dead-letter a dispatch whose work is done. The next boot's backfill writes the missing record.
+///     <para>
+///     <b>A node that ran on several models is recorded per model.</b> Thalos hands the store one <see cref="TurnUsage"/> per
+///     completion, and its <c>+</c> keeps the first operand's model, so a review whose pinned lens ran on another model would be
+///     priced wholly at the first pass's model. <see cref="ReviewLensRunner"/> therefore hands its passes' usage to
+///     <see cref="HoldPasses"/> before it returns, keyed by the run and the seq the completion will carry, and
+///     <see cref="RecordCompletionAsync"/> takes it back: the record carries <see cref="NodeUsage.ByModel"/> and the token
+///     counter counts each model's own tokens. What is held is in memory: a node whose completion never comes, because the
+///     node failed, is forgotten by <see cref="Forget"/> when the dispatcher's store fails the run, and a host restart loses
+///     it. The backfill reads only the completion's single usage, so a review it records is priced at its first model, as
+///     before this existed.
+///     </para>
 /// </remarks>
 internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, TimeProvider clock, ILogger<NodeUsageRecorder> logger)
 {
@@ -30,8 +42,50 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     /// <summary>How long one append may take, under a token of its own.</summary>
     private static readonly TimeSpan AppendTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>The per-model usage of a node that ran on more than one model, until its completion is recorded.</summary>
+    private readonly ConcurrentDictionary<(Guid RunId, long Seq), IReadOnlyList<NodeUsage>> _held = new();
+
     /// <summary>Now, on the host clock, as a UTC <see cref="DateTime"/>.</summary>
     public DateTime UtcNow => clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>How many nodes' per-model usage is held, for tests.</summary>
+    internal int HeldCount => _held.Count;
+
+    /// <summary>
+    ///     Holds the usage of each turn a node at (<paramref name="runId"/>, <paramref name="seq"/>) ran, summed per model in
+    ///     the order the models first ran, until <see cref="RecordCompletionAsync"/> records that completion. Turns that all
+    ///     ran on one model hold nothing, and clear what an earlier delivery of the same node held: that node is recorded as
+    ///     one model, as it always was.
+    /// </summary>
+    public void HoldPasses(Guid runId, long seq, IReadOnlyList<TurnUsage> passes)
+    {
+        ArgumentNullException.ThrowIfNull(passes);
+        var parts = passes
+            .GroupBy(p => string.IsNullOrEmpty(p.ModelId) ? null : p.ModelId, StringComparer.Ordinal)
+            .Select(g => new NodeUsage(
+                g.Key, g.Sum(p => (long)p.InputTokens), g.Sum(p => (long)p.OutputTokens),
+                g.Sum(p => (long)p.CacheReadTokens), g.Sum(p => (long)p.CacheWriteTokens)))
+            .ToList();
+        if (parts.Count < 2)
+        {
+            _held.TryRemove((runId, seq), out _);
+            return;
+        }
+
+        _held[(runId, seq)] = parts;
+    }
+
+    /// <summary>Drops whatever is held for <paramref name="runId"/>: its node failed, so no completion will take it.</summary>
+    public void Forget(Guid runId)
+    {
+        foreach (var key in _held.Keys)
+        {
+            if (key.RunId == runId)
+            {
+                _held.TryRemove(key, out _);
+            }
+        }
+    }
 
     /// <summary>
     ///     The live path, for a completion just persisted: counts its tokens on <c>daedalus.manufacture.tokens</c>, then
@@ -43,17 +97,42 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     /// </summary>
     public ValueTask<bool> RecordCompletionAsync(Guid runId, long seq, string node, string? startedById, TurnUsage usage, CancellationToken ct)
     {
-        ManufactureTelemetry.RecordTokens(node, usage);
-        return RecordAsync(runId, seq, node, startedById, usage, UtcNow, ct);
+        var total = UsageOf(usage);
+        if (_held.TryRemove((runId, seq), out var parts))
+        {
+            var split = total.WithSplit(parts);
+            if (split.IsSuccess)
+            {
+                total = split.Value;
+            }
+            else
+            {
+                // A split that does not sum to the completion's usage belongs to some other delivery: the node is recorded
+                // as the completion reports it, which is never more wrong than before the split existed.
+                LogSplitDiscarded(logger, runId, seq);
+            }
+        }
+
+        foreach (var part in total.Parts)
+        {
+            ManufactureTelemetry.RecordTokens(node, part);
+        }
+
+        return AppendAsync(runId, seq, node, startedById, total, UtcNow);
     }
 
     /// <summary>Appends the record. Returns whether it was written: false when the record already existed or the append failed. The caller's token is deliberately not passed to the append.</summary>
-    public async ValueTask<bool> RecordAsync(
-        Guid runId, long seq, string node, string? startedById, TurnUsage usage, DateTime createdAtUtc, CancellationToken ct)
+    public ValueTask<bool> RecordAsync(
+        Guid runId, long seq, string node, string? startedById, TurnUsage usage, DateTime createdAtUtc, CancellationToken ct) =>
+        AppendAsync(runId, seq, node, startedById, UsageOf(usage), createdAtUtc);
+
+    private static NodeUsage UsageOf(TurnUsage usage) => new(
+        string.IsNullOrEmpty(usage.ModelId) ? null : usage.ModelId,
+        usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheWriteTokens);
+
+    private async ValueTask<bool> AppendAsync(Guid runId, long seq, string node, string? startedById, NodeUsage usage, DateTime createdAtUtc)
     {
-        var payload = new NodeUsage(
-            string.IsNullOrEmpty(usage.ModelId) ? null : usage.ModelId,
-            usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheWriteTokens).ToPayloadJson();
+        var payload = usage.ToPayloadJson();
         var record = WorkflowRunRecord.Create(
             runId, seq, node, WorkflowRunRecord.NodeUsageKind, HostPrincipalId, startedById, payload, createdAtUtc);
         if (record.IsFailure)
@@ -86,6 +165,9 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     private static bool IsAlreadyRecorded(DbUpdateException ex) =>
         ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg
         && string.Equals(pg.ConstraintName, WorkflowRunRecord.NodeUsageIndexName, StringComparison.Ordinal);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The per-model usage held for run {RunId} at seq {Seq} does not sum to its completion's usage; the node is recorded as one model")]
+    private static partial void LogSplitDiscarded(ILogger logger, Guid runId, long seq);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "The node-usage record for run {RunId} at seq {Seq} already exists")]
     private static partial void LogAlreadyRecorded(ILogger logger, Guid runId, long seq);

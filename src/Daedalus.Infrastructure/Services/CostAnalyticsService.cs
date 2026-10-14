@@ -20,7 +20,8 @@ public sealed class CostAnalyticsService(
     /// <summary>What the summary covers. Amendment A3 of the phase 2.8 design.</summary>
     private const string SummaryScope =
         "Four sources. history: iterations of the task loop that phase 2.8 retired, from TaskExecutions. " +
-        "manufacture: one node-usage record per completed agent node of a manufacture run, with its model and cache split. " +
+        "manufacture: one node-usage record per completed agent node of a manufacture run, with its model and cache split; a node " +
+        "that ran on several models, such as a review with a pinned lens, is priced per model and counted once, under its first model. " +
         "chat: agent sessions owned by a person. scheduled: agent sessions owned by schedule:*. Sessions owned by " +
         "workflow:* are a manufacture run's node turns; their node-usage records already count them, so they are left out. " +
         "Session sources carry no model and no cache split, so their tokens are unattributed and not priced, and they are " +
@@ -85,7 +86,10 @@ public sealed class CostAnalyticsService(
             CostSources.History, r.ModelId, DateOnly.FromDateTime(r.Day), r.InputTokens, r.OutputTokens, 0, 0, r.Entries))];
     }
 
-    /// <summary>Node-usage payloads are JSON, so they are read and summed here. There is one per completed agent node.</summary>
+    /// <summary>
+    ///     Node-usage payloads are JSON, so they are read and summed here. There is one per completed agent node, priced part by
+    ///     part: see <see cref="NodeUsage.Parts"/>.
+    /// </summary>
     private async Task<(List<UsageGroup> Groups, int Unreadable)> ManufactureAsync(CancellationToken ct)
     {
         var rows = await dbContext.WorkflowRunRecords.AsNoTracking()
@@ -94,7 +98,7 @@ public sealed class CostAnalyticsService(
             .ToListAsync(ct).ConfigureAwait(false);
 
         var unreadable = 0;
-        var read = new List<(NodeUsage Usage, DateOnly Day)>(rows.Count);
+        var read = new List<(NodeUsage Part, DateOnly Day, int Entries)>(rows.Count);
         foreach (var row in rows)
         {
             var usage = NodeUsage.FromPayloadJson(row.PayloadJson);
@@ -104,15 +108,22 @@ public sealed class CostAnalyticsService(
                 continue;
             }
 
-            read.Add((usage.Value, DateOnly.FromDateTime(row.CreatedAt)));
+            // Each model a node ran on is priced at its own rate: a review whose lens is pinned to another model has one
+            // part per model. The record is still one entry, counted on its first part, so the totals count records.
+            var day = DateOnly.FromDateTime(row.CreatedAt);
+            var parts = usage.Value.Parts;
+            for (var i = 0; i < parts.Count; i++)
+            {
+                read.Add((parts[i], day, i == 0 ? 1 : 0));
+            }
         }
 
         var groups = read
-            .GroupBy(r => (r.Usage.Model, r.Day))
+            .GroupBy(r => (r.Part.Model, r.Day))
             .Select(g => new UsageGroup(
                 CostSources.Manufacture, g.Key.Model, g.Key.Day,
-                g.Sum(r => r.Usage.InputTokens), g.Sum(r => r.Usage.OutputTokens),
-                g.Sum(r => r.Usage.CacheReadTokens), g.Sum(r => r.Usage.CacheWriteTokens), g.Count()))
+                g.Sum(r => r.Part.InputTokens), g.Sum(r => r.Part.OutputTokens),
+                g.Sum(r => r.Part.CacheReadTokens), g.Sum(r => r.Part.CacheWriteTokens), g.Sum(r => r.Entries)))
             .ToList();
         return (groups, unreadable);
     }
@@ -331,7 +342,9 @@ public sealed class CostAnalyticsService(
             cost += PriceTokens(pricing, group.InputTokens, group.OutputTokens);
         }
 
+        // Tokens as well as counts: a node-usage part beyond a record's first carries tokens and no entry of its own.
         var excluded = unattributedCount == 0 && unpricedCount == 0
+                       && unattributedInput == 0 && unattributedOutput == 0 && unpricedInput == 0 && unpricedOutput == 0
             ? ExcludedCostDto.None
             : new ExcludedCostDto(
                 unattributedInput,

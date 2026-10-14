@@ -202,6 +202,56 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
         summary.Excluded.UnpricedInputTokens.Should().Be(600);
     }
 
+    /// <summary>
+    ///     Phase 2.10 final review, item 1: a review whose pinned lens ran on model-a while the node ran on model-b is priced per
+    ///     model, and counted as one entry, under its first model. Red: price the record's totals at its first model, ignoring
+    ///     the split; model-b costs 0.0045 and the per-model assertions fail. Red: count an entry on every
+    ///     part; the entries total 2.
+    /// </summary>
+    [Fact]
+    public async Task A_node_that_ran_on_two_models_is_priced_per_model()
+    {
+        var review = new NodeUsage(ModelB, 3_000, 300, 0, 0).WithSplit(
+        [
+            new NodeUsage(ModelB, 2_000, 200, 0, 0),
+            new NodeUsage(ModelA, 1_000, 100, 0, 0),
+        ]).Value;
+        Manufacture(review, Day1);
+        await _db.SaveChangesAsync();
+
+        var summary = await Service().GetSummaryAsync();
+
+        var byModel = summary.ByModel.ToDictionary(m => m.Key, StringComparer.Ordinal);
+        byModel[ModelB].Cost.Should().Be(0.003m);         // 2000 × 1/1M + 200 × 5/1M
+        byModel[ModelA].Cost.Should().Be(0.0045m);        // 1000 × 3/1M + 100 × 15/1M
+        summary.TotalCost.Should().Be(0.0075m, "the priced total is the per-model sum");
+        summary.TotalInputTokens.Should().Be(3_000);
+        summary.TotalEntries.Should().Be(1);
+        byModel[ModelB].Entries.Should().Be(1);
+    }
+
+    /// <summary>
+    ///     A part beyond the first whose model has no price carries tokens and no entry, and is still reported as excluded.
+    ///     Red: decide "nothing excluded" from the entry counts alone; <c>Excluded</c> is <c>None</c> and the unpriced tokens
+    ///     vanish from the report.
+    /// </summary>
+    [Fact]
+    public async Task An_unpriced_second_part_is_reported_as_excluded()
+    {
+        Manufacture(new NodeUsage(ModelB, 3_000, 300, 0, 0).WithSplit(
+        [
+            new NodeUsage(ModelB, 2_000, 200, 0, 0),
+            new NodeUsage("model-unknown", 1_000, 100, 0, 0),
+        ]).Value, Day1);
+        await _db.SaveChangesAsync();
+
+        var summary = await Service().GetSummaryAsync();
+
+        summary.Excluded.UnpricedInputTokens.Should().Be(1_000);
+        summary.Excluded.UnpricedModelIds.Should().Equal("model-unknown");
+        summary.TotalCost.Should().Be(0.003m);
+    }
+
     /// <summary>Red: return <c>Chat</c> for a <c>workflow:</c> owner; the first row fails.</summary>
     [Theory]
     [InlineData("workflow:manufacture:1", null)]
