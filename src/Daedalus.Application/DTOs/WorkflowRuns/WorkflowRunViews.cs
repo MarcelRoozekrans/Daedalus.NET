@@ -68,8 +68,9 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 /// </param>
 /// <param name="NodeSelections">
 ///     The model and tool decision taken for each node visit, from the run's <c>node-selection</c> records, in seq order.
-///     Empty when no node was decided. A record that cannot be read is left out; the node it belongs to fails instead of running.
+///     Empty when no node was decided. A record that cannot be read is not listed; <paramref name="NodeSelectionsError"/> says so.
 /// </param>
+/// <param name="NodeSelectionsError">Which node-selection records could not be read, by seq, otherwise <see langword="null"/>.</param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
@@ -91,7 +92,8 @@ public sealed record WorkflowRunView(
     IReadOnlyList<WorkflowRunStepView> Steps,
     IReadOnlyList<LensCheckedView> Checked,
     string? StartedByName,
-    IReadOnlyList<NodeSelectionView> NodeSelections);
+    IReadOnlyList<NodeSelectionView> NodeSelections,
+    string? NodeSelectionsError);
 
 /// <summary>
 ///     The model and tool decision of one node visit, as its <c>node-selection</c> record holds it. The tool filter is

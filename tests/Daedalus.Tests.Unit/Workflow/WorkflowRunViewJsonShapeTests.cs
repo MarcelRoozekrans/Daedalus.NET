@@ -12,7 +12,7 @@ public sealed class WorkflowRunViewJsonShapeTests
     /// <summary>
     ///     Every property name the API serves today, top level and nested.
     ///     Red: rename a NodePinView property, or a WorkflowRunView parameter, after the move.
-    ///     Red: rename a NodeSelectionView property.
+    ///     Red: rename a NodeSelectionView property, or NodeSelectionsError.
     /// </summary>
     [Fact]
     public void The_view_serializes_with_todays_names()
@@ -23,7 +23,7 @@ public sealed class WorkflowRunViewJsonShapeTests
         Names(root).Should().Equal(
             "id", "process", "processVersion", "status", "currentNode", "awaitingSignal", "lastError", "pins",
             "standingInstructionsDiff", "nodeUsage", "prUrl", "unreadablePullRequestLink", "startedBy", "writeAudit",
-            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "checked", "startedByName", "nodeSelections");
+            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "checked", "startedByName", "nodeSelections", "nodeSelectionsError");
         Names(root.GetProperty("steps")[0]).Should().Equal(
             "seq", "kind", "fromNode", "toNode", "status", "outcome", "error", "inputTokens", "outputTokens",
             "cacheReadTokens", "at", "actor");
@@ -63,5 +63,5 @@ public sealed class WorkflowRunViewJsonShapeTests
         null, [new FiledFindingView("mechanism-1", "created", 12, new Uri("https://example.test/issues/12"))],
         [new WorkflowRunStepView(0, "Entered", null, "implement", "Running", null, null, null, null, null, DateTimeOffset.UnixEpoch, null)],
         [new LensCheckedView("mechanism", ["a.cs:3"])], "Dev",
-        [new NodeSelectionView(1, "implement", "m", "low", 3, null, 0.8)]);
+        [new NodeSelectionView(1, "implement", "m", "low", 3, null, 0.8)], "e");
 }

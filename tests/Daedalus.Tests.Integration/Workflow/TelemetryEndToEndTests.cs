@@ -33,26 +33,51 @@ namespace Daedalus.Tests.Integration.Workflow;
 public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
 {
     /// <summary>
-    ///     The activity sources the production host listens to: <c>AspireExtensions.TracedSources</c> with the
-    ///     <c>daedalus.*</c> wildcard spelled out, plus the ASP.NET Core and HttpClient instrumentation sources.
+    ///     The activity sources the production host listens to: read from <c>AspireExtensions.TracedSources</c> itself, so the
+    ///     list cannot drift, with its <c>daedalus.*</c> wildcard spelled out, plus the ASP.NET Core and HttpClient
+    ///     instrumentation sources.
     /// </summary>
     private static readonly string[] Sources =
+    [
+        .. Production("TracedSources"), ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName,
+        "Microsoft.AspNetCore", "System.Net.Http",
+    ];
+
+    /// <summary>
+    ///     The meters the production host collects: read from <c>AspireExtensions.Meters</c> itself, with the <c>daedalus.*</c>
+    ///     wildcard spelled out, plus the meters the ASP.NET Core and HttpClient instrumentation add.
+    /// </summary>
+    private static readonly string[] Meters =
+    [
+        .. Production("Meters"), ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName, "System.Net.Http",
+        "System.Net.NameResolution", "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Routing",
+        "Microsoft.AspNetCore.Diagnostics", "Microsoft.AspNetCore.Server.Kestrel", "Microsoft.AspNetCore.Http.Connections",
+        "Microsoft.AspNetCore.Authentication", "Microsoft.AspNetCore.Authorization", "Microsoft.AspNetCore.RateLimiting",
+    ];
+
+    /// <summary>
+    ///     What the host may export, written out by hand on purpose: the independent oracle for the subset checks below.
+    ///     Reading the host's own lists there would make adding Npgsql to them pass its own check.
+    /// </summary>
+    private static readonly string[] AllowedSources =
     [
         "thalos", WorkflowTelemetry.SourceName, "ZeroAlloc.Mediator", ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName,
         "Minos", "Microsoft.AspNetCore", "System.Net.Http",
     ];
 
-    /// <summary>
-    ///     The meters the production host collects: <c>AspireExtensions.Meters</c> with the <c>daedalus.*</c> wildcard
-    ///     spelled out, plus the meters the ASP.NET Core and HttpClient instrumentation add.
-    /// </summary>
-    private static readonly string[] Meters =
+    /// <summary>The meters the host may export, by hand, for the same reason as <see cref="AllowedSources"/>.</summary>
+    private static readonly string[] AllowedMeters =
     [
-        "thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName, "Minos", "System.Runtime", "System.Net.Http",
-        "System.Net.NameResolution", "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Routing",
+        "thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName, "Minos", "System.Runtime",
+        "System.Net.Http", "System.Net.NameResolution", "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Routing",
         "Microsoft.AspNetCore.Diagnostics", "Microsoft.AspNetCore.Server.Kestrel", "Microsoft.AspNetCore.Http.Connections",
         "Microsoft.AspNetCore.Authentication", "Microsoft.AspNetCore.Authorization", "Microsoft.AspNetCore.RateLimiting",
     ];
+
+    /// <summary>The host's own list, minus the wildcard, which the two Daedalus names above replace.</summary>
+    private static string[] Production(string field) => [.. ((string[])typeof(Daedalus.ServiceDefaults.AspireExtensions)
+        .GetField(field, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!)
+        .Where(n => !string.Equals(n, "daedalus.*", StringComparison.Ordinal))];
 
     private static readonly string[] Steps = ["implement", "review", "retrospect", "gate", "publish", "file-findings", "done"];
 
@@ -77,6 +102,7 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     ///     Red: drop NodeSelectionRunner from the dispatcher's chain; the seen-sources check names daedalus.decisions.
     ///     Red: tag the work intent on the decision span; the content assertion names that span.
     ///     Red: add Npgsql to Meters; the exported-meter subset check fails.
+    ///     Red: make Production return nothing; the capture lacks thalos, so the seen-sources check names it.
     ///     Red: drop daedalus.* from Meters; the exported metric names lack the tokens counter.
     ///     Red: make Flatten return nothing; the span scanner self-check fails.
     ///     Red: skip the metric points in the metric scanner; the metric scanner self-check fails.
@@ -214,11 +240,11 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         seenSources.Should().Contain(
             ["thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName, "Microsoft.AspNetCore"],
             "the privacy scan below must have seen spans from each of these sources");
-        exportedSpans.Select(a => a.Source.Name).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(Sources);
+        exportedSpans.Select(a => a.Source.Name).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(AllowedSources);
 
         host.Factory.Services.GetRequiredService<MeterProvider>().ForceFlush().Should().BeTrue();
         var exportedMetricList = exportedMetrics.Snapshot();
-        exportedMetricList.Select(m => m.MeterName).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(Meters);
+        exportedMetricList.Select(m => m.MeterName).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(AllowedMeters);
         exportedMetricList.Select(m => m.Name).Should().Contain(
             [ManufactureTelemetry.TokensMetricName, WorkflowTelemetry.RunsStartedName, WorkflowTelemetry.DispatchDurationName]);
 

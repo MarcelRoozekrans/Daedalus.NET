@@ -102,6 +102,35 @@ public sealed class WorkflowRunViewDeferredTests
     }
 
     /// <summary>
+    ///     A node-selection record that cannot be read is not dropped silently: the readable ones are listed and the error
+    ///     names the seq of each unreadable one, as the deferred findings error does. Red: do not set NodeSelectionsError;
+    ///     it is null. Red: list nothing when any record is unreadable; the readable one is missing. Red: name every
+    ///     record in the error; the readable seq 1 appears in the message. Red: drop the blank-model check in
+    ///     NodeSelectionRecord.Parse; the blank-model record lists instead of erring.
+    /// </summary>
+    [Fact]
+    public async Task An_unreadable_node_selection_is_reported_not_dropped()
+    {
+        var view = await ViewWith(
+            Selection(1, "implement", """{ "level": "low", "model": "claude-haiku-5-5", "tool_filter": null, "kept_families": 3, "fallback": null, "confidence": 0.8 }"""),
+            Selection(2, "review", """{ "unexpected": true }"""),
+            Selection(3, "review", """{ "level": "low", "model": " ", "tool_filter": null, "kept_families": 3, "fallback": null, "confidence": null }"""));
+
+        view.NodeSelections.Should().ContainSingle().Which.Seq.Should().Be(1);
+        view.NodeSelectionsError.Should().Be("2 node-selection record(s) could not be read, at seq 2, 3.");
+    }
+
+    /// <summary>Red: set the error to an empty string instead of null when every record reads.</summary>
+    [Fact]
+    public async Task Readable_node_selections_have_no_error()
+    {
+        var view = await ViewWith(
+            Selection(1, "implement", """{ "level": "low", "model": "m", "tool_filter": ["a__b"], "kept_families": 3, "fallback": null, "confidence": null }"""));
+
+        view.NodeSelectionsError.Should().BeNull();
+    }
+
+    /// <summary>
     ///     A run with no decisions, such as one with decisions off before this phase, has an empty list.
     ///     Red: return a null list when there are no records.
     /// </summary>

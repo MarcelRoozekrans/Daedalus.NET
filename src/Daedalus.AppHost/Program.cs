@@ -115,6 +115,7 @@ var api = builder.AddProject("api", apiPath)
     .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
     .WithEnvironment("Thalos__Channels__Telegram__BotToken", telegramBotToken)
     .WithEnvironment("GITHUB_TOKEN", gitHubToken)
+    // Must stay equal to DaedalusAgentsServiceCollectionExtensions.OpenRouterKeyName, the key the api reads it under.
     .WithEnvironment("OPENROUTER_API_KEY", openRouterKey)
     .WithEnvironment("Thalos__Workflow__Sandbox__Enabled", "true")
     .WithEnvironment("Thalos__Workflow__Sandbox__Image", "daedalus-sandbox:dev")

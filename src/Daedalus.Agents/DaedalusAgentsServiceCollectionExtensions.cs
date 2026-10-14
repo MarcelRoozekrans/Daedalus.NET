@@ -290,7 +290,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.TryAddSingleton(sp => new NodeSelectionDecider(
             sp.GetService<IDecisionClient>(), sp.GetRequiredService<DecisionsConfig>(), sp.GetRequiredService<ILogger<NodeSelectionDecider>>()));
         services.AddHostedService(sp => new DecisionsStartupLog(
-            sp.GetRequiredService<DecisionsConfig>(), !string.IsNullOrEmpty(openRouterKey), sp.GetRequiredService<ILogger<DecisionsStartupLog>>()));
+            sp.GetRequiredService<DecisionsConfig>(), DecisionsConfig.HasKey(openRouterKey), sp.GetRequiredService<ILogger<DecisionsStartupLog>>()));
 
         // Checked whether or not the engine is on: Daedalus.Cli ships the same write grant with the engine off, and a
         // grant that only fails validation once someone flips Enabled is a grant nobody reviewed.
