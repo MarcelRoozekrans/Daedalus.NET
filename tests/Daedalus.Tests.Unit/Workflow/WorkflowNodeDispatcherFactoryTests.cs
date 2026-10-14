@@ -110,6 +110,7 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         // NodeSelectionRunner's dependencies; this node is not an implement or review node, so it is not decided.
         services.AddSingleton(new DaedalusAgentsOptions());
         services.AddSingleton(new NodeSelectionDecider(null, new DecisionsConfig(), NullLogger<NodeSelectionDecider>.Instance));
+        services.AddSingleton(ActiveLensPins.For(new DecisionsConfig(), apiKey: null));
         services.AddSingleton(Substitute.For<IAgentCatalog>());
         services.AddSingleton(Substitute.For<IChatClientProvider>());
         services.AddSingleton(Substitute.For<IToolCatalog>());
@@ -138,6 +139,40 @@ public sealed class WorkflowNodeDispatcherFactoryTests
     /// </summary>
     [Fact]
     public async Task A_reviews_three_lens_passes_share_one_decision()
+    {
+        var (models, client, records) = await DispatchReviewAsync(decisionsOn: true, pins: null);
+
+        models.Should().Equal("strong", "strong", "strong");
+        client.Calls.Should().Be(1);
+        await records.Received(1).AppendAsync(
+            Arg.Is<WorkflowRunRecord>(r => r.Kind == WorkflowRunRecord.NodeSelectionKind), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     Final review item 2: the factory hands ReviewLensRunner the pins that apply, which are none while decisions are
+    ///     off, so a pinned lens runs as today's review does. Reds, each applied once: hand the runner
+    ///     <c>DaedalusAgentsOptions.Decisions.PinnedLensModels</c> unconditionally, and the off row's falsifiability pass runs
+    ///     on <c>pinned-model</c>; hand it an empty map always, and the on row's does not.
+    /// </summary>
+    [Theory]
+    [InlineData(false, null, null, null)]
+    [InlineData(true, "strong", "pinned-model", "strong")]
+    public async Task A_lens_pin_applies_only_when_decisions_are_on(bool decisionsOn, string? first, string? second, string? third)
+    {
+        var pins = new Dictionary<string, string>(StringComparer.Ordinal) { ["falsifiability"] = "pinned-model" };
+
+        var (models, _, _) = await DispatchReviewAsync(decisionsOn, pins);
+
+        models.Should().Equal(first, second, third);
+    }
+
+    /// <summary>
+    ///     Dispatches one review node through the factory, its three lenses each approved, and returns the model each pass ran
+    ///     on, the decision client and the record store. <paramref name="pins"/> are configured on the options; whether they
+    ///     apply is <see cref="ActiveLensPins"/>' call, made as the host makes it, from <paramref name="decisionsOn"/>.
+    /// </summary>
+    private static async Task<(List<string?> Models, FakeDecisionClient Client, IWorkflowRunRecordStore Records)> DispatchReviewAsync(
+        bool decisionsOn, IReadOnlyDictionary<string, string>? pins)
     {
         var runId = Guid.NewGuid();
         var run = new WorkflowRun
@@ -208,7 +243,13 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         reviewer.Tools.Add("workspace__*");
         reviewer.Tools.Add("daedalus__*");
         options.Agents.Add(reviewer);
-        using var client = FakeDecisionClient.Answering(Demand.Hard, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9);
+        var client = FakeDecisionClient.Answering(Demand.Hard, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9);
+        var decisions = new DecisionsConfig { ZeroDataRetentionAccount = decisionsOn };
+        foreach (var (lens, model) in pins ?? new Dictionary<string, string>(StringComparer.Ordinal))
+        {
+            options.Decisions.PinnedLensModels[lens] = model;
+            decisions.PinnedLensModels[lens] = model;
+        }
 
         var services = new ServiceCollection();
         services.AddSingleton(store);
@@ -258,16 +299,14 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         chatProvider.DefaultModel.Returns("provider-default");
         services.AddSingleton(chatProvider);
         services.AddSingleton(options);
-        services.AddSingleton(new NodeSelectionDecider(client, new DecisionsConfig(), NullLogger<NodeSelectionDecider>.Instance));
+        services.AddSingleton(new NodeSelectionDecider(decisionsOn ? client : null, new DecisionsConfig(), NullLogger<NodeSelectionDecider>.Instance));
+        services.AddSingleton(ActiveLensPins.For(decisions, apiKey: "sk-or-test"));
         await using var provider = services.BuildServiceProvider();
 
         var dispatcher = WorkflowNodeDispatcherFactory.Create(provider);
         await dispatcher.DispatchAsync(new WorkflowDispatchMessage(runId, run.CurrentSeq, "review"), CancellationToken.None);
 
-        models.Should().Equal("strong", "strong", "strong");
-        client.Calls.Should().Be(1);
-        await records.Received(1).AppendAsync(
-            Arg.Is<WorkflowRunRecord>(r => r.Kind == WorkflowRunRecord.NodeSelectionKind), Arg.Any<CancellationToken>());
+        return (models, client, records);
     }
 
     private static AgentTurnResult Approval(string lens, OutcomeToolSchema outcome) =>

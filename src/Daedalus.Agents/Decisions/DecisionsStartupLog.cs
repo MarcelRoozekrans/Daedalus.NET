@@ -4,8 +4,9 @@ using Microsoft.Extensions.Logging;
 namespace Daedalus.Agents.Decisions;
 
 /// <summary>
-///     Tells once, when the host starts, whether per-node decisions are on and, when they are not, why. Names the
-///     reason only: never the OpenRouter key, nor its length.
+///     Tells once, when the host starts, whether per-node decisions are on and, when they are not, why, and how many
+///     configured lens pins are inactive with them. Names the reason and the count only: never the OpenRouter key, nor its
+///     length, nor a pinned lens or model.
 /// </summary>
 /// <param name="config">The validated decision settings.</param>
 /// <param name="keyPresent">Whether an OpenRouter key was configured. The key itself is not held.</param>
@@ -39,7 +40,15 @@ public sealed partial class DecisionsStartupLog(DecisionsConfig config, bool key
     {
         if (WhyOff(config, keyPresent) is { } reason)
         {
-            LogOff(logger, reason);
+            // The pins are counted, never named: a pin only applies to a decided review.
+            if (config.PinnedLensModels.Count > 0)
+            {
+                LogOffWithPins(logger, reason, config.PinnedLensModels.Count);
+            }
+            else
+            {
+                LogOff(logger, reason);
+            }
         }
         else
         {
@@ -54,6 +63,9 @@ public sealed partial class DecisionsStartupLog(DecisionsConfig config, bool key
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Per-node model and tool decisions are off: {Reason}. Every node runs on its default model and full tool list")]
     private static partial void LogOff(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Per-node model and tool decisions are off: {Reason}. Every node runs on its default model and full tool list, and the {PinCount} configured lens pin(s) are inactive")]
+    private static partial void LogOffWithPins(ILogger logger, string reason, int pinCount);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Per-node model and tool decisions are on, decided by {Model} through OpenRouter")]
     private static partial void LogOn(ILogger logger, string model);

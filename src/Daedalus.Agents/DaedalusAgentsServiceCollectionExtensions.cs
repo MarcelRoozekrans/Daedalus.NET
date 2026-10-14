@@ -267,8 +267,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         ValidateContentConfig(options.Content);
         ValidateDecisionsConfig(options, configuration["Thalos:Anthropic:DefaultModel"]);
 
-        // Phase 2.10: the validated options, read by NodeSelectionRunner for the role menus and by ReviewLensRunner for
-        // the pinned lens models, and the decider. The OpenRouter client exists only when decisions are enabled: the
+        // Phase 2.10: the validated options, read by NodeSelectionRunner for the role menus, the lens pins that apply, read
+        // by ReviewLensRunner, and the decider. The OpenRouter client exists only when decisions are enabled: the
         // owner has confirmed a zero-data-retention account, because task text goes to OpenRouter, and a key is
         // present. Otherwise no client is registered, the decider gets none, every decision falls back with reason
         // "off" and a turn is the request it was before. The key is read here, held by the client's options only, and
@@ -287,6 +287,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             });
         }
 
+        // The lens pins apply only when decisions run, by the same predicate as the client: with decisions off a review
+        // runs as it did before phase 2.10, on its default model for every lens.
+        services.TryAddSingleton(ActiveLensPins.For(options.Decisions, openRouterKey));
         services.TryAddSingleton(sp => new NodeSelectionDecider(
             sp.GetService<IDecisionClient>(), sp.GetRequiredService<DecisionsConfig>(), sp.GetRequiredService<ILogger<NodeSelectionDecider>>()));
         services.AddHostedService(sp => new DecisionsStartupLog(

@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
@@ -88,7 +87,8 @@ internal static class WorkflowNodeDispatcherFactory
                             // dependency.
                             sp.GetRequiredService<IServiceScopeFactory>(),
                             sp.GetRequiredService<TimeProvider>(),
-                            sp.GetRequiredService<DaedalusAgentsOptions>().Decisions.PinnedLensModels.ToFrozenDictionary(StringComparer.Ordinal),
+                            // Empty while decisions are off: a pin is part of the decided setup, not of today's.
+                            sp.GetRequiredService<ActiveLensPins>().Models,
                             // The same recorder the store below records completions through, so it takes back what a review
                             // held for its per-model split.
                             sp.GetRequiredService<NodeUsageRecorder>(),

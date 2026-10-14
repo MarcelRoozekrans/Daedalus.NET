@@ -436,8 +436,9 @@ public sealed class DecisionsConfig
     public double ToolFamilyProbability { get; set; } = 0.5;
 
     /// <summary>
-    ///     Review lens name → model, pinned instead of decided. Each value must be in the reviewer's
-    ///     <see cref="AgentConfig.AllowedModels"/>; start-up refuses it otherwise.
+    ///     Review lens name → model, pinned instead of decided. Applies only while decisions are on (see
+    ///     <see cref="IsEnabled"/>); with them off every lens runs on the review's default model. Each value must be in the
+    ///     reviewer's <see cref="AgentConfig.AllowedModels"/>; start-up refuses it otherwise.
     /// </summary>
     public IDictionary<string, string> PinnedLensModels { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
