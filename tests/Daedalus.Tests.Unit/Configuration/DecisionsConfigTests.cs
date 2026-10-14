@@ -280,6 +280,64 @@ public sealed class DecisionsConfigTests
     }
 
     /// <summary>
+    ///     Each agent's tool patterns reach its Thalos definition, which is what Thalos checks a decided tool filter against.
+    ///     Chartered agents carry them on their envelope, configured agents on their definition. Each agent is given a list
+    ///     of its own, so a mapping that mixed them up would fail too.
+    ///     Red: set <c>Tools</c> to empty in <c>ToEnvelope</c> (it is required, so it cannot be left out); the implementer and reviewer assertions fail.
+    ///     Red: drop <c>Tools</c> from <c>ToDefinition</c>; the scout definition holds the default "*", so its assertion fails.
+    /// </summary>
+    [Fact]
+    public void Each_agents_tools_reach_its_thalos_definition()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        SetTools(options, "implementer", "workspace__*", "roslyn__*");
+        SetTools(options, "reviewer", "workspace__*", "daedalus__*", "memory__*");
+        SetTools(options, "scout", "workspace__*", "issues__*");
+
+        services.AddDaedalusAgents(options, configuration, environment);
+        using var provider = services.BuildServiceProvider();
+
+        var envelopes = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Thalos.Skills.Charters.CharterOptions>>().Value.Envelopes;
+        var definitions = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Thalos.ThalosOptions>>().Value.Agents;
+        using (new AssertionScope())
+        {
+            envelopes.Single(e => string.Equals(e.Name, "implementer", StringComparison.Ordinal)).Tools
+                .Should().Equal("workspace__*", "roslyn__*");
+            envelopes.Single(e => string.Equals(e.Name, "reviewer", StringComparison.Ordinal)).Tools
+                .Should().Equal("workspace__*", "daedalus__*", "memory__*");
+            definitions.Single(d => string.Equals(d.Name, "scout", StringComparison.Ordinal)).Tools
+                .Should().Equal("workspace__*", "issues__*");
+        }
+    }
+
+    /// <summary>
+    ///     A configured agent with no tool patterns gets every tool, the one default <c>ToDefinition</c> applies.
+    ///     Red: drop the <c>["*"]</c> default from <c>ToDefinition</c>; the definition's list is empty.
+    /// </summary>
+    [Fact]
+    public void A_configured_agent_with_no_tools_gets_every_tool_on_its_thalos_definition()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        SetTools(options, "scout");
+
+        services.AddDaedalusAgents(options, configuration, environment);
+        using var provider = services.BuildServiceProvider();
+
+        var definitions = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Thalos.ThalosOptions>>().Value.Agents;
+        definitions.Single(d => string.Equals(d.Name, "scout", StringComparison.Ordinal)).Tools.Should().Equal("*");
+    }
+
+    private static void SetTools(DaedalusAgentsOptions options, string agent, params string[] patterns)
+    {
+        var tools = options.Agents.Single(a => string.Equals(a.Name, agent, StringComparison.Ordinal)).Tools;
+        tools.Clear();
+        foreach (var pattern in patterns)
+        {
+            tools.Add(pattern);
+        }
+    }
+
+    /// <summary>
     ///     A pin applies to whichever agent runs the review node, so with the squad off it is checked against the fallback
     ///     agent, the Daedalus Architect, whose menu is empty and whose default is <c>Thalos:Anthropic:DefaultModel</c>. Red:
     ///     check against <c>reviewer</c> whatever the squad setting; the refused row boots. Red: leave the default model out
