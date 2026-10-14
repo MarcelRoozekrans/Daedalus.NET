@@ -38,16 +38,16 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
     public async ValueTask<NodeSelection> DecideAsync(NodeSelectionContext context, CancellationToken ct)
     {
         using var activity = DecisionTelemetry.Source.StartActivity(DecisionTelemetry.SpanName);
-        var (selection, confidence) = await DecideCoreAsync(context, ct);
-        Record(activity, context, selection, confidence);
+        var selection = await DecideCoreAsync(context, ct);
+        Record(activity, context, selection);
         return selection;
     }
 
-    private async ValueTask<(NodeSelection Selection, double? Confidence)> DecideCoreAsync(NodeSelectionContext context, CancellationToken ct)
+    private async ValueTask<NodeSelection> DecideCoreAsync(NodeSelectionContext context, CancellationToken ct)
     {
         if (client is null)
         {
-            return (NodeSelectionMapper.Default(context.Menu, Off), null);
+            return NodeSelectionMapper.Default(context.Menu, Off);
         }
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -59,22 +59,20 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
             {
                 var kind = result.Error.Kind;
                 LogDecisionFailed(context.Node, kind);
-                return (NodeSelectionMapper.Default(context.Menu, $"error:{kind}"), null);
+                return NodeSelectionMapper.Default(context.Menu, $"error:{kind}");
             }
 
-            return (
-                NodeSelectionMapper.Map(result.Value, context.Menu, config, context.NarrowTools),
-                result.Value.Demand.Confidence);
+            return NodeSelectionMapper.Map(result.Value, context.Menu, config, context.NarrowTools);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             LogDecisionTimedOut(context.Node);
-            return (NodeSelectionMapper.Default(context.Menu, Timeout), null);
+            return NodeSelectionMapper.Default(context.Menu, Timeout);
         }
         catch (InvalidOperationException ex)
         {
             LogClientFaulted(context.Node, ex.GetType().Name);
-            return (NodeSelectionMapper.Default(context.Menu, ClientFault), null);
+            return NodeSelectionMapper.Default(context.Menu, ClientFault);
         }
     }
 
@@ -96,14 +94,14 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
         [property: JsonPropertyName("visit")] int Visit,
         [property: JsonPropertyName("work_intent")] string WorkIntent);
 
-    private static void Record(Activity? activity, NodeSelectionContext context, NodeSelection selection, double? confidence)
+    private static void Record(Activity? activity, NodeSelectionContext context, NodeSelection selection)
     {
         activity?.SetTag(DecisionTelemetry.NodeTag, context.Node);
         activity?.SetTag(DecisionTelemetry.RoleTag, context.Role);
         activity?.SetTag(DecisionTelemetry.LevelTag, selection.Level);
         activity?.SetTag(DecisionTelemetry.KeptFamiliesTag, selection.KeptFamilies);
         activity?.SetTag(DecisionTelemetry.ModelTag, selection.Model);
-        if (confidence is { } answered)
+        if (selection.Confidence is { } answered)
         {
             activity?.SetTag(DecisionTelemetry.ConfidenceTag, answered);
         }

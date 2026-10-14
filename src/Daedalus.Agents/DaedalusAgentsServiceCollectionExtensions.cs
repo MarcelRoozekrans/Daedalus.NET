@@ -5,6 +5,7 @@ using AI.Sentinel;
 using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Charters;
+using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Git;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
@@ -257,6 +258,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         ValidateContentConfig(options.Content);
         ValidateDecisionsConfig(options);
+
+        // Phase 2.10: the validated options, read by NodeSelectionRunner for the role menus and by ReviewLensRunner for
+        // the pinned lens models, and the decider. No IDecisionClient is registered yet, so every decision falls back
+        // with reason "off" and a turn is the request it was before; task B5 registers the OpenRouter client.
+        services.TryAddSingleton(options);
+        services.TryAddSingleton(options.Decisions);
+        services.TryAddSingleton(sp => new NodeSelectionDecider(
+            client: null, sp.GetRequiredService<DecisionsConfig>(), sp.GetRequiredService<ILogger<NodeSelectionDecider>>()));
 
         // Checked whether or not the engine is on: Daedalus.Cli ships the same write grant with the engine off, and a
         // grant that only fails validation once someone flips Enabled is a grant nobody reviewed.
@@ -979,11 +988,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
     /// <summary>
     ///     Phase 2.10: every pinned review-lens model must be one the reviewer may use, else the pin would widen past the
-    ///     menu that the cost table is checked against.
+    ///     menu that the cost table is checked against. Trims every <c>AllowedModels</c> entry and every
+    ///     <c>PinnedLensModels</c> value in place first, so configuration whitespace never reaches Thalos, which compares
+    ///     model ids exactly.
     /// </summary>
     /// <exception cref="InvalidOperationException">
-    ///     <c>Model</c> is blank, <c>Timeout</c> is not positive, a probability is outside 0 to 1, an <c>AllowedModels</c> entry
-    ///     is blank or repeated, or a <c>PinnedLensModels</c> value is not in the reviewer's <c>AllowedModels</c>.
+    ///     <c>Model</c> is blank, <c>Timeout</c> is not positive, a probability is NaN or outside 0 to 1, an
+    ///     <c>AllowedModels</c> entry is blank or repeated, or a <c>PinnedLensModels</c> value is not in the reviewer's
+    ///     <c>AllowedModels</c>.
     /// </exception>
     private static void ValidateDecisionsConfig(DaedalusAgentsOptions options)
     {
@@ -999,12 +1011,13 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             throw new InvalidOperationException($"{section}:Timeout must be greater than zero, got {decisions.Timeout}.");
         }
 
-        if (decisions.ModelConfidence is < 0 or > 1)
+        // Written as "not inside" rather than "below or above": NaN compares false both ways and would pass the latter.
+        if (decisions.ModelConfidence is not (>= 0 and <= 1))
         {
             throw new InvalidOperationException($"{section}:ModelConfidence must be between 0 and 1, got {decisions.ModelConfidence}.");
         }
 
-        if (decisions.ToolFamilyProbability is < 0 or > 1)
+        if (decisions.ToolFamilyProbability is not (>= 0 and <= 1))
         {
             throw new InvalidOperationException($"{section}:ToolFamilyProbability must be between 0 and 1, got {decisions.ToolFamilyProbability}.");
         }
@@ -1013,13 +1026,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         {
             var models = options.Agents[i].AllowedModels;
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var model in models)
+            for (var j = 0; j < models.Count; j++)
             {
-                if (string.IsNullOrWhiteSpace(model))
+                if (string.IsNullOrWhiteSpace(models[j]))
                 {
                     throw new InvalidOperationException($"Thalos:Agents:{i}:AllowedModels must not contain a blank entry.");
                 }
 
+                var model = models[j] = models[j].Trim();
                 if (!seen.Add(model))
                 {
                     throw new InvalidOperationException($"Thalos:Agents:{i}:AllowedModels lists '{model}' more than once.");
@@ -1030,6 +1044,11 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         if (decisions.PinnedLensModels.Count == 0)
         {
             return;
+        }
+
+        foreach (var lens in decisions.PinnedLensModels.Keys.ToList())
+        {
+            decisions.PinnedLensModels[lens] = decisions.PinnedLensModels[lens]?.Trim() ?? "";
         }
 
         var reviewer = options.Agents.FirstOrDefault(a => string.Equals(a.Name, "reviewer", StringComparison.Ordinal));
@@ -1438,6 +1457,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         Id = ParseAgentId(agent.Id, agent.Name),
         Name = agent.Name,
         Tools = [.. agent.Tools],
+        // Phase 2.10, ruling 2: the menu travels with the agent into Thalos, so Thalos itself refuses a turn's model that
+        // is outside it. A decision in Daedalus can only narrow to this list; it is never the check.
+        AllowedModels = [.. agent.AllowedModels],
         MaxOutputTokens = agent.MaxOutputTokens,
         Memory = agent.Memory is null ? null : new AgentMemorySettings { Enabled = agent.Memory.Enabled, TopK = agent.Memory.TopK },
     };
@@ -1745,6 +1767,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         Description = agent.Description,
         Instructions = agent.Instructions,
         Model = agent.Model,
+        // The same menu ToEnvelope carries for a chartered agent; see there.
+        AllowedModels = [.. agent.AllowedModels],
         MaxOutputTokens = agent.MaxOutputTokens,
         Tools = agent.Tools.Count == 0 ? ["*"] : [.. agent.Tools],
         Skills = [.. agent.Skills],

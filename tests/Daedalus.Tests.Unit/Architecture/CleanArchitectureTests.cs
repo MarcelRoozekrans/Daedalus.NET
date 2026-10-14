@@ -345,11 +345,16 @@ public sealed class CleanArchitectureTests
         //
         // RunModeRunner (phase 2.6, ruling R61) is the fifth, and the same shape once more: a decorator that appends
         // the host's statement of the run's mode to a request's Task before forwarding to the runner it wraps
-        // (StandingInstructionsRunner), never dispatching a turn of its own.
+        // (ReviewFindingsRunner since issue #346), never dispatching a turn of its own.
         //
         // ReviewFindingsRunner (issue #346) is the sixth, and the same shape: a decorator that appends the rejecting
         // review lens's findings to an implement request's Task before forwarding to the runner it wraps
-        // (StandingInstructionsRunner), never dispatching a turn of its own.
+        // (NodeSelectionRunner since phase 2.10), never dispatching a turn of its own.
+        //
+        // NodeSelectionRunner (phase 2.10 task B4) is the seventh, and the same shape: a decorator that sets a workflow
+        // request's Model and ToolFilter from the node's recorded decision before forwarding to the runner it wraps
+        // (StandingInstructionsRunner), never dispatching a turn of its own. The decision it asks for goes through
+        // NodeSelectionDecider and Minos' IDecisionClient, never through ISubagentRunner.
         var rule = Types().That().Are(DaedalusOwnTypes).And().DependOnAny(SubagentRunnerType)
             .And().DoNotHaveFullName(typeof(SubagentRunExecutor).FullName!)
             .And().DoNotHaveFullName(typeof(WorkflowNodeDispatcherFactory).FullName!)
@@ -358,9 +363,11 @@ public sealed class CleanArchitectureTests
             .And().DoNotHaveFullName(typeof(StandingInstructionsRunner).FullName!)
             .And().DoNotHaveFullName(typeof(RunModeRunner).FullName!)
             .And().DoNotHaveFullName(typeof(ReviewFindingsRunner).FullName!)
+            .And().DoNotHaveFullName(typeof(NodeSelectionRunner).FullName!)
             .Should().NotExist()
             .Because("SubagentRunExecutor, WorkflowNodeDispatcherFactory, BudgetedSubagentRunner, " +
-                      "ReviewLensRunner, StandingInstructionsRunner, RunModeRunner and ReviewFindingsRunner are the only Daedalus types permitted to " +
+                      "ReviewLensRunner, StandingInstructionsRunner, RunModeRunner, ReviewFindingsRunner and NodeSelectionRunner are the only " +
+                      "Daedalus types permitted to " +
                       "depend on Thalos' ISubagentRunner; every other caller must go through " +
                       "ISubagentRunExecutor instead");
 

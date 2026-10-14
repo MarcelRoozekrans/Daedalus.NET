@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -70,17 +72,30 @@ internal static class WorkflowNodeDispatcherFactory
         // dispatch, and every lens pass ReviewLensRunner composes from the request it was handed carries the statement.
         // ReviewFindingsRunner (issue #346) acts on implement alone, so it sits outside the lens runner as well and reads
         // the run's review evidence once per implement dispatch.
+        // NodeSelectionRunner (phase 2.10) decides the node's model and tool families, and it has to sit OUTSIDE
+        // ReviewLensRunner: there it runs once per node dispatch, so the three lens passes of a review share one decision
+        // and so one model, one tool set and one cached prompt prefix. Inside it would decide per pass, three decisions
+        // where the design allows one, and each pass a cache write. It only sets Model and ToolFilter, so its place
+        // relative to the task-text decorators around it changes no text.
         new RunModeRunner(
             new ReviewFindingsRunner(
-                new StandingInstructionsRunner(
-                    new ReviewLensRunner(
-                        new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
-                        sp.GetRequiredService<IProcessDefinitionStore>(),
-                        // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
-                        // dependency.
-                        sp.GetRequiredService<IServiceScopeFactory>(),
-                        sp.GetRequiredService<TimeProvider>(),
-                        sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
+                new NodeSelectionRunner(
+                    new StandingInstructionsRunner(
+                        new ReviewLensRunner(
+                            new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+                            sp.GetRequiredService<IProcessDefinitionStore>(),
+                            // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
+                            // dependency.
+                            sp.GetRequiredService<IServiceScopeFactory>(),
+                            sp.GetRequiredService<TimeProvider>(),
+                            sp.GetRequiredService<DaedalusAgentsOptions>().Decisions.PinnedLensModels.ToFrozenDictionary(StringComparer.Ordinal),
+                            sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
+                    sp.GetRequiredService<NodeSelectionDecider>(),
+                    // Each decision reads and records through a fresh scope, as ReviewLensRunner does.
+                    sp.GetRequiredService<IServiceScopeFactory>(),
+                    sp.GetRequiredService<TimeProvider>(),
+                    sp.GetRequiredService<DaedalusAgentsOptions>(),
+                    sp.GetRequiredService<ILogger<NodeSelectionRunner>>()),
                 // The same reason: each read resolves the record store through a fresh scope.
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<ILogger<ReviewFindingsRunner>>())),

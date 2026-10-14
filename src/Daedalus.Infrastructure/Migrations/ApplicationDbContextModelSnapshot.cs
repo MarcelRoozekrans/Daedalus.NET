@@ -1149,13 +1149,18 @@ namespace Daedalus.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("RunId", "Seq")
+                    b.HasIndex("RunId", "Kind", "Seq")
+                        .HasDatabaseName("IX_WorkflowRunRecords_RunId_Kind_Seq");
+
+                    b.HasIndex(new[] { "RunId", "Seq" }, "UX_WorkflowRunRecords_NodeSelection_RunId_Seq")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WorkflowRunRecords_NodeSelection_RunId_Seq")
+                        .HasFilter("\"Kind\" = 'node-selection'");
+
+                    b.HasIndex(new[] { "RunId", "Seq" }, "UX_WorkflowRunRecords_NodeUsage_RunId_Seq")
                         .IsUnique()
                         .HasDatabaseName("UX_WorkflowRunRecords_NodeUsage_RunId_Seq")
                         .HasFilter("\"Kind\" = 'node-usage'");
-
-                    b.HasIndex("RunId", "Kind", "Seq")
-                        .HasDatabaseName("IX_WorkflowRunRecords_RunId_Kind_Seq");
 
                     b.ToTable("WorkflowRunRecords", (string)null);
                 });

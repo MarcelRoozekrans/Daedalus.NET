@@ -83,6 +83,21 @@ public sealed class WorkflowRunRecord
     /// </summary>
     public const string NodeUsageIndexName = "UX_WorkflowRunRecords_NodeUsage_RunId_Seq";
 
+    /// <summary>
+    ///     The <see cref="Kind"/> of a record of the model and tool families chosen for one agent-node visit, phase 2.10.
+    ///     Its payload is <c>{ level, model, tool_filter, kept_families, fallback, confidence }</c>. There is at most one per
+    ///     (<see cref="RunId"/>, <see cref="Seq"/>), enforced by the partial unique index <see cref="NodeSelectionIndexName"/>,
+    ///     so a redelivered dispatch of the same visit reads the decision back instead of making another, and two
+    ///     concurrent deliveries cannot record two different ones.
+    /// </summary>
+    public const string NodeSelectionKind = "node-selection";
+
+    /// <summary>
+    ///     The name of the unique index on (<see cref="RunId"/>, <see cref="Seq"/>) that holds only the
+    ///     <see cref="NodeSelectionKind"/> rows.
+    /// </summary>
+    public const string NodeSelectionIndexName = "UX_WorkflowRunRecords_NodeSelection_RunId_Seq";
+
     /// <summary>Maximum length of <see cref="Node"/>; the column is <c>varchar(128)</c>.</summary>
     public const int MaxNodeLength = 128;
 

@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Daedalus.Agents;
+using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Tools;
@@ -423,6 +424,29 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     Phase 2.10: each implement and review visit is decided once and recorded at its own seq in the real record
+    ///     store, through the unique index, and retrospect is not decided. The review's record shares the seq of its lens
+    ///     passes, so the three passes ran on that one decision. Reds, each applied once: drop NodeSelectionRunner from the
+    ///     dispatcher's chain, and there are no records; make every pinned node eligible, and retrospect is recorded too;
+    ///     record at <c>CurrentSeq + 1</c>, and each review's append collides with the implement record one seq on, so the
+    ///     review reuses that and records nothing of its own. The seq and fallback assertions say what the records are:
+    ///     the review's seq is the one its lens passes carried, and every decision fell back as decisions are off.
+    /// </summary>
+    [Fact]
+    public async Task Each_implement_and_review_visit_records_one_decision_at_its_own_seq()
+    {
+        var result = await RunAsync(squadEnabled: true, rejectFirstReview: true);
+
+        result.Status.Should().Be(WorkflowStatus.Awaiting, "the second review must have approved");
+        result.NodeSelections.Select(r => r.Node).Should().Equal("implement", "review", "implement", "review");
+        result.NodeSelections.Select(r => r.Seq).Should().BeInAscendingOrder().And.OnlyHaveUniqueItems();
+        result.NodeSelections.Where(r => string.Equals(r.Node, "review", StringComparison.Ordinal)).Select(r => r.Seq)
+            .Should().Equal(result.ReviewPassSeqs.Distinct(), "a review's decision is recorded at the seq its lens passes ran at");
+        result.NodeSelections.Select(r => JsonDocument.Parse(r.PayloadJson).RootElement.GetProperty("fallback").GetString())
+            .Should().AllBe(NodeSelectionDecider.Off);
+    }
+
+    /// <summary>
     ///     Issue #346: the implement turn a rejection sends the run back to is told what the rejecting lens found, so it
     ///     can fix that rather than guess. The first implement turn, which no review preceded, is told nothing. Red: drop
     ///     <see cref="ReviewFindingsRunner"/> from the dispatcher's chain, and the second implement task carries no finding.
@@ -551,7 +575,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         int PlantsReported,
         IReadOnlyList<WorkflowRunRecord> ReviewEvidence,
         IReadOnlyList<long> ReviewPassSeqs,
-        IReadOnlyList<WorkflowRunEvent> Events)
+        IReadOnlyList<WorkflowRunEvent> Events,
+        IReadOnlyList<WorkflowRunRecord> NodeSelections)
     {
         public WorkflowStatus Status => FinalRun.Status;
     }
@@ -643,7 +668,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 runner.PlantsReported,
                 await records.ListAsync(runId, WorkflowRunRecord.ReviewEvidenceKind, CancellationToken.None),
                 runner.ReviewPassSeqs,
-                await store.ListEventsAsync(runId, CancellationToken.None));
+                await store.ListEventsAsync(runId, CancellationToken.None),
+                await records.ListAsync(runId, WorkflowRunRecord.NodeSelectionKind, CancellationToken.None));
         }
         finally
         {
@@ -720,6 +746,23 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             MaxTotalTokens = 42_000,
             DeadlineSeconds = 180,
         }));
+        // Phase 2.10: every role configured with a menu, and decisions off, as shipped: each implement and review visit is
+        // decided, falls back with "off", and is recorded in the real record store.
+        var agents = new DaedalusAgentsOptions();
+        foreach (var (name, id) in new[] { ("implementer", ImplementerId), ("reviewer", ReviewerId), ("Daedalus Architect", ArchitectId) })
+        {
+            var agent = new AgentConfig { Id = id.ToString(), Name = name };
+            agent.AllowedModels.Add("claude-sonnet-5-5");
+            agent.Tools.Add("workspace__*");
+            agent.Tools.Add("daedalus__*");
+            agents.Agents.Add(agent);
+        }
+
+        services.AddSingleton(agents);
+        services.AddSingleton(new NodeSelectionDecider(null, agents.Decisions, NullLogger<NodeSelectionDecider>.Instance));
+        var chatProvider = Substitute.For<IChatClientProvider>();
+        chatProvider.DefaultModel.Returns("provider-default");
+        services.AddSingleton(chatProvider);
         return (services.BuildServiceProvider(), references, catalog);
     }
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Domain.Entities;
@@ -36,7 +37,10 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     ///     <c>daedalus.*</c> wildcard spelled out, plus the ASP.NET Core and HttpClient instrumentation sources.
     /// </summary>
     private static readonly string[] Sources =
-        ["thalos", WorkflowTelemetry.SourceName, "ZeroAlloc.Mediator", ManufactureTelemetry.SourceName, "Microsoft.AspNetCore", "System.Net.Http"];
+    [
+        "thalos", WorkflowTelemetry.SourceName, "ZeroAlloc.Mediator", ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName,
+        "Microsoft.AspNetCore", "System.Net.Http",
+    ];
 
     /// <summary>
     ///     The meters the production host collects: <c>AspireExtensions.Meters</c> with the <c>daedalus.*</c> wildcard
@@ -44,7 +48,7 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     /// </summary>
     private static readonly string[] Meters =
     [
-        "thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, "System.Runtime", "System.Net.Http",
+        "thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName, "System.Runtime", "System.Net.Http",
         "System.Net.NameResolution", "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Routing",
         "Microsoft.AspNetCore.Diagnostics", "Microsoft.AspNetCore.Server.Kestrel", "Microsoft.AspNetCore.Http.Connections",
         "Microsoft.AspNetCore.Authentication", "Microsoft.AspNetCore.Authorization", "Microsoft.AspNetCore.RateLimiting",
@@ -70,6 +74,8 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     ///     Red: drop the ASP.NET Core Filter; the exporter has a /health span.
     ///     Red: add Npgsql to TracedSources; the exported-source subset check names it.
     ///     Red: drop thalos from the captured sources in this test; the seen-sources check names it.
+    ///     Red: drop NodeSelectionRunner from the dispatcher's chain; the seen-sources check names daedalus.decisions.
+    ///     Red: tag the work intent on the decision span; the content assertion names that span.
     ///     Red: add Npgsql to Meters; the exported-meter subset check fails.
     ///     Red: drop daedalus.* from Meters; the exported metric names lack the tokens counter.
     ///     Red: make Flatten return nothing; the span scanner self-check fails.
@@ -203,8 +209,10 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         // runtime replaces the agent runtime (preflight A6), so "thalos" shows only its skills spans.
         // Nor do the mediator or HttpClient sources fire on this path, so they are captured but not required here.
         var seenSources = spans.Select(s => s.Source.Name).Distinct(StringComparer.Ordinal).ToList();
+        // Phase 2.10: every implement and review visit is decided, with decisions off as here, so the decision spans are
+        // seen and scanned too.
         seenSources.Should().Contain(
-            ["thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, "Microsoft.AspNetCore"],
+            ["thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName, "Microsoft.AspNetCore"],
             "the privacy scan below must have seen spans from each of these sources");
         exportedSpans.Select(a => a.Source.Name).Distinct(StringComparer.Ordinal).Should().BeSubsetOf(Sources);
 

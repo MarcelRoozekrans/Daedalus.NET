@@ -131,7 +131,9 @@ public sealed class DecisionsConfigTests
     }
 
     /// <summary>
-    ///     Red: delete the matching check in <c>ValidateDecisionsConfig</c>, or loosen its bound.
+    ///     Red: delete the matching check in <c>ValidateDecisionsConfig</c>, or loosen its bound. Red for the NaN rows:
+    ///     write the bound as <c>is &lt; 0 or &gt; 1</c>, which NaN passes. Red for the duplicate-after-trim row: compare
+    ///     the entries untrimmed. Red for the whitespace row: test the entry with <c>IsNullOrEmpty</c>.
     /// </summary>
     [Theory]
     [InlineData("blank-model", "*Decisions:Model*blank*")]
@@ -141,6 +143,10 @@ public sealed class DecisionsConfigTests
     [InlineData("confidence-below-zero", "*Decisions:ModelConfidence*between 0 and 1*")]
     [InlineData("probability-above-one", "*Decisions:ToolFamilyProbability*between 0 and 1*")]
     [InlineData("probability-below-zero", "*Decisions:ToolFamilyProbability*between 0 and 1*")]
+    [InlineData("confidence-nan", "*Decisions:ModelConfidence*between 0 and 1*")]
+    [InlineData("probability-nan", "*Decisions:ToolFamilyProbability*between 0 and 1*")]
+    [InlineData("whitespace-allowed-model", "*AllowedModels*blank entry*")]
+    [InlineData("duplicate-after-trim", "*AllowedModels*'claude-sonnet-5-5' more than once*")]
     [InlineData("blank-allowed-model", "*AllowedModels*blank entry*")]
     [InlineData("duplicate-allowed-model", "*AllowedModels*'claude-sonnet-5-5' more than once*")]
     public void An_invalid_decisions_value_is_refused_at_startup(string rule, string expectedMessage)
@@ -169,6 +175,18 @@ public sealed class DecisionsConfigTests
                 break;
             case "probability-below-zero":
                 options.Decisions.ToolFamilyProbability = -0.01;
+                break;
+            case "confidence-nan":
+                options.Decisions.ModelConfidence = double.NaN;
+                break;
+            case "probability-nan":
+                options.Decisions.ToolFamilyProbability = double.NaN;
+                break;
+            case "whitespace-allowed-model":
+                implementer.AllowedModels.Add(" \t");
+                break;
+            case "duplicate-after-trim":
+                implementer.AllowedModels.Add(" claude-sonnet-5-5 ");
                 break;
             case "blank-allowed-model":
                 implementer.AllowedModels.Add("");
@@ -209,5 +227,55 @@ public sealed class DecisionsConfigTests
         var act = () => services.AddDaedalusAgents(options, configuration, environment);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*no agent named reviewer is configured*");
+    }
+
+    /// <summary>
+    ///     Configuration whitespace never reaches Thalos: an entry is trimmed before the duplicate and pin checks, and the
+    ///     trimmed value is what the envelope carries. Red: drop the trim; the entry keeps its spaces. Red: trim the
+    ///     allowed models but not the pinned values; the pin is refused as outside the reviewer's menu.
+    /// </summary>
+    [Fact]
+    public void Allowed_models_and_pinned_lens_models_are_trimmed_at_startup()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        var reviewer = options.Agents.Single(a => string.Equals(a.Name, "reviewer", StringComparison.Ordinal));
+        reviewer.AllowedModels[0] = "  claude-sonnet-5-5\t";
+        options.Decisions.PinnedLensModels["falsifiability"] = " claude-opus-5-5 ";
+
+        services.AddDaedalusAgents(options, configuration, environment);
+
+        using (new AssertionScope())
+        {
+            reviewer.AllowedModels.Should().Equal("claude-sonnet-5-5", "claude-opus-5-5");
+            options.Decisions.PinnedLensModels["falsifiability"].Should().Be("claude-opus-5-5");
+        }
+    }
+
+    /// <summary>
+    ///     Ruling 2: each agent's menu reaches the Thalos agent definition, so Thalos itself refuses a turn's model outside
+    ///     it. Chartered agents carry it on their envelope, configured agents on their definition. Red: drop
+    ///     <c>AllowedModels</c> from <c>ToEnvelope</c>; the envelope assertions fail. Red: drop it from <c>ToDefinition</c>;
+    ///     the scout assertion fails.
+    /// </summary>
+    [Fact]
+    public void Each_agents_allowed_models_reach_its_thalos_definition()
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        options.Agents.Single(a => string.Equals(a.Name, "scout", StringComparison.Ordinal)).AllowedModels.Add("claude-haiku-5-5");
+
+        services.AddDaedalusAgents(options, configuration, environment);
+        using var provider = services.BuildServiceProvider();
+
+        var envelopes = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Thalos.Skills.Charters.CharterOptions>>().Value.Envelopes;
+        var definitions = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Thalos.ThalosOptions>>().Value.Agents;
+        using (new AssertionScope())
+        {
+            envelopes.Single(e => string.Equals(e.Name, "implementer", StringComparison.Ordinal)).AllowedModels
+                .Should().Equal("claude-haiku-5-5", "claude-sonnet-5-5");
+            envelopes.Single(e => string.Equals(e.Name, "reviewer", StringComparison.Ordinal)).AllowedModels
+                .Should().Equal("claude-sonnet-5-5", "claude-opus-5-5");
+            definitions.Single(d => string.Equals(d.Name, "scout", StringComparison.Ordinal)).AllowedModels
+                .Should().Equal("claude-haiku-5-5");
+        }
     }
 }
