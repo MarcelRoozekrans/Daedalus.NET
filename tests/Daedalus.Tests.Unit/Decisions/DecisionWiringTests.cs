@@ -19,6 +19,9 @@ public sealed class DecisionWiringTests
 {
     private const string Key = "sk-or-test-key-0123456789";
 
+    /// <summary>A distinctive key for the leak checks: a recognisable fragment, and a length of 18.</summary>
+    private const string SecretKey = "sk-or-zqx-7f3a91c2";
+
     private static ServiceProvider Compose(bool zeroRetention, string? key, ILoggerFactory? loggerFactory = null)
     {
         var environment = Substitute.For<IHostEnvironment>();
@@ -113,16 +116,45 @@ public sealed class DecisionWiringTests
         log.Messages.Should().ContainSingle(m => m.Contains("decisions are off", StringComparison.Ordinal)).Which.Should().Contain($"off: {reason}.");
     }
 
-    /// <summary>When decisions are on, the line says so and names the model. Red: log the off line in both branches.</summary>
+    /// <summary>
+    ///     When decisions are on, the registered service says so and names the model. Red: log the off line in both
+    ///     branches; the on line is missing.
+    /// </summary>
     [Fact]
     public async Task The_start_up_log_says_when_decisions_are_on()
     {
         var log = new CapturingLoggerFactory();
+        await using var provider = Compose(zeroRetention: true, Key, log);
+        var hosted = provider.GetServices<IHostedService>().OfType<DecisionsStartupLog>().Should().ContainSingle().Subject;
 
-        await new DecisionsStartupLog(new DecisionsConfig { ZeroDataRetentionAccount = true }, keyPresent: true, log.CreateLogger<DecisionsStartupLog>())
-            .StartAsync(CancellationToken.None);
+        await hosted.StartAsync(CancellationToken.None);
 
-        log.Messages.Should().ContainSingle().Which.Should().Contain("are on").And.Contain("jev-latest");
+        log.Messages.Should().ContainSingle(m => m.Contains("decisions are on", StringComparison.Ordinal))
+            .Which.Should().Contain("jev-latest");
+    }
+
+    /// <summary>
+    ///     No line the registered service logs, on or off, holds the key, a recognisable fragment of it or its length as a
+    ///     number. Red: add the key to the on or the off message; the key check fails. Red: add <c>zqx</c> alone; the
+    ///     fragment check fails. Red: add the key's length to either message; the length check fails.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task No_start_up_line_contains_the_key_a_fragment_of_it_or_its_length(bool zeroRetention)
+    {
+        var log = new CapturingLoggerFactory();
+        await using var provider = Compose(zeroRetention, SecretKey, log);
+        var hosted = provider.GetServices<IHostedService>().OfType<DecisionsStartupLog>().Should().ContainSingle().Subject;
+
+        await hosted.StartAsync(CancellationToken.None);
+
+        var lines = log.Messages.Where(m => m.Contains("decisions are", StringComparison.Ordinal)).ToList();
+        lines.Should().ContainSingle("the registered service logged its line");
+        var length = SecretKey.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        lines.Should().NotContain(m => m.Contains(SecretKey, StringComparison.Ordinal), "the key is never logged");
+        lines.Should().NotContain(m => m.Contains("zqx", StringComparison.Ordinal), "no fragment of the key is logged");
+        lines.Should().NotContain(m => m.Contains(length, StringComparison.Ordinal), "the key's length is never logged");
     }
 
     /// <summary>
@@ -199,13 +231,11 @@ public sealed class DecisionWiringTests
 
         public ILogger CreateLogger(string categoryName) => new Capture(Messages);
 
-        public ILogger<T> CreateLogger<T>() => new CaptureOf<T>(Messages);
-
         public void AddProvider(ILoggerProvider provider) { }
 
         public void Dispose() { }
 
-        private class Capture(List<string> messages) : ILogger
+        private sealed class Capture(List<string> messages) : ILogger
         {
             public IDisposable? BeginScope<TState>(TState state)
                 where TState : notnull => null;
@@ -215,7 +245,5 @@ public sealed class DecisionWiringTests
             public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
                 messages.Add(formatter(state, exception));
         }
-
-        private sealed class CaptureOf<T>(List<string> messages) : Capture(messages), ILogger<T>;
     }
 }
