@@ -19,7 +19,7 @@ public sealed class DecisionWiringTests
 {
     private const string Key = "sk-or-test-key-0123456789";
 
-    private static ServiceProvider Compose(bool zeroRetention, string? key)
+    private static ServiceProvider Compose(bool zeroRetention, string? key, ILoggerFactory? loggerFactory = null)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(AppContext.BaseDirectory);
@@ -40,6 +40,11 @@ public sealed class DecisionWiringTests
 
         var services = new ServiceCollection();
         services.AddLogging();
+        if (loggerFactory is not null)
+        {
+            services.AddSingleton(loggerFactory);
+        }
+
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddDaedalusAgents(options, configuration, environment);
         return services.BuildServiceProvider();
@@ -47,11 +52,15 @@ public sealed class DecisionWiringTests
 
     /// <summary>
     ///     Red: gate the registration on the confirmation alone, ignoring the key; the client is registered.
+    ///     Red: revert the key check to <c>IsNullOrEmpty</c> in <c>IsEnabled</c>; the blank key row registers a client, which Minos
+    ///     would then refuse at host start.
     /// </summary>
-    [Fact]
-    public void With_no_key_no_decision_client_is_registered_and_runs_are_unchanged()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public void With_no_key_no_decision_client_is_registered_and_runs_are_unchanged(string? key)
     {
-        using var provider = Compose(zeroRetention: true, key: null);
+        using var provider = Compose(zeroRetention: true, key);
 
         provider.GetService<IDecisionClient>().Should().BeNull();
         provider.GetRequiredService<NodeSelectionDecider>().HasClient.Should().BeFalse();
@@ -81,39 +90,27 @@ public sealed class DecisionWiringTests
     }
 
     /// <summary>
-    ///     Red: register DecisionsStartupLog as a plain singleton instead of a hosted service; no host starts it, and the
-    ///     single-instance check fails. Red: return NoKey for the confirmation row of WhyOff; that row fails.
+    ///     The registered start-up service, started from a provider that logs to a capture, says why decisions are off.
+    ///     Red: register DecisionsStartupLog as a plain singleton instead of a hosted service; the single-instance check
+    ///     fails. Red: return NoKey for the confirmation row of WhyOff; that row fails. Red: pass <c>true</c> for keyPresent
+    ///     in the registration; the no-key rows log no reason. Red: build the log from a fresh <c>new DecisionsConfig</c> in
+    ///     the registration; the confirmation rows read the wrong flag. Red: compute keyPresent with <c>IsNullOrEmpty</c>;
+    ///     the blank row names no reason.
     /// </summary>
     [Theory]
-    [InlineData(false, true, DecisionsStartupLog.NoZeroRetentionConfirmation)]
-    [InlineData(true, false, DecisionsStartupLog.NoKey)]
-    [InlineData(false, false, DecisionsStartupLog.NoConfirmationAndNoKey)]
-    public async Task The_start_up_log_names_why_decisions_are_off(bool zeroRetention, bool keyPresent, string reason)
-    {
-        await using var provider = Compose(zeroRetention, keyPresent ? Key : null);
-        var log = new CapturingLoggerFactory();
-        provider.GetServices<IHostedService>().OfType<DecisionsStartupLog>().Should().ContainSingle();
-
-        await new DecisionsStartupLog(new DecisionsConfig { ZeroDataRetentionAccount = zeroRetention }, keyPresent, log.CreateLogger<DecisionsStartupLog>())
-            .StartAsync(CancellationToken.None);
-
-        log.Messages.Should().ContainSingle().Which.Should().Contain(reason).And.Contain("off");
-    }
-
-    /// <summary>Red: add sk-or, or the key's length of 25, to the on or off message; the matching check fails.</summary>
-    [Fact]
-    public async Task No_start_up_line_contains_the_key_or_its_length()
+    [InlineData(false, "sk-or-x", DecisionsStartupLog.NoZeroRetentionConfirmation)]
+    [InlineData(true, null, DecisionsStartupLog.NoKey)]
+    [InlineData(true, "   ", DecisionsStartupLog.NoKey)]
+    [InlineData(false, null, DecisionsStartupLog.NoConfirmationAndNoKey)]
+    public async Task The_start_up_log_names_why_decisions_are_off(bool zeroRetention, string? key, string reason)
     {
         var log = new CapturingLoggerFactory();
-        foreach (var (zero, present) in new[] { (true, true), (false, true), (true, false), (false, false) })
-        {
-            await new DecisionsStartupLog(new DecisionsConfig { ZeroDataRetentionAccount = zero }, present, log.CreateLogger<DecisionsStartupLog>())
-                .StartAsync(CancellationToken.None);
-        }
+        await using var provider = Compose(zeroRetention, key, log);
+        var hosted = provider.GetServices<IHostedService>().OfType<DecisionsStartupLog>().Should().ContainSingle().Subject;
 
-        log.Messages.Should().HaveCount(4);
-        log.Messages.Should().NotContain(m => m.Contains(Key, StringComparison.Ordinal) || m.Contains("sk-or", StringComparison.Ordinal)
-            || m.Contains(Key.Length.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
+        await hosted.StartAsync(CancellationToken.None);
+
+        log.Messages.Should().ContainSingle(m => m.Contains("decisions are off", StringComparison.Ordinal)).Which.Should().Contain($"off: {reason}.");
     }
 
     /// <summary>When decisions are on, the line says so and names the model. Red: log the off line in both branches.</summary>

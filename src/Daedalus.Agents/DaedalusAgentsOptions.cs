@@ -442,5 +442,12 @@ public sealed class DecisionsConfig
     public IDictionary<string, string> PinnedLensModels { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>Whether decisions run: the account is confirmed zero-retention and a key is present. Only decides; reads nothing.</summary>
-    public bool IsEnabled(string? apiKey) => ZeroDataRetentionAccount && !string.IsNullOrEmpty(apiKey);
+    public bool IsEnabled(string? apiKey) => ZeroDataRetentionAccount && HasKey(apiKey);
+
+    /// <summary>
+    ///     Whether <paramref name="apiKey"/> counts as a key: not null, empty or blank. The one predicate for the
+    ///     registration, <see cref="IsEnabled"/> and the start-up log, so none can disagree about a blank key, which the
+    ///     decision client would refuse at host start.
+    /// </summary>
+    public static bool HasKey(string? apiKey) => !string.IsNullOrWhiteSpace(apiKey);
 }

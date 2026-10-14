@@ -215,6 +215,15 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var droppedIds = dropped.IsSuccess ? dropped.Value.Ids : DroppedFindings.None.Ids;
         var error = string.Join("; ", new[] { review.IsFailure ? review.Error : null, dropped.IsFailure ? dropped.Error : null, filed.IsFailure ? filed.Error : null }.Where(e => e is not null));
 
+        // The shared parser NodeSelectionRunner reads with. The tool filter is read by it but never put in the view.
+        var readSelections = selections.OrderBy(r => r.Seq)
+            .Select(r => (Record: r, Selection: NodeSelectionRecord.Parse(r.PayloadJson)))
+            .Select(x => (x.Record, View: x.Selection is { } d
+                ? new NodeSelectionView(x.Record.Seq, x.Record.Node, d.Model, d.Level, d.KeptFamilies, d.Fallback, d.Confidence)
+                : null))
+            .ToList();
+        var unreadableSelections = readSelections.Where(x => x.View is null).Select(x => x.Record.Seq.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToList();
+
         var (prUrl, unreadableLink) = ReadPrUrl(run);
         // The repository a deferred finding's existing issue number lives in. At the gate there is no pull request
         // yet: publish runs after it, so the run's workspace names the repository. Once a pull request exists,
@@ -250,40 +259,10 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             Steps: WorkflowRunStepProjection.Project(events),
             Checked: checkedItems,
             StartedByName: run.StartedBy?.DisplayName,
-            NodeSelections: [.. selections.OrderBy(r => r.Seq).Select(ToNodeSelectionView).OfType<NodeSelectionView>()]);
-    }
-
-    /// <summary>
-    ///     One node-selection record as a view, or <see langword="null"/> when its payload is not the
-    ///     <c>{ level, model, tool_filter, kept_families, fallback, confidence }</c> that <c>NodeSelectionRunner</c> writes.
-    ///     The tool filter is read by nothing here.
-    /// </summary>
-    private static NodeSelectionView? ToNodeSelectionView(WorkflowRunRecord record)
-    {
-        JsonDocument payload;
-        try
-        {
-            payload = JsonDocument.Parse(record.PayloadJson);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-
-        using (payload)
-        {
-            var root = payload.RootElement;
-            var model = ReadString(root, "model");
-            var level = ReadString(root, "level");
-            if (model is null || level is null
-                || !root.TryGetProperty("kept_families", out var kept) || !kept.TryGetInt32(out var keptFamilies))
-            {
-                return null;
-            }
-
-            double? confidence = root.TryGetProperty("confidence", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetDouble() : null;
-            return new NodeSelectionView(record.Seq, record.Node, model, level, keptFamilies, ReadString(root, "fallback"), confidence);
-        }
+            NodeSelections: [.. readSelections.Select(x => x.View).OfType<NodeSelectionView>()],
+            NodeSelectionsError: unreadableSelections.Count > 0
+                ? $"{unreadableSelections.Count} node-selection record(s) could not be read, at seq {string.Join(", ", unreadableSelections)}."
+                : null);
     }
 
     /// <summary>Findings in the order a human reads them: by lens, then by number (so 2 comes before 10), with the summary last.</summary>

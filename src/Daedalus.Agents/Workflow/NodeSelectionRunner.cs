@@ -350,7 +350,7 @@ internal sealed partial class NodeSelectionRunner(
         if (record is null)
             return Result<NodeSelection?, AgentError>.Success(null);
 
-        var parsed = Parse(record.PayloadJson);
+        var parsed = NodeSelectionRecord.Parse(record.PayloadJson);
         if (parsed is null)
         {
             LogRecordUnreadable(_logger, run.Id, run.CurrentSeq);
@@ -370,7 +370,7 @@ internal sealed partial class NodeSelectionRunner(
     {
         var record = WorkflowRunRecord.Create(
             run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.NodeSelectionKind, caller.Id, run.StartedBy?.Id,
-            JsonSerializer.Serialize(SelectionPayload.From(selection)), _clock.GetUtcNow().UtcDateTime);
+            NodeSelectionRecord.Serialize(selection), _clock.GetUtcNow().UtcDateTime);
         if (record.IsFailure)
         {
             LogRecordRejected(_logger, run.Id, run.CurrentSeq, record.Error);
@@ -400,48 +400,9 @@ internal sealed partial class NodeSelectionRunner(
         ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg
         && string.Equals(pg.ConstraintName, WorkflowRunRecord.NodeSelectionIndexName, StringComparison.Ordinal);
 
-    /// <summary>The recorded decision, or <see langword="null"/> when the payload is not one this type wrote.</summary>
-    private static NodeSelection? Parse(string payloadJson)
-    {
-        SelectionPayload? payload;
-        try
-        {
-            payload = JsonSerializer.Deserialize<SelectionPayload>(payloadJson);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-
-        if (payload is null || string.IsNullOrWhiteSpace(payload.Model) || string.IsNullOrWhiteSpace(payload.Level))
-            return null;
-
-        // Thalos refuses an empty filter or a blank entry, so a record holding one would fail every replay of the visit.
-        if (payload.ToolFilter is { } filter && (filter.Count == 0 || filter.Any(string.IsNullOrWhiteSpace)))
-            return null;
-
-        return new NodeSelection(payload.Model, payload.ToolFilter, payload.Level, payload.KeptFamilies, payload.Fallback, payload.Confidence);
-    }
-
     private const string NotRecorded = "This node's model and tool decision could not be recorded, so the node does not run on it.";
 
     private const string NotRead = "This node's recorded model and tool decision could not be read, so the node does not run.";
-
-    /// <summary>
-    ///     The record's payload, <c>{ level, model, tool_filter, kept_families, fallback, confidence }</c>. Tool names
-    ///     appear here, unlike in telemetry: a run record is the run's own audit, read only by people who can read the run.
-    /// </summary>
-    private sealed record SelectionPayload(
-        [property: JsonPropertyName("level")] string Level,
-        [property: JsonPropertyName("model")] string Model,
-        [property: JsonPropertyName("tool_filter")] IReadOnlyList<string>? ToolFilter,
-        [property: JsonPropertyName("kept_families")] int KeptFamilies,
-        [property: JsonPropertyName("fallback")] string? Fallback,
-        [property: JsonPropertyName("confidence")] double? Confidence)
-    {
-        public static SelectionPayload From(NodeSelection selection) =>
-            new(selection.Level, selection.Model, selection.ToolFilter, selection.KeptFamilies, selection.Fallback, selection.Confidence);
-    }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {Agent} on node {Node} of run {RunId} has no Thalos:Agents entry; the node runs undecided")]
     private static partial void LogRoleNotConfigured(ILogger logger, string agent, string node, Guid runId);
