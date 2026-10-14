@@ -46,10 +46,12 @@ namespace Daedalus.Agents.Workflow;
 ///     told not to narrow, so implement and review get their full lists from then on.
 ///     </para>
 ///     <para>
-///     <b>A decision that cannot be recorded fails the node</b>, the same rule as <see cref="ReviewLensRunner"/>: a turn
-///     run on a decision a redelivery could not read back is a turn that could be replayed differently. A failed read or
-///     write, or a record that does not parse, is logged and returned as a <see cref="AgentErrorCode.StoreError"/>, and no
-///     turn runs. Cancellation of <c>ct</c> itself still propagates.
+///     <b>A decision that cannot be recorded fails the node while decisions are on</b>, the same rule as
+///     <see cref="ReviewLensRunner"/>: a turn run on a decision a redelivery could not read back is a turn that could be
+///     replayed differently. A failed read or write, or a record that does not parse, is logged and returned as a
+///     <see cref="AgentErrorCode.StoreError"/>, and no turn runs. <b>While decisions are off it does not</b>: the turn is
+///     the unchanged request either way, so the failure is logged by its exception type or reason code only and the
+///     request is forwarded unchanged. Cancellation of <c>ct</c> itself still propagates.
 ///     </para>
 ///     <para>
 ///     <b>Placement.</b> Outside <see cref="ReviewLensRunner"/>, so the three lens passes of a review share one decision
@@ -121,7 +123,13 @@ internal sealed partial class NodeSelectionRunner(
 
         var selection = await SelectAsync(caller, pin, role, ct);
         if (selection.IsFailure)
-            return Result<AgentTurnResult, AgentError>.Failure(selection.Error);
+        {
+            // With decisions off the turn is today's request whatever the record says, so a record that cannot be read or
+            // written adds no failure mode: the failure is logged where it happened, and the request goes on unchanged.
+            return _decider.HasClient
+                ? Result<AgentTurnResult, AgentError>.Failure(selection.Error)
+                : await _inner.RunAsync(request, ct);
+        }
 
         return await _inner.RunAsync(Apply(request, selection.Value), ct);
     }
@@ -178,16 +186,26 @@ internal sealed partial class NodeSelectionRunner(
             definition = null;
         }
 
-        var menu = await MenuOfAsync(role, definition, ct);
         var context = new NodeSelectionContext(
             pin.AgentName,
             run.CurrentNode,
             run.Variables.TryGetValue(ReviewHandoff.WorkIntentKey, out var intent) && intent is string text ? text : "",
             run.Visits.TryGetValue(run.CurrentNode, out var visit) ? visit : 1,
-            menu,
+            MenuOf(role, definition),
             NarrowTools: !AfterRejection(run));
+
+        // The tool resolution and the override check run inside the decision's own budget, so a slow tool source falls the
+        // visit back on timeout rather than stalling it. The check falls back to the menu the decision was offered.
+        var offered = context.Menu;
         var decided = await _decider.DecideAsync(
-            context, (selection, token) => SettleAsync(definition, menu, selection, run, token), ct);
+            context,
+            async (unresolved, token) =>
+            {
+                offered = await OfferedAsync(unresolved.Menu, definition, token);
+                return unresolved with { Menu = offered };
+            },
+            (selection, token) => SettleAsync(definition, offered, selection, run, token),
+            ct);
 
         var written = await AppendAsync(records, caller, run, decided, ct);
         if (written.IsFailure)
@@ -201,9 +219,12 @@ internal sealed partial class NodeSelectionRunner(
         if (winner.IsFailure)
             return Result<NodeSelection, AgentError>.Failure(winner.Error);
 
-        return winner.Value is { } won
-            ? Result<NodeSelection, AgentError>.Success(won)
-            : Result<NodeSelection, AgentError>.Failure(AgentError.StoreError(NotRecorded, "the record that won the unique index could not be read back"));
+        if (winner.Value is { } won)
+            return Result<NodeSelection, AgentError>.Success(won);
+
+        if (!_decider.HasClient)
+            LogUnrecordedWhileOff(_logger, run.Id, run.CurrentSeq, "not-read-back");
+        return Result<NodeSelection, AgentError>.Failure(AgentError.StoreError(NotRecorded, "the record that won the unique index could not be read back"));
     }
 
     /// <summary>Whether a review was rejected earlier in the run: either node is on a later visit.</summary>
@@ -212,27 +233,34 @@ internal sealed partial class NodeSelectionRunner(
         || (run.Visits.TryGetValue("implement", out var implements) && implements > 1);
 
     /// <summary>
-    ///     The role's menu: its default model, its allowed models, and those of its configured tool patterns, in configured
-    ///     order, that match at least one tool the agent resolves on this host. A pattern for a source this host lacks, such
-    ///     as <c>sandbox__build</c> in local mode or <c>issues__*</c> without a token, is not offered, so the decision can
-    ///     never keep it and Thalos never refuses it. When the tools cannot be resolved the configured patterns are the
-    ///     menu, and <see cref="SettleAsync"/> still guards the turn.
+    ///     The role's menu before its tools are resolved: its default model, its allowed models and its configured tool
+    ///     patterns, in configured order. <see cref="OfferedAsync"/> narrows the patterns to the tools this host has, when a
+    ///     decision can be taken.
     /// </summary>
-    private async ValueTask<RoleMenu> MenuOfAsync(AgentConfig role, AgentDefinition? definition, CancellationToken ct)
+    private RoleMenu MenuOf(AgentConfig role, AgentDefinition? definition)
     {
         var defaultModel = string.IsNullOrWhiteSpace(definition?.Model) ? _chatProvider.DefaultModel : definition.Model;
 
         // An empty Tools list means every tool, the same default the agent's own definition gets.
         IReadOnlyList<string> configured = role.Tools.Count == 0 ? ["*"] : [.. role.Tools];
+        return new RoleMenu(defaultModel, [.. role.AllowedModels], configured);
+    }
 
-        // Resolved only when a decision can narrow: with decisions off the filter is always null, so the resolution would
-        // be a tool-source round trip on every visit for nothing. Thalos' own cached resolution is not public, so this is
-        // a direct IToolCatalog call.
-        var resolved = definition is not null && _decider.HasClient ? await ResolvedToolNamesAsync(definition, ct) : null;
-        IReadOnlyList<string> offered = resolved is null
-            ? configured
-            : [.. configured.Where(pattern => resolved.Any(name => Glob.IsMatch(pattern, name)))];
-        return new RoleMenu(defaultModel, [.. role.AllowedModels], offered);
+    /// <summary>
+    ///     <paramref name="menu"/> with only those of its tool patterns that match at least one tool the agent resolves on this
+    ///     host. A pattern for a source this host lacks, such as <c>sandbox__build</c> in local mode or <c>issues__*</c>
+    ///     without a token, is not offered, so the decision can never keep it and Thalos never refuses it. When the tools
+    ///     cannot be resolved the configured patterns are the menu, and <see cref="SettleAsync"/> still guards the turn. The
+    ///     decider calls this only when a decision can be taken, within its budget: with decisions off the filter is always
+    ///     null, so the resolution would be a tool-source round trip on every visit for nothing. Thalos' own cached
+    ///     resolution is not public, so this is a direct <see cref="IToolCatalog"/> call.
+    /// </summary>
+    private async ValueTask<RoleMenu> OfferedAsync(RoleMenu menu, AgentDefinition? definition, CancellationToken ct)
+    {
+        var resolved = definition is not null ? await ResolvedToolNamesAsync(definition, ct) : null;
+        return resolved is null
+            ? menu
+            : menu with { Tools = [.. menu.Tools.Where(pattern => resolved.Any(name => Glob.IsMatch(pattern, name)))] };
     }
 
     /// <summary>The qualified names of the tools the agent resolves, or <see langword="null"/> when resolution failed.</summary>
@@ -342,7 +370,10 @@ internal sealed partial class NodeSelectionRunner(
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            LogReadFailed(_logger, ex, run.Id, run.CurrentSeq);
+            if (_decider.HasClient)
+                LogReadFailed(_logger, ex, run.Id, run.CurrentSeq);
+            else
+                LogUnrecordedWhileOff(_logger, run.Id, run.CurrentSeq, ex.GetType().Name);
             return Result<NodeSelection?, AgentError>.Failure(AgentError.StoreError(NotRead, ex.Message));
         }
 
@@ -353,7 +384,10 @@ internal sealed partial class NodeSelectionRunner(
         var parsed = NodeSelectionRecord.Parse(record.PayloadJson);
         if (parsed is null)
         {
-            LogRecordUnreadable(_logger, run.Id, run.CurrentSeq);
+            if (_decider.HasClient)
+                LogRecordUnreadable(_logger, run.Id, run.CurrentSeq);
+            else
+                LogUnrecordedWhileOff(_logger, run.Id, run.CurrentSeq, "unparseable");
             return Result<NodeSelection?, AgentError>.Failure(AgentError.StoreError(NotRead, "the recorded decision does not parse"));
         }
 
@@ -373,7 +407,10 @@ internal sealed partial class NodeSelectionRunner(
             NodeSelectionRecord.Serialize(selection), _clock.GetUtcNow().UtcDateTime);
         if (record.IsFailure)
         {
-            LogRecordRejected(_logger, run.Id, run.CurrentSeq, record.Error);
+            if (_decider.HasClient)
+                LogRecordRejected(_logger, run.Id, run.CurrentSeq, record.Error);
+            else
+                LogUnrecordedWhileOff(_logger, run.Id, run.CurrentSeq, "invalid");
             return Result<bool, AgentError>.Failure(AgentError.StoreError(NotRecorded, record.Error));
         }
 
@@ -390,7 +427,10 @@ internal sealed partial class NodeSelectionRunner(
         {
             // Any failure other than this call's own cancellation, including a timeout surfacing as a cancellation nobody
             // asked for, is a decision that was not recorded, so the turn does not run on it.
-            LogWriteFailed(_logger, ex, run.Id, run.CurrentSeq);
+            if (_decider.HasClient)
+                LogWriteFailed(_logger, ex, run.Id, run.CurrentSeq);
+            else
+                LogUnrecordedWhileOff(_logger, run.Id, run.CurrentSeq, ex.GetType().Name);
             return Result<bool, AgentError>.Failure(AgentError.StoreError(NotRecorded, ex.Message));
         }
     }
@@ -433,6 +473,9 @@ internal sealed partial class NodeSelectionRunner(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The node decision of run {RunId} at seq {Seq} was invalid ({Reason}); the node fails")]
     private static partial void LogRecordRejected(ILogger logger, Guid runId, long seq, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The node decision of run {RunId} at seq {Seq} could not be recorded or read ({Failure}); decisions are off, so the node runs its unchanged request")]
+    private static partial void LogUnrecordedWhileOff(ILogger logger, Guid runId, long seq, string failure);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The node decision of run {RunId} at seq {Seq} could not be written; the node fails")]
     private static partial void LogWriteFailed(ILogger logger, Exception exception, Guid runId, long seq);

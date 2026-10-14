@@ -25,6 +25,13 @@ public enum Demand
 [Questions]
 public partial record NodeQuestions
 {
+    /// <summary>
+    ///     The version of this question set, written into every <c>node-selection</c> record that holds answers, so a record
+    ///     can be read against the questions it answered. Raise it whenever a question, its wording, a level or the order
+    ///     changes; <c>NodeQuestionsShapeTests</c> fails until it is raised.
+    /// </summary>
+    public const int Version = 1;
+
     /// <summary>How demanding the node's work is.</summary>
     [Score("How demanding is the work this node has to do, judged from the task described in the state?")]
     public partial Score<Demand> Demand { get; }

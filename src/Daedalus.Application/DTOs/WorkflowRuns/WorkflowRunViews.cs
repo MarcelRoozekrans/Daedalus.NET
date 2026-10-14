@@ -101,7 +101,11 @@ public sealed record WorkflowRunView(
 /// </summary>
 /// <param name="Seq">The seq of the node visit the decision belongs to.</param>
 /// <param name="Node">The node.</param>
-/// <param name="Model">The model the node runs on.</param>
+/// <param name="Model">
+///     The model the node runs on. On a review whose lens is pinned (<c>Thalos:Decisions:PinnedLensModels</c>) that lens's
+///     pass ran on its pinned model instead, which this view does not show: the node's <c>node-usage</c> run record holds one
+///     <c>byModel</c> part per model it ran on, the per-lens models as cost analytics prices them.
+/// </param>
 /// <param name="Level">The demand level chosen, or the default's level when the decision fell back.</param>
 /// <param name="KeptFamilies">How many tool families the node keeps.</param>
 /// <param name="Fallback">Why the default applies, or <see langword="null"/> when the decision was taken.</param>
@@ -168,7 +172,10 @@ public sealed record DeferredFindingView(
 /// <param name="OutputTokens">Output tokens.</param>
 /// <param name="CacheReadTokens">Input tokens read from a prompt cache.</param>
 /// <param name="CacheWriteTokens">Input tokens written to a prompt cache.</param>
-/// <param name="ModelId">The model that served the node, or empty when the turn reported none.</param>
+/// <param name="ModelId">
+///     The model that served the node, or empty when the turn reported none. For a node that ran on several models, such as
+///     a review with a pinned lens, the first; the node's <c>node-usage</c> record splits its tokens per model.
+/// </param>
 public sealed record NodeUsageView(long Seq, string Node, int InputTokens, int OutputTokens, int CacheReadTokens, int CacheWriteTokens, string ModelId);
 
 /// <summary>One workspace write the tool authorizer allowed and recorded, read off the run's write-audit records.</summary>

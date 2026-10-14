@@ -172,12 +172,13 @@ public sealed class NodeSelectionRunnerTests
 
     private static NodeSelectionRunner Runner(
         ISubagentRunner inner, IDecisionClient? client, IWorkflowRunRecordStore records, ThalosFakes? thalos = null,
-        ILogger<NodeSelectionRunner>? logger = null)
+        ILogger<NodeSelectionRunner>? logger = null, TimeSpan? timeout = null)
     {
         thalos ??= new ThalosFakes();
         return new(
             inner,
-            new NodeSelectionDecider(client, new DecisionsConfig(), NullLogger<NodeSelectionDecider>.Instance),
+            new NodeSelectionDecider(
+                client, new DecisionsConfig { Timeout = timeout ?? TimeSpan.FromSeconds(5) }, NullLogger<NodeSelectionDecider>.Instance),
             RecordStoreScopes.For(records),
             new FakeTimeProvider(Now),
             Options(),
@@ -846,4 +847,144 @@ public sealed class NodeSelectionRunnerTests
 
     private static DbUpdateException UniqueViolation(string constraint) =>
         new("insert failed", new PostgresException("duplicate key", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation, constraintName: constraint));
+
+    /// <summary>
+    ///     Final review item 4: with decisions off the turn is today's request whatever the record says, so a record that
+    ///     cannot be read or written, or does not parse, is logged by its exception type or reason code and the request is
+    ///     forwarded unchanged; with decisions on the same failures still fail the node, see
+    ///     <see cref="A_record_that_cannot_be_written_fails_the_node"/>. Reds, each applied once: fail the node whatever the
+    ///     mode, and every row fails; forward a copy of the request instead of the request, and the same-instance assertion
+    ///     fails; log the exception itself in off mode, and the line carries <c>zqx</c>; drop the off log, and no line names
+    ///     the failure.
+    /// </summary>
+    [Theory]
+    [InlineData("append-fails", "InvalidOperationException")]
+    [InlineData("read-fails", "InvalidOperationException")]
+    [InlineData("record-unreadable", "unparseable")]
+    public async Task With_decisions_off_a_record_failure_forwards_the_request_unchanged(string failure, string logged)
+    {
+        var inner = new CapturingRunner();
+        var run = RunAt("implement", ReviewHandoff.ImplementSkillName);
+        var request = RequestFor(run);
+        var log = new ListLogger();
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        records.ListAsync(run.Id, WorkflowRunRecord.NodeSelectionKind, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
+        switch (failure)
+        {
+            case "append-fails":
+                records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>())
+                    .Returns(_ => ValueTask.FromException(new InvalidOperationException("zqx database is down")));
+                break;
+            case "read-fails":
+                records.ListAsync(run.Id, WorkflowRunRecord.NodeSelectionKind, Arg.Any<CancellationToken>())
+                    .Returns(_ => ValueTask.FromException<IReadOnlyList<WorkflowRunRecord>>(new InvalidOperationException("zqx database is down")));
+                break;
+            default:
+                var unreadable = WorkflowRunRecord.Create(
+                    run.Id, 7, "implement", WorkflowRunRecord.NodeSelectionKind, "earlier", null, """{"level":"Hard"}""", Now.UtcDateTime).Value;
+                records.ListAsync(run.Id, WorkflowRunRecord.NodeSelectionKind, Arg.Any<CancellationToken>())
+                    .Returns(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([unreadable]));
+                break;
+        }
+
+        var result = await Runner(inner, client: null, records, logger: log).RunAsync(request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        using (new AssertionScope())
+        {
+            inner.Requests.Should().ContainSingle().Which.Should().BeSameAs(request);
+            log.Lines.Should().Contain(l => l.Contains(logged, StringComparison.Ordinal) && l.Contains("decisions are off", StringComparison.Ordinal));
+            log.Lines.Should().NotContain(l => l.Contains("zqx", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>Waits until <paramref name="ct"/> is cancelled, as a tool source or a check that never answers does.</summary>
+    private static async ValueTask<T> NeverAsync<T>(CancellationToken ct)
+    {
+        await Task.Delay(Timeout.Infinite, ct);
+        throw new InvalidOperationException("Unreachable: an infinite delay only ends by cancellation.");
+    }
+
+    /// <summary>
+    ///     Final review item 6: the tool resolution and the override check run inside the decision's own budget, so a tool
+    ///     source or a check that never answers falls the visit back to its default model and full tool list with
+    ///     <c>timeout</c>, and the turn runs. Reds, each applied once: resolve the tools with the caller's token instead of
+    ///     the budget's, and the resolution row never ends, so the 20-second wait throws; check the overrides with the
+    ///     caller's token, and the check row never ends; report the expiry as another fallback, and the fallback assertions
+    ///     fail. The null model and filter are what the timeout default gives; they show the turn ran on it.
+    /// </summary>
+    [Theory]
+    [InlineData("resolution")]
+    [InlineData("check")]
+    public async Task A_slow_tool_source_or_check_falls_back_on_the_decisions_timeout(string slow)
+    {
+        var inner = new CapturingRunner();
+        var records = new InMemoryRecords();
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes();
+        if (string.Equals(slow, "resolution", StringComparison.Ordinal))
+        {
+            thalos.ToolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
+                .Returns(call => NeverAsync<Result<IReadOnlyList<AITool>, AgentError>>(call.ArgAt<CancellationToken>(1)));
+        }
+        else
+        {
+            thalos.Factory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
+                .Returns(call => NeverAsync<UnitResult<AgentError>>(call.ArgAt<CancellationToken>(3)));
+        }
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var act = async () => await Runner(inner, client, records, thalos, timeout: TimeSpan.FromMilliseconds(200))
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None)
+            .AsTask().WaitAsync(TimeSpan.FromSeconds(20));
+
+        var result = (await act.Should().NotThrowAsync()).Subject;
+        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var sent = inner.Requests.Should().ContainSingle().Subject;
+        using var payload = JsonDocument.Parse(records.Appended.Should().ContainSingle().Subject.PayloadJson);
+        using (new AssertionScope())
+        {
+            sent.Model.Should().BeNull();
+            sent.ToolFilter.Should().BeNull();
+            payload.RootElement.GetProperty("fallback").GetString().Should().Be(NodeSelectionDecider.Timeout);
+            payload.RootElement.GetProperty("model").GetString().Should().Be("provider-default");
+        }
+    }
+
+    /// <summary>
+    ///     The budget does not swallow the caller's own cancellation: cancelled while the tools resolve, the visit throws.
+    ///     Red: catch every cancellation as the budget's expiry; the visit falls back instead and runs.
+    /// </summary>
+    [Fact]
+    public async Task The_callers_cancellation_during_a_slow_tool_resolution_propagates()
+    {
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes();
+        thalos.ToolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
+            .Returns(call => NeverAsync<Result<IReadOnlyList<AITool>, AgentError>>(call.ArgAt<CancellationToken>(1)));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        var act = async () => await Runner(new CapturingRunner(), client, new InMemoryRecords(), thalos, timeout: TimeSpan.FromSeconds(30))
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    /// <summary>
+    ///     A taken decision's record carries Minos's answers, so B9 can tune the thresholds from it. Red: drop the answers
+    ///     from the selection the runner records; the property is missing.
+    /// </summary>
+    [Fact]
+    public async Task The_recorded_decision_carries_the_answers()
+    {
+        var records = new InMemoryRecords();
+        using var client = HardWithoutRoslyn();
+
+        await Runner(new CapturingRunner(), client, records).RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        using var payload = JsonDocument.Parse(records.Appended.Should().ContainSingle().Subject.PayloadJson);
+        payload.RootElement.GetProperty("answers").GetProperty("families").GetProperty("roslyn").GetDouble().Should().Be(0.1);
+    }
 }

@@ -134,15 +134,16 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   model.
 - **Narrowing stops after a rejected review.** Once either `implement` or `review` is on a later visit, tools are no
   longer narrowed, so the retry and its re-review get full lists. The model is still decided.
-- **Fallbacks.** A decision never fails a node. Each fallback has a reason, in `fallback` on the record and in the
+- **Fallbacks.** A decision that falls back never fails a node; only a decision that cannot be recorded does, and only
+  while decisions are on (see "Once per visit"). Each fallback has a reason, in `fallback` on the record and in the
   telemetry; the default model applies, except where `tools-unresolved` keeps the decided model, and the request is left as it was before this existed.
 
   | Reason | When |
   |---|---|
   | `off` | No decision client: decisions are off. |
-  | `timeout` | The call outran `Thalos:Decisions:Timeout` (default 5 seconds). |
+  | `timeout` | The decision outran `Thalos:Decisions:Timeout` (default 5 seconds). The budget covers the tool resolution that builds the menu, the Minos call and Thalos' check of the overrides, so a slow tool source falls back too. The visit runs the full list on its own model. |
   | `error:{kind}` | Minos returned a failure; `{kind}` is its `DecisionErrorKind`, a closed enum. |
-  | `error:Client` | The client threw `InvalidOperationException`, such as a disposed client. |
+  | `error:Client` | The client threw, anything but the caller's own cancellation: a disposed client, a provider that answered other questions, a network fault, a bug. The log names the exception type only. |
   | `low-confidence` | The demand answer was below `ModelConfidence`. |
   | `no-allowed-models` | The role offers no allowed models. |
   | `tools-unresolved` | Thalos refused the decided tool filter, or the model with it. The visit runs the full list, and the decided model only if Thalos accepts that alone. |
@@ -154,9 +155,10 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
 - **Once per visit, reused on redelivery.** The decision is recorded as a `node-selection` run record at the run's
   `CurrentSeq`. A redelivered dispatch reads it back and runs on what the first attempt ran on. The partial unique index
   `UX_WorkflowRunRecords_NodeSelection_RunId_Seq` (on run and seq, filtered to `Kind = 'node-selection'`) settles two
-  deliveries deciding at once: the loser reads the winner's record and runs on that. A decision that cannot be recorded,
-  or a record that does not parse, fails the node with a `StoreError`: running on a decision a replay could not read
-  back would let a replay run differently. `NodeSelectionRecord` is the one parser for the runner and the run view.
+  deliveries deciding at once: the loser reads the winner's record and runs on that. While decisions are on, a decision
+  that cannot be recorded, or a record that does not parse, fails the node with a `StoreError`: running on a decision a
+  replay could not read back would let a replay run differently. While they are off it does not: the turn is the
+  unchanged request either way, so the failure is logged by exception type or reason code and the request goes on. `NodeSelectionRecord` is the one parser for the runner and the run view.
 - **Review lenses.** `NodeSelectionRunner` sits outside `ReviewLensRunner`, so the three lens passes share one decision
   and one cached prompt prefix. `Thalos:Decisions:PinnedLensModels` maps a lens name (`correctness`, `falsifiability` or
   `mechanism`, lower case) to a model its pass runs on whatever the decision; the other passes keep the node's decision.
@@ -170,8 +172,16 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   `files_touched` the original run recorded, snapshotted at start. There is no implement, gate or publish, so a replay
   opens no pull request. It exists to compare reviewer setups on identical input.
 - **Reading a decision.** `GET /api/workflow-runs/{id}` lists `nodeSelections` in seq order: seq, node, model, level,
-  kept families, fallback and confidence. The tool filter is in the record but not in the view. A record that cannot be
-  read is not listed, and `nodeSelectionsError` names its seq.
+  kept families, fallback and confidence. The tool filter and the answers are in the record but not in the view. A
+  record that cannot be read is not listed, and `nodeSelectionsError` names its seq. The view's model is the node's: a
+  review lens pinned to another model ran on that model, which the view does not show. The node's `node-usage` record
+  holds the per-lens models, one `byModel` part per model, as cost analytics reads them.
+- **The answers.** When Minos answered, the record's `answers` holds `question_set` (`NodeQuestions.Version`), `demand`
+  and `demand_confidence`, and `families`, each tool family's probability in question order, whether or not the answer
+  was taken. They are there to tune `ModelConfidence` and `ToolFamilyProbability` from real runs. Family names and
+  numbers only, never task text. `NodeQuestionsShapeTests` pins `Version` to a digest of the questions, so a changed
+  question fails until the version is raised. A record without `answers`, written before they existed or for a visit
+  nothing was asked about, still reads.
 
 ### Costs and history
 
@@ -196,7 +206,8 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   nothing counts twice. Session sources carry no model or cache split.
   The `by-session` cost endpoint was removed; `estimate` stays.
 - A `node-selection` run record (`WorkflowRunRecord.NodeSelectionKind`) holds the model and tool decision of one agent
-  node visit, with the payload `{ level, model, tool_filter, kept_families, fallback, confidence }`. Unlike telemetry it
+  node visit, with the payload `{ level, model, tool_filter, kept_families, fallback, confidence, answers }`, `answers`
+  only when Minos answered. Unlike telemetry it
   holds tool names, because a run record is the run's own audit. It carries no cost. The model it names is the node's
   own; a lens pinned to another model ran on that one, and `node-usage` prices each model's tokens separately, see
   above. See "Node selection".
@@ -678,7 +689,8 @@ lock, and it also sees every other host's spans in the process, so filter there 
 **Decisions.** `NodeSelectionDecider` is the only seam for the per-node decision, on the source and meter
 `daedalus.decisions` (`DecisionTelemetry`). One span `daedalus.node_selection` per decided visit, with these tags:
 `thalos.node`, `daedalus.role`, `daedalus.decision.level`, `daedalus.decision.kept_families` (a count),
-`gen_ai.request.model`, `daedalus.decision.confidence` (only when Minos answered, so absent for `off`, `timeout` and
+`daedalus.decision.model` (the chosen model; not `gen_ai.request.model`, which names the model an inference span
+calls), `daedalus.decision.confidence` (only when Minos answered, so absent for `off`, `timeout` and
 `error:*`) and `daedalus.decision.fallback` (absent when the decision was taken). The counter `daedalus.decisions`
 (`{decision}`) is tagged by `daedalus.decision.fallback`, with `none` for a taken decision. Never task text, tool names
 or a `DecisionError` message, which can quote the request. Minos's own spans and metrics use the source and meter

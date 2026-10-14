@@ -73,8 +73,12 @@ public class NodeSelectionDeciderTests
     }
 
     /// <summary>
-    ///     Red: drop the <c>InvalidOperationException</c> catch; the client's throw escapes and the call throws.
-    ///     Red: use another reason than <c>ClientFault</c>; the fallback assertions fail.
+    ///     Final review item 5, superseding B3's <c>InvalidOperationException</c>-only catch: any exception the client throws,
+    ///     other than the caller's own cancellation, keeps the defaults as <c>error:Client</c>, and the log names the type,
+    ///     never the message. Reds, each applied once: narrow the catch back to <c>InvalidOperationException</c>, and the
+    ///     <c>HttpRequestException</c>, <c>FormatException</c> and <c>KeyNotFoundException</c> rows throw; use another
+    ///     reason than <c>ClientFault</c>, and the fallback assertions fail; log the message, and the log carries <c>zqx</c>;
+    ///     drop the log, and no line names the type.
     /// </summary>
     [Theory]
     [MemberData(nameof(ClientFaults))]
@@ -85,17 +89,81 @@ public class NodeSelectionDeciderTests
         {
             Throws = fault,
         };
+        var log = new ListLogger();
 
-        var selection = await Decider(client).DecideAsync(Context(), CancellationToken.None);
+        var selection = await new NodeSelectionDecider(client, new DecisionsConfig(), log).DecideAsync(Context(), CancellationToken.None);
 
         selection.Fallback.Should().Be("error:Client");
         selection.Fallback.Should().Be(NodeSelectionDecider.ClientFault);
         selection.Model.Should().Be("default-model");
         selection.ToolFilter.Should().BeNull();
+        log.Lines.Should().Contain(l => l.Contains(fault.GetType().Name, StringComparison.Ordinal));
+        log.Lines.Should().NotContain(l => l.Contains("zqx", StringComparison.Ordinal));
     }
 
     public static TheoryData<Exception> ClientFaults() =>
-        new() { new InvalidOperationException("zqx different question set"), new ObjectDisposedException("client") };
+        new()
+        {
+            new InvalidOperationException("zqx different question set"),
+            new ObjectDisposedException("client", "zqx disposed"),
+            new HttpRequestException("zqx connection refused"),
+            new FormatException("zqx a bug"),
+            new KeyNotFoundException("zqx bad state"),
+        };
+
+    /// <summary>Collects every formatted log line.</summary>
+    private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger<NodeSelectionDecider>
+    {
+        public List<string> Lines { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Lines.Add(formatter(state, exception));
+    }
+
+    /// <summary>
+    ///     A client that throws the caller's own cancellation is not a client fault: it propagates. Red: catch every exception
+    ///     in the client call, cancellations included; the call returns <c>error:Client</c> instead of throwing.
+    /// </summary>
+    [Fact]
+    public async Task A_client_that_throws_the_callers_cancellation_propagates_it()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        using var client = new FakeDecisionClient(
+            Result<DecisionResponse, DecisionError>.Failure(new DecisionError(DecisionErrorKind.Server, "never")))
+        {
+            Throws = new OperationCanceledException(cts.Token),
+        };
+
+        var act = async () => await Decider(client).DecideAsync(Context(), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    /// <summary>
+    ///     Final review item 7: the chosen model is tagged <c>daedalus.decision.model</c>, not the GenAI request attribute,
+    ///     which names the model an inference span calls. Red: restore <c>gen_ai.request.model</c> as the tag's name; both
+    ///     assertions fail.
+    /// </summary>
+    [Fact]
+    public async Task The_span_tags_the_chosen_model_as_a_decision_attribute()
+    {
+        using var client = FakeDecisionClient.Answering(Demand.Hard, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9);
+        using var capture = new TelemetryCapture(DecisionTelemetry.SourceName);
+
+        await Decider(client).DecideAsync(Context(node: "model-tag"), CancellationToken.None);
+
+        var span = capture.SpansNamed(DecisionTelemetry.SpanName).Single(s => "model-tag".Equals(s.GetTagItem(DecisionTelemetry.NodeTag)));
+        span.GetTagItem("daedalus.decision.model").Should().Be("strong");
+        span.GetTagItem("gen_ai.request.model").Should().BeNull();
+    }
 
     /// <summary>Red: label every failure <c>error</c> without the kind; the fallback assertion fails.</summary>
     [Theory]

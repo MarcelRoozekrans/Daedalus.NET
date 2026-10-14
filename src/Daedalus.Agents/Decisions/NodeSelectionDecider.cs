@@ -17,18 +17,27 @@ public sealed record NodeSelectionContext(string Role, string Node, string WorkI
 
 /// <summary>
 ///     Asks Minos once for a node's model and tool families, within <see cref="DecisionsConfig.Timeout"/>. Never fails:
-///     no client, a slow or failed call, or a low-confidence answer all give <see cref="NodeSelectionMapper.Default"/>
-///     with the reason. Only the caller's own cancellation throws.
+///     no client, a slow or failed call, a client that throws, or a low-confidence answer all give
+///     <see cref="NodeSelectionMapper.Default"/> with the reason. Only the caller's own cancellation throws.
 /// </summary>
+/// <remarks>
+///     <b>One budget for the whole decision.</b> <see cref="DecisionsConfig.Timeout"/> bounds everything a decision waits
+///     on, not only the Minos call: the host's preparation of the menu, such as resolving the agent's tools, the call, and
+///     the host's check of the result. When the budget runs out at any of the three, the node runs on its default model and
+///     full tool list with the fallback <see cref="Timeout"/>, so a slow tool source cannot stall the node either.
+/// </remarks>
 public sealed partial class NodeSelectionDecider(IDecisionClient? client, DecisionsConfig config, ILogger<NodeSelectionDecider> logger)
 {
     /// <summary>Fallback reason when decisions are off, so there is no client.</summary>
     public const string Off = "off";
 
-    /// <summary>Fallback reason when the decision outran <see cref="DecisionsConfig.Timeout"/>.</summary>
+    /// <summary>Fallback reason when the decision, its preparation or its check outran <see cref="DecisionsConfig.Timeout"/>.</summary>
     public const string Timeout = "timeout";
 
-    /// <summary>Fallback reason when the client threw, such as a disposed client or a provider that answered other questions.</summary>
+    /// <summary>
+    ///     Fallback reason when the client threw anything other than the caller's own cancellation: a disposed client, a
+    ///     provider that answered other questions, a network fault the client did not turn into a result, or a bug.
+    /// </summary>
     public const string ClientFault = "error:Client";
 
     /// <summary>
@@ -41,39 +50,79 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
     public const int MaxIntentCharacters = 4_000;
 
     /// <summary>Decides the node's model and tools, or returns the defaults with the reason.</summary>
-    public ValueTask<NodeSelection> DecideAsync(NodeSelectionContext context, CancellationToken ct) => DecideAsync(context, settle: null, ct);
+    public ValueTask<NodeSelection> DecideAsync(NodeSelectionContext context, CancellationToken ct) =>
+        DecideAsync(context, prepare: null, settle: null, ct);
 
     /// <summary>
     ///     Decides the node's model and tools, then lets <paramref name="settle"/>, the host's check of the result,
     ///     replace it before the span is tagged and the decision counted, so a fallback the host applies is told and
     ///     counted like the decider's own, once.
     /// </summary>
+    public ValueTask<NodeSelection> DecideAsync(
+        NodeSelectionContext context, Func<NodeSelection, CancellationToken, ValueTask<NodeSelection>>? settle, CancellationToken ct) =>
+        DecideAsync(context, prepare: null, settle, ct);
+
+    /// <summary>
+    ///     Decides the node's model and tools within one budget: <paramref name="prepare"/>, the host's work on the context
+    ///     such as resolving the menu's tools, then the Minos call, then <paramref name="settle"/>, the host's check. Both
+    ///     callbacks are handed the budget's token; when it runs out the selection is the prepared context's default with
+    ///     fallback <see cref="Timeout"/>. Without a client neither callback is given a budget: <paramref name="prepare"/>
+    ///     is not called, since only a taken decision would use it, and <paramref name="settle"/> sees the default.
+    /// </summary>
     public async ValueTask<NodeSelection> DecideAsync(
-        NodeSelectionContext context, Func<NodeSelection, CancellationToken, ValueTask<NodeSelection>>? settle, CancellationToken ct)
+        NodeSelectionContext context,
+        Func<NodeSelectionContext, CancellationToken, ValueTask<NodeSelectionContext>>? prepare,
+        Func<NodeSelection, CancellationToken, ValueTask<NodeSelection>>? settle,
+        CancellationToken ct)
     {
         using var activity = DecisionTelemetry.Source.StartActivity(DecisionTelemetry.SpanName);
-        var selection = await DecideCoreAsync(context, ct);
-        if (settle is not null)
+        NodeSelection selection;
+        if (client is null)
         {
-            selection = await settle(selection, ct);
+            selection = NodeSelectionMapper.Default(context.Menu, Off);
+            if (settle is not null)
+            {
+                selection = await settle(selection, ct);
+            }
+        }
+        else
+        {
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(config.Timeout);
+            try
+            {
+                if (prepare is not null)
+                {
+                    context = await prepare(context, budget.Token);
+                }
+
+                selection = await AskAsync(client, context, budget.Token);
+                if (settle is not null)
+                {
+                    selection = await settle(selection, budget.Token);
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                LogDecisionTimedOut(context.Node);
+                selection = NodeSelectionMapper.Default(context.Menu, Timeout);
+            }
         }
 
         Record(activity, context, selection);
         return selection;
     }
 
-    private async ValueTask<NodeSelection> DecideCoreAsync(NodeSelectionContext context, CancellationToken ct)
+    /// <summary>
+    ///     The Minos call. Every exception the client throws, other than a cancellation, is <see cref="ClientFault"/>, logged
+    ///     by its type name only, since a message can quote the request. A cancellation is left to the caller, which tells
+    ///     the budget's expiry from the caller's own.
+    /// </summary>
+    private async ValueTask<NodeSelection> AskAsync(IDecisionClient decisions, NodeSelectionContext context, CancellationToken budget)
     {
-        if (client is null)
-        {
-            return NodeSelectionMapper.Default(context.Menu, Off);
-        }
-
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(config.Timeout);
         try
         {
-            var result = await client.EvaluateAsync<NodeQuestions>(StateOf(context), budget.Token);
+            var result = await decisions.EvaluateAsync<NodeQuestions>(StateOf(context), budget);
             if (result.IsFailure)
             {
                 var kind = result.Error.Kind;
@@ -83,12 +132,7 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
 
             return NodeSelectionMapper.Map(result.Value, context.Menu, config, context.NarrowTools);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            LogDecisionTimedOut(context.Node);
-            return NodeSelectionMapper.Default(context.Menu, Timeout);
-        }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             LogClientFaulted(context.Node, ex.GetType().Name);
             return NodeSelectionMapper.Default(context.Menu, ClientFault);

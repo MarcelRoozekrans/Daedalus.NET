@@ -11,7 +11,21 @@ namespace Daedalus.Agents.Decisions;
 ///     when nothing was asked or the decision failed.
 /// </param>
 public sealed record NodeSelection(
-    string Model, IReadOnlyList<string>? ToolFilter, string Level, int KeptFamilies, string? Fallback, double? Confidence);
+    string Model, IReadOnlyList<string>? ToolFilter, string Level, int KeptFamilies, string? Fallback, double? Confidence)
+{
+    /// <summary>
+    ///     What Minos answered, when it answered, whether or not the answer was taken; <see langword="null"/> when nothing was
+    ///     asked or the decision failed. Recorded so the thresholds can be tuned from what the questions really scored.
+    /// </summary>
+    public NodeAnswers? Answers { get; init; }
+}
+
+/// <summary>Minos's answers to one <see cref="NodeQuestions"/> set: never task text, only the levels and numbers it gave.</summary>
+/// <param name="QuestionSet">The <see cref="NodeQuestions.Version"/> the answers belong to.</param>
+/// <param name="Demand">The demand level answered, such as <c>Hard</c>.</param>
+/// <param name="DemandConfidence">The confidence of the demand answer.</param>
+/// <param name="Families">Each tool family asked about, such as <c>roslyn</c>, to the probability it is needed, in question order.</param>
+public sealed record NodeAnswers(int QuestionSet, string Demand, double DemandConfidence, IReadOnlyDictionary<string, double> Families);
 
 /// <summary>The choices an agent offers a decision: its default model, the models it may narrow to (cheapest first), and its tool patterns.</summary>
 /// <param name="DefaultModel">The agent's own model.</param>

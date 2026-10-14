@@ -385,7 +385,7 @@ Filter traces by `thalos.run.id`. The spans of a run:
 | `thalos.workflow.store.start` | The store write that creates the run, a child of the start span. |
 | `thalos.workflow.dispatch` | One workflow step. Each step is **its own trace**, with a link to `thalos.workflow.store.start`, so follow the link back to the start. Tags `thalos.run.id`, `thalos.run.process`, `thalos.node`, `thalos.seq`, `thalos.outcome`. |
 | `thalos.workflow.host_action.{type}` | A host action inside a step, named by its CLR type, such as `thalos.workflow.host_action.OpenPullRequestAction`. |
-| `daedalus.node_selection` | The per-node model and tool decision, on the source `daedalus.decisions`. Tags `thalos.node`, `daedalus.role`, `daedalus.decision.level`, `daedalus.decision.kept_families` (a count), `gen_ai.request.model` (the chosen model), `daedalus.decision.confidence` (only when Minos answered) and `daedalus.decision.fallback` (only when the default applies). Off, a timeout and an error carry no confidence. |
+| `daedalus.node_selection` | The per-node model and tool decision, on the source `daedalus.decisions`. Tags `thalos.node`, `daedalus.role`, `daedalus.decision.level`, `daedalus.decision.kept_families` (a count), `daedalus.decision.model` (the chosen model), `daedalus.decision.confidence` (only when Minos answered) and `daedalus.decision.fallback` (only when the default applies). Off, a timeout and an error carry no confidence. |
 | `thalos.turn` | An agent turn, from the Thalos turn runtime. |
 | `thalos.workflow.store.resume` | The gate approval: the person approving a gate resumes the run. Other store spans: `.cancel`, `.fail`, `.fail_stranded`, `.retry`. |
 | `daedalus.manufacture.cancel` | A compensating cancel. Tags the run id and `daedalus.cancelled`. |
@@ -692,8 +692,9 @@ from its role's `AllowedModels` and drops tool families the work does not need. 
 `Parameters:openrouter-key`, which reaches the API as `OPENROUTER_API_KEY`. Never put the key in a file in the
 repository. When it is off the API logs why at start-up, and every node runs as before. The
 `workspace` and `daedalus` tool families are never removed, and tools stay whole after a rejected review. A decision
-that is slow, fails or is unsure falls back to the default model and full tool list, and never fails the node. Each
-decision is recorded as a `node-selection` run record and listed under `nodeSelections` on
+that is slow, fails or is unsure falls back to the default model and full tool list; while decisions are on, only a
+decision that cannot be recorded fails the node, since a redelivery could not run on it again. Each
+decision is recorded, with Minos's answers when it answered, as a `node-selection` run record and listed under `nodeSelections` on
 `GET /api/workflow-runs/{id}`, with `nodeSelectionsError` naming any record that could not be read. The spans and
 metrics are under "Observability". Task text is sent to OpenRouter, and Minos cannot request zero data retention per
 call, so that stays an account setting: see [the development guide](docs/development-guide.md#node-selection).

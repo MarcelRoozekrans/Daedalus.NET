@@ -27,7 +27,23 @@ public static class NodeSelectionMapper
     {
         var (model, level, fallback) = PickModel(answers, menu, config);
         var (filter, kept) = PickTools(answers, menu.Tools, config.ToolFamilyProbability, narrowTools);
-        return new NodeSelection(model, filter, level, kept, fallback, answers.Demand.Confidence);
+        return new NodeSelection(model, filter, level, kept, fallback, answers.Demand.Confidence) { Answers = AnswersOf(answers) };
+    }
+
+    /// <summary>The answers as recorded: the demand level and its confidence, and each family's probability, in question order.</summary>
+    public static NodeAnswers AnswersOf(NodeQuestions answers)
+    {
+        ArgumentNullException.ThrowIfNull(answers);
+        var families = new Dictionary<string, double>(StringComparer.Ordinal)
+        {
+            ["roslyn"] = answers.NeedsRoslyn.Probability,
+            ["sandbox"] = answers.NeedsSandbox.Probability,
+            ["memory"] = answers.NeedsMemory.Probability,
+            ["skills"] = answers.NeedsSkills.Probability,
+            ["context7"] = answers.NeedsContext7.Probability,
+            ["issues"] = answers.NeedsIssues.Probability,
+        };
+        return new NodeAnswers(NodeQuestions.Version, answers.Demand.Value.ToString(), answers.Demand.Confidence, families);
     }
 
     private static (string Model, string Level, string? Fallback) PickModel(NodeQuestions answers, RoleMenu menu, DecisionsConfig config)
