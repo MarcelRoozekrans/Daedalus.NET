@@ -33,6 +33,9 @@ internal sealed class FakeDecisionClient(Result<DecisionResponse, DecisionError>
     /// <summary>How long a call waits, honouring cancellation, before it answers. Default none.</summary>
     public TimeSpan Delay { get; init; } = TimeSpan.Zero;
 
+    /// <summary>An exception thrown by every call, before it answers. Default none.</summary>
+    public Exception? Throws { get; init; }
+
     /// <summary>The state of the last request received, or <see langword="null"/> before any call.</summary>
     public string? LastState { get; private set; }
 
@@ -44,6 +47,11 @@ internal sealed class FakeDecisionClient(Result<DecisionResponse, DecisionError>
         Calls++;
         request.State.TryGetString(out var state);
         LastState = state;
+        if (Throws is not null)
+        {
+            throw Throws;
+        }
+
         if (Delay > TimeSpan.Zero)
         {
             await Task.Delay(Delay, cancellationToken);

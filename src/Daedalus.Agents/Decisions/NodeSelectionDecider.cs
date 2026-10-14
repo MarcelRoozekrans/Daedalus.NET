@@ -28,6 +28,9 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
     /// <summary>Fallback reason when the decision outran <see cref="DecisionsConfig.Timeout"/>.</summary>
     public const string Timeout = "timeout";
 
+    /// <summary>Fallback reason when the client threw, such as a disposed client or a provider that answered other questions.</summary>
+    public const string ClientFault = "error:Client";
+
     /// <summary>The most characters of work intent sent to the decision.</summary>
     public const int MaxIntentCharacters = 4_000;
 
@@ -35,16 +38,16 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
     public async ValueTask<NodeSelection> DecideAsync(NodeSelectionContext context, CancellationToken ct)
     {
         using var activity = DecisionTelemetry.Source.StartActivity(DecisionTelemetry.SpanName);
-        var selection = await DecideCoreAsync(context, ct);
-        Record(activity, context, selection);
+        var (selection, confidence) = await DecideCoreAsync(context, ct);
+        Record(activity, context, selection, confidence);
         return selection;
     }
 
-    private async ValueTask<NodeSelection> DecideCoreAsync(NodeSelectionContext context, CancellationToken ct)
+    private async ValueTask<(NodeSelection Selection, double? Confidence)> DecideCoreAsync(NodeSelectionContext context, CancellationToken ct)
     {
         if (client is null)
         {
-            return NodeSelectionMapper.Default(context.Menu, Off);
+            return (NodeSelectionMapper.Default(context.Menu, Off), null);
         }
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -56,21 +59,34 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
             {
                 var kind = result.Error.Kind;
                 LogDecisionFailed(context.Node, kind);
-                return NodeSelectionMapper.Default(context.Menu, $"error:{kind}");
+                return (NodeSelectionMapper.Default(context.Menu, $"error:{kind}"), null);
             }
 
-            return NodeSelectionMapper.Map(result.Value, context.Menu, config, context.NarrowTools);
+            return (
+                NodeSelectionMapper.Map(result.Value, context.Menu, config, context.NarrowTools),
+                result.Value.Demand.Confidence);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             LogDecisionTimedOut(context.Node);
-            return NodeSelectionMapper.Default(context.Menu, Timeout);
+            return (NodeSelectionMapper.Default(context.Menu, Timeout), null);
+        }
+        catch (InvalidOperationException ex)
+        {
+            LogClientFaulted(context.Node, ex.GetType().Name);
+            return (NodeSelectionMapper.Default(context.Menu, ClientFault), null);
         }
     }
 
     private static string StateOf(NodeSelectionContext context)
     {
-        var intent = context.WorkIntent.Length <= MaxIntentCharacters ? context.WorkIntent : context.WorkIntent[..MaxIntentCharacters];
+        var intent = context.WorkIntent;
+        if (intent.Length > MaxIntentCharacters)
+        {
+            var cut = char.IsHighSurrogate(intent[MaxIntentCharacters - 1]) ? MaxIntentCharacters - 1 : MaxIntentCharacters;
+            intent = intent[..cut];
+        }
+
         return JsonSerializer.Serialize(new DecisionState(context.Role, context.Node, context.Visit, intent));
     }
 
@@ -80,13 +96,18 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
         [property: JsonPropertyName("visit")] int Visit,
         [property: JsonPropertyName("work_intent")] string WorkIntent);
 
-    private static void Record(Activity? activity, NodeSelectionContext context, NodeSelection selection)
+    private static void Record(Activity? activity, NodeSelectionContext context, NodeSelection selection, double? confidence)
     {
         activity?.SetTag(DecisionTelemetry.NodeTag, context.Node);
         activity?.SetTag(DecisionTelemetry.RoleTag, context.Role);
         activity?.SetTag(DecisionTelemetry.LevelTag, selection.Level);
         activity?.SetTag(DecisionTelemetry.KeptFamiliesTag, selection.KeptFamilies);
         activity?.SetTag(DecisionTelemetry.ModelTag, selection.Model);
+        if (confidence is { } answered)
+        {
+            activity?.SetTag(DecisionTelemetry.ConfidenceTag, answered);
+        }
+
         if (selection.Fallback is not null)
         {
             activity?.SetTag(DecisionTelemetry.FallbackTag, selection.Fallback);
@@ -100,4 +121,7 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
 
     [LoggerMessage(EventId = 1861, Level = LogLevel.Warning, Message = "Decision for node {Node} timed out; the node keeps its default model and tools.")]
     private partial void LogDecisionTimedOut(string node);
+
+    [LoggerMessage(EventId = 1862, Level = LogLevel.Warning, Message = "Decision for node {Node} failed in the client with {ExceptionType}; the node keeps its default model and tools.")]
+    private partial void LogClientFaulted(string node, string exceptionType);
 }
