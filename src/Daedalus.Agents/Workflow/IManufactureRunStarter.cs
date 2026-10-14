@@ -35,7 +35,8 @@ public interface IManufactureRunStarter
     ///     <see cref="ManufactureStartRequest.StartedBy"/> as the principal that started it. Failure text is safe
     ///     to show a caller — a blank or over-long work intent, a repository that is not allow-listed, a worktree
     ///     that could not be prepared, a disabled engine, and a pin failure (an unresolvable agent or an inactive
-    ///     skill on a task node) are all reported through <see cref="Result{T,E}.Error"/> as a <see cref="ManufactureStartFailure"/> whose kind says
+    ///     skill on a task node), and a process or base branch the request may not carry (see
+    ///     <see cref="ManufactureStartRequest.BaseBranch"/>) are all reported through <see cref="Result{T,E}.Error"/> as a <see cref="ManufactureStartFailure"/> whose kind says
     ///     whose fault it is, rather than thrown.
     /// </summary>
     [Trace(ManufactureTelemetry.StartSpanName, ErrorWhen = "IsFailure", ErrorDescription = "Error.Kind", ExceptionDescription = false)]

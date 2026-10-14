@@ -95,7 +95,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         }
 
         var startRequest = new ManufactureStartRequest(
-            request.WorkIntent, request.Repository, RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value));
+            request.WorkIntent, request.Repository, RunPrincipals.From(caller, User.FindFirst("preferred_username")?.Value),
+            request.Process, request.BaseBranch);
         var result = await starter.StartAsync(startRequest, ct);
         if (result.IsFailure)
         {
@@ -463,7 +464,15 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 ///     The name of an entry in <c>Thalos:Workflow:Repositories</c>, such as <c>sandbox</c>. Must not be blank. Only a
 ///     name, never a URL: a name that is not allow-listed is a 400, so no request can point a run at another remote.
 /// </param>
-public sealed record StartWorkflowRunRequest(string WorkIntent, string Repository);
+/// <param name="Process">
+///     Optional. <c>manufacture</c> when left out; <c>review-replay</c> reviews the code of an existing manufacture branch
+///     and ends. Any other name is a 400.
+/// </param>
+/// <param name="BaseBranch">
+///     Required for <c>review-replay</c> and refused for every other process: the <c>manufacture/&lt;run-id&gt;</c> branch of
+///     the allow-listed repository to review, in exactly that form.
+/// </param>
+public sealed record StartWorkflowRunRequest(string WorkIntent, string Repository, string? Process = null, string? BaseBranch = null);
 
 /// <summary>Response body for <see cref="WorkflowRunsController.Start"/>.</summary>
 /// <param name="RunId">The id of the run that was just started.</param>

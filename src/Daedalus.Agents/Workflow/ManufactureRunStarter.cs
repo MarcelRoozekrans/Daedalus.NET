@@ -11,8 +11,8 @@ namespace Daedalus.Agents.Workflow;
 ///     <see cref="DisabledManufactureRunStarter"/> whenever <c>Thalos:Workflow:Enabled</c> is
 ///     <see langword="true"/>. Resolves the request's repository against <see cref="WorkflowConfig.Repositories"/>,
 ///     prepares the run's git worktree through <see cref="IRunWorkspaceProvider"/>, and then shapes one call onto
-///     <see cref="WorkflowRunStarter.StartAsync"/> under the same run id: the process is always <c>manufacture</c>,
-///     the opening variables are always <c>work_intent</c> and <c>run_mode</c> (see <see cref="RunMode"/>, ruling
+///     <see cref="WorkflowRunStarter.StartAsync"/> under the same run id: the process is <c>manufacture</c>, or <c>review-replay</c>
+///     (phase 2.10 task B7, see <see cref="ReviewReplayProcess"/>), the opening variables are always <c>work_intent</c> and <c>run_mode</c> (see <see cref="RunMode"/>, ruling
 ///     R61), and the work intent and the worktree's standing
 ///     instructions file are pinned into the manifest as <see cref="WorkIntentDocument"/> and
 ///     <see cref="StandingInstructionsDocument"/>.
@@ -62,8 +62,17 @@ public sealed class ManufactureRunStarter(
     /// </summary>
     public const string WorkspaceRemovalFailureKey = "Daedalus.WorkspaceRemovalFailure";
 
-    /// <summary>The only process this type ever starts.</summary>
-    private const string ProcessName = "manufacture";
+    /// <summary>The process a start with no named process runs: implement, review, gate, publish.</summary>
+    public const string ManufactureProcess = "manufacture";
+
+    /// <summary>
+    ///     The process that reviews the code of an existing <c>manufacture/&lt;run-id&gt;</c> branch and ends, with no gate,
+    ///     no publish and no pull request. Phase 2.10 task B7: it lets the live proof compare reviewer setups on one change.
+    /// </summary>
+    public const string ReviewReplayProcess = "review-replay";
+
+    /// <summary>The branch prefix of a manufacture run, which a replay's base branch must carry.</summary>
+    private const string RunBranchPrefix = "manufacture/";
 
     /// <summary>
     ///     Chosen to comfortably hold a paragraph or two of intent while still fitting inside a node's rendered
@@ -117,6 +126,13 @@ public sealed class ManufactureRunStarter(
                 $"workIntent must be at most {MaxWorkIntentLength} characters, but was {workIntent.Length}.");
         }
 
+        var process = request.Process ?? ManufactureProcess;
+        var refused = RefuseProcessRequest(process, request.BaseBranch);
+        if (refused is not null)
+        {
+            return Fail(ManufactureStartFailureKind.Invalid, refused);
+        }
+
         var repository = FindRepository(request.Repository);
         if (repository is null)
         {
@@ -126,9 +142,18 @@ public sealed class ManufactureRunStarter(
         TagStartSpan(repository.Name);
 
         var runId = Guid.NewGuid();
+
+        // A replay is cut from the reviewed branch on the allow-listed remote, and works on a branch of its own: the
+        // reviewed branch is never checked out under its own name, so a replay can never move it.
+        var replay = request.BaseBranch is not null;
         var created = await _workspaces.CreateAsync(
             new RunWorkspaceRequest(
-                runId, repository.Name, repository.Remote, repository.DefaultBranch, $"manufacture/{runId}", repository.Solution),
+                runId,
+                repository.Name,
+                repository.Remote,
+                request.BaseBranch ?? repository.DefaultBranch,
+                replay ? $"{ReviewReplayProcess}/{runId}" : $"manufacture/{runId}",
+                repository.Solution),
             ct).ConfigureAwait(false);
         if (created.IsFailure)
         {
@@ -176,8 +201,8 @@ public sealed class ManufactureRunStarter(
         var started = await _starter.StartAsync(
             new WorkflowRunStartOptions
             {
-                Process = ProcessName,
-                CorrelationKey = $"manufacture:{runId:N}",
+                Process = process,
+                CorrelationKey = $"{process}:{runId:N}",
                 RunId = runId,
                 StartedBy = request.StartedBy,
                 Variables = variables,
@@ -192,6 +217,46 @@ public sealed class ManufactureRunStarter(
         // The run starter's string channel carries only its fixed refusals, and real outages throw, so every failure here
         // is one the caller can read and fix: no active version, an unloadable definition, an unpinnable node.
         return await RemoveAfterFailureAsync(runId, ManufactureStartFailureKind.Unstartable, started.Error).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Why the process and base branch of a request are refused, or <see langword="null"/> when they are fine. Only the
+    ///     two shipped processes start. A base branch belongs to <see cref="ReviewReplayProcess"/> alone, which requires one,
+    ///     and it is exactly <c>manufacture/&lt;run-id&gt;</c>: the run id is a guid in the lowercase form a run id prints in,
+    ///     which leaves no room for a path escape, a full ref, a leading dash or whitespace to reach git.
+    /// </summary>
+    private static string? RefuseProcessRequest(string process, string? baseBranch)
+    {
+        if (string.Equals(process, ReviewReplayProcess, StringComparison.Ordinal))
+        {
+            if (baseBranch is null)
+            {
+                return $"baseBranch is required for the {ReviewReplayProcess} process.";
+            }
+
+            return IsRunBranch(baseBranch)
+                ? null
+                : "baseBranch must be a manufacture run's branch, exactly manufacture/<run-id>.";
+        }
+
+        if (!string.Equals(process, ManufactureProcess, StringComparison.Ordinal))
+        {
+            return $"process '{process}' cannot be started; it must be {ManufactureProcess} or {ReviewReplayProcess}.";
+        }
+
+        return baseBranch is null ? null : $"baseBranch is only accepted for the {ReviewReplayProcess} process.";
+    }
+
+    private static bool IsRunBranch(string branch)
+    {
+        if (!branch.StartsWith(RunBranchPrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // Round-trips through the canonical lowercase form, so uppercase, braces, no dashes and padding all fail.
+        var id = branch[RunBranchPrefix.Length..];
+        return Guid.TryParseExact(id, "D", out var runId) && string.Equals(id, runId.ToString("D"), StringComparison.Ordinal);
     }
 
     private static Result<Guid, ManufactureStartFailure> Fail(ManufactureStartFailureKind kind, string message) =>

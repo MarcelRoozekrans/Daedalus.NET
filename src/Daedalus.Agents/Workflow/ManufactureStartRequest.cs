@@ -15,4 +15,14 @@ namespace Daedalus.Agents.Workflow;
 ///     The principal that asked for the run, built by <see cref="Security.RunPrincipals.From"/>. Required: the
 ///     run records it as <see cref="WorkflowRun.StartedBy"/>, and there is no start without one.
 /// </param>
-public sealed record ManufactureStartRequest(string WorkIntent, string Repository, RunPrincipal StartedBy);
+/// <param name="Process">
+///     The process to start: <c>manufacture</c> when <see langword="null"/>, or <c>review-replay</c>. Any other name is
+///     refused, so a request cannot start an arbitrary stored definition.
+/// </param>
+/// <param name="BaseBranch">
+///     Only for <c>review-replay</c>, where it is required: the <c>manufacture/&lt;run-id&gt;</c> branch of the allow-listed
+///     repository whose code the replay reviews, in exactly that form with a lowercase run id. Refused for every other
+///     process and in any other shape.
+/// </param>
+public sealed record ManufactureStartRequest(
+    string WorkIntent, string Repository, RunPrincipal StartedBy, string? Process = null, string? BaseBranch = null);
