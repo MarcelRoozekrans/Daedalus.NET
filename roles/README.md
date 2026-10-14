@@ -69,7 +69,8 @@ peer-or-better strength. This is a different model line, not a different provide
 uncorrelated-blind-spots argument is weakened, not satisfied.
 
 Since phase 2.10, `claude-opus-5` is the reviewer's default: it runs when decisions are off and on every fallback
-(timeout, error, low confidence, unresolved tools). With decisions on, a per-node decision may run review on any model
+(timeout, error, low confidence). With unresolved tools the decided model can still run. With decisions on, a
+per-node decision may run review on any model
 in the reviewer's `AllowedModels` (currently `claude-sonnet-5-5` and `claude-opus-5-5`, cheapest first, in
 `src/Daedalus.Api/appsettings.json`), and `Thalos:Decisions:PinnedLensModels` can fix a lens to one model. A Sonnet
 reviewer shares the implementer's model line, so the argument above does not hold for those runs. The saving is

@@ -104,8 +104,8 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
 
 - **Off by default.** Decisions run only when `Thalos:Decisions:ZeroDataRetentionAccount` is `true` **and** an
   OpenRouter key is present (`DecisionsConfig.IsEnabled`). The decision reads the work intent, so task text goes to
-  OpenRouter. Minos 1.0.1 cannot request zero data retention per call, so that is an account setting on OpenRouter, and the flag is
-  the owner's statement that it is set. Otherwise no decision client is registered and every node runs on its default
+  OpenRouter. Minos 1.0.1 cannot request zero data retention per call, so that is an account setting on OpenRouter,
+  and the flag is the owner's statement that it is set. Otherwise no decision client is registered and every node runs on its default
   model and full tool list, as before. `DecisionsStartupLog` says once at host start whether decisions are on and, if
   not, why: the flag is not true, no key is configured, or both. It never logs the key or its length. A blank key is no
   key (`DecisionsConfig.HasKey`).
