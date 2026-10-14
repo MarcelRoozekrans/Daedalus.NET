@@ -1,0 +1,206 @@
+using Daedalus.Agents.Tools;
+using Daedalus.Agents.Workflow;
+using Daedalus.Api.Controllers;
+using Daedalus.Domain.Entities;
+using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Thalos;
+using Thalos.Git;
+using Thalos.Testing;
+using Thalos.Workflow;
+using Task = System.Threading.Tasks.Task;
+
+namespace Daedalus.Tests.Integration.Workflow;
+
+/// <summary>
+///     Phase 2.10 task B7: the <c>review-replay</c> process, through the real start endpoint, over a real
+///     <see cref="LocalGitRemote"/> that holds a seeded <c>manufacture/&lt;run-id&gt;</c> branch. As in
+///     <see cref="ManufactureV6EndToEndTests"/> the model is the only thing replaced: a <see cref="ScriptedChatClient"/>
+///     stands in for the chat client, so each review lens reports through the real <c>daedalus__report_review_outcome</c>
+///     tool and the host keeps its own runtime, workspace provider and review dispatch. The host is pinned to local mode.
+/// </summary>
+[Collection(DatabaseCollection.Name)]
+public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
+{
+    private const string OutcomeToolName = "workflow__report_outcome";
+
+    private const string ReviewedA = "class A\n{\n    // the reviewed branch's guard.\n    public static void Check(object? value) { }\n}\n";
+
+    private static readonly string[] Lenses = ["correctness", "falsifiability", "mechanism"];
+
+    /// <summary>
+    ///     A replay starts on a seeded branch, checks that branch out as its worktree, runs the three lens passes and ends
+    ///     as succeeded at <c>done</c>. It never parks at the gate, opens a pull request or pushes. Red, per assertion: cut
+    ///     the worktree from <c>main</c> instead of the branch, and the file assertion fails; name the replay's local branch
+    ///     <c>manufacture/&lt;run&gt;</c>, and the branch assertion fails; point the review node's <c>approved</c> edge at a
+    ///     gate, and the run parks and the wait for success fails; declare two lenses, and the evidence count fails.
+    ///     Guards, no isolated Red: the publisher count, the two no-branch assertions and the tip assertion hold because
+    ///     no node of the graph can publish or push, and turn red only if a later change adds such a node.
+    /// </summary>
+    [Fact]
+    public async Task A_replay_reviews_the_given_branch_and_ends()
+    {
+        var chat = new ScriptedChatClient();
+        foreach (var lens in Lenses)
+        {
+            chat.ThenToolCall(DaedalusReviewTools.QualifiedReportReviewOutcomeToolName, new
+            {
+                lens,
+                verdict = "approved",
+                @checked = $$"""["src/A.cs: A.Check is reviewed ({{lens}})"]""",
+            });
+            chat.ThenToolCall(OutcomeToolName, new { outcome = "approved" });
+            chat.ThenText("Reviewed.");
+        }
+
+        await WithHostAsync(chat, async (host, publisher) =>
+        {
+            var reviewedBranch = $"manufacture/{Guid.NewGuid()}";
+            var tip = host.Remote.PushBranch(reviewedBranch, ("src/A.cs", ReviewedA));
+            using var admin = host.Client("a-admin", "admin");
+
+            var start = await admin.PostAsJsonAsync(
+                "/api/workflow-runs",
+                new StartWorkflowRunRequest("Review the guard.", ScratchWorkflowHost.Repository, "review-replay", reviewedBranch));
+            start.StatusCode.Should().Be(HttpStatusCode.Created);
+            var runId = (await start.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
+
+            var done = await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Succeeded, "ended at done");
+
+            done.Process.Should().Be("review-replay");
+            done.CurrentNode.Should().Be("done");
+            var root = Path.Combine(host.RunsRoot, runId.ToString());
+            LocalGitRemote.Git(root, "rev-parse --abbrev-ref HEAD").Should().Be($"review-replay/{runId}");
+            (await File.ReadAllTextAsync(Path.Combine(root, "src", "A.cs"))).ReplaceLineEndings("\n").Should().Be(ReviewedA);
+            (await host.RecordsAsync(runId, WorkflowRunRecord.ReviewEvidenceKind)).Should().HaveCount(3);
+            publisher.OpenCount.Should().Be(0);
+            host.Remote.HasBranch($"review-replay/{runId}").Should().BeFalse("a replay pushes nothing");
+            host.Remote.HasBranch($"manufacture/{runId}").Should().BeFalse("a replay has no manufacture branch of its own");
+            host.Remote.HeadOf(reviewedBranch).Should().Be(tip);
+        });
+    }
+
+    /// <summary>
+    ///     A rejection ends the replay too: there is no implement node to send it back to, so the verdict and its findings
+    ///     are the result. Red, per assertion: point <c>rejected</c> at a terminal that fails, and the run fails instead of
+    ///     succeeding, so the wait fails. The evidence count of one is the lens runner stopping at the first rejection,
+    ///     and the publisher count is a guard, as in the approval test.
+    /// </summary>
+    [Fact]
+    public async Task A_rejected_replay_ends_at_the_first_rejecting_lens()
+    {
+        var chat = new ScriptedChatClient();
+        chat.ThenToolCall(DaedalusReviewTools.QualifiedReportReviewOutcomeToolName, new
+        {
+            lens = "correctness",
+            verdict = "rejected",
+            findings = """[{"file":"src/A.cs","line":4,"scenario":"Check accepts a null argument"}]""",
+        });
+        chat.ThenToolCall(OutcomeToolName, new { outcome = "rejected" });
+        chat.ThenText("Rejected.");
+
+        await WithHostAsync(chat, async (host, publisher) =>
+        {
+            var reviewedBranch = $"manufacture/{Guid.NewGuid()}";
+            host.Remote.PushBranch(reviewedBranch, ("src/A.cs", ReviewedA));
+            using var admin = host.Client("a-admin", "admin");
+
+            var start = await admin.PostAsJsonAsync(
+                "/api/workflow-runs",
+                new StartWorkflowRunRequest("Review the guard.", ScratchWorkflowHost.Repository, "review-replay", reviewedBranch));
+            start.StatusCode.Should().Be(HttpStatusCode.Created);
+            var runId = (await start.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
+
+            var done = await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Succeeded, "ended at done");
+
+            done.CurrentNode.Should().Be("done");
+            (await host.RecordsAsync(runId, WorkflowRunRecord.ReviewEvidenceKind)).Should().HaveCount(1);
+            publisher.OpenCount.Should().Be(0);
+        });
+    }
+
+    /// <summary>
+    ///     The refusals reach the caller as 400 before a run or a worktree exists. Red, per row: drop the starter's
+    ///     check for that row, and the start succeeds, so the status fails.
+    /// </summary>
+    [Theory]
+    [InlineData("manufacture", "manufacture/0b1f6c2e-7d4a-4e53-9a1c-2f8d5e6b7a90")]
+    [InlineData(null, "manufacture/0b1f6c2e-7d4a-4e53-9a1c-2f8d5e6b7a90")]
+    [InlineData("review-replay", "main")]
+    [InlineData("review-replay", null)]
+    [InlineData("nonsense", null)]
+    public async Task A_refused_process_or_base_branch_is_400_and_leaves_no_worktree(string? process, string? baseBranch)
+    {
+        await WithHostAsync(new ScriptedChatClient(), async (host, _) =>
+        {
+            using var admin = host.Client("a-admin", "admin");
+
+            var start = await admin.PostAsJsonAsync(
+                "/api/workflow-runs", new StartWorkflowRunRequest("Review the guard.", ScratchWorkflowHost.Repository, process, baseBranch));
+
+            start.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            host.RunDirectories().Should().BeEmpty();
+            await Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    ///     A well-formed branch the remote does not have fails at the workspace provider, which reports only
+    ///     <c>git worktree add failed.</c> as a git failure, so the endpoint answers 500 rather than a 4xx; the start reports it
+    ///     as a failed workspace and leaves no worktree. Red, per assertion: ignore the workspace's result and go on to the
+    ///     start, and the status is Created; report a different failure, and the message fails; make the provider keep a
+    ///     worktree for the failed start, and the directory assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_base_branch_the_remote_does_not_have_fails_the_start_without_a_worktree()
+    {
+        await WithHostAsync(new ScriptedChatClient(), async (host, _) =>
+        {
+            using var admin = host.Client("a-admin", "admin");
+
+            var start = await admin.PostAsJsonAsync(
+                "/api/workflow-runs",
+                new StartWorkflowRunRequest(
+                    "Review the guard.", ScratchWorkflowHost.Repository, "review-replay", $"manufacture/{Guid.NewGuid()}"));
+
+            start.IsSuccessStatusCode.Should().BeFalse("the remote has no such branch");
+            (await start.Content.ReadAsStringAsync()).Should().Contain("could not prepare the run's workspace");
+            host.RunDirectories().Should().BeEmpty();
+            await Task.CompletedTask;
+        });
+    }
+
+    private async Task WithHostAsync(ScriptedChatClient chat, Func<ScratchWorkflowHost, FakePullRequestPublisher, Task> body)
+    {
+        var publisher = new FakePullRequestPublisher();
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture,
+            runtime: null,
+            settings: new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Enabled"] = "false" },
+            configureServices: services =>
+            {
+                services.Replace(ServiceDescriptor.Singleton<IChatClientProvider>(new ScriptedChatClientProvider(chat)));
+
+                services.RemoveAll<WorkflowOutboxDispatchOptions>();
+                services.AddSingleton(new WorkflowOutboxDispatchOptions { PollingInterval = TimeSpan.FromMilliseconds(250) });
+
+                services.RemoveAll<IPullRequestPublisher>();
+                services.RemoveAll<IOpenPullRequestLookup>();
+                services.AddSingleton<IPullRequestPublisher>(publisher);
+                services.AddSingleton<IOpenPullRequestLookup>(publisher);
+            });
+
+        await body(host, publisher);
+    }
+
+    private sealed class ScriptedChatClientProvider(IChatClient client) : IChatClientProvider
+    {
+        public string Name => "scripted";
+
+        public string DefaultModel => "scripted-model";
+
+        public IChatClient CreateChatClient(AgentDefinition agent) => client;
+    }
+}

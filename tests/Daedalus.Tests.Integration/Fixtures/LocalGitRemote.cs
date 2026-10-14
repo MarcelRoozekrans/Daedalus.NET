@@ -56,6 +56,38 @@ internal sealed class LocalGitRemote : IDisposable
         return new LocalGitRemote(bare);
     }
 
+    /// <summary>
+    ///     Creates <paramref name="branch"/> in the bare repository from <c>main</c>, with one commit on top that writes
+    ///     <paramref name="files"/>, and returns that commit's sha. The branch must not exist yet.
+    /// </summary>
+    public string PushBranch(string branch, params (string Path, string Content)[] files)
+    {
+        var work = Directory.CreateTempSubdirectory("daedalus-git-remote-branch-").FullName;
+        try
+        {
+            RunGit(work, "clone", _path, ".");
+            RunGit(work, "checkout", "-b", branch);
+            foreach (var (path, content) in files)
+            {
+                var full = Path.Combine(work, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, content);
+            }
+
+            RunGit(work, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", "-A");
+            RunGit(work, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-m", $"work on {branch}");
+            RunGit(work, "push", "origin", $"{branch}:{branch}");
+            return RunGit(work, "rev-parse", "HEAD");
+        }
+        finally
+        {
+            DeleteReadOnly(work);
+        }
+    }
+
+    /// <summary>Whether <paramref name="branch"/> exists in the bare repository.</summary>
+    public bool HasBranch(string branch) => RunGit(_path, "branch", "--list", branch).Length > 0;
+
     /// <summary>The commit sha at the tip of <paramref name="branch"/> in the bare repository.</summary>
     public string HeadOf(string branch) => RunGit(_path, "rev-parse", branch);
 
