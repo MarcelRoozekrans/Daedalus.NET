@@ -107,7 +107,7 @@ public class NodeSelectionMapperTests
     {
         var selection = NodeSelectionMapper.Default(Menu, "timeout");
 
-        selection.Should().Be(new NodeSelection("default-model", null, "default", 8, "timeout"));
+        selection.Should().Be(new NodeSelection("default-model", null, "default", 8, "timeout", Confidence: null));
     }
 
     /// <summary>Red: change / 2 to (Count - 1) / 2 and Moderate picks the first entry.</summary>
@@ -137,5 +137,35 @@ public class NodeSelectionMapperTests
 
         selection.Model.Should().Be("strong");
         selection.Fallback.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     The run record carries the demand answer's confidence, whether or not the model choice was taken. Red: set
+    ///     <c>Confidence</c> to null in <c>Map</c>; both Map assertions fail. Red: set it only when the choice was taken;
+    ///     the low-confidence assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task Map_carries_the_demand_confidence_taken_or_not()
+    {
+        var config = new DecisionsConfig();
+
+        NodeSelectionMapper.Map(await AnswerAsync(Demand.Hard, confidence: 0.9), Menu, config, true).Confidence.Should().Be(0.9);
+        NodeSelectionMapper.Map(await AnswerAsync(Demand.Hard, confidence: 0.59), Menu, config, true).Confidence.Should().Be(0.59);
+    }
+
+    /// <summary>
+    ///     A role whose every family is removable and answered no would get an empty filter, which Thalos refuses, so the
+    ///     node keeps its full list instead. Red: drop the empty-list guard in <c>PickTools</c>; the filter is empty.
+    /// </summary>
+    [Fact]
+    public async Task A_filter_that_would_keep_nothing_keeps_the_full_list()
+    {
+        var menu = Menu with { Tools = ["roslyn__*", "memory__*"] };
+        var answers = await AnswerAsync(Demand.Moderate, 0.9, 0, 0, 0, 0, 0, 0);
+
+        var selection = NodeSelectionMapper.Map(answers, menu, new DecisionsConfig(), true);
+
+        selection.ToolFilter.Should().BeNull();
+        selection.KeptFamilies.Should().Be(2);
     }
 }

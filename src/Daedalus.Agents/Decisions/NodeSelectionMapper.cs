@@ -17,14 +17,14 @@ public static class NodeSelectionMapper
 
     /// <summary>The selection when nothing was decided: the default model, the full tool list.</summary>
     public static NodeSelection Default(RoleMenu menu, string fallback) =>
-        new(menu.DefaultModel, null, "default", CountFamilies(menu.Tools), fallback);
+        new(menu.DefaultModel, null, "default", CountFamilies(menu.Tools), fallback, Confidence: null);
 
     /// <summary>Maps an answered question set onto a model and, when <paramref name="narrowTools"/>, a narrowed tool filter.</summary>
     public static NodeSelection Map(NodeQuestions answers, RoleMenu menu, DecisionsConfig config, bool narrowTools)
     {
         var (model, level, fallback) = PickModel(answers, menu, config);
         var (filter, kept) = PickTools(answers, menu.Tools, config.ToolFamilyProbability, narrowTools);
-        return new NodeSelection(model, filter, level, kept, fallback);
+        return new NodeSelection(model, filter, level, kept, fallback, answers.Demand.Confidence);
     }
 
     private static (string Model, string Level, string? Fallback) PickModel(NodeQuestions answers, RoleMenu menu, DecisionsConfig config)
@@ -59,7 +59,10 @@ public static class NodeSelectionMapper
         }
 
         var kept = tools.Where(pattern => IsKept(Family(pattern), answers, threshold)).ToList();
-        return kept.Count == tools.Count ? (null, CountFamilies(tools)) : (kept, CountFamilies(kept));
+
+        // Nothing removed means no filter. Nothing kept means no filter either: Thalos refuses an empty one, so a role
+        // that holds only removable families keeps its full list rather than failing the node.
+        return kept.Count == tools.Count || kept.Count == 0 ? (null, CountFamilies(tools)) : (kept, CountFamilies(kept));
     }
 
     private static bool IsKept(string family, NodeQuestions answers, double threshold)

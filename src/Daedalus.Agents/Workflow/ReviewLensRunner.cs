@@ -39,6 +39,12 @@ namespace Daedalus.Agents.Workflow;
 ///     <c>maxVisits</c> 5 times 3 lenses.
 ///     </para>
 ///     <para>
+///     <b>A pinned lens runs on its pinned model.</b> <c>Thalos:Decisions:PinnedLensModels</c> may name a lens, such as
+///     <c>falsifiability</c>, and the model its pass runs on whatever the node's decision chose. The other passes keep
+///     the request's model, which <see cref="NodeSelectionRunner"/> set once for the whole node. The pin is one of the
+///     reviewer's allowed models, which start-up checks and Thalos checks again on the turn.
+///     </para>
+///     <para>
 ///     <b>Nodes that declare no lenses are untouched.</b> <c>implement</c>, <c>publish</c> and any process that
 ///     does not use the rubric pass straight through to the inner runner with their request unmodified, so this
 ///     decorator is inert everywhere except the node that asked for it.
@@ -70,18 +76,24 @@ namespace Daedalus.Agents.Workflow;
 /// <param name="definitions">Where the current node's <c>lenses:</c> declaration is read from.</param>
 /// <param name="scopes">Creates the scope each append resolves <see cref="IWorkflowRunRecordStore"/> from.</param>
 /// <param name="clock">Timestamps each record.</param>
+/// <param name="pinnedLensModels">
+///     Lens name to the model its pass runs on whatever the node's decision, from <c>Thalos:Decisions:PinnedLensModels</c>;
+///     start-up has checked each is one the reviewer may use.
+/// </param>
 /// <param name="logger">Logs evidence that could not be recorded.</param>
 internal sealed partial class ReviewLensRunner(
     ISubagentRunner inner,
     IProcessDefinitionStore definitions,
     IServiceScopeFactory scopes,
     TimeProvider clock,
+    IReadOnlyDictionary<string, string> pinnedLensModels,
     ILogger<ReviewLensRunner> logger) : ISubagentRunner
 {
     private readonly ISubagentRunner _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     private readonly IProcessDefinitionStore _definitions = definitions ?? throw new ArgumentNullException(nameof(definitions));
     private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
     private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    private readonly IReadOnlyDictionary<string, string> _pinnedLensModels = pinnedLensModels ?? throw new ArgumentNullException(nameof(pinnedLensModels));
     private readonly ILogger<ReviewLensRunner> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
@@ -146,7 +158,13 @@ internal sealed partial class ReviewLensRunner(
         for (var i = 0; i < lenses.Length; i++)
         {
             var lens = lenses[i];
-            var pass = request with { Task = ComposeLensTask(request.Task, projected, lens, i + 1, lenses.Length) };
+            var pass = request with
+            {
+                Task = ComposeLensTask(request.Task, projected, lens, i + 1, lenses.Length),
+                // Phase 2.10: a pinned lens runs on its model whatever NodeSelectionRunner decided for the node; the other
+                // passes keep the node's decision, so they still share one model and one cached prefix.
+                Model = _pinnedLensModels.TryGetValue(lens.Name, out var pinned) ? pinned : request.Model,
+            };
 
             last = await _inner.RunAsync(pass, ct);
             if (last.IsFailure)

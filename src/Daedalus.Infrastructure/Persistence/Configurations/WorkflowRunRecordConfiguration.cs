@@ -47,10 +47,19 @@ internal sealed class WorkflowRunRecordConfiguration : IEntityTypeConfiguration<
             .HasDatabaseName("IX_WorkflowRunRecords_RunId_Kind_Seq");
 
         // At most one node-usage record per completion. The live append and the startup backfill can race on the same
-        // (RunId, Seq); the database, not either writer, decides which one wins.
-        builder.HasIndex(r => new { r.RunId, r.Seq })
+        // (RunId, Seq); the database, not either writer, decides which one wins. Named in HasIndex itself, as is the
+        // node-selection index below: EF Core keys an unnamed index by its columns, so a second unnamed index on
+        // (RunId, Seq) would replace this one instead of joining it.
+        builder.HasIndex(r => new { r.RunId, r.Seq }, WorkflowRunRecord.NodeUsageIndexName)
             .IsUnique()
             .HasFilter($"\"Kind\" = '{WorkflowRunRecord.NodeUsageKind}'")
             .HasDatabaseName(WorkflowRunRecord.NodeUsageIndexName);
+
+        // At most one node-selection record per node visit, phase 2.10. Two deliveries of the same dispatch can decide at
+        // the same time; the database keeps the first, and the second reads it back and runs on it.
+        builder.HasIndex(r => new { r.RunId, r.Seq }, WorkflowRunRecord.NodeSelectionIndexName)
+            .IsUnique()
+            .HasFilter($"\"Kind\" = '{WorkflowRunRecord.NodeSelectionKind}'")
+            .HasDatabaseName(WorkflowRunRecord.NodeSelectionIndexName);
     }
 }

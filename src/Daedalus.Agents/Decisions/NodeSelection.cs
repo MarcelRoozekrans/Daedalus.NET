@@ -6,7 +6,12 @@ namespace Daedalus.Agents.Decisions;
 /// <param name="Level">The chosen demand level name, or the default's name when nothing was decided.</param>
 /// <param name="KeptFamilies">How many tool families remain (telemetry; never tool names).</param>
 /// <param name="Fallback">Why the default model applies, or <see langword="null"/> when the decision was taken.</param>
-public sealed record NodeSelection(string Model, IReadOnlyList<string>? ToolFilter, string Level, int KeptFamilies, string? Fallback);
+/// <param name="Confidence">
+///     The demand answer's confidence when Minos answered, whether or not the model choice was taken; <see langword="null"/>
+///     when nothing was asked or the decision failed.
+/// </param>
+public sealed record NodeSelection(
+    string Model, IReadOnlyList<string>? ToolFilter, string Level, int KeptFamilies, string? Fallback, double? Confidence);
 
 /// <summary>The choices an agent offers a decision: its default model, the models it may narrow to (cheapest first), and its tool patterns.</summary>
 /// <param name="DefaultModel">The agent's own model.</param>
