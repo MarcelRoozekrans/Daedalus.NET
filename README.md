@@ -359,9 +359,9 @@ the logs of a host that stops before its first export are lost. A host whose sta
 
 ### What is collected
 
-- **Traces:** the sources `thalos`, `thalos.workflow`, `ZeroAlloc.Mediator` and `daedalus.*`, plus ASP.NET Core and
-  `HttpClient`. Requests to `/health` and `/alive` are not traced. Npgsql is not traced: the outbox poller would drown
-  the traces.
+- **Traces:** the sources `thalos`, `thalos.workflow`, `ZeroAlloc.Mediator`, `daedalus.*` and `Minos` (the decision
+  client's own spans), plus ASP.NET Core and `HttpClient`. Requests to `/health` and `/alive` are not traced. Npgsql is
+  not traced: the outbox poller would drown the traces.
 - **URLs.** An outgoing `HttpClient` span exports only the origin of its call: `url.full` is `scheme://host[:port]`,
   with no path, query or userinfo, and no other tag or the span name carries the path. A path can hold a secret, such as
   the Telegram bot token in `/bot{token}/{method}`, so `HttpClientOriginOnlyProcessor` cuts it before any exporter sees
@@ -370,8 +370,8 @@ the logs of a host that stops before its first export are lost. A host whose sta
   `/api/tasks/<task id>/manufacture`. Task ids are Guids; do not put a secret in a route. A failed outgoing call also
   carries the runtime's `exception` event, with the exception's type, message and stack trace. Those messages name the
   host and port, not the path.
-- **Metrics:** the meters `thalos`, `thalos.workflow` and `daedalus.*`, the built-in `System.Runtime` meter, and the
-  ASP.NET Core and `HttpClient` metrics.
+- **Metrics:** the meters `thalos`, `thalos.workflow`, `daedalus.*` and `Minos`, the built-in `System.Runtime` meter,
+  and the ASP.NET Core and `HttpClient` metrics.
 
 ### Finding a run
 
@@ -384,6 +384,7 @@ Filter traces by `thalos.run.id`. The spans of a run:
 | `thalos.workflow.store.start` | The store write that creates the run, a child of the start span. |
 | `thalos.workflow.dispatch` | One workflow step. Each step is **its own trace**, with a link to `thalos.workflow.store.start`, so follow the link back to the start. Tags `thalos.run.id`, `thalos.run.process`, `thalos.node`, `thalos.seq`, `thalos.outcome`. |
 | `thalos.workflow.host_action.{type}` | A host action inside a step, named by its CLR type, such as `thalos.workflow.host_action.OpenPullRequestAction`. |
+| `daedalus.node_selection` | The per-node model and tool decision, on the source `daedalus.decisions`. Tags `thalos.node`, `daedalus.role`, `daedalus.decision.level`, `daedalus.decision.kept_families` (a count), `gen_ai.request.model` (the chosen model), `daedalus.decision.confidence` (only when Minos answered) and `daedalus.decision.fallback` (only when the default applies). Off, a timeout and an error carry no confidence. |
 | `thalos.turn` | An agent turn, from the Thalos turn runtime. |
 | `thalos.workflow.store.resume` | The gate approval: the person approving a gate resumes the run. Other store spans: `.cancel`, `.fail`, `.fail_stranded`, `.retry`. |
 | `daedalus.manufacture.cancel` | A compensating cancel. Tags the run id and `daedalus.cancelled`. |
@@ -399,6 +400,7 @@ Filter traces by `thalos.run.id`. The spans of a run:
 | `thalos.workflow.run_tool.duration` | ms | `thalos.tool.source`, `thalos.tool` | One run tool call. |
 | `daedalus.manufacture.tokens` | `{token}` | `thalos.node`, `gen_ai.request.model` (omitted when empty), `daedalus.token.kind` | Tokens a completed node spent. |
 | `daedalus.github.ratelimit.remaining` | `{request}` | `daedalus.github.resource` (one of GitHub's documented resources such as `core` or `search`, `other` for any other value, `unknown` when the header is missing or blank) | Requests left in GitHub's current rate-limit window, from the last answer, 304s included. A read answered by a 304 costs nothing, so the value does not drop. |
+| `daedalus.decisions` | `{decision}` | `daedalus.decision.fallback` (`none` when the decision was taken, else `off`, `timeout`, `error:{kind}`, `error:Client`, `low-confidence`, `no-allowed-models`, `tools-unresolved` or `error:Validate`) | Per-node decisions. |
 
 `daedalus.token.kind` is `input`, `output`, `cache_read` or `cache_write`. **`input` already includes `cache_read` and
 `cache_write`, so do not sum all four kinds**: that counts cache tokens twice. Tokens are counted at most once per
@@ -408,7 +410,8 @@ completed node. A crash can lose a count but never double it. Backfilled history
 
 Span names, tags, status descriptions, events and metric tags carry only ids, names, counts, durations, outcomes and
 error codes. Never prompt or agent text, task titles or descriptions, PR titles or bodies, file content, credentials or
-token values. Outgoing HTTP calls export their origin only, see "What is collected". A failed step sets Error status
+token values. Decision telemetry follows the same rule: it never carries task text, tool names or the OpenRouter key.
+Outgoing HTTP calls export their origin only, see "What is collected". A failed step sets Error status
 without a description; the one exception is the start span's failure kind.
 
 The console's live connection sends its bearer token in the `access_token` query value of the hub URL. The API
@@ -436,6 +439,7 @@ trace, so a ratio sampler keeps or drops each step of a run independently, and a
 | `ANTHROPIC_API_KEY`                       | No           | —                        | Claude API key (agent factory fallback; required for Thalos agent turns) |
 | `DAEDALUS_REGRESSION_SCREENSHOTS`         | No           | —                        | `1` → Browser E2E writes regression screenshots into `docs/regression-screenshots/` |
 | `GITHUB_TOKEN`                            | No           | —                        | GitHub API authentication for Git operations          |
+| `OPENROUTER_API_KEY`                      | No           | —                        | OpenRouter key for per-node model and tool decisions. Under Aspire, set the AppHost secret `Parameters:openrouter-key`. Decisions also need `Thalos:Decisions:ZeroDataRetentionAccount` = `true`, else they stay off |
 | `GITLAB_TOKEN`                            | No           | —                        | GitLab API authentication                             |
 | `AZURE_DEVOPS_TOKEN`                      | No           | —                        | Azure DevOps API authentication                       |
 | `E2E_BASE_URL`                            | No           | —                        | Override base URL for Playwright E2E tests            |
@@ -674,6 +678,27 @@ persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Ski
 | `Thalos:Agents[]`                              | Agent definitions: stable `Id` (ULID or GUID — sessions reference it, never change it), `Name`, `Description`, `Instructions`, optional `Model`/`MaxOutputTokens`, `Tools` glob allow-list (empty → `*`).   |
 | `Thalos:Agents[]:Skills`                       | Glob allow-list over skill names (`*` for all, `daedalus-*` for a family). **Empty by default** — unlike `Tools`, procedures are granted explicitly, because a catalogue costs tokens on every turn.          |
 | `Thalos:Agents[]:Memory`                       | Per-agent overrides `{ Enabled, TopK }`; `null` members inherit `Thalos:Memory`. Tool visibility is *not* configured here — use the agent's `Tools` globs.                                                   |
+| `Thalos:Agents[]:AllowedModels`                | Models a per-node decision may pick for this agent, cheapest first. Empty → no choice, the agent runs on its default model. The default need not be listed. Every entry needs a `ModelPricing:Models` price. |
+| `Thalos:Decisions:ZeroDataRetentionAccount`    | `false` by default. Set `true` only when the OpenRouter account has zero data retention (openrouter.ai/settings/privacy): decisions send the task's work intent. Decisions run only when this is `true` **and** `OPENROUTER_API_KEY` is set. |
+| `Thalos:Decisions:{Model,Timeout}`             | The OpenRouter model that decides (default `jev-latest`) and how long a decision may take (default 5 seconds) before the node falls back to its default model and full tool list. |
+| `Thalos:Decisions:{ModelConfidence,ToolFamilyProbability}` | Minimum confidence (default 0.6) for a model choice to be taken, and minimum probability (default 0.5) for a tool family to be kept. Both between 0 and 1. |
+| `Thalos:Decisions:PinnedLensModels`            | Review lens (`correctness`, `falsifiability`, `mechanism`) → model its pass always runs on. Each must be in `AllowedModels` of the agent that runs the review under the current `Thalos:Squad:Enabled`; start-up refuses it otherwise. |
+
+**Per-node model and tool selection (phase 2.10).** Before an implement or review node runs, a cheap
+[Minos.NET](https://github.com/MarcelRoozekrans/Minos.NET) decision, made through OpenRouter, picks the node's model
+from its role's `AllowedModels` and drops tool families the work does not need. It is off until you set
+`Thalos:Decisions:ZeroDataRetentionAccount` to `true` and supply a key: under Aspire, set the AppHost user secret
+`Parameters:openrouter-key`, which reaches the API as `OPENROUTER_API_KEY`. Never put the key in a file in the
+repository. When it is off the API logs why at start-up, and every node runs as before. The
+`workspace` and `daedalus` tool families are never removed, and tools stay whole after a rejected review. A decision
+that is slow, fails or is unsure falls back to the default model and full tool list, and never fails the node. Each
+decision is recorded as a `node-selection` run record and listed under `nodeSelections` on
+`GET /api/workflow-runs/{id}`, with `nodeSelectionsError` naming any record that could not be read. The spans and
+metrics are under "Observability". Task text is sent to OpenRouter, and Minos cannot request zero data retention per
+call, so that stays an account setting: see [the development guide](docs/development-guide.md#node-selection).
+
+To compare reviewer setups on the same code, `POST /api/workflow-runs` with `process` `review-replay` and `baseBranch`
+`manufacture/<run-id>` reviews an existing manufacture branch and ends, with no pull request.
 
 **Sentinel embedding generator:** the semantic detectors (prompt injection, jailbreak, exfiltration, …) need an
 `IEmbeddingGenerator`. The API passes the Ollama client (`nomic-embed-text`) when Aspire provides `ConnectionStrings:ollama`;
