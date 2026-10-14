@@ -277,6 +277,8 @@ public sealed class ManufactureRunStarter(
     ///     Why the run behind a replay's base branch cannot be replayed, or <see langword="null"/>: it must exist, be a
     ///     manufacture run, and have recorded a non-empty <c>files_touched</c>, which the replay's reviewer starts from.
     ///     A run that exists but whose branch is absent on the remote still fails later, as a host failure of the workspace.
+    ///     The replay snapshots <c>files_touched</c> as it is at start time: a run still in flight, or one whose implement
+    ///     step repeats later, can change it afterwards.
     /// </summary>
     private static string? RefuseOriginalRun(WorkflowRun? original)
     {
@@ -295,6 +297,19 @@ public sealed class ManufactureRunStarter(
             : "the run behind baseBranch recorded no files_touched to review.";
     }
 
+    private static bool AnyItem(System.Collections.IEnumerable items)
+    {
+        var enumerator = items.GetEnumerator();
+        try
+        {
+            return enumerator.MoveNext();
+        }
+        finally
+        {
+            (enumerator as IDisposable)?.Dispose();
+        }
+    }
+
     private static bool HasContent(object? value) => value switch
     {
         null => false,
@@ -306,7 +321,7 @@ public sealed class ManufactureRunStarter(
             System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined => false,
             _ => true,
         },
-        System.Collections.IEnumerable items => items.GetEnumerator().MoveNext(),
+        System.Collections.IEnumerable items => AnyItem(items),
         _ => true,
     };
 
