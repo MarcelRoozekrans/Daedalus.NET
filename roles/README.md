@@ -35,7 +35,8 @@ a review or a restart. That edit can change:
 - **which procedures the role may load.** `skills:` is the role's skill allow-list. Adding
   `manufacture-implement` to `reviewer.md`, for example, would let the reviewer read the instructions
   the work it judges was produced from. See the section on the reviewer's skills below.
-- **which model the role runs on.** `model:` selects the model. Changing it changes the reviewer's
+- **which model the role runs on.** `model:` selects the role's default model; a decision may run it on another
+  model from its `AllowedModels`. Changing it changes the reviewer's
   strength and cost, and nothing at runtime checks that the new model is priced. The
   `ModelPricing:Models` coverage guard, `CostAnalyticsPricingDriftTests`, runs only at test time,
   against the charters in the repo. A charter edited in place on a running host never passes
@@ -66,6 +67,14 @@ vendor is not available today — every option shares training lineage. `claude-
 available approximation: a different model line from Sonnet 5, not a point release of it, and
 peer-or-better strength. This is a different model line, not a different provider, so the
 uncorrelated-blind-spots argument is weakened, not satisfied.
+
+Since phase 2.10, `claude-opus-5` is the reviewer's default: it runs when decisions are off and on every fallback
+(timeout, error, low confidence, unresolved tools). With decisions on, a per-node decision may run review on any model
+in the reviewer's `AllowedModels` (currently `claude-sonnet-5-5` and `claude-opus-5-5`, cheapest first, in
+`src/Daedalus.Api/appsettings.json`), and `Thalos:Decisions:PinnedLensModels` can fix a lens to one model. A Sonnet
+reviewer shares the implementer's model line, so the argument above does not hold for those runs. The saving is
+accepted, and the `review-replay` process exists to check that the cheaper setup raises every finding the Opus setup
+raised.
 
 ## Why the reviewer's skills are enumerated, not `*`
 
