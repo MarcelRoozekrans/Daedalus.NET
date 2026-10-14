@@ -135,7 +135,8 @@ public sealed class DecisionWiringTests
 
     /// <summary>
     ///     No line the registered service logs, on or off, holds the key, a recognisable fragment of it or its length as a
-    ///     number. Red: add the key to the on or the off message; the key check fails. Red: add <c>zqx</c> alone; the
+    ///     number. Red: add the key to the on or the off message, or reword the message to drop "decisions are" and
+    ///     add the key there; the key check fails, as it scans every captured line. Red: add <c>zqx</c> alone; the
     ///     fragment check fails. Red: add the key's length to either message; the length check fails.
     /// </summary>
     [Theory]
@@ -149,12 +150,12 @@ public sealed class DecisionWiringTests
 
         await hosted.StartAsync(CancellationToken.None);
 
-        var lines = log.Messages.Where(m => m.Contains("decisions are", StringComparison.Ordinal)).ToList();
-        lines.Should().ContainSingle("the registered service logged its line");
+        // Every captured line, not only the start-up line: a key in any other message of the composition fails too.
         var length = SecretKey.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        lines.Should().NotContain(m => m.Contains(SecretKey, StringComparison.Ordinal), "the key is never logged");
-        lines.Should().NotContain(m => m.Contains("zqx", StringComparison.Ordinal), "no fragment of the key is logged");
-        lines.Should().NotContain(m => m.Contains(length, StringComparison.Ordinal), "the key's length is never logged");
+        log.Messages.Should().NotContain(m => m.Contains(SecretKey, StringComparison.Ordinal), "the key is never logged");
+        log.Messages.Should().NotContain(m => m.Contains("zqx", StringComparison.Ordinal), "no fragment of the key is logged");
+        log.Messages.Should().NotContain(m => m.Contains(length, StringComparison.Ordinal), "the key's length is never logged");
+        log.Messages.Should().ContainSingle(m => m.Contains("decisions are", StringComparison.Ordinal), "the registered service logged its line");
     }
 
     /// <summary>
