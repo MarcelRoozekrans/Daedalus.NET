@@ -149,7 +149,8 @@ public sealed class ManufactureRunStarter(
         if (request.BaseBranch is not null)
         {
             var original = await _store.FindAsync(RunIdOf(request.BaseBranch), ct).ConfigureAwait(false);
-            var refusal = RefuseOriginalRun(original);
+            var origin = original is null ? Origin.Unknown : await OriginOfAsync(original, repository, ct).ConfigureAwait(false);
+            var refusal = RefuseOriginalRun(original, origin);
             if (refusal is not null)
             {
                 return Fail(ManufactureStartFailureKind.Invalid, refusal);
@@ -273,14 +274,57 @@ public sealed class ManufactureRunStarter(
     /// <summary>The run id of a base branch that <see cref="IsRunBranch"/> has accepted.</summary>
     private static Guid RunIdOf(string baseBranch) => Guid.ParseExact(baseBranch[RunBranchPrefix.Length..], "D");
 
+    /// <summary>Whether the run behind a replay's base branch worked on the requested repository, as far as can be told.</summary>
+    private enum Origin
+    {
+        /// <summary>Nothing left says which repository it worked on: no workspace, and no pull request link.</summary>
+        Unknown,
+
+        /// <summary>It worked on the requested repository.</summary>
+        Same,
+
+        /// <summary>It worked on another repository.</summary>
+        Other,
+    }
+
+    /// <summary>
+    ///     Which repository <paramref name="original"/> worked on, compared with <paramref name="requested"/>. Its workspace,
+    ///     while one exists, names the allow-listed repository; a run whose workspace the sweeper removed, as it does once a
+    ///     run has published, still holds its pull request's link, whose owner and name are compared with the requested
+    ///     entry's github.com remote. A run with neither is <see cref="Origin.Unknown"/>: its branch is then looked up on the
+    ///     requested remote, and a branch that is not there fails the workspace, as before.
+    /// </summary>
+    private async ValueTask<Origin> OriginOfAsync(WorkflowRun original, RepositoryConfig requested, CancellationToken ct)
+    {
+        var workspace = await _workspaces.FindAsync(original.Id, ct).ConfigureAwait(false);
+        if (workspace is not null)
+        {
+            return string.Equals(workspace.Repository, requested.Name, StringComparison.Ordinal) ? Origin.Same : Origin.Other;
+        }
+
+        if (!PullRequestLink.TryParse(PullRequestLink.Read(original).Link, out var pullRequestRepo, out _))
+        {
+            return Origin.Unknown;
+        }
+
+        var requestedRepo = Daedalus.Infrastructure.Services.GitHub.RepoRef.FromGitHubUrl(requested.Remote);
+        return requestedRepo.IsSuccess
+               && string.Equals(requestedRepo.Value.Owner, pullRequestRepo.Owner, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(requestedRepo.Value.Name, pullRequestRepo.Name, StringComparison.OrdinalIgnoreCase)
+            ? Origin.Same
+            : Origin.Other;
+    }
+
     /// <summary>
     ///     Why the run behind a replay's base branch cannot be replayed, or <see langword="null"/>: it must exist, be a
-    ///     manufacture run, and have recorded a non-empty <c>files_touched</c>, which the replay's reviewer starts from.
-    ///     A run that exists but whose branch is absent on the remote still fails later, as a host failure of the workspace.
-    ///     The replay snapshots <c>files_touched</c> as it is at start time: a run still in flight, or one whose implement
-    ///     step repeats later, can change it afterwards.
+    ///     manufacture run, have worked on the requested repository as far as <paramref name="origin"/> can tell, and have
+    ///     recorded a non-empty <c>files_touched</c>, which the replay's reviewer starts from. A replay against another
+    ///     repository would review code the original run never touched, or none. A run that exists but whose branch is
+    ///     absent on the remote still fails later, as a host failure of the workspace. The replay snapshots
+    ///     <c>files_touched</c> as it is at start time: a run still in flight, or one whose implement step repeats later, can
+    ///     change it afterwards.
     /// </summary>
-    private static string? RefuseOriginalRun(WorkflowRun? original)
+    private static string? RefuseOriginalRun(WorkflowRun? original, Origin origin)
     {
         if (original is null)
         {
@@ -290,6 +334,11 @@ public sealed class ManufactureRunStarter(
         if (!string.Equals(original.Process, ManufactureProcess, StringComparison.Ordinal))
         {
             return "the run behind baseBranch is not a manufacture run.";
+        }
+
+        if (origin == Origin.Other)
+        {
+            return "the run behind baseBranch worked on another repository than the one requested.";
         }
 
         return original.Variables.TryGetValue(ReviewHandoff.FilesTouchedKey, out var files) && HasContent(files)
