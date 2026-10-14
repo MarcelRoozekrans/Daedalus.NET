@@ -134,4 +134,59 @@ public sealed class NodeUsageSplitTests
 
         recorder.HeldCount.Should().Be(1);
     }
+
+    /// <summary>
+    ///     Round 2: a completion the store refuses, for a stale seq, a lost lease or a cancellation, takes nothing, so the
+    ///     dispatcher's store releases what the review held and lets the failure through. Red: drop the catch around the
+    ///     inner <c>CompleteNodeAsync</c>; the count stays 1. Red: swallow the failure; nothing is thrown.
+    /// </summary>
+    [Fact]
+    public async Task A_completion_the_store_refuses_releases_what_the_review_held()
+    {
+        var (recorder, _, _) = NewRecorder();
+        var runId = Guid.NewGuid();
+        var inner = Substitute.For<IWorkflowStore>();
+        inner.FindAsync(runId, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(new WorkflowRun
+        {
+            Id = runId,
+            Process = "manufacture",
+            ProcessVersion = 1,
+            CurrentNode = "review",
+            CurrentSeq = 4,
+            Status = WorkflowStatus.Running,
+            Visits = new Dictionary<string, int>(StringComparer.Ordinal) { ["review"] = 1 },
+        }));
+        inner.CompleteNodeAsync(runId, 4, Arg.Any<WorkflowTransition>(), Arg.Any<NodeResult>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ValueTask.FromException(new WorkflowConcurrencyException("stale seq")));
+        var store = new ReviewHandoffWorkflowStore(inner, Substitute.For<IProcessDefinitionStore>(), recorder);
+        recorder.HoldPasses(runId, 4, [Decided1, Pinned]);
+
+        var act = async () => await store.CompleteNodeAsync(
+            runId, 4, new WorkflowTransition("done", WorkflowStatus.Running, awaitingSignal: null, WorkflowEventKind.Branched),
+            new NodeResult("approved", new Dictionary<string, object?>(StringComparer.Ordinal)) { Usage = Sum },
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<WorkflowConcurrencyException>();
+        recorder.HeldCount.Should().Be(0);
+    }
+
+    /// <summary>
+    ///     Round 2: as an observer of the store, the recorder releases a run's hold when the store commits its cancellation or
+    ///     failure by any path, and keeps it on any other change. Reds, each applied once: ignore every change, and the
+    ///     cancelled and failed rows keep the hold; forget on every change, and the node-completed row loses it.
+    /// </summary>
+    [Theory]
+    [InlineData(WorkflowRunChangeKind.Cancelled, 0)]
+    [InlineData(WorkflowRunChangeKind.Failed, 0)]
+    [InlineData(WorkflowRunChangeKind.NodeCompleted, 1)]
+    public async Task A_cancelled_or_failed_run_releases_what_its_review_held(WorkflowRunChangeKind kind, int held)
+    {
+        var (recorder, _, _) = NewRecorder();
+        var runId = Guid.NewGuid();
+        recorder.HoldPasses(runId, 4, [Decided1, Pinned]);
+
+        await recorder.OnChangedAsync(new WorkflowRunChange(runId, kind, WorkflowStatus.Cancelled, "review", null), CancellationToken.None);
+
+        recorder.HeldCount.Should().Be(held);
+    }
 }

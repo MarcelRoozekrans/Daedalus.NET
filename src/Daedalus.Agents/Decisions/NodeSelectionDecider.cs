@@ -66,7 +66,7 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
     ///     Decides the node's model and tools within one budget: <paramref name="prepare"/>, the host's work on the context
     ///     such as resolving the menu's tools, then the Minos call, then <paramref name="settle"/>, the host's check. Both
     ///     callbacks are handed the budget's token; when it runs out the selection is the prepared context's default with
-    ///     fallback <see cref="Timeout"/>. Without a client neither callback is given a budget: <paramref name="prepare"/>
+    ///     fallback <see cref="Timeout"/>, still carrying Minos's answers when the budget ran out after it answered. Without a client neither callback is given a budget: <paramref name="prepare"/>
     ///     is not called, since only a taken decision would use it, and <paramref name="settle"/> sees the default.
     /// </summary>
     public async ValueTask<NodeSelection> DecideAsync(
@@ -89,6 +89,9 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
         {
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(config.Timeout);
+
+            // What Minos answered, once it has: a budget that runs out in the host's check still records the answers.
+            NodeAnswers? answered = null;
             try
             {
                 if (prepare is not null)
@@ -97,6 +100,7 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
                 }
 
                 selection = await AskAsync(client, context, budget.Token);
+                answered = selection.Answers;
                 if (settle is not null)
                 {
                     selection = await settle(selection, budget.Token);
@@ -105,7 +109,7 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 LogDecisionTimedOut(context.Node);
-                selection = NodeSelectionMapper.Default(context.Menu, Timeout);
+                selection = NodeSelectionMapper.Default(context.Menu, Timeout) with { Answers = answered };
             }
         }
 
