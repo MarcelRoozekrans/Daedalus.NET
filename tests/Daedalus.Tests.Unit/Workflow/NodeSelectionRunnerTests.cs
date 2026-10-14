@@ -664,7 +664,10 @@ public sealed class NodeSelectionRunnerTests
     ///     nothing about the decision, so the visit runs on the full list and its own model with <c>error:Validate</c>, and
     ///     the log names the error code or the exception type, never the message. Reds, each applied once: treat any failed
     ///     result as a refusal, and the provider-error row keeps <c>strong</c> under <c>tools-unresolved</c>; treat a throw
-    ///     as a refusal, and the throws row does; log the error message, and the provider-error row's log carries it.
+    ///     as a refusal, and the throws row does; log the code followed by the error message, and the provider-error row's
+    ///     line carries <c>zqx</c>. For the throws row's log: Red, drop the <c>LogCheckFailed</c> call from the exception
+    ///     branch, and no line names <c>HttpRequestException</c>; Red, log the type name followed by <c>ex.Message</c>
+    ///     there, and its line carries <c>zqx</c>.
     /// </summary>
     [Theory]
     [InlineData("provider-error")]
@@ -706,7 +709,8 @@ public sealed class NodeSelectionRunnerTests
 
     /// <summary>
     ///     A failed tool resolution is logged by its error code, never its message, which can name a tool source or a tool.
-    ///     Red: log <c>resolved.Error.Message</c>; the log carries the message.
+    ///     Red: log <c>resolved.Error.Message</c> instead of the code, and no line names <c>ProviderError</c>. Red: log the
+    ///     code followed by the message, and the line carries <c>zqx</c>.
     /// </summary>
     [Fact]
     public async Task A_failed_tool_resolution_logs_the_code_not_the_message()
@@ -727,7 +731,9 @@ public sealed class NodeSelectionRunnerTests
     /// <summary>
     ///     A refusal keeps an earlier fallback: an unconfident model answer already says why the model is the default, so
     ///     the record says <c>low-confidence</c>, not <c>tools-unresolved</c>, while the filter still falls back to the full
-    ///     list. Red: always write the refusal's own reason; the fallback assertion fails.
+    ///     list. Reds, each applied once: always write the refusal's own reason, and the fallback assertion fails; keep the
+    ///     refused filter on the full-list fallback, and the filter assertion fails; send the selection's model when the
+    ///     rule chooses none, so a fallback runs on its recorded default, and the model assertion fails.
     /// </summary>
     [Fact]
     public async Task A_refusal_keeps_an_earlier_fallback()
@@ -751,6 +757,54 @@ public sealed class NodeSelectionRunnerTests
             sent.Model.Should().BeNull();
             payload.RootElement.GetProperty("fallback").GetString().Should().Be(NodeSelectionMapper.LowConfidence);
         }
+    }
+
+    /// <summary>
+    ///     A tool resolution that throws degrades the menu to the configured patterns and logs the exception type, never its
+    ///     message; the caller's own cancellation still propagates. Reds, each applied once: remove the catch, and the throws
+    ///     row throws; catch every exception, and the cancelled row stops propagating; offer nothing when the resolution
+    ///     throws, and the filter is null; log the type name followed by <c>ex.Message</c>, and the line carries <c>zqx</c>;
+    ///     drop the log call, and no line names <c>InvalidOperationException</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("throws")]
+    [InlineData("cancelled")]
+    public async Task A_tool_resolution_that_throws_degrades_to_the_configured_patterns(string shape)
+    {
+        var inner = new CapturingRunner();
+        using var client = HardWithoutRoslyn();
+        using var cts = new CancellationTokenSource();
+        var thalos = new ThalosFakes();
+        var log = new ListLogger();
+        thalos.ToolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
+            .Returns(_ => string.Equals(shape, "throws", StringComparison.Ordinal)
+                ? ValueTask.FromException<Result<IReadOnlyList<AITool>, AgentError>>(new InvalidOperationException("zqx context7 source refused"))
+                : CancelThenThrowResolveAsync(cts));
+
+        var act = async () => await Runner(inner, client, new InMemoryRecords(), thalos, log)
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), cts.Token);
+
+        if (string.Equals(shape, "cancelled", StringComparison.Ordinal))
+        {
+            await act.Should().ThrowAsync<OperationCanceledException>();
+            return;
+        }
+
+        var result = (await act.Should().NotThrowAsync()).Subject;
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        using (new AssertionScope())
+        {
+            inner.Requests.Should().ContainSingle().Which.ToolFilter.Should().Equal("workspace__*", "daedalus__*", "sandbox__*");
+            log.Lines.Should().Contain(l => l.Contains("InvalidOperationException", StringComparison.Ordinal));
+            log.Lines.Should().NotContain(l => l.Contains("zqx", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>Cancels the caller's own token, then fails the resolution with that cancellation.</summary>
+    private static async ValueTask<Result<IReadOnlyList<AITool>, AgentError>> CancelThenThrowResolveAsync(CancellationTokenSource cts)
+    {
+        await cts.CancelAsync();
+        throw new OperationCanceledException(cts.Token);
     }
 
     /// <summary>Collects every formatted log line, so a test can say what a log does and does not carry.</summary>
