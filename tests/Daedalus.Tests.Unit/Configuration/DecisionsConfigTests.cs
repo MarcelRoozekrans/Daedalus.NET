@@ -110,12 +110,12 @@ public sealed class DecisionsConfigTests
     public void A_pinned_lens_model_outside_the_reviewers_allowed_models_is_refused_at_startup()
     {
         var (services, options, configuration, environment) = LoadShippedApi();
-        options.Decisions.PinnedLensModels["security"] = "claude-haiku-5-5";
+        options.Decisions.PinnedLensModels["falsifiability"] = "claude-haiku-5-5";
 
         var act = () => services.AddDaedalusAgents(options, configuration, environment);
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*PinnedLensModels*security*claude-haiku-5-5*");
+            .WithMessage("*PinnedLensModels*falsifiability*claude-haiku-5-5*");
     }
 
     /// <summary>Red: make the check reject every pinned model, or compare against the wrong agent's menu.</summary>
@@ -123,7 +123,7 @@ public sealed class DecisionsConfigTests
     public void A_pinned_lens_model_inside_the_reviewers_allowed_models_boots()
     {
         var (services, options, configuration, environment) = LoadShippedApi();
-        options.Decisions.PinnedLensModels["security"] = "claude-opus-5-5";
+        options.Decisions.PinnedLensModels["falsifiability"] = "claude-opus-5-5";
 
         var act = () => services.AddDaedalusAgents(options, configuration, environment);
 
@@ -222,7 +222,7 @@ public sealed class DecisionsConfigTests
     {
         var (services, options, configuration, environment) = LoadShippedApi();
         options.Agents.Remove(options.Agents.Single(a => string.Equals(a.Name, "reviewer", StringComparison.Ordinal)));
-        options.Decisions.PinnedLensModels["security"] = "claude-opus-5-5";
+        options.Decisions.PinnedLensModels["falsifiability"] = "claude-opus-5-5";
 
         var act = () => services.AddDaedalusAgents(options, configuration, environment);
 
@@ -277,5 +277,51 @@ public sealed class DecisionsConfigTests
             definitions.Single(d => string.Equals(d.Name, "scout", StringComparison.Ordinal)).AllowedModels
                 .Should().Equal("claude-haiku-5-5");
         }
+    }
+
+    /// <summary>
+    ///     A pin applies to whichever agent runs the review node, so with the squad off it is checked against the fallback
+    ///     agent, the Daedalus Architect, whose menu is empty and whose default is <c>Thalos:Anthropic:DefaultModel</c>. Red:
+    ///     check against <c>reviewer</c> whatever the squad setting; the refused row boots. Red: leave the default model out
+    ///     of the menu; the default row is refused.
+    /// </summary>
+    [Theory]
+    [InlineData("claude-opus-5-5", false)]
+    [InlineData("claude-sonnet-5", true)]
+    public void With_the_squad_off_a_pin_is_checked_against_the_fallback_agent(string model, bool boots)
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        options.Squad.Enabled = false;
+        options.Decisions.PinnedLensModels["falsifiability"] = model;
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        if (boots)
+        {
+            act.Should().NotThrow();
+        }
+        else
+        {
+            act.Should().Throw<InvalidOperationException>().WithMessage($"*falsifiability*{model}*Daedalus Architect*squad*");
+        }
+    }
+
+    /// <summary>
+    ///     A pin key must be a lens name exactly, as the lens runner looks it up ordinally: a typo or another case would be
+    ///     accepted and never apply. Red: drop the key check; every row boots. Red: compare the key ignoring case; the
+    ///     capitalised row boots.
+    /// </summary>
+    [Theory]
+    [InlineData("security")]
+    [InlineData("Falsifiability")]
+    [InlineData("falsifiabilty")]
+    public void A_pin_key_that_is_not_a_lens_name_is_refused_at_startup(string key)
+    {
+        var (services, options, configuration, environment) = LoadShippedApi();
+        options.Decisions.PinnedLensModels[key] = "claude-opus-5-5";
+
+        var act = () => services.AddDaedalusAgents(options, configuration, environment);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*PinnedLensModels:{key}*not a review lens*correctness, falsifiability, mechanism*");
     }
 }

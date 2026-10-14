@@ -95,6 +95,10 @@ internal static class WorkflowNodeDispatcherFactory
                     sp.GetRequiredService<IServiceScopeFactory>(),
                     sp.GetRequiredService<TimeProvider>(),
                     sp.GetRequiredService<DaedalusAgentsOptions>(),
+                    sp.GetRequiredService<IAgentCatalog>(),
+                    sp.GetRequiredService<IChatClientProvider>(),
+                    sp.GetRequiredService<Thalos.Tools.IToolCatalog>(),
+                    sp.GetRequiredService<Thalos.Runtime.IAgentFactory>(),
                     sp.GetRequiredService<ILogger<NodeSelectionRunner>>()),
                 // The same reason: each read resolves the record store through a fresh scope.
                 sp.GetRequiredService<IServiceScopeFactory>(),

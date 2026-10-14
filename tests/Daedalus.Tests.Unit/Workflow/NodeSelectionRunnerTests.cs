@@ -5,12 +5,16 @@ using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Unit.Decisions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Minos;
 using Npgsql;
 using Thalos;
+using Thalos.Runtime;
+using Thalos.Testing;
+using Thalos.Tools;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
@@ -121,49 +125,78 @@ public sealed class NodeSelectionRunnerTests
     }
 
     /// <summary>
-    ///     The scope the runner resolves its store, the agent catalog and the provider from. The implementer's charter
-    ///     names no model, so its default is the provider's; the reviewer's names <c>charter-model</c>.
+    ///     The Thalos services the runner reads. The implementer's charter names no model, so its default is the provider's;
+    ///     the reviewer's names <c>charter-model</c>. Each agent resolves one tool per configured family unless
+    ///     the constructor's resolved names say otherwise, and the factory accepts every override unless a test says otherwise.
     /// </summary>
-    private static IServiceScopeFactory Scopes(IWorkflowRunRecordStore records) =>
-        RecordStoreScopes.For(records, services =>
+    private sealed class ThalosFakes
+    {
+        public ThalosFakes(string[]? resolved = null)
         {
-            var catalog = Substitute.For<IAgentCatalog>();
-            catalog.TryGet(ImplementerId, Arg.Any<string?>(), out Arg.Any<AgentDefinition?>()).Returns(call =>
+            Catalog.TryGet(ImplementerId, Arg.Any<string?>(), out Arg.Any<AgentDefinition?>()).Returns(call =>
             {
-                call[2] = new AgentDefinition { Id = ImplementerId, Name = "implementer", Instructions = "x" };
+                call[2] = Implementer;
                 return true;
             });
-            catalog.TryGet(ReviewerId, Arg.Any<string?>(), out Arg.Any<AgentDefinition?>()).Returns(call =>
+            Catalog.TryGet(ReviewerId, Arg.Any<string?>(), out Arg.Any<AgentDefinition?>()).Returns(call =>
             {
-                call[2] = new AgentDefinition { Id = ReviewerId, Name = "reviewer", Instructions = "x", Model = "charter-model" };
+                call[2] = Reviewer;
                 return true;
             });
-            services.AddSingleton(catalog);
+            Provider.DefaultModel.Returns("provider-default");
 
-            var provider = Substitute.For<IChatClientProvider>();
-            provider.DefaultModel.Returns("provider-default");
-            services.AddSingleton(provider);
-        });
+            IReadOnlyList<AITool> tools =
+            [
+                .. (resolved ?? ["workspace__read_file", "daedalus__report_review_outcome", "roslyn__find_callers", "sandbox__build"])
+                    .Select(name => AIFunctionFactory.Create(() => 0, name)),
+            ];
+            ToolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
+                .Returns(ValueTask.FromResult(Result<IReadOnlyList<AITool>, AgentError>.Success(tools)));
+            Factory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
+                .Returns(ValueTask.FromResult(UnitResult<AgentError>.Success()));
+        }
 
-    private static NodeSelectionRunner Runner(ISubagentRunner inner, IDecisionClient? client, IWorkflowRunRecordStore records) =>
-        new(
+        public static AgentDefinition Implementer { get; } = new() { Id = ImplementerId, Name = "implementer", Instructions = "x" };
+
+        public static AgentDefinition Reviewer { get; } = new() { Id = ReviewerId, Name = "reviewer", Instructions = "x", Model = "charter-model" };
+
+        public IAgentCatalog Catalog { get; } = Substitute.For<IAgentCatalog>();
+
+        public IChatClientProvider Provider { get; } = Substitute.For<IChatClientProvider>();
+
+        public IToolCatalog ToolCatalog { get; } = Substitute.For<IToolCatalog>();
+
+        public IAgentFactory Factory { get; } = Substitute.For<IAgentFactory>();
+    }
+
+    private static NodeSelectionRunner Runner(
+        ISubagentRunner inner, IDecisionClient? client, IWorkflowRunRecordStore records, ThalosFakes? thalos = null)
+    {
+        thalos ??= new ThalosFakes();
+        return new(
             inner,
             new NodeSelectionDecider(client, new DecisionsConfig(), NullLogger<NodeSelectionDecider>.Instance),
-            Scopes(records),
+            RecordStoreScopes.For(records),
             new FakeTimeProvider(Now),
             Options(),
+            thalos.Catalog,
+            thalos.Provider,
+            thalos.ToolCatalog,
+            thalos.Factory,
             NullLogger<NodeSelectionRunner>.Instance);
+    }
 
     /// <summary>A recorded decision at <paramref name="seq"/> of <paramref name="run"/>, as an earlier attempt wrote it.</summary>
-    private static WorkflowRun Recorded(InMemoryRecords records, WorkflowRun run, long seq, string model, string[]? toolFilter)
+    private static WorkflowRun Recorded(
+        InMemoryRecords records, WorkflowRun run, long seq, string model, string[]? toolFilter, string level = "Routine", string? fallback = null)
     {
         var payload = JsonSerializer.Serialize(new
         {
-            level = "Routine",
+            level,
             model,
             tool_filter = toolFilter,
             kept_families = toolFilter?.Length ?? 4,
-            fallback = (string?)null,
+            fallback,
             confidence = 0.8,
         });
         records.Seeded.Add(WorkflowRunRecord.Create(
@@ -440,6 +473,157 @@ public sealed class NodeSelectionRunnerTests
         var result = (await act.Should().NotThrowAsync()).Subject;
         result.IsFailure.Should().BeTrue("a decision that cannot be recorded or read back must not run");
         result.Error.Code.Should().Be(AgentErrorCode.StoreError);
+        inner.Requests.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Ruling 1(a): a configured pattern that matches no tool the agent resolves on this host is never offered to the
+    ///     decision, so it is never kept, and the kept count is of real families. Here the host has no sandbox. Reds, each
+    ///     applied once: build the menu from the configured patterns alone, and the filter keeps <c>sandbox__*</c> and
+    ///     counts three families.
+    /// </summary>
+    [Fact]
+    public async Task A_pattern_that_matches_no_resolved_tool_is_never_offered()
+    {
+        var inner = new CapturingRunner();
+        var records = new InMemoryRecords();
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes(["workspace__read_file", "daedalus__report_review_outcome", "roslyn__find_callers"]);
+
+        var result = await Runner(inner, client, records, thalos)
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        using var payload = JsonDocument.Parse(records.Appended.Should().ContainSingle().Subject.PayloadJson);
+        using (new AssertionScope())
+        {
+            inner.Requests.Should().ContainSingle().Which.ToolFilter.Should().Equal("workspace__*", "daedalus__*");
+            payload.RootElement.GetProperty("kept_families").GetInt32().Should().Be(2);
+        }
+    }
+
+    /// <summary>
+    ///     When the tools cannot be resolved at all, the configured patterns are the menu, and the safety net below still
+    ///     guards the turn. Red: offer nothing when the resolution failed; the decision then keeps nothing and the filter
+    ///     is null.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_tool_resolution_decides_over_the_configured_patterns()
+    {
+        var inner = new CapturingRunner();
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes();
+        thalos.ToolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(Result<IReadOnlyList<AITool>, AgentError>.Failure(AgentError.ProviderError("roslyn is down"))));
+
+        var result = await Runner(inner, client, new InMemoryRecords(), thalos)
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        inner.Requests.Should().ContainSingle().Which.ToolFilter.Should().Equal("workspace__*", "daedalus__*", "sandbox__*");
+    }
+
+    /// <summary>
+    ///     Ruling 1(b): when Thalos refuses the chosen overrides, the visit records and runs on the full tool list with
+    ///     fallback <c>tools-unresolved</c>, keeping the decided model only when Thalos accepts it alone. The span and the
+    ///     counter carry that fallback, once. Reds, each applied once: skip the validation, and the filter is narrowed;
+    ///     always drop the model on a refusal, and the accepted-model row loses <c>strong</c>; always keep it, and the
+    ///     refused-model row runs on it; settle the decision after the decider's telemetry instead of inside it, and the
+    ///     span carries no fallback; leave the level as decided when the model falls back, and the level assertion fails.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "strong", "strong", "Hard")]
+    [InlineData(false, null, "provider-default", "default")]
+    public async Task A_filter_thalos_refuses_falls_back_to_the_full_list(bool modelAccepted, string? sentModel, string recordedModel, string level)
+    {
+        var inner = new CapturingRunner();
+        var records = new InMemoryRecords();
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes();
+        thalos.Factory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Is<IReadOnlyList<string>?>(f => f != null), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(UnitResult<AgentError>.Failure(AgentError.Validation("no tool matches 'sandbox__*'"))));
+        if (!modelAccepted)
+        {
+            thalos.Factory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), "strong", null, Arg.Any<CancellationToken>())
+                .Returns(ValueTask.FromResult(UnitResult<AgentError>.Failure(AgentError.Validation("model not allowed"))));
+        }
+
+        var node = $"implement-{(modelAccepted ? "kept" : "dropped")}-zq";
+        using var capture = new TelemetryCapture(DecisionTelemetry.SourceName);
+
+        var result = await Runner(inner, client, records, thalos)
+            .RunAsync(RequestFor(RunAt(node, ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var sent = inner.Requests.Should().ContainSingle().Subject;
+        using var payload = JsonDocument.Parse(records.Appended.Should().ContainSingle().Subject.PayloadJson);
+        var spans = capture.SpansNamed(DecisionTelemetry.SpanName)
+            .Where(a => string.Equals(a.GetTagItem(DecisionTelemetry.NodeTag) as string, node, StringComparison.Ordinal)).ToList();
+        using (new AssertionScope())
+        {
+            sent.ToolFilter.Should().BeNull();
+            sent.Model.Should().Be(sentModel);
+            payload.RootElement.GetProperty("fallback").GetString().Should().Be(NodeSelectionRunner.ToolsUnresolved);
+            payload.RootElement.GetProperty("model").GetString().Should().Be(recordedModel);
+            payload.RootElement.GetProperty("level").GetString().Should().Be(level);
+            payload.RootElement.GetProperty("tool_filter").ValueKind.Should().Be(JsonValueKind.Null);
+            spans.Should().ContainSingle().Which.GetTagItem(DecisionTelemetry.FallbackTag).Should().Be(NodeSelectionRunner.ToolsUnresolved);
+            capture.MeasurementsOf(DecisionTelemetry.CounterName)
+                .Count(m => NodeSelectionRunner.ToolsUnresolved.Equals(m.Tags.GetValueOrDefault(DecisionTelemetry.FallbackTag)))
+                .Should().Be(1);
+        }
+    }
+
+    /// <summary>
+    ///     A recorded fallback is reused as recorded: <c>tools-unresolved</c> with an accepted model runs on that model and
+    ///     the full list, and any other fallback leaves the model unset, so the turn is today's. Nothing is validated or
+    ///     decided again. Reds, each applied once: drop <c>payload.Fallback</c> in <c>Parse</c>, and the low-confidence row
+    ///     sends its default model; drop the tools-unresolved case from the model rule, and that row sends no model;
+    ///     validate a reused decision again, and the validation assertion fails.
+    /// </summary>
+    [Theory]
+    [InlineData(NodeSelectionRunner.ToolsUnresolved, "Hard", "strong", "strong")]
+    [InlineData(NodeSelectionMapper.LowConfidence, "default", "provider-default", null)]
+    public async Task A_redelivered_fallback_is_reused_as_recorded(string fallback, string level, string model, string? sentModel)
+    {
+        var inner = new CapturingRunner();
+        var records = new InMemoryRecords();
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes();
+        var run = Recorded(records, RunAt("implement", ReviewHandoff.ImplementSkillName), seq: 7, model, null, level, fallback);
+
+        var result = await Runner(inner, client, records, thalos).RunAsync(RequestFor(run), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var sent = inner.Requests.Should().ContainSingle().Subject;
+        using (new AssertionScope())
+        {
+            sent.Model.Should().Be(sentModel);
+            sent.ToolFilter.Should().BeNull();
+            client.Calls.Should().Be(0);
+            records.Appended.Should().BeEmpty();
+            await thalos.Factory.DidNotReceiveWithAnyArgs().ValidateOverridesAsync(default!, default, default, default);
+        }
+    }
+
+    /// <summary>
+    ///     A pinned agent definition the catalog cannot serve fails the node with a result rather than an exception, and
+    ///     runs no turn. Red: decide over a placeholder definition when the catalog has none; the turn runs.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_agent_definition_fails_the_node_without_throwing()
+    {
+        var inner = new CapturingRunner();
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes();
+        thalos.Catalog.TryGet(ImplementerId, Arg.Any<string?>(), out Arg.Any<AgentDefinition?>()).Returns(false);
+
+        var act = async () => await Runner(inner, client, new InMemoryRecords(), thalos)
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        var result = (await act.Should().NotThrowAsync()).Subject;
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(AgentErrorCode.Validation);
         inner.Requests.Should().BeEmpty();
     }
 

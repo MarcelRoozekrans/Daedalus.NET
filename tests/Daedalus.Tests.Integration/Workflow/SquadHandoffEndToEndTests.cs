@@ -763,6 +763,19 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         var chatProvider = Substitute.For<IChatClientProvider>();
         chatProvider.DefaultModel.Returns("provider-default");
         services.AddSingleton(chatProvider);
+        var toolCatalog = Substitute.For<Thalos.Tools.IToolCatalog>();
+        IReadOnlyList<Microsoft.Extensions.AI.AITool> resolved =
+        [
+            Microsoft.Extensions.AI.AIFunctionFactory.Create(() => 0, "workspace__read_file"),
+            Microsoft.Extensions.AI.AIFunctionFactory.Create(() => 0, "daedalus__report_review_outcome"),
+        ];
+        toolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(Result<IReadOnlyList<Microsoft.Extensions.AI.AITool>, AgentError>.Success(resolved)));
+        services.AddSingleton(toolCatalog);
+        var agentFactory = Substitute.For<Thalos.Runtime.IAgentFactory>();
+        agentFactory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(UnitResult<AgentError>.Success()));
+        services.AddSingleton(agentFactory);
         return (services.BuildServiceProvider(), references, catalog);
     }
 

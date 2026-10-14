@@ -257,7 +257,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.TryAddSingleton<SquadAgentResolver>();
 
         ValidateContentConfig(options.Content);
-        ValidateDecisionsConfig(options);
+        ValidateDecisionsConfig(options, configuration["Thalos:Anthropic:DefaultModel"]);
 
         // Phase 2.10: the validated options, read by NodeSelectionRunner for the role menus and by ReviewLensRunner for
         // the pinned lens models, and the decider. No IDecisionClient is registered yet, so every decision falls back
@@ -994,10 +994,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     /// </summary>
     /// <exception cref="InvalidOperationException">
     ///     <c>Model</c> is blank, <c>Timeout</c> is not positive, a probability is NaN or outside 0 to 1, an
-    ///     <c>AllowedModels</c> entry is blank or repeated, or a <c>PinnedLensModels</c> value is not in the reviewer's
-    ///     <c>AllowedModels</c>.
+    ///     <c>AllowedModels</c> entry is blank or repeated, a <c>PinnedLensModels</c> key is not a lens name, or a value is
+    ///     not a model the agent that runs the review node under the current squad setting may use.
     /// </exception>
-    private static void ValidateDecisionsConfig(DaedalusAgentsOptions options)
+    private static void ValidateDecisionsConfig(DaedalusAgentsOptions options, string? anthropicDefaultModel)
     {
         const string section = DecisionsConfig.SectionName;
         var decisions = options.Decisions;
@@ -1051,22 +1051,60 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             decisions.PinnedLensModels[lens] = decisions.PinnedLensModels[lens]?.Trim() ?? "";
         }
 
-        var reviewer = options.Agents.FirstOrDefault(a => string.Equals(a.Name, "reviewer", StringComparison.Ordinal));
+        // The pin applies to whichever agent runs the review node, which the squad setting decides: the reviewer, or every
+        // role's fallback agent when the squad is off. ReviewLensRunner looks a lens up by its canonical lower-case name.
+        var reviewerName = new SquadAgentResolver(options.Squad).Resolve("reviewer");
+        var squad = options.Squad.Enabled ? "the squad is on" : "the squad is off";
+        var runsReview = options.Agents.FirstOrDefault(a => string.Equals(a.Name, reviewerName, StringComparison.Ordinal));
+        var lensNames = ReviewLens.All.Select(l => l.Name).ToList();
         foreach (var (lens, model) in decisions.PinnedLensModels)
         {
-            if (reviewer is null)
+            if (!lensNames.Contains(lens, StringComparer.Ordinal))
             {
                 throw new InvalidOperationException(
-                    $"{section}:PinnedLensModels:{lens} is '{model}', but no agent named reviewer is configured, so there is no AllowedModels menu to pin from.");
+                    $"{section}:PinnedLensModels:{lens} is not a review lens. Name one of {string.Join(", ", lensNames)}, exactly " +
+                    "and in lower case, or the pin never applies.");
             }
 
-            if (!reviewer.AllowedModels.Contains(model, StringComparer.Ordinal))
+            if (runsReview is null)
             {
                 throw new InvalidOperationException(
-                    $"{section}:PinnedLensModels:{lens} is '{model}', which is not in the reviewer's " +
-                    $"AllowedModels ({string.Join(", ", reviewer.AllowedModels)}). A pinned lens model must be one the reviewer may use.");
+                    $"{section}:PinnedLensModels:{lens} is '{model}', but no agent named {reviewerName} is configured, and {squad}, " +
+                    "so it runs the review node; there is no AllowedModels menu to pin from.");
+            }
+
+            var menu = PinnableModels(runsReview, anthropicDefaultModel);
+            if (!menu.Contains(model, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"{section}:PinnedLensModels:{lens} is '{model}', which agent '{reviewerName}' may not run on: {squad}, so it " +
+                    $"runs the review node, and its AllowedModels and default model are ({string.Join(", ", menu)}). Thalos would " +
+                    "refuse every review turn of that lens.");
             }
         }
+    }
+
+    /// <summary>
+    ///     The models a pin may name for <paramref name="agent"/>: its <c>AllowedModels</c> and, when known here, its default
+    ///     model, which is its own <c>Model</c> or, for an agent that is not chartered, <c>Thalos:Anthropic:DefaultModel</c>.
+    ///     A chartered agent's default comes from its charter, which is not loaded at registration, so only its
+    ///     <c>AllowedModels</c> count.
+    /// </summary>
+    private static List<string> PinnableModels(AgentConfig agent, string? anthropicDefaultModel)
+    {
+        var models = new List<string>(agent.AllowedModels);
+        var defaultModel = agent.Model;
+        if (string.IsNullOrWhiteSpace(defaultModel) && !agent.Chartered)
+        {
+            defaultModel = anthropicDefaultModel;
+        }
+
+        if (!string.IsNullOrWhiteSpace(defaultModel) && !models.Contains(defaultModel, StringComparer.Ordinal))
+        {
+            models.Add(defaultModel);
+        }
+
+        return models;
     }
 
     /// <summary>
