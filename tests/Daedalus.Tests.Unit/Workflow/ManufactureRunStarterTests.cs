@@ -391,7 +391,7 @@ public sealed class ManufactureRunStarterTests
         store.StartAsync(Arg.Do<WorkflowStartRequest>(r => captured = r), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result<Guid>>(Result<Guid>.Success(Guid.NewGuid())));
 
-        var starter = new ManufactureRunStarter(new WorkflowRunStarter(_definitions, _manifests, store), _workspaces, _baseFiles, _config);
+        var starter = new ManufactureRunStarter(new WorkflowRunStarter(_definitions, _manifests, store), _workspaces, _baseFiles, _config, Substitute.For<IWorkflowStore>());
         await starter.StartAsync(Request("sandbox"), CancellationToken.None);
 
         captured.Should().NotBeNull("the start must reach the store for the opening variables to be read");
@@ -421,5 +421,6 @@ public sealed class ManufactureRunStarterTests
         new WorkflowRunStarter(_definitions, _manifests, Substitute.For<IWorkflowStore>()),
         _workspaces,
         _baseFiles,
-        _config);
+        _config,
+        Substitute.For<IWorkflowStore>());
 }

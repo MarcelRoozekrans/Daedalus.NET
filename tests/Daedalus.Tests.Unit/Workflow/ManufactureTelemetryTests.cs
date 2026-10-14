@@ -159,7 +159,8 @@ public sealed class ManufactureTelemetryTests
             new WorkflowRunStarter(definitions, Substitute.For<IRunManifestResolver>(), Substitute.For<IWorkflowStore>()),
             workspaces,
             baseFiles,
-            config);
+            config,
+            Substitute.For<IWorkflowStore>());
     }
 
     /// <summary>
