@@ -484,7 +484,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 /// </param>
 /// <param name="BaseBranch">
 ///     Required for <c>review-replay</c> and refused for every other process: the <c>manufacture/&lt;run-id&gt;</c> branch of
-///     the allow-listed repository to review, in exactly that form.
+///     the allow-listed repository to review, in exactly that form. A run that worked on another repository than
+///     <c>Repository</c> is a 400.
 /// </param>
 public sealed record StartWorkflowRunRequest(string WorkIntent, string Repository, string? Process = null, string? BaseBranch = null);
 

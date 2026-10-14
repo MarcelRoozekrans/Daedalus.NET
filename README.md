@@ -701,6 +701,7 @@ call, so that stays an account setting: see [the development guide](docs/develop
 
 To compare reviewer setups on the same code, `POST /api/workflow-runs` with `workIntent`, `repository` (an allow-listed
 name), `process` `review-replay` and `baseBranch` `manufacture/<run-id>` reviews an existing manufacture branch and ends, with no pull request.
+The `repository` must be the one the original run worked on, or the start is refused with 400.
 
 **Sentinel embedding generator:** the semantic detectors (prompt injection, jailbreak, exfiltration, …) need an
 `IEmbeddingGenerator`. The API passes the Ollama client (`nomic-embed-text`) when Aspire provides `ConnectionStrings:ollama`;

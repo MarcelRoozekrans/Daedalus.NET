@@ -206,6 +206,42 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     Final review item 9: a replay whose original run worked on another allow-listed repository is refused as 400 before
+    ///     any worktree of its own, told by the original's workspace. The other entry's remote does not exist, so without the
+    ///     check the start reaches the workspace provider and fails as a host error instead. Red: skip the origin check in
+    ///     <c>RefuseOriginalRun</c>; the start answers 500 and the status assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_replay_against_another_repository_than_the_originals_is_400_without_a_worktree()
+    {
+        var extra = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["Thalos:Workflow:Repositories:1:Name"] = "other",
+            ["Thalos:Workflow:Repositories:1:Remote"] = "https://example.invalid/other.git",
+            ["Thalos:Workflow:Repositories:1:DefaultBranch"] = "main",
+        };
+        await WithHostAsync(new ScriptedChatClient(), async (host, _) =>
+        {
+            var originalId = await SeedOriginalAsync(host);
+            var workspace = await host.Factory.Services.GetRequiredService<Thalos.Workspaces.IRunWorkspaceProvider>().CreateAsync(
+                new Thalos.Workspaces.RunWorkspaceRequest(
+                    originalId, ScratchWorkflowHost.Repository, host.Remote.Url, "main", $"manufacture/{originalId}", null),
+                CancellationToken.None);
+            workspace.IsSuccess.Should().BeTrue("the original run's workspace names the repository it worked on");
+            host.Remote.PushBranch($"manufacture/{originalId}", ("src/A.cs", ReviewedA));
+            using var admin = host.Client("a-admin", "admin");
+
+            var start = await admin.PostAsJsonAsync(
+                "/api/workflow-runs",
+                new StartWorkflowRunRequest("Review the guard.", "other", "review-replay", $"manufacture/{originalId}"));
+
+            start.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await start.Content.ReadAsStringAsync()).Should().Contain("another repository");
+            host.RunDirectories().Select(Path.GetFileName).Should().Equal(originalId.ToString());
+        }, extra);
+    }
+
+    /// <summary>
     ///     A run that exists whose branch the remote lacks fails at the workspace provider, which reports only
     ///     <c>git worktree add failed.</c>, so the endpoint answers 500: a host failure, not a 4xx. No worktree remains.
     ///     Red, per assertion: ignore the workspace's result and go on to the start, and the status is Created; report a
@@ -261,13 +297,20 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
         return id;
     }
 
-    private async Task WithHostAsync(ScriptedChatClient chat, Func<ScratchWorkflowHost, FakePullRequestPublisher, Task> body)
+    private async Task WithHostAsync(
+        ScriptedChatClient chat, Func<ScratchWorkflowHost, FakePullRequestPublisher, Task> body, IReadOnlyDictionary<string, string?>? extra = null)
     {
         var publisher = new FakePullRequestPublisher();
+        var settings = new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Enabled"] = "false" };
+        foreach (var (key, value) in extra ?? new Dictionary<string, string?>(StringComparer.Ordinal))
+        {
+            settings[key] = value;
+        }
+
         await using var host = await ScratchWorkflowHost.StartAsync(
             fixture,
             runtime: null,
-            settings: new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Enabled"] = "false" },
+            settings: settings,
             configureServices: services =>
             {
                 services.Replace(ServiceDescriptor.Singleton<IChatClientProvider>(new ScriptedChatClientProvider(chat)));

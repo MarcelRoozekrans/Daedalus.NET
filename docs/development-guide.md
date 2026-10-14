@@ -168,7 +168,10 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   when it is off. Thalos checks the model again on the turn.
 - **Replaying a review.** `processes/review-replay.yaml` has one `review` node and ends. Start it with
   `POST /api/workflow-runs`, REST only, with `process` `review-replay` and `baseBranch` `manufacture/<run-id>`, exactly
-  that form. `baseBranch` is refused for any other process and required for this one. The reviewer starts from the
+  that form. `baseBranch` is refused for any other process and required for this one. A replay whose original run
+  worked on another repository than the requested `repository` is refused as 400 before any worktree: the original's
+  workspace names its repository while it has one, and a published run's pull request link names it after that. A run
+  with neither is not compared, and a branch the requested remote lacks fails the workspace. The reviewer starts from the
   `files_touched` the original run recorded, snapshotted at start. There is no implement, gate or publish, so a replay
   opens no pull request. It exists to compare reviewer setups on identical input.
 - **Reading a decision.** `GET /api/workflow-runs/{id}` lists `nodeSelections` in seq order: seq, node, model, level,

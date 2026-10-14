@@ -112,16 +112,81 @@ public sealed class ReviewReplayStartTests
         await _workspaces.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
     }
 
+    /// <summary>
+    ///     Final review item 9: a replay of a run that worked on another repository is refused as Invalid before any
+    ///     workspace, told by the original's workspace while it has one. Reds, each applied once: skip the origin check in
+    ///     <c>RefuseOriginalRun</c>, and the other-repository row creates a workspace; ignore the workspace, and the same row
+    ///     is not refused; invert the name comparison, and both rows fail.
+    /// </summary>
+    [Theory]
+    [InlineData("sandbox", false)]
+    [InlineData("other", true)]
+    public async Task A_replay_of_a_run_whose_workspace_names_another_repository_is_refused(string originalRepository, bool refused)
+    {
+        _workspaces.FindAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(call => new ValueTask<RunWorkspace?>(
+            new RunWorkspace(call.Arg<Guid>(), originalRepository, "https://example.invalid/x.git", "trunk", "manufacture/x", "sandbox://original", null)));
+
+        var result = await CreateStarter().StartAsync(Request("review-replay", Branch), CancellationToken.None);
+
+        if (refused)
+        {
+            result.IsFailure.Should().BeTrue();
+            result.Error.Kind.Should().Be(ManufactureStartFailureKind.Invalid);
+            result.Error.Message.Should().Contain("baseBranch").And.Contain("another repository");
+            await _workspaces.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+        }
+        else
+        {
+            await _workspaces.ReceivedWithAnyArgs(1).CreateAsync(default!, default);
+        }
+    }
+
+    /// <summary>
+    ///     A published original has no workspace left, so its pull request's link says which repository it worked on, compared
+    ///     with the requested entry's github.com remote by owner and name, ignoring case. Reds, each applied once: skip the
+    ///     link, and the other-repository row is not refused; compare the owner only, and the other-name row is not refused;
+    ///     compare with case, and the upper-case row is refused.
+    /// </summary>
+    [Theory]
+    [InlineData("https://github.com/acme/widgets/pull/7", false)]
+    [InlineData("https://github.com/ACME/Widgets/pull/7", false)]
+    [InlineData("https://github.com/acme/gadgets/pull/7", true)]
+    [InlineData("https://github.com/other/widgets/pull/7", true)]
+    public async Task A_replay_of_a_published_run_whose_pull_request_is_on_another_repository_is_refused(string pullRequestLink, bool refused)
+    {
+        _config.Repositories.Add(new RepositoryConfig { Name = "widgets", Remote = "https://github.com/acme/widgets.git", DefaultBranch = "main" });
+        Original("manufacture", Touched, pullRequestLink);
+
+        var result = await CreateStarter().StartAsync(
+            new ManufactureStartRequest("Review this branch.", "widgets", Starter, "review-replay", Branch), CancellationToken.None);
+
+        if (refused)
+        {
+            result.Error.Kind.Should().Be(ManufactureStartFailureKind.Invalid);
+            result.Error.Message.Should().Contain("another repository");
+            await _workspaces.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+        }
+        else
+        {
+            await _workspaces.ReceivedWithAnyArgs(1).CreateAsync(default!, default);
+        }
+    }
+
     private static readonly string[] Touched = ["src/A.cs"];
 
     private static readonly object Absent = new();
 
-    private void Original(string process, object? filesTouched)
+    private void Original(string process, object? filesTouched, string? pullRequestLink = null)
     {
         var variables = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (!ReferenceEquals(filesTouched, Absent))
         {
             variables[ReviewHandoff.FilesTouchedKey] = filesTouched;
+        }
+
+        if (pullRequestLink is not null)
+        {
+            variables[ReviewHandoff.PrUrlKey] = pullRequestLink;
         }
 
         var run = new WorkflowRun
