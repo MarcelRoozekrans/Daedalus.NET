@@ -73,27 +73,37 @@
          UseSandboxRunWorkspaces (Thalos #250); 0.14.2 fixes the HTTP MCP connect, with no API change here.
          0.14.2 → 0.15.0 (phase 2.9): workflow telemetry on the `thalos.workflow` source and meter, the
          `workflow_run.trace_parent` column (migration 1010), and `TelemetryCapture` in Thalos.NET.Testing.
-         0.15.0 → 0.16.0: IWorkflowRunQuery and IWorkflowRunObserver for phase 2.12's console. -->
-    <PackageVersion Include="Thalos.NET" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Git" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Memory" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Skills" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Channels" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.16.0" />
+         0.15.0 → 0.16.0: IWorkflowRunQuery and IWorkflowRunObserver for phase 2.12's console.
+         0.16.0 → 0.17.0 (Thalos PR #325): per-request model and tool overrides for phase 2.10.
+         SubagentRunRequest gains Model and ToolFilter, checked by the engine against the agent's
+         AllowedModels and resolved tools; AgentDefinition and AgentEnvelope gain AllowedModels.
+         BREAKING: IAgentFactory gained a member. -->
+    <PackageVersion Include="Thalos.NET" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Git" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Skills" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Channels" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.17.0" />
     <!-- Phase 2.2 Part B: consume the durable workflow engine Part A shipped. -->
-    <PackageVersion Include="Thalos.NET.Workflow" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Workflow" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.17.0" />
     <!-- Phase 2.6: the per-run Docker sandbox packages, net10.0 only, shipped from 0.14.0. -->
-    <PackageVersion Include="Thalos.NET.Sandbox" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.16.0" />
-    <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.16.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.17.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.17.0" />
+
+    <!-- Minos.NET 1.0.1: per-node model and tool selection, phase 2.10. Daedalus.Agents references Minos.NET;
+         Minos.NET.SystemOne is not referenced by a project yet. -->
+    <PackageVersion Include="Minos.NET" Version="1.0.1" />
+    <PackageVersion Include="Minos.NET.SystemOne" Version="1.0.1" />
+
     <!-- 1.1.11: Flux.Blazor references Microsoft.AspNetCore.Components; 1.1.10 could not build for browser-wasm. -->
     <PackageVersion Include="ZeroAlloc.Flux" Version="1.1.11" />
     <PackageVersion Include="ZeroAlloc.Flux.Blazor" Version="1.1.11" />
@@ -128,9 +138,6 @@
          Thalos.NET.Workflow 0.15.0's nuspec declares.
          1.12.0 → 1.12.2: floor set by Thalos.NET.Workflow 0.16.0. -->
     <PackageVersion Include="ZeroAlloc.Telemetry" Version="1.12.2" />
-    <!-- Minos.NET 1.0.1: per-node model and tool selection, phase 2.10. Not referenced by a project yet. -->
-    <PackageVersion Include="Minos.NET" Version="1.0.1" />
-    <PackageVersion Include="Minos.NET.SystemOne" Version="1.0.1" />
     <!-- 2.0.10 → 2.0.12: floor set by Thalos.NET.Abstractions 0.13.0 -->
     <!-- 2.0.12 → 2.1.0: floor set by Thalos.NET.Abstractions 0.15.0 -->
     <!-- 2.1.0 → 2.2.0: floor set by Thalos.NET.Abstractions 0.16.0 -->
