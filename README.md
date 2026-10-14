@@ -682,7 +682,7 @@ persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Ski
 | `Thalos:Decisions:ZeroDataRetentionAccount`    | `false` by default. Set `true` only when the OpenRouter account has zero data retention (openrouter.ai/settings/privacy): decisions send the task's work intent. Decisions run only when this is `true` **and** `OPENROUTER_API_KEY` is set. |
 | `Thalos:Decisions:{Model,Timeout}`             | The OpenRouter model that decides (default `jev-latest`) and how long a decision may take (default 5 seconds) before the node falls back to its default model and full tool list. |
 | `Thalos:Decisions:{ModelConfidence,ToolFamilyProbability}` | Minimum confidence (default 0.6) for a model choice to be taken, and minimum probability (default 0.5) for a tool family to be kept. Both between 0 and 1. |
-| `Thalos:Decisions:PinnedLensModels`            | Review lens (`correctness`, `falsifiability`, `mechanism`) → model its pass always runs on. Each must be in `AllowedModels` of the agent that runs the review under the current `Thalos:Squad:Enabled`; start-up refuses it otherwise. |
+| `Thalos:Decisions:PinnedLensModels`            | Review lens (`correctness`, `falsifiability`, `mechanism`) → model its pass always runs on. Each must be in `AllowedModels` of the agent that runs the review under the current `Thalos:Squad:Enabled`, or that agent's default model when known; start-up refuses it otherwise. |
 
 **Per-node model and tool selection (phase 2.10).** Before an implement or review node runs, a cheap
 [Minos.NET](https://github.com/MarcelRoozekrans/Minos.NET) decision, made through OpenRouter, picks the node's model
@@ -697,8 +697,8 @@ decision is recorded as a `node-selection` run record and listed under `nodeSele
 metrics are under "Observability". Task text is sent to OpenRouter, and Minos cannot request zero data retention per
 call, so that stays an account setting: see [the development guide](docs/development-guide.md#node-selection).
 
-To compare reviewer setups on the same code, `POST /api/workflow-runs` with `process` `review-replay` and `baseBranch`
-`manufacture/<run-id>` reviews an existing manufacture branch and ends, with no pull request.
+To compare reviewer setups on the same code, `POST /api/workflow-runs` with `workIntent`, `repository` (an allow-listed
+name), `process` `review-replay` and `baseBranch` `manufacture/<run-id>` reviews an existing manufacture branch and ends, with no pull request.
 
 **Sentinel embedding generator:** the semantic detectors (prompt injection, jailbreak, exfiltration, …) need an
 `IEmbeddingGenerator`. The API passes the Ollama client (`nomic-embed-text`) when Aspire provides `ConnectionStrings:ollama`;

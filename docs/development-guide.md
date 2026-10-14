@@ -100,12 +100,11 @@ remain as columns and show read-only on old tasks.
 Phase 2.10 lets a cheap Minos decision choose, before an agent node runs, which of its role's allowed models the turn
 uses and which tool families it keeps. The aim is fewer tokens and fewer tools to confuse the model: a review is 70 to
 80 percent of a run's cost, and the implementer and reviewer are each handed about 54 Roslyn tools. The design is in
-`docs/superpowers/specs/2026-10-13-phase-2.10-minos-decisions-design.md`. Everything is in `src/Daedalus.Agents/`.
+`docs/superpowers/specs/2026-10-13-phase-2.10-minos-decisions-design.md`. The decision code is in `src/Daedalus.Agents/`.
 
 - **Off by default.** Decisions run only when `Thalos:Decisions:ZeroDataRetentionAccount` is `true` **and** an
   OpenRouter key is present (`DecisionsConfig.IsEnabled`). The decision reads the work intent, so task text goes to
-  OpenRouter.
-  Minos 1.0.1 cannot request zero data retention per call, so that is an account setting on OpenRouter, and the flag is
+  OpenRouter. Minos 1.0.1 cannot request zero data retention per call, so that is an account setting on OpenRouter, and the flag is
   the owner's statement that it is set. Otherwise no decision client is registered and every node runs on its default
   model and full tool list, as before. `DecisionsStartupLog` says once at host start whether decisions are on and, if
   not, why: the flag is not true, no key is configured, or both. It never logs the key or its length. A blank key is no
@@ -135,7 +134,7 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
 - **Narrowing stops after a rejected review.** Once either `implement` or `review` is on a later visit, tools are no
   longer narrowed, so the retry and its re-review get full lists. The model is still decided.
 - **Fallbacks.** A decision never fails a node. Each fallback has a reason, in `fallback` on the record and in the
-  telemetry; the default model then applies, and the request is left as it was before this existed.
+  telemetry; the default model applies, except where `tools-unresolved` keeps the decided model, and the request is left as it was before this existed.
 
   | Reason | When |
   |---|---|
@@ -652,8 +651,9 @@ for `daedalus.task.id` on the request span. `ManufactureRunStarter` tags `daedal
 the implementation of a seam. Inside an implementation, tag only after checking that `Activity.Current` is your own span,
 by operation name and source, as `TagStartSpan` does. Otherwise an unsampled span leaves the tag on the caller's span.
 
-**Names.** Declare every span, tag and metric name once, in `ManufactureTelemetry`. Names Thalos owns are aliased from
-`WorkflowTelemetry`, so the two cannot drift.
+**Names.** Declare every span, tag and metric name once, in the telemetry class of its source: `ManufactureTelemetry`
+for `daedalus.manufacture`, `DecisionTelemetry` for `daedalus.decisions`. Names Thalos owns, such as the node and run id
+tags, are aliased from `WorkflowTelemetry`, so they cannot drift.
 
 **Testing.** Use `Thalos.Testing.TelemetryCapture`, and filter on a value only the test produces, such as a fresh run id:
 the capture sees every span in the process, so never assert an unfiltered count. For the host's own pipeline use the
@@ -856,14 +856,37 @@ versions (`ManagePackageVersionsCentrally = true`). Every `.csproj`
 ### Local packages until nuget.org has them
 
 Thalos.NET 0.17.0 and Minos.NET 1.0.1 are not on nuget.org yet (Minos's publish hit a reserved package-ID prefix, and
-Thalos 0.17.0 is unreleased). Until they are, a local `nuget.config` points at two folders of packed packages, keyed
-`thalos-local` and `minos-local`, with package source mapping: `Thalos.NET*` to the first, `Minos.NET*` to the second
-and `*` to nuget.org. `nuget.config` is tracked, so keep your edit out of commits with
-`git update-index --skip-worktree nuget.config`. The pull request stays a draft until both are published, because CI
-restores from nuget.org only. To remove the local sources afterwards: delete both `<add>` sources and their mapping
-entries, delete the cached `~/.nuget/packages/<id>/<version>` folders for those packages (a restore would otherwise
-keep using the locally built copies), run
-`git update-index --no-skip-worktree nuget.config`, and restore.
+Thalos 0.17.0 is unreleased). Until they are, point a local `nuget.config` at two folders of packed packages. Replace
+the two placeholder paths with your folders:
+
+```xml
+<packageSources>
+  <clear />
+  <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  <add key="minos-local" value="/path/to/nuget-local/minos" />
+  <add key="thalos-local" value="/path/to/nuget-local/thalos" />
+</packageSources>
+<packageSourceMapping>
+  <packageSource key="nuget.org"><package pattern="*" /></packageSource>
+  <packageSource key="minos-local"><package pattern="Minos.NET*" /></packageSource>
+  <packageSource key="thalos-local"><package pattern="Thalos.NET*" /></packageSource>
+</packageSourceMapping>
+```
+
+`nuget.config` is tracked, so keep your edit out of commits with `git update-index --skip-worktree nuget.config`. The
+pull request stays a draft until both are published, because CI restores from nuget.org only.
+
+To remove the local sources afterwards, in order:
+
+```bash
+git update-index --no-skip-worktree nuget.config
+git checkout -- nuget.config
+rm -rf ~/.nuget/packages/thalos.net*/0.17.0 ~/.nuget/packages/minos.net*/1.0.1
+dotnet restore
+```
+
+The cached folders are lower case and there are many; without deleting them a restore keeps using the locally built
+copies.
 
 ## The recurring defect: tests that pass for the wrong reason
 
