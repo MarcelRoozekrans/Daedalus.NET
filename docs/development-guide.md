@@ -95,6 +95,83 @@ delete answer 409 while the task's run is live. The old Ralph-only fields
 (`MaxIterations`, `CompletionPromise`, `IterationCount`, `CurrentSessionId`)
 remain as columns and show read-only on old tasks.
 
+### Node selection
+
+Phase 2.10 lets a cheap Minos decision choose, before an agent node runs, which of its role's allowed models the turn
+uses and which tool families it keeps. The aim is fewer tokens and fewer tools to confuse the model: a review is 70 to
+80 percent of a run's cost, and the implementer and reviewer are each handed about 54 Roslyn tools. The design is in
+`docs/superpowers/specs/2026-10-13-phase-2.10-minos-decisions-design.md`. Everything is in `src/Daedalus.Agents/`.
+
+- **Off by default.** Decisions run only when `Thalos:Decisions:ZeroDataRetentionAccount` is `true` **and** an
+  OpenRouter key is present (`DecisionsConfig.IsEnabled`). The decision reads the work intent, so task text goes to
+  OpenRouter.
+  Minos 1.0.1 cannot request zero data retention per call, so that is an account setting on OpenRouter, and the flag is
+  the owner's statement that it is set. Otherwise no decision client is registered and every node runs on its default
+  model and full tool list, as before. `DecisionsStartupLog` says once at host start whether decisions are on and, if
+  not, why: the flag is not true, no key is configured, or both. It never logs the key or its length. A blank key is no
+  key (`DecisionsConfig.HasKey`).
+- **The key.** The AppHost parameter `openrouter-key` (secret, empty by default) becomes the `OPENROUTER_API_KEY`
+  environment variable of the API, which `AddDaedalusAgents` reads under `OpenRouterKeyName`. Set it with AppHost
+  user secrets (`Parameters:openrouter-key`) or `PARAMETERS__OPENROUTER_KEY`, never in a file in the repository.
+- **Which turns.** `NodeSelectionRunner` wraps the subagent runner and decides only a turn whose node pins the
+  `manufacture-implement` or `manufacture-review` skill. The `review-replay` process runs the same review node, so its
+  turns are decided too. A role with no `Thalos:Agents` entry, and every other turn, is forwarded unchanged.
+- **The menu is configuration.** A role's `AllowedModels` (cheapest first) and `Tools` in `Thalos:Agents` are what a
+  decision chooses from. Empty `AllowedModels` means no model choice (`no-allowed-models`). The agent's default model
+  need not be listed. Thalos 0.17.0 carries `AllowedModels` on the agent and refuses a turn whose model is outside it,
+  or a tool filter that names a tool the agent does not hold, so a selector bug is loud and a decision can only narrow.
+  Every allowed model needs a `ModelPricing:Models` price, which `CostAnalyticsPricingDriftTests` guards. Tool patterns
+  that match no tool on this host, such as `sandbox__build` in local mode, are not offered.
+- **The questions.** `NodeQuestions` asks one `Demand` score (Routine, Moderate or Hard) and six tool-family
+  probabilities: `roslyn`, `sandbox`, `memory`, `skills`, `context7` and `issues`. The state sent is the role, node,
+  visit and the work intent cut at `NodeSelectionDecider.MaxIntentCharacters`.
+- **Mapping** (`NodeSelectionMapper`, pure). Routine takes the first allowed model, Hard the last, Moderate the middle
+  one, so on a two-model menu Moderate and Hard both take the stronger model. A demand answer below
+  `ModelConfidence` (default 0.6) keeps the default model. A family is kept when its probability reaches
+  `ToolFamilyProbability` (default 0.5). A family is the part of a tool pattern before `__`. **`workspace` and
+  `daedalus` are never removable**, nor is a family the questions do not cover. If nothing is removed, or nothing would
+  be kept, the filter is null and the node keeps its full list. The filter is set whenever it narrowed, whatever the
+  model.
+- **Narrowing stops after a rejected review.** Once either `implement` or `review` is on a later visit, tools are no
+  longer narrowed, so the retry and its re-review get full lists. The model is still decided.
+- **Fallbacks.** A decision never fails a node. Each fallback has a reason, in `fallback` on the record and in the
+  telemetry; the default model then applies, and the request is left as it was before this existed.
+
+  | Reason | When |
+  |---|---|
+  | `off` | No decision client: decisions are off. |
+  | `timeout` | The call outran `Thalos:Decisions:Timeout` (default 5 seconds). |
+  | `error:{kind}` | Minos returned a failure; `{kind}` is its `DecisionErrorKind`, a closed enum. |
+  | `error:Client` | The client threw `InvalidOperationException`, such as a disposed client. |
+  | `low-confidence` | The demand answer was below `ModelConfidence`. |
+  | `no-allowed-models` | The role offers no allowed models. |
+  | `tools-unresolved` | Thalos refused the decided tool filter, or the model with it. The visit runs the full list, and the decided model only if Thalos accepts that alone. |
+  | `error:Validate` | Thalos could not check the overrides (not a refusal). The visit runs the full list on its own model. |
+
+  An earlier reason is kept rather than replaced by `tools-unresolved` or `error:Validate`. The check runs before the
+  span is tagged and the decision counted (`NodeSelectionDecider.DecideAsync` with a `settle` callback), so a fallback
+  the host applies is told and counted like the decider's own.
+- **Once per visit, reused on redelivery.** The decision is recorded as a `node-selection` run record at the run's
+  `CurrentSeq`. A redelivered dispatch reads it back and runs on what the first attempt ran on. The partial unique index
+  `UX_WorkflowRunRecords_NodeSelection_RunId_Seq` (on run and seq, filtered to `Kind = 'node-selection'`) settles two
+  deliveries deciding at once: the loser reads the winner's record and runs on that. A decision that cannot be recorded,
+  or a record that does not parse, fails the node with a `StoreError`: running on a decision a replay could not read
+  back would let a replay run differently. `NodeSelectionRecord` is the one parser for the runner and the run view.
+- **Review lenses.** `NodeSelectionRunner` sits outside `ReviewLensRunner`, so the three lens passes share one decision
+  and one cached prompt prefix. `Thalos:Decisions:PinnedLensModels` maps a lens name (`correctness`, `falsifiability` or
+  `mechanism`, lower case) to a model its pass always runs on; the other passes keep the node's decision. Start-up
+  refuses a pin that is not a lens, or not in `AllowedModels` (or the default model, when known) of the agent that
+  runs the review node **under the current squad setting**: the reviewer when the squad is on, the fallback agent
+  when it is off. Thalos checks the model again on the turn.
+- **Replaying a review.** `processes/review-replay.yaml` has one `review` node and ends. Start it with
+  `POST /api/workflow-runs`, REST only, with `process` `review-replay` and `baseBranch` `manufacture/<run-id>`, exactly
+  that form. `baseBranch` is refused for any other process and required for this one. The reviewer starts from the
+  `files_touched` the original run recorded, snapshotted at start. There is no implement, gate or publish, so a replay
+  opens no pull request. It exists to compare reviewer setups on identical input.
+- **Reading a decision.** `GET /api/workflow-runs/{id}` lists `nodeSelections` in seq order: seq, node, model, level,
+  kept families, fallback and confidence. The tool filter is in the record but not in the view. A record that cannot be
+  read is not listed, and `nodeSelectionsError` names its seq.
+
 ### Costs and history
 
 - After each agent node completes with usage, the host appends a `node-usage`
@@ -106,6 +183,10 @@ remain as columns and show read-only on old tasks.
   `workflow:*` are a manufacture run's node turns and are excluded from chat, so
   nothing counts twice. Session sources carry no model or cache split.
   The `by-session` cost endpoint was removed; `estimate` stays.
+- A `node-selection` run record (`WorkflowRunRecord.NodeSelectionKind`) holds the model and tool decision of one agent
+  node visit, with the payload `{ level, model, tool_filter, kept_families, fallback, confidence }`. Unlike telemetry it
+  holds tool names, because a run record is the run's own audit. It carries no cost; the model it names is the one
+  `node-usage` prices. See "Node selection".
 - `TaskExecutions` and `ExecutionSessions` are read-only history. The Web
   "Task Loop History" page shows them and cannot change them.
 - `daedalus__search_failure_patterns` and `daedalus__search_learnings` read data
@@ -580,6 +661,15 @@ OpenTelemetry in-memory exporter, with a locked collection read through one snap
 lock, and it also sees every other host's spans in the process, so filter there too and never count.
 `TelemetryEndToEndTests` shows both.
 
+**Decisions.** `NodeSelectionDecider` is the only seam for the per-node decision, on the source and meter
+`daedalus.decisions` (`DecisionTelemetry`). One span `daedalus.node_selection` per decided visit, with these tags:
+`thalos.node`, `daedalus.role`, `daedalus.decision.level`, `daedalus.decision.kept_families` (a count),
+`gen_ai.request.model`, `daedalus.decision.confidence` (only when Minos answered, so absent for `off`, `timeout` and
+`error:*`) and `daedalus.decision.fallback` (absent when the decision was taken). The counter `daedalus.decisions`
+(`{decision}`) is tagged by `daedalus.decision.fallback`, with `none` for a taken decision. Never task text, tool names
+or a `DecisionError` message, which can quote the request. Minos's own spans and metrics use the source and meter
+`Minos`, which the service defaults subscribe to beside `daedalus.*`.
+
 **No content.** A tag, span name, status description, event or metric tag never carries prompt or agent text, task titles
 or descriptions, PR text, file content, credentials or token values. Outgoing HTTP spans export their origin only.
 Exported logs are not yet covered by this rule (Daedalus#334).
@@ -762,6 +852,18 @@ if (prompt is null)
 versions (`ManagePackageVersionsCentrally = true`). Every `.csproj`
 `PackageReference` carries no `Version` attribute — add or bump a version in
 `Directory.Packages.props` only.
+
+### Local packages until nuget.org has them
+
+Thalos.NET 0.17.0 and Minos.NET 1.0.1 are not on nuget.org yet (Minos's publish hit a reserved package-ID prefix, and
+Thalos 0.17.0 is unreleased). Until they are, a local `nuget.config` points at two folders of packed packages, keyed
+`thalos-local` and `minos-local`, with package source mapping: `Thalos.NET*` to the first, `Minos.NET*` to the second
+and `*` to nuget.org. `nuget.config` is tracked, so keep your edit out of commits with
+`git update-index --skip-worktree nuget.config`. The pull request stays a draft until both are published, because CI
+restores from nuget.org only. To remove the local sources afterwards: delete both `<add>` sources and their mapping
+entries, delete the cached `~/.nuget/packages/<id>/<version>` folders for those packages (a restore would otherwise
+keep using the locally built copies), run
+`git update-index --no-skip-worktree nuget.config`, and restore.
 
 ## The recurring defect: tests that pass for the wrong reason
 

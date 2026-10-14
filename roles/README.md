@@ -48,6 +48,15 @@ write access to this folder on a host with `ResyncInterval` set as equal to the 
 the reviewer's allow-list and model. With `ResyncInterval` unset, which is the shipped default, every
 charter change still arrives through a redeploy.
 
+## Model and tool menus live in configuration, not charters
+
+Since phase 2.10 a per-node decision may run a role on a cheaper model, and may drop tool families from a turn. The
+menus it chooses from are `AllowedModels` and `Tools` of the role's entry in `Thalos:Agents`
+(`src/Daedalus.Api/appsettings.json`), never a charter's frontmatter: a decision can only narrow to what configuration
+lists, and Thalos refuses a model outside `AllowedModels` and a tool the agent does not hold. A charter's `model:` stays
+the role's default, which the decision falls back to and which need not be listed in `AllowedModels`. Every model in
+`AllowedModels` needs a `ModelPricing:Models` price.
+
 ## Why the reviewer runs `claude-opus-5`
 
 Design decision D12 asks for a peer-strength model from a different family so the reviewer does not
