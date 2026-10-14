@@ -26,7 +26,31 @@ internal sealed class FakeDecisionClient(Result<DecisionResponse, DecisionError>
             Result<DecisionResponse, DecisionError>.Success(new DecisionResponse(NodeQuestions.Definition, answers, model: "fake")));
     }
 
-    public ValueTask<Result<DecisionResponse, DecisionError>> EvaluateAsync(DecisionRequest request, CancellationToken cancellationToken = default) => new(reply);
+    /// <summary>Builds a client whose reply is a failure of this kind.</summary>
+    public static FakeDecisionClient Failing(DecisionErrorKind kind) =>
+        new(Result<DecisionResponse, DecisionError>.Failure(new DecisionError(kind, "zqx quoted request")));
+
+    /// <summary>How long a call waits, honouring cancellation, before it answers. Default none.</summary>
+    public TimeSpan Delay { get; init; } = TimeSpan.Zero;
+
+    /// <summary>The state of the last request received, or <see langword="null"/> before any call.</summary>
+    public string? LastState { get; private set; }
+
+    /// <summary>How many calls arrived.</summary>
+    public int Calls { get; private set; }
+
+    public async ValueTask<Result<DecisionResponse, DecisionError>> EvaluateAsync(DecisionRequest request, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        request.State.TryGetString(out var state);
+        LastState = state;
+        if (Delay > TimeSpan.Zero)
+        {
+            await Task.Delay(Delay, cancellationToken);
+        }
+
+        return reply;
+    }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
