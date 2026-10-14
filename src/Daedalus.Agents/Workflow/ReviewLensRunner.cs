@@ -79,8 +79,9 @@ namespace Daedalus.Agents.Workflow;
 /// <param name="scopes">Creates the scope each append resolves <see cref="IWorkflowRunRecordStore"/> from.</param>
 /// <param name="clock">Timestamps each record.</param>
 /// <param name="pinnedLensModels">
-///     Lens name to the model its pass runs on whatever the node's decision, from <c>Thalos:Decisions:PinnedLensModels</c>;
-///     start-up has checked each is one the reviewer may use.
+///     Lens name to the model its pass runs on whatever the node's decision, from <c>Thalos:Decisions:PinnedLensModels</c>
+///     while decisions are on and empty while they are off (see <see cref="Decisions.ActiveLensPins"/>); start-up has checked
+///     each is one the reviewer may use.
 /// </param>
 /// <param name="usage">Holds each pass's usage, so a node whose passes ran on several models is priced per model.</param>
 /// <param name="logger">Logs evidence that could not be recorded.</param>

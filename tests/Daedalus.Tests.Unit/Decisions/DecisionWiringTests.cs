@@ -22,7 +22,7 @@ public sealed class DecisionWiringTests
     /// <summary>A distinctive key for the leak checks: a recognisable fragment, and a length of 18.</summary>
     private const string SecretKey = "sk-or-zqx-7f3a91c2";
 
-    private static ServiceProvider Compose(bool zeroRetention, string? key, ILoggerFactory? loggerFactory = null)
+    private static ServiceProvider Compose(bool zeroRetention, string? key, ILoggerFactory? loggerFactory = null, bool pinned = false)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(AppContext.BaseDirectory);
@@ -40,6 +40,11 @@ public sealed class DecisionWiringTests
         var options = new DaedalusAgentsOptions();
         configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
         options.Decisions.ZeroDataRetentionAccount = zeroRetention;
+        if (pinned)
+        {
+            // In the shipped reviewer's AllowedModels, so start-up accepts it.
+            options.Decisions.PinnedLensModels["falsifiability"] = "claude-opus-5-5";
+        }
 
         var services = new ServiceCollection();
         services.AddLogging();
@@ -114,6 +119,60 @@ public sealed class DecisionWiringTests
         await hosted.StartAsync(CancellationToken.None);
 
         log.Messages.Should().ContainSingle(m => m.Contains("decisions are off", StringComparison.Ordinal)).Which.Should().Contain($"off: {reason}.");
+    }
+
+    /// <summary>
+    ///     Final review item 2: a configured lens pin applies only when decisions are on, by the predicate that registers the
+    ///     client. Reds, each applied once: register the configured pins unconditionally, and the two off rows hold the pin;
+    ///     gate them on the confirmation alone, and the no-key row holds it; register none ever, and the on row holds none.
+    /// </summary>
+    [Theory]
+    [InlineData(true, Key, true)]
+    [InlineData(false, Key, false)]
+    [InlineData(true, null, false)]
+    public void A_lens_pin_is_active_only_when_decisions_are_on(bool zeroRetention, string? key, bool active)
+    {
+        using var provider = Compose(zeroRetention, key, pinned: true);
+
+        var pins = provider.GetRequiredService<ActiveLensPins>().Models;
+
+        if (active)
+        {
+            pins.Should().ContainSingle().Which.Should().Be(new KeyValuePair<string, string>("falsifiability", "claude-opus-5-5"));
+        }
+        else
+        {
+            pins.Should().BeEmpty();
+        }
+    }
+
+    /// <summary>
+    ///     With decisions off, the start-up line says how many configured lens pins are inactive, and names neither a lens
+    ///     nor a model. Reds, each applied once: log the plain off line whatever the pins, and the count is missing; name the
+    ///     pinned lens or its model in the line, and the content assertions fail. The no-pin row keeps the plain line: Red,
+    ///     log the pin line whatever the count, and it says 0 pins are inactive.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task The_off_line_counts_the_inactive_lens_pins(bool pinned)
+    {
+        var log = new CapturingLoggerFactory();
+        await using var provider = Compose(zeroRetention: false, Key, log, pinned);
+        var hosted = provider.GetServices<IHostedService>().OfType<DecisionsStartupLog>().Should().ContainSingle().Subject;
+
+        await hosted.StartAsync(CancellationToken.None);
+
+        var line = log.Messages.Should().ContainSingle(m => m.Contains("decisions are off", StringComparison.Ordinal)).Subject;
+        if (pinned)
+        {
+            line.Should().Contain("the 1 configured lens pin(s) are inactive");
+            line.Should().NotContain("falsifiability").And.NotContain("claude-opus-5-5");
+        }
+        else
+        {
+            line.Should().NotContain("lens pin");
+        }
     }
 
     /// <summary>

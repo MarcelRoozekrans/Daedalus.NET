@@ -106,9 +106,10 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   OpenRouter key is present (`DecisionsConfig.IsEnabled`). The decision reads the work intent, so task text goes to
   OpenRouter. Minos 1.0.1 cannot request zero data retention per call, so that is an account setting on OpenRouter,
   and the flag is the owner's statement that it is set. Otherwise no decision client is registered and every node runs on its default
-  model and full tool list, as before. `DecisionsStartupLog` says once at host start whether decisions are on and, if
-  not, why: the flag is not true, no key is configured, or both. It never logs the key or its length. A blank key is no
-  key (`DecisionsConfig.HasKey`).
+  model and full tool list, as before, and so does every review lens: `PinnedLensModels` applies only while decisions
+  are on (`ActiveLensPins`, by the same `IsEnabled`). `DecisionsStartupLog` says once at host start whether decisions are
+  on and, if not, why: the flag is not true, no key is configured, or both, and how many configured lens pins are
+  inactive, by count only. It never logs the key or its length. A blank key is no key (`DecisionsConfig.HasKey`).
 - **The key.** The AppHost parameter `openrouter-key` (secret, empty by default) becomes the `OPENROUTER_API_KEY`
   environment variable of the API, which `AddDaedalusAgents` reads under `OpenRouterKeyName`. Set it with AppHost
   user secrets (`Parameters:openrouter-key`) or `PARAMETERS__OPENROUTER_KEY`, never in a file in the repository.
@@ -158,7 +159,8 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   back would let a replay run differently. `NodeSelectionRecord` is the one parser for the runner and the run view.
 - **Review lenses.** `NodeSelectionRunner` sits outside `ReviewLensRunner`, so the three lens passes share one decision
   and one cached prompt prefix. `Thalos:Decisions:PinnedLensModels` maps a lens name (`correctness`, `falsifiability` or
-  `mechanism`, lower case) to a model its pass always runs on; the other passes keep the node's decision. Start-up
+  `mechanism`, lower case) to a model its pass runs on whatever the decision; the other passes keep the node's decision.
+  A pin applies only while decisions are on, so with them off a review is today's review. Start-up
   refuses a pin that is not a lens, or not in `AllowedModels` (or the default model, when known) of the agent that
   runs the review node **under the current squad setting**: the reviewer when the squad is on, the fallback agent
   when it is off. Thalos checks the model again on the turn.
