@@ -42,7 +42,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <b>A pinned lens runs on its pinned model.</b> <c>Thalos:Decisions:PinnedLensModels</c> may name a lens, such as
 ///     <c>falsifiability</c>, and the model its pass runs on whatever the node's decision chose. The other passes keep
 ///     the request's model, which <see cref="NodeSelectionRunner"/> set once for the whole node. The pin is one of the
-///     reviewer's allowed models, which start-up checks and Thalos checks again on the turn.
+///     reviewer's allowed models, which start-up checks and Thalos checks again on the turn. The one turn the dispatcher sees
+///     sums every pass's usage, and Thalos' sum keeps the first pass's model, so each pass's own usage is also handed to
+///     <see cref="NodeUsageRecorder.HoldPasses"/>, which records the node per model when its passes ran on more than one.
 ///     </para>
 ///     <para>
 ///     <b>Nodes that declare no lenses are untouched.</b> <c>implement</c>, <c>publish</c> and any process that
@@ -80,6 +82,7 @@ namespace Daedalus.Agents.Workflow;
 ///     Lens name to the model its pass runs on whatever the node's decision, from <c>Thalos:Decisions:PinnedLensModels</c>;
 ///     start-up has checked each is one the reviewer may use.
 /// </param>
+/// <param name="usage">Holds each pass's usage, so a node whose passes ran on several models is priced per model.</param>
 /// <param name="logger">Logs evidence that could not be recorded.</param>
 internal sealed partial class ReviewLensRunner(
     ISubagentRunner inner,
@@ -87,6 +90,7 @@ internal sealed partial class ReviewLensRunner(
     IServiceScopeFactory scopes,
     TimeProvider clock,
     IReadOnlyDictionary<string, string> pinnedLensModels,
+    NodeUsageRecorder usage,
     ILogger<ReviewLensRunner> logger) : ISubagentRunner
 {
     private readonly ISubagentRunner _inner = inner ?? throw new ArgumentNullException(nameof(inner));
@@ -94,6 +98,7 @@ internal sealed partial class ReviewLensRunner(
     private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
     private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly IReadOnlyDictionary<string, string> _pinnedLensModels = pinnedLensModels ?? throw new ArgumentNullException(nameof(pinnedLensModels));
+    private readonly NodeUsageRecorder _usage = usage ?? throw new ArgumentNullException(nameof(usage));
     private readonly ILogger<ReviewLensRunner> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
@@ -154,6 +159,7 @@ internal sealed partial class ReviewLensRunner(
         var projected = ReviewHandoff.ProjectForReview(run.Variables);
         Result<AgentTurnResult, AgentError> last = default;
         TurnUsage spent = default;
+        var passes = new List<TurnUsage>(lenses.Length);
 
         for (var i = 0; i < lenses.Length; i++)
         {
@@ -171,6 +177,7 @@ internal sealed partial class ReviewLensRunner(
                 return last;
 
             spent = i == 0 ? last.Value.Usage : spent + last.Value.Usage;
+            passes.Add(last.Value.Usage);
 
             var evidence = ReadEvidence(last.Value, lens, request.RequiredOutcome);
             if (evidence.IsFailure)
@@ -188,10 +195,20 @@ internal sealed partial class ReviewLensRunner(
             // Short-circuit. The remaining lenses are not run: a rejection already sends the run back to
             // implement, so confirming it costs turns and changes nothing.
             if (!evidence.Value.IsApproval)
-                return WithUsage(last.Value, spent);
+                return Completed(run, last.Value, spent, passes);
         }
 
-        return WithUsage(last.Value, spent);
+        return Completed(run, last.Value, spent, passes);
+    }
+
+    /// <summary>
+    ///     The node's one turn, as <see cref="WithUsage"/> builds it, after each pass's usage is held for the node-usage
+    ///     record at the run's current seq, the seq its completion carries.
+    /// </summary>
+    private Result<AgentTurnResult, AgentError> Completed(WorkflowRun run, AgentTurnResult turn, TurnUsage spent, IReadOnlyList<TurnUsage> passes)
+    {
+        _usage.HoldPasses(run.Id, run.CurrentSeq, passes);
+        return WithUsage(turn, spent);
     }
 
     /// <summary>

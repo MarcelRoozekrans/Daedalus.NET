@@ -89,6 +89,9 @@ internal static class WorkflowNodeDispatcherFactory
                             sp.GetRequiredService<IServiceScopeFactory>(),
                             sp.GetRequiredService<TimeProvider>(),
                             sp.GetRequiredService<DaedalusAgentsOptions>().Decisions.PinnedLensModels.ToFrozenDictionary(StringComparer.Ordinal),
+                            // The same recorder the store below records completions through, so it takes back what a review
+                            // held for its per-model split.
+                            sp.GetRequiredService<NodeUsageRecorder>(),
                             sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
                     sp.GetRequiredService<NodeSelectionDecider>(),
                     // Each decision reads and records through a fresh scope, as ReviewLensRunner does.

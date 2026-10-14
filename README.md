@@ -108,7 +108,8 @@ A task on the board becomes work only when a person starts a manufacture run for
    `GET /api/tasks/{id}`).
 6. **Read the costs.** `/costs` and `GET /api/cost-analytics/summary` combine four sources:
    - `history`: `TaskExecutions`, the iterations of the retired loop;
-   - `manufacture`: one `node-usage` record per completed agent node of a run, with its model and cache split;
+   - `manufacture`: one `node-usage` record per completed agent node of a run, with its model and cache split; a
+     review whose pinned lens ran on another model carries one part per model (`byModel`), each priced at its own rate;
    - `chat`: agent sessions owned by a person;
    - `scheduled`: agent sessions owned by `schedule:*`.
 

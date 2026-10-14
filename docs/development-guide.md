@@ -177,6 +177,17 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   workflow run record (`NodeUsageRecorder`). `NodeUsageBackfill` fills the
   records missing for older runs at host startup. It is not an EF migration, and
   it writes nothing for a (run, seq) that already has a record.
+- A node can run on more than one model: a review whose lens is pinned
+  (`Thalos:Decisions:PinnedLensModels`) runs that pass on the pinned model and
+  the others on the node's own. Thalos sums the passes into one usage that keeps
+  the first pass's model, so `ReviewLensRunner` hands each pass's usage to
+  `NodeUsageRecorder.HoldPasses`, and the completion's record then carries
+  `byModel`, one part per model, summing to the record's totals. Cost analytics
+  prices each part at its own model's rate and counts the record once, under its
+  first part; the token counter counts each model's own tokens. A record without
+  `byModel` is one part, so older records read as before. What is held is in
+  memory until the completion, so a review the backfill records, after a crash or
+  a failed append, is priced at its first model.
 - Cost analytics reads four sources: `TaskExecutions` history, `node-usage`
   records (manufacture), chat sessions and scheduled sessions. Sessions owned by
   `workflow:*` are a manufacture run's node turns and are excluded from chat, so
@@ -184,8 +195,9 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   The `by-session` cost endpoint was removed; `estimate` stays.
 - A `node-selection` run record (`WorkflowRunRecord.NodeSelectionKind`) holds the model and tool decision of one agent
   node visit, with the payload `{ level, model, tool_filter, kept_families, fallback, confidence }`. Unlike telemetry it
-  holds tool names, because a run record is the run's own audit. It carries no cost; the model it names is the one
-  `node-usage` prices. See "Node selection".
+  holds tool names, because a run record is the run's own audit. It carries no cost. The model it names is the node's
+  own; a lens pinned to another model ran on that one, and `node-usage` prices each model's tokens separately, see
+  above. See "Node selection".
 - `TaskExecutions` and `ExecutionSessions` are read-only history. The Web
   "Task Loop History" page shows them and cannot change them.
 - `daedalus__search_failure_patterns` and `daedalus__search_learnings` read data

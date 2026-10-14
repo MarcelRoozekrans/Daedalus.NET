@@ -154,7 +154,7 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             var breach = DescribeKeyLimitBreach(run, authored.Variables);
             if (breach is not null)
             {
-                await Inner.FailAsync(runId, breach, ct).ConfigureAwait(false);
+                await FailAsync(runId, breach, ct).ConfigureAwait(false);
                 return;
             }
         }
@@ -167,6 +167,17 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         {
             await _usage.RecordCompletionAsync(run.Id, seq, run.CurrentNode, run.StartedBy?.Id, turnUsage, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    ///     A failed node never completes, so the per-model usage a review held for it would never be taken: it is
+    ///     forgotten here, where the dispatcher fails the run.
+    /// </remarks>
+    public override async ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct)
+    {
+        _usage.Forget(runId);
+        await Inner.FailAsync(runId, errorMessage, ct).ConfigureAwait(false);
     }
 
     /// <summary>
