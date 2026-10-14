@@ -35,10 +35,23 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
     public const int MaxIntentCharacters = 4_000;
 
     /// <summary>Decides the node's model and tools, or returns the defaults with the reason.</summary>
-    public async ValueTask<NodeSelection> DecideAsync(NodeSelectionContext context, CancellationToken ct)
+    public ValueTask<NodeSelection> DecideAsync(NodeSelectionContext context, CancellationToken ct) => DecideAsync(context, settle: null, ct);
+
+    /// <summary>
+    ///     Decides the node's model and tools, then lets <paramref name="settle"/>, the host's check of the result,
+    ///     replace it before the span is tagged and the decision counted, so a fallback the host applies is told and
+    ///     counted like the decider's own, once.
+    /// </summary>
+    public async ValueTask<NodeSelection> DecideAsync(
+        NodeSelectionContext context, Func<NodeSelection, CancellationToken, ValueTask<NodeSelection>>? settle, CancellationToken ct)
     {
         using var activity = DecisionTelemetry.Source.StartActivity(DecisionTelemetry.SpanName);
         var selection = await DecideCoreAsync(context, ct);
+        if (settle is not null)
+        {
+            selection = await settle(selection, ct);
+        }
+
         Record(activity, context, selection);
         return selection;
     }

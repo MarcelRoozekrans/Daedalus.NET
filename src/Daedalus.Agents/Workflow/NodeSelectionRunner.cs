@@ -8,6 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using Thalos;
+using Thalos.Runtime;
+using Thalos.Tools;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
 
@@ -59,6 +61,10 @@ namespace Daedalus.Agents.Workflow;
 /// <param name="scopes">Creates the scope the record store, the agent catalog and the chat provider are resolved from.</param>
 /// <param name="clock">Timestamps each record.</param>
 /// <param name="options">The configured agents, whose menus a decision chooses from.</param>
+/// <param name="agents">Serves the pinned agent definition: its model and the tools Thalos checks a turn against.</param>
+/// <param name="chatProvider">Names the model an agent whose definition names none runs on.</param>
+/// <param name="toolCatalog">Resolves the tools an agent actually has on this host.</param>
+/// <param name="agentFactory">Checks a decision's overrides exactly as the engine will before the turn runs.</param>
 /// <param name="logger">Logs a role without configuration, and a record that could not be read or written.</param>
 internal sealed partial class NodeSelectionRunner(
     ISubagentRunner inner,
@@ -66,8 +72,18 @@ internal sealed partial class NodeSelectionRunner(
     IServiceScopeFactory scopes,
     TimeProvider clock,
     DaedalusAgentsOptions options,
+    IAgentCatalog agents,
+    IChatClientProvider chatProvider,
+    IToolCatalog toolCatalog,
+    IAgentFactory agentFactory,
     ILogger<NodeSelectionRunner> logger) : ISubagentRunner
 {
+    /// <summary>
+    ///     Fallback reason when Thalos refused the decided tool filter, or the model with it: the visit runs on the full
+    ///     tool list, and on the decided model only when Thalos accepts that alone.
+    /// </summary>
+    public const string ToolsUnresolved = "tools-unresolved";
+
     private static readonly FrozenSet<string> EligibleSkills =
         new[] { ReviewHandoff.ImplementSkillName, ReviewHandoff.ReviewSkillName }.ToFrozenSet(StringComparer.Ordinal);
 
@@ -76,6 +92,10 @@ internal sealed partial class NodeSelectionRunner(
     private readonly IServiceScopeFactory _scopes = scopes ?? throw new ArgumentNullException(nameof(scopes));
     private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly DaedalusAgentsOptions _options = options ?? throw new ArgumentNullException(nameof(options));
+    private readonly IAgentCatalog _agents = agents ?? throw new ArgumentNullException(nameof(agents));
+    private readonly IChatClientProvider _chatProvider = chatProvider ?? throw new ArgumentNullException(nameof(chatProvider));
+    private readonly IToolCatalog _tools = toolCatalog ?? throw new ArgumentNullException(nameof(toolCatalog));
+    private readonly IAgentFactory _agentFactory = agentFactory ?? throw new ArgumentNullException(nameof(agentFactory));
     private readonly ILogger<NodeSelectionRunner> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
@@ -114,9 +134,20 @@ internal sealed partial class NodeSelectionRunner(
     /// </summary>
     private static SubagentRunRequest Apply(SubagentRunRequest request, NodeSelection selection) => request with
     {
-        Model = selection.Fallback is null ? selection.Model : null,
+        Model = ChosenModel(selection),
         ToolFilter = selection.ToolFilter,
     };
+
+    /// <summary>
+    ///     The model a selection sets on the turn: its own when the decision was taken, or when only its tools fell back
+    ///     and Thalos accepted the decided model alone; otherwise none, so the agent runs on its own model as before.
+    /// </summary>
+    private static string? ChosenModel(NodeSelection selection) =>
+        selection.Fallback is null
+        || (string.Equals(selection.Fallback, ToolsUnresolved, StringComparison.Ordinal)
+            && !string.Equals(selection.Level, NodeSelectionMapper.DefaultLevel, StringComparison.Ordinal))
+            ? selection.Model
+            : null;
 
     /// <summary>The visit's recorded decision, or a new one, recorded before it is returned.</summary>
     private async ValueTask<Result<NodeSelection, AgentError>> SelectAsync(
@@ -132,14 +163,23 @@ internal sealed partial class NodeSelectionRunner(
                 ? Result<NodeSelection, AgentError>.Failure(recorded.Error)
                 : Result<NodeSelection, AgentError>.Success(recorded.Value!);
 
+        if (!_agents.TryGet(pin.AgentId, pin.AgentRevision, out var definition) || definition is null)
+        {
+            LogDefinitionMissing(_logger, pin.AgentName, run.CurrentNode, run.Id);
+            return Result<NodeSelection, AgentError>.Failure(AgentError.Validation(
+                $"Agent '{pin.AgentName}' pinned to node '{run.CurrentNode}' has no definition this host can serve, so its turn cannot be decided."));
+        }
+
+        var menu = await MenuOfAsync(role, definition, ct);
         var context = new NodeSelectionContext(
             pin.AgentName,
             run.CurrentNode,
             run.Variables.TryGetValue(ReviewHandoff.WorkIntentKey, out var intent) && intent is string text ? text : "",
             run.Visits.TryGetValue(run.CurrentNode, out var visit) ? visit : 1,
-            MenuOf(role, pin, scope.ServiceProvider),
+            menu,
             NarrowTools: !AfterRejection(run));
-        var decided = await _decider.DecideAsync(context, ct);
+        var decided = await _decider.DecideAsync(
+            context, (selection, token) => SettleAsync(definition, menu, selection, run, token), ct);
 
         var written = await AppendAsync(records, caller, run, decided, ct);
         if (written.IsFailure)
@@ -163,16 +203,85 @@ internal sealed partial class NodeSelectionRunner(
         (run.Visits.TryGetValue("review", out var reviews) && reviews > 1)
         || (run.Visits.TryGetValue("implement", out var implements) && implements > 1);
 
-    /// <summary>The role's menu: its default model, its allowed models and its tool patterns, in configured order.</summary>
-    private static RoleMenu MenuOf(AgentConfig role, NodePin pin, IServiceProvider services)
+    /// <summary>
+    ///     The role's menu: its default model, its allowed models, and those of its configured tool patterns, in configured
+    ///     order, that match at least one tool the agent resolves on this host. A pattern for a source this host lacks, such
+    ///     as <c>sandbox__build</c> in local mode or <c>issues__*</c> without a token, is not offered, so the decision can
+    ///     never keep it and Thalos never refuses it. When the tools cannot be resolved the configured patterns are the
+    ///     menu, and <see cref="SettleAsync"/> still guards the turn.
+    /// </summary>
+    private async ValueTask<RoleMenu> MenuOfAsync(AgentConfig role, AgentDefinition definition, CancellationToken ct)
     {
-        var catalog = services.GetRequiredService<IAgentCatalog>();
-        var model = catalog.TryGet(pin.AgentId, pin.AgentRevision, out var definition) ? definition?.Model : null;
-        var defaultModel = string.IsNullOrWhiteSpace(model) ? services.GetRequiredService<IChatClientProvider>().DefaultModel : model;
+        var defaultModel = string.IsNullOrWhiteSpace(definition.Model) ? _chatProvider.DefaultModel : definition.Model;
 
         // An empty Tools list means every tool, the same default the agent's own definition gets.
-        IReadOnlyList<string> tools = role.Tools.Count == 0 ? ["*"] : [.. role.Tools];
-        return new RoleMenu(defaultModel, [.. role.AllowedModels], tools);
+        IReadOnlyList<string> configured = role.Tools.Count == 0 ? ["*"] : [.. role.Tools];
+        var resolved = await ResolvedToolNamesAsync(definition, ct);
+        IReadOnlyList<string> offered = resolved is null
+            ? configured
+            : [.. configured.Where(pattern => resolved.Any(name => Glob.IsMatch(pattern, name)))];
+        return new RoleMenu(defaultModel, [.. role.AllowedModels], offered);
+    }
+
+    /// <summary>The qualified names of the tools the agent resolves, or <see langword="null"/> when resolution failed.</summary>
+    private async ValueTask<IReadOnlyList<string>?> ResolvedToolNamesAsync(AgentDefinition definition, CancellationToken ct)
+    {
+        try
+        {
+            var resolved = await _tools.ResolveAsync(definition, ct).ConfigureAwait(false);
+            if (resolved.IsSuccess)
+                return [.. resolved.Value.Select(tool => tool.Name)];
+
+            LogToolsUnresolvable(_logger, definition.Name, resolved.Error.Message);
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            LogToolsUnresolvable(_logger, definition.Name, ex.GetType().Name);
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     The safety net: Thalos checks the decided overrides exactly as it will on the turn. When it refuses them, the
+    ///     visit gets the full tool list, the decided model only if Thalos accepts that alone, and the fallback
+    ///     <see cref="ToolsUnresolved"/>. Called by the decider before it tags and counts, so this fallback is told like any
+    ///     other.
+    /// </summary>
+    private async ValueTask<NodeSelection> SettleAsync(
+        AgentDefinition definition, RoleMenu menu, NodeSelection selection, WorkflowRun run, CancellationToken ct)
+    {
+        var model = ChosenModel(selection);
+        if (model is null && selection.ToolFilter is null)
+            return selection;
+
+        if (await AcceptsAsync(definition, model, selection.ToolFilter, ct))
+            return selection;
+
+        var modelAccepted = model is not null && await AcceptsAsync(definition, model, null, ct);
+        LogOverridesRefused(_logger, run.Id, run.CurrentNode, modelAccepted);
+        var fullList = selection with
+        {
+            ToolFilter = null,
+            KeptFamilies = NodeSelectionMapper.CountFamilies(menu.Tools),
+            Fallback = ToolsUnresolved,
+        };
+        return modelAccepted
+            ? fullList
+            : fullList with { Model = menu.DefaultModel, Level = NodeSelectionMapper.DefaultLevel };
+    }
+
+    /// <summary>Whether Thalos accepts these overrides for the agent; a check that throws counts as a refusal.</summary>
+    private async ValueTask<bool> AcceptsAsync(AgentDefinition definition, string? model, IReadOnlyList<string>? toolFilter, CancellationToken ct)
+    {
+        try
+        {
+            return (await _agentFactory.ValidateOverridesAsync(definition, model!, toolFilter!, ct).ConfigureAwait(false)).IsSuccess;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return false;
+        }
     }
 
     /// <summary>The decision recorded for the run's current seq, or <see langword="null"/> when there is none yet.</summary>
@@ -288,6 +397,15 @@ internal sealed partial class NodeSelectionRunner(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {Agent} on node {Node} of run {RunId} has no Thalos:Agents entry; the node runs undecided")]
     private static partial void LogRoleNotConfigured(ILogger logger, string agent, string node, Guid runId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Agent {Agent} on node {Node} of run {RunId} has no definition this host can serve; the node fails")]
+    private static partial void LogDefinitionMissing(ILogger logger, string agent, string node, Guid runId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The tools of agent {Agent} could not be resolved ({Reason}); its configured patterns are offered")]
+    private static partial void LogToolsUnresolvable(ILogger logger, string agent, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Thalos refused the decided overrides for node {Node} of run {RunId}; the full tool list applies, decided model kept: {ModelKept}")]
+    private static partial void LogOverridesRefused(ILogger logger, Guid runId, string node, bool modelKept);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Run {RunId} at seq {Seq} reuses its recorded node decision")]
     private static partial void LogReused(ILogger logger, Guid runId, long seq);

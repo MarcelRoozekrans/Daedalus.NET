@@ -6,12 +6,15 @@ using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Unit.Decisions;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Minos;
 using Thalos;
+using Thalos.Runtime;
 using Thalos.Skills;
+using Thalos.Tools;
 using Thalos.Workflow;
 using ZeroAlloc.Authorization;
 using ZeroAlloc.Results;
@@ -107,6 +110,10 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         // NodeSelectionRunner's dependencies; this node is not an implement or review node, so it is not decided.
         services.AddSingleton(new DaedalusAgentsOptions());
         services.AddSingleton(new NodeSelectionDecider(null, new DecisionsConfig(), NullLogger<NodeSelectionDecider>.Instance));
+        services.AddSingleton(Substitute.For<IAgentCatalog>());
+        services.AddSingleton(Substitute.For<IChatClientProvider>());
+        services.AddSingleton(Substitute.For<IToolCatalog>());
+        services.AddSingleton(Substitute.For<IAgentFactory>());
         await using var provider = services.BuildServiceProvider();
 
         var dispatcher = WorkflowNodeDispatcherFactory.Create(provider);
@@ -231,7 +238,22 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         services.AddSingleton(TimeProvider.System);
         services.AddLogging();
         services.AddScoped(_ => records);
-        services.AddSingleton(Substitute.For<IAgentCatalog>());
+        var agentCatalog = Substitute.For<IAgentCatalog>();
+        agentCatalog.TryGet(ReviewerId, Arg.Any<string?>(), out Arg.Any<AgentDefinition?>()).Returns(call =>
+        {
+            call[2] = new AgentDefinition { Id = ReviewerId, Name = "reviewer", Instructions = "x" };
+            return true;
+        });
+        services.AddSingleton(agentCatalog);
+        var toolCatalog = Substitute.For<IToolCatalog>();
+        IReadOnlyList<AITool> resolved = [AIFunctionFactory.Create(() => 0, "workspace__read_file"), AIFunctionFactory.Create(() => 0, "daedalus__report_review_outcome")];
+        toolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(Result<IReadOnlyList<AITool>, AgentError>.Success(resolved)));
+        services.AddSingleton(toolCatalog);
+        var agentFactory = Substitute.For<IAgentFactory>();
+        agentFactory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(UnitResult<AgentError>.Success()));
+        services.AddSingleton(agentFactory);
         var chatProvider = Substitute.For<IChatClientProvider>();
         chatProvider.DefaultModel.Returns("provider-default");
         services.AddSingleton(chatProvider);

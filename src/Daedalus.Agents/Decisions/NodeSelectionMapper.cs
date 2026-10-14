@@ -13,11 +13,14 @@ public static class NodeSelectionMapper
     /// <summary>Fallback reason when the agent offers no allowed models, so there is nothing to choose between.</summary>
     public const string NoAllowedModels = "no-allowed-models";
 
+    /// <summary>The level name of a selection that chose no demand level, so the default model applies.</summary>
+    public const string DefaultLevel = "default";
+
     private static readonly string[] NeverRemovable = ["workspace", "daedalus"];
 
     /// <summary>The selection when nothing was decided: the default model, the full tool list.</summary>
     public static NodeSelection Default(RoleMenu menu, string fallback) =>
-        new(menu.DefaultModel, null, "default", CountFamilies(menu.Tools), fallback, Confidence: null);
+        new(menu.DefaultModel, null, DefaultLevel, CountFamilies(menu.Tools), fallback, Confidence: null);
 
     /// <summary>Maps an answered question set onto a model and, when <paramref name="narrowTools"/>, a narrowed tool filter.</summary>
     public static NodeSelection Map(NodeQuestions answers, RoleMenu menu, DecisionsConfig config, bool narrowTools)
@@ -32,13 +35,13 @@ public static class NodeSelectionMapper
         var allowed = menu.AllowedModels;
         if (allowed.Count == 0)
         {
-            return (menu.DefaultModel, "default", NoAllowedModels);
+            return (menu.DefaultModel, DefaultLevel, NoAllowedModels);
         }
 
         var demand = answers.Demand;
         if (demand.Confidence < config.ModelConfidence)
         {
-            return (menu.DefaultModel, "default", LowConfidence);
+            return (menu.DefaultModel, DefaultLevel, LowConfidence);
         }
 
         var model = demand.Value switch
@@ -90,6 +93,7 @@ public static class NodeSelectionMapper
         return at < 0 ? pattern : pattern[..at];
     }
 
-    private static int CountFamilies(IEnumerable<string> patterns) =>
+    /// <summary>How many tool families <paramref name="patterns"/> name; a family is the part before <c>__</c>.</summary>
+    internal static int CountFamilies(IEnumerable<string> patterns) =>
         patterns.Select(Family).Distinct(StringComparer.Ordinal).Count();
 }
