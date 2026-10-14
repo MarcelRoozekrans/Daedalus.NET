@@ -201,8 +201,10 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   prices each part at its own model's rate and counts the record once, under its
   first part; the token counter counts each model's own tokens. A record without
   `byModel` is one part, so older records read as before. What is held is in
-  memory until the completion, so a review the backfill records, after a crash or
-  a failed append, is priced at its first model.
+  memory until the completion takes it, and is released when no completion will:
+  the run fails or is cancelled (the recorder observes the store), or the
+  completion's write throws. A review the backfill records, after a crash or a
+  failed append, is priced at its first model.
 - Cost analytics reads four sources: `TaskExecutions` history, `node-usage`
   records (manufacture), chat sessions and scheduled sessions. Sessions owned by
   `workflow:*` are a manufacture run's node turns and are excluded from chat, so

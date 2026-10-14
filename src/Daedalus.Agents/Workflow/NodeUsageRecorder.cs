@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using Thalos;
+using Thalos.Workflow;
 
 namespace Daedalus.Agents.Workflow;
 
@@ -28,13 +29,14 @@ namespace Daedalus.Agents.Workflow;
 ///     priced wholly at the first pass's model. <see cref="ReviewLensRunner"/> therefore hands its passes' usage to
 ///     <see cref="HoldPasses"/> before it returns, keyed by the run and the seq the completion will carry, and
 ///     <see cref="RecordCompletionAsync"/> takes it back: the record carries <see cref="NodeUsage.ByModel"/> and the token
-///     counter counts each model's own tokens. What is held is in memory: a node whose completion never comes, because the
-///     node failed, is forgotten by <see cref="Forget"/> when the dispatcher's store fails the run, and a host restart loses
-///     it. The backfill reads only the completion's single usage, so a review it records is priced at its first model, as
+///     counter counts each model's own tokens. What is held is in memory and released whenever no completion will take it:
+///     when the dispatcher's store fails the run or its completion throws, and, as an <see cref="IWorkflowRunObserver"/>,
+///     whenever the store commits a cancellation or a failure of the run by any path. A host restart loses it. The backfill reads only the completion's single usage, so a review it records is priced at its first model, as
 ///     before this existed.
 ///     </para>
 /// </remarks>
 internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, TimeProvider clock, ILogger<NodeUsageRecorder> logger)
+    : IWorkflowRunObserver
 {
     /// <summary>The principal of every node-usage record: the host wrote it, no caller did.</summary>
     public const string HostPrincipalId = "host";
@@ -75,7 +77,20 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
         _held[(runId, seq)] = parts;
     }
 
-    /// <summary>Drops whatever is held for <paramref name="runId"/>: its node failed, so no completion will take it.</summary>
+    /// <inheritdoc />
+    /// <remarks>A cancelled or failed run completes no node, so whatever it held is dropped. Changes no run.</remarks>
+    public ValueTask OnChangedAsync(WorkflowRunChange change, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (change.Kind is WorkflowRunChangeKind.Cancelled or WorkflowRunChangeKind.Failed)
+        {
+            Forget(change.RunId);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Drops whatever is held for <paramref name="runId"/>: no completion will take it.</summary>
     public void Forget(Guid runId)
     {
         foreach (var key in _held.Keys)

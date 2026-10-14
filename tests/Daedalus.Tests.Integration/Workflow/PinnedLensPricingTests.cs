@@ -69,7 +69,6 @@ public sealed class PinnedLensPricingTests(PostgresFixture fixture) : IAsyncLife
         var byModel = summary.ByModel.ToDictionary(m => m.Key, StringComparer.Ordinal);
         byModel[Decided].Cost.Should().Be(0.003m);    // 2000 × 1/1M + 200 × 5/1M
         byModel[Pinned].Cost.Should().Be(0.0045m);    // 1000 × 3/1M + 100 × 15/1M
-        summary.TotalCost.Should().Be(byModel[Decided].Cost + byModel[Pinned].Cost);
         summary.TotalCost.Should().Be(0.0075m);
         summary.TotalEntries.Should().Be(1, "one review node completed");
     }

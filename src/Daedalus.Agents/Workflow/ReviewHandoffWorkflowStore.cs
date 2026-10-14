@@ -159,7 +159,17 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             }
         }
 
-        await Inner.CompleteNodeAsync(runId, seq, transition, authored, ct).ConfigureAwait(false);
+        try
+        {
+            await Inner.CompleteNodeAsync(runId, seq, transition, authored, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A completion the store refused or never wrote, for a stale seq, a lost lease or a cancellation, takes nothing,
+            // so what a review held for it is released here. A redelivery runs the review again and holds afresh.
+            _usage.Forget(runId);
+            throw;
+        }
 
         // Phase 2.8: the node's usage, once the completion is persisted. A host action reads no turn, so it has none.
         // Usage is not a variable: a review node's variables are dropped above, and its usage is still recorded.

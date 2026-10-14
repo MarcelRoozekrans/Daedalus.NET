@@ -912,7 +912,9 @@ public sealed class NodeSelectionRunnerTests
     ///     <c>timeout</c>, and the turn runs. Reds, each applied once: resolve the tools with the caller's token instead of
     ///     the budget's, and the resolution row never ends, so the 20-second wait throws; check the overrides with the
     ///     caller's token, and the check row never ends; report the expiry as another fallback, and the fallback assertions
-    ///     fail. The null model and filter are what the timeout default gives; they show the turn ran on it.
+    ///     fail. The null model and filter are what the timeout default gives; they show the turn ran on it. Round 2: the
+    ///     check row keeps Minos's answers, which it gave before the check ran out. Red: drop the carry of the answers into
+    ///     the timeout default; the check row has no <c>answers</c>.
     /// </summary>
     [Theory]
     [InlineData("resolution")]
@@ -950,6 +952,16 @@ public sealed class NodeSelectionRunnerTests
             sent.ToolFilter.Should().BeNull();
             payload.RootElement.GetProperty("fallback").GetString().Should().Be(NodeSelectionDecider.Timeout);
             payload.RootElement.GetProperty("model").GetString().Should().Be("provider-default");
+            if (string.Equals(slow, "check", StringComparison.Ordinal))
+            {
+                // Minos answered before the check ran out, so the record keeps its answers.
+                payload.RootElement.GetProperty("answers").GetProperty("demand").GetString().Should().Be("Hard");
+            }
+            else
+            {
+                // The budget ran out before Minos was asked, so there is nothing to keep.
+                payload.RootElement.TryGetProperty("answers", out _).Should().BeFalse();
+            }
         }
     }
 

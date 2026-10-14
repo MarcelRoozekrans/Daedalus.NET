@@ -575,6 +575,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // of its own, like the review lens runner, so this singleton captures nothing scoped.
         services.AddSingleton<NodeUsageRecorder>();
 
+        // Phase 2.10: the recorder also drops the per-model usage a review held for a run the store cancels or fails, since
+        // no completion will take it.
+        services.AddSingleton<IWorkflowRunObserver>(sp => sp.GetRequiredService<NodeUsageRecorder>());
+
         // Task B13: the post-gate publish step. The resolver above and WorkflowNodeDispatcherFactory both receive every
         // registered IWorkflowHostAction (ruling R27), so this registration is what makes `action: open-pull-request`
         // validate and dispatch. A singleton: it resolves the scoped PR lookup and publisher from a scope of its own.
