@@ -99,8 +99,8 @@
     <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.17.0" />
     <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.17.0" />
 
-    <!-- Minos.NET 1.0.1: per-node model and tool selection, phase 2.10. Daedalus.Agents references Minos.NET;
-         Minos.NET.SystemOne is not referenced by a project yet. -->
+    <!-- Minos.NET 1.0.1: per-node model and tool selection, phase 2.10. Daedalus.Agents references Minos.NET and
+         Minos.NET.SystemOne, the OpenRouter decision client. -->
     <PackageVersion Include="Minos.NET" Version="1.0.1" />
     <PackageVersion Include="Minos.NET.SystemOne" Version="1.0.1" />
 

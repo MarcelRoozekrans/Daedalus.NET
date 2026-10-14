@@ -23,13 +23,15 @@ namespace Daedalus.Tests.Unit.ServiceDefaults;
 /// </summary>
 public sealed class ServiceDefaultsWiringTests
 {
-    private static readonly string[] SubscribedSources = ["thalos", "thalos.workflow", "ZeroAlloc.Mediator", "daedalus.manufacture"];
-    private static readonly string[] SubscribedMeters = ["thalos", "thalos.workflow", "daedalus.manufacture", GitHubRateLimitObserver.MeterName];
+    private static readonly string[] SubscribedSources = ["thalos", "thalos.workflow", "ZeroAlloc.Mediator", "daedalus.manufacture", "Minos"];
+    private static readonly string[] SubscribedMeters =
+        ["thalos", "thalos.workflow", "daedalus.manufacture", "Minos", GitHubRateLimitObserver.MeterName];
 
     /// <summary>
     ///     Red, per source: remove it from <c>TracedSources</c>. For <c>daedalus.manufacture</c>, write <c>"daedalus"</c> in
     ///     place of <c>"daedalus.*"</c>. That source's probe is missing.
     ///     Red: add <c>"*"</c> to <c>TracedSources</c>; the Npgsql probe is exported.
+    ///     Red: remove <c>"Minos"</c> from <c>TracedSources</c>, or misspell it; the probe on Minos's real source name is missing.
     /// </summary>
     [Fact]
     public void The_tracer_exports_the_thalos_workflow_mediator_and_daedalus_sources_and_not_npgsql()
@@ -56,6 +58,7 @@ public sealed class ServiceDefaultsWiringTests
     /// <summary>
     ///     Red, per meter: remove it from <c>Meters</c>; that meter's probe is missing.
     ///     Red: add <c>"*"</c> to <c>Meters</c>; the Npgsql probe is exported.
+    ///     Red: remove <c>"Minos"</c> from <c>Meters</c>; the probe on Minos's real meter name is missing.
     ///     Red: rename <c>GitHubRateLimitObserver.MeterName</c> to <c>github</c>; its probe is missing.
     /// </summary>
     [Fact]

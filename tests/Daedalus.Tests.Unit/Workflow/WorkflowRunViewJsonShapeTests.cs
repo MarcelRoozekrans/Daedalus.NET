@@ -12,6 +12,7 @@ public sealed class WorkflowRunViewJsonShapeTests
     /// <summary>
     ///     Every property name the API serves today, top level and nested.
     ///     Red: rename a NodePinView property, or a WorkflowRunView parameter, after the move.
+    ///     Red: rename a NodeSelectionView property.
     /// </summary>
     [Fact]
     public void The_view_serializes_with_todays_names()
@@ -22,7 +23,7 @@ public sealed class WorkflowRunViewJsonShapeTests
         Names(root).Should().Equal(
             "id", "process", "processVersion", "status", "currentNode", "awaitingSignal", "lastError", "pins",
             "standingInstructionsDiff", "nodeUsage", "prUrl", "unreadablePullRequestLink", "startedBy", "writeAudit",
-            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "checked", "startedByName");
+            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "checked", "startedByName", "nodeSelections");
         Names(root.GetProperty("steps")[0]).Should().Equal(
             "seq", "kind", "fromNode", "toNode", "status", "outcome", "error", "inputTokens", "outputTokens",
             "cacheReadTokens", "at", "actor");
@@ -35,6 +36,7 @@ public sealed class WorkflowRunViewJsonShapeTests
         Names(root.GetProperty("deferredFindings")[0]).Should().Equal(
             "id", "lens", "file", "line", "title", "scenario", "reason", "existingIssue", "dropped", "existingIssueUrl");
         Names(root.GetProperty("filedFindings")[0]).Should().Equal("findingId", "mode", "issue", "url");
+        Names(root.GetProperty("nodeSelections")[0]).Should().Equal("seq", "node", "model", "level", "keptFamilies", "fallback", "confidence");
     }
 
     /// <summary>
@@ -60,5 +62,6 @@ public sealed class WorkflowRunViewJsonShapeTests
         [new DeferredFindingView("mechanism-1", "mechanism", "a.cs", 3, "t", "s", "different-area", 7, false, new Uri("https://github.com/o/r/issues/7"))],
         null, [new FiledFindingView("mechanism-1", "created", 12, new Uri("https://example.test/issues/12"))],
         [new WorkflowRunStepView(0, "Entered", null, "implement", "Running", null, null, null, null, null, DateTimeOffset.UnixEpoch, null)],
-        [new LensCheckedView("mechanism", ["a.cs:3"])], "Dev");
+        [new LensCheckedView("mechanism", ["a.cs:3"])], "Dev",
+        [new NodeSelectionView(1, "implement", "m", "low", 3, null, 0.8)]);
 }

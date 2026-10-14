@@ -32,12 +32,13 @@ public static class AspireExtensions
 
     /// <summary>
     ///     The activity sources traced: Thalos agent turns and stores, the workflow engine, the mediator, and every
-    ///     Daedalus source. No Npgsql source: the outbox poller would drown the traces (decision D3).
+    ///     Daedalus source, and Minos, the decision client's own spans. No Npgsql source: the outbox poller would
+    ///     drown the traces (decision D3).
     /// </summary>
-    private static readonly string[] TracedSources = ["thalos", "thalos.workflow", "ZeroAlloc.Mediator", "daedalus.*"];
+    private static readonly string[] TracedSources = ["thalos", "thalos.workflow", "ZeroAlloc.Mediator", "daedalus.*", "Minos"];
 
     /// <summary>The meters collected, plus the .NET runtime's built-in <c>System.Runtime</c> meter.</summary>
-    private static readonly string[] Meters = ["thalos", "thalos.workflow", "daedalus.*", "System.Runtime"];
+    private static readonly string[] Meters = ["thalos", "thalos.workflow", "daedalus.*", "Minos", "System.Runtime"];
 
     /// <summary>
     ///     Whether ASP.NET Core instrumentation traces this request: every request except those to <see cref="HealthPath"/>

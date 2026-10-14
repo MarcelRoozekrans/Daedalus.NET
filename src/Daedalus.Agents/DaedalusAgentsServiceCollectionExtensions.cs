@@ -27,6 +27,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Minos;
+using Minos.SystemOne;
 using Npgsql;
 using Thalos;
 using Thalos.Anthropic;
@@ -53,6 +55,12 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 {
     /// <summary>The Thalos tool-source name of <see cref="DaedalusKnowledgeTools"/>; tools appear as <c>daedalus__{tool}</c>.</summary>
     public const string KnowledgeToolSourceName = "daedalus";
+
+    /// <summary>
+    ///     The configuration key the OpenRouter key arrives under: the environment variable the AppHost sets from its
+    ///     <c>openrouter-key</c> secret. Decisions stay off without it.
+    /// </summary>
+    public const string OpenRouterKeyName = "OPENROUTER_API_KEY";
 
     /// <summary>
     ///     The Thalos tool-source name of <see cref="DaedalusRepoActionTools"/>; tools appear as
@@ -260,12 +268,29 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         ValidateDecisionsConfig(options, configuration["Thalos:Anthropic:DefaultModel"]);
 
         // Phase 2.10: the validated options, read by NodeSelectionRunner for the role menus and by ReviewLensRunner for
-        // the pinned lens models, and the decider. No IDecisionClient is registered yet, so every decision falls back
-        // with reason "off" and a turn is the request it was before; task B5 registers the OpenRouter client.
+        // the pinned lens models, and the decider. The OpenRouter client exists only when decisions are enabled: the
+        // owner has confirmed a zero-data-retention account, because task text goes to OpenRouter, and a key is
+        // present. Otherwise no client is registered, the decider gets none, every decision falls back with reason
+        // "off" and a turn is the request it was before. The key is read here, held by the client's options only, and
+        // never logged: the start-up line names the reason alone.
         services.TryAddSingleton(options);
         services.TryAddSingleton(options.Decisions);
+        var openRouterKey = configuration[OpenRouterKeyName];
+        if (options.Decisions.IsEnabled(openRouterKey))
+        {
+            services.AddSystemOneDecisionClient(o =>
+            {
+                o.Provider = SystemOneProvider.OpenRouter;
+                o.ApiKey = openRouterKey;
+                o.Model = options.Decisions.Model;
+                o.MaxRetries = 1;
+            });
+        }
+
         services.TryAddSingleton(sp => new NodeSelectionDecider(
-            client: null, sp.GetRequiredService<DecisionsConfig>(), sp.GetRequiredService<ILogger<NodeSelectionDecider>>()));
+            sp.GetService<IDecisionClient>(), sp.GetRequiredService<DecisionsConfig>(), sp.GetRequiredService<ILogger<NodeSelectionDecider>>()));
+        services.AddHostedService(sp => new DecisionsStartupLog(
+            sp.GetRequiredService<DecisionsConfig>(), !string.IsNullOrEmpty(openRouterKey), sp.GetRequiredService<ILogger<DecisionsStartupLog>>()));
 
         // Checked whether or not the engine is on: Daedalus.Cli ships the same write grant with the engine off, and a
         // grant that only fails validation once someone flips Enabled is a grant nobody reviewed.

@@ -39,7 +39,7 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     private static readonly string[] Sources =
     [
         "thalos", WorkflowTelemetry.SourceName, "ZeroAlloc.Mediator", ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName,
-        "Microsoft.AspNetCore", "System.Net.Http",
+        "Minos", "Microsoft.AspNetCore", "System.Net.Http",
     ];
 
     /// <summary>
@@ -48,7 +48,7 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     /// </summary>
     private static readonly string[] Meters =
     [
-        "thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName, "System.Runtime", "System.Net.Http",
+        "thalos", WorkflowTelemetry.SourceName, ManufactureTelemetry.SourceName, DecisionTelemetry.SourceName, "Minos", "System.Runtime", "System.Net.Http",
         "System.Net.NameResolution", "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Routing",
         "Microsoft.AspNetCore.Diagnostics", "Microsoft.AspNetCore.Server.Kestrel", "Microsoft.AspNetCore.Http.Connections",
         "Microsoft.AspNetCore.Authentication", "Microsoft.AspNetCore.Authorization", "Microsoft.AspNetCore.RateLimiting",

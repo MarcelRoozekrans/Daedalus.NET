@@ -202,6 +202,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     {
         var events = await runs.ListEventsAsync(run.Id, ct);
         var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
+        var selections = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.NodeSelectionKind, ct);
         var review = await runs.ReadReviewAsync(run.Id, ct);
         IReadOnlyList<IdentifiedDeferredFinding> deferred = review.IsSuccess ? ReviewVisit.DeferredOf(review.Value) : [];
         IReadOnlyList<LensCheckedView> checkedItems = review.IsSuccess && review.Value is { } visit
@@ -248,7 +249,41 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             FiledFindings: filed.IsSuccess ? [.. filed.Value.Values.Order(FiledOrder.Instance).Select(f => new FiledFindingView(f.FindingId, f.Mode, f.Issue, f.Url))] : [],
             Steps: WorkflowRunStepProjection.Project(events),
             Checked: checkedItems,
-            StartedByName: run.StartedBy?.DisplayName);
+            StartedByName: run.StartedBy?.DisplayName,
+            NodeSelections: [.. selections.OrderBy(r => r.Seq).Select(ToNodeSelectionView).OfType<NodeSelectionView>()]);
+    }
+
+    /// <summary>
+    ///     One node-selection record as a view, or <see langword="null"/> when its payload is not the
+    ///     <c>{ level, model, tool_filter, kept_families, fallback, confidence }</c> that <c>NodeSelectionRunner</c> writes.
+    ///     The tool filter is read by nothing here.
+    /// </summary>
+    private static NodeSelectionView? ToNodeSelectionView(WorkflowRunRecord record)
+    {
+        JsonDocument payload;
+        try
+        {
+            payload = JsonDocument.Parse(record.PayloadJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        using (payload)
+        {
+            var root = payload.RootElement;
+            var model = ReadString(root, "model");
+            var level = ReadString(root, "level");
+            if (model is null || level is null
+                || !root.TryGetProperty("kept_families", out var kept) || !kept.TryGetInt32(out var keptFamilies))
+            {
+                return null;
+            }
+
+            double? confidence = root.TryGetProperty("confidence", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetDouble() : null;
+            return new NodeSelectionView(record.Seq, record.Node, model, level, keptFamilies, ReadString(root, "fallback"), confidence);
+        }
     }
 
     /// <summary>Findings in the order a human reads them: by lens, then by number (so 2 comes before 10), with the summary last.</summary>

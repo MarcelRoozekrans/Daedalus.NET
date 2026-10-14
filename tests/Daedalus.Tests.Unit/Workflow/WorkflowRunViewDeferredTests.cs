@@ -78,6 +78,41 @@ public sealed class WorkflowRunViewDeferredTests
         return response.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeOfType<WorkflowRunView>().Subject;
     }
 
+    private static WorkflowRunRecord Selection(long seq, string node, string payload) =>
+        WorkflowRunRecord.Create(RunId, seq, node, WorkflowRunRecord.NodeSelectionKind, "p", null, payload, DateTime.UtcNow).Value;
+
+    /// <summary>
+    ///     The view lists each node-selection record in seq order, with the model, level, kept family count, fallback and
+    ///     confidence, and carries no tool name. Red: pass [] for NodeSelections in ToViewAsync. Red: drop the OrderBy on
+    ///     Seq; the records come back in the order stored, 2 then 1. Red: put the record's payload in a view member; the
+    ///     serialized view then contains the tool name, which the NotContain check names. Red: read kept_families from
+    ///     the wrong property; that record is unreadable and left out.
+    /// </summary>
+    [Fact]
+    public async Task The_run_view_lists_recorded_node_selections()
+    {
+        var view = await ViewWith(
+            Selection(2, "review", """{ "level": "high", "model": "claude-opus-5-5", "tool_filter": null, "kept_families": 5, "fallback": "timeout", "confidence": null }"""),
+            Selection(1, "implement", """{ "level": "low", "model": "claude-haiku-5-5", "tool_filter": ["secret_tool__run"], "kept_families": 3, "fallback": null, "confidence": 0.8 }"""));
+
+        view.NodeSelections.Should().Equal(
+            new NodeSelectionView(1, "implement", "claude-haiku-5-5", "low", 3, null, 0.8),
+            new NodeSelectionView(2, "review", "claude-opus-5-5", "high", 5, "timeout", null));
+        System.Text.Json.JsonSerializer.Serialize(view, System.Text.Json.JsonSerializerOptions.Web).Should().NotContain("secret_tool__run");
+    }
+
+    /// <summary>
+    ///     A run with no decisions, such as one with decisions off before this phase, has an empty list.
+    ///     Red: return a null list when there are no records.
+    /// </summary>
+    [Fact]
+    public async Task A_run_without_node_selections_lists_none()
+    {
+        var view = await ViewWith();
+
+        view.NodeSelections.Should().BeEmpty();
+    }
+
     /// <summary>
     ///     A corrupt drop record must not read as "nothing dropped" in silence. Red: ignore <c>dropped.Error</c>; the
     ///     error is null.

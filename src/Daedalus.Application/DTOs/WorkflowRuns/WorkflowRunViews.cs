@@ -66,6 +66,10 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 ///     Each lens's <c>checked[]</c> from the latest review visit, approving or rejecting; empty before review has run,
 ///     and when the review records cannot be read, which <paramref name="DeferredFindingsError"/> says.
 /// </param>
+/// <param name="NodeSelections">
+///     The model and tool decision taken for each node visit, from the run's <c>node-selection</c> records, in seq order.
+///     Empty when no node was decided. A record that cannot be read is left out; the node it belongs to fails instead of running.
+/// </param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
@@ -86,7 +90,21 @@ public sealed record WorkflowRunView(
     IReadOnlyList<FiledFindingView> FiledFindings,
     IReadOnlyList<WorkflowRunStepView> Steps,
     IReadOnlyList<LensCheckedView> Checked,
-    string? StartedByName);
+    string? StartedByName,
+    IReadOnlyList<NodeSelectionView> NodeSelections);
+
+/// <summary>
+///     The model and tool decision of one node visit, as its <c>node-selection</c> record holds it. The tool filter is
+///     not here: tool names stay out of API views of decisions, as they stay out of telemetry.
+/// </summary>
+/// <param name="Seq">The seq of the node visit the decision belongs to.</param>
+/// <param name="Node">The node.</param>
+/// <param name="Model">The model the node runs on.</param>
+/// <param name="Level">The demand level chosen, or the default's level when the decision fell back.</param>
+/// <param name="KeptFamilies">How many tool families the node keeps.</param>
+/// <param name="Fallback">Why the default applies, or <see langword="null"/> when the decision was taken.</param>
+/// <param name="Confidence">The confidence of the demand answer, or <see langword="null"/> when Minos did not answer.</param>
+public sealed record NodeSelectionView(long Seq, string Node, string Model, string Level, int KeptFamilies, string? Fallback, double? Confidence);
 
 /// <summary>One entry of a run's event log, as the console's timeline shows it.</summary>
 /// <param name="Seq">The seq the event was recorded at.</param>
