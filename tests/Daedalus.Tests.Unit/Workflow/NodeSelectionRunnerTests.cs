@@ -7,6 +7,7 @@ using Daedalus.Tests.Unit.Decisions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Minos;
@@ -170,7 +171,8 @@ public sealed class NodeSelectionRunnerTests
     }
 
     private static NodeSelectionRunner Runner(
-        ISubagentRunner inner, IDecisionClient? client, IWorkflowRunRecordStore records, ThalosFakes? thalos = null)
+        ISubagentRunner inner, IDecisionClient? client, IWorkflowRunRecordStore records, ThalosFakes? thalos = null,
+        ILogger<NodeSelectionRunner>? logger = null)
     {
         thalos ??= new ThalosFakes();
         return new(
@@ -183,7 +185,7 @@ public sealed class NodeSelectionRunnerTests
             thalos.Provider,
             thalos.ToolCatalog,
             thalos.Factory,
-            NullLogger<NodeSelectionRunner>.Instance);
+            logger ?? NullLogger<NodeSelectionRunner>.Instance);
     }
 
     /// <summary>A recorded decision at <paramref name="seq"/> of <paramref name="run"/>, as an earlier attempt wrote it.</summary>
@@ -607,24 +609,162 @@ public sealed class NodeSelectionRunnerTests
     }
 
     /// <summary>
-    ///     A pinned agent definition the catalog cannot serve fails the node with a result rather than an exception, and
-    ///     runs no turn. Red: decide over a placeholder definition when the catalog has none; the turn runs.
+    ///     A pinned agent definition the catalog cannot serve adds no failure mode: the provider's default model is the
+    ///     recorded default and the turn runs, so Thalos reports the miss itself if it has one. With decisions on there is no
+    ///     definition to check a narrowed filter against, so the visit gets the full list with <c>error:Validate</c>; with
+    ///     decisions off nothing was decided. Reds, each applied once: fail the node on a miss, as round 1 did, and both
+    ///     rows fail; skip the check when there is no definition, and the decided row runs on a narrowed filter and
+    ///     <c>strong</c>; take the default from somewhere other than the provider, and the recorded model differs.
     /// </summary>
-    [Fact]
-    public async Task A_missing_agent_definition_fails_the_node_without_throwing()
+    [Theory]
+    [InlineData(true, "error:Validate")]
+    [InlineData(false, "off")]
+    public async Task A_missing_agent_definition_falls_back_to_the_provider_default(bool decisionsOn, string fallback)
     {
         var inner = new CapturingRunner();
+        var records = new InMemoryRecords();
         using var client = HardWithoutRoslyn();
         var thalos = new ThalosFakes();
         thalos.Catalog.TryGet(ImplementerId, Arg.Any<string?>(), out Arg.Any<AgentDefinition?>()).Returns(false);
 
-        var act = async () => await Runner(inner, client, new InMemoryRecords(), thalos)
+        var act = async () => await Runner(inner, decisionsOn ? client : null, records, thalos)
             .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
 
         var result = (await act.Should().NotThrowAsync()).Subject;
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be(AgentErrorCode.Validation);
-        inner.Requests.Should().BeEmpty();
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var sent = inner.Requests.Should().ContainSingle().Subject;
+        using var payload = JsonDocument.Parse(records.Appended.Should().ContainSingle().Subject.PayloadJson);
+        using (new AssertionScope())
+        {
+            sent.Model.Should().BeNull();
+            sent.ToolFilter.Should().BeNull();
+            payload.RootElement.GetProperty("model").GetString().Should().Be("provider-default");
+            payload.RootElement.GetProperty("fallback").GetString().Should().Be(fallback);
+        }
+    }
+
+    /// <summary>
+    ///     With decisions off no tool is resolved: the filter is always null, so a resolution would be a tool-source round
+    ///     trip on every visit for nothing. Red: resolve whatever the decider; the catalog is called.
+    /// </summary>
+    [Fact]
+    public async Task With_decisions_off_no_tool_is_resolved()
+    {
+        var thalos = new ThalosFakes();
+
+        var result = await Runner(new CapturingRunner(), client: null, new InMemoryRecords(), thalos)
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        await thalos.ToolCatalog.DidNotReceiveWithAnyArgs().ResolveAsync(default!, default);
+    }
+
+    /// <summary>
+    ///     Only a validation refusal means the tools do not resolve. A check that fails for another reason, or throws, says
+    ///     nothing about the decision, so the visit runs on the full list and its own model with <c>error:Validate</c>, and
+    ///     the log names the error code or the exception type, never the message. Reds, each applied once: treat any failed
+    ///     result as a refusal, and the provider-error row keeps <c>strong</c> under <c>tools-unresolved</c>; treat a throw
+    ///     as a refusal, and the throws row does; log the error message, and the provider-error row's log carries it.
+    /// </summary>
+    [Theory]
+    [InlineData("provider-error")]
+    [InlineData("throws")]
+    public async Task A_check_that_fails_without_refusing_runs_on_the_full_list(string failure)
+    {
+        var inner = new CapturingRunner();
+        var records = new InMemoryRecords();
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes();
+        var log = new ListLogger();
+        if (string.Equals(failure, "throws", StringComparison.Ordinal))
+        {
+            thalos.Factory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Is<IReadOnlyList<string>?>(f => f != null), Arg.Any<CancellationToken>())
+                .Returns<ValueTask<UnitResult<AgentError>>>(_ => throw new HttpRequestException("zqx roslyn__find_callers unreachable"));
+        }
+        else
+        {
+            thalos.Factory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Is<IReadOnlyList<string>?>(f => f != null), Arg.Any<CancellationToken>())
+                .Returns(ValueTask.FromResult(UnitResult<AgentError>.Failure(AgentError.ProviderError("zqx roslyn__find_callers unreachable"))));
+        }
+
+        var result = await Runner(inner, client, records, thalos, log)
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var sent = inner.Requests.Should().ContainSingle().Subject;
+        using var payload = JsonDocument.Parse(records.Appended.Should().ContainSingle().Subject.PayloadJson);
+        using (new AssertionScope())
+        {
+            sent.Model.Should().BeNull();
+            sent.ToolFilter.Should().BeNull();
+            payload.RootElement.GetProperty("fallback").GetString().Should().Be(NodeSelectionRunner.ValidateFailed);
+            payload.RootElement.GetProperty("model").GetString().Should().Be("provider-default");
+            log.Lines.Should().Contain(l => l.Contains(string.Equals(failure, "throws", StringComparison.Ordinal) ? "HttpRequestException" : "ProviderError", StringComparison.Ordinal));
+            log.Lines.Should().NotContain(l => l.Contains("zqx", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    ///     A failed tool resolution is logged by its error code, never its message, which can name a tool source or a tool.
+    ///     Red: log <c>resolved.Error.Message</c>; the log carries the message.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_tool_resolution_logs_the_code_not_the_message()
+    {
+        using var client = HardWithoutRoslyn();
+        var thalos = new ThalosFakes();
+        var log = new ListLogger();
+        thalos.ToolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(Result<IReadOnlyList<AITool>, AgentError>.Failure(AgentError.ProviderError("zqx context7 is down"))));
+
+        await Runner(new CapturingRunner(), client, new InMemoryRecords(), thalos, log)
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        log.Lines.Should().Contain(l => l.Contains("ProviderError", StringComparison.Ordinal));
+        log.Lines.Should().NotContain(l => l.Contains("zqx", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    ///     A refusal keeps an earlier fallback: an unconfident model answer already says why the model is the default, so
+    ///     the record says <c>low-confidence</c>, not <c>tools-unresolved</c>, while the filter still falls back to the full
+    ///     list. Red: always write the refusal's own reason; the fallback assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_refusal_keeps_an_earlier_fallback()
+    {
+        var inner = new CapturingRunner();
+        var records = new InMemoryRecords();
+        using var client = FakeDecisionClient.Answering(Demand.Hard, 0.3, 0.1, 0.9, 0.9, 0.9, 0.9, 0.9);
+        var thalos = new ThalosFakes();
+        thalos.Factory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Is<IReadOnlyList<string>?>(f => f != null), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(UnitResult<AgentError>.Failure(AgentError.Validation("no tool matches 'sandbox__*'"))));
+
+        var result = await Runner(inner, client, records, thalos)
+            .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Message : "");
+        var sent = inner.Requests.Should().ContainSingle().Subject;
+        using var payload = JsonDocument.Parse(records.Appended.Should().ContainSingle().Subject.PayloadJson);
+        using (new AssertionScope())
+        {
+            sent.ToolFilter.Should().BeNull();
+            sent.Model.Should().BeNull();
+            payload.RootElement.GetProperty("fallback").GetString().Should().Be(NodeSelectionMapper.LowConfidence);
+        }
+    }
+
+    /// <summary>Collects every formatted log line, so a test can say what a log does and does not carry.</summary>
+    private sealed class ListLogger : ILogger<NodeSelectionRunner>
+    {
+        public List<string> Lines { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Lines.Add(formatter(state, exception));
     }
 
     /// <summary>The caller's own cancellation still propagates. Red: catch every exception around the append.</summary>

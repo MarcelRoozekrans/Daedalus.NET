@@ -31,6 +31,12 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
     /// <summary>Fallback reason when the client threw, such as a disposed client or a provider that answered other questions.</summary>
     public const string ClientFault = "error:Client";
 
+    /// <summary>
+    ///     Whether a decision can be taken at all. Without a client every decision is the default with fallback
+    ///     <see cref="Off"/>, so a caller may skip work that only a taken decision would use.
+    /// </summary>
+    public bool HasClient => client is not null;
+
     /// <summary>The most characters of work intent sent to the decision.</summary>
     public const int MaxIntentCharacters = 4_000;
 
