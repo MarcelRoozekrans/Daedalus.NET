@@ -446,6 +446,188 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             .Should().AllBe(NodeSelectionDecider.Off);
     }
 
+    private static bool SameTools(IReadOnlyList<string>? actual, IReadOnlyList<string>? expected) =>
+        actual is null ? expected is null : expected is not null && actual.SequenceEqual(expected, StringComparer.Ordinal);
+
+    private static IReadOnlyList<(string Node, long Seq, NodeSelection Selection)> Decided(RunOutcome result) =>
+        [.. result.NodeSelections.Select(r => (r.Node, r.Seq, Selection: NodeSelectionRecord.Parse(r.PayloadJson)!))];
+
+    /// <summary>
+    ///     Phase 2.10 task B6: with decisions on, every implement and review visit is dispatched with the model and tool
+    ///     filter its record holds, and the first visits really narrow: the record has no fallback, the model is the
+    ///     decided one rather than the default, and the dispatched filter is the three-family list, not the five-family
+    ///     full list. Retrospect is not decided and carries neither. Thalos was asked to check each decision.
+    ///     Red: drop NodeSelectionRunner from the chain: the node order of the records fails, no record is written.
+    ///     Red: forward the request unchanged: the dispatched model and filter assertions fail.
+    ///     Red: dispatch the filter as null, or the model as null: the filter-equals-record and model assertions fail.
+    ///     Red: make every pinned node eligible: retrospect is recorded, so the node order fails.
+    ///     Red: hand the undecided retrospect turn a model: "retrospect is never decided" fails.
+    ///     Red: skip the Thalos check: the override-check count is 0, not 4.
+    ///     Red: Thalos refuses the decided filter: the fallback is tools-unresolved, so the no-fallback assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task Each_node_visit_is_dispatched_with_its_recorded_model_and_tool_filter()
+    {
+        var decisions = Deciding();
+        var result = await RunAsync(squadEnabled: true, rejectFirstReview: true, decisions: decisions);
+
+        result.Status.Should().Be(WorkflowStatus.Awaiting, "the second review must have approved");
+        var decided = Decided(result);
+        decided.Select(d => d.Node).Should().Equal("implement", "review", "implement", "review");
+
+        // A real narrowing on the first implement and the first review, not a fallback that happens to pass.
+        foreach (var first in decided.Take(2))
+        {
+            first.Selection.Fallback.Should().BeNull($"the {first.Node} decision was taken, not fallen back from");
+            first.Selection.Model.Should().Be(StrongModel);
+            first.Selection.ToolFilter.Should().NotBeNull().And.Equal(NarrowedTools);
+            first.Selection.ToolFilter!.Count.Should().BeLessThan(FullTools.Length, "narrower than the full list");
+        }
+
+        // Every decided dispatch carries exactly what its record says, matched by node and seq.
+        var decidedTurns = result.Turns.Where(t => t.Node is "implement" or "review").ToList();
+        decidedTurns.Should().HaveCount(6, "implement twice, then one rejecting pass and three approving ones");
+        foreach (var turn in decidedTurns)
+        {
+            var record = decided.Single(d => string.Equals(d.Node, turn.Node, StringComparison.Ordinal) && d.Seq == turn.Seq).Selection;
+            turn.Model.Should().Be(record.Fallback is null ? record.Model : null, $"the {turn.Node} turn at seq {turn.Seq}");
+            SameTools(turn.ToolFilter, record.ToolFilter).Should().BeTrue($"the {turn.Node} turn at seq {turn.Seq} carries its recorded filter");
+        }
+
+        var firstImplement = result.Turns.First(t => string.Equals(t.Node, "implement", StringComparison.Ordinal));
+        firstImplement.Model.Should().Be(StrongModel).And.NotBe("provider-default");
+        firstImplement.ToolFilter.Should().Equal(NarrowedTools).And.Contain(["workspace__*", "daedalus__*"]);
+        var firstReview = result.Turns.First(t => string.Equals(t.Node, "review", StringComparison.Ordinal));
+        firstReview.Model.Should().Be(StrongModel);
+        firstReview.ToolFilter.Should().Equal(NarrowedTools);
+
+        var retrospect = result.Turns.Should().ContainSingle(t => string.Equals(t.Node, "retrospect", StringComparison.Ordinal)).Subject;
+        retrospect.Model.Should().BeNull("retrospect is never decided");
+        retrospect.ToolFilter.Should().BeNull();
+
+        result.DecisionCalls.Should().Be(4, "one question per node visit, never per lens pass");
+        result.OverrideChecks.Should().HaveCount(4, "Thalos checks each decision once");
+        result.OverrideChecks.Should().Contain(c => c.Model == StrongModel && SameTools(c.ToolFilter, NarrowedTools));
+    }
+
+    /// <summary>
+    ///     Phase 2.10 task B6: the three lens passes of one review share one decision. With no pins, one record sits at
+    ///     the review seq the passes ran at, and all three passes carry the same model and the same narrowed filter.
+    ///     Red: drop NodeSelectionRunner from the chain: there is no review record.
+    ///     Red: record at CurrentSeq + 1: no review record at the seq the passes ran at.
+    ///     Red: dispatch the filter or the model as null: the per-pass filter and model assertions fail.
+    ///     Red: place the runner inside ReviewLensRunner and ask the decider before reading the record, a lens runner that
+    ///     decides per pass: the call count is 6, not 2. Placement inside alone leaves this case green, since the second
+    ///     pass reads the first pass's record back; the pinned case below catches that.
+    /// </summary>
+    [Fact]
+    public async Task The_three_lens_passes_share_one_decision()
+    {
+        var decisions = Deciding();
+        var result = await RunAsync(squadEnabled: true, decisions: decisions);
+
+        result.Status.Should().Be(WorkflowStatus.Awaiting);
+        var reviewSeq = result.ReviewPassSeqs.Distinct().Should().ContainSingle("all three passes ran at one seq").Subject;
+        result.ReviewPassSeqs.Should().HaveCount(3);
+        var reviewRecord = Decided(result).Should().ContainSingle(d => string.Equals(d.Node, "review", StringComparison.Ordinal), "one record for the whole review").Subject;
+        reviewRecord.Seq.Should().Be(reviewSeq);
+        reviewRecord.Selection.Fallback.Should().BeNull();
+        reviewRecord.Selection.ToolFilter.Should().Equal(NarrowedTools);
+
+        var passes = result.Turns.Where(t => string.Equals(t.Node, "review", StringComparison.Ordinal)).ToList();
+        passes.Select(t => t.Lens).Should().Equal("correctness", "falsifiability", "mechanism");
+        passes.Select(t => t.Model).Should().AllBe(StrongModel).And.AllBe(reviewRecord.Selection.Model);
+        foreach (var pass in passes)
+        {
+            pass.ToolFilter.Should().Equal(NarrowedTools, $"the {pass.Lens} pass");
+        }
+
+        result.DecisionCalls.Should().Be(2, "implement once and review once, not once per pass");
+    }
+
+    /// <summary>
+    ///     Phase 2.10 task B6: a pinned lens runs on its pinned model whatever the node's decision, and shares the filter.
+    ///     Falsifiability is pinned to the cheap model; the other two carry the decided strong one; all three carry the
+    ///     same narrowed filter; the one record at the review seq holds the decided model, not the pin.
+    ///     Red: stop ReviewLensRunner applying PinnedLensModels: the falsifiability pass carries the decided model.
+    ///     Red: apply the pin to every lens: the other two passes carry the pin.
+    ///     Red: place NodeSelectionRunner inside ReviewLensRunner: it overwrites the pin with the decided model.
+    ///     Red: dispatch the filter as null: the shared-filter assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_pinned_lens_keeps_its_model_while_the_three_passes_share_the_decided_filter()
+    {
+        var decisions = Deciding(new Dictionary<string, string>(StringComparer.Ordinal) { ["falsifiability"] = CheapModel });
+        var result = await RunAsync(squadEnabled: true, decisions: decisions);
+
+        result.Status.Should().Be(WorkflowStatus.Awaiting);
+        var reviewRecord = Decided(result).Should().ContainSingle(d => string.Equals(d.Node, "review", StringComparison.Ordinal)).Subject;
+        reviewRecord.Seq.Should().Be(result.ReviewPassSeqs.Distinct().Should().ContainSingle().Subject);
+        reviewRecord.Selection.Model.Should().Be(StrongModel, "the record holds the decision, not the pin");
+        reviewRecord.Selection.Fallback.Should().BeNull();
+
+        var passes = result.Turns.Where(t => string.Equals(t.Node, "review", StringComparison.Ordinal)).ToList();
+        passes.Select(t => (t.Lens, t.Model)).Should().Equal(
+            ("correctness", StrongModel), ("falsifiability", CheapModel), ("mechanism", StrongModel));
+        foreach (var pass in passes)
+        {
+            pass.ToolFilter.Should().Equal(NarrowedTools, $"the {pass.Lens} pass shares the one decided filter");
+        }
+
+        result.Turns.First(t => string.Equals(t.Node, "implement", StringComparison.Ordinal)).Model.Should().Be(StrongModel, "a lens pin touches no implement turn");
+        result.DecisionCalls.Should().Be(2);
+    }
+
+    /// <summary>
+    ///     Phase 2.10 task B6: after a rejected review narrowing stops. The first implement and review are narrowed, which
+    ///     is what makes the rest non-vacuous. The second implement and the second review's three passes get no filter,
+    ///     their records say so and count all five families, and the model is still the decided one: only the tools stop
+    ///     narrowing.
+    ///     Red: pass NarrowTools true always: the second implement carries the narrowed filter.
+    ///     Red: drop the implement-visits clause of AfterRejection: the same assertion fails. Dropping the review-visits
+    ///     clause alone turns nothing red, an equivalent mutant here, since a second review is reached only through a
+    ///     second implement.
+    ///     Red: kept families counted wrongly on a narrowed list, or as 0 on an unnarrowed one: the 3 and the 5 fail.
+    ///     Red: mark a later decision with a fallback: the no-fallback assertion fails.
+    ///     Red: drop NodeSelectionRunner: nothing is narrowed before the rejection either, so the order assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task After_the_rejection_the_second_implement_and_review_are_not_narrowed()
+    {
+        var decisions = Deciding();
+        var result = await RunAsync(squadEnabled: true, rejectFirstReview: true, decisions: decisions);
+
+        result.Status.Should().Be(WorkflowStatus.Awaiting, "the second review must have approved");
+        var decided = Decided(result);
+        decided.Select(d => d.Node).Should().Equal("implement", "review", "implement", "review");
+
+        var implementTurns = result.Turns.Where(t => string.Equals(t.Node, "implement", StringComparison.Ordinal)).ToList();
+        var reviewVisits = result.Turns.Where(t => string.Equals(t.Node, "review", StringComparison.Ordinal)).GroupBy(t => t.Seq).OrderBy(g => g.Key).ToList();
+        implementTurns.Should().HaveCount(2);
+        reviewVisits.Should().HaveCount(2);
+
+        // Before the rejection: narrowed, so that "not narrowed" below is a change and not the default.
+        implementTurns[0].ToolFilter.Should().Equal(NarrowedTools);
+        reviewVisits[0].Should().OnlyContain(t => SameTools(t.ToolFilter, NarrowedTools));
+        decided[0].Selection.KeptFamilies.Should().Be(3);
+        decided[1].Selection.KeptFamilies.Should().Be(3);
+
+        // After it: the full list, for the implement and every one of the three review passes.
+        implementTurns[1].ToolFilter.Should().BeNull("the implement after a rejection gets its full tool list");
+        reviewVisits[1].Should().HaveCount(3);
+        reviewVisits[1].Should().OnlyContain(t => t.ToolFilter == null, "no lens pass after a rejection is narrowed");
+        foreach (var later in decided.Skip(2))
+        {
+            later.Selection.ToolFilter.Should().BeNull($"the {later.Node} record says it kept the full list");
+            later.Selection.KeptFamilies.Should().Be(FullTools.Length, "all five families remain");
+            later.Selection.Fallback.Should().BeNull("the model decision is still taken, only the tools stop narrowing");
+        }
+
+        implementTurns[1].Model.Should().Be(StrongModel);
+        reviewVisits[1].Should().OnlyContain(t => t.Model == StrongModel);
+        result.DecisionCalls.Should().Be(4);
+    }
+
     /// <summary>
     ///     Issue #346: the implement turn a rejection sends the run back to is told what the rejecting lens found, so it
     ///     can fix that rather than guess. The first implement turn, which no review preceded, is told nothing. Red: drop
@@ -566,6 +748,34 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         File.Exists(dir.Path("AGENT.md")).Should().BeFalse();
     }
 
+    private const string OpenRouterKey = "test-key-not-a-secret";
+
+    private const string CheapModel = "model-cheap";
+
+    private const string StrongModel = "model-strong";
+
+    /// <summary>A three-model menu, cheapest first: Routine takes the first, Hard the last.</summary>
+    private static readonly string[] AllowedModels = [CheapModel, "model-mid", StrongModel];
+
+    private static readonly string[] FullTools = ["workspace__*", "daedalus__*", "roslyn__*", "sandbox__*", "memory__*"];
+
+    /// <summary>What a decision that keeps only roslyn narrows <see cref="FullTools"/> to: the two never-removable families stay.</summary>
+    private static readonly string[] NarrowedTools = ["workspace__*", "daedalus__*", "roslyn__*"];
+
+    /// <summary>A client that decides Hard work that needs Roslyn and nothing else, so the first visits really narrow.</summary>
+    private static NodeDecisions Deciding(IReadOnlyDictionary<string, string>? pinnedLenses = null) => new(
+        FakeDecisionClient.Answering(Demand.Hard, 0.9, roslyn: 0.9, sandbox: 0.1, memory: 0.1, skills: 0.1, context7: 0.1, issues: 0.1),
+        pinnedLenses);
+
+    /// <summary>Turns decisions on for a run: the fake client the decider asks, and the lens pins the review applies.</summary>
+    private sealed record NodeDecisions(FakeDecisionClient Client, IReadOnlyDictionary<string, string>? PinnedLenses = null);
+
+    /// <summary>One request as the runner under the whole chain received it. <c>Lens</c> is set on a review pass only.</summary>
+    private sealed record DispatchedTurn(string Node, long Seq, string? Lens, string? Model, IReadOnlyList<string>? ToolFilter);
+
+    /// <summary>One set of overrides Thalos was asked to check.</summary>
+    private sealed record OverrideCheck(string? Model, IReadOnlyList<string>? ToolFilter);
+
     private sealed record RunOutcome(
         WorkflowRun FinalRun,
         IReadOnlyDictionary<string, IReadOnlyList<string>> TasksByNode,
@@ -576,7 +786,10 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         IReadOnlyList<WorkflowRunRecord> ReviewEvidence,
         IReadOnlyList<long> ReviewPassSeqs,
         IReadOnlyList<WorkflowRunEvent> Events,
-        IReadOnlyList<WorkflowRunRecord> NodeSelections)
+        IReadOnlyList<WorkflowRunRecord> NodeSelections,
+        IReadOnlyList<DispatchedTurn> Turns,
+        IReadOnlyList<OverrideCheck> OverrideChecks,
+        int DecisionCalls)
     {
         public WorkflowStatus Status => FinalRun.Status;
     }
@@ -589,7 +802,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         string retrospectOutcome = ReviewHandoff.RetrospectProposedOutcome,
         bool rejectFirstReview = false,
         int? malformedPass = null,
-        bool forgeHostKeys = false)
+        bool forgeHostKeys = false,
+        NodeDecisions? decisions = null)
     {
         var dbName = $"b5_handoff_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
@@ -616,7 +830,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             var runner = new ScriptedRunner(
                 retrospectProposal ?? DefaultRetrospectProposal, plantAt, retrospectOutcome, rejectFirstReview, malformedPass, forgeHostKeys);
             var records = new WorkflowRunRecordStore(new FixtureDbContextFactory(fixture));
-            var (provider, references, catalog) = BuildProvider(store, definitions, runner, squadEnabled, skills, records);
+            var overrideChecks = new List<OverrideCheck>();
+            var (provider, references, catalog) = BuildProvider(store, definitions, runner, squadEnabled, skills, records, decisions, overrideChecks);
             await using var disposable = provider;
 
             var nodeDispatcher = WorkflowNodeDispatcherFactory.Create(provider);
@@ -669,7 +884,10 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 await records.ListAsync(runId, WorkflowRunRecord.ReviewEvidenceKind, CancellationToken.None),
                 runner.ReviewPassSeqs,
                 await store.ListEventsAsync(runId, CancellationToken.None),
-                await records.ListAsync(runId, WorkflowRunRecord.NodeSelectionKind, CancellationToken.None));
+                await records.ListAsync(runId, WorkflowRunRecord.NodeSelectionKind, CancellationToken.None),
+                runner.Turns,
+                overrideChecks,
+                decisions?.Client.Calls ?? 0);
         }
         finally
         {
@@ -704,7 +922,9 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         ISubagentRunner runner,
         bool squadEnabled,
         ISkillStore skills,
-        IWorkflowRunRecordStore records)
+        IWorkflowRunRecordStore records,
+        NodeDecisions? decisions,
+        List<OverrideCheck> overrideChecks)
     {
         var names = Substitute.For<IWorkflowReferenceResolver>();
         names.ResolveAgentIdAsync("implementer", Arg.Any<CancellationToken>()).Returns(new ValueTask<AgentId?>(ImplementerId));
@@ -746,20 +966,39 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             MaxTotalTokens = 42_000,
             DeadlineSeconds = 180,
         }));
-        // Phase 2.10: every role configured with a menu, and decisions off, as shipped: each implement and review visit is
-        // decided, falls back with "off", and is recorded in the real record store.
+        // Phase 2.10: every role configured with a three-model menu and five tool families. With no decisions given, as
+        // shipped without a key, each implement and review visit is decided, falls back with "off" and is recorded in the
+        // real record store. With decisions given, the account is confirmed zero-retention, the key is present, the client
+        // is the fake and the pins are the given ones, which is the condition AddDaedalusAgents registers the decider under.
         var agents = new DaedalusAgentsOptions();
+        if (decisions is not null)
+        {
+            agents.Decisions.ZeroDataRetentionAccount = true;
+            foreach (var (lens, model) in decisions.PinnedLenses ?? new Dictionary<string, string>(StringComparer.Ordinal))
+            {
+                agents.Decisions.PinnedLensModels[lens] = model;
+            }
+        }
+
         foreach (var (name, id) in new[] { ("implementer", ImplementerId), ("reviewer", ReviewerId), ("Daedalus Architect", ArchitectId) })
         {
             var agent = new AgentConfig { Id = id.ToString(), Name = name };
-            agent.AllowedModels.Add("claude-sonnet-5-5");
-            agent.Tools.Add("workspace__*");
-            agent.Tools.Add("daedalus__*");
+            foreach (var model in AllowedModels)
+            {
+                agent.AllowedModels.Add(model);
+            }
+
+            foreach (var pattern in FullTools)
+            {
+                agent.Tools.Add(pattern);
+            }
+
             agents.Agents.Add(agent);
         }
 
         services.AddSingleton(agents);
-        services.AddSingleton(new NodeSelectionDecider(null, agents.Decisions, NullLogger<NodeSelectionDecider>.Instance));
+        var client = decisions is not null && agents.Decisions.IsEnabled(OpenRouterKey) ? decisions.Client : null;
+        services.AddSingleton(new NodeSelectionDecider(client, agents.Decisions, NullLogger<NodeSelectionDecider>.Instance));
         var chatProvider = Substitute.For<IChatClientProvider>();
         chatProvider.DefaultModel.Returns("provider-default");
         services.AddSingleton(chatProvider);
@@ -768,13 +1007,34 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         [
             Microsoft.Extensions.AI.AIFunctionFactory.Create(() => 0, "workspace__read_file"),
             Microsoft.Extensions.AI.AIFunctionFactory.Create(() => 0, "daedalus__report_review_outcome"),
+            Microsoft.Extensions.AI.AIFunctionFactory.Create(() => 0, "roslyn__find_callers"),
+            Microsoft.Extensions.AI.AIFunctionFactory.Create(() => 0, "sandbox__build"),
+            Microsoft.Extensions.AI.AIFunctionFactory.Create(() => 0, "memory__recall"),
         ];
         toolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
             .Returns(ValueTask.FromResult(Result<IReadOnlyList<Microsoft.Extensions.AI.AITool>, AgentError>.Success(resolved)));
         services.AddSingleton(toolCatalog);
         var agentFactory = Substitute.For<Thalos.Runtime.IAgentFactory>();
+
+        // Thalos' own rule, in the part this suite depends on: a model must be one of the agent's allowed models and a
+        // filter pattern one of its configured tools. Recorded, so a test can prove the decision was checked.
         agentFactory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
-            .Returns(ValueTask.FromResult(UnitResult<AgentError>.Success()));
+            .Returns(call =>
+            {
+                var configured = agents.Agents.Single(a => string.Equals(a.Name, call.ArgAt<AgentDefinition>(0).Name, StringComparison.Ordinal));
+                var model = call.ArgAt<string?>(1);
+                var filter = call.ArgAt<IReadOnlyList<string>?>(2);
+                lock (overrideChecks)
+                {
+                    overrideChecks.Add(new OverrideCheck(model, filter));
+                }
+
+                var refused = (model is not null && !configured.AllowedModels.Contains(model, StringComparer.Ordinal))
+                    || (filter is not null && (filter.Count == 0 || filter.Any(pattern => !configured.Tools.Contains(pattern, StringComparer.Ordinal))));
+                return ValueTask.FromResult(refused
+                    ? UnitResult<AgentError>.Failure(AgentError.Validation("overrides outside the agent's configuration"))
+                    : UnitResult<AgentError>.Success());
+            });
         services.AddSingleton(agentFactory);
         return (services.BuildServiceProvider(), references, catalog);
     }
@@ -845,6 +1105,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         private readonly List<(string Node, string Task)> _turns = [];
         private readonly Dictionary<string, AgentId> _agents = new(StringComparer.Ordinal);
         private readonly List<long> _reviewPassSeqs = [];
+        private readonly List<DispatchedTurn> _dispatched = [];
         private long? _reviewSeq;
         private int _reviewVisits;
         private int _lensPass;
@@ -853,6 +1114,9 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
         /// <summary>The run's <see cref="WorkflowRun.CurrentSeq"/> at each review lens pass, in order.</summary>
         public IReadOnlyList<long> ReviewPassSeqs => _reviewPassSeqs;
+
+        /// <summary>Each request's node, seq, lens, model and tool filter, in the order the runner received them.</summary>
+        public IReadOnlyList<DispatchedTurn> Turns => _dispatched;
 
         public int PlantsReported { get; private set; }
 
@@ -866,12 +1130,16 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             var run = ((WorkflowCaller)request.Caller).Run;
             _turns.Add((run.CurrentNode, request.Task));
             _agents[run.CurrentNode] = request.AgentId;
+            if (!string.Equals(run.CurrentNode, "review", StringComparison.Ordinal))
+            {
+                _dispatched.Add(new DispatchedTurn(run.CurrentNode, run.CurrentSeq, null, request.Model, request.ToolFilter));
+            }
 
             var outcomeToolName = request.RequiredOutcome!.ToolName;
             var turn = run.CurrentNode switch
             {
                 "implement" => ImplementTurn(outcomeToolName, Plant("implement"), forgeHostKeys),
-                "review" => ReviewPass(run, outcomeToolName),
+                "review" => ReviewPass(run, outcomeToolName, request),
                 "retrospect" => RetrospectTurn(outcomeToolName, retrospectProposal, retrospectOutcome),
                 _ => throw new InvalidOperationException($"ScriptedRunner has no script for node '{run.CurrentNode}'."),
             };
@@ -933,7 +1201,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         ///     With <c>rejectFirstReview</c>, the first visit's first pass rejects; with <c>malformedPass</c>, that
         ///     pass of the first visit reports an approval with nothing checked, which the evidence schema refuses.
         /// </summary>
-        private AgentTurnResult ReviewPass(WorkflowRun run, string outcomeToolName)
+        private AgentTurnResult ReviewPass(WorkflowRun run, string outcomeToolName, SubagentRunRequest request)
         {
             if (_reviewSeq != run.CurrentSeq)
             {
@@ -944,6 +1212,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
             _reviewPassSeqs.Add(run.CurrentSeq);
             var pass = _lensPass++;
+            _dispatched.Add(new DispatchedTurn("review", run.CurrentSeq, LensAt(pass), request.Model, request.ToolFilter));
             var firstVisit = _reviewVisits == 1;
             if (firstVisit && rejectFirstReview)
             {
