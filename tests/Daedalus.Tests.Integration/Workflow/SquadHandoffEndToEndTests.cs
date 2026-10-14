@@ -462,8 +462,11 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
     ///     Red: dispatch the filter as null, or the model as null: the filter-equals-record and model assertions fail.
     ///     Red: make every pinned node eligible: retrospect is recorded, so the node order fails.
     ///     Red: hand the undecided retrospect turn a model: "retrospect is never decided" fails.
-    ///     Red: skip the Thalos check: the override-check count is 0, not 4.
+    ///     Red: skip the Thalos check: the exact sequence of override checks is empty.
+    ///     Red: keep narrowing after the rejection: the last two checks carry a filter, not "no filter".
     ///     Red: Thalos refuses the decided filter: the fallback is tools-unresolved, so the no-fallback assertion fails.
+    ///     Red: drop AllowedModels from the definition the catalog serves: the real AgentFactory refuses model-strong on every
+    ///     visit, so every record is tools-unresolved on the default model and the no-fallback assertion fails.
     /// </summary>
     [Fact]
     public async Task Each_node_visit_is_dispatched_with_its_recorded_model_and_tool_filter()
@@ -506,13 +509,20 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         retrospect.ToolFilter.Should().BeNull();
 
         result.DecisionCalls.Should().Be(4, "one question per node visit, never per lens pass");
-        result.OverrideChecks.Should().HaveCount(4, "Thalos checks each decision once");
-        result.OverrideChecks.Should().Contain(c => c.Model == StrongModel && SameTools(c.ToolFilter, NarrowedTools));
+        result.OverrideChecks.Select(c => $"{c.Model}:{(c.ToolFilter is null ? "no filter" : string.Join(',', c.ToolFilter))}").Should().Equal(
+            [
+                $"{StrongModel}:{string.Join(',', NarrowedTools)}",
+                $"{StrongModel}:{string.Join(',', NarrowedTools)}",
+                $"{StrongModel}:no filter",
+                $"{StrongModel}:no filter",
+            ],
+            "Thalos checks each decision once: two narrowed, then the two after the rejection with the model alone");
     }
 
     /// <summary>
     ///     Phase 2.10 task B6: the three lens passes of one review share one decision. With no pins, one record sits at
     ///     the review seq the passes ran at, and all three passes carry the same model and the same narrowed filter.
+    ///     Red: name the wrong lens in a pass heading in ReviewLensRunner: the lens read from the task text differs from the order.
     ///     Red: drop NodeSelectionRunner from the chain: there is no review record.
     ///     Red: record at CurrentSeq + 1: no review record at the seq the passes ran at.
     ///     Red: dispatch the filter or the model as null: the per-pass filter and model assertions fail.
@@ -934,38 +944,9 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         var squad = new SquadOptions { Enabled = squadEnabled, FallbackAgentName = "Daedalus Architect" };
         var squadAgentResolver = new SquadAgentResolver(squad);
         var references = new SquadWorkflowReferenceResolver(names, squadAgentResolver, NullLogger<SquadWorkflowReferenceResolver>.Instance);
-        var catalog = new FakeAgentCatalog(
-        [
-            Def("implementer", ImplementerId),
-            Def("reviewer", ReviewerId),
-            Def("Daedalus Architect", ArchitectId),
-        ]);
 
         var services = new ServiceCollection();
-        services.AddSingleton(store);
-        services.AddSingleton(definitions);
-        services.AddSingleton(squad);
-        services.AddSingleton(squadAgentResolver);
-        services.AddSingleton<WorkflowRecallTierLog>();
-        // The caller resolver reads the write grants from it; these tests assert handoff, not write grants.
-        services.AddSingleton(new WorkflowConfig());
-        services.AddSingleton<IWorkflowReferenceResolver>(references);
-        services.AddSingleton<IAgentCatalog>(catalog);
-        services.AddSingleton(runner);
-        services.AddSingleton(skills);
-        // The real record store over the fixture's Daedalus database, where ReviewLensRunner records each pass.
-        services.AddSingleton(records);
-        // Phase 2.8: the dispatcher's store appends each completed node's usage through the same record store.
-        services.AddSingleton<NodeUsageRecorder>();
-        services.AddSingleton(TimeProvider.System);
         services.AddLogging();
-        services.AddSingleton(Options.Create(new DetachedRunOptions
-        {
-            PrincipalId = "workflow-test",
-            Roles = ["workflow"],
-            MaxTotalTokens = 42_000,
-            DeadlineSeconds = 180,
-        }));
         // Phase 2.10: every role configured with a three-model menu and five tool families. With no decisions given, as
         // shipped without a key, each implement and review visit is decided, falls back with "off" and is recorded in the
         // real record store. With decisions given, the account is confirmed zero-retention, the key is present, the client
@@ -996,12 +977,64 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             agents.Agents.Add(agent);
         }
 
+        // The real Thalos runtime: its catalog serves definitions carrying the AllowedModels and Tools of the AgentConfig they
+        // come from, as production's ToDefinition builds them, and its AgentFactory is what checks a decision's overrides. Only
+        // the tool catalog is substituted, since this host has no tool sources, and the chat provider is a named default.
+        // Everything registered after this overrides what AddThalos registered.
+        services.AddThalos(thalos =>
+        {
+            thalos.UseChatClientProvider(new DefaultOnlyChatClientProvider());
+            thalos.UseInMemorySessionStore();
+            foreach (var agent in agents.Agents)
+            {
+                thalos.AddAgent(DefinitionOf(agent));
+            }
+        });
+        RecordOverrideChecks(services, overrideChecks);
+        services.AddSingleton(StubToolCatalog());
+        services.AddSingleton(store);
+        services.AddSingleton(definitions);
+        services.AddSingleton(squad);
+        services.AddSingleton(squadAgentResolver);
+        services.AddSingleton<WorkflowRecallTierLog>();
+        // The caller resolver reads the write grants from it; these tests assert handoff, not write grants.
+        services.AddSingleton(new WorkflowConfig());
+        services.AddSingleton<IWorkflowReferenceResolver>(references);
+        services.AddSingleton(runner);
+        services.AddSingleton(skills);
+        // The real record store over the fixture's Daedalus database, where ReviewLensRunner records each pass.
+        services.AddSingleton(records);
+        // Phase 2.8: the dispatcher's store appends each completed node's usage through the same record store.
+        services.AddSingleton<NodeUsageRecorder>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton(Options.Create(new DetachedRunOptions
+        {
+            PrincipalId = "workflow-test",
+            Roles = ["workflow"],
+            MaxTotalTokens = 42_000,
+            DeadlineSeconds = 180,
+        }));
+
         services.AddSingleton(agents);
         var client = decisions is not null && agents.Decisions.IsEnabled(OpenRouterKey) ? decisions.Client : null;
         services.AddSingleton(new NodeSelectionDecider(client, agents.Decisions, NullLogger<NodeSelectionDecider>.Instance));
-        var chatProvider = Substitute.For<IChatClientProvider>();
-        chatProvider.DefaultModel.Returns("provider-default");
-        services.AddSingleton(chatProvider);
+        var provider = services.BuildServiceProvider();
+        return (provider, references, provider.GetRequiredService<IAgentCatalog>());
+    }
+
+    /// <summary>The definition production's <c>ToDefinition</c> builds from an agent entry: its menu of models and tools.</summary>
+    private static AgentDefinition DefinitionOf(AgentConfig agent) => new()
+    {
+        Id = AgentId.Parse(agent.Id, null),
+        Name = agent.Name,
+        Instructions = "do the thing",
+        AllowedModels = [.. agent.AllowedModels],
+        Tools = [.. agent.Tools],
+    };
+
+    /// <summary>The names a host with all five tool families would resolve, whichever agent asks.</summary>
+    private static Thalos.Tools.IToolCatalog StubToolCatalog()
+    {
         var toolCatalog = Substitute.For<Thalos.Tools.IToolCatalog>();
         IReadOnlyList<Microsoft.Extensions.AI.AITool> resolved =
         [
@@ -1013,52 +1046,54 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         ];
         toolCatalog.ResolveAsync(Arg.Any<AgentDefinition>(), Arg.Any<CancellationToken>())
             .Returns(ValueTask.FromResult(Result<IReadOnlyList<Microsoft.Extensions.AI.AITool>, AgentError>.Success(resolved)));
-        services.AddSingleton(toolCatalog);
-        var agentFactory = Substitute.For<Thalos.Runtime.IAgentFactory>();
-
-        // Thalos' own rule, in the part this suite depends on: a model must be one of the agent's allowed models and a
-        // filter pattern one of its configured tools. Recorded, so a test can prove the decision was checked.
-        agentFactory.ValidateOverridesAsync(Arg.Any<AgentDefinition>(), Arg.Any<string?>(), Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
-            .Returns(call =>
-            {
-                var configured = agents.Agents.Single(a => string.Equals(a.Name, call.ArgAt<AgentDefinition>(0).Name, StringComparison.Ordinal));
-                var model = call.ArgAt<string?>(1);
-                var filter = call.ArgAt<IReadOnlyList<string>?>(2);
-                lock (overrideChecks)
-                {
-                    overrideChecks.Add(new OverrideCheck(model, filter));
-                }
-
-                var refused = (model is not null && !configured.AllowedModels.Contains(model, StringComparer.Ordinal))
-                    || (filter is not null && (filter.Count == 0 || filter.Any(pattern => !configured.Tools.Contains(pattern, StringComparer.Ordinal))));
-                return ValueTask.FromResult(refused
-                    ? UnitResult<AgentError>.Failure(AgentError.Validation("overrides outside the agent's configuration"))
-                    : UnitResult<AgentError>.Success());
-            });
-        services.AddSingleton(agentFactory);
-        return (services.BuildServiceProvider(), references, catalog);
+        return toolCatalog;
     }
 
-    private static AgentDefinition Def(string name, AgentId id) => new()
+    /// <summary>Wraps the AgentFactory AddThalos registered, so every override check is logged and the real answer returned.</summary>
+    private static void RecordOverrideChecks(ServiceCollection services, List<OverrideCheck> overrideChecks)
     {
-        Id = id,
-        Name = name,
-        Instructions = "do the thing",
-    };
-
-    /// <summary>
-    ///     An <see cref="IAgentCatalog"/> over a fixed list, the same shape Thalos.NET's own
-    ///     <c>WorkflowRunStarterTests</c> uses - this suite has no booted host to read a real one from.
-    /// </summary>
-    private sealed class FakeAgentCatalog(IReadOnlyList<AgentDefinition> agents) : IAgentCatalog
-    {
-        public IReadOnlyList<AgentDefinition> Agents { get; } = agents;
-
-        public bool TryGet(AgentId id, [MaybeNullWhen(false)] out AgentDefinition definition)
+        var registered = services.Last(d => d.ServiceType == typeof(Thalos.Runtime.IAgentFactory));
+        services.Remove(registered);
+        services.AddSingleton<Thalos.Runtime.IAgentFactory>(sp =>
         {
-            definition = Agents.FirstOrDefault(a => a.Id == id);
-            return definition is not null;
+            var inner = registered.ImplementationFactory is { } factory
+                ? (Thalos.Runtime.IAgentFactory)factory(sp)
+                : (Thalos.Runtime.IAgentFactory)ActivatorUtilities.CreateInstance(sp, registered.ImplementationType!);
+            return new RecordingAgentFactory(inner, overrideChecks);
+        });
+    }
+
+    private sealed class RecordingAgentFactory(Thalos.Runtime.IAgentFactory inner, List<OverrideCheck> checks) : Thalos.Runtime.IAgentFactory
+    {
+        public ValueTask<Result<Microsoft.Agents.AI.AIAgent, AgentError>> GetOrCreateAsync(AgentDefinition definition, CancellationToken ct) =>
+            inner.GetOrCreateAsync(definition, ct);
+
+        public ValueTask<Result<Microsoft.Agents.AI.AIAgent, AgentError>> GetOrCreateAsync(
+            AgentDefinition definition, IReadOnlyList<string>? toolFilter, CancellationToken ct) =>
+            inner.GetOrCreateAsync(definition, toolFilter, ct);
+
+        public ValueTask<UnitResult<AgentError>> ValidateOverridesAsync(
+            AgentDefinition definition, string? model, IReadOnlyList<string>? toolFilter, CancellationToken ct)
+        {
+            lock (checks)
+            {
+                checks.Add(new OverrideCheck(model, toolFilter));
+            }
+
+            return inner.ValidateOverridesAsync(definition, model, toolFilter, ct);
         }
+
+        public void Invalidate(AgentId agentId) => inner.Invalidate(agentId);
+    }
+
+    /// <summary>A chat provider with a default model of its own, distinct from every allowed one; no client is ever made.</summary>
+    private sealed class DefaultOnlyChatClientProvider : IChatClientProvider
+    {
+        public string Name => "default-only";
+
+        public string DefaultModel => "provider-default";
+
+        public Microsoft.Extensions.AI.IChatClient CreateChatClient(AgentDefinition agent) => throw new NotSupportedException();
     }
 
     /// <summary>
@@ -1212,7 +1247,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
             _reviewPassSeqs.Add(run.CurrentSeq);
             var pass = _lensPass++;
-            _dispatched.Add(new DispatchedTurn("review", run.CurrentSeq, LensAt(pass), request.Model, request.ToolFilter));
+            _dispatched.Add(new DispatchedTurn("review", run.CurrentSeq, LensOf(request.Task), request.Model, request.ToolFilter));
             var firstVisit = _reviewVisits == 1;
             if (firstVisit && rejectFirstReview)
             {
@@ -1221,6 +1256,16 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
             var examined = firstVisit && malformedPass == pass ? "[]" : JsonSerializer.Serialize(new[] { CheckedId(pass) });
             return ReviewTurn(outcomeToolName, pass, examined, Plant("review", onlyWhen: pass == 2));
+        }
+
+        /// <summary>The lens a pass was asked to apply, read from the heading ReviewLensRunner writes into the pass's task text.</summary>
+        private static string LensOf(string task)
+        {
+            const string Prefix = ": the ";
+            var line = task.Split('\n').FirstOrDefault(l => l.StartsWith("## Review pass ", StringComparison.Ordinal))
+                ?? throw new InvalidOperationException("A review pass's task text has no pass heading.");
+            var from = line.IndexOf(Prefix, StringComparison.Ordinal) + Prefix.Length;
+            return line[from..line.LastIndexOf(" lens", StringComparison.Ordinal)];
         }
 
         /// <summary>Pass <paramref name="pass"/>'s usage: 100, 200 and 300 input tokens for the three lenses.</summary>
