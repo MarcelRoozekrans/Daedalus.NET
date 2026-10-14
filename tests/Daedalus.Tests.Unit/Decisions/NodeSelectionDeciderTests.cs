@@ -22,7 +22,7 @@ public class NodeSelectionDeciderTests
         return new NodeSelectionDecider(client, config, NullLogger<NodeSelectionDecider>.Instance);
     }
 
-    /// <summary>Red: return the mapper's answer without the null check; the fake-less call throws.</summary>
+    /// <summary>Red: drop the null check; `client!` is then needed to compile (nullable analysis refuses otherwise) and the null client throws NullReferenceException.</summary>
     [Fact]
     public async Task No_client_gives_the_defaults_with_fallback_off()
     {
@@ -50,7 +50,7 @@ public class NodeSelectionDeciderTests
 
         var selection = await Decider(client, TimeSpan.FromMilliseconds(50)).DecideAsync(Context(), CancellationToken.None);
 
-        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(20));
+        clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
         selection.Fallback.Should().Be("timeout");
         selection.Model.Should().Be("default-model");
         selection.ToolFilter.Should().BeNull();
@@ -71,6 +71,31 @@ public class NodeSelectionDeciderTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    /// <summary>
+    ///     Red: drop the <c>InvalidOperationException</c> catch; the client's throw escapes and the call throws.
+    ///     Red: use another reason than <c>ClientFault</c>; the fallback assertions fail.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(ClientFaults))]
+    public async Task A_client_that_throws_keeps_the_defaults(Exception fault)
+    {
+        using var client = new FakeDecisionClient(
+            Result<DecisionResponse, DecisionError>.Failure(new DecisionError(DecisionErrorKind.Server, "never")))
+        {
+            Throws = fault,
+        };
+
+        var selection = await Decider(client).DecideAsync(Context(), CancellationToken.None);
+
+        selection.Fallback.Should().Be("error:Client");
+        selection.Fallback.Should().Be(NodeSelectionDecider.ClientFault);
+        selection.Model.Should().Be("default-model");
+        selection.ToolFilter.Should().BeNull();
+    }
+
+    public static TheoryData<Exception> ClientFaults() =>
+        new() { new InvalidOperationException("zqx different question set"), new ObjectDisposedException("client") };
 
     /// <summary>Red: label every failure <c>error</c> without the kind; the fallback assertion fails.</summary>
     [Theory]
@@ -128,6 +153,49 @@ public class NodeSelectionDeciderTests
         await Decider(client).DecideAsync(Context(intent), CancellationToken.None);
         using var doc = JsonDocument.Parse(client.LastState!);
         doc.RootElement.GetProperty("work_intent").GetString().Should().Be(intent[..4_000]);
+    }
+
+    /// <summary>
+    ///     Red: cut with <c>[..MaxIntentCharacters]</c> only; the emoji is split and the length and lone surrogate assertions fail.
+    /// </summary>
+    [Fact]
+    public async Task The_cut_never_splits_a_surrogate_pair()
+    {
+        using var client = FakeDecisionClient.Answering(Demand.Routine, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9);
+        var intent = new string('a', 3_999) + "\U0001F600" + new string('d', 10);
+
+        await Decider(client).DecideAsync(Context(intent), CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(client.LastState!);
+        var sent = doc.RootElement.GetProperty("work_intent").GetString()!;
+        sent.Should().HaveLength(3_999);
+        sent.Should().Be(new string('a', 3_999));
+        sent.Any(char.IsSurrogate).Should().BeFalse();
+    }
+
+    /// <summary>
+    ///     Red: drop the confidence tag; the answered spans lose it and the assertions fail.
+    ///     Red: tag the confidence on error spans too; the absent assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task The_span_carries_the_demand_confidence_only_when_minos_answered()
+    {
+        using var taken = FakeDecisionClient.Answering(Demand.Hard, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9);
+        using var unsure = FakeDecisionClient.Answering(Demand.Hard, 0.01, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9);
+        using var failing = FakeDecisionClient.Failing(DecisionErrorKind.Server);
+        using var capture = new TelemetryCapture(DecisionTelemetry.SourceName);
+
+        await Decider(taken).DecideAsync(Context(node: "taken"), CancellationToken.None);
+        await Decider(unsure).DecideAsync(Context(node: "unsure"), CancellationToken.None);
+        await Decider(failing).DecideAsync(Context(node: "failing"), CancellationToken.None);
+        await Decider(null).DecideAsync(Context(node: "off"), CancellationToken.None);
+
+        var spans = capture.SpansNamed(DecisionTelemetry.SpanName).ToDictionary(s => (string)s.GetTagItem(DecisionTelemetry.NodeTag)!, StringComparer.Ordinal);
+        spans["taken"].GetTagItem(DecisionTelemetry.ConfidenceTag).Should().Be(0.9);
+        spans["unsure"].GetTagItem(DecisionTelemetry.ConfidenceTag).Should().Be(0.01);
+        spans["unsure"].GetTagItem(DecisionTelemetry.FallbackTag).Should().Be("low-confidence");
+        spans["failing"].GetTagItem(DecisionTelemetry.ConfidenceTag).Should().BeNull();
+        spans["off"].GetTagItem(DecisionTelemetry.ConfidenceTag).Should().BeNull();
     }
 
     /// <summary>

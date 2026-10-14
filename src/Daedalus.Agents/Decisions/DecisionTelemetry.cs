@@ -8,8 +8,8 @@ namespace Daedalus.Agents.Decisions;
 ///     Telemetry for the per-node decision, on the <c>daedalus.decisions</c> source and meter.
 /// </summary>
 /// <remarks>
-///     <b>No content.</b> Tags carry the node, role, level, a family count, the chosen model id and the fallback
-///     reason: never task text, never a tool name and never a <c>DecisionError</c> message, which can quote the request.
+///     <b>No content.</b> Tags carry the node, role, level, a family count, the chosen model id, the fallback
+///     reason and, when Minos answered, the demand answer's confidence: never task text, never a tool name and never a <c>DecisionError</c> message, which can quote the request.
 /// </remarks>
 public static class DecisionTelemetry
 {
@@ -33,6 +33,9 @@ public static class DecisionTelemetry
 
     /// <summary>How many tool families remain.</summary>
     public const string KeptFamiliesTag = "daedalus.decision.kept_families";
+
+    /// <summary>The confidence of the demand answer; set only when Minos answered, absent for off, timeout and error fallbacks.</summary>
+    public const string ConfidenceTag = "daedalus.decision.confidence";
 
     /// <summary>Why the default applies; absent when the decision was taken.</summary>
     public const string FallbackTag = "daedalus.decision.fallback";
