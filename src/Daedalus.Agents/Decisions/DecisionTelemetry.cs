@@ -40,8 +40,11 @@ public static class DecisionTelemetry
     /// <summary>Why the default applies; absent when the decision was taken.</summary>
     public const string FallbackTag = "daedalus.decision.fallback";
 
-    /// <summary>The chosen model, the OpenTelemetry GenAI attribute name.</summary>
-    public const string ModelTag = "gen_ai.request.model";
+    /// <summary>
+    ///     The chosen model. Not the GenAI <c>gen_ai.request.model</c>: that names the model an inference span calls, and this
+    ///     span calls none, it chooses the model a later turn runs on.
+    /// </summary>
+    public const string ModelTag = "daedalus.decision.model";
 
     internal static readonly ActivitySource Source = new(SourceName);
 

@@ -85,7 +85,9 @@ public sealed class WorkflowRunRecord
 
     /// <summary>
     ///     The <see cref="Kind"/> of a record of the model and tool families chosen for one agent-node visit, phase 2.10.
-    ///     Its payload is <c>{ level, model, tool_filter, kept_families, fallback, confidence }</c>. There is at most one per
+    ///     Its payload is <c>{ level, model, tool_filter, kept_families, fallback, confidence, answers }</c>, where
+    ///     <c>answers</c>, present only when Minos answered, holds the question-set version, the demand level and its confidence
+    ///     and each tool family's probability. There is at most one per
     ///     (<see cref="RunId"/>, <see cref="Seq"/>), enforced by the partial unique index <see cref="NodeSelectionIndexName"/>,
     ///     so a redelivered dispatch of the same visit reads the decision back instead of making another, and two
     ///     concurrent deliveries cannot record two different ones.
