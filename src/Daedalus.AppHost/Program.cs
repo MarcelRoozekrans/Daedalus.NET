@@ -34,6 +34,13 @@ var telegramBotToken = builder.AddParameter("telegram-bot-token", new EmptyStrin
 // (`Parameters:github-token`) or `$env:PARAMETERS__GITHUB_TOKEN`. Never write the value into this repository.
 var gitHubToken = builder.AddParameter("github-token", new EmptyStringParameterDefault(), secret: true);
 
+// OpenRouter key for the per-node model and tool decisions, added in phase 2.10. OPTIONAL like github-token above:
+// without it, or without Thalos:Decisions:ZeroDataRetentionAccount set to true, decisions stay off and every node runs
+// on its default model and full tool list. Forwarded explicitly for the same reason as the GitHub token. Override via
+// AppHost user-secrets (`Parameters:openrouter-key`) or `$env:PARAMETERS__OPENROUTER_KEY`. Never write the value into
+// this repository.
+var openRouterKey = builder.AddParameter("openrouter-key", new EmptyStringParameterDefault(), secret: true);
+
 // Resolve project paths relative to solution root (src/) and repo root
 var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
 var repoRoot = Path.GetFullPath(Path.Combine(solutionRoot, ".."));
@@ -108,6 +115,7 @@ var api = builder.AddProject("api", apiPath)
     .WithEnvironment("ANTHROPIC_API_KEY", anthropicApiKey)
     .WithEnvironment("Thalos__Channels__Telegram__BotToken", telegramBotToken)
     .WithEnvironment("GITHUB_TOKEN", gitHubToken)
+    .WithEnvironment("OPENROUTER_API_KEY", openRouterKey)
     .WithEnvironment("Thalos__Workflow__Sandbox__Enabled", "true")
     .WithEnvironment("Thalos__Workflow__Sandbox__Image", "daedalus-sandbox:dev")
     .WaitForCompletion(sandboxImage)

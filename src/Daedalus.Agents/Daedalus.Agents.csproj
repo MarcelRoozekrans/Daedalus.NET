@@ -38,6 +38,7 @@
         <PackageReference Include="Thalos.NET.Skills" />
         <!-- Phase 2.10: per-node model and tool decisions. -->
         <PackageReference Include="Minos.NET" />
+        <PackageReference Include="Minos.NET.SystemOne" />
         <!-- Phase 2.2 Part B: the durable workflow engine (Task 9). -->
         <PackageReference Include="Thalos.NET.Workflow" />
         <PackageReference Include="Thalos.NET.Workflow.Orm" />
