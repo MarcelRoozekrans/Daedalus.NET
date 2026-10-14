@@ -1018,6 +1018,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton(agents);
         var client = decisions is not null && agents.Decisions.IsEnabled(OpenRouterKey) ? decisions.Client : null;
         services.AddSingleton(new NodeSelectionDecider(client, agents.Decisions, NullLogger<NodeSelectionDecider>.Instance));
+        // The pins that apply, by the same predicate AddDaedalusAgents registers them under.
+        services.AddSingleton(ActiveLensPins.For(agents.Decisions, OpenRouterKey));
         var provider = services.BuildServiceProvider();
         return (provider, references, provider.GetRequiredService<IAgentCatalog>());
     }
