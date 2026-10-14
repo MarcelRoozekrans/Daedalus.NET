@@ -22,6 +22,7 @@ public sealed class ReviewReplayStartTests
     private readonly IRunManifestResolver _manifests = Substitute.For<IRunManifestResolver>();
     private readonly IRunWorkspaceProvider _workspaces = Substitute.For<IRunWorkspaceProvider>();
     private readonly IProcessDefinitionStore _definitions = Substitute.For<IProcessDefinitionStore>();
+    private readonly IWorkflowStore _originals = Substitute.For<IWorkflowStore>();
     private readonly WorkflowConfig _config = new();
 
     public ReviewReplayStartTests()
@@ -39,6 +40,133 @@ public sealed class ReviewReplayStartTests
         _baseFiles.ReadBaseFileAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result<string?, AgentError>>(Result<string?, AgentError>.Success(null)));
         _definitions.GetActiveVersionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<int?>((int?)null));
+        Original(process: "manufacture", filesTouched: Touched);
+    }
+
+    /// <summary>
+    ///     Red: take the message from the request's process name, and the message holds the name. The name is caller input of any
+    ///     length, so the refusal does not echo it.
+    /// </summary>
+    [Fact]
+    public async Task The_unknown_process_refusal_does_not_echo_the_name()
+    {
+        var name = new string('x', 500);
+
+        var result = await CreateStarter().StartAsync(Request(name, null), CancellationToken.None);
+
+        result.Error.Kind.Should().Be(ManufactureStartFailureKind.Invalid);
+        result.Error.Message.Should().Be("unknown process; it must be manufacture or review-replay.");
+    }
+
+    /// <summary>
+    ///     Task B7 fix 1: the replay is given what the original run touched, read back from the run the branch names, and
+    ///     reaches the store as an opening variable beside the intent. Red, per assertion: drop the seeding, and the first
+    ///     fails; look the run up by another guid than the branch's, and the second fails.
+    /// </summary>
+    [Fact]
+    public async Task A_replay_opens_with_the_files_the_original_run_touched()
+    {
+        var variables = await ReplayVariablesAsync();
+
+        variables.Should().ContainKey(ReviewHandoff.FilesTouchedKey).WhoseValue.Should().BeEquivalentTo(Touched);
+        await _originals.Received(1).FindAsync(Guid.Parse(Branch["manufacture/".Length..]), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     Task B7 fix 1: a replay of a run that does not exist, is not a manufacture run, or recorded no touched files is
+    ///     refused as Invalid before a workspace exists. Red, per row: skip the existence check, and the missing row
+    ///     throws or goes on to a workspace; skip the process check, and the review-replay row goes on; skip the content
+    ///     check, and the missing, null, empty and blank rows go on. Each assertion fails on the kind or the workspace.
+    /// </summary>
+    [Theory]
+    [InlineData("missing", null)]
+    [InlineData("review-replay", "src/A.cs")]
+    [InlineData("manufacture", "absent")]
+    [InlineData("manufacture", "null")]
+    [InlineData("manufacture", "empty")]
+    [InlineData("manufacture", "blank")]
+    public async Task A_replay_of_a_run_that_cannot_be_replayed_is_refused_before_any_workspace(string process, string? files)
+    {
+        if (string.Equals(process, "missing", StringComparison.Ordinal))
+        {
+            _originals.FindAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>((WorkflowRun?)null));
+        }
+        else
+        {
+            object? value = files switch
+            {
+                "absent" => Absent,
+                "null" => null,
+                "empty" => Array.Empty<string>(),
+                "blank" => "  ",
+                _ => new[] { files },
+            };
+            Original(process, value);
+        }
+
+        var result = await CreateStarter().StartAsync(Request("review-replay", Branch), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Kind.Should().Be(ManufactureStartFailureKind.Invalid);
+        result.Error.Message.Should().Contain("baseBranch");
+        await _workspaces.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+    }
+
+    private static readonly string[] Touched = ["src/A.cs"];
+
+    private static readonly object Absent = new();
+
+    private void Original(string process, object? filesTouched)
+    {
+        var variables = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (!ReferenceEquals(filesTouched, Absent))
+        {
+            variables[ReviewHandoff.FilesTouchedKey] = filesTouched;
+        }
+
+        var run = new WorkflowRun
+        {
+            Id = Guid.NewGuid(),
+            Process = process,
+            ProcessVersion = 9,
+            CurrentNode = "done",
+            CurrentSeq = 1,
+            Status = WorkflowStatus.Succeeded,
+            Visits = new Dictionary<string, int>(StringComparer.Ordinal),
+            Variables = variables,
+        };
+        _originals.FindAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
+    }
+
+    /// <summary>Lets the real run starter reach the store, and returns the opening variables it handed it.</summary>
+    private async Task<IReadOnlyDictionary<string, object?>> ReplayVariablesAsync()
+    {
+        _definitions.GetActiveVersionAsync("review-replay", Arg.Any<CancellationToken>()).Returns(new ValueTask<int?>(1));
+        _definitions.GetAsync("review-replay", 1, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<ProcessDefinition>>(Result<ProcessDefinition>.Success(new ProcessDefinition
+            {
+                Name = "review-replay",
+                Version = 1,
+                StartNode = "done",
+                Nodes = new Dictionary<string, ProcessNode>(StringComparer.Ordinal) { ["done"] = new() },
+            })));
+        _manifests.ResolveAsync(Arg.Any<ProcessDefinition>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<CancellationToken>())
+            .Returns(call => new ValueTask<Result<RunManifest>>(Result<RunManifest>.Success(new RunManifest
+            {
+                Nodes = new Dictionary<string, NodePin>(StringComparer.Ordinal),
+                Documents = call.Arg<IReadOnlyDictionary<string, string>>(),
+            })));
+        var store = Substitute.For<IWorkflowStore>();
+        WorkflowStartRequest? captured = null;
+        store.StartAsync(Arg.Do<WorkflowStartRequest>(r => captured = r), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<Result<Guid>>(Result<Guid>.Success(Guid.NewGuid())));
+
+        var starter = new ManufactureRunStarter(
+            new WorkflowRunStarter(_definitions, _manifests, store), _workspaces, _baseFiles, _config, _originals);
+        await starter.StartAsync(Request("review-replay", Branch), CancellationToken.None);
+
+        captured.Should().NotBeNull("the start must reach the store for the opening variables to be read");
+        return captured!.InitialVariables!;
     }
 
     /// <summary>
@@ -83,7 +211,7 @@ public sealed class ReviewReplayStartTests
         var result = await CreateStarter().StartAsync(Request("adjudicate", null), CancellationToken.None);
 
         result.Error.Kind.Should().Be(ManufactureStartFailureKind.Invalid);
-        result.Error.Message.Should().Contain("'adjudicate'");
+        result.Error.Message.Should().Contain("unknown process");
         await _workspaces.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
     }
 
@@ -186,5 +314,6 @@ public sealed class ReviewReplayStartTests
         new WorkflowRunStarter(_definitions, _manifests, Substitute.For<IWorkflowStore>()),
         _workspaces,
         _baseFiles,
-        _config);
+        _config,
+        _originals);
 }

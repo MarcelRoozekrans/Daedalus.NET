@@ -560,7 +560,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 sp.GetRequiredService<WorkflowRunStarter>(),
                 sp.GetRequiredService<IRunWorkspaceProvider>(),
                 sp.GetRequiredService<IRunBaseFileReader>(),
-                sp.GetRequiredService<WorkflowConfig>()))));
+                sp.GetRequiredService<WorkflowConfig>(),
+                sp.GetRequiredService<IWorkflowStore>()))));
 
         // Phase 2.8: cancels a started run that could not be attached to its task, through WorkflowRunGateway.
         services.AddSingleton<WorkflowRunCanceller>();

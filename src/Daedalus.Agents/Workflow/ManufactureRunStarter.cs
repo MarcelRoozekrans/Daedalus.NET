@@ -48,7 +48,8 @@ namespace Daedalus.Agents.Workflow;
 ///     </para>
 /// </remarks>
 public sealed class ManufactureRunStarter(
-    WorkflowRunStarter starter, IRunWorkspaceProvider workspaces, IRunBaseFileReader baseFiles, WorkflowConfig config) : IManufactureRunStarter
+    WorkflowRunStarter starter, IRunWorkspaceProvider workspaces, IRunBaseFileReader baseFiles, WorkflowConfig config,
+    IWorkflowStore store) : IManufactureRunStarter
 {
     /// <summary>The manifest document key the worktree's standing instructions file is pinned under.</summary>
     public const string StandingInstructionsDocument = "standing_instructions";
@@ -87,6 +88,7 @@ public sealed class ManufactureRunStarter(
     private readonly IRunWorkspaceProvider _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
     private readonly IRunBaseFileReader _baseFiles = baseFiles ?? throw new ArgumentNullException(nameof(baseFiles));
     private readonly WorkflowConfig _config = config ?? throw new ArgumentNullException(nameof(config));
+    private readonly IWorkflowStore _store = store ?? throw new ArgumentNullException(nameof(store));
 
     // Task B11: the same canonical relative path StandingInstructionsWriter writes, so the text a run pins and the
     // file its approved proposal replaces are one file.
@@ -141,6 +143,21 @@ public sealed class ManufactureRunStarter(
 
         TagStartSpan(repository.Name);
 
+        // A replay reviews the original run's change, so it is given the files that run touched. Looked up before any
+        // workspace exists: a run that is missing, is not a manufacture run, or touched nothing refuses the start.
+        object? filesTouched = null;
+        if (request.BaseBranch is not null)
+        {
+            var original = await _store.FindAsync(RunIdOf(request.BaseBranch), ct).ConfigureAwait(false);
+            var refusal = RefuseOriginalRun(original);
+            if (refusal is not null)
+            {
+                return Fail(ManufactureStartFailureKind.Invalid, refusal);
+            }
+
+            filesTouched = original!.Variables[ReviewHandoff.FilesTouchedKey];
+        }
+
         var runId = Guid.NewGuid();
 
         // A replay is cut from the reviewed branch on the allow-listed remote, and works on a branch of its own: the
@@ -191,6 +208,12 @@ public sealed class ManufactureRunStarter(
             // workspace provider, never left for an agent to infer from the tools it is offered.
             [RunMode.Key] = RunMode.For(_config.Sandbox),
         };
+        if (filesTouched is not null)
+        {
+            // The very value the original run's review was given, so both reviews start from the same pointer.
+            variables[ReviewHandoff.FilesTouchedKey] = filesTouched;
+        }
+
         var documents = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [WorkIntentDocument] = workIntent,
@@ -241,11 +264,51 @@ public sealed class ManufactureRunStarter(
 
         if (!string.Equals(process, ManufactureProcess, StringComparison.Ordinal))
         {
-            return $"process '{process}' cannot be started; it must be {ManufactureProcess} or {ReviewReplayProcess}.";
+            return $"unknown process; it must be {ManufactureProcess} or {ReviewReplayProcess}.";
         }
 
         return baseBranch is null ? null : $"baseBranch is only accepted for the {ReviewReplayProcess} process.";
     }
+
+    /// <summary>The run id of a base branch that <see cref="IsRunBranch"/> has accepted.</summary>
+    private static Guid RunIdOf(string baseBranch) => Guid.ParseExact(baseBranch[RunBranchPrefix.Length..], "D");
+
+    /// <summary>
+    ///     Why the run behind a replay's base branch cannot be replayed, or <see langword="null"/>: it must exist, be a
+    ///     manufacture run, and have recorded a non-empty <c>files_touched</c>, which the replay's reviewer starts from.
+    ///     A run that exists but whose branch is absent on the remote still fails later, as a host failure of the workspace.
+    /// </summary>
+    private static string? RefuseOriginalRun(WorkflowRun? original)
+    {
+        if (original is null)
+        {
+            return "the run behind baseBranch does not exist.";
+        }
+
+        if (!string.Equals(original.Process, ManufactureProcess, StringComparison.Ordinal))
+        {
+            return "the run behind baseBranch is not a manufacture run.";
+        }
+
+        return original.Variables.TryGetValue(ReviewHandoff.FilesTouchedKey, out var files) && HasContent(files)
+            ? null
+            : "the run behind baseBranch recorded no files_touched to review.";
+    }
+
+    private static bool HasContent(object? value) => value switch
+    {
+        null => false,
+        string text => !string.IsNullOrWhiteSpace(text),
+        System.Text.Json.JsonElement json => json.ValueKind switch
+        {
+            System.Text.Json.JsonValueKind.Array => json.GetArrayLength() > 0,
+            System.Text.Json.JsonValueKind.String => !string.IsNullOrWhiteSpace(json.GetString()),
+            System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined => false,
+            _ => true,
+        },
+        System.Collections.IEnumerable items => items.GetEnumerator().MoveNext(),
+        _ => true,
+    };
 
     private static bool IsRunBranch(string branch)
     {

@@ -28,6 +28,9 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
 
     private const string ReviewedA = "class A\n{\n    // the reviewed branch's guard.\n    public static void Check(object? value) { }\n}\n";
 
+    /// <summary>A path only the original run's record holds, so a turn that names it was given it by the seeding.</summary>
+    private const string SeededPath = "src/Seeded/OriginalTouch.cs";
+
     private static readonly string[] Lenses = ["correctness", "falsifiability", "mechanism"];
 
     /// <summary>
@@ -35,7 +38,8 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
     ///     as succeeded at <c>done</c>. It never parks at the gate, opens a pull request or pushes. Red, per assertion: cut
     ///     the worktree from <c>main</c> instead of the branch, and the file assertion fails; name the replay's local branch
     ///     <c>manufacture/&lt;run&gt;</c>, and the branch assertion fails; point the review node's <c>approved</c> edge at a
-    ///     gate, and the run parks and the wait for success fails; declare two lenses, and the evidence count fails.
+    ///     gate, and the run parks and the wait for success fails; declare two lenses, and the evidence count fails; drop the
+    ///     files_touched seeding in the starter, and the variable assertion and the reviewer-input assertion fail.
     ///     Guards, no isolated Red: the publisher count, the two no-branch assertions and the tip assertion hold because
     ///     no node of the graph can publish or push, and turn red only if a later change adds such a node.
     /// </summary>
@@ -57,7 +61,8 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
 
         await WithHostAsync(chat, async (host, publisher) =>
         {
-            var reviewedBranch = $"manufacture/{Guid.NewGuid()}";
+            var originalId = await SeedOriginalAsync(host);
+            var reviewedBranch = $"manufacture/{originalId}";
             var tip = host.Remote.PushBranch(reviewedBranch, ("src/A.cs", ReviewedA));
             using var admin = host.Client("a-admin", "admin");
 
@@ -75,6 +80,9 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
             LocalGitRemote.Git(root, "rev-parse --abbrev-ref HEAD").Should().Be($"review-replay/{runId}");
             (await File.ReadAllTextAsync(Path.Combine(root, "src", "A.cs"))).ReplaceLineEndings("\n").Should().Be(ReviewedA);
             (await host.RecordsAsync(runId, WorkflowRunRecord.ReviewEvidenceKind)).Should().HaveCount(3);
+            (await host.Store.FindAsync(runId, CancellationToken.None))!.Variables.Should().ContainKey(ReviewHandoff.FilesTouchedKey);
+            var reviewerInput = string.Join('\n', chat.Requests.SelectMany(r => r.Messages).Where(m => m.Role == ChatRole.User).Select(m => m.Text));
+            reviewerInput.Should().Contain(SeededPath, "the reviewer is told which files the original run touched");
             publisher.OpenCount.Should().Be(0);
             host.Remote.HasBranch($"review-replay/{runId}").Should().BeFalse("a replay pushes nothing");
             host.Remote.HasBranch($"manufacture/{runId}").Should().BeFalse("a replay has no manufacture branch of its own");
@@ -103,7 +111,8 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
 
         await WithHostAsync(chat, async (host, publisher) =>
         {
-            var reviewedBranch = $"manufacture/{Guid.NewGuid()}";
+            var originalId = await SeedOriginalAsync(host);
+            var reviewedBranch = $"manufacture/{originalId}";
             host.Remote.PushBranch(reviewedBranch, ("src/A.cs", ReviewedA));
             using var admin = host.Client("a-admin", "admin");
 
@@ -147,14 +156,11 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     A well-formed branch the remote does not have fails at the workspace provider, which reports only
-    ///     <c>git worktree add failed.</c> as a git failure, so the endpoint answers 500 rather than a 4xx; the start reports it
-    ///     as a failed workspace and leaves no worktree. Red, per assertion: ignore the workspace's result and go on to the
-    ///     start, and the status is Created; report a different failure, and the message fails; make the provider keep a
-    ///     worktree for the failed start, and the directory assertion fails.
+    ///     A branch whose run does not exist is the caller's mistake: 400 naming the branch, before a worktree exists. Red:
+    ///     drop the starter's run lookup, and the start goes on to the workspace and answers 500, so the status fails.
     /// </summary>
     [Fact]
-    public async Task A_base_branch_the_remote_does_not_have_fails_the_start_without_a_worktree()
+    public async Task A_base_branch_of_an_unknown_run_is_400_without_a_worktree()
     {
         await WithHostAsync(new ScriptedChatClient(), async (host, _) =>
         {
@@ -165,11 +171,94 @@ public sealed class ReviewReplayEndToEndTests(PostgresFixture fixture)
                 new StartWorkflowRunRequest(
                     "Review the guard.", ScratchWorkflowHost.Repository, "review-replay", $"manufacture/{Guid.NewGuid()}"));
 
+            start.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await start.Content.ReadAsStringAsync()).Should().Contain("does not exist");
+            host.RunDirectories().Should().BeEmpty();
+            await Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    ///     A run that exists but recorded no touched files cannot be replayed, and a run of another process is not a
+    ///     manufacture run: both 400 before a worktree. Red, per row: drop the content check or the process check in the
+    ///     starter, and the start succeeds, so the status fails.
+    /// </summary>
+    [Theory]
+    [InlineData("manufacture", false)]
+    [InlineData("review-replay", true)]
+    public async Task A_run_that_cannot_be_replayed_is_400_without_a_worktree(string process, bool withFiles)
+    {
+        await WithHostAsync(new ScriptedChatClient(), async (host, _) =>
+        {
+            var originalId = await SeedOriginalAsync(host, process, withFiles);
+            host.Remote.PushBranch($"manufacture/{originalId}", ("src/A.cs", ReviewedA));
+            using var admin = host.Client("a-admin", "admin");
+
+            var start = await admin.PostAsJsonAsync(
+                "/api/workflow-runs",
+                new StartWorkflowRunRequest(
+                    "Review the guard.", ScratchWorkflowHost.Repository, "review-replay", $"manufacture/{originalId}"));
+
+            start.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            host.RunDirectories().Should().BeEmpty();
+            await Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    ///     A run that exists whose branch the remote lacks fails at the workspace provider, which reports only
+    ///     <c>git worktree add failed.</c>, so the endpoint answers 500: a host failure, not a 4xx. No worktree remains.
+    ///     Red, per assertion: ignore the workspace's result and go on to the start, and the status is Created; report a
+    ///     different failure, and the message fails.
+    /// </summary>
+    [Fact]
+    public async Task A_base_branch_the_remote_does_not_have_fails_the_start_without_a_worktree()
+    {
+        await WithHostAsync(new ScriptedChatClient(), async (host, _) =>
+        {
+            var originalId = await SeedOriginalAsync(host);
+            using var admin = host.Client("a-admin", "admin");
+
+            var start = await admin.PostAsJsonAsync(
+                "/api/workflow-runs",
+                new StartWorkflowRunRequest(
+                    "Review the guard.", ScratchWorkflowHost.Repository, "review-replay", $"manufacture/{originalId}"));
+
             start.IsSuccessStatusCode.Should().BeFalse("the remote has no such branch");
             (await start.Content.ReadAsStringAsync()).Should().Contain("could not prepare the run's workspace");
             host.RunDirectories().Should().BeEmpty();
             await Task.CompletedTask;
         });
+    }
+
+    /// <summary>
+    ///     Records a finished run of <paramref name="process"/> that holds <see cref="SeededPath"/> as its
+    ///     <c>files_touched</c>, the value the original manufacture run's review was given. It starts at the gate so no
+    ///     turn is dispatched for it.
+    /// </summary>
+    private static async Task<Guid> SeedOriginalAsync(ScratchWorkflowHost host, string process = "manufacture", bool withFiles = true)
+    {
+        var id = Guid.NewGuid();
+        var variables = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (withFiles)
+        {
+            variables[ReviewHandoff.FilesTouchedKey] = new[] { SeededPath };
+        }
+
+        var started = await host.Store.StartAsync(
+            new WorkflowStartRequest
+            {
+                Process = process,
+                Version = 1,
+                CorrelationKey = $"seed:{id:N}",
+                StartNode = "gate",
+                InitialVariables = variables,
+                StartedBy = new RunPrincipal("seed", []),
+                RunId = id,
+            },
+            CancellationToken.None);
+        started.IsSuccess.Should().BeTrue("the original run must be recorded for the replay to find");
+        return id;
     }
 
     private async Task WithHostAsync(ScriptedChatClient chat, Func<ScratchWorkflowHost, FakePullRequestPublisher, Task> body)
