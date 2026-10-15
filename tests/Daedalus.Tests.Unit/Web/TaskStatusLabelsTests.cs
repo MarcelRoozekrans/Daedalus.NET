@@ -100,6 +100,36 @@ public sealed class TaskStatusLabelsTests
     public void A_task_without_a_pull_request_has_no_link() =>
         TaskStatusLabels.PullRequestHref(Task(0, null)).Should().BeNull();
 
+    /// <summary>Red: return the whole URL; it is not "#7".</summary>
+    [Fact]
+    public void A_pull_request_reads_as_its_number() =>
+        TaskStatusLabels.PullRequestText(Task(0, new Uri("https://github.com/o/r/pull/7"))).Should().Be("#7");
+
+    /// <summary>Red: take the last segment whatever it is; a URL without a number reads "#files".</summary>
+    [Fact]
+    public void A_pull_request_url_without_a_number_reads_as_pull_request() =>
+        TaskStatusLabels.PullRequestText(Task(0, new Uri("https://github.com/o/r/pull/7/files"))).Should().Be("Pull request");
+
+    /// <summary>Red: return "—" instead of null; the grid renders a dead link.</summary>
+    [Fact]
+    public void A_task_without_a_pull_request_has_no_pull_request_text() =>
+        TaskStatusLabels.PullRequestText(Task(0, null)).Should().BeNull();
+
+    /// <summary>
+    ///     The newest of the task's own timestamps.
+    ///     Red: never take CompletedAt; the completion is ignored. Red: never take LearningsUpdatedAt; the update is lost.
+    ///     Red: start from DateTime.MinValue instead of CreatedAt; a task with neither reads year 1.
+    /// </summary>
+    [Fact]
+    public void A_task_last_changed_at_its_newest_timestamp()
+    {
+        var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var task = Task(0, null) with { CreatedAt = created, CompletedAt = created.AddDays(1), LearningsUpdatedAt = null };
+        TaskStatusLabels.LastChanged(task).Should().Be(created.AddDays(1));
+        TaskStatusLabels.LastChanged(task with { LearningsUpdatedAt = created.AddDays(2) }).Should().Be(created.AddDays(2));
+        TaskStatusLabels.LastChanged(task with { CompletedAt = null }).Should().Be(created);
+    }
+
     private static TaskDto Task(int maxIterations, Uri? pullRequestUrl) =>
         new(Guid.NewGuid(), "T-1", Guid.NewGuid(), "t", "d", 1, "p", 0, [], [], 1, "prompt", "promise", maxIterations, 0,
             null, null, 0, DateTime.UtcNow, null, null, null, [], null, pullRequestUrl);

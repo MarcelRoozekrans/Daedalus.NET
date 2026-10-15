@@ -40,6 +40,18 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     /// <summary>The display name the seeded runs record for their starter, apart from the principal id.</summary>
     public const string StarterName = "e2e.starter";
 
+    /// <summary>The board task the <see cref="Succeeded"/> run is attached to, so the Tasks grid shows its pull request.</summary>
+    public const string PullRequestTaskId = "TASK-004";
+
+    /// <summary>The title of <see cref="PullRequestTaskId"/>, which the Tasks grid rows are found by.</summary>
+    public const string PullRequestTaskTitle = "Ship the widget";
+
+    /// <summary>The seeded project with a repository URL, which no allow-list entry matches.</summary>
+    public const string RepositoryProjectName = "Widgets";
+
+    /// <summary>The repository URL of <see cref="RepositoryProjectName"/>.</summary>
+    public const string RepositoryProjectUrl = "https://github.com/acme/widgets";
+
     /// <summary>A run that finished, with a pull request.</summary>
     public Guid Succeeded { get; private set; }
 
@@ -49,7 +61,7 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     /// <summary>The store the runs were written through, for a scenario that drives a change itself.</summary>
     public IWorkflowStore Store => store;
 
-    /// <summary>Seeds the four runs, oldest first, and attaches <see cref="Running"/> to its task.</summary>
+    /// <summary>Seeds the four runs, oldest first, and attaches <see cref="Succeeded"/> and <see cref="Running"/> to their tasks.</summary>
     public async Task SeedAsync(CancellationToken ct)
     {
         Failed = await StartAsync("e2e-failed", ct).ConfigureAwait(false);
@@ -61,6 +73,8 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
                 new NodeResult("ok", new Dictionary<string, object?>(StringComparer.Ordinal) { ["pr_url"] = PullRequestUrl }))
             .ConfigureAwait(false);
 
+        await AttachToTaskAsync(Succeeded, PullRequestTaskId, ct).ConfigureAwait(false);
+
         AwaitingApproval = await StartAsync("e2e-gate", ct).ConfigureAwait(false);
         await CompleteAsync(AwaitingApproval, new WorkflowTransition("review", WorkflowStatus.Running, null, WorkflowEventKind.Completed), ct)
             .ConfigureAwait(false);
@@ -70,7 +84,7 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
         await AppendReviewEvidenceAsync(AwaitingApproval, reviewSeq, ct).ConfigureAwait(false);
 
         Running = await StartAsync("e2e-running", ct).ConfigureAwait(false);
-        await AttachToTaskAsync(Running, ct).ConfigureAwait(false);
+        await AttachToTaskAsync(Running, LinkedTaskId, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -165,16 +179,16 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
         }
     }
 
-    /// <summary>Attaches <paramref name="runId"/> to <see cref="LinkedTaskId"/> through the domain method, as Manufacture does.</summary>
-    private async Task AttachToTaskAsync(Guid runId, CancellationToken ct)
+    /// <summary>Attaches <paramref name="runId"/> to the task <paramref name="taskCode"/> through the domain method, as Manufacture does.</summary>
+    private async Task AttachToTaskAsync(Guid runId, string taskCode, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var task = await db.Tasks.SingleAsync(t => t.TaskId == LinkedTaskId, ct).ConfigureAwait(false);
+        var task = await db.Tasks.SingleAsync(t => t.TaskId == taskCode, ct).ConfigureAwait(false);
         var attached = task.AttachRun(runId);
         if (attached.IsFailure)
         {
-            throw new InvalidOperationException($"Attaching run {runId} to {LinkedTaskId} failed: {attached.Error}");
+            throw new InvalidOperationException($"Attaching run {runId} to {taskCode} failed: {attached.Error}");
         }
 
         await db.SaveChangesAsync(ct).ConfigureAwait(false);

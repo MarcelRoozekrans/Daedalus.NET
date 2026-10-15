@@ -30,15 +30,28 @@
     </RadzenAlert>
 }
 
+@if (_manufactureRefused is { } refused)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4"
+                 Close="@(() => _manufactureRefused = null)" data-testid="tasks-manufacture-refused">
+        @refused
+    </RadzenAlert>
+}
+
+@* The contract's tablet breakpoint: below 1280px Priority and Updated are not rendered. *@
+<RadzenMediaQuery Query="(min-width: 1280px)" Change="@(matches => _desktop = matches)"/>
+
+<div class="tasks-grid">
 <RadzenDataGrid TItem="TaskDto" Data="@TaskStore.Value.Items" Count="@TaskStore.Value.Total" AllowPaging="true" PageSize="15"
                 AllowSorting="true" AllowColumnResize="true" PagerHorizontalAlign="HorizontalAlign.Center"
-                ShowPagingSummary="true" IsLoading="@TaskStore.Value.Loading" Style="height: auto;" data-testid="tasks-grid">
+                ShowPagingSummary="true" IsLoading="@TaskStore.Value.Loading"
+                Style="@($"height: auto; min-width: {MinGridWidth}px;")" data-testid="tasks-grid">
     <Columns>
-        <RadzenDataGridColumn TItem="TaskDto" Property="Title" Title="Title" Width="200px">
+        <RadzenDataGridColumn TItem="TaskDto" Property="Title" Title="Title">
             <Template Context="task">
                 @if (!string.IsNullOrEmpty(task.Title))
                 {
-                    <RadzenText TextStyle="TextStyle.Body2" Style="font-weight: 500;">@task.Title</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Style="font-weight: 500; margin: 0;">@task.Title</RadzenText>
                 }
                 else
                 {
@@ -49,69 +62,61 @@
             </Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="120px"
-                              TextAlign="TextAlign.Center">
+        <RadzenDataGridColumn TItem="TaskDto" Title="Project" Width="@Px(ProjectWidth)" Sortable="false">
+            <Template Context="task">@ProjectName(task)</Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="@Px(StatusWidth)">
             <Template Context="task">
                 @if (task.WorkflowRunId is { } runId)
                 {
                     <a href="@($"runs/{runId}")" aria-label="@($"Open run, {TaskStatusLabels.Name(task.Status)}")">
-                        <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)" Shade="Shade.Lighter"/>
+                        <RunStatusBadge TaskStatus="@task.Status"/>
                     </a>
                 }
                 else
                 {
-                    <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)" BadgeStyle="@TaskStatusLabels.Style(task.Status)" Shade="Shade.Lighter"/>
-                }
-                @if (TaskStatusLabels.PullRequestHref(task) is { } pullRequestHref)
-                {
-                    <RadzenLink Path="@pullRequestHref" Text="PR" Target="_blank" title="Pull request" data-testid="task-pr-link" Style="margin-left: 0.5rem;"/>
+                    <RunStatusBadge TaskStatus="@task.Status"/>
                 }
             </Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Property="Priority" Title="Priority" Width="100px"
-                              TextAlign="TextAlign.Center">
+        <RadzenDataGridColumn TItem="TaskDto" Title="Pull request" Width="@Px(PullRequestWidth)" Sortable="false">
+            <Template Context="task">
+                @if (TaskStatusLabels.PullRequestHref(task) is { } href)
+                {
+                    <a href="@href" target="_blank" rel="noopener" data-testid="task-pr"
+                       aria-label="@($"Pull request {TaskStatusLabels.PullRequestText(task)}")">@TaskStatusLabels.PullRequestText(task)</a>
+                }
+                else
+                {
+                    <span data-testid="task-pr">—</span>
+                }
+            </Template>
+        </RadzenDataGridColumn>
+
+        <RadzenDataGridColumn TItem="TaskDto" Property="Priority" Title="Priority" Width="@Px(PriorityWidth)" Visible="@_desktop">
             <Template Context="task">
                 <RadzenBadge Text="@GetPriorityName(task.Priority)" BadgeStyle="@GetPriorityBadgeStyle(task.Priority)"
                              Variant="Variant.Outlined"/>
             </Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Property="Phase" Title="Phase" Width="120px">
-            <Template Context="task">
-                @(string.IsNullOrEmpty(task.Phase) ? "—" : task.Phase)
-            </Template>
+        <RadzenDataGridColumn TItem="TaskDto" Title="Updated" Width="@Px(UpdatedWidth)" Visible="@_desktop"
+                              SortProperty="CreatedAt">
+            <Template Context="task">@TaskStatusLabels.LastChanged(task).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Property="IterationCount" Title="Iterations" Width="110px"
-                              TextAlign="TextAlign.Center">
+        <RadzenDataGridColumn TItem="TaskDto" Title="Actions" Width="@Px(ActionsWidth)" Sortable="false" Filterable="false">
             <Template Context="task">
-                <RadzenText TextStyle="TextStyle.Body2">@(TaskStatusLabels.HasLoopHistory(task) ? $"{task.IterationCount} / {task.MaxIterations}" : "—")</RadzenText>
-            </Template>
-        </RadzenDataGridColumn>
-
-        <RadzenDataGridColumn TItem="TaskDto" Property="Prompt" Title="Prompt" Width="250px">
-            <Template Context="task">
-                <RadzenText TextStyle="TextStyle.Caption"
-                            Style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; display: block;"
-                            title="@task.Prompt">
-                    @task.Prompt
-                </RadzenText>
-            </Template>
-        </RadzenDataGridColumn>
-
-        <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" Width="140px" FormatString="{0:g}"/>
-
-        <RadzenDataGridColumn TItem="TaskDto" Title="Actions" Width="180px" TextAlign="TextAlign.Center"
-                              Sortable="false" Filterable="false">
-            <Template Context="task">
-                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" JustifyContent="JustifyContent.Center">
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" AlignItems="AlignItems.Center">
                     <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
                                   Click="@(() => OpenEditDialog(task))" title="Edit task" aria-label="Edit task"/>
                     @if (TaskStatusLabels.IsStartable(task))
                     {
-                        <RadzenButton Icon="precision_manufacturing" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Success"
-                                      Disabled="@TaskStore.Value.Starting.Contains(task.Id)" Click="@(() => ManufactureTask(task))" title="Manufacture" aria-label="Manufacture"/>
+                        <RadzenButton Icon="precision_manufacturing" Text="Manufacture" Size="ButtonSize.Small"
+                                      ButtonStyle="ButtonStyle.Success" Disabled="@TaskStore.Value.Starting.Contains(task.Id)"
+                                      Click="@(() => ManufactureTask(task))" title="Manufacture" aria-label="Manufacture"/>
                     }
                     <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"
                                   Click="@(() => DeleteTask(task))" title="Delete task" aria-label="Delete task"/>
@@ -120,32 +125,78 @@
         </RadzenDataGridColumn>
     </Columns>
 </RadzenDataGrid>
+</div>
 
 @code {
+    // Radzen lays the grid out as a fixed table: each column's width is its <col>, and Title, which has none, gets what
+    // the others leave. The grid is never narrower than the shown columns plus Title's minimum, and scrolls inside its
+    // wrapper when the page is narrower than that.
+    private const int TitleMinWidth = 200;
+    private const int ProjectWidth = 160;
+    private const int StatusWidth = 170;
+    private const int PullRequestWidth = 120;
+    private const int PriorityWidth = 110;
+    private const int UpdatedWidth = 160;
+    private const int ActionsWidth = 230;
+
     private readonly CancellationTokenSource _cts = new();
+
+    /// <summary>Whether the viewport is desktop width, 1280px or more: Priority and Updated are shown.</summary>
+    private bool _desktop = true;
+
+    /// <summary>Why the last Create and manufacture could not start its run, for the board's alert; null when none.</summary>
+    private string? _manufactureRefused;
+
+    private int MinGridWidth =>
+        TitleMinWidth + ProjectWidth + StatusWidth + PullRequestWidth + ActionsWidth
+        + (_desktop ? PriorityWidth + UpdatedWidth : 0);
+
+    private static string Px(int width) => string.Create(CultureInfo.InvariantCulture, $"{width}px");
+
+    private string ProjectName(TaskDto task) =>
+        TaskStore.Value.ProjectNames.TryGetValue(task.ProjectId, out var name) ? name : "—";
 
     protected override void SubscribeStores() => Subscribe(TaskStore);
 
-    protected override async Task OnInitializedAsync() => await Effects.LoadAsync(_cts.Token);
+    protected override async Task OnInitializedAsync()
+    {
+        await Effects.LoadAsync(_cts.Token);
+        await Effects.LoadProjectsAsync(_cts.Token);
+    }
 
     private Task LoadTasks() => Effects.LoadAsync(_cts.Token);
 
+    /// <summary>
+    ///     Opens the create dialog, which Radzen shows full width on a phone. Create reloads the board, with the new task on top; Create and
+    ///     manufacture opens the run it started, or, when the start was refused, reloads the board and says why.
+    /// </summary>
     private async Task OpenCreateDialog()
     {
         var result = await DialogService.OpenAsync<TaskCreateDialog>("Create New Task",
-            options: new DialogOptions { Width = "700px", Height = "600px", Resizable = true, Draggable = true });
+            options: new DialogOptions { Width = "700px", AutoFocusFirstElement = false });
 
-        if (result is bool confirmed1 && confirmed1)
+        if (result is not TaskCreateOutcome outcome)
         {
-            await LoadTasks();
+            return;
         }
+
+        if (outcome.RunId is { } runId)
+        {
+            Navigation.NavigateTo($"runs/{runId}");
+            return;
+        }
+
+        _manufactureRefused = outcome.ManufactureRefusal is { } reason && !SessionExpiry.IsSigningIn(reason)
+            ? $"The task was created, but manufacture was refused: {reason}"
+            : null;
+        await LoadTasks();
     }
 
     private async Task OpenEditDialog(TaskDto task)
     {
         var result = await DialogService.OpenAsync<TaskEditDialog>("Edit Task",
             new Dictionary<string, object> { { "Task", task } },
-            new DialogOptions { Width = "700px", Height = "600px", Resizable = true, Draggable = true });
+            new DialogOptions { Width = "700px" });
 
         if (result is bool confirmed2 && confirmed2)
         {

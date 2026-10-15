@@ -26,3 +26,6 @@ public readonly record struct TaskStartFinished(Guid Id);
 
 /// <summary>A task was re-fetched.</summary>
 public readonly record struct TaskUpdated(TaskDto Task);
+
+/// <summary>The projects arrived, for the board's Project column.</summary>
+public readonly record struct TaskProjectsLoaded(IReadOnlyList<ProjectDto> Projects);

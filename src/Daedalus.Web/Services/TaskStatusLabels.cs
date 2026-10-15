@@ -51,4 +51,39 @@ public static class TaskStatusLabels
 
     /// <summary>The pull request link to render for a task, or null when it has none.</summary>
     public static string? PullRequestHref(TaskDto task) => task.PullRequestUrl?.ToString();
+
+    /// <summary>
+    ///     The text of a task's pull request link: <c>#N</c> for a URL that ends in the pull request's number, else
+    ///     "Pull request"; null when the task has none.
+    /// </summary>
+    public static string? PullRequestText(TaskDto task)
+    {
+        if (task.PullRequestUrl is not { } url)
+        {
+            return null;
+        }
+
+        var last = url.AbsolutePath.TrimEnd('/').Split('/')[^1];
+        return last.Length > 0 && last.All(char.IsAsciiDigit) ? $"#{last}" : "Pull request";
+    }
+
+    /// <summary>
+    ///     When the task last changed, as far as the task records it: the newest of when it was created, completed and
+    ///     when its learnings were updated. A task stores no modified time of its own.
+    /// </summary>
+    public static DateTime LastChanged(TaskDto task)
+    {
+        var last = task.CreatedAt;
+        if (task.CompletedAt is { } completed && completed > last)
+        {
+            last = completed;
+        }
+
+        if (task.LearningsUpdatedAt is { } learnings && learnings > last)
+        {
+            last = learnings;
+        }
+
+        return last;
+    }
 }

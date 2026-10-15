@@ -13,6 +13,9 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
     /// <summary>The board reads one page of this many tasks, as the Tasks page always has.</summary>
     private const int BoardPage = 200;
 
+    /// <summary>The Project column reads one page of this many projects.</summary>
+    private const int ProjectPage = 200;
+
     /// <summary>Fetches the board.</summary>
     public async Task LoadAsync(CancellationToken ct)
     {
@@ -21,6 +24,23 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
         if (result.IsSuccess)
         {
             await dispatcher.DispatchAsync(new TasksLoaded(result.Value.Items, result.Value.Total));
+        }
+        else
+        {
+            await dispatcher.DispatchAsync(new TasksLoadFailed(result.Error));
+        }
+    }
+
+    /// <summary>
+    ///     Fetches the projects, so the board names each task's project. A failure is the board's error, as a failed board
+    ///     load is.
+    /// </summary>
+    public async Task LoadProjectsAsync(CancellationToken ct)
+    {
+        var result = await api.GetProjectsAsync(1, ProjectPage, ct);
+        if (result.IsSuccess)
+        {
+            await dispatcher.DispatchAsync(new TaskProjectsLoaded(result.Value.Items));
         }
         else
         {

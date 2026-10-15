@@ -46,4 +46,8 @@ public static class TasksReducers
 
         return s with { Items = [.. s.Items.Select(t => t.Id == a.Task.Id ? a.Task : t)] };
     }
+
+    [Reducer]
+    public static TasksState On(TasksState s, TaskProjectsLoaded a) =>
+        s with { ProjectNames = a.Projects.ToDictionary(p => p.Id, p => p.ProjectName) };
 }

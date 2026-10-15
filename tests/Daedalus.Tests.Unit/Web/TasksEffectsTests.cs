@@ -215,6 +215,40 @@ public sealed class TasksEffectsTests : IDisposable
         _store.Value.Starting.Should().BeEmpty();
     }
 
+    /// <summary>
+    ///     Loading the projects names each one by its id, for the board's Project column.
+    ///     Red: key every name by Guid.Empty instead of the project's id; the id lookup misses.
+    ///     Red: drop the TaskProjectsLoaded dispatch; the names stay empty.
+    /// </summary>
+    [Fact]
+    public async Task Loading_the_projects_names_each_by_its_id()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson("/api/projects?page=1&pageSize=200",
+            RunViews.Json(new PagedResultDto<ProjectDto>([new ProjectDto(id, "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, [])], 1, 1, 200)));
+
+        await _effects.LoadProjectsAsync(CancellationToken.None);
+
+        _store.Value.ProjectNames.Should().ContainKey(id).WhoseValue.Should().Be("Widgets");
+    }
+
+    /// <summary>
+    ///     A failed projects load is the board's error, as a failed board load is. The board itself loads, so the error is
+    ///     the projects'.
+    ///     Red: dispatch nothing on a failure; the error stays null.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_projects_load_is_the_boards_error()
+    {
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        _store.Value.Error.Should().BeNull("the board loaded");
+
+        await _effects.LoadProjectsAsync(CancellationToken.None);
+
+        _store.Value.Error.Should().NotBeNull();
+    }
+
     private static TaskDto Board(Guid id, Guid? runId, string title) =>
         new(id, "T-1", Guid.NewGuid(), title, "", 1, "build", 0, [], [], 1, "", "", 1, 0, null, null, 0,
             DateTime.UnixEpoch, null, null, null, [], runId, null);
