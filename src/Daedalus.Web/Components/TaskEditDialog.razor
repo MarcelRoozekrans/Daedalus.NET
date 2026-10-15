@@ -9,7 +9,7 @@
     <RadzenStack Gap="1rem">
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
             <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">Status</RadzenText>
-            <RunStatusBadge Status="@TaskStatusLabels.BadgeStatus(Task)" AwaitingSignal="@Task.AwaitingSignal"/>
+            <RunStatusBadge Status="@(Task.RunStatus ?? "")" AwaitingSignal="@Task.AwaitingSignal" NoRunText="@TaskStatusLabels.NoRunText(Task)"/>
         </RadzenStack>
 
         @if (_error is { } error)

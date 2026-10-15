@@ -79,13 +79,13 @@
             <Template Context="task">
                 @if (task.WorkflowRunId is { } runId)
                 {
-                    <a href="@($"runs/{runId}")" aria-label="@($"Open run, {RunStatusLabels.Text(TaskStatusLabels.BadgeStatus(task), task.AwaitingSignal)}")">
-                        <RunStatusBadge Status="@TaskStatusLabels.BadgeStatus(task)" AwaitingSignal="@task.AwaitingSignal"/>
+                    <a href="@($"runs/{runId}")" aria-label="@($"Open run, {TaskStatusLabels.BadgeText(task)}")">
+                        <RunStatusBadge Status="@(task.RunStatus ?? "")" AwaitingSignal="@task.AwaitingSignal" NoRunText="@TaskStatusLabels.NoRunText(task)"/>
                     </a>
                 }
                 else
                 {
-                    <RunStatusBadge Status="@TaskStatusLabels.BadgeStatus(task)" AwaitingSignal="@task.AwaitingSignal"/>
+                    <RunStatusBadge Status="@(task.RunStatus ?? "")" AwaitingSignal="@task.AwaitingSignal" NoRunText="@TaskStatusLabels.NoRunText(task)"/>
                 }
             </Template>
         </RadzenDataGridColumn>

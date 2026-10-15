@@ -52,6 +52,12 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     /// <summary>The title of <see cref="AwaitingTaskId"/>, which the Tasks grid rows are found by.</summary>
     public const string AwaitingTaskTitle = "Approve the widget";
 
+    /// <summary>A task from the retired loop: stored Completed, with no run.</summary>
+    public const string LegacyTaskId = "TASK-006";
+
+    /// <summary>The title of <see cref="LegacyTaskId"/>, which the Tasks grid rows are found by.</summary>
+    public const string LegacyTaskTitle = "Finished by the retired loop";
+
     /// <summary>The seeded project with a repository URL, which no allow-list entry matches.</summary>
     public const string RepositoryProjectName = "Widgets";
 

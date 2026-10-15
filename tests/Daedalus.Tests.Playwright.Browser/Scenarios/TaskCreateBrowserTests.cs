@@ -320,6 +320,23 @@ public class TaskCreateBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     A task from the retired loop, stored Completed with no run, shows its own status muted, not "Pending": its
+    ///     history is not hidden.
+    ///     Red: NoRunText returns "Pending" for every task with no run; the badge reads Pending.
+    ///     Red: NoRunStyle Success; the badge is not Light.
+    /// </summary>
+    [Test]
+    [Description("A task with no run and a stored Completed status shows Completed")]
+    public async Task A_task_with_no_run_and_a_stored_completed_status_shows_completed()
+    {
+        await _tasks.NavigateAsync().ConfigureAwait(false);
+        var badge = _tasks.GetRunStatusBadge(RunSeeds.LegacyTaskTitle);
+
+        await Expect(badge).ToHaveTextAsync("Completed").ConfigureAwait(false);
+        await Expect(badge).ToHaveClassAsync(new Regex(@"\brz-badge-light\b")).ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     While a create is in flight the dialog cannot be closed: Escape and the close button do nothing, so a task is
     ///     never created behind a closed dialog that the board does not show. The create is slowed to make the window.
     ///     Red: no hold before the create; Escape closes the dialog.

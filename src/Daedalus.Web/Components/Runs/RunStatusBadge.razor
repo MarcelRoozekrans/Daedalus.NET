@@ -1,12 +1,17 @@
-@* The one status badge, solid and pill-shaped, on Runs and Tasks alike, mapped by RunStatusLabels. A board task passes
-   its run's status and signal, or TaskStatusLabels.NotStarted when it has no run. *@
-<RadzenBadge Text="@RunStatusLabels.Text(Status, AwaitingSignal)" BadgeStyle="@RunStatusLabels.Style(Status, AwaitingSignal)"
+@* The one status badge, solid and pill-shaped, on Runs and Tasks alike. A run, and a board task with a run, pass the run's
+   Status and AwaitingSignal, mapped by RunStatusLabels. A board task with no run passes NoRunText, its own status's name,
+   shown muted: a new task, or frozen history from the retired loop. *@
+<RadzenBadge Text="@(NoRunText ?? RunStatusLabels.Text(Status, AwaitingSignal))"
+             BadgeStyle="@(NoRunText is null ? RunStatusLabels.Style(Status, AwaitingSignal) : TaskStatusLabels.NoRunStyle)"
              IsPill="true" data-testid="run-status"/>
 
 @code {
     /// <summary>A run's status, as the runs API names it.</summary>
-    [Parameter, EditorRequired] public string Status { get; set; } = "";
+    [Parameter] public string Status { get; set; } = "";
 
     /// <summary>The signal a parked run awaits.</summary>
     [Parameter] public string? AwaitingSignal { get; set; }
+
+    /// <summary>The status text of a board task with no run, from <see cref="TaskStatusLabels.NoRunText"/>; shown muted.</summary>
+    [Parameter] public string? NoRunText { get; set; }
 }

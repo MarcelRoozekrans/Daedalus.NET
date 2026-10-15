@@ -605,6 +605,18 @@ public class E2EServerFixture
                 project.AddTask(task3Result.Value);
             }
 
+            // TASK-006 is frozen history from the retired loop: stored Completed, with no run.
+            var legacyResult = Domain.Entities.Task.Create(
+                Guid.NewGuid(), project.Id, RunSeeds.LegacyTaskId, RunSeeds.LegacyTaskTitle,
+                "A task the retired loop completed",
+                Priority.Low, "Backend", 1,
+                Complexity.Low,
+                "Finished by the loop");
+            if (legacyResult.IsSuccess)
+            {
+                project.AddTask(legacyResult.Value);
+            }
+
             dbContext.Projects.Add(project);
 
             // A second project with a repository URL, so the create dialog's picker shows a repository beside a name. The
@@ -645,6 +657,12 @@ public class E2EServerFixture
             if (task1Result.IsSuccess)
             {
                 dbContext.Entry(task1Result.Value).Property(t => t.MaxIterations).CurrentValue = 10;
+            }
+
+            // Task.Create no longer sets a loop outcome, so set it as EF does when it reads an old row.
+            if (legacyResult.IsSuccess)
+            {
+                dbContext.Entry(legacyResult.Value).Property(t => t.Status).CurrentValue = Domain.Entities.TaskStatus.Completed;
             }
 
             await dbContext.SaveChangesAsync().ConfigureAwait(false);

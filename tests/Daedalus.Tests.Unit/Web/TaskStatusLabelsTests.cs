@@ -3,39 +3,37 @@ using Radzen;
 
 namespace Daedalus.Tests.Unit.Web;
 
-/// <summary>Phase 2.8: what a task offers comes from its derived status; phase 2.13: its badge is its run's.</summary>
+/// <summary>Phase 2.8: what a task offers comes from its derived status; phase 2.13: its badge is its run's, or its own.</summary>
 public sealed class TaskStatusLabelsTests
 {
     /// <summary>
-    ///     A task with no run shows Pending; a task with a run shows its run's status, as the runs API names it.
-    ///     Red: return the derived task status for a task with a run; the run case reads "5".
-    ///     Red: return "" for no run; it is not "Pending".
-    /// </summary>
-    [Fact]
-    public void A_tasks_badge_status_is_its_runs_or_pending()
-    {
-        TaskStatusLabels.BadgeStatus(Task(0, null)).Should().Be("Pending");
-        TaskStatusLabels.BadgeStatus(Task(0, null) with { RunStatus = "Awaiting", Status = 5 }).Should().Be("Awaiting");
-    }
-
-    /// <summary>
-    ///     Through RunStatusLabels, a task not started reads Pending, muted, and a task whose run awaits approval reads as
-    ///     the Runs page reads it: Awaiting approval, Warning.
-    ///     Red: RunStatusLabels' fallback style Primary; the Pending row fails.
-    ///     Red: its Awaiting style Primary; the Awaiting row fails.
-    ///     Red: BadgeStatus returns the derived task status for a task with a run; the three run rows fail.
+    ///     A task with a run shows its run's badge, mapped by RunStatusLabels exactly as the Runs page maps it. A task with
+    ///     no run shows its own status, stored or derived, muted: Pending for a new task, and the retired loop's frozen
+    ///     history, such as Completed or Failed, as itself. A stored Failed is muted, not the Danger of a failed run.
+    ///     Red: NoRunText returns "Pending" for every task with no run; the Completed, Failed and Abandoned rows fail.
+    ///     Red: BadgeStyleOf maps a task with no run through RunStatusLabels; the stored Failed row reads Danger.
+    ///     Red: BadgeText names a task with a run by its own status; the three run rows fail.
+    ///     Red: RunStatusLabels' Awaiting style Primary; the Awaiting row fails.
     /// </summary>
     [Theory]
-    [InlineData(null, null, "Pending", BadgeStyle.Light)]
-    [InlineData("Awaiting", "human_approval", "Awaiting approval", BadgeStyle.Warning)]
-    [InlineData("Running", null, "Running", BadgeStyle.Info)]
-    [InlineData("Succeeded", null, "Succeeded", BadgeStyle.Success)]
-    public void A_tasks_badge_reads_as_the_runs_badge(string? runStatus, string? signal, string text, BadgeStyle style)
+    [InlineData(0, null, null, "Pending", BadgeStyle.Light)]
+    [InlineData(2, null, null, "Completed", BadgeStyle.Light)]
+    [InlineData(3, null, null, "Failed", BadgeStyle.Light)]
+    [InlineData(4, null, null, "Abandoned", BadgeStyle.Light)]
+    [InlineData(5, "Awaiting", "human_approval", "Awaiting approval", BadgeStyle.Warning)]
+    [InlineData(1, "Running", null, "Running", BadgeStyle.Info)]
+    [InlineData(2, "Succeeded", null, "Succeeded", BadgeStyle.Success)]
+    public void A_tasks_badge_is_its_runs_or_its_own_muted(int status, string? runStatus, string? signal, string text, BadgeStyle style)
     {
-        var task = Task(0, null) with { RunStatus = runStatus, AwaitingSignal = signal };
-        RunStatusLabels.Text(TaskStatusLabels.BadgeStatus(task), task.AwaitingSignal).Should().Be(text);
-        RunStatusLabels.Style(TaskStatusLabels.BadgeStatus(task), task.AwaitingSignal).Should().Be(style);
+        var task = Task(0, null) with { Status = status, RunStatus = runStatus, AwaitingSignal = signal };
+        TaskStatusLabels.BadgeText(task).Should().Be(text);
+        TaskStatusLabels.BadgeStyleOf(task).Should().Be(style);
     }
+
+    /// <summary>Red: return the name for a task with a run too; the run case is not null.</summary>
+    [Fact]
+    public void Only_a_task_without_a_run_has_its_own_badge_text() =>
+        TaskStatusLabels.NoRunText(Task(0, null) with { RunStatus = "Running", Status = 1 }).Should().BeNull();
 
     /// <summary>
     ///     A task with no run can be started unless it already completed or is In Progress.
