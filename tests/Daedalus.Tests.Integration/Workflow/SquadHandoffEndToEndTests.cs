@@ -1082,6 +1082,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton(records);
         // Phase 2.8: the dispatcher's store appends each completed node's usage through the same record store.
         services.AddSingleton<NodeUsageRecorder>();
+        // Phase 2.13: and each implement visit's review_response.
+        services.AddSingleton<ReviewResponseRecorder>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(Options.Create(new DetachedRunOptions
         {

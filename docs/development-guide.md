@@ -222,6 +222,11 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   holds tool names, because a run record is the run's own audit. It carries no cost. The model it names is the node's
   own; a lens pinned to another model ran on that one, and `node-usage` prices each model's tokens separately, see
   above. See "Node selection".
+- A `review-response` run record (`WorkflowRunRecord.ReviewResponseKind`) holds the `review_response` one `implement`
+  visit reported, at that visit's seq, with the payload `{ response }`. `ReviewHandoffWorkflowStore` writes it before the
+  completion, and a write failure fails the run. The run variable is overwritten by each visit; the record keeps every
+  answer. The run view's `reviewVisits` pairs each rejected review visit with the next implement visit's record. The
+  reviewer's dispatch never carries it.
 - `TaskExecutions` and `ExecutionSessions` are read-only history. The Web
   "Task Loop History" page shows them and cannot change them.
 - `daedalus__search_failure_patterns` and `daedalus__search_learnings` read data

@@ -7,6 +7,13 @@ namespace Daedalus.Agents.Workflow;
 /// <summary>One lens of a review visit: what it checked.</summary>
 public sealed record LensApproval(string Lens, IReadOnlyList<string> Checked);
 
+/// <summary>
+///     One <see cref="WorkflowRunRecord.ReviewEvidenceKind"/> record as <see cref="ApprovingReview.ReadLens"/> reads it: the
+///     lens, whether it approved, what it checked, what it deferred and the findings it reported.
+/// </summary>
+public sealed record ReviewLensEvidence(
+    string Lens, bool Approved, IReadOnlyList<string> Checked, IReadOnlyList<DeferredFinding> Deferred, IReadOnlyList<ReviewFinding> Findings);
+
 /// <summary>A deferred finding of the approving visit, with the id the gate and the filing action both name it by.</summary>
 public sealed record IdentifiedDeferredFinding(string Id, string Lens, DeferredFinding Finding);
 
@@ -54,10 +61,10 @@ public static class ApprovingReview
             return Result<ReviewVisit?>.Success(null);
 
         var seq = evidence.Max(r => r.Seq);
-        var lenses = new List<LensRecord>();
+        var lenses = new List<ReviewLensEvidence>();
         foreach (var record in evidence.Where(r => r.Seq == seq))
         {
-            var read = ReadRecord(record);
+            var read = ReadLens(record);
             if (read.IsFailure)
                 return Result<ReviewVisit?>.Failure(read.Error);
 
@@ -80,11 +87,14 @@ public static class ApprovingReview
             rejecting?.Findings ?? []));
     }
 
-    private sealed record LensRecord(
-        string Lens, bool Approved, IReadOnlyList<string> Checked, IReadOnlyList<DeferredFinding> Deferred, IReadOnlyList<ReviewFinding> Findings);
-
-    private static Result<LensRecord> ReadRecord(WorkflowRunRecord record)
+    /// <summary>
+    ///     Reads one review-evidence record, or a failure naming it when its payload is not the shape
+    ///     <see cref="ReviewLensRunner"/> writes. The one parser for every reader of these records, so the latest-visit
+    ///     reader above and the run view's full history cannot read the same record two ways.
+    /// </summary>
+    public static Result<ReviewLensEvidence> ReadLens(WorkflowRunRecord record)
     {
+        ArgumentNullException.ThrowIfNull(record);
         try
         {
             using var payload = JsonDocument.Parse(record.PayloadJson);
@@ -123,9 +133,9 @@ public static class ApprovingReview
                 }
 
                 if (!wellFormed)
-                    return Result<LensRecord>.Failure(Unreadable(record));
+                    return Result<ReviewLensEvidence>.Failure(Unreadable(record));
 
-                return Result<LensRecord>.Success(new LensRecord(
+                return Result<ReviewLensEvidence>.Success(new ReviewLensEvidence(
                     lens.GetString()!,
                     string.Equals(verdict.GetString(), ReviewEvidence.Approved, StringComparison.Ordinal),
                     [.. examined.EnumerateArray().Select(e => e.GetString()!)],
@@ -138,7 +148,7 @@ public static class ApprovingReview
             // Reported below with the record's id, the same as a payload of the wrong shape.
         }
 
-        return Result<LensRecord>.Failure(Unreadable(record));
+        return Result<ReviewLensEvidence>.Failure(Unreadable(record));
     }
 
     private static string Unreadable(WorkflowRunRecord record) =>

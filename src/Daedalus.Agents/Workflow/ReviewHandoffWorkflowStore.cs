@@ -92,8 +92,18 @@ namespace Daedalus.Agents.Workflow;
 ///     show as the literal entity. A node that cannot be resolved is neutralised, failing closed. As with the projection,
 ///     only the dispatcher's copy changes: the stored bag, and every undecorated reader of it, keeps the text as written.
 ///     </para>
+///     <para>
+///     <b>A fifth job, since phase 2.13:</b> a completion whose authored report carries <see cref="ReviewHandoff.ReviewResponseKey"/>,
+///     which after <see cref="EnforceAuthorship"/> only <c>implement</c> can, appends one <c>review-response</c> record through
+///     <see cref="ReviewResponseRecorder"/> at the visit's seq. The variable is overwritten by each implement visit, so the record
+///     is what keeps every visit's answer for the run view. It is written <em>before</em> the completion, after the key-cap check,
+///     so a record that cannot be written fails the run instead of completing a visit whose answer is lost, as a review lens's
+///     evidence fails its pass. A completion the inner store then refuses leaves the record behind; its redelivery records the
+///     visit again at the same seq, and the reader takes the last record at a seq, as it does for review evidence.
+///     </para>
 /// </remarks>
-internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessDefinitionStore definitions, NodeUsageRecorder usage)
+internal sealed class ReviewHandoffWorkflowStore(
+    IWorkflowStore inner, IProcessDefinitionStore definitions, NodeUsageRecorder usage, ReviewResponseRecorder responses)
     : DelegatingWorkflowStore(inner)
 {
     /// <summary>
@@ -113,6 +123,8 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
     private readonly IProcessDefinitionStore _definitions = definitions ?? throw new ArgumentNullException(nameof(definitions));
 
     private readonly NodeUsageRecorder _usage = usage ?? throw new ArgumentNullException(nameof(usage));
+
+    private readonly ReviewResponseRecorder _responses = responses ?? throw new ArgumentNullException(nameof(responses));
 
     /// <inheritdoc />
     public override async ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct)
@@ -188,6 +200,18 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             if (breach is not null)
             {
                 await FailAsync(runId, breach, ct).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        // Phase 2.13: implement's answer to the review, kept per visit, before the completion that would overwrite the
+        // variable. Only implement can carry the key here: EnforceAuthorship has stripped it from every other node's report.
+        if (authored.Variables.TryGetValue(ReviewHandoff.ReviewResponseKey, out var response) && ReviewResponseRecord.IsResponse(response))
+        {
+            var recorded = await _responses.RecordAsync(runId, seq, run.CurrentNode, run.StartedBy?.Id, response, ct).ConfigureAwait(false);
+            if (recorded.IsFailure)
+            {
+                await FailAsync(runId, recorded.Error, ct).ConfigureAwait(false);
                 return;
             }
         }

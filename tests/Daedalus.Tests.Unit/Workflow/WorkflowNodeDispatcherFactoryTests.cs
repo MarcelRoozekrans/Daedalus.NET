@@ -102,6 +102,7 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         services.AddSingleton(new SquadOptions { Enabled = true, FallbackAgentName = "Daedalus Architect" });
         services.AddSingleton<WorkflowRecallTierLog>();
         services.AddSingleton(TestNodeUsage.Recorder());
+        services.AddSingleton(TestNodeUsage.Responses());
         // The caller resolver reads the write grants from it; none are needed for a budget.
         services.AddSingleton(new WorkflowConfig());
         // ReviewLensRunner timestamps and logs the review evidence it records; this node declares no lenses.
@@ -275,6 +276,7 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         services.AddSingleton(new SquadOptions { Enabled = true, FallbackAgentName = "Daedalus Architect" });
         services.AddSingleton<WorkflowRecallTierLog>();
         services.AddSingleton(TestNodeUsage.Recorder());
+        services.AddSingleton(TestNodeUsage.Responses());
         services.AddSingleton(new WorkflowConfig());
         services.AddSingleton(TimeProvider.System);
         services.AddLogging();

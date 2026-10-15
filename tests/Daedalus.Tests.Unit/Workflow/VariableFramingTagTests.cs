@@ -28,7 +28,7 @@ public sealed class VariableFramingTagTests
     };
 
     private static async Task<WorkflowRun> DispatchedAsync(WorkflowRun stored) =>
-        (await new ReviewHandoffWorkflowStore(new RecordingWorkflowStore(stored), HostWrittenKeyTests.Definitions(), TestNodeUsage.Recorder())
+        (await new ReviewHandoffWorkflowStore(new RecordingWorkflowStore(stored), HostWrittenKeyTests.Definitions(), TestNodeUsage.Recorder(), TestNodeUsage.Responses())
             .FindAsync(stored.Id, CancellationToken.None))!;
 
     /// <summary>

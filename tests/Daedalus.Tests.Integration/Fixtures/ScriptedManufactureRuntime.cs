@@ -16,10 +16,13 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     learned line. It edits no file. Publish has no arm: in v6 it is a host action, and no agent turn runs
 ///     there. It records each node's task text and agent. The implement turn reports <c>implementUsage</c> as its token
 ///     usage, the way a provider reports it, and every other turn reports none. With <c>rejectReview</c> every review
-///     visit rejects, its first lens pass reporting one finding and the outcome <c>rejected</c>, so the loop runs to review's cap. Moved out of
+///     visit rejects, its first lens pass reporting one finding and the outcome <c>rejected</c>, so the loop runs to review's cap. With
+///     <c>respondToReview</c> every implement visit after the first also reports a <c>review_response</c>, a one-entry array
+///     naming the visit, from <see cref="ResponseFor"/>. Moved out of
 ///     <c>ManufactureSeamEndToEndTests</c> by task B15, whose <c>RunViewUsageTests</c> walk the same process.
 /// </summary>
-internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = default, bool rejectReview = false) : IAgentRuntime
+internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = default, bool rejectReview = false, bool respondToReview = false)
+    : IAgentRuntime
 {
     /// <summary>The line retrospect proposes adding, and the learning implement reports.</summary>
     public const string LearnedLine = "Integration tests need Docker running.";
@@ -39,6 +42,11 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
     private readonly ConcurrentDictionary<string, string> _tasks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, AgentId> _agents = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Guid, int> _lensPasses = new();
+    private readonly ConcurrentDictionary<Guid, int> _implementVisits = new();
+
+    /// <summary>The one <c>review_response</c> entry implement reports on its <paramref name="visit"/>th visit, from the second.</summary>
+    public static string ResponseFor(int visit) =>
+        $"addressed: src/Daedalus.Infrastructure/Persistence/TaskRepository.cs:42 - implement visit {visit} filters cancelled rows";
 
     public IReadOnlyDictionary<string, AgentId> AgentsByNode => _agents;
 
@@ -81,13 +89,7 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
         var tool = request.RequiredOutcome.ToolName;
         IReadOnlyList<ToolCallSummary> calls = node switch
         {
-            "implement" => [Outcome(tool, "changed", new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [ReviewHandoff.SummaryKey] = "filtered cancelled tasks",
-                [ReviewHandoff.FilesTouchedKey] = "src/Daedalus.Infrastructure/Persistence/TaskRepository.cs",
-                [ReviewHandoff.RationaleKey] = "the claim query ignored status",
-                [ReviewHandoff.LearningsKey] = new[] { LearnedLine },
-            })],
+            "implement" => [Outcome(tool, "changed", ImplementVariables(run.Id))],
             "review" when rejectReview => RejectPass(tool),
             "review" => ReviewPass(tool, Lenses[_lensPasses.AddOrUpdate(run.Id, 0, (_, n) => n + 1) % Lenses.Length]),
             "retrospect" => [Outcome(tool, ReviewHandoff.RetrospectProposedOutcome, new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -101,6 +103,24 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
         var usage = string.Equals(node, "implement", StringComparison.Ordinal) ? implementUsage : default;
         return ValueTask.FromResult(Result<AgentTurnResult, AgentError>.Success(
             new AgentTurnResult(TurnId.New(), request.SessionId, $"{node} done", usage, calls, TimeSpan.FromMilliseconds(5))));
+    }
+
+    private Dictionary<string, object?> ImplementVariables(Guid runId)
+    {
+        var visit = _implementVisits.AddOrUpdate(runId, 1, (_, n) => n + 1);
+        var variables = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.SummaryKey] = "filtered cancelled tasks",
+            [ReviewHandoff.FilesTouchedKey] = "src/Daedalus.Infrastructure/Persistence/TaskRepository.cs",
+            [ReviewHandoff.RationaleKey] = "the claim query ignored status",
+            [ReviewHandoff.LearningsKey] = new[] { LearnedLine },
+        };
+        if (respondToReview && visit > 1)
+        {
+            variables[ReviewHandoff.ReviewResponseKey] = new[] { ResponseFor(visit) };
+        }
+
+        return variables;
     }
 
     private static string Pinned(WorkflowRun run) =>
