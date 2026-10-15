@@ -10,16 +10,17 @@
 @inject TasksEffects Effects
 @implements IAsyncDisposable
 
+@* As Home's: the action wraps under the title on a phone rather than squeeze its text onto two lines. *@
 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
-             JustifyContent="JustifyContent.SpaceBetween" class="rz-mb-4">
+             JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap" Gap="1rem" class="rz-mb-4">
     <RadzenStack Gap="0.25rem">
         <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Tasks</RadzenText>
         <RadzenText TextStyle="TextStyle.Body2" class="page-caption" Style="margin: 0;">
             Plan work and start manufacture runs
         </RadzenText>
     </RadzenStack>
-    <RadzenButton Text="Create Task" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialog"
-                  data-testid="btn-create-task"/>
+    <RadzenButton Text="New task" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialog"
+                  Style="white-space: nowrap;" data-testid="btn-create-task"/>
 </RadzenStack>
 
 @if (!string.IsNullOrEmpty(TaskStore.Value.Error) && !SessionExpiry.IsSigningIn(TaskStore.Value.Error))
@@ -47,14 +48,29 @@
     </RadzenAlert>
 }
 
-@* The contract's tablet breakpoint: below 1280px Priority and Created are not rendered. *@
+@* The contract's tablet breakpoint: below 1280px Priority and Created are not rendered. Below 768px, a phone, the grid
+   is one column: the title, then its status and pull request, then its actions, so Status and Manufacture show without
+   scrolling sideways. Project is not shown there. *@
 <RadzenMediaQuery Query="(min-width: 1280px)" Change="@(matches => _desktop = matches)"/>
+<RadzenMediaQuery Query="(max-width: 767.98px)" Change="@(matches => _phone = matches)"/>
 
 <div class="tasks-grid">
 <RadzenDataGrid TItem="TaskDto" Data="@TaskStore.Value.Items" Count="@TaskStore.Value.Total" AllowPaging="true" PageSize="15"
                 AllowSorting="true" AllowColumnResize="true" PagerHorizontalAlign="HorizontalAlign.Center"
                 ShowPagingSummary="true" IsLoading="@TaskStore.Value.Loading"
-                Style="@($"height: auto; min-width: {MinGridWidth}px;")" data-testid="tasks-grid">
+                Style="@GridStyle" data-testid="tasks-grid">
+    <EmptyTemplate>
+        @* A board that could not be read is not empty: the alert above says why, and the grid claims nothing. *@
+        @if (string.IsNullOrEmpty(TaskStore.Value.Error))
+        {
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem"
+                         Wrap="FlexWrap.Wrap" class="rz-p-4" data-testid="tasks-empty">
+                <RadzenText TextStyle="TextStyle.Body2" class="page-caption" Style="margin: 0;">No tasks yet.</RadzenText>
+                <RadzenButton Text="New task" ButtonStyle="ButtonStyle.Primary" Variant="Variant.Text"
+                              Size="ButtonSize.Small" Click="@OpenCreateDialog"/>
+            </RadzenStack>
+        }
+    </EmptyTemplate>
     <Columns>
         <RadzenDataGridColumn TItem="TaskDto" Property="Title" Title="Title">
             <Template Context="task">
@@ -68,40 +84,29 @@
                         @task.Id.ToString()[..8]...
                     </RadzenText>
                 }
+                @if (_phone)
+                {
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem"
+                                 Wrap="FlexWrap.Wrap" class="rz-mt-1">
+                        @StatusCell(task)
+                        @PullRequestCell(task)
+                    </RadzenStack>
+                    <div class="rz-mt-2">@ActionsCell(task)</div>
+                }
             </Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Title="Project" Width="@Px(ProjectWidth)" Sortable="false">
+        <RadzenDataGridColumn TItem="TaskDto" Title="Project" Width="@Px(ProjectWidth)" Sortable="false" Visible="@(!_phone)">
             <Template Context="task">@ProjectName(task)</Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="@Px(StatusWidth)">
-            <Template Context="task">
-                @if (task.WorkflowRunId is { } runId)
-                {
-                    <a href="@($"runs/{runId}")" aria-label="@($"Open run, {TaskStatusLabels.BadgeText(task)}")">
-                        <RunStatusBadge Status="@(task.RunStatus ?? "")" AwaitingSignal="@task.AwaitingSignal" NoRunText="@TaskStatusLabels.NoRunText(task)"/>
-                    </a>
-                }
-                else
-                {
-                    <RunStatusBadge Status="@(task.RunStatus ?? "")" AwaitingSignal="@task.AwaitingSignal" NoRunText="@TaskStatusLabels.NoRunText(task)"/>
-                }
-            </Template>
+        <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="@Px(StatusWidth)" Visible="@(!_phone)">
+            <Template Context="task">@StatusCell(task)</Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Title="Pull request" Width="@Px(PullRequestWidth)" Sortable="false">
-            <Template Context="task">
-                @if (TaskStatusLabels.PullRequestHref(task) is { } href)
-                {
-                    <a href="@href" target="_blank" rel="noopener" data-testid="task-pr"
-                       aria-label="@($"Pull request {TaskStatusLabels.PullRequestText(task)}")">@TaskStatusLabels.PullRequestText(task)</a>
-                }
-                else
-                {
-                    <span data-testid="task-pr">—</span>
-                }
-            </Template>
+        <RadzenDataGridColumn TItem="TaskDto" Title="Pull request" Width="@Px(PullRequestWidth)" Sortable="false"
+                              Visible="@(!_phone)">
+            <Template Context="task">@PullRequestCell(task)</Template>
         </RadzenDataGridColumn>
 
         <RadzenDataGridColumn TItem="TaskDto" Property="Priority" Title="Priority" Width="@Px(PriorityWidth)" Visible="@_desktop">
@@ -115,21 +120,9 @@
             <Template Context="task">@LocalTimes.ShortDateTime(task.CreatedAt)</Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Title="Actions" Width="@Px(ActionsWidth)" Sortable="false" Filterable="false">
-            <Template Context="task">
-                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" AlignItems="AlignItems.Center">
-                    <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
-                                  Click="@(() => OpenEditDialog(task))" title="Edit task" aria-label="Edit task"/>
-                    @if (TaskStatusLabels.IsStartable(task))
-                    {
-                        <RadzenButton Icon="precision_manufacturing" Text="Manufacture" Size="ButtonSize.Small"
-                                      ButtonStyle="ButtonStyle.Success" Shade="Shade.Darker" Disabled="@TaskStore.Value.Starting.Contains(task.Id)"
-                                      Click="@(() => ManufactureTask(task))" title="Manufacture" aria-label="Manufacture"/>
-                    }
-                    <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"
-                                  Click="@(() => DeleteTask(task))" title="Delete task" aria-label="Delete task"/>
-                </RadzenStack>
-            </Template>
+        <RadzenDataGridColumn TItem="TaskDto" Title="Actions" Width="@Px(ActionsWidth)" Sortable="false" Filterable="false"
+                              Visible="@(!_phone)">
+            <Template Context="task">@ActionsCell(task)</Template>
         </RadzenDataGridColumn>
     </Columns>
 </RadzenDataGrid>
@@ -152,12 +145,62 @@
     /// <summary>Whether the viewport is desktop width, 1280px or more: Priority and Created are shown.</summary>
     private bool _desktop = true;
 
+    /// <summary>Whether the viewport is a phone's, below 768px: the grid is one column.</summary>
+    private bool _phone;
+
     /// <summary>Why the last Create and manufacture could not start its run, for the board's alert; null when none.</summary>
     private string? _manufactureRefused;
 
     private int MinGridWidth =>
         TitleMinWidth + ProjectWidth + StatusWidth + PullRequestWidth + ActionsWidth
         + (_desktop ? PriorityWidth + CreatedWidth : 0);
+
+    /// <summary>A phone's one column fits the screen; wider, the grid keeps its columns and scrolls in its wrapper.</summary>
+    private string GridStyle => _phone ? "height: auto;" : $"height: auto; min-width: {MinGridWidth}px;";
+
+    /// <summary>The task's status: its run's badge, linking to the run when it has one.</summary>
+    private static RenderFragment StatusCell(TaskDto task) =>
+        @<text>
+            @if (task.WorkflowRunId is { } runId)
+            {
+                <a href="@($"runs/{runId}")" aria-label="@($"Open run, {TaskStatusLabels.BadgeText(task)}")">
+                    <RunStatusBadge Status="@(task.RunStatus ?? "")" AwaitingSignal="@task.AwaitingSignal" NoRunText="@TaskStatusLabels.NoRunText(task)"/>
+                </a>
+            }
+            else
+            {
+                <RunStatusBadge Status="@(task.RunStatus ?? "")" AwaitingSignal="@task.AwaitingSignal" NoRunText="@TaskStatusLabels.NoRunText(task)"/>
+            }
+        </text>;
+
+    /// <summary>The task's pull request: a "#N" link, or a dash.</summary>
+    private static RenderFragment PullRequestCell(TaskDto task) =>
+        @<text>
+            @if (TaskStatusLabels.PullRequestHref(task) is { } href)
+            {
+                <a href="@href" target="_blank" rel="noopener" data-testid="task-pr"
+                   aria-label="@($"Pull request {TaskStatusLabels.PullRequestText(task)}")">@TaskStatusLabels.PullRequestText(task)</a>
+            }
+            else
+            {
+                <span data-testid="task-pr">—</span>
+            }
+        </text>;
+
+    /// <summary>Edit, Manufacture when the task can start, and Delete.</summary>
+    private RenderFragment ActionsCell(TaskDto task) =>
+        @<RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" AlignItems="AlignItems.Center">
+            <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
+                          Click="@(() => OpenEditDialog(task))" title="Edit task" aria-label="Edit task"/>
+            @if (TaskStatusLabels.IsStartable(task))
+            {
+                <RadzenButton Icon="precision_manufacturing" Text="Manufacture" Size="ButtonSize.Small"
+                              ButtonStyle="ButtonStyle.Success" Shade="Shade.Darker" Disabled="@TaskStore.Value.Starting.Contains(task.Id)"
+                              Click="@(() => ManufactureTask(task))" title="Manufacture" aria-label="Manufacture"/>
+            }
+            <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"
+                          Click="@(() => DeleteTask(task))" title="Delete task" aria-label="Delete task"/>
+        </RadzenStack>;
 
     private static string Px(int width) => string.Create(CultureInfo.InvariantCulture, $"{width}px");
 

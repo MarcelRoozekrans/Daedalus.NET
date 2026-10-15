@@ -6,7 +6,7 @@
 @inject NotificationService NotificationService
 
 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
-             JustifyContent="JustifyContent.SpaceBetween" class="rz-mb-4">
+             JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap" Gap="1rem" class="rz-mb-4">
     <RadzenStack Gap="0.25rem">
         <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Projects</RadzenText>
         <RadzenText TextStyle="TextStyle.Body2" class="page-caption" Style="margin: 0;">
@@ -14,7 +14,7 @@
         </RadzenText>
     </RadzenStack>
     <RadzenButton Text="Create Project" Icon="add" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialog"
-                  data-testid="btn-create-project"/>
+                  Style="white-space: nowrap;" data-testid="btn-create-project"/>
 </RadzenStack>
 
 @if (!string.IsNullOrEmpty(_errorMessage))

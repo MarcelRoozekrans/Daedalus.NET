@@ -264,6 +264,43 @@ public class TaskCreateBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     On a phone, 375×812, a task's status and its Manufacture button are on screen without scrolling the grid
+    ///     sideways, and the title has the grid's width. The grid is one column there: under the title, the status badge
+    ///     and the pull request, then the actions. Project, which the contract drops first, is not shown.
+    ///     Red: Project not bound to the phone query; its header shows at 375.
+    ///     Red: the actions left in their column on a phone, out of the title cell, and the grid's minimum width kept;
+    ///     Manufacture's right edge is at 863px.
+    ///     Red: the status left in its column on a phone, out of the title cell, and the minimum width kept; the badge's
+    ///     right edge is at 826px.
+    ///     Red: the grid's minimum width kept on a phone; the wrapper scrolls sideways by 585px.
+    ///     Red: Pull request not bound to the phone query; the title is 173px of the grid's 295px. Leaving Actions or
+    ///     Status in their columns without the minimum width fails here too, at 63px and 123px.
+    /// </summary>
+    [Test]
+    [Description("On a phone the status and Manufacture show without scrolling sideways")]
+    public async Task On_a_phone_status_and_manufacture_show_without_scrolling_sideways()
+    {
+        await Page.SetViewportSizeAsync(375, 812).ConfigureAwait(false);
+        await _tasks.NavigateAsync().ConfigureAwait(false);
+        var row = _tasks.GetRowByText("Fix bug B");
+        var manufacture = _tasks.GetManufactureButton("Fix bug B");
+        await Expect(manufacture).ToBeVisibleAsync().ConfigureAwait(false);
+
+        await Expect(_tasks.Header("Project")).ToHaveCountAsync(0).ConfigureAwait(false);
+        var badge = (await _tasks.GetRunStatusBadge("Fix bug B").BoundingBoxAsync().ConfigureAwait(false))!;
+        var button = (await manufacture.BoundingBoxAsync().ConfigureAwait(false))!;
+        (button.X + button.Width).Should().BeLessThanOrEqualTo(375, "Manufacture is on screen");
+        (badge.X + badge.Width).Should().BeLessThanOrEqualTo(375, "the status is on screen");
+
+        var scroll = await Page.Locator(".tasks-grid").EvaluateAsync<int>("e => e.scrollWidth - e.clientWidth").ConfigureAwait(false);
+        scroll.Should().BeLessThanOrEqualTo(0, "the grid does not scroll sideways");
+
+        var title = (await row.Locator("td").First.BoundingBoxAsync().ConfigureAwait(false))!;
+        var grid = (await Page.Locator(".tasks-grid").BoundingBoxAsync().ConfigureAwait(false))!;
+        title.Width.Should().BeApproximately(grid.Width, 2, "the title has the grid's width");
+    }
+
+    /// <summary>
     ///     On a phone, 375×812, the create dialog spans the screen and its buttons stack: Create and manufacture on top,
     ///     then Create, then Cancel, each as wide as the others. Radzen itself makes a dialog full width at 768px and below.
     ///     Red: the dialog's Style forces <c>width: 700px !important</c>; it is 700 wide.
