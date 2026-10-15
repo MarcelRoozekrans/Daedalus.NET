@@ -188,7 +188,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     /// <summary>
     ///     One list row. The summary carries neither the run's variables nor its error, so the run is read for its pull
     ///     request link, through the same <see cref="ReadPrUrl"/> the view uses. Only a <c>Failed</c> run reads its steps and,
-    ///     when the review limit stopped it, its review evidence, so a page of healthy runs costs one lookup per row.
+    ///     when the review limit stopped it, its review evidence, so a page of healthy runs costs one lookup per row. A batch read of the link would drop that lookup. See #367.
     /// </summary>
     private async Task<WorkflowRunListItem> ToListItemAsync(WorkflowRunSummary summary, TaskRunLink? task, CancellationToken ct)
     {

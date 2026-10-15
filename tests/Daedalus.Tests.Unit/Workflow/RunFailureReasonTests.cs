@@ -11,29 +11,34 @@ public sealed class RunFailureReasonTests
     private static WorkflowRunStepView Step(string kind, string from, string to, string status = "Running", string? outcome = null) =>
         new(_seq++, kind, from, to, status, outcome, null, null, null, null, DateTimeOffset.UnixEpoch, null);
 
-    private static WorkflowRunStepView Rejected() => Step("Completed", "review", "implement", outcome: "rejected");
+    private static WorkflowRunStepView Rejected() => Step("Branched", "review", "implement", outcome: "rejected");
+
+    private static WorkflowRunStepView Changed() => Step("Branched", "implement", "review", outcome: "changed");
+
+    /// <summary>The step the engine records when review's cap is hit: from the leaving node into the onExceeded target.</summary>
+    private static WorkflowRunStepView Capped() => Step("CapExceeded", "implement", "adjudicate", outcome: "changed");
+
+    private static WorkflowRunStepView Adjudicated() => Step("Entered", "implement", "adjudicate", "Failed");
+
+    /// <summary>Five visits of review as the engine records them, then the cap and the terminal step.</summary>
+    private static WorkflowRunStepView[] RealCappedLog() =>
+    [
+        Step("Entered", "", "implement"),
+        Changed(), Rejected(), Changed(), Rejected(), Changed(), Rejected(), Changed(), Rejected(), Changed(), Rejected(),
+        Capped(),
+        Adjudicated(),
+    ];
 
     /// <summary>
-    ///     Three rejected review steps and a CapExceeded step name the count and the rejecting lens.
-    ///     Red: count every step from review, not only the rejected ones. Red: add one to the count.
-    ///     Red: drop the lens from the sentence.
+    ///     A run the review limit stopped, as the engine records it, names the count of rejected visits and the rejecting lens.
+    ///     Red: match the cap step by FromNode == review, as before, instead of its ToNode: the real log's cap step leaves implement.
+    ///     Red: add one to the count. Red: drop the lens from the sentence.
     /// </summary>
     [Fact]
     public void A_capped_review_names_the_count_and_the_last_rejecting_lens()
     {
-        WorkflowRunStepView[] steps =
-        [
-            Step("Completed", "implement", "review", outcome: "done"),
-            Rejected(),
-            Step("Completed", "implement", "review", outcome: "done"),
-            Rejected(),
-            Step("Completed", "implement", "review", outcome: "done"),
-            Rejected(),
-            Step("CapExceeded", "review", "failed", "Failed"),
-        ];
-
-        RunFailureReason.Derive("Failed", steps, "visit cap", "mechanism").Should().Be(
-            "Review rejected the change 3 times, the review limit. Last rejecting lens: mechanism.");
+        RunFailureReason.Derive("Failed", RealCappedLog(), "visit cap", "mechanism").Should().Be(
+            "Review rejected the change 5 times, the review limit. Last rejecting lens: mechanism.");
     }
 
     /// <summary>
@@ -43,9 +48,19 @@ public sealed class RunFailureReasonTests
     [Fact]
     public void A_capped_review_without_a_readable_lens_leaves_the_second_sentence_out()
     {
-        WorkflowRunStepView[] steps = [Rejected(), Rejected(), Step("CapExceeded", "review", "failed", "Failed")];
+        RunFailureReason.Derive("Failed", RealCappedLog(), null, null).Should().Be("Review rejected the change 5 times, the review limit.");
+    }
 
-        RunFailureReason.Derive("Failed", steps, null, null).Should().Be("Review rejected the change 2 times, the review limit.");
+    /// <summary>
+    ///     A run that ended at adjudicate without a cap step is not the review limit.
+    ///     Red: treat any step into adjudicate as the review limit.
+    /// </summary>
+    [Fact]
+    public void A_run_that_reached_adjudicate_without_a_cap_is_not_the_review_limit()
+    {
+        WorkflowRunStepView[] steps = [Changed(), Rejected(), Step("Branched", "implement", "adjudicate", "Failed", "blocked")];
+
+        RunFailureReason.IsCappedReview(steps).Should().BeFalse();
     }
 
     /// <summary>
@@ -55,7 +70,7 @@ public sealed class RunFailureReasonTests
     [Fact]
     public void A_blocked_implement_says_so()
     {
-        WorkflowRunStepView[] steps = [Step("Completed", "implement", "failed", "Failed", "blocked")];
+        WorkflowRunStepView[] steps = [Step("Branched", "implement", "adjudicate", "Failed", "blocked")];
 
         RunFailureReason.Derive("Failed", steps, "some error", null).Should().Be("Implement reported it is blocked.");
     }
@@ -67,7 +82,7 @@ public sealed class RunFailureReasonTests
     [Fact]
     public void A_blocked_outcome_on_another_node_is_not_a_blocked_implement()
     {
-        WorkflowRunStepView[] steps = [Step("Completed", "review", "failed", "Failed", "blocked")];
+        WorkflowRunStepView[] steps = [Step("Branched", "review", "adjudicate", "Failed", "blocked")];
 
         RunFailureReason.Derive("Failed", steps, "some error", null).Should().Be("some error");
     }
@@ -118,7 +133,7 @@ public sealed class RunFailureReasonTests
     [InlineData("Running")]
     public void A_run_that_did_not_fail_has_no_reason(string status)
     {
-        WorkflowRunStepView[] steps = [Step("CapExceeded", "review", "failed", "Failed")];
+        var steps = RealCappedLog();
 
         RunFailureReason.Derive(status, steps, "an old error", "mechanism").Should().BeNull();
     }

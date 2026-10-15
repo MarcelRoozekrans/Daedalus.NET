@@ -21,7 +21,8 @@ public sealed class RunFailureReasonEndpointTests(PostgresFixture fixture)
     ///     A failed run's reason is its host error on the view and on its list item; a run that did not fail has no reason on
     ///     either, and a published run's list item carries the pull request link its view does, while an unpublished one has none.
     ///     Red: pass null for FailureReason in ToViewAsync. Red: pass null for it in the list item.
-    ///     Red: fill the list item's reason for every status, not only Failed. Red: pass null for PrUrl in the list item.
+    ///     Red: pass null for PrUrl in the list item. Red: derive the list item's reason with the literal status Failed for
+    ///     every row, which gives the published run a reason.
     /// </summary>
     [Fact]
     public async Task The_run_view_and_list_carry_the_failure_reason_and_pr_link()
