@@ -60,13 +60,12 @@ public class SignInBrowserTests : BrowserTestBase
 
     private ILocator InfoNotice => Page.Locator(".rz-notification-info", new PageLocatorOptions { HasText = SigningInAgain });
 
-    private ILocator ErrorNotice => Page.Locator(".rz-notification-error");
+    private const string ErrorNotice = ".rz-notification-error";
 
     /// <summary>
-    ///     The Info notification shows before the failed request returns to its caller, which then decides what to show.
-    ///     The caller is given time to show an error first; a notification stays three seconds, so one shown in this
-    ///     time is still there when it is counted. It is counted once, not with Expect's retries, which would wait for
-    ///     the notification to close and then pass.
+    ///     The Info notification shows before the failed request returns to its caller, which then decides what to show,
+    ///     so the caller is given a moment to show an error first. A watch made before the page loaded records any it
+    ///     shows, so what is asserted does not depend on the notification still being on screen.
     /// </summary>
     private Task LetTheFailedRequestFinishAsync() => Page.WaitForTimeoutAsync(1000);
 
@@ -146,6 +145,7 @@ public class SignInBrowserTests : BrowserTestBase
     {
         await TestAuth.UseAsync(Page, TestAuth.Token).ConfigureAwait(false);
         await TestAuth.SeedStoredUserAsync(Page).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ErrorNotice).ConfigureAwait(false);
         await NavigateToAsync("/tasks").ConfigureAwait(false);
         await Expect(Page.Locator("[data-testid='tasks-grid']")).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(Header).ToContainTextAsync("E2E Test User").ConfigureAwait(false);
@@ -168,7 +168,8 @@ public class SignInBrowserTests : BrowserTestBase
         await Expect(HeaderSignIn).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(InfoNotice).ToBeVisibleAsync().ConfigureAwait(false);
         await LetTheFailedRequestFinishAsync().ConfigureAwait(false);
-        (await ErrorNotice.CountAsync().ConfigureAwait(false)).Should().Be(0, "an ended session raises no Error notification");
+        (await TestAuth.PathsThatShowedAsync(Page, ErrorNotice).ConfigureAwait(false)).Should()
+            .BeEmpty("an ended session raises no Error notification");
     }
 
     /// <summary>
@@ -177,13 +178,15 @@ public class SignInBrowserTests : BrowserTestBase
     ///     "Failed to create repository."
     ///     Red: drop the Info notification from MainLayout's OnExpiryChanged; no Info notification shows.
     ///     Red: make RepositoryConfiguration's create catch notify with Notify Error, as before; an Error notification
-    ///     is counted.
-    ///     Red: make that catch notify "Failed to create repository." at Warning; the "Failed to" text is counted.
+    ///     is recorded.
+    ///     Red: make that catch notify "Failed to create repository." at Warning; the "Failed to" text is recorded.
     /// </summary>
     [Test]
     public async Task An_expired_submit_shows_only_that_sign_in_is_under_way()
     {
         await TestAuth.UseAsync(Page, TestAuth.Token).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ErrorNotice).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ".rz-notification", "Failed to").ConfigureAwait(false);
         await NavigateToAsync("/repositories").ConfigureAwait(false);
         await Page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Add Repository" }).First.ClickAsync()
             .ConfigureAwait(false);
@@ -197,9 +200,34 @@ public class SignInBrowserTests : BrowserTestBase
         await Page.WaitForURLAsync("**/authentication/login").ConfigureAwait(false);
         await Expect(InfoNotice).ToBeVisibleAsync().ConfigureAwait(false);
         await LetTheFailedRequestFinishAsync().ConfigureAwait(false);
-        (await ErrorNotice.CountAsync().ConfigureAwait(false)).Should().Be(0, "an ended session raises no Error notification");
-        (await Page.GetByText("Failed to").CountAsync().ConfigureAwait(false)).Should()
-            .Be(0, "the page shows none of its own failure text for an ended session");
+        (await TestAuth.PathsThatShowedAsync(Page, ErrorNotice).ConfigureAwait(false)).Should()
+            .BeEmpty("an ended session raises no Error notification");
+        (await TestAuth.PathsThatShowedAsync(Page, ".rz-notification", "Failed to").ConfigureAwait(false)).Should()
+            .BeEmpty("the page shows none of its own failure text for an ended session");
+    }
+
+    /// <summary>
+    ///     A create the API refuses says so, with the status, and never claims the repository was added. Signed in as
+    ///     usual: an empty name and URL fail the API's validation with 400.
+    ///     Red: restore the create that ignored the status: "Repository added successfully." shows and no Error
+    ///     notification does.
+    ///     Red: notify the success before the status check as well; "added successfully" is recorded beside the error.
+    /// </summary>
+    [Test]
+    public async Task A_refused_repository_create_says_so()
+    {
+        await TestAuth.WatchForAsync(Page, ".rz-notification", "added successfully").ConfigureAwait(false);
+        await NavigateToAsync("/repositories").ConfigureAwait(false);
+        await Page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Add Repository" }).First.ClickAsync()
+            .ConfigureAwait(false);
+
+        await Page.Locator(".rz-dialog-content").GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Create" })
+            .ClickAsync().ConfigureAwait(false);
+
+        await Expect(Page.Locator(ErrorNotice)).ToContainTextAsync("Failed to create repository. The server answered 400")
+            .ConfigureAwait(false);
+        (await TestAuth.PathsThatShowedAsync(Page, ".rz-notification", "added successfully").ConfigureAwait(false)).Should()
+            .BeEmpty("a refused create is never reported as added");
     }
 
     /// <summary>
@@ -271,7 +299,7 @@ public class SignInBrowserTests : BrowserTestBase
             }
 
             // Each visit loads a new document, which starts its own record.
-            showed.AddRange(await TestAuth.PathsThatShowedAsync(Page).ConfigureAwait(false));
+            showed.AddRange(await TestAuth.PathsThatShowedAsync(Page, ErrorShown).ConfigureAwait(false));
         }
 
         showed.Should().BeEmpty("an ended session is not an error: no page shows one for it, it sends the user to sign in");

@@ -271,5 +271,5 @@ else
 
     /// <summary>A refused write's message: what failed and the status the API answered with.</summary>
     private static string Refused(string what, HttpResponseMessage response) =>
-        $"{what} The server answered {(int)response.StatusCode} {response.ReasonPhrase}.";
+        $"{what} The server answered {HttpStatusText.Of(response)}.";
 }

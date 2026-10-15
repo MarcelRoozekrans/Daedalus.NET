@@ -293,7 +293,7 @@ public sealed class ApiClient(HttpClient httpClient)
 
         return !string.IsNullOrWhiteSpace(body?.Error)
             ? body.Error
-            : $"API error: {(int)response.StatusCode} {response.ReasonPhrase}";
+            : $"API error: {HttpStatusText.Of(response)}";
     }
 
     private sealed record FailureBody(string? Detail, string? Error);
