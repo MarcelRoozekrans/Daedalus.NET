@@ -308,6 +308,59 @@ public class ShellBrowserTests : BrowserTestBase
         await Expect(Page.Locator("#blazor-error-ui")).ToBeHiddenAsync().ConfigureAwait(false);
     }
 
+    /// <summary>
+    ///     On a desktop the page's content never moves sideways on a cold load: it shows only once the chrome is known,
+    ///     so it does not paint at the left edge and then jump right by the sidebar's width. The sign-in is held, as an
+    ///     OIDC boot reads its stored user, and an init script records the content's left edge on every frame and every
+    ///     change it is visible in, from before the console starts.
+    ///     Red: the content rendered whatever the chrome, as before; it is recorded at 16px, then at 276px.
+    ///     The first assertion is the recording's precondition, with no Red: line: the H4 wait before it already fails
+    ///     for content that never shows.
+    /// </summary>
+    [Test]
+    [Description("The content does not move when the chrome resolves")]
+    public async Task The_content_does_not_move_when_the_chrome_resolves()
+    {
+        await TestAuth.UseAsync(Page, TestAuth.Late).ConfigureAwait(false);
+        await TestAuth.HoldSignInAsync(Page).ConfigureAwait(false);
+        await Page.AddInitScriptAsync(ContentLeftScript).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight).ConfigureAwait(false);
+        await Page.GotoAsync(new Uri(BaseUrl, "/tasks").ToString()).ConfigureAwait(false);
+        await Expect(Page.Locator(".rz-header").GetByText("Daedalus", new LocatorGetByTextOptions { Exact = true }))
+            .ToBeVisibleAsync().ConfigureAwait(false);
+        await Page.WaitForTimeoutAsync(500).ConfigureAwait(false);
+
+        await TestAuth.ReleaseSignInAsync(Page).ConfigureAwait(false);
+        await Expect(Page.Locator(".rz-body h4").First).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(Sidebar).ToBeVisibleAsync().ConfigureAwait(false);
+        await Page.WaitForTimeoutAsync(500).ConfigureAwait(false);
+
+        var lefts = await Page.EvaluateAsync<double[]>("() => window.__daedalusContentLefts").ConfigureAwait(false);
+        lefts.Should().NotBeEmpty("the content showed");
+        lefts.Distinct().Should().ContainSingle("the content keeps its left edge from its first paint: "
+            + string.Join(", ", lefts.Select(left => left.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+    }
+
+    /// <summary>
+    ///     Records each distinct left edge the page's content shows at while it is visible, on every frame and every
+    ///     change to the document, from before the console starts.
+    /// </summary>
+    private const string ContentLeftScript = """
+        (() => {
+            const lefts = window.__daedalusContentLefts = [];
+            const look = () => {
+                const content = document.querySelector('.rz-body > div');
+                if (!content || !content.textContent.trim()) { return; }
+                if (!content.checkVisibility({ visibilityProperty: true })) { return; }
+                const left = Math.round(content.getBoundingClientRect().left);
+                if (lefts[lefts.length - 1] !== left) { lefts.push(left); }
+            };
+            new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true });
+            const frame = () => { look(); requestAnimationFrame(frame); };
+            requestAnimationFrame(frame);
+        })();
+        """;
+
     private async Task<string[]> SidebarStatesAsync(int width, int height)
     {
         await Page.AddInitScriptAsync(SidebarStatesScript).ConfigureAwait(false);
