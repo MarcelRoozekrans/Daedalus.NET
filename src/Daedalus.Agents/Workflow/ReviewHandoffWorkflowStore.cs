@@ -98,8 +98,18 @@ namespace Daedalus.Agents.Workflow;
 ///     <see cref="ReviewResponseRecorder"/> at the visit's seq. The variable is overwritten by each implement visit, so the record
 ///     is what keeps every visit's answer for the run view. It is written <em>before</em> the completion, after the key-cap check,
 ///     so a record that cannot be written fails the run instead of completing a visit whose answer is lost, as a review lens's
-///     evidence fails its pass. A completion the inner store then refuses leaves the record behind; its redelivery records the
-///     visit again at the same seq, and the reader takes the last record at a seq, as it does for review evidence.
+///     evidence fails its pass.
+///     </para>
+///     <para>
+///     <b>Only a completion the inner store would accept is recorded.</b> <c>OrmWorkflowStore.CompleteNodeAsync</c> refuses a
+///     completion whose seq is not the run's <c>CurrentSeq</c>, and one for a run no longer <c>Running</c>, with a
+///     <c>WorkflowConcurrencyException</c>. The record is written first, so without the same check here a lost-lease implement
+///     dispatch that finished after its redelivery would append its answer at that seq last, the reader's last-wins rule would
+///     show an answer the run never accepted, and a failed write would fail a run that had already moved on. The check reads
+///     the run this method has just re-read from the inner store. <b>A narrow race remains:</b> two deliveries of the same
+///     visit that both pass the check before either completes both append, and the reader shows whichever appended last,
+///     which need not be the one the inner store accepted. Closing it needs the record and the completion in one transaction,
+///     which the two stores do not share.
 ///     </para>
 /// </remarks>
 internal sealed class ReviewHandoffWorkflowStore(
@@ -206,7 +216,9 @@ internal sealed class ReviewHandoffWorkflowStore(
 
         // Phase 2.13: implement's answer to the review, kept per visit, before the completion that would overwrite the
         // variable. Only implement can carry the key here: EnforceAuthorship has stripped it from every other node's report.
-        if (authored.Variables.TryGetValue(ReviewHandoff.ReviewResponseKey, out var response) && ReviewResponseRecord.IsResponse(response))
+        // A completion the inner store would refuse records nothing: see this type's remarks, "A fifth job".
+        if (IsAcceptable(run, seq)
+            && authored.Variables.TryGetValue(ReviewHandoff.ReviewResponseKey, out var response) && ReviewResponseRecord.IsResponse(response))
         {
             var recorded = await _responses.RecordAsync(runId, seq, run.CurrentNode, run.StartedBy?.Id, response, ct).ConfigureAwait(false);
             if (recorded.IsFailure)
@@ -235,6 +247,12 @@ internal sealed class ReviewHandoffWorkflowStore(
             await _usage.RecordCompletionAsync(run.Id, seq, run.CurrentNode, run.StartedBy?.Id, turnUsage, ct).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    ///     Whether the inner store would accept a completion at <paramref name="seq"/>: the run is still at that seq and still
+    ///     <see cref="WorkflowStatus.Running"/>, the two checks <c>OrmWorkflowStore.CompleteNodeAsync</c> makes.
+    /// </summary>
+    private static bool IsAcceptable(WorkflowRun run, long seq) => run.CurrentSeq == seq && run.Status == WorkflowStatus.Running;
 
     /// <inheritdoc />
     /// <remarks>

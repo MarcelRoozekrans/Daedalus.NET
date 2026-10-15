@@ -246,10 +246,10 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.ReviewEvidenceKind, ct),
             await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.ReviewResponseKind, ct));
         IReadOnlyList<IdentifiedDeferredFinding> deferred = review.IsSuccess ? ReviewVisit.DeferredOf(review.Value) : [];
+        // The latest visit's lenses, from the same history as ReviewVisits, so the two cannot map a lens two ways. Empty when
+        // the latest visit cannot be read, as before: DeferredFindingsError says so.
         IReadOnlyList<LensCheckedView> checkedItems = review.IsSuccess && review.Value is { } visit
-            ? [.. visit.Lenses.Select(l => new LensCheckedView(l.Lens, l.Checked, string.Equals(l.Lens, visit.RejectedLens, StringComparison.Ordinal)
-                ? [.. visit.Findings.Select(f => new ReviewFindingView(f.File, f.Line, f.Scenario))]
-                : []))]
+            ? reviewVisits.FirstOrDefault(v => v.Seq == visit.Seq)?.Lenses ?? []
             : [];
         var drops = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDroppedKind, ct);
         var voids = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDropVoidedKind, ct);
