@@ -74,7 +74,7 @@ public sealed class WorkflowRunViewFailureReasonTests
         var tasks = Substitute.For<ITaskQueryService>();
         tasks.GetRunLinksAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, TaskRunLink>());
 
-        var response = await ControllerFor(run, events, evidence).List(null, null, null, null, query, tasks, CancellationToken.None);
+        var response = await ControllerFor(run, events, evidence).List(null, null, null, null, null, null, query, tasks, CancellationToken.None);
 
         return response.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeOfType<WorkflowRunList>().Which.Runs.Should().ContainSingle().Subject;
     }

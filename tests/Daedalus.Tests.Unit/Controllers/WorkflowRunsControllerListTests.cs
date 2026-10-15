@@ -93,5 +93,5 @@ public sealed class WorkflowRunsControllerListTests
     }
 
     private Task<IActionResult> ListAsync(string? status = null, string? process = null, int? take = null) =>
-        _controller.List(status, process, after: null, take, _query, _tasks, CancellationToken.None);
+        _controller.List(status, process, after: null, take, signal: null, updatedSince: null, _query, _tasks, CancellationToken.None);
 }

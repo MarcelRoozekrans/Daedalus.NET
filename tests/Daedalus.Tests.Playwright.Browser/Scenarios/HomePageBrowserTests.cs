@@ -31,14 +31,33 @@ public class HomePageBrowserTests : BrowserTestBase
         _home = new HomePage(Page, BaseUrl);
     }
 
-    /// <summary>Answers the run list for <paramref name="status"/>, or the unfiltered list when null, with <paramref name="fulfil"/>.</summary>
-    private Task RouteRunListAsync(string? status, Func<IRoute, Task> fulfil) =>
+    /// <summary>Answers the run list whose query contains <paramref name="filter"/>, such as <c>status=Failed</c>, with <paramref name="fulfil"/>.</summary>
+    private Task RouteRunListAsync(string filter, Func<IRoute, Task> fulfil) =>
         Page.RouteAsync(
-            url => url.Contains("/api/workflow-runs?", StringComparison.Ordinal)
-                   && (status is null
-                       ? !url.Contains("status=", StringComparison.Ordinal)
-                       : url.Contains($"status={status}", StringComparison.Ordinal)),
+            url => url.Contains("/api/workflow-runs?", StringComparison.Ordinal) && url.Contains(filter, StringComparison.Ordinal),
             fulfil);
+
+    /// <summary>A page of one run with no pull request, and a cursor saying the list has more.</summary>
+    private static Task OneRunAndMoreAsync(IRoute route) =>
+        route.FulfillAsync(new RouteFulfillOptions
+        {
+            Status = 200,
+            ContentType = "application/json",
+            Body = JsonSerializer.Serialize(new
+            {
+                runs = new[]
+                {
+                    new
+                    {
+                        id = Guid.NewGuid(), process = "manufacture", processVersion = 1, status = "Running", currentNode = "implement",
+                        awaitingSignal = (string?)null, startedBy = "e2e", createdAt = DateTimeOffset.UtcNow, updatedAt = DateTimeOffset.UtcNow,
+                        taskId = (Guid?)null, taskCode = (string?)null, taskTitle = "A faked run", startedByName = (string?)null,
+                        failureReason = (string?)null, prUrl = (string?)null,
+                    },
+                },
+                next = "more",
+            }),
+        });
 
     private static Task EmptyAsync(IRoute route) =>
         route.FulfillAsync(new RouteFulfillOptions { Status = 200, ContentType = "application/json", Body = EmptyList });
@@ -50,6 +69,7 @@ public class HomePageBrowserTests : BrowserTestBase
     ///     Red: the row leaves out the time it has waited; "waiting" is missing.
     ///     Red: Open gate links to <c>runs</c> without the id; the href is not the run's.
     ///     Red: the heading has no count; the heading does not read "Awaiting approval (n)".
+    ///     Red: the heading always appends "+"; a complete list's exact count reads "(n+)".
     /// </summary>
     [Test]
     [Description("Home lists a run awaiting approval with an Open gate link")]
@@ -62,7 +82,7 @@ public class HomePageBrowserTests : BrowserTestBase
         await Expect(row).ToContainTextAsync(new Regex(@"waiting (less than a minute|\d+ (min|h|d))")).ConfigureAwait(false);
         var gate = row.GetByRole(AriaRole.Link, new LocatorGetByRoleOptions { Name = "Open gate" });
         await Expect(gate).ToHaveAttributeAsync("href", $"runs/{Runs.AwaitingApproval}").ConfigureAwait(false);
-        await Expect(_home.CardHeading(HomePage.Awaiting)).ToHaveTextAsync(new Regex(@"^\s*Awaiting approval \(\d+\+?\)\s*$"))
+        await Expect(_home.CardHeading(HomePage.Awaiting)).ToHaveTextAsync(new Regex(@"^\s*Awaiting approval \(\d+\)\s*$"))
             .ConfigureAwait(false);
     }
 
@@ -120,6 +140,7 @@ public class HomePageBrowserTests : BrowserTestBase
     ///     Red: the running card's empty text is the awaiting card's; it does not say nothing is running.
     ///     Red: the failed card's empty text says "No runs."; it does not name the last 7 days.
     ///     Red: the pull requests card's empty text is left out; its line is missing.
+    ///     Red: the pull requests card always says "in the latest 20 runs"; a complete empty list does not read "yet".
     ///     Red: the count shows only when there are rows; the heading is not "Awaiting approval (0)".
     /// </summary>
     [Test]
@@ -149,7 +170,7 @@ public class HomePageBrowserTests : BrowserTestBase
     public async Task A_card_that_cannot_load_says_why_and_retries_on_its_own()
     {
         var refused = false;
-        await RouteRunListAsync("Failed", async route =>
+        await RouteRunListAsync("status=Failed", async route =>
         {
             if (!refused)
             {
@@ -175,6 +196,25 @@ public class HomePageBrowserTests : BrowserTestBase
         await Expect(_home.Row(HomePage.Failed, Runs.Failed.ToString()[..8])).ToContainTextAsync("The publish step failed.")
             .ConfigureAwait(false);
         await Expect(error).ToHaveCountAsync(0).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     A list that says it has more than the page Home read is shown as incomplete: the count reads "n+", and a pull
+    ///     requests card that found none says only the latest runs had none, not that there are none. The running and the
+    ///     pull requests lists are answered by the test with one run and a cursor.
+    ///     Red: the heading ignores More; it reads "Running (1)".
+    ///     Red: the pull requests card always says "No pull requests yet."; the incomplete line is missing.
+    /// </summary>
+    [Test]
+    [Description("An incomplete list says so")]
+    public async Task An_incomplete_list_says_so()
+    {
+        await RouteRunListAsync("status=Running", OneRunAndMoreAsync).ConfigureAwait(false);
+        await RouteRunListAsync("process=manufacture", OneRunAndMoreAsync).ConfigureAwait(false);
+        await _home.NavigateAsync().ConfigureAwait(false);
+
+        await Expect(_home.CardHeading(HomePage.Running)).ToHaveTextAsync(new Regex(@"^\s*Running \(1\+\)\s*$")).ConfigureAwait(false);
+        await Expect(_home.Empty(HomePage.PullRequests)).ToHaveTextAsync("No pull requests in the latest 20 runs.").ConfigureAwait(false);
     }
 
     /// <summary>
@@ -255,7 +295,13 @@ public class HomePageBrowserTests : BrowserTestBase
         running.Y.Should().BeApproximately(awaiting.Y, 1, "on a desktop running sits beside awaiting");
 
         await Page.SetViewportSizeAsync(1024, 900).ConfigureAwait(false);
-        await Page.WaitForTimeoutAsync(300).ConfigureAwait(false);
+        // The layout has settled once the running card sits in the awaiting card's column and the sidebar, which
+        // collapses below 1280px, has finished its transition, which moves the content column.
+        await Page.WaitForFunctionAsync(
+                "() => Math.abs(document.querySelector(\"[data-testid='needs-me-running']\").getBoundingClientRect().left"
+                + " - document.querySelector(\"[data-testid='needs-me-awaiting']\").getBoundingClientRect().left) < 1"
+                + " && document.getAnimations().every(a => !(a instanceof CSSTransition))")
+            .ConfigureAwait(false);
         var boxes = new List<LocatorBoundingBoxResult>();
         foreach (var card in new[] { HomePage.Awaiting, HomePage.Running, HomePage.Failed, HomePage.PullRequests })
         {
