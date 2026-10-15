@@ -75,6 +75,13 @@
     }
 
     <RadzenBody>
+        @* While the content is hidden, the page says it is loading rather than show nothing. *@
+        @if (_chrome == Chrome.Unknown)
+        {
+            <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" Size="ProgressBarCircularSize.Small"
+                                       AriaLabel="Loading"
+                                       Style="position: absolute; top: 1.5rem; left: 50%; transform: translateX(-50%);"/>
+        }
         @* The content shows once the chrome is known. Before that it could paint at the left edge and then jump right by
            the sidebar's width when a signed-in chrome arrives. It is hidden, not left out, so the page under it keeps
            its state and its loads. *@
