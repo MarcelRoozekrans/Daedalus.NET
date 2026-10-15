@@ -82,10 +82,10 @@ A task on the board becomes work only when a person starts a manufacture run for
    task is created but the start is refused, the Tasks page says why, using the `detail` of the API's problem. A refused
    `POST /api/tasks` answers `application/problem+json`, so its reason is in `detail`.
 2. **Press Manufacture** on the Tasks page (or use Create and manufacture), or call
-   `POST /api/tasks/{id}/manufacture`. It needs the `developer` or `admin` role (the `WorkflowResume` policy, as `POST /api/workflow-runs`). The run's work intent is the task's title,
-   a blank line, then its description. The answer is `201` with `{ "runId": "..." }`; the run id is attached to the task.
-   Starting again later replaces it, and earlier runs stay in the workflow run history. Every precondition is checked
-   before the run starts:
+   `POST /api/tasks/{id}/manufacture`. It needs the `developer` or `admin` role (the `WorkflowResume` policy, as
+   `POST /api/workflow-runs`). The run's work intent is the task's title, a blank line, then its description. The answer
+   is `201` with `{ "runId": "..." }`; the run id is attached to the task. Starting again later replaces it, and earlier
+   runs stay in the workflow run history. Every precondition is checked before the run starts:
 
    | Status | When |
    |---|---|
@@ -149,7 +149,8 @@ Executions page: the retired loop's iterations are history on Costs.
 - **Home** (signed in) shows four cards: runs awaiting approval, running runs, runs that failed in the last 7 days, and
   recent pull requests. **New task** opens the create dialog.
 - **Tasks** lists a task's project, status, pull request, and on screens 1280px or wider its priority and when it was
-  created. The status links to the task's run.
+  created. The grid shows Created, not Updated, because no "last updated" time exists yet (issue #373). The status links
+  to the task's run.
 - **Runs** lists the runs, and each run's page is described in step 4 above.
 
 ### Per-node model and tool selection
