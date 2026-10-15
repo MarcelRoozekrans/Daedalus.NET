@@ -79,6 +79,17 @@ namespace Daedalus.Agents.Workflow;
 ///     <c>node-usage</c> record through <see cref="NodeUsageRecorder"/>. The null-run pass-through and the key-cap
 ///     failure write none. Usage is not a variable, so a review node, whose variables are dropped, still records it.
 ///     </para>
+///     <para>
+///     <b>A fourth job, since phase 2.10 task B11:</b> every string value in the bag <see cref="FindAsync"/> hands the
+///     dispatcher, on every node, has its framing tags neutralised through <see cref="FramingTags"/>. Thalos' variable
+///     rendering escapes only its own <c>workflow-variables</c> tag, so an agent-written value such as
+///     <c>files_touched</c>, or a board task's own text in <c>work_intent</c>, would otherwise render a forged
+///     <c>&lt;work-intent&gt;</c>, <c>&lt;review-findings&gt;</c> or <c>&lt;standing-instructions&gt;</c> block, or an
+///     engine <c>&lt;skill&gt;</c> block, ahead of the real one. A value that is not a string needs nothing: Thalos
+///     renders it through <c>JsonSerializer</c>, whose default encoder writes <c>&lt;</c> as <c>\u003C</c>. As with
+///     the projection, only the dispatcher's copy changes: the stored bag, and every undecorated reader of it, keeps the
+///     text as written.
+///     </para>
 /// </remarks>
 internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessDefinitionStore definitions, NodeUsageRecorder usage)
     : DelegatingWorkflowStore(inner)
@@ -111,9 +122,23 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
         }
 
         var reads = await ProjectionForAsync(run, ct).ConfigureAwait(false);
-        return reads is not null
-            ? run with { Variables = ReviewHandoff.Project(run.Variables, reads) }
-            : run;
+        var variables = reads is not null ? ReviewHandoff.Project(run.Variables, reads) : run.Variables;
+        return run with { Variables = NeutraliseFramingTags(variables) };
+    }
+
+    /// <summary>
+    ///     A copy of <paramref name="variables"/> with every string value run through <see cref="FramingTags.Neutralise"/>.
+    ///     See this type's remarks, "A fourth job". The stored bag is never touched: this is the copy the dispatcher renders.
+    /// </summary>
+    private static Dictionary<string, object?> NeutraliseFramingTags(IReadOnlyDictionary<string, object?> variables)
+    {
+        var copy = new Dictionary<string, object?>(variables.Count, StringComparer.Ordinal);
+        foreach (var (key, value) in variables)
+        {
+            copy[key] = value is string text ? FramingTags.Neutralise(text) : value;
+        }
+
+        return copy;
     }
 
     /// <inheritdoc />

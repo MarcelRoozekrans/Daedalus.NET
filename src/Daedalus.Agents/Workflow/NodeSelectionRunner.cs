@@ -229,13 +229,15 @@ internal sealed partial class NodeSelectionRunner(
 
     /// <summary>
     ///     The run's work intent for the decision state: the pinned <see cref="ManufactureRunStarter.WorkIntentDocument"/>
-    ///     document at full length, or the <c>work_intent</c> variable when the run pins none. Task B11: the document is the
+    ///     document at full length, or the <c>work_intent</c> variable when the run pins none or a blank one, as
+    ///     <see cref="WorkIntentRunner"/> treats a blank document as absent. Task B11: the document is the
     ///     intent as written, the one <see cref="WorkIntentRunner"/> hands the node, so the decision weighs the same text the
     ///     node is given. The decider cuts it at its own <see cref="NodeSelectionDecider.MaxIntentCharacters"/>.
     /// </summary>
     private static string IntentOf(WorkflowRun run)
     {
-        if (run.Manifest?.Documents.TryGetValue(ManufactureRunStarter.WorkIntentDocument, out var document) == true)
+        if (run.Manifest?.Documents.TryGetValue(ManufactureRunStarter.WorkIntentDocument, out var document) == true
+            && !string.IsNullOrWhiteSpace(document))
             return document;
 
         return run.Variables.TryGetValue(ReviewHandoff.WorkIntentKey, out var intent) && intent is string text ? text : "";
