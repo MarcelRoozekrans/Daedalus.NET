@@ -107,8 +107,7 @@ else
                     <RadzenDataGridColumn TItem="TaskDto" Property="Status" Title="Status" Width="110px"
                                           TextAlign="TextAlign.Center">
                         <Template Context="task">
-                            <RadzenBadge Text="@TaskStatusLabels.Name(task.Status)"
-                                         BadgeStyle="@TaskStatusLabels.Style(task.Status)"/>
+                            <RunStatusBadge Status="@TaskStatusLabels.BadgeStatus(task)" AwaitingSignal="@task.AwaitingSignal"/>
                         </Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="TaskDto" Title="Iterations" Width="100px" TextAlign="TextAlign.Center">

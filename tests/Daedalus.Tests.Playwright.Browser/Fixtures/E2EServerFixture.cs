@@ -609,7 +609,7 @@ public class E2EServerFixture
 
             // A second project with a repository URL, so the create dialog's picker shows a repository beside a name. The
             // URL is on no allow-list, so a manufacture of its tasks is refused. TASK-004 carries the seeded Succeeded
-            // run (RunSeeds), so the Tasks grid shows that run's pull request.
+            // run (RunSeeds), so the Tasks grid shows that run's pull request; TASK-005 carries the parked run.
             var widgetsResult = Project.Create(
                 Guid.NewGuid(), RunSeeds.RepositoryProjectName, "A project with a repository", repositoryUrl: RunSeeds.RepositoryProjectUrl);
             if (widgetsResult.IsSuccess)
@@ -623,6 +623,18 @@ public class E2EServerFixture
                 if (shipResult.IsSuccess)
                 {
                     widgetsResult.Value.AddTask(shipResult.Value);
+                }
+
+                // TASK-005 carries the seeded run parked at the human gate, so its badge reads as the Runs page's.
+                var approveResult = Domain.Entities.Task.Create(
+                    Guid.NewGuid(), widgetsResult.Value.Id, RunSeeds.AwaitingTaskId, RunSeeds.AwaitingTaskTitle,
+                    "A task whose run awaits approval",
+                    Priority.Medium, "Backend", 1,
+                    Complexity.Low,
+                    "Approve the widget");
+                if (approveResult.IsSuccess)
+                {
+                    widgetsResult.Value.AddTask(approveResult.Value);
                 }
 
                 dbContext.Projects.Add(widgetsResult.Value);

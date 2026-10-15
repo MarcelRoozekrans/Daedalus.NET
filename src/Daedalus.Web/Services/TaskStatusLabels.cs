@@ -1,34 +1,23 @@
-using Radzen;
-
 namespace Daedalus.Web.Services;
 
 /// <summary>
-///     Labels for a task's status, shared by every page that shows one. 5 and 6 are derived from the task's manufacture run
-///     and never stored (phase 2.8).
+///     What the Web decides from a task's status, shared by every page that shows one. A task's badge is its run's, through
+///     <see cref="RunStatusLabels"/>; the derived <c>Status</c>, where 5 and 6 come from the run and are never stored
+///     (phase 2.8), decides what the task offers.
 /// </summary>
 public static class TaskStatusLabels
 {
-    public static string Name(int status) => status switch
-    {
-        0 => "Pending",
-        1 => "In Progress",
-        2 => "Completed",
-        3 => "Failed",
-        4 => "Abandoned",
-        5 => "Awaiting Approval",
-        6 => "Cancelled",
-        _ => "Unknown",
-    };
+    /// <summary>
+    ///     The badge status of a task with no run: it has not been started. It is no run status, so
+    ///     <see cref="RunStatusLabels"/> shows it as itself, muted.
+    /// </summary>
+    public const string NotStarted = "Pending";
 
-    public static BadgeStyle Style(int status) => status switch
-    {
-        0 => BadgeStyle.Warning,
-        1 => BadgeStyle.Info,
-        2 => BadgeStyle.Success,
-        3 => BadgeStyle.Danger,
-        5 => BadgeStyle.Primary,
-        _ => BadgeStyle.Light,
-    };
+    /// <summary>
+    ///     The status a task's badge shows: its run's, mapped by <see cref="RunStatusLabels"/> exactly as the Runs page
+    ///     maps it, or <see cref="NotStarted"/> for a task with no run.
+    /// </summary>
+    public static string BadgeStatus(TaskDto task) => task.RunStatus ?? NotStarted;
 
     /// <summary>
     ///     Whether the task can be edited: not while a run is live, and not once the task completed. A task whose run
@@ -65,25 +54,5 @@ public static class TaskStatusLabels
 
         var last = url.AbsolutePath.TrimEnd('/').Split('/')[^1];
         return last.Length > 0 && last.All(char.IsAsciiDigit) ? $"#{last}" : "Pull request";
-    }
-
-    /// <summary>
-    ///     When the task last changed, as far as the task records it: the newest of when it was created, completed and
-    ///     when its learnings were updated. A task stores no modified time of its own.
-    /// </summary>
-    public static DateTime LastChanged(TaskDto task)
-    {
-        var last = task.CreatedAt;
-        if (task.CompletedAt is { } completed && completed > last)
-        {
-            last = completed;
-        }
-
-        if (task.LearningsUpdatedAt is { } learnings && learnings > last)
-        {
-            last = learnings;
-        }
-
-        return last;
     }
 }

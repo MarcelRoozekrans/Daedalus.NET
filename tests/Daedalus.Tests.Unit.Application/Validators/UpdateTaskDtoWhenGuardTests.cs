@@ -9,7 +9,7 @@ namespace Daedalus.Tests.Unit.Application.Validators;
 ///     range excludes zero, so an omitted value coerced to <c>0</c> fails <c>GreaterThanOrEqualTo(1)</c>.
 ///     It cannot prove the same for <see cref="UpdateTaskDto.Priority"/> or
 ///     <see cref="UpdateTaskDto.EstimatedComplexity"/> — both ranges are <c>InclusiveBetween(0, n)</c>, so a
-///     coerced <c>0</c> is a valid value (0 = Critical priority, 0 = Simple complexity) and is
+///     coerced <c>0</c> is a valid value (0 = Low priority, 0 = Low complexity) and is
 ///     indistinguishable, by status code, from a genuine <c>0</c>. Removing either guard changes nothing an HTTP
 ///     assertion can see.
 ///     This test closes that structural gap by asserting the wiring directly: each of the three properties'

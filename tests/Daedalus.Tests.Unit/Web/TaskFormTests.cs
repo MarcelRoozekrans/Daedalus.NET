@@ -52,15 +52,15 @@ public sealed class TaskFormTests
     public void An_edit_keeps_the_loop_fields_and_uses_the_description_for_a_blank_prompt()
     {
         var task = new TaskDto(Guid.NewGuid(), "T-1", Guid.NewGuid(), "t", "d", 1, "build", 2, [], [], 1, "old", "", 0, 0,
-            null, null, 0, DateTime.UnixEpoch, null, null, null, [], null, null);
+            null, null, 0, DateTime.UnixEpoch, null, null, null, [], null, null, null, null);
         var form = TaskForm.From(task);
         form.Description = "new description";
         form.Prompt = "";
-        form.EstimatedComplexity = 3;
+        form.EstimatedComplexity = 2;
 
         var dto = form.ToUpdate(task);
 
-        dto.Should().BeEquivalentTo(new UpdateTaskDto("t", "new description", null, null, null, 3, "new description"));
+        dto.Should().BeEquivalentTo(new UpdateTaskDto("t", "new description", null, null, null, 2, "new description"));
     }
 
     private static ProjectDto Project() => new(Guid.NewGuid(), "p", "", "1.0", null, DateTime.UnixEpoch, null, []);

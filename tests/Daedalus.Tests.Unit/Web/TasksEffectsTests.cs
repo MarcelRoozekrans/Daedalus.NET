@@ -12,6 +12,7 @@ namespace Daedalus.Tests.Unit.Web;
 public sealed class TasksEffectsTests : IDisposable
 {
     private const string ListPath = "/api/tasks?page=1&pageSize=200";
+    private const string ProjectsPath = "/api/projects?page=1&pageSize=200";
 
     private readonly RecordingHandler _handler = new();
     private readonly ServiceProvider _provider = new ServiceCollection().AddZeroAllocFlux().BuildServiceProvider();
@@ -104,7 +105,7 @@ public sealed class TasksEffectsTests : IDisposable
         await _effects.LoadAsync(CancellationToken.None);
         _handler.Requests.Clear();
         await _effects.RefreshAsync(CancellationToken.None);
-        _handler.Paths.Should().Equal(ListPath);
+        _handler.Paths.Should().Equal(ListPath, ProjectsPath);
     }
 
     /// <summary>
@@ -224,8 +225,9 @@ public sealed class TasksEffectsTests : IDisposable
     public async Task Loading_the_projects_names_each_by_its_id()
     {
         var id = Guid.NewGuid();
-        _handler.OnJson("/api/projects?page=1&pageSize=200",
-            RunViews.Json(new PagedResultDto<ProjectDto>([new ProjectDto(id, "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, [])], 1, 1, 200)));
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)))
+            .OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([new ProjectDto(id, "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, [])], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
 
         await _effects.LoadProjectsAsync(CancellationToken.None);
 
@@ -233,23 +235,63 @@ public sealed class TasksEffectsTests : IDisposable
     }
 
     /// <summary>
-    ///     A failed projects load is the board's error, as a failed board load is. The board itself loads, so the error is
-    ///     the projects'.
-    ///     Red: dispatch nothing on a failure; the error stays null.
+    ///     A failed projects load is the projects' error, and the board's own error stays clear.
+    ///     Red: dispatch nothing on a failure; the projects error stays null.
+    ///     Red: also dispatch TasksLoadFailed, as before; the board error is set.
     /// </summary>
     [Fact]
-    public async Task A_failed_projects_load_is_the_boards_error()
+    public async Task A_failed_projects_load_is_the_projects_error()
     {
         _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)));
         await _effects.LoadAsync(CancellationToken.None);
-        _store.Value.Error.Should().BeNull("the board loaded");
 
         await _effects.LoadProjectsAsync(CancellationToken.None);
 
-        _store.Value.Error.Should().NotBeNull();
+        _store.Value.ProjectsError.Should().NotBeNull();
+        _store.Value.Error.Should().BeNull("the board itself loaded");
     }
+
+    /// <summary>
+    ///     A refresh re-fetches the projects with the board.
+    ///     Red: drop LoadProjectsAsync from RefreshAsync; the projects path is not requested.
+    /// </summary>
+    [Fact]
+    public async Task A_refresh_re_fetches_the_projects()
+    {
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        _handler.Requests.Clear();
+
+        await _effects.RefreshAsync(CancellationToken.None);
+
+        _handler.Paths.Should().Contain(ProjectsPath);
+    }
+
+    /// <summary>
+    ///     Leaving the page drops the projects with the board, and projects that land afterwards are ignored.
+    ///     Red: leave Projects out of the TasksClosed reducer; they are still there.
+    ///     Red: drop the LoadRequested guard from TaskProjectsLoaded; the late projects land.
+    /// </summary>
+    [Fact]
+    public async Task Leaving_the_page_drops_the_projects()
+    {
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)))
+            .OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project()], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        await _effects.LoadProjectsAsync(CancellationToken.None);
+        var dispatcher = _provider.GetRequiredService<IDispatcher>();
+
+        await dispatcher.DispatchAsync(new TasksClosed());
+        _store.Value.Projects.Should().BeNull();
+        _store.Value.ProjectNames.Should().BeEmpty();
+
+        await dispatcher.DispatchAsync(new TaskProjectsLoaded([Project()]));
+        _store.Value.Projects.Should().BeNull("projects landing after the page closed are ignored");
+    }
+
+    private static ProjectDto Project() => new(Guid.NewGuid(), "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, []);
 
     private static TaskDto Board(Guid id, Guid? runId, string title) =>
         new(id, "T-1", Guid.NewGuid(), title, "", 1, "build", 0, [], [], 1, "", "", 1, 0, null, null, 0,
-            DateTime.UnixEpoch, null, null, null, [], runId, null);
+            DateTime.UnixEpoch, null, null, null, [], runId, null, runId is null ? null : "Running", null);
 }

@@ -10,7 +10,7 @@ public sealed class WorkflowRunStatusReaderTests
 {
     private readonly IWorkflowStore _store = Substitute.For<IWorkflowStore>();
 
-    private WorkflowRun Given(WorkflowStatus status, string? prUrl = null)
+    private WorkflowRun Given(WorkflowStatus status, string? prUrl = null, string? awaitingSignal = null)
     {
         var variables = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (prUrl is not null)
@@ -26,6 +26,7 @@ public sealed class WorkflowRunStatusReaderTests
             CurrentNode = "implement",
             CurrentSeq = 1,
             Status = status,
+            AwaitingSignal = awaitingSignal,
             Visits = new Dictionary<string, int>(StringComparer.Ordinal),
             Variables = variables,
         };
@@ -45,6 +46,18 @@ public sealed class WorkflowRunStatusReaderTests
         var run = Given(status);
 
         (await new WorkflowRunStatusReader(_store).ReadAsync(run.Id, CancellationToken.None)).State.Should().Be(expected);
+    }
+
+    /// <summary>
+    ///     A parked run's signal is carried, so a task's badge names what its run waits for, as the Runs page does.
+    ///     Red: construct the status without the run's AwaitingSignal; the signal is null.
+    /// </summary>
+    [Fact]
+    public async Task A_parked_run_carries_its_awaiting_signal()
+    {
+        var run = Given(WorkflowStatus.Awaiting, awaitingSignal: "human_approval");
+
+        (await new WorkflowRunStatusReader(_store).ReadAsync(run.Id, CancellationToken.None)).AwaitingSignal.Should().Be("human_approval");
     }
 
     /// <summary>Red: return <c>Running</c> for a missing run; the state is not <c>Unknown</c>.</summary>

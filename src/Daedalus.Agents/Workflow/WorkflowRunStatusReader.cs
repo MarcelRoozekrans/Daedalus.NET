@@ -24,6 +24,6 @@ internal sealed class WorkflowRunStatusReader(IWorkflowStore store) : IWorkflowR
             WorkflowStatus.Cancelled => WorkflowRunState.Cancelled,
             _ => WorkflowRunState.Unknown,
         };
-        return new WorkflowRunStatus(state, PullRequestLink.Read(run).Link);
+        return new WorkflowRunStatus(state, PullRequestLink.Read(run).Link, run.AwaitingSignal);
     }
 }
