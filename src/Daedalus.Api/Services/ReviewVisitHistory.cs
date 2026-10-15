@@ -24,8 +24,13 @@ namespace Daedalus.Api.Services;
 ///     implement visit recorded nothing reads as none recorded rather than borrowing it. An approval has no answer.
 ///     </para>
 ///     <para>
-///     <b>A record that cannot be read is reported, not dropped silently.</b> It is left out, the readable records around it are
-///     still listed, and the error names its seq, as <c>NodeSelectionsError</c> does.
+///     <b>A record that cannot be read never reads as a verdict.</b> A visit with any unreadable record has the verdict
+///     <see cref="Unreadable"/>, even when a readable lens rejected, because the full set of its lenses is unknown: the
+///     unreadable one may have been the rejecting lens, or the first of several. Its readable lenses are still listed, a
+///     visit whose records are all unreadable is listed with none, and it is paired with the next implement answer as a
+///     rejection is, since a run that went back to implement after it did so on a rejection. Its
+///     <see cref="ReviewVisitView.RejectingLens"/> is <see langword="null"/>: which lens rejected first is what is unknown.
+///     The error names each unreadable record's seq, as <c>NodeSelectionsError</c> does.
 ///     </para>
 /// </remarks>
 internal static class ReviewVisitHistory
@@ -35,6 +40,9 @@ internal static class ReviewVisitHistory
 
     /// <summary>The verdict of a visit a lens rejected.</summary>
     internal const string Rejected = "Rejected";
+
+    /// <summary>The verdict of a visit with a record that cannot be read.</summary>
+    internal const string Unreadable = "Unreadable";
 
     /// <summary>
     ///     The visits, newest first, and which records could not be read, or <see langword="null"/> when every record could.
@@ -58,24 +66,21 @@ internal static class ReviewVisitHistory
         var visits = new List<ReviewVisitView>(groups.Count);
         for (var i = groups.Count - 1; i >= 0; i--)
         {
+            var unreadableBefore = unreadableEvidence.Count;
             var lenses = ReadLenses(groups[i], unreadableEvidence);
-            if (lenses.Count == 0)
-            {
-                continue;
-            }
-
+            var complete = unreadableEvidence.Count == unreadableBefore;
             var seq = groups[i].Key;
-            var rejecting = lenses.Find(l => !l.Approved);
+            var rejecting = complete ? lenses.Find(l => !l.Approved) : null;
+            var verdict = Verdict(complete, rejecting);
             var nextReview = i + 1 < reviewSeqs.Count ? reviewSeqs[i + 1] : long.MaxValue;
             visits.Add(new ReviewVisitView(
                 seq,
-                rejecting is null ? Approved : Rejected,
+                verdict,
                 rejecting?.Lens,
                 [.. lenses.Select(ToView)],
-                rejecting is null ? null : AnswerBetween(answers, seq, nextReview)));
+                string.Equals(verdict, Approved, StringComparison.Ordinal) ? null : AnswerBetween(answers, seq, nextReview)));
         }
 
-        unreadableEvidence.Sort();
         var errors = new[] { Describe("review-evidence", unreadableEvidence), Describe("review-response", unreadableResponses) }
             .OfType<string>()
             .ToList();
@@ -148,9 +153,20 @@ internal static class ReviewVisitHistory
     private static LensCheckedView ToView(ReviewLensEvidence lens) =>
         new(lens.Lens, lens.Checked, [.. lens.Findings.Select(f => new ReviewFindingView(f.File, f.Line, f.Scenario))]);
 
+    private static string Verdict(bool complete, ReviewLensEvidence? rejecting)
+    {
+        if (!complete)
+        {
+            return Unreadable;
+        }
+
+        return rejecting is null ? Approved : Rejected;
+    }
+
+    /// <summary>How many records of <paramref name="kind"/> could not be read, and at which seqs, each named once.</summary>
     private static string? Describe(string kind, List<long> seqs) =>
         seqs.Count == 0
             ? null
             : $"{seqs.Count.ToString(CultureInfo.InvariantCulture)} {kind} record(s) could not be read, at seq " +
-                $"{string.Join(", ", seqs.Select(s => s.ToString(CultureInfo.InvariantCulture)))}.";
+                $"{string.Join(", ", seqs.Distinct().Order().Select(s => s.ToString(CultureInfo.InvariantCulture)))}.";
 }

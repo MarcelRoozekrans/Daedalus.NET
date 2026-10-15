@@ -63,7 +63,8 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 ///     cancellation.
 /// </param>
 /// <param name="Checked">
-///     Each lens's <c>checked[]</c> from the latest review visit, approving or rejecting; empty before review has run,
+///     Each lens of the latest review visit as <paramref name="ReviewVisits"/> lists it, with its <c>checked[]</c> and its
+///     findings, approving or rejecting; empty before review has run,
 ///     and when the review records cannot be read, which <paramref name="DeferredFindingsError"/> says.
 /// </param>
 /// <param name="NodeSelections">
@@ -112,12 +113,19 @@ public sealed record WorkflowRunView(
 
 /// <summary>One review visit of a run, as its <c>review-evidence</c> records hold it.</summary>
 /// <param name="Seq">The seq of the review visit.</param>
-/// <param name="Verdict"><c>Rejected</c> when any lens rejected, otherwise <c>Approved</c>.</param>
-/// <param name="RejectingLens">The first lens that rejected, or <see langword="null"/> on an approval.</param>
-/// <param name="Lenses">Each lens the visit ran, in the order it ran, with what it checked and the findings it reported.</param>
+/// <param name="Verdict">
+///     <c>Unreadable</c> when any of the visit's records cannot be read, since its full set of lenses is then unknown; otherwise
+///     <c>Rejected</c> when any lens rejected, and <c>Approved</c> when none did.
+/// </param>
+/// <param name="RejectingLens">The first lens that rejected on a <c>Rejected</c> visit; otherwise <see langword="null"/>.</param>
+/// <param name="Lenses">
+///     Each readable lens the visit ran, in the order it ran, with what it checked and the findings it reported; empty when no
+///     record of the visit can be read.
+/// </param>
 /// <param name="ReviewResponse">
-///     On a rejected visit, the <c>review_response</c> implement reported on the next implement visit, the one the rejection
-///     sent the run back to; <see langword="null"/> when that visit recorded none, when it has not run yet, and on an approval.
+///     On a <c>Rejected</c> or <c>Unreadable</c> visit, the <c>review_response</c> implement reported on the next implement
+///     visit, the one the rejection sent the run back to; <see langword="null"/> when that visit recorded none, when it has not
+///     run yet, and on an approval.
 ///     Shown to the operator only: the reviewer's own dispatch never carries it.
 /// </param>
 public sealed record ReviewVisitView(long Seq, string Verdict, string? RejectingLens, IReadOnlyList<LensCheckedView> Lenses, string? ReviewResponse);

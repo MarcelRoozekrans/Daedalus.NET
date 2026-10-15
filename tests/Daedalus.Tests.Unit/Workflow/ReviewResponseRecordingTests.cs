@@ -16,14 +16,14 @@ public sealed class ReviewResponseRecordingTests
 
     private const string Response = """["addressed: src/A.cs:12 - added the missing case check"]""";
 
-    private static WorkflowRun RunAt(string node) => new()
+    private static WorkflowRun RunAt(string node, long currentSeq = ImplementSeq, WorkflowStatus status = WorkflowStatus.Running) => new()
     {
         Id = Guid.NewGuid(),
         Process = "manufacture",
         ProcessVersion = 6,
         CurrentNode = node,
-        CurrentSeq = ImplementSeq,
-        Status = WorkflowStatus.Running,
+        CurrentSeq = currentSeq,
+        Status = status,
         Visits = new Dictionary<string, int>(StringComparer.Ordinal) { [node] = 2 },
         Variables = new Dictionary<string, object?>(StringComparer.Ordinal),
         StartedBy = new RunPrincipal("starter-1", ["developer"]),
@@ -94,12 +94,15 @@ public sealed class ReviewResponseRecordingTests
     ///     An implement visit with no response, a null one, or a review node that reports one (the authorship rule strips it)
     ///     records nothing.
     ///     Red: record whenever the key is present, ignoring IsResponse, and the null and json-null rows fail.
+    ///     Red: drop the string and array length checks from IsResponse, and the empty-string and empty-array rows fail.
     ///     Red: record off the raw result instead of the authored one, and the review row fails.
     /// </summary>
     [Theory]
     [InlineData("implement", "absent")]
     [InlineData("implement", "null")]
     [InlineData("implement", "json-null")]
+    [InlineData("implement", "empty-string")]
+    [InlineData("implement", "empty-array")]
     [InlineData("review", "response")]
     public async Task An_implement_visit_without_a_response_records_nothing(string node, string reported)
     {
@@ -114,6 +117,12 @@ public sealed class ReviewResponseRecordingTests
             case "json-null":
                 report[ReviewHandoff.ReviewResponseKey] = JsonDocument.Parse("null").RootElement.Clone();
                 break;
+            case "empty-string":
+                report[ReviewHandoff.ReviewResponseKey] = JsonDocument.Parse("\"\"").RootElement.Clone();
+                break;
+            case "empty-array":
+                report[ReviewHandoff.ReviewResponseKey] = JsonDocument.Parse("[]").RootElement.Clone();
+                break;
             case "response":
                 report[ReviewHandoff.ReviewResponseKey] = ReportedResponse();
                 break;
@@ -123,6 +132,27 @@ public sealed class ReviewResponseRecordingTests
 
         appended.Should().BeEmpty();
         inner.Completed.Should().NotBeNull();
+    }
+
+    /// <summary>
+    ///     A completion the inner store would refuse records nothing: one whose seq is behind the run's, as a lost-lease
+    ///     delivery that finishes after its redelivery is, and one for a run no longer Running. Otherwise its answer would be
+    ///     the last record at that seq, the one the run view shows, though the run never accepted it.
+    ///     Red: drop the IsAcceptable check from CompleteNodeAsync, and both rows append a record.
+    ///     Red: drop the seq comparison from IsAcceptable, and the stale row appends one.
+    ///     Red: drop the status comparison from IsAcceptable, and the failed-run row appends one.
+    /// </summary>
+    [Theory]
+    [InlineData(ImplementSeq + 1, WorkflowStatus.Running)]
+    [InlineData(ImplementSeq, WorkflowStatus.Failed)]
+    public async Task A_completion_the_store_would_refuse_records_nothing(long currentSeq, WorkflowStatus status)
+    {
+        var run = RunAt("implement", currentSeq, status);
+        var (_, store, appended) = Build(run);
+
+        await CompleteAsync(store, run, new(StringComparer.Ordinal) { [ReviewHandoff.ReviewResponseKey] = ReportedResponse() });
+
+        appended.Should().BeEmpty();
     }
 
     /// <summary>

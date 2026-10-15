@@ -15,13 +15,21 @@ public static class ReviewResponseRecord
     public const string ResponseProperty = "response";
 
     /// <summary>
-    ///     Whether <paramref name="value"/>, as a node reported it, is a response at all. Absent, null and JSON null are not,
-    ///     and nothing is recorded for them.
+    ///     Whether <paramref name="value"/>, as a node reported it, is a response at all. Absent, null, JSON null, an empty string
+    ///     and an empty array are not, and nothing is recorded for them: an empty answer answers nothing.
     /// </summary>
     public static bool IsResponse(object? value) => value switch
     {
         null => false,
-        JsonElement json => json.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined),
+        string text => text.Length > 0,
+        JsonElement json => json.ValueKind switch
+        {
+            JsonValueKind.Null or JsonValueKind.Undefined => false,
+            JsonValueKind.String => json.GetString()!.Length > 0,
+            JsonValueKind.Array => json.GetArrayLength() > 0,
+            _ => true,
+        },
+        System.Collections.ICollection items => items.Count > 0,
         _ => true,
     };
 

@@ -142,10 +142,12 @@ public sealed class ReviewVisitHistoryTests
 
     /// <summary>
     ///     An evidence or response record that cannot be read is named by seq in the error, and the records that can be read
-    ///     are still listed.
+    ///     are still listed. Seq 2's correctness lens rejected and is readable, but a record of the same visit is not, so the
+    ///     visit reads Unreadable with no rejecting lens: the full set of its lenses is unknown.
     ///     Red: return no error when a record is unreadable, and the error is null.
     ///     Red: leave the response seqs out of the error, and "seq 3" is missing.
     ///     Red: return no visits when any record is unreadable, and seq 4 is gone.
+    ///     Red: compute the verdict from the readable lenses only, and seq 2 reads Rejected by correctness.
     /// </summary>
     [Fact]
     public void An_unreadable_evidence_record_is_reported_not_dropped()
@@ -164,7 +166,59 @@ public sealed class ReviewVisitHistoryTests
         error.Should().Contain("1 review-evidence record(s) could not be read, at seq 2");
         error.Should().Contain("1 review-response record(s) could not be read, at seq 3");
         visits.Select(v => v.Seq).Should().Equal(4, 2);
+        visits[1].Verdict.Should().Be("Unreadable");
+        visits[1].RejectingLens.Should().BeNull();
         visits[1].Lenses.Select(l => l.Lens).Should().Equal("correctness");
-        visits[1].ReviewResponse.Should().BeNull();
+        visits[1].ReviewResponse.Should().BeNull("the one response record there is cannot be read");
+    }
+
+    /// <summary>
+    ///     A visit whose rejecting lens's record cannot be read is never read as an approval: its readable lens approved, its
+    ///     unreadable one is unknown, so it reads Unreadable, and it carries the answer implement gave after it, as a rejection
+    ///     does.
+    ///     Red: give a visit with an unreadable record the verdict of its readable lenses, and it reads Approved.
+    ///     Red: pair only Rejected visits with an answer, and its ReviewResponse is null.
+    /// </summary>
+    [Fact]
+    public void A_visit_that_lost_its_rejecting_lens_reads_unreadable_and_keeps_its_answer()
+    {
+        IReadOnlyList<WorkflowRunRecord> evidence =
+        [
+            Evidence(2, "correctness", ReviewEvidence.Approved),
+            Record(2, "review", WorkflowRunRecord.ReviewEvidenceKind, "{\"lens\":\"falsifiability\",\"verdict\":\"rejected\"}"),
+            Evidence(4, "correctness", ReviewEvidence.Approved),
+        ];
+
+        var (visits, _) = ReviewVisitHistory.Read(evidence, [Response(3, "\"fixed the test\"")]);
+
+        var lost = visits.Single(v => v.Seq == 2);
+        lost.Verdict.Should().Be("Unreadable");
+        lost.RejectingLens.Should().BeNull();
+        lost.Lenses.Select(l => l.Lens).Should().Equal("correctness");
+        lost.ReviewResponse.Should().Be("fixed the test");
+    }
+
+    /// <summary>
+    ///     A visit none of whose records can be read is still listed, with the Unreadable verdict and no lenses, and the error
+    ///     counts both records but names their seq once.
+    ///     Red: skip a visit with no readable lens, and seq 2 is missing.
+    ///     Red: drop the Distinct from Describe, and the error names "seq 2, 2".
+    /// </summary>
+    [Fact]
+    public void A_visit_whose_records_are_all_unreadable_is_listed_as_unreadable()
+    {
+        IReadOnlyList<WorkflowRunRecord> evidence =
+        [
+            Record(2, "review", WorkflowRunRecord.ReviewEvidenceKind, """{"lens":"correctness"}"""),
+            Record(2, "review", WorkflowRunRecord.ReviewEvidenceKind, "[]"),
+            Evidence(4, "correctness", ReviewEvidence.Approved),
+        ];
+
+        var (visits, error) = ReviewVisitHistory.Read(evidence, []);
+
+        visits.Select(v => v.Seq).Should().Equal(4, 2);
+        visits[1].Verdict.Should().Be("Unreadable");
+        visits[1].Lenses.Should().BeEmpty();
+        error.Should().Be("2 review-evidence record(s) could not be read, at seq 2.");
     }
 }
