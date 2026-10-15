@@ -75,7 +75,10 @@
     }
 
     <RadzenBody>
-        <div class="rz-p-4">
+        @* The content shows once the chrome is known. Before that it could paint at the left edge and then jump right by
+           the sidebar's width when a signed-in chrome arrives. It is hidden, not left out, so the page under it keeps
+           its state and its loads. *@
+        <div class="rz-p-4" style="@(_chrome == Chrome.Unknown ? "visibility: hidden;" : null)">
             @Body
         </div>
     </RadzenBody>
