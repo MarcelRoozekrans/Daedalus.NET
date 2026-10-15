@@ -17,8 +17,6 @@ COPY ["src/Daedalus.ServiceDefaults/Daedalus.ServiceDefaults.csproj", "src/Daeda
 COPY ["Directory.Build.props", "Directory.Build.props"]
 COPY ["Directory.Packages.props", "Directory.Packages.props"]
 COPY ["nuget.config", "nuget.config"]
-# TEMPORARY: the vendored Minos.NET packages nuget.config points at, until nuget.org lists 1.0.1.
-COPY ["vendor/nuget/", "vendor/nuget/"]
 
 # Restore dependencies
 RUN dotnet restore "src/Daedalus.Api/Daedalus.Api.csproj"
