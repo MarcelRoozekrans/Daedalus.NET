@@ -1,3 +1,4 @@
+using System.Globalization;
 using Daedalus.Tests.Playwright.Browser.PageObjects;
 using Daedalus.Tests.Playwright.Browser.Utilities;
 
@@ -115,6 +116,54 @@ public class RepositoriesPageBrowserTests : BrowserTestBase
         await error.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Retry" }).ClickAsync().ConfigureAwait(false);
         await Expect(error).ToHaveCountAsync(0).ConfigureAwait(false);
         await Expect(_reposPage.EmptyStateTitle).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    // ── Listed repositories, answered by the test ─────────────────────────────
+
+    private const string ListedName = "Listed Repository";
+
+    private static readonly Guid ListedId = new(0x6d3f1c2a, 0x5b7e, 0x4f10, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f, 0x7a, 0x8b);
+
+    /// <summary>Answers the list on <paramref name="page"/> with one repository, added at <paramref name="createdAt"/>.</summary>
+    private static Task RouteOneRepositoryAsync(IPage page, DateTime createdAt) =>
+        page.RouteAsync("**/api/repositories", route => route.FulfillAsync(new RouteFulfillOptions
+        {
+            Status = 200,
+            ContentType = "application/json",
+            Body = JsonSerializer.Serialize(new[]
+            {
+                new
+                {
+                    id = ListedId, name = ListedName, url = "https://github.com/example/listed.git", platform = "GitHub",
+                    defaultBranch = "main", authenticationMethod = (string?)null, credentialIdentifier = (string?)null,
+                    isActive = true, createdAt = createdAt.ToString("O", CultureInfo.InvariantCulture),
+                    lastUsedAt = (string?)null, description = (string?)null,
+                },
+            }),
+        }));
+
+    /// <summary>
+    ///     The card's Added time is the viewer's local time: in Auckland, 23:30 UTC on 15 October is 12:30 PM on the 16th.
+    ///     Red: the card shows <c>repo.CreatedAt.ToString("g")</c>, unconverted; it reads the UTC time.
+    /// </summary>
+    [Test]
+    [Description("A repository card shows when it was added in the viewer's time zone")]
+    public async Task A_repository_card_shows_when_it_was_added_in_local_time()
+    {
+        var created = new DateTime(2026, 10, 15, 23, 30, 0, DateTimeKind.Utc);
+        var auckland = TimeZoneInfo.FindSystemTimeZoneById("Pacific/Auckland");
+        var expected = TimeZoneInfo.ConvertTimeFromUtc(created, auckland).ToString("g", CultureInfo.GetCultureInfo("en-US"));
+        await using var context = await Browser.NewContextAsync(new BrowserNewContextOptions
+        {
+            TimezoneId = "Pacific/Auckland",
+            Locale = "en-US",
+        }).ConfigureAwait(false);
+        var page = await context.NewPageAsync().ConfigureAwait(false);
+        await RouteOneRepositoryAsync(page, created).ConfigureAwait(false);
+        var repos = new RepositoriesPage(page, BaseUrl);
+        await repos.NavigateAsync().ConfigureAwait(false);
+
+        await Expect(repos.GetCardByName(ListedName)).ToContainTextAsync($"Added {expected}").ConfigureAwait(false);
     }
 
     // ── Add Repository dialog ────────────────────────────────────────────────

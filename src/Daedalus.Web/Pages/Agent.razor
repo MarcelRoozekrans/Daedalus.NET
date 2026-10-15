@@ -44,7 +44,7 @@
                         @onclick="@(() => Navigation.NavigateTo($"/agent/{session.Id}"))">
                 <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; font-weight: 600;">@AgentName(session.AgentId)</RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.7;">
-                    @session.LastActivityAt.LocalDateTime.ToString("g", CultureInfo.CurrentCulture) &middot; @session.TurnCount turns &middot; @session.State
+                    @LocalTimes.ShortDateTime(session.LastActivityAt.UtcDateTime) &middot; @session.TurnCount turns &middot; @session.State
                 </RadzenText>
             </RadzenCard>
         }

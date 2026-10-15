@@ -20,7 +20,7 @@
                                          BadgeStyle="@RunStatusLabels.StepStyle(step.Kind, step.Outcome)" Shade="Shade.Lighter"/>
                         }
                         <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
-                            @step.At.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)@(duration is { } d ? $" · +{Duration(d)}" : "")@(step.Actor is { } actor ? $" · by {actor}" : "")
+                            @LocalTimes.ShortDateTime(step.At.UtcDateTime)@(duration is { } d ? $" · +{Duration(d)}" : "")@(step.Actor is { } actor ? $" · by {actor}" : "")
                         </RadzenText>
                     </RadzenStack>
                     @if (step.Error is { } error)
