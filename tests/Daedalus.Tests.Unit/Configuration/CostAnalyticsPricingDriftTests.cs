@@ -123,7 +123,8 @@ public sealed class CostAnalyticsPricingDriftTests
     ///     Issue #360: the shipped table must pass the host's start-up validation, and a cache price left unset derives from the
     ///     input price at Anthropic's 0.1 and 1.25 times, so a model cannot silently price cache reads above plain input.
     ///     Red: set a negative CacheReadTokenPricePerMillion on any model in appsettings.json; validation fails.
-    ///     Red: change the 0.1 or 1.25 in <c>ModelPricing</c>; the derivation assertions fail.
+    ///     Red: change the 0.1 in <c>ModelPricing</c> to 0.2; the read derivation assertion fails.
+    ///     Red: change the 1.25 in <c>ModelPricing</c> to 1.5; the write derivation assertion fails.
     /// </summary>
     [Fact]
     public void The_shipped_prices_pass_validation_and_derive_cache_prices_from_input()
@@ -136,6 +137,7 @@ public sealed class CostAnalyticsPricingDriftTests
         {
             price.EffectiveCacheReadTokenPricePerMillion.Should().Be((price.CacheReadTokenPricePerMillion ?? price.InputTokenPricePerMillion * 0.1m));
             price.EffectiveCacheReadTokenPricePerMillion.Should().BeLessThan(price.InputTokenPricePerMillion);
+            price.EffectiveCacheWriteTokenPricePerMillion.Should().Be(price.CacheWriteTokenPricePerMillion ?? price.InputTokenPricePerMillion * 1.25m);
             price.EffectiveCacheWriteTokenPricePerMillion.Should().BeGreaterThan(price.InputTokenPricePerMillion);
         }
     }

@@ -48,8 +48,8 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
     ///     1,000,000 input of which 800,000 read and 150,000 written, plus 10,000 output, at 2 and 10 per million:
     ///     uncached 50,000 × 2/1M = 0.1; writes 150,000 × 2.5/1M = 0.375; reads 800,000 × 0.2/1M = 0.16; output 10,000 × 10/1M = 0.1.
     ///     Red: price input at the full input rate, as before the fix; the cost is 2.1.
-    ///     Red: drop the cache-write term; the cost is 0.36. Red: price writes at the read rate; the cost is 0.46.
-    ///     Red: price reads at the input rate; the cost is 1.875.
+    ///     Red: drop the cache-write term; the cost is 0.36. Red: price writes at the read rate; the cost is 0.39.
+    ///     Red: price reads at the input rate; the cost is 2.175.
     /// </summary>
     [Fact]
     public async Task A_group_with_cache_reads_and_writes_is_priced_cache_aware()
