@@ -884,40 +884,16 @@ versions (`ManagePackageVersionsCentrally = true`). Every `.csproj`
 `PackageReference` carries no `Version` attribute — add or bump a version in
 `Directory.Packages.props` only.
 
-### Local packages until nuget.org has them
+### Vendored packages until nuget.org has them
 
-Thalos.NET 0.17.0 and Minos.NET 1.0.1 are not on nuget.org yet (Minos's publish hit a reserved package-ID prefix, and
-Thalos 0.17.0 is unreleased). Until they are, point a local `nuget.config` at two folders of packed packages. Replace
-the two placeholder paths with your folders:
+Minos.NET 1.0.1 is not on nuget.org yet: its publish hit a reserved package-ID prefix and is with the NuGet team. Until
+it is, the three Minos packages Daedalus restores are committed in `vendor/nuget/`, and `nuget.config` maps
+`Minos.NET*` to that folder; every other package comes from nuget.org. The API, Web and Sandbox Dockerfiles copy the
+folder before restore, because NuGet fails on a configured source folder that is missing, even one a project never uses.
 
-```xml
-<packageSources>
-  <clear />
-  <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-  <add key="minos-local" value="/path/to/nuget-local/minos" />
-  <add key="thalos-local" value="/path/to/nuget-local/thalos" />
-</packageSources>
-<packageSourceMapping>
-  <packageSource key="nuget.org"><package pattern="*" /></packageSource>
-  <packageSource key="minos-local"><package pattern="Minos.NET*" /></packageSource>
-  <packageSource key="thalos-local"><package pattern="Thalos.NET*" /></packageSource>
-</packageSourceMapping>
-```
-
-`nuget.config` is tracked, so keep your edit out of commits with `git update-index --skip-worktree nuget.config`. The
-pull request stays a draft until both are published, because CI restores from nuget.org only.
-
-To remove the local sources afterwards, in order:
-
-```bash
-git update-index --no-skip-worktree nuget.config
-git checkout -- nuget.config
-rm -rf ~/.nuget/packages/thalos.net*/0.17.0 ~/.nuget/packages/minos.net*/1.0.1
-dotnet restore
-```
-
-The cached folders are lower case and there are many; without deleting them a restore keeps using the locally built
-copies.
+This is a stopgap, not the design: CI builds against binaries packed from the `v1.0.1` tag, not the published package.
+`vendor/nuget/README.md` lists the removal steps, tracked in #361. Follow them as soon as nuget.org lists 1.0.1, and
+delete the cached `~/.nuget/packages/minos.net*/1.0.1` folders so a restore fetches the published copies.
 
 ## The recurring defect: tests that pass for the wrong reason
 
