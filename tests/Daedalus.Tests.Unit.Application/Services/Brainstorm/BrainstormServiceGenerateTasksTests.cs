@@ -82,7 +82,9 @@ public class BrainstormServiceGenerateTasksTests
                 LearningsUpdatedAt: null,
                 Executions: [],
                 WorkflowRunId: null,
-                PullRequestUrl: null)
+                PullRequestUrl: null,
+                RunStatus: null,
+                AwaitingSignal: null)
         ];
     }
 

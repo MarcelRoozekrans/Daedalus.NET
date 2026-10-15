@@ -51,6 +51,19 @@ public sealed class TasksPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
             HasTextRegex = new Regex($@"^\s*{Regex.Escape(title)}\s*$"),
         });
 
+    /// <summary>The row's status badge, which <c>RunStatusBadge</c> renders.</summary>
+    public ILocator GetRunStatusBadge(string rowText) =>
+        GetRowByText(rowText).Locator("[data-testid='run-status']");
+
+    /// <summary>The message under the dialog's project picker when the projects could not be loaded.</summary>
+    public ILocator ProjectError => Dialog.Locator("[data-testid='task-project-error']");
+
+    /// <summary>The dialog's empty state when there are no projects.</summary>
+    public ILocator NoProjects => Dialog.Locator("[data-testid='task-no-projects']");
+
+    /// <summary>The dialog's title bar close button.</summary>
+    public ILocator DialogClose => DialogBox.Locator(".rz-dialog-titlebar-close");
+
     /// <summary>The visible text label inside a row's Manufacture button.</summary>
     public ILocator GetManufactureLabel(string rowText) =>
         GetManufactureButton(rowText).Locator(".rz-button-text");
@@ -85,11 +98,14 @@ public sealed class TasksPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
     public ILocator ProjectOption(string name) =>
         _page.Locator(".rz-dropdown-item").Filter(new LocatorFilterOptions { HasText = name });
 
-    /// <summary>Opens the create dialog and waits until it shows.</summary>
+    /// <summary>Opens the create dialog and waits until it shows and its opening animation has finished.</summary>
     public async Task OpenCreateDialogAsync()
     {
         await CreateTaskButton.ClickAsync().ConfigureAwait(false);
         await Assertions.Expect(ProjectPicker).ToBeVisibleAsync().ConfigureAwait(false);
+        await _page.WaitForFunctionAsync(
+                "() => { const d = document.querySelector('.rz-dialog'); return d !== null && d.getAnimations({ subtree: true }).length === 0; }")
+            .ConfigureAwait(false);
     }
 
     /// <summary>Picks <paramref name="project"/>, then fills the title and description.</summary>

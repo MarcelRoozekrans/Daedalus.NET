@@ -69,3 +69,9 @@ html, body {
     font-size: 0.8125rem;
     margin-top: 0.25rem;
 }
+
+/* A task dialog's close button while the dialog submits: task-dialog.js holds it, and it says so. */
+.rz-dialog-titlebar-close[aria-disabled="true"] {
+    opacity: 0.38;
+    cursor: not-allowed;
+}

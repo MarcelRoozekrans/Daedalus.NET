@@ -1,6 +1,11 @@
 namespace Daedalus.Application.DTOs;
 
-/// <summary>A board task. <c>Status</c> is derived from its run when it has one (phase 2.8).</summary>
+/// <summary>
+///     A board task. <c>Status</c> is derived from its run when it has one (phase 2.8). <c>RunStatus</c> and
+///     <c>AwaitingSignal</c> are the run's own status and signal, as the runs API names them, so a page shows a task's
+///     run exactly as it shows the run; <c>RunStatus</c> is null for a task with no run, and <c>Unknown</c> for a run
+///     this host cannot read.
+/// </summary>
 public record TaskDto(
     Guid Id,
     string TaskId,
@@ -26,4 +31,6 @@ public record TaskDto(
     DateTime? LearningsUpdatedAt,
     IReadOnlyList<TaskExecutionDto> Executions,
     Guid? WorkflowRunId,
-    Uri? PullRequestUrl);
+    Uri? PullRequestUrl,
+    string? RunStatus,
+    string? AwaitingSignal);

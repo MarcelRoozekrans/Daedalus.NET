@@ -25,7 +25,8 @@ public enum WorkflowRunState
 /// <summary>A run's state, and its pull request once it has published one.</summary>
 /// <param name="State">The run's state.</param>
 /// <param name="PullRequestUrl">The run's pull request, or null before publish.</param>
-public sealed record WorkflowRunStatus(WorkflowRunState State, Uri? PullRequestUrl)
+/// <param name="AwaitingSignal">The signal a parked run awaits, or null when it awaits none.</param>
+public sealed record WorkflowRunStatus(WorkflowRunState State, Uri? PullRequestUrl, string? AwaitingSignal = null)
 {
     /// <summary>The status of a run this host cannot read.</summary>
     public static WorkflowRunStatus Unknown { get; } = new(WorkflowRunState.Unknown, null);

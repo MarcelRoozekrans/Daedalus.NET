@@ -16,13 +16,13 @@ public record CreateTaskDto(
     [property: Must(nameof(CreateTaskDto.IsPresent), Message = "Description is required.")]
     [property: MaxLength(2000, Message = "Description cannot exceed 2000 characters.")]
     string Description,
-    [property: InclusiveBetween(0, 4, Message = "Priority must be between 0 (Critical) and 4 (Low).")]
+    [property: InclusiveBetween(0, 3, Message = "Priority must be between 0 (Low) and 3 (Critical).")]
     int Priority,
     [property: MaxLength(100, Message = "Phase cannot exceed 100 characters.")]
     string? Phase,
     [property: GreaterThanOrEqualTo(1, Message = "Parallel group must be at least 1.")]
     int? ParallelGroup,
-    [property: InclusiveBetween(0, 3, Message = "Estimated complexity must be between 0 (Simple) and 3 (VeryComplex).")]
+    [property: InclusiveBetween(0, 2, Message = "Estimated complexity must be between 0 (Low) and 2 (High).")]
     int EstimatedComplexity,
     [property: MaxLength(8000, Message = "Prompt cannot exceed 8000 characters.")]
     string? Prompt,

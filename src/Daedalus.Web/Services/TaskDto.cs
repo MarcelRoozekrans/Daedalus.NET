@@ -1,5 +1,9 @@
 namespace Daedalus.Web.Services;
 
+/// <summary>
+///     A board task as the tasks API returns it. <c>RunStatus</c> and <c>AwaitingSignal</c> are the task's run's own,
+///     mapped by <see cref="RunStatusLabels"/> as the Runs page maps them; <c>RunStatus</c> is null for a task with no run.
+/// </summary>
 public record TaskDto(
     Guid Id,
     string TaskId,
@@ -25,4 +29,6 @@ public record TaskDto(
     DateTime? LearningsUpdatedAt,
     IReadOnlyList<TaskExecutionDto> Executions,
     Guid? WorkflowRunId,
-    Uri? PullRequestUrl);
+    Uri? PullRequestUrl,
+    string? RunStatus,
+    string? AwaitingSignal);

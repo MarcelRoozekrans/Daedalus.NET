@@ -1,8 +1,12 @@
-@implements IDisposable
+@using Microsoft.JSInterop
+@inherits FluxComponent
+@implements IAsyncDisposable
 @inject ApiClient Api
 @inject TasksEffects Effects
+@inject IStore<TasksState> TaskStore
 @inject DialogService DialogService
 @inject NotificationService NotificationService
+@inject IJSRuntime Js
 
 <RadzenTemplateForm @ref="_form" TItem="TaskForm" Data="@_model">
     <RadzenStack Gap="1rem">
@@ -13,7 +17,7 @@
             </RadzenAlert>
         }
 
-        <TaskFields @ref="_fields" Model="@_model" Projects="@_projects"/>
+        <TaskFields @ref="_fields" Model="@_model" Projects="@TaskStore.Value.Projects" ProjectError="@TaskStore.Value.ProjectsError"/>
 
         <TaskDialogActions>
             <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Disabled="@_submitting"
@@ -27,40 +31,48 @@
 </RadzenTemplateForm>
 
 @code {
-    private const int ProjectPage = 200;
-
     private readonly CancellationTokenSource _cts = new();
     private readonly TaskForm _model = new();
+    private DialogHold? _hold;
     private RadzenTemplateForm<TaskForm>? _form;
     private TaskFields? _fields;
-    private IReadOnlyList<ProjectDto>? _projects;
     private string? _error;
     private bool _submitting;
+    private bool _preselected;
 
-    protected override async Task OnInitializedAsync()
+    protected override void SubscribeStores() => Subscribe(TaskStore);
+
+    protected override void OnInitialized()
     {
-        var projects = await Api.GetProjectsAsync(1, ProjectPage, _cts.Token);
-        if (projects.IsFailure)
-        {
-            _projects = [];
-            _error = SessionExpiry.IsSigningIn(projects.Error) ? null : $"The projects could not be loaded: {projects.Error}";
-            return;
-        }
-
-        _projects = projects.Value.Items;
-        _model.ProjectId ??= TaskForm.Preselect(_projects);
+        base.OnInitialized();
+        _hold = new DialogHold(Js);
     }
 
+    /// <summary>
+    ///     Focuses Project once, and preselects the only project once the board's projects have arrived, which may be after
+    ///     the dialog opened.
+    /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && _fields is not null)
         {
             await _fields.FocusProjectAsync();
         }
+
+        if (!_preselected && TaskStore.Value.Projects is { } projects)
+        {
+            _preselected = true;
+            if (_model.ProjectId is null && TaskForm.Preselect(projects) is { } only)
+            {
+                _model.ProjectId = only;
+                StateHasChanged();
+            }
+        }
     }
 
     /// <summary>
-    ///     Creates the task and, for Create and manufacture, starts its run. A refused create stays in the dialog with the
+    ///     Creates the task and, for Create and manufacture, starts its run. The dialog is held open meanwhile, so Escape
+    ///     and its close button cannot drop a task that is being created. A refused create stays in the dialog with the
     ///     server's reason; once the task exists the dialog closes, saying whether its run started.
     /// </summary>
     private async Task SubmitAsync(bool manufacture)
@@ -74,10 +86,12 @@
         _error = null;
         try
         {
+            await _hold!.HoldAsync();
             var created = await Api.CreateTaskAsync(_model.ToCreate(), _cts.Token);
             if (created.IsFailure)
             {
                 _error = SessionExpiry.IsSigningIn(created.Error) ? null : created.Error;
+                await _hold.ReleaseAsync();
                 return;
             }
 
@@ -85,11 +99,13 @@
             if (!manufacture)
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Task created");
+                await _hold.ReleaseAsync();
                 DialogService.Close(new TaskCreateOutcome(taskId, null, null));
                 return;
             }
 
             var started = await Effects.ManufactureAsync(taskId, _cts.Token);
+            await _hold.ReleaseAsync();
             DialogService.Close(started.IsSuccess
                 ? new TaskCreateOutcome(taskId, started.Value.RunId, null)
                 : new TaskCreateOutcome(taskId, null, started.Error));
@@ -100,9 +116,14 @@
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _cts.Cancel();
+        Dispose();
+        await _cts.CancelAsync();
         _cts.Dispose();
+        if (_hold is not null)
+        {
+            await _hold.DisposeAsync();
+        }
     }
 }

@@ -1,13 +1,15 @@
-@implements IDisposable
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
 @inject ApiClient Api
 @inject DialogService DialogService
 @inject NotificationService NotificationService
+@inject IJSRuntime Js
 
 <RadzenTemplateForm @ref="_form" TItem="TaskForm" Data="@_model">
     <RadzenStack Gap="1rem">
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
             <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">Status</RadzenText>
-            <RunStatusBadge TaskStatus="@Task.Status"/>
+            <RunStatusBadge Status="@TaskStatusLabels.BadgeStatus(Task)" AwaitingSignal="@Task.AwaitingSignal"/>
         </RadzenStack>
 
         @if (_error is { } error)
@@ -17,7 +19,7 @@
             </RadzenAlert>
         }
 
-        <TaskFields Model="@_model" Projects="@_projects" ProjectLocked="true"/>
+        <TaskFields Model="@_model" Projects="@_projects" ProjectError="@_projectError" ProjectLocked="true"/>
 
         @if (!string.IsNullOrEmpty(Task.Result))
         {
@@ -47,6 +49,8 @@
     private TaskForm _model = new();
     private RadzenTemplateForm<TaskForm>? _form;
     private IReadOnlyList<ProjectDto>? _projects;
+    private string? _projectError;
+    private DialogHold? _hold;
     private string? _error;
     private bool _submitting;
 
@@ -56,12 +60,21 @@
 
     /// <summary>
     ///     Reads the task's project, so the locked picker names it; a task cannot move to another project. A project that
-    ///     cannot be read leaves the picker empty, and the rest of the form still works.
+    ///     cannot be read says why under the picker, unless the session is signing in again, and the rest of the form
+    ///     still works.
     /// </summary>
     protected override async Task OnInitializedAsync()
     {
+        _hold = new DialogHold(Js);
         var project = await Api.GetProjectAsync(Task.ProjectId, _cts.Token);
-        _projects = project.IsSuccess ? [project.Value] : [];
+        if (project.IsSuccess)
+        {
+            _projects = [project.Value];
+            return;
+        }
+
+        _projects = [];
+        _projectError = project.Error;
     }
 
     /// <summary>Saves the task. A refusal stays in the dialog with the server's reason, and the form keeps its values.</summary>
@@ -76,7 +89,9 @@
         _error = null;
         try
         {
+            await _hold!.HoldAsync();
             var result = await Api.UpdateTaskAsync(Task.Id, _model.ToUpdate(Task), _cts.Token);
+            await _hold.ReleaseAsync();
             if (result.IsFailure)
             {
                 _error = SessionExpiry.IsSigningIn(result.Error) ? null : result.Error;
@@ -92,9 +107,13 @@
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _cts.Cancel();
+        await _cts.CancelAsync();
         _cts.Dispose();
+        if (_hold is not null)
+        {
+            await _hold.DisposeAsync();
+        }
     }
 }

@@ -3,19 +3,39 @@ using Radzen;
 
 namespace Daedalus.Tests.Unit.Web;
 
-/// <summary>Phase 2.8: the three Web status switches share one table, which knows the derived values.</summary>
+/// <summary>Phase 2.8: what a task offers comes from its derived status; phase 2.13: its badge is its run's.</summary>
 public sealed class TaskStatusLabelsTests
 {
-    /// <summary>Red per row: drop that case; it reads "Unknown".</summary>
+    /// <summary>
+    ///     A task with no run shows Pending; a task with a run shows its run's status, as the runs API names it.
+    ///     Red: return the derived task status for a task with a run; the run case reads "5".
+    ///     Red: return "" for no run; it is not "Pending".
+    /// </summary>
+    [Fact]
+    public void A_tasks_badge_status_is_its_runs_or_pending()
+    {
+        TaskStatusLabels.BadgeStatus(Task(0, null)).Should().Be("Pending");
+        TaskStatusLabels.BadgeStatus(Task(0, null) with { RunStatus = "Awaiting", Status = 5 }).Should().Be("Awaiting");
+    }
+
+    /// <summary>
+    ///     Through RunStatusLabels, a task not started reads Pending, muted, and a task whose run awaits approval reads as
+    ///     the Runs page reads it: Awaiting approval, Warning.
+    ///     Red: RunStatusLabels' fallback style Primary; the Pending row fails.
+    ///     Red: its Awaiting style Primary; the Awaiting row fails.
+    ///     Red: BadgeStatus returns the derived task status for a task with a run; the three run rows fail.
+    /// </summary>
     [Theory]
-    [InlineData(0, "Pending")]
-    [InlineData(1, "In Progress")]
-    [InlineData(2, "Completed")]
-    [InlineData(3, "Failed")]
-    [InlineData(4, "Abandoned")]
-    [InlineData(5, "Awaiting Approval")]
-    [InlineData(6, "Cancelled")]
-    public void Each_status_has_its_label(int status, string label) => TaskStatusLabels.Name(status).Should().Be(label);
+    [InlineData(null, null, "Pending", BadgeStyle.Light)]
+    [InlineData("Awaiting", "human_approval", "Awaiting approval", BadgeStyle.Warning)]
+    [InlineData("Running", null, "Running", BadgeStyle.Info)]
+    [InlineData("Succeeded", null, "Succeeded", BadgeStyle.Success)]
+    public void A_tasks_badge_reads_as_the_runs_badge(string? runStatus, string? signal, string text, BadgeStyle style)
+    {
+        var task = Task(0, null) with { RunStatus = runStatus, AwaitingSignal = signal };
+        RunStatusLabels.Text(TaskStatusLabels.BadgeStatus(task), task.AwaitingSignal).Should().Be(text);
+        RunStatusLabels.Style(TaskStatusLabels.BadgeStatus(task), task.AwaitingSignal).Should().Be(style);
+    }
 
     /// <summary>
     ///     A task with no run can be started unless it already completed or is In Progress.
@@ -65,23 +85,6 @@ public sealed class TaskStatusLabelsTests
     public void Only_a_task_without_a_live_or_completed_run_is_editable(int status, bool editable) =>
         TaskStatusLabels.IsEditable(status).Should().Be(editable);
 
-    /// <summary>Red: give AwaitingApproval the Info style of InProgress; a person at the board cannot tell them apart.</summary>
-    [Fact]
-    public void Awaiting_approval_looks_different_from_in_progress() =>
-        TaskStatusLabels.Style(5).Should().NotBe(TaskStatusLabels.Style(1));
-
-    /// <summary>Red per row: change a status's style in <c>Style</c>.</summary>
-    [Theory]
-    [InlineData(0, BadgeStyle.Warning)]
-    [InlineData(1, BadgeStyle.Info)]
-    [InlineData(2, BadgeStyle.Success)]
-    [InlineData(3, BadgeStyle.Danger)]
-    [InlineData(4, BadgeStyle.Light)]
-    [InlineData(5, BadgeStyle.Primary)]
-    [InlineData(6, BadgeStyle.Light)]
-    [InlineData(99, BadgeStyle.Light)]
-    public void Each_status_has_its_style(int status, BadgeStyle style) => TaskStatusLabels.Style(status).Should().Be(style);
-
     /// <summary>Red: change <c>MaxIterations &gt; 0</c> to <c>&gt;= 0</c>; zero reads true.</summary>
     [Theory]
     [InlineData(0, false)]
@@ -115,24 +118,9 @@ public sealed class TaskStatusLabelsTests
     public void A_task_without_a_pull_request_has_no_pull_request_text() =>
         TaskStatusLabels.PullRequestText(Task(0, null)).Should().BeNull();
 
-    /// <summary>
-    ///     The newest of the task's own timestamps.
-    ///     Red: never take CompletedAt; the completion is ignored. Red: never take LearningsUpdatedAt; the update is lost.
-    ///     Red: start from DateTime.MinValue instead of CreatedAt; a task with neither reads year 1.
-    /// </summary>
-    [Fact]
-    public void A_task_last_changed_at_its_newest_timestamp()
-    {
-        var created = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
-        var task = Task(0, null) with { CreatedAt = created, CompletedAt = created.AddDays(1), LearningsUpdatedAt = null };
-        TaskStatusLabels.LastChanged(task).Should().Be(created.AddDays(1));
-        TaskStatusLabels.LastChanged(task with { LearningsUpdatedAt = created.AddDays(2) }).Should().Be(created.AddDays(2));
-        TaskStatusLabels.LastChanged(task with { CompletedAt = null }).Should().Be(created);
-    }
-
     private static TaskDto Task(int maxIterations, Uri? pullRequestUrl) =>
         new(Guid.NewGuid(), "T-1", Guid.NewGuid(), "t", "d", 1, "p", 0, [], [], 1, "prompt", "promise", maxIterations, 0,
-            null, null, 0, DateTime.UtcNow, null, null, null, [], null, pullRequestUrl);
+            null, null, 0, DateTime.UtcNow, null, null, null, [], null, pullRequestUrl, null, null);
 
     /// <summary>
     ///     The Web's edit rule and the server's are two copies of one set; a status the dialog offers Save for must be

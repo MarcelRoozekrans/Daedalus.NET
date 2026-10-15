@@ -46,6 +46,12 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     /// <summary>The title of <see cref="PullRequestTaskId"/>, which the Tasks grid rows are found by.</summary>
     public const string PullRequestTaskTitle = "Ship the widget";
 
+    /// <summary>The board task the <see cref="AwaitingApproval"/> run is attached to, so the Tasks grid shows a parked run.</summary>
+    public const string AwaitingTaskId = "TASK-005";
+
+    /// <summary>The title of <see cref="AwaitingTaskId"/>, which the Tasks grid rows are found by.</summary>
+    public const string AwaitingTaskTitle = "Approve the widget";
+
     /// <summary>The seeded project with a repository URL, which no allow-list entry matches.</summary>
     public const string RepositoryProjectName = "Widgets";
 
@@ -61,7 +67,7 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     /// <summary>The store the runs were written through, for a scenario that drives a change itself.</summary>
     public IWorkflowStore Store => store;
 
-    /// <summary>Seeds the four runs, oldest first, and attaches <see cref="Succeeded"/> and <see cref="Running"/> to their tasks.</summary>
+    /// <summary>Seeds the four runs, oldest first, and attaches <see cref="Succeeded"/>, <see cref="AwaitingApproval"/> and <see cref="Running"/> to their tasks.</summary>
     public async Task SeedAsync(CancellationToken ct)
     {
         Failed = await StartAsync("e2e-failed", ct).ConfigureAwait(false);
@@ -82,6 +88,7 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
                 AwaitingApproval, new WorkflowTransition("gate", WorkflowStatus.Awaiting, HumanApproval, WorkflowEventKind.Awaiting), ct)
             .ConfigureAwait(false);
         await AppendReviewEvidenceAsync(AwaitingApproval, reviewSeq, ct).ConfigureAwait(false);
+        await AttachToTaskAsync(AwaitingApproval, AwaitingTaskId, ct).ConfigureAwait(false);
 
         Running = await StartAsync("e2e-running", ct).ConfigureAwait(false);
         await AttachToTaskAsync(Running, LinkedTaskId, ct).ConfigureAwait(false);

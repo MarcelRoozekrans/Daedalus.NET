@@ -59,7 +59,9 @@ public static class TaskDtoMapper
             task.LearningsUpdatedAt,
             executionDtos,
             task.WorkflowRunId,
-            run.PullRequestUrl);
+            run.PullRequestUrl,
+            RunStatus(task, run),
+            run.AwaitingSignal);
     }
 
     /// <summary>
@@ -92,8 +94,14 @@ public static class TaskDtoMapper
             task.LearningsUpdatedAt,
             [],
             task.WorkflowRunId,
-            run.PullRequestUrl);
+            run.PullRequestUrl,
+            RunStatus(task, run),
+            run.AwaitingSignal);
     }
+
+    /// <summary>The run's status as the runs API names it, or null for a task that has no run.</summary>
+    private static string? RunStatus(DomainTask task, WorkflowRunStatus run) =>
+        task.WorkflowRunId is null ? null : run.State.ToString();
 
     /// <summary>
     ///     Maps a TaskExecution domain entity to its DTO representation.

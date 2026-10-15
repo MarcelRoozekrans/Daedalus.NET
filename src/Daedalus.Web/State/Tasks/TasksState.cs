@@ -12,13 +12,18 @@ namespace Daedalus.Web.State.Tasks;
 ///     Whether a board load was ever asked for, whatever came of it. Set by <see cref="TasksLoadStarted"/> rather
 ///     than on success, so a reconnect also re-fetches a board that came back empty or failed to load.
 /// </param>
+/// <param name="Projects">
+///     The projects, the one fetch both the board's Project column and the task dialogs' picker read; null until they
+///     have loaded.
+/// </param>
 /// <param name="ProjectNames">Each project's name by its id, for the board's Project column.</param>
+/// <param name="ProjectsError">Why the last projects fetch failed, or <see langword="null"/>.</param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct TasksState(
     IReadOnlyList<TaskDto> Items, int Total, bool Loading, string? Error, IReadOnlySet<Guid> Starting, bool LoadRequested,
-    IReadOnlyDictionary<Guid, string> ProjectNames)
+    IReadOnlyList<ProjectDto>? Projects, IReadOnlyDictionary<Guid, string> ProjectNames, string? ProjectsError)
 {
     /// <summary>The state before the board has loaded.</summary>
     public static TasksState Initial(IServiceProvider services) =>
-        new([], 0, false, null, new HashSet<Guid>(), false, new Dictionary<Guid, string>());
+        new([], 0, false, null, new HashSet<Guid>(), false, null, new Dictionary<Guid, string>(), null);
 }

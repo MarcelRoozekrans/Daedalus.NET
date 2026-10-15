@@ -32,8 +32,8 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
     }
 
     /// <summary>
-    ///     Fetches the projects, so the board names each task's project. A failure is the board's error, as a failed board
-    ///     load is.
+    ///     Fetches the projects, the one fetch the board's Project column and the task dialogs' picker share. A failure is
+    ///     <see cref="TasksState.ProjectsError"/>.
     /// </summary>
     public async Task LoadProjectsAsync(CancellationToken ct)
     {
@@ -44,7 +44,7 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
         }
         else
         {
-            await dispatcher.DispatchAsync(new TasksLoadFailed(result.Error));
+            await dispatcher.DispatchAsync(new TaskProjectsLoadFailed(result.Error));
         }
     }
 
@@ -72,14 +72,15 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
 
     /// <summary>
     ///     Re-fetches the board after a reconnect, when a load was ever asked for, because any task may have gained or
-    ///     moved a run meanwhile. An empty board and a board whose load failed are re-fetched too; a board never
-    ///     asked for is left alone.
+    ///     moved a run meanwhile, and the projects with it. An empty board and a board whose load failed are re-fetched
+    ///     too; a board never asked for is left alone.
     /// </summary>
     public async Task RefreshAsync(CancellationToken ct)
     {
         if (tasks.Value.LoadRequested)
         {
             await LoadAsync(ct);
+            await LoadProjectsAsync(ct);
         }
     }
 

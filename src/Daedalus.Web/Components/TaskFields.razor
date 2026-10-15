@@ -6,7 +6,7 @@
         <RadzenDropDown @ref="_project" TValue="Guid?" Name="Project" @bind-Value="@Model.ProjectId" Data="@Projects"
                         ValueProperty="Id" TextProperty="ProjectName" AllowFiltering="true"
                         FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" Disabled="@ProjectLocked"
-                        Placeholder="@(Projects is null ? "Loading projects…" : "Choose a project")"
+                        Placeholder="@(Projects is null && ProjectError is null ? "Loading projects…" : "Choose a project")"
                         Style="width: 100%;" data-testid="task-project">
             <Template Context="item">
                 @{ var project = (ProjectDto)item; }
@@ -22,6 +22,18 @@
     </ChildContent>
     <Helper>
         <RadzenRequiredValidator Component="Project" Text="Choose a project."/>
+        @if (ProjectError is { } error && !SessionExpiry.IsSigningIn(error))
+        {
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-danger);" data-testid="task-project-error">
+                The projects could not be loaded: @error
+            </RadzenText>
+        }
+        else if (Projects is { Count: 0 } && !ProjectLocked)
+        {
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-text-secondary-color);" data-testid="task-no-projects">
+                No projects yet. <RadzenLink Path="projects" Text="Create a project"/>
+            </RadzenText>
+        }
     </Helper>
 </RadzenFormField>
 
@@ -79,13 +91,16 @@
 
     private static readonly Choice[] Priorities = [new("Low", 0), new("Medium", 1), new("High", 2), new("Critical", 3)];
 
-    private static readonly Choice[] Complexities = [new("Simple", 0), new("Medium", 1), new("Complex", 2), new("Epic", 3)];
+    private static readonly Choice[] Complexities = [new("Low", 0), new("Medium", 1), new("High", 2)];
 
     /// <summary>The values the fields bind.</summary>
     [Parameter, EditorRequired] public TaskForm Model { get; set; } = null!;
 
     /// <summary>The projects to pick from, or null while they load.</summary>
     [Parameter] public IReadOnlyList<ProjectDto>? Projects { get; set; }
+
+    /// <summary>Why the projects could not be loaded, shown under the picker; null when they loaded or are loading.</summary>
+    [Parameter] public string? ProjectError { get; set; }
 
     /// <summary>Whether the project is shown but cannot change, as for a task that exists.</summary>
     [Parameter] public bool ProjectLocked { get; set; }

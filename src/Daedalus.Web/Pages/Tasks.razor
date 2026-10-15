@@ -30,6 +30,15 @@
     </RadzenAlert>
 }
 
+@if (TaskStore.Value.ProjectsError is { } projectsError && !SessionExpiry.IsSigningIn(projectsError))
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4" data-testid="tasks-projects-error">
+        The projects could not be loaded: @projectsError
+        <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Click="@(() => Effects.LoadProjectsAsync(_cts.Token))"/>
+    </RadzenAlert>
+}
+
 @if (_manufactureRefused is { } refused)
 {
     <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4"
@@ -38,7 +47,7 @@
     </RadzenAlert>
 }
 
-@* The contract's tablet breakpoint: below 1280px Priority and Updated are not rendered. *@
+@* The contract's tablet breakpoint: below 1280px Priority and Created are not rendered. *@
 <RadzenMediaQuery Query="(min-width: 1280px)" Change="@(matches => _desktop = matches)"/>
 
 <div class="tasks-grid">
@@ -70,13 +79,13 @@
             <Template Context="task">
                 @if (task.WorkflowRunId is { } runId)
                 {
-                    <a href="@($"runs/{runId}")" aria-label="@($"Open run, {TaskStatusLabels.Name(task.Status)}")">
-                        <RunStatusBadge TaskStatus="@task.Status"/>
+                    <a href="@($"runs/{runId}")" aria-label="@($"Open run, {RunStatusLabels.Text(TaskStatusLabels.BadgeStatus(task), task.AwaitingSignal)}")">
+                        <RunStatusBadge Status="@TaskStatusLabels.BadgeStatus(task)" AwaitingSignal="@task.AwaitingSignal"/>
                     </a>
                 }
                 else
                 {
-                    <RunStatusBadge TaskStatus="@task.Status"/>
+                    <RunStatusBadge Status="@TaskStatusLabels.BadgeStatus(task)" AwaitingSignal="@task.AwaitingSignal"/>
                 }
             </Template>
         </RadzenDataGridColumn>
@@ -102,10 +111,8 @@
             </Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Title="Updated" Width="@Px(UpdatedWidth)" Visible="@_desktop"
-                              SortProperty="CreatedAt">
-            <Template Context="task">@TaskStatusLabels.LastChanged(task).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</Template>
-        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" FormatString="{0:g}" Width="@Px(CreatedWidth)"
+                              Visible="@_desktop"/>
 
         <RadzenDataGridColumn TItem="TaskDto" Title="Actions" Width="@Px(ActionsWidth)" Sortable="false" Filterable="false">
             <Template Context="task">
@@ -136,12 +143,12 @@
     private const int StatusWidth = 170;
     private const int PullRequestWidth = 120;
     private const int PriorityWidth = 110;
-    private const int UpdatedWidth = 160;
+    private const int CreatedWidth = 160;
     private const int ActionsWidth = 230;
 
     private readonly CancellationTokenSource _cts = new();
 
-    /// <summary>Whether the viewport is desktop width, 1280px or more: Priority and Updated are shown.</summary>
+    /// <summary>Whether the viewport is desktop width, 1280px or more: Priority and Created are shown.</summary>
     private bool _desktop = true;
 
     /// <summary>Why the last Create and manufacture could not start its run, for the board's alert; null when none.</summary>
@@ -149,7 +156,7 @@
 
     private int MinGridWidth =>
         TitleMinWidth + ProjectWidth + StatusWidth + PullRequestWidth + ActionsWidth
-        + (_desktop ? PriorityWidth + UpdatedWidth : 0);
+        + (_desktop ? PriorityWidth + CreatedWidth : 0);
 
     private static string Px(int width) => string.Create(CultureInfo.InvariantCulture, $"{width}px");
 
