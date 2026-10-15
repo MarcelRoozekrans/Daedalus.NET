@@ -120,7 +120,12 @@ A task on the board becomes work only when a person starts a manufacture run for
    - `scheduled`: agent sessions owned by `schedule:*`.
 
    Sessions owned by `workflow:*` are a run's node turns. They are excluded from `chat`, because their `node-usage`
-   records already count them. Session sources carry no model and no cache split, so their tokens are not priced. The
+   records already count them. Session sources carry no model and no cache split, so their tokens are not priced.
+   Prices are cache-aware, as Anthropic bills prompt caching: a node's input tokens include its cache reads and
+   writes, so only the uncached remainder costs the input price, cache reads cost 0.1 times it, and cache writes cost
+   1.25 times it, the 5-minute TTL rate. Set `CacheReadTokenPricePerMillion` or `CacheWriteTokenPricePerMillion` on a
+   `ModelPricing:Models` entry to override either; a negative price stops the host at start. The `estimate` endpoint
+   has no cache split and still prices its prompt tokens at the input rate. The
    host appends each `node-usage` record when a node completes, and a startup step backfills the records of older runs
    (it skips any run and sequence already recorded). The `by-session` cost endpoint no longer exists; `estimate` stays.
 
