@@ -350,29 +350,37 @@ public class HomePageBrowserTests : BrowserTestBase
         await Page.SetViewportSizeAsync(1280, 900).ConfigureAwait(false);
         await _home.NavigateAsync().ConfigureAwait(false);
         await Expect(_home.Row(HomePage.Running, RunSeeds.LinkedTaskTitle)).ToBeVisibleAsync().ConfigureAwait(false);
-        var awaiting = (await _home.Card(HomePage.Awaiting).BoundingBoxAsync().ConfigureAwait(false))!;
-        var running = (await _home.Card(HomePage.Running).BoundingBoxAsync().ConfigureAwait(false))!;
-        running.Y.Should().BeApproximately(awaiting.Y, 1, "on a desktop running sits beside awaiting");
+        var desktop = await SettledCardBoxesAsync(sidebarExpanded: true).ConfigureAwait(false);
+        desktop[1][1].Should().BeApproximately(desktop[0][1], 1, "on a desktop running sits beside awaiting");
 
         await Page.SetViewportSizeAsync(1024, 900).ConfigureAwait(false);
-        // The layout has settled once the running card sits in the awaiting card's column and the sidebar, which
-        // collapses below 1280px, has finished its transition, which moves the content column.
-        await Page.WaitForFunctionAsync(
-                "() => Math.abs(document.querySelector(\"[data-testid='needs-me-running']\").getBoundingClientRect().left"
-                + " - document.querySelector(\"[data-testid='needs-me-awaiting']\").getBoundingClientRect().left) < 1"
-                + " && document.getAnimations().every(a => !(a instanceof CSSTransition))")
-            .ConfigureAwait(false);
-        var boxes = new List<LocatorBoundingBoxResult>();
-        foreach (var card in new[] { HomePage.Awaiting, HomePage.Running, HomePage.Failed, HomePage.PullRequests })
+        var tablet = await SettledCardBoxesAsync(sidebarExpanded: false).ConfigureAwait(false);
+        for (var i = 1; i < tablet.Length; i++)
         {
-            boxes.Add((await _home.Card(card).BoundingBoxAsync().ConfigureAwait(false))!);
+            tablet[i][0].Should().BeApproximately(tablet[0][0], 1, "on a tablet the cards share one column");
+            tablet[i][1].Should().BeGreaterThan(tablet[i - 1][1], "on a tablet the cards stack in order of urgency");
         }
+    }
 
-        for (var i = 1; i < boxes.Count; i++)
-        {
-            boxes[i].X.Should().BeApproximately(boxes[0].X, 1, "on a tablet the cards share one column");
-            boxes[i].Y.Should().BeGreaterThan(boxes[i - 1].Y, "on a tablet the cards stack in order of urgency");
-        }
+    /// <summary>
+    ///     The four cards' left and top, awaiting, running, failed and pull requests, once the layout has settled for the
+    ///     width: the sidebar carries the class the width gives it, and no CSS transition, such as the sidebar's own,
+    ///     still moves the content column. All four are read in one evaluation, so in the same frame.
+    /// </summary>
+    private async Task<double[][]> SettledCardBoxesAsync(bool sidebarExpanded)
+    {
+        var sidebarClass = sidebarExpanded ? "rz-sidebar-expanded" : "rz-sidebar-collapsed";
+        await Page.WaitForFunctionAsync(
+                "cls => { const sidebar = document.querySelector('.rz-sidebar');"
+                + " return sidebar !== null && sidebar.classList.contains(cls)"
+                + " && document.getAnimations().every(a => !(a instanceof CSSTransition)); }",
+                sidebarClass)
+            .ConfigureAwait(false);
+        return await Page.EvaluateAsync<double[][]>(
+                "ids => ids.map(id => { const r = document.querySelector(`[data-testid='${id}']`).getBoundingClientRect();"
+                + " return [r.left, r.top]; })",
+                new[] { HomePage.Awaiting, HomePage.Running, HomePage.Failed, HomePage.PullRequests })
+            .ConfigureAwait(false);
     }
 
     [Test]
