@@ -5,13 +5,20 @@
     height: calc(100vh - 80px);
 }
 
+.agent-columns {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+    min-height: 0;
+}
+
 .agent-page ::deep .agent-sessions {
     width: 280px;
 }
 
 /* On a phone the sessions sit above the chat, as one column, and the chat keeps the page's width. */
 @media (max-width: 767.98px) {
-    .agent-page ::deep .agent-columns {
+    .agent-columns {
         flex-direction: column;
     }
 

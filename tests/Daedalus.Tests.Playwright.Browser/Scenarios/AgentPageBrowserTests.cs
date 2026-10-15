@@ -26,6 +26,35 @@ public class AgentPageBrowserTests : BrowserTestBase
         _agentPage = new AgentPage(Page, BaseUrl);
     }
 
+    /// <summary>
+    ///     On a phone, at 375px, the page is one column: the sessions above the chat, each the column's full width, and
+    ///     the empty state's sentence reads across it in at most two lines, not a word a line.
+    ///     Red: the phone rule's <c>flex-direction: column</c> removed; the empty state starts 31px above the sessions'
+    ///     bottom, beside them. The columns back in a horizontal <c>RadzenStack</c>, as before, fail the same way: its
+    ///     inline row direction beats the phone rule.
+    ///     Red: <c>width: 100%</c> dropped from the phone rule for the sessions; they stay 280px in a 295px column.
+    ///     Red: the chat column held to the 70px the review measured; the sentence takes 192px, eight lines.
+    /// </summary>
+    [Test]
+    [Description("The Agent page is one column on a phone")]
+    public async Task The_agent_page_is_one_column_on_a_phone()
+    {
+        await Page.SetViewportSizeAsync(375, 812).ConfigureAwait(false);
+        await _agentPage.NavigateAsync().ConfigureAwait(false);
+        var sessions = Page.Locator("[data-testid='agent-sessions']");
+        var empty = Page.Locator("[data-testid='agent-empty']");
+        await Expect(empty).ToBeVisibleAsync().ConfigureAwait(false);
+
+        var pageBox = (await _agentPage.Root.BoundingBoxAsync().ConfigureAwait(false))!;
+        var sessionsBox = (await sessions.BoundingBoxAsync().ConfigureAwait(false))!;
+        var emptyBox = (await empty.BoundingBoxAsync().ConfigureAwait(false))!;
+        var lineHeight = await empty.EvaluateAsync<float>("e => parseFloat(getComputedStyle(e).lineHeight)").ConfigureAwait(false);
+
+        emptyBox.Y.Should().BeGreaterThanOrEqualTo(sessionsBox.Y + sessionsBox.Height - 1, "the chat is under the sessions");
+        sessionsBox.Width.Should().BeApproximately(pageBox.Width, 1, "the sessions take the column's width");
+        emptyBox.Height.Should().BeLessThanOrEqualTo((lineHeight * 2) + 1, "the empty state reads across the column");
+    }
+
     [Test]
     [Description("API preflight: the agents endpoint the page loads first lists the configured agent")]
     public async Task AgentsApi_ShouldList_ConfiguredAgent()

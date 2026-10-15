@@ -18,10 +18,12 @@
         Chat with an agent in sessions it remembers, and see the tools it calls as it answers.
     </RadzenText>
 </RadzenStack>
-<RadzenStack Orientation="Orientation.Horizontal" Gap="0" class="agent-columns" Style="flex: 1; min-height: 0;">
+@* A div, not a horizontal RadzenStack: the stack's inline row direction would win over the phone rule's column. *@
+<div class="agent-columns">
 
     @* Left column: agent picker + sessions *@
-    <RadzenStack Gap="0.5rem" class="rz-p-2 rz-border-right agent-sessions" Style="flex-shrink: 0; overflow-y: auto;">
+    <RadzenStack Gap="0.5rem" class="rz-p-2 rz-border-right agent-sessions" Style="flex-shrink: 0; overflow-y: auto;"
+                 data-testid="agent-sessions">
         <RadzenDropDown TValue="string" Data="@_agents" TextProperty="Name" ValueProperty="Id"
                         @bind-Value="@_selectedAgentId" Placeholder="Select an agent"
                         Style="width: 100%;" data-testid="agent-select"/>
@@ -54,7 +56,7 @@
         {
             <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Style="flex: 1;">
                 <RadzenIcon Icon="smart_toy" Style="font-size: 3rem; opacity: 0.3;"/>
-                <RadzenText TextStyle="TextStyle.Body1" Style="opacity: 0.6;">Pick an agent and start a new session, or open one from the list.</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body1" Style="opacity: 0.6;" data-testid="agent-empty">Pick an agent and start a new session, or open one from the list.</RadzenText>
             </RadzenStack>
         }
         else
@@ -224,7 +226,7 @@
             }
         </RadzenStack>
     }
-</RadzenStack>
+</div>
 </div>
 
 @code {
