@@ -142,6 +142,7 @@ public sealed class RunListEndpointTests(PostgresFixture fixture)
     ///     Red: restore TryParse+IsDefined, so ?status=1 is 200.
     ///     Red: restore TryParse+IsDefined, so ?status=Awaiting,Succeeded is 200.
     ///     Red: drop the updatedSince guard, so ?updatedSince=last-week is 200.
+    ///     Red: parse updatedSince with TryParse, so the ambiguous ?updatedSince=10/08/2026 is 200.
     /// </summary>
     [Theory]
     [InlineData("?status=Parked")]
@@ -151,6 +152,7 @@ public sealed class RunListEndpointTests(PostgresFixture fixture)
     [InlineData("?take=101")]
     [InlineData("?after=not-a-cursor")]
     [InlineData("?updatedSince=last-week")]
+    [InlineData("?updatedSince=10/08/2026")]
     public async Task Bad_queries_are_400(string query)
     {
         await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());

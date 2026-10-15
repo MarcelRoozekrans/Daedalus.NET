@@ -115,6 +115,13 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     public const int ScanCap = 500;
 
     /// <summary>
+    ///     The ISO 8601 forms <c>updatedSince</c> takes, each with its zone: <c>Z</c> or an offset. The fraction of a
+    ///     second, up to seven digits, is optional, so whole seconds and the round-trip "O" form both parse. A loose form
+    ///     such as <c>10/08/2026</c>, which reads as two different days by culture, is refused.
+    /// </summary>
+    private static readonly string[] UpdatedSinceFormats = ["yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz"];
+
+    /// <summary>
     ///     Runs newest first, one page at a time, with the board task each belongs to. Never a run's variables or its
     ///     error. 400 for an unknown status, a take outside 1 to 100, a cursor this endpoint did not write, or an
     ///     <paramref name="updatedSince"/> that is not a timestamp.
@@ -172,11 +179,13 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         DateTimeOffset? since = null;
         if (!string.IsNullOrWhiteSpace(updatedSince))
         {
-            if (!DateTimeOffset.TryParse(updatedSince, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            if (!DateTimeOffset.TryParseExact(
+                    updatedSince, UpdatedSinceFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var parsed))
             {
                 return Problem(
                     statusCode: StatusCodes.Status400BadRequest,
-                    detail: "updatedSince must be a timestamp, such as 2026-10-08T12:00:00Z.");
+                    detail: "updatedSince must be an ISO 8601 timestamp with its zone, such as 2026-10-08T12:00:00Z.");
             }
 
             since = parsed;
@@ -251,7 +260,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
                 }
             }
 
-            if (page.Next is null)
+            // An empty page ends the scan whatever its cursor says, so a store that breaks its contract cannot loop it.
+            if (page.Next is null || page.Runs.Count == 0)
             {
                 return new WorkflowRunPage(kept, null);
             }

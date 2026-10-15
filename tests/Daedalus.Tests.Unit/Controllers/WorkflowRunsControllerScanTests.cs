@@ -132,16 +132,59 @@ public sealed class WorkflowRunsControllerScanTests
     }
 
     /// <summary>
-    ///     A timestamp that does not parse is refused with a reason.
-    ///     Red: drop the guard; an unparsed value is ignored and the list is 200.
+    ///     An updatedSince that is not an ISO 8601 timestamp with its zone is refused with a reason: free text, a loose date
+    ///     that reads as two different days by culture, a date with no time, and a time with no zone.
+    ///     Red: drop the guard; "last week" is ignored and the list is 200.
+    ///     Red: parse with TryParse again; "10/08/2026" is taken and the list is 200.
+    ///     Red: add a format with no zone; the zoneless time is taken and the list is 200.
     /// </summary>
-    [Fact]
-    public async Task An_updated_since_that_is_not_a_timestamp_is_400()
+    [Theory]
+    [InlineData("last week")]
+    [InlineData("10/08/2026")]
+    [InlineData("2026-10-08")]
+    [InlineData("2026-10-08T12:00:00")]
+    public async Task An_updated_since_that_is_not_an_iso_timestamp_is_400(string updatedSince)
     {
         var result = await _controller.List(
-            null, null, null, null, null, "last week", new PagedRunQuery([]), _tasks, CancellationToken.None);
+            null, null, null, null, null, updatedSince, new PagedRunQuery([]), _tasks, CancellationToken.None);
 
         result.Should().BeOfType<ObjectResult>().Which.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+    }
+
+    /// <summary>
+    ///     The ISO forms are taken: what Home sends, the UTC round-trip form with seven fraction digits; the offset form a
+    ///     DateTimeOffset round-trips to; and whole seconds with Z.
+    ///     Red: drop the Z format; Home's form is 400.
+    ///     Red: drop the offset format; the offset form is 400.
+    ///     Red: make the fraction required, fffffff; the whole-seconds form is 400.
+    /// </summary>
+    [Theory]
+    [InlineData("2026-10-08T12:00:00.0000000Z")]
+    [InlineData("2026-10-08T14:00:00.0000000+02:00")]
+    [InlineData("2026-10-08T12:00:00Z")]
+    public async Task An_iso_updated_since_is_taken(string updatedSince)
+    {
+        var result = await _controller.List(
+            null, null, null, null, null, updatedSince, new PagedRunQuery([]), _tasks, CancellationToken.None);
+
+        result.Should().BeOfType<OkObjectResult>();
+    }
+
+    /// <summary>
+    ///     A store that breaks its contract, returning an empty page with a cursor, ends the scan instead of looping it:
+    ///     it is read once and the list says it is complete.
+    ///     Red: drop the empty-page exit; the scan asks again and again, and the test's call limit fails it.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_page_with_a_cursor_ends_the_scan()
+    {
+        var store = new EmptyPagesWithCursor();
+
+        var list = await ListAsync(store, take: 20, signal: Gate);
+
+        list.Runs.Should().BeEmpty();
+        list.Next.Should().BeNull();
+        store.Calls.Should().Be(1);
     }
 
     /// <summary>
@@ -162,7 +205,7 @@ public sealed class WorkflowRunsControllerScanTests
         })];
 
     private async Task<WorkflowRunList> ListAsync(
-        PagedRunQuery store, int take, string? signal = null, string? updatedSince = null, string? after = null)
+        IWorkflowRunQuery store, int take, string? signal = null, string? updatedSince = null, string? after = null)
     {
         var result = await _controller.List(null, null, after, take, signal, updatedSince, store, _tasks, CancellationToken.None);
         return (WorkflowRunList)result.Should().BeOfType<OkObjectResult>().Which.Value!;
@@ -181,6 +224,23 @@ public sealed class WorkflowRunsControllerScanTests
             Read += page.Count;
             var next = rest.Count > page.Count ? new WorkflowRunCursor(page[^1].CreatedAt, page[^1].Id) : null;
             return ValueTask.FromResult(new WorkflowRunPage(page, next));
+        }
+    }
+
+    /// <summary>A store that always answers with no runs and a cursor; it fails a test that calls it more than 10 times.</summary>
+    private sealed class EmptyPagesWithCursor : IWorkflowRunQuery
+    {
+        public int Calls { get; private set; }
+
+        public ValueTask<WorkflowRunPage> ListAsync(WorkflowRunFilter filter, CancellationToken ct)
+        {
+            Calls++;
+            if (Calls > 10)
+            {
+                throw new InvalidOperationException("The scan kept asking an empty store.");
+            }
+
+            return ValueTask.FromResult(new WorkflowRunPage([], new WorkflowRunCursor(Start, Guid.Empty)));
         }
     }
 }
