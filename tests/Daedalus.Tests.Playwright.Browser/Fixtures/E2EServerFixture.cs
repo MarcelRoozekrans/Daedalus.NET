@@ -78,10 +78,11 @@ public class E2EServerFixture
     ///         <item>the Rag.NET schema initializer and memory reindex: the agent memory tables;</item>
     ///         <item>skill and charter sync: content files into the skill and charter catalogs;</item>
     ///         <item>the C# write-binding check: a boot-time configuration check;</item>
+    ///         <item>the decisions start-up log: one line saying whether per-node decisions are on;</item>
     ///         <item>the console's broadcaster: it only relays committed run changes to the hub;</item>
     ///         <item>data protection and the health-check publisher, which ASP.NET Core adds itself.</item>
     ///     </list>
-    ///     The first seven are the ones AddDaedalusAgents and AddThalos leave, and run today with the engine off.
+    ///     The first eight are the ones AddDaedalusAgents and AddThalos leave, and run today with the engine off.
     /// </summary>
     private static readonly string[] HostedServicesKept =
     [
@@ -92,6 +93,7 @@ public class E2EServerFixture
         "Thalos.Skills.Charters.CharterSyncService",
         "Daedalus.Agents.Memory.ReindexPendingMemoriesHostedService",
         "Daedalus.Agents.Security.CSharpWriteBindingCheck",
+        "Daedalus.Agents.Decisions.DecisionsStartupLog",
         "Daedalus.Api.Hubs.WorkflowRunChangeBroadcaster",
         "Microsoft.AspNetCore.DataProtection.Internal.DataProtectionHostedService",
         "Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckPublisherHostedService",
