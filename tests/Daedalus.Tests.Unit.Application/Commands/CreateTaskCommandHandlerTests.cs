@@ -169,6 +169,22 @@ public class CreateTaskCommandHandlerTests
         captured.ParallelGroup.Should().Be(3);
     }
 
+    [Fact]
+    public async Task A_blank_prompt_and_a_blank_description_is_refused_naming_the_prompt()
+    {
+        var command = new CreateTaskCommand(
+            Guid.NewGuid(), "TASK-004", "Title", "  ",
+            Priority.Medium, "Phase", 1, Complexity.Medium,
+            null);
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Red: delete the Prompt validation branch in the handler; Task.Create then refuses with another message.
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().StartWith("Prompt:");
+        await _taskRepository.DidNotReceive().AddAsync(Arg.Any<DomainTask>(), Arg.Any<CancellationToken>());
+    }
+
     private async Task<DomainTask> HandleAndCapture(string? prompt, int? parallelGroup)
     {
         var command = new CreateTaskCommand(

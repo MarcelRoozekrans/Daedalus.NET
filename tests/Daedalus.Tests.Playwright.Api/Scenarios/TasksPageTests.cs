@@ -53,11 +53,9 @@ public class TasksPageTests : ApiTestBase
     public async Task Creating_a_task_with_only_project_title_and_description_succeeds()
     {
         var projects = await GetApiAsync<PagedResultDto<ProjectDto>>("/api/projects").ConfigureAwait(false);
-        if (projects is null || projects.Items.Count == 0)
-        {
-            Assert.Inconclusive("The seeded stack has no project to create a task in.");
-            return;
-        }
+        // The fixture seeds a project; a stack without one fails here instead of passing without asserting.
+        projects.Should().NotBeNull();
+        projects!.Items.Should().NotBeEmpty("E2EServerFixture seeds a project to create tasks in");
 
         var response = await PostApiAsync("/api/tasks", new
         {
@@ -85,11 +83,11 @@ public class TasksPageTests : ApiTestBase
             description = "d"
         }).ConfigureAwait(false);
 
-        // Red: return BadRequest with an anonymous error object; the content type fails.
+        // Red: restore the controller-level Produces application/json on TasksController; the content type fails.
         response.Status.Should().Be(400);
         response.Headers["Content-Type"].Should().StartWith("application/problem+json");
         using var doc = JsonDocument.Parse(await response.TextAsync().ConfigureAwait(false));
-        // Red: same mutation; the body then has no detail member.
+        // Red: pass detail null to Problem in CreateTask; the body then has no detail member.
         doc.RootElement.GetProperty("detail").GetString().Should().NotBeNullOrWhiteSpace();
     }
 

@@ -116,7 +116,7 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
 
         var response = await Send(new { projectId, title = "Only three fields", description = "The description" });
 
-        // Red: restore the Must(IsPresent) rule on Prompt or the plain int ParallelGroup; the create is then 400.
+        // Red: restore the Must(IsPresent) rule on Prompt; the create is then 400.
         response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
         var created = await response.Content.ReadFromJsonAsync<TaskDto>();
         // Red: drop the description fallback in the handler; the create is then refused.
@@ -130,12 +130,45 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
     {
         var response = await Send(new { projectId = Guid.NewGuid(), title = "t", description = "d" });
 
-        // Red: map the failure back to BadRequest with an anonymous error object; status holds, content type fails.
+        // Red: restore the controller-level Produces application/json on TasksController; the type becomes json.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        // Red: same mutation; the body then has no detail member.
+        // Red: pass detail null to Problem in CreateTask; the body then has no detail member.
         problem!.Detail.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task A_validation_refusal_names_the_first_failed_rule_in_detail()
+    {
+        var response = await Send(new
+        {
+            projectId = Guid.NewGuid(),
+            title = new string('t', 501),
+            description = "d"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: serve the validation problem as application/json again, by restoring the controller-level Produces.
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        // Red: drop Detail from the filter's ValidationProblemDetails; the member is then absent.
+        problem!.Detail.Should().Be("Title cannot exceed 500 characters.");
+    }
+
+    [Fact]
+    public async Task A_problem_from_a_task_action_is_served_as_problem_json()
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, new Uri($"/api/tasks/{Guid.NewGuid()}/manufacture", UriKind.Relative));
+        request.Headers.Add(HeaderTestAuthHandler.UserHeader, "alice");
+        request.Headers.Add(HeaderTestAuthHandler.RolesHeader, "admin");
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound, await response.Content.ReadAsStringAsync());
+        // Red: restore the controller-level Produces application/json on TasksController; the type becomes json.
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
     }
 
     /// <summary>

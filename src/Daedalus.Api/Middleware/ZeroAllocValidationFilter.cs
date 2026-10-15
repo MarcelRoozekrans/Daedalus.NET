@@ -30,6 +30,7 @@ public sealed class ZeroAllocValidationFilter : IAsyncActionFilter
                 continue;
             }
 
+            var firstMessage = validationResult.Failures[0].ErrorMessage;
             var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
             foreach (ref readonly var failure in validationResult.Failures)
             {
@@ -42,6 +43,7 @@ public sealed class ZeroAllocValidationFilter : IAsyncActionFilter
             {
                 Status = StatusCodes.Status400BadRequest,
                 Title = "One or more validation errors occurred.",
+                Detail = firstMessage,
                 Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1"
             };
 
