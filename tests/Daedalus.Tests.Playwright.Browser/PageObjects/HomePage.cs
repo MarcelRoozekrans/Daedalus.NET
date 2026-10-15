@@ -26,6 +26,9 @@ public sealed class HomePage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
     /// <summary>The page's alert for a task that was created but whose manufacture was refused.</summary>
     public ILocator ManufactureRefusedAlert => _page.Locator("[data-testid='home-manufacture-refused']");
 
+    /// <summary>The one line Home shows in place of the cards for someone who may not see runs.</summary>
+    public ILocator NoRunsLine => _page.Locator("[data-testid='needs-me-no-runs']");
+
     public ILocator Card(string testId) => _page.Locator($"[data-testid='{testId}']");
 
     public ILocator CardHeading(string testId) => Card(testId).Locator("h6");
