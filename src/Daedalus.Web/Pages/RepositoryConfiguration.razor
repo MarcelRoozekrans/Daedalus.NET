@@ -1,5 +1,7 @@
 @page "/repositories"
 @attribute [Authorize]
+@using System.Net
+@using System.Text.Json
 @using Daedalus.Application.DTOs
 @inject HttpClient Http
 @inject DialogService DialogService
@@ -13,8 +15,11 @@
             Configure the repositories projects link to.
         </RadzenText>
     </RadzenStack>
-    <RadzenButton Text="Add Repository" Icon="add" Click="@ShowAddForm"
-                  ButtonStyle="ButtonStyle.Primary"/>
+    @if (!_forbidden)
+    {
+        <RadzenButton Text="Add Repository" Icon="add" Click="@ShowAddForm"
+                      ButtonStyle="ButtonStyle.Primary"/>
+    }
 </RadzenStack>
 
 @if (_isLoading)
@@ -22,7 +27,21 @@
     <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"
                                Style="display: block; margin: 3rem auto;"/>
 }
-else if (_repositories == null || _repositories.Count == 0)
+else if (_forbidden)
+{
+    @* The API refuses everyone but an admin. A refusal is not an empty list, so it says so, and offers nothing to add. *@
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" data-testid="repositories-forbidden">
+        Git repositories are managed by admins.
+    </RadzenAlert>
+}
+else if (_loadError is { } loadError)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="repositories-error">
+        The repositories could not be loaded: @loadError
+        <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@LoadRepositories"/>
+    </RadzenAlert>
+}
+else if (_repositories is { Count: 0 })
 {
     <div class="empty-state">
         <RadzenIcon Icon="source" Style="font-size: 3rem; opacity: 0.3;"/>
@@ -34,8 +53,9 @@ else if (_repositories == null || _repositories.Count == 0)
                       ButtonStyle="ButtonStyle.Primary" Variant="Variant.Outlined"/>
     </div>
 }
-else
+else if (_repositories is not null)
 {
+    @* Null with no error is a read whose session ended: the layout's notice says so, and sign-in is under way. *@
     <RadzenRow Gap="1rem">
         @foreach (var repo in _repositories)
         {
@@ -98,6 +118,12 @@ else
     private List<RepositoryConfigurationDto>? _repositories;
     private bool _isLoading = true;
 
+    /// <summary>Whether the API refused the read, 403: the user is not an admin.</summary>
+    private bool _forbidden;
+
+    /// <summary>Why the read failed, for any failure but a refusal or an ended session; null when it did not.</summary>
+    private string? _loadError;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadRepositories();
@@ -106,14 +132,32 @@ else
     private async Task LoadRepositories()
     {
         _isLoading = true;
+        _forbidden = false;
+        _loadError = null;
+        _repositories = null;
         try
         {
-            _repositories = await Http.GetFromJsonAsync<List<RepositoryConfigurationDto>>("api/repositories")
-                            ?? [];
+            using var response = await Http.GetAsync("api/repositories");
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _forbidden = true;
+            }
+            else if (!response.IsSuccessStatusCode)
+            {
+                _loadError = $"The server answered {HttpStatusText.Of(response)}.";
+            }
+            else
+            {
+                _repositories = await response.Content.ReadFromJsonAsync<List<RepositoryConfigurationDto>>() ?? [];
+            }
         }
-        catch (Exception)
+        catch (Exception ex) when (SessionExpiry.IsSigningIn(ex))
         {
-            _repositories = [];
+            // The session ended: the layout's one notice says so, and the page shows nothing of its own.
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or NotSupportedException)
+        {
+            _loadError = ex.Message;
         }
         finally
         {
