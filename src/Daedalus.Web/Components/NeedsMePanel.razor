@@ -38,7 +38,7 @@
         @* One column below 1280px, the contract's tablet and phone widths, in order of urgency; two by two above it. *@
         <RadzenRow Gap="1rem">
             <RadzenColumn Size="12" SizeLG="6">
-                <NeedsMeCard Title="Awaiting approval" TestId="needs-me-awaiting" EmptyText="Nothing waiting for approval."
+                <NeedsMeCard Title="Awaiting approval" TestId="needs-me-awaiting" EmptyText="@NeedsMe.NothingWaiting(_awaiting.More)"
                              Rows="@_awaiting.Rows" Error="@_awaiting.Error" More="@_awaiting.More"
                              OnRetry="@(() => LoadAsync(_awaiting))">
                     <Row Context="run">
@@ -57,7 +57,7 @@
                 </NeedsMeCard>
             </RadzenColumn>
             <RadzenColumn Size="12" SizeLG="6">
-                <NeedsMeCard Title="Running" TestId="needs-me-running" EmptyText="Nothing running."
+                <NeedsMeCard Title="Running" TestId="needs-me-running" EmptyText="@NeedsMe.NothingRunning(_running.More)"
                              Rows="@_running.Rows" Error="@_running.Error" More="@_running.More"
                              OnRetry="@(() => LoadAsync(_running))">
                     <Row Context="run">
@@ -71,7 +71,7 @@
                 </NeedsMeCard>
             </RadzenColumn>
             <RadzenColumn Size="12" SizeLG="6">
-                <NeedsMeCard Title="Failed in the last 7 days" TestId="needs-me-failed" EmptyText="No failed runs in the last 7 days."
+                <NeedsMeCard Title="Failed in the last 7 days" TestId="needs-me-failed" EmptyText="@NeedsMe.NoFailedRuns(_failed.More)"
                              Rows="@_failed.Rows" Error="@_failed.Error" More="@_failed.More"
                              OnRetry="@(() => LoadAsync(_failed))">
                     <Row Context="run">
