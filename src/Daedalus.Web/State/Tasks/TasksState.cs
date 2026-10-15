@@ -20,7 +20,10 @@ namespace Daedalus.Web.State.Tasks;
 /// <param name="ProjectsError">Why the last projects fetch failed, or <see langword="null"/>.</param>
 /// <param name="ProjectsRequested">
 ///     Whether a projects load was asked for since the Tasks page was last left. Apart from <paramref name="LoadRequested"/>,
-///     because Home opens the create dialog, which needs the projects, without loading the board.
+///     because Home opens the create dialog, which needs the projects, without loading the board. Home leaves the
+///     projects in the state when it is left, deliberately: Blazor disposes the page being left after it initialises the
+///     next one, so a clear from Home would land after Tasks asked for its board and projects, and drop them. The projects
+///     Home leaves cost one small list, are re-read on every New task press, and are replaced the next time Tasks loads.
 /// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct TasksState(

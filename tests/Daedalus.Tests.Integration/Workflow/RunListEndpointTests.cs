@@ -1,3 +1,4 @@
+using System.Globalization;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Application.DTOs.WorkflowRuns;
@@ -98,11 +99,49 @@ public sealed class RunListEndpointTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     Phase 2.13: signal and updatedSince filter on the server, against the real store. Both runs park at the human
+    ///     gate, so signal=human_approval lists both and another signal none, each with no cursor. Then the older run, the
+    ///     task's, is cancelled: updatedSince just before that lists it alone with take=1, though the newer run comes first
+    ///     in the store's order, so the list read past a page that matched nothing.
+    ///     Red: ignore signal; other_signal lists both runs.
+    ///     Red: filter only the first store page; updatedSince with take=1 lists nothing.
+    ///     Red: compare CreatedAt for updatedSince; the cancelled run is left out.
+    ///     Red: ignore updatedSince; the newer, unchanged run is listed.
+    /// </summary>
+    [Fact]
+    public async Task Signal_and_updated_since_filter_on_the_server()
+    {
+        await WithTwoRunsAsync(async (host, client, runs) =>
+        {
+            var gate = await client.GetFromJsonAsync<WorkflowRunList>("/api/workflow-runs?status=Awaiting&signal=human_approval");
+            gate!.Runs.Select(r => r.Id).Should().Equal(runs.IntentRunId, runs.TaskRunId);
+            gate.Next.Should().BeNull();
+
+            var other = await client.GetFromJsonAsync<WorkflowRunList>("/api/workflow-runs?signal=other_signal");
+            other!.Runs.Should().BeEmpty();
+            other.Next.Should().BeNull();
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            var since = DateTimeOffset.UtcNow;
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            var cancel = await client.PostAsJsonAsync($"/api/workflow-runs/{runs.TaskRunId}/cancel", new CancelWorkflowRunRequest("changed late"));
+            cancel.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            await host.WaitForAsync(runs.TaskRunId, r => r.Status == WorkflowStatus.Cancelled, "been cancelled");
+
+            var changed = await client.GetFromJsonAsync<WorkflowRunList>(
+                $"/api/workflow-runs?take=1&updatedSince={Uri.EscapeDataString(since.ToString("O", CultureInfo.InvariantCulture))}");
+            changed!.Runs.Select(r => r.Id).Should().Equal(runs.TaskRunId);
+            changed.Next.Should().BeNull();
+        });
+    }
+
+    /// <summary>
     ///     An unknown status, take=0, take=101 and a cursor this endpoint did not write are each 400 with a detail.
     ///     A number and a comma list are not names, so they are 400 too.
     ///     Red: drop each guard in turn. Red: return the 400s without a detail.
     ///     Red: restore TryParse+IsDefined, so ?status=1 is 200.
     ///     Red: restore TryParse+IsDefined, so ?status=Awaiting,Succeeded is 200.
+    ///     Red: drop the updatedSince guard, so ?updatedSince=last-week is 200.
     /// </summary>
     [Theory]
     [InlineData("?status=Parked")]
@@ -111,6 +150,7 @@ public sealed class RunListEndpointTests(PostgresFixture fixture)
     [InlineData("?take=0")]
     [InlineData("?take=101")]
     [InlineData("?after=not-a-cursor")]
+    [InlineData("?updatedSince=last-week")]
     public async Task Bad_queries_are_400(string query)
     {
         await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());

@@ -9,32 +9,45 @@ public sealed class NeedsMeTests
     private static readonly DateTimeOffset Now = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>
-    ///     The awaiting card lists only runs parked at the human gate; a run waiting on another signal is not an approval.
-    ///     Red: return every awaiting run; the other signal's run is listed.
+    ///     The awaiting card asks the server for runs parked at the human gate, so a page is never taken up by runs waiting
+    ///     on another signal.
+    ///     Red: AwaitingQuery without Signal; the path has no signal.
+    ///     Red: ToPath leaves Signal out; the path has no signal.
     /// </summary>
     [Fact]
-    public void Awaiting_approval_is_the_human_gate_only()
-    {
-        var gate = RunViews.Item(Guid.NewGuid(), "Awaiting", "human_approval");
-        var other = RunViews.Item(Guid.NewGuid(), "Awaiting", "other_signal");
-
-        NeedsMe.AwaitingApproval([gate, other]).Should().Equal(gate);
-    }
+    public void The_awaiting_card_asks_the_server_for_the_human_gate() =>
+        NeedsMe.AwaitingQuery.ToPath().Should().Be("/api/workflow-runs?take=20&status=Awaiting&signal=human_approval");
 
     /// <summary>
-    ///     The failed card lists the runs updated within the last 7 days, the boundary included.
-    ///     Red: compare CreatedAt instead of UpdatedAt; the run created long ago but failed today is dropped.
-    ///     Red: a 30-day window; the 8-day-old run is listed.
-    ///     Red: strictly after the boundary; the run exactly 7 days old is dropped.
+    ///     The failed card asks the server for failed runs that last changed in the last 7 days, as a UTC timestamp.
+    ///     Red: a 30-day window; the timestamp is 2026-09-15.
+    ///     Red: ToPath leaves UpdatedSince out; the path has no updatedSince.
+    ///     Red: ToPath writes the local time with its offset; the path is not the escaped UTC Z form.
     /// </summary>
     [Fact]
-    public void Failed_is_the_last_7_days_by_when_the_run_last_changed()
-    {
-        var today = RunViews.Item(Guid.NewGuid(), "Failed") with { CreatedAt = Now.AddDays(-30), UpdatedAt = Now.AddHours(-1) };
-        var boundary = RunViews.Item(Guid.NewGuid(), "Failed") with { CreatedAt = Now.AddDays(-7), UpdatedAt = Now.AddDays(-7) };
-        var old = RunViews.Item(Guid.NewGuid(), "Failed") with { CreatedAt = Now.AddDays(-8), UpdatedAt = Now.AddDays(-8) };
+    public void The_failed_card_asks_the_server_for_the_last_7_days() =>
+        NeedsMe.FailedQuery(new DateTimeOffset(2026, 10, 15, 14, 0, 0, TimeSpan.FromHours(2))).ToPath().Should()
+            .Be("/api/workflow-runs?take=20&status=Failed&updatedSince=2026-10-08T12%3A00%3A00.0000000Z");
 
-        NeedsMe.FailedSince([today, boundary, old], Now).Should().Equal(today, boundary);
+    /// <summary>
+    ///     The pull requests card reads manufacture runs only, so scheduled and replay runs do not take its page.
+    ///     Red: PullRequestQuery with no process; the path has no process.
+    /// </summary>
+    [Fact]
+    public void The_pull_requests_card_reads_manufacture_runs() =>
+        NeedsMe.PullRequestQuery.ToPath().Should().Be("/api/workflow-runs?take=20&process=manufacture");
+
+    /// <summary>
+    ///     With no pull request found, the card says there are none only when it read the whole list; otherwise it says
+    ///     only the latest 20 runs had none.
+    ///     Red: always "No pull requests yet."; the incomplete case is wrong.
+    ///     Red: the two texts swapped; the complete case is wrong.
+    /// </summary>
+    [Fact]
+    public void No_pull_requests_says_how_much_was_read()
+    {
+        NeedsMe.NoPullRequests(more: false).Should().Be("No pull requests yet.");
+        NeedsMe.NoPullRequests(more: true).Should().Be("No pull requests in the latest 20 runs.");
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Asp.Versioning;
 using Daedalus.Agents.Security;
@@ -107,9 +108,24 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     }
 
     /// <summary>
-    ///     Runs newest first, one page at a time, with the board task each belongs to. Never a run's variables or its
-    ///     error. 400 for an unknown status, a take outside 1 to 100, or a cursor this endpoint did not write.
+    ///     The most run summaries one list request reads from the store while it looks for runs that match
+    ///     <c>signal</c> or <c>updatedSince</c>, which the store cannot filter on. A request that reaches it returns what
+    ///     it found and a cursor, so the caller knows the list may hold more.
     /// </summary>
+    public const int ScanCap = 500;
+
+    /// <summary>
+    ///     Runs newest first, one page at a time, with the board task each belongs to. Never a run's variables or its
+    ///     error. 400 for an unknown status, a take outside 1 to 100, a cursor this endpoint did not write, or an
+    ///     <paramref name="updatedSince"/> that is not a timestamp.
+    /// </summary>
+    /// <remarks>
+    ///     <paramref name="signal"/> keeps the runs awaiting that signal, and <paramref name="updatedSince"/> the runs that
+    ///     last changed at or after that instant. The store filters only on status and process, so with either of them
+    ///     the list reads the store page by page, keeps the matches, and stops at <paramref name="take"/> matches, at the
+    ///     end of the store, or after <see cref="ScanCap"/> summaries. <c>Next</c> is set only when more matches may
+    ///     remain: <c>take</c> was reached before the end of the store, or the cap was.
+    /// </remarks>
     [HttpGet]
     [ProducesResponseType(typeof(WorkflowRunList), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
@@ -118,6 +134,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         [FromQuery] string? process,
         [FromQuery] string? after,
         [FromQuery] int? take,
+        [FromQuery] string? signal,
+        [FromQuery] string? updatedSince,
         [FromServices] IWorkflowRunQuery query,
         [FromServices] ITaskQueryService tasks,
         CancellationToken ct)
@@ -151,9 +169,30 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             cursor = decoded;
         }
 
-        var page = await query.ListAsync(
-            new WorkflowRunFilter { Status = statusFilter, Process = string.IsNullOrWhiteSpace(process) ? null : process, After = cursor, Take = pageSize },
-            ct).ConfigureAwait(false);
+        DateTimeOffset? since = null;
+        if (!string.IsNullOrWhiteSpace(updatedSince))
+        {
+            if (!DateTimeOffset.TryParse(updatedSince, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            {
+                return Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    detail: "updatedSince must be a timestamp, such as 2026-10-08T12:00:00Z.");
+            }
+
+            since = parsed;
+        }
+
+        var filter = new WorkflowRunFilter
+        {
+            Status = statusFilter,
+            Process = string.IsNullOrWhiteSpace(process) ? null : process,
+            After = cursor,
+            Take = pageSize,
+        };
+        var awaitingSignal = string.IsNullOrWhiteSpace(signal) ? null : signal;
+        var page = awaitingSignal is null && since is null
+            ? await query.ListAsync(filter, ct).ConfigureAwait(false)
+            : await ScanAsync(query, filter, run => Matches(run, awaitingSignal, since), ct).ConfigureAwait(false);
         var links = await tasks.GetRunLinksAsync([.. page.Runs.Select(r => r.Id)], ct).ConfigureAwait(false);
 
         var items = new List<WorkflowRunListItem>(page.Runs.Count);
@@ -165,6 +204,62 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         return Ok(new WorkflowRunList(
             items,
             page.Next is null ? null : WorkflowRunCursorCodec.Encode(page.Next)));
+    }
+
+    private static bool Matches(WorkflowRunSummary run, string? signal, DateTimeOffset? since) =>
+        (signal is null || string.Equals(run.AwaitingSignal, signal, StringComparison.Ordinal))
+        && (since is null || run.UpdatedAt >= since);
+
+    /// <summary>
+    ///     Reads <paramref name="filter"/>'s runs from the store, newest first, keeping those <paramref name="matches"/>
+    ///     accepts, until <see cref="WorkflowRunFilter.Take"/> are kept, the store has no more, or <see cref="ScanCap"/>
+    ///     summaries were read. The cursor names the last summary read, so the next page goes on from there; it is null
+    ///     only when the store has no more.
+    /// </summary>
+    private static async Task<WorkflowRunPage> ScanAsync(
+        IWorkflowRunQuery query, WorkflowRunFilter filter, Func<WorkflowRunSummary, bool> matches, CancellationToken ct)
+    {
+        var kept = new List<WorkflowRunSummary>(filter.Take);
+        var after = filter.After;
+        var scanned = 0;
+        while (scanned < ScanCap)
+        {
+            var page = await query.ListAsync(
+                    new WorkflowRunFilter
+                    {
+                        Status = filter.Status,
+                        Process = filter.Process,
+                        After = after,
+                        Take = Math.Min(WorkflowRunFilter.MaxTake, ScanCap - scanned),
+                    },
+                    ct)
+                .ConfigureAwait(false);
+            for (var i = 0; i < page.Runs.Count; i++)
+            {
+                var run = page.Runs[i];
+                scanned++;
+                if (!matches(run))
+                {
+                    continue;
+                }
+
+                kept.Add(run);
+                if (kept.Count == filter.Take)
+                {
+                    var last = i == page.Runs.Count - 1 && page.Next is null;
+                    return new WorkflowRunPage(kept, last ? null : new WorkflowRunCursor(run.CreatedAt, run.Id));
+                }
+            }
+
+            if (page.Next is null)
+            {
+                return new WorkflowRunPage(kept, null);
+            }
+
+            after = page.Next;
+        }
+
+        return new WorkflowRunPage(kept, after);
     }
 
     /// <summary>

@@ -79,7 +79,7 @@
             </NeedsMeCard>
         </RadzenColumn>
         <RadzenColumn Size="12" SizeLG="6">
-            <NeedsMeCard Title="Recent pull requests" TestId="needs-me-prs" EmptyText="No pull requests yet." ShowCount="false"
+            <NeedsMeCard Title="Recent pull requests" TestId="needs-me-prs" EmptyText="@NeedsMe.NoPullRequests(_pullRequests.More)" ShowCount="false"
                          Rows="@_pullRequests.Rows" Error="@_pullRequests.Error" More="@_pullRequests.More"
                          OnRetry="@(() => LoadAsync(_pullRequests))">
                 <Row Context="run">
@@ -87,7 +87,7 @@
                                  JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap" Gap="0.5rem">
                         <RadzenText TextStyle="TextStyle.Body1" Style="margin: 0;">@NeedsMe.Name(run)</RadzenText>
                         <a href="@run.PrUrl" target="_blank" rel="noopener"
-                           aria-label="@($"Pull request {TaskStatusLabels.PullRequestText(run.PrUrl!)}, {NeedsMe.Name(run)}")">@TaskStatusLabels.PullRequestText(run.PrUrl!)</a>
+                           aria-label="@($"Pull request {TaskStatusLabels.PullRequestText(run.PrUrl!)}, {NeedsMe.Name(run)}, opens in a new tab")">@TaskStatusLabels.PullRequestText(run.PrUrl!)</a>
                     </RadzenStack>
                 </Row>
             </NeedsMeCard>
@@ -97,12 +97,12 @@
 
 @code {
     private readonly CancellationTokenSource _cts = new();
-    private readonly Card _awaiting = new(NeedsMe.AwaitingQuery, (runs, _) => NeedsMe.AwaitingApproval(runs));
-    private readonly Card _running = new(NeedsMe.RunningQuery, (runs, _) => runs);
-    private readonly Card _failed = new(NeedsMe.FailedQuery, NeedsMe.FailedSince);
-    private readonly Card _pullRequests = new(NeedsMe.PullRequestQuery, (runs, _) => NeedsMe.RecentPullRequests(runs));
+    private readonly Card _awaiting = new(_ => NeedsMe.AwaitingQuery, runs => runs);
+    private readonly Card _running = new(_ => NeedsMe.RunningQuery, runs => runs);
+    private readonly Card _failed = new(NeedsMe.FailedQuery, runs => runs);
+    private readonly Card _pullRequests = new(_ => NeedsMe.PullRequestQuery, NeedsMe.RecentPullRequests);
 
-    /// <summary>When the cards were last read, for how long a run has waited and the failed card's window.</summary>
+    /// <summary>When the cards were last read, for how long a run has waited.</summary>
     private DateTimeOffset _now = DateTimeOffset.UtcNow;
 
     /// <summary>Why the last Create and manufacture could not start its run; null when none.</summary>
@@ -117,7 +117,7 @@
         card.Rows = null;
         card.Error = null;
         card.More = false;
-        var result = await Api.GetRunsAsync(card.Query, _cts.Token);
+        var result = await Api.GetRunsAsync(card.Query(DateTimeOffset.UtcNow), _cts.Token);
         if (_cts.IsCancellationRequested)
         {
             return;
@@ -126,7 +126,7 @@
         if (result.IsSuccess)
         {
             _now = DateTimeOffset.UtcNow;
-            card.Rows = card.Keep(result.Value.Runs, _now);
+            card.Rows = card.Keep(result.Value.Runs);
             card.More = result.Value.Next is not null;
         }
         else
@@ -172,14 +172,17 @@
         _cts.Dispose();
     }
 
-    /// <summary>One card's read, what it keeps of it, and what it holds now.</summary>
+    /// <summary>
+    ///     One card's read at a given time, what it keeps of it, and what it holds now. Only the pull requests card keeps
+    ///     less than it read; the server filters the others.
+    /// </summary>
     private sealed class Card(
-        RunListQuery query,
-        Func<IReadOnlyList<WorkflowRunListItem>, DateTimeOffset, IReadOnlyList<WorkflowRunListItem>> keep)
+        Func<DateTimeOffset, RunListQuery> query,
+        Func<IReadOnlyList<WorkflowRunListItem>, IReadOnlyList<WorkflowRunListItem>> keep)
     {
-        public RunListQuery Query { get; } = query;
+        public Func<DateTimeOffset, RunListQuery> Query { get; } = query;
 
-        public Func<IReadOnlyList<WorkflowRunListItem>, DateTimeOffset, IReadOnlyList<WorkflowRunListItem>> Keep { get; } = keep;
+        public Func<IReadOnlyList<WorkflowRunListItem>, IReadOnlyList<WorkflowRunListItem>> Keep { get; } = keep;
 
         public IReadOnlyList<WorkflowRunListItem>? Rows { get; set; }
 
