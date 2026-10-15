@@ -207,7 +207,7 @@ public sealed class AgentApiClient(HttpClient http)
     /// </summary>
     private static async Task<(string? Code, string Message)> ReadProblemAsync(HttpResponseMessage response, CancellationToken ct)
     {
-        var fallback = $"API error: {(int)response.StatusCode} {response.ReasonPhrase}";
+        var fallback = $"API error: {HttpStatusText.Of(response)}";
         string body;
         try
         {

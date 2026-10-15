@@ -62,17 +62,21 @@ public static class TestAuth
         page.EvaluateAsync<bool>("([key]) => sessionStorage.getItem(key) !== null", new[] { StoredUserKey });
 
     /// <summary>
-    ///     Records every path whose document ever held an element matching <paramref name="selector"/>, however
-    ///     briefly, so a test sees an alert or a notification that showed and went before it looked. Read it with
-    ///     <see cref="PathsThatShowedAsync"/>.
+    ///     Records every path whose document ever held an element matching <paramref name="selector"/>, and holding
+    ///     <paramref name="text"/> when one is given, however briefly: an alert or a notification that showed and went
+    ///     before the test looked is still recorded. Read it with <see cref="PathsThatShowedAsync"/> and the same
+    ///     arguments; several watches on one page keep separate records.
     /// </summary>
-    public static Task WatchForAsync(IPage page, string selector) =>
+    public static Task WatchForAsync(IPage page, string selector, string? text = null) =>
         page.AddInitScriptAsync(
-            "window.__daedalusShowed = []; " +
-            $"const selector = {JsonSerializer.Serialize(selector)}; " +
-            "const look = () => { if (document.querySelector(selector) && !window.__daedalusShowed.includes(location.pathname)) " +
-            "{ window.__daedalusShowed.push(location.pathname); } }; " +
-            "new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true });");
+            "(() => { window.__daedalusShowed = window.__daedalusShowed || {}; " +
+            $"const key = {JsonSerializer.Serialize(WatchKey(selector, text))}; " +
+            $"const selector = {JsonSerializer.Serialize(selector)}; const text = {JsonSerializer.Serialize(text)}; " +
+            "const seen = window.__daedalusShowed[key] = []; " +
+            "const look = () => { const hit = Array.from(document.querySelectorAll(selector))" +
+            ".some(e => text === null || (e.textContent || '').includes(text)); " +
+            "if (hit && !seen.includes(location.pathname)) { seen.push(location.pathname); } }; " +
+            "new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true, characterData: true }); })();");
 
     /// <summary>
     ///     Makes the console's authentication state wait for <see cref="ReleaseSignInAsync"/>, in the <c>late</c> mode,
@@ -86,9 +90,12 @@ public static class TestAuth
     /// <summary>Lets the held authentication state resolve.</summary>
     public static Task ReleaseSignInAsync(IPage page) => page.EvaluateAsync("() => window.daedalusReleaseAuth()");
 
-    /// <summary>The paths recorded by <see cref="WatchForAsync"/>.</summary>
-    public static Task<string[]> PathsThatShowedAsync(IPage page) =>
-        page.EvaluateAsync<string[]>("() => window.__daedalusShowed || []");
+    /// <summary>The paths recorded by <see cref="WatchForAsync"/> for the same <paramref name="selector"/> and <paramref name="text"/>.</summary>
+    public static Task<string[]> PathsThatShowedAsync(IPage page, string selector, string? text = null) =>
+        page.EvaluateAsync<string[]>(
+            "key => (window.__daedalusShowed && window.__daedalusShowed[key]) || []", WatchKey(selector, text));
+
+    private static string WatchKey(string selector, string? text) => text is null ? selector : $"{selector}|{text}";
 
     /// <summary>
     ///     The return URL of the sign-in the console navigated to. Blazor's <c>NavigateToLogin</c> keeps it in the history
