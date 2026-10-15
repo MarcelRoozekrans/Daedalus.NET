@@ -8,6 +8,8 @@
 @inject IStore<TasksState> TaskStore
 @inject IDispatcher Dispatcher
 @inject TasksEffects Effects
+@using Microsoft.JSInterop
+@inject IJSRuntime Js
 @implements IAsyncDisposable
 
 @* As Home's: the action wraps under the title on a phone rather than squeeze its text onto two lines. *@
@@ -209,6 +211,35 @@
         TaskStore.Value.ProjectNames.TryGetValue(task.ProjectId, out var name) ? name : "—";
 
     protected override void SubscribeStores() => Subscribe(TaskStore);
+
+    /// <summary>
+    ///     The media queries report only after the first render, which would draw the grid for the wrong width for a
+    ///     frame. In the browser the width can be read at once, as MainLayout reads it; without the helper the queries
+    ///     set the layout once they report.
+    /// </summary>
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        if (Js is IJSInProcessRuntime browser)
+        {
+            try
+            {
+                var width = browser.Invoke<double>("daedalusViewportWidth");
+                _phone = width < PhoneBelow;
+                _desktop = width >= DesktopFrom;
+            }
+            catch (JSException)
+            {
+                // A page without the helper, such as a stale cached index.html: the media queries decide.
+            }
+        }
+    }
+
+    /// <summary>The width a phone's viewport stays below, as the phone query reads it.</summary>
+    private const double PhoneBelow = 768;
+
+    /// <summary>The width from which Priority and Created show, as the desktop query reads it.</summary>
+    private const double DesktopFrom = 1280;
 
     protected override async Task OnInitializedAsync()
     {

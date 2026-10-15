@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
 using Daedalus.Tests.Playwright.Browser.PageObjects;
+using Daedalus.Tests.Playwright.Browser.Utilities;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 
@@ -298,6 +299,28 @@ public class TaskCreateBrowserTests : BrowserTestBase
         var title = (await row.Locator("td").First.BoundingBoxAsync().ConfigureAwait(false))!;
         var grid = (await Page.Locator(".tasks-grid").BoundingBoxAsync().ConfigureAwait(false))!;
         title.Width.Should().BeApproximately(grid.Width, 2, "the title has the grid's width");
+    }
+
+    /// <summary>
+    ///     The grid renders in the layout its width gives from its first frame: on a phone no frame shows the Project
+    ///     column, and on a tablet none shows Priority. A watch made before the page loads records any header that showed,
+    ///     however briefly.
+    ///     Red: the width not read before the first render, <c>_phone</c> starting false; at 375 a Project header is
+    ///     recorded.
+    ///     Red: the same for <c>_desktop</c>, starting true; at 1024 a Priority header is recorded.
+    /// </summary>
+    [TestCase(375, 812, "Project")]
+    [TestCase(1024, 800, "Priority")]
+    [Description("The Tasks grid's first render matches its width")]
+    public async Task The_tasks_grid_first_renders_in_the_layout_its_width_gives(int width, int height, string hidden)
+    {
+        await TestAuth.WatchForAsync(Page, "[data-testid='tasks-grid'] thead th", hidden).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(width, height).ConfigureAwait(false);
+        await _tasks.NavigateAsync().ConfigureAwait(false);
+        await Expect(_tasks.DataGridRows.First).ToBeVisibleAsync().ConfigureAwait(false);
+
+        (await TestAuth.PathsThatShowedAsync(Page, "[data-testid='tasks-grid'] thead th", hidden).ConfigureAwait(false))
+            .Should().BeEmpty($"at {width}px no frame shows the {hidden} column");
     }
 
     /// <summary>
