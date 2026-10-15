@@ -65,6 +65,9 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "clientAuthenticatorType": "client-secret",
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      },
       "redirectUris": [
         "http://localhost:5290/authentication/login-callback",
         "http://localhost:5290",

@@ -60,17 +60,66 @@ public class ShellBrowserTests : BrowserTestBase
     }
 
     /// <summary>
-    ///     <c>/executions</c> is no page any more: the router's not-found content shows, inside the signed-in chrome.
-    ///     Red: <c>Pages/Executions.razor</c> restored; the Task Loop History page renders and no not-found alert shows.
+    ///     <c>/executions</c> is no page any more, and it, like any unknown path, shows the not-found page inside the
+    ///     signed-in chrome: the shared page header, H4 "Page not found" and a Body2 caption, and a link to Home that
+    ///     goes there.
+    ///     Red: a <c>Pages/Executions.razor</c> at <c>/executions</c> again, its H4 Task Loop History; the H4 reads that.
+    ///     Red: the router's bare "Sorry, there's nothing at this address." back in App.razor; no H4 reads "Page not
+    ///     found".
+    ///     Red: the not-found page's caption made a Caption, not Body2; the H4 has no Body2 caption.
+    ///     Red: the link's Path "/tasks"; the click lands on /tasks and the wait for Home times out.
+    /// </summary>
+    [TestCase("/executions")]
+    [TestCase("/no-such-page")]
+    [Description("Unknown paths, /executions among them, show the styled not-found page")]
+    public async Task Unknown_paths_show_the_not_found_page(string path)
+    {
+        await OpenAsync(path).ConfigureAwait(false);
+
+        await Expect(Page.Locator(".rz-body h4")).ToHaveTextAsync("Page not found").ConfigureAwait(false);
+        var caption = Page.Locator(".rz-body h4 + p.rz-text-body2");
+        await Expect(caption).ToHaveCountAsync(1).ConfigureAwait(false);
+        (await caption.InnerTextAsync().ConfigureAwait(false)).Trim().Should().NotBeEmpty("the heading has a caption");
+
+        await Page.Locator(".rz-body").GetByRole(AriaRole.Link, new LocatorGetByRoleOptions { Name = "Home" }).ClickAsync()
+            .ConfigureAwait(false);
+        await Page.WaitForURLAsync(new Uri(BaseUrl, "/").ToString()).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The footer says what the product is, in the README's words, not the retired "Autonomous Code Analysis
+    ///     Platform".
+    ///     Red: the footer's old line restored; it does not hold the README's words.
     /// </summary>
     [Test]
-    [Description("Executions is gone: /executions gives the not-found page")]
-    public async Task Executions_is_gone()
+    [Description("The footer describes the product")]
+    public async Task The_footer_describes_the_product()
     {
-        await OpenAsync("/executions").ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
 
-        await Expect(Page.GetByRole(AriaRole.Alert).Filter(new LocatorFilterOptions { HasText = "Sorry, there's nothing at this address." }))
-            .ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(Page.Locator(".rz-footer")).ToContainTextAsync(
+            "A person plans work on a task board and starts a manufacture run for a task").ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Log out asks the sign-out to return to Home. The identity provider sends the browser back to
+    ///     <c>authentication/logout-callback</c>, as the console's OIDC settings say, and Blazor then goes to that return
+    ///     URL, so the landing's address carries no <c>?state=</c>. Test mode stops at the sign-out route, so this reads
+    ///     the return URL from the history entry; the settings are pinned by <c>WebOidcSettingsTests</c>.
+    ///     Red: Log out without a return URL, as before; the history entry names none.
+    /// </summary>
+    [Test]
+    [Description("Log out returns to Home")]
+    public async Task Log_out_returns_to_home()
+    {
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight).ConfigureAwait(false);
+        await OpenAsync("/tasks").ConfigureAwait(false);
+
+        await Page.Locator(".rz-header").GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Log out", Exact = true })
+            .ClickAsync().ConfigureAwait(false);
+
+        await Page.WaitForURLAsync("**/authentication/logout").ConfigureAwait(false);
+        (await TestAuth.ReturnUrlAsync(Page).ConfigureAwait(false)).Should().Be("/", "sign-out returns to Home");
     }
 
     /// <summary>
