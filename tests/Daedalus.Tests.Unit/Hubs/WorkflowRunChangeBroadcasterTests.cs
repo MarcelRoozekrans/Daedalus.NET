@@ -43,7 +43,10 @@ public sealed class WorkflowRunChangeBroadcasterTests
     public async Task The_observer_never_waits_for_a_send()
     {
         var hub = Substitute.For<IHubContext<WorkflowRunsHub>>();
-        hub.Clients.All.SendCoreAsync(default!, default!, default).ReturnsForAnyArgs(new TaskCompletionSource().Task);
+        // A send that never finishes on its own, but honours cancellation as SignalR's does: StopAsync cancels the
+        // loop's token, so a send that ignored it would hang the stop whenever the loop had already dequeued the change.
+        hub.Clients.All.SendCoreAsync(default!, default!, default)
+            .ReturnsForAnyArgs(call => Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(2)));
         using var broadcaster = new WorkflowRunChangeBroadcaster(hub, NullLogger<WorkflowRunChangeBroadcaster>.Instance);
         await broadcaster.StartAsync(CancellationToken.None);
 
