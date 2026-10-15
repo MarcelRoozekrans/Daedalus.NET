@@ -169,6 +169,10 @@
 /* ── Header bottom accent ────────────────────────────────────────────── */
 .rz-header {
     border-bottom: 2px solid var(--rz-primary);
+    /* The header's row sits on its middle line whatever it holds: signed out, the logo and Sign in are shorter than
+       the header, and without this they sit at its top. */
+    display: flex;
+    align-items: center;
 }
 
 /* ── Card hover effect ───────────────────────────────────────────────── */

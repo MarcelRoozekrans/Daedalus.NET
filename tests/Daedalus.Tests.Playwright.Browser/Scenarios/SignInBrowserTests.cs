@@ -230,6 +230,33 @@ public class SignInBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     Signed out, the header's logo and Sign in sit on the header's middle line, on a phone and on a desktop, as the
+    ///     signed-in header's do; the 2px accent under it is not part of the header's height for this.
+    ///     Red: the theme's <c>display: flex; align-items: center</c> on <c>.rz-header</c> removed, as before; the row
+    ///     sits at the header's top and the logo's middle is at 14px, the header's at 27px, at 375 and 1920.
+    ///     Red: Sign in given <c>margin-bottom: 1rem</c>; its middle is at 19px.
+    /// </summary>
+    [TestCase(375, 812)]
+    [TestCase(1920, 1080)]
+    [Description("The signed-out header centres the logo and Sign in")]
+    public async Task The_signed_out_header_centres_the_logo_and_sign_in(int width, int height)
+    {
+        await TestAuth.UseAsync(Page, TestAuth.SignedOut).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(width, height).ConfigureAwait(false);
+        await NavigateToAsync("/").ConfigureAwait(false);
+        var logo = Header.GetByText("Daedalus", new LocatorGetByTextOptions { Exact = true });
+        await Expect(HeaderSignIn).ToBeVisibleAsync().ConfigureAwait(false);
+
+        var middle = await Header.EvaluateAsync<float>(
+            "h => h.getBoundingClientRect().top + h.clientTop + (h.clientHeight / 2)").ConfigureAwait(false);
+        var logoBox = (await logo.BoundingBoxAsync().ConfigureAwait(false))!;
+        var signInBox = (await HeaderSignIn.BoundingBoxAsync().ConfigureAwait(false))!;
+
+        (logoBox.Y + (logoBox.Height / 2)).Should().BeApproximately(middle, 2, "the logo is on the header's middle line");
+        (signInBox.Y + (signInBox.Height / 2)).Should().BeApproximately(middle, 2, "Sign in is on the header's middle line");
+    }
+
+    /// <summary>
     ///     While the authentication state is still being read, as an OIDC boot reads its stored user, the header shows
     ///     the logo only: no Sign in, no user, no toggle and no menu. Once it resolves, the signed-in chrome follows.
     ///     Red: rename the header's "Daedalus" text; the logo precondition fails.
