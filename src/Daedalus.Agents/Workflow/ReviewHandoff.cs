@@ -102,7 +102,7 @@ public static class ReviewHandoff
     /// <summary>The mode the run executes in, <c>sandbox</c> or <c>local</c>, written only by the run's start. See <see cref="RunMode"/>.</summary>
     public const string RunModeKey = RunMode.Key;
 
-    /// <summary>The skill name a <c>retrospect</c> node is pinned to — what <see cref="ReviewHandoffWorkflowStore.ProjectionForAsync"/> and <see cref="StandingInstructionsRunner"/> both key off.</summary>
+    /// <summary>The skill name a <c>retrospect</c> node is pinned to — what <see cref="ReviewHandoffWorkflowStore.ProjectionFor"/> and <see cref="StandingInstructionsRunner"/> both key off.</summary>
     public const string RetrospectSkillName = "manufacture-retrospect";
 
     /// <summary>

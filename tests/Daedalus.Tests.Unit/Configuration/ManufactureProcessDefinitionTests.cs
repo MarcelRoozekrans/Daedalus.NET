@@ -221,13 +221,13 @@ public sealed class ManufactureProcessDefinitionTests
         retrospect.Agent.Should().Be("reviewer");
         // Falsifiable: renaming this node's `skill:` turns this red, and turns
         // ProcessDefinitionDriftTests.The_shipped_retrospect_node_uses_the_skill_the_projection_keys_on red too -
-        // ReviewHandoffWorkflowStore.ProjectionForAsync and StandingInstructionsRunner both key off this exact
+        // ReviewHandoffWorkflowStore.ProjectionFor and StandingInstructionsRunner both key off this exact
         // string.
         retrospect.Skill.Should().Be(ReviewHandoff.RetrospectSkillName);
         retrospect.Outcomes.Should().BeEquivalentTo(["proposed", "none"]);
 
         // Falsifiable: declaring `lenses:` on this node turns this red - retrospect is not a review pass, and
-        // ReviewHandoffWorkflowStore.ProjectionForAsync would misclassify it as one and project the wrong keys.
+        // ReviewHandoffWorkflowStore.ProjectionFor would misclassify it as one and project the wrong keys.
         retrospect.Lenses.Should().BeEmpty();
 
         // Falsifiable: pointing either outcome anywhere but `gate` turns this red - both a proposal and no
