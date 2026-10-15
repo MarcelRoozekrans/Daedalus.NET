@@ -189,7 +189,7 @@ internal sealed partial class NodeSelectionRunner(
         var context = new NodeSelectionContext(
             pin.AgentName,
             run.CurrentNode,
-            run.Variables.TryGetValue(ReviewHandoff.WorkIntentKey, out var intent) && intent is string text ? text : "",
+            IntentOf(run),
             run.Visits.TryGetValue(run.CurrentNode, out var visit) ? visit : 1,
             MenuOf(role, definition),
             NarrowTools: !AfterRejection(run));
@@ -225,6 +225,20 @@ internal sealed partial class NodeSelectionRunner(
         if (!_decider.HasClient)
             LogUnrecordedWhileOff(_logger, run.Id, run.CurrentSeq, "not-read-back");
         return Result<NodeSelection, AgentError>.Failure(AgentError.StoreError(NotRecorded, "the record that won the unique index could not be read back"));
+    }
+
+    /// <summary>
+    ///     The run's work intent for the decision state: the pinned <see cref="ManufactureRunStarter.WorkIntentDocument"/>
+    ///     document at full length, or the <c>work_intent</c> variable when the run pins none. Task B11: the document is the
+    ///     intent as written, the one <see cref="WorkIntentRunner"/> hands the node, so the decision weighs the same text the
+    ///     node is given. The decider cuts it at its own <see cref="NodeSelectionDecider.MaxIntentCharacters"/>.
+    /// </summary>
+    private static string IntentOf(WorkflowRun run)
+    {
+        if (run.Manifest?.Documents.TryGetValue(ManufactureRunStarter.WorkIntentDocument, out var document) == true)
+            return document;
+
+        return run.Variables.TryGetValue(ReviewHandoff.WorkIntentKey, out var intent) && intent is string text ? text : "";
     }
 
     /// <summary>Whether a review was rejected earlier in the run: either node is on a later visit.</summary>

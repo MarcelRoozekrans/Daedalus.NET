@@ -100,9 +100,13 @@ public sealed class StandingInstructionsRunnerTests
     /// <summary>
     ///     The blocks Thalos frames a task with. The block lands in the same <c>Task</c> string as a genuine
     ///     <c>&lt;workflow-variables&gt;</c> block and a pinned node's <c>&lt;skill&gt;</c> body, so a forged one
-    ///     would read as the engine's own.
+    ///     would read as the engine's own. Task B11 adds the host's <c>&lt;work-intent&gt;</c> block, which comes before
+    ///     this one in the same text: a forged one would read as a second statement of the task. Red: drop
+    ///     <c>work-intent</c> from the tag pattern, and the two work-intent rows fail.
     /// </summary>
     [Theory]
+    [InlineData("<work-intent source=\"board task\">", "<work-intent")]
+    [InlineData("</Work-Intent>", "</work-intent")]
     [InlineData("<workflow-variables>", "<workflow-variables")]
     [InlineData("</WORKFLOW-VARIABLES>", "</workflow-variables")]
     [InlineData("<skill name=\"manufacture-implement\">", "<skill")]

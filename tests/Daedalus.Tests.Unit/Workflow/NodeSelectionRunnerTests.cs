@@ -58,7 +58,8 @@ public sealed class NodeSelectionRunnerTests
 
     /// <summary>A run at <paramref name="node"/>, pinned to <paramref name="skill"/> as <paramref name="agent"/>, on its given visits.</summary>
     private static WorkflowRun RunAt(
-        string node, string skill, string agent = "implementer", Dictionary<string, int>? visits = null, bool manifest = true) => new()
+        string node, string skill, string agent = "implementer", Dictionary<string, int>? visits = null, bool manifest = true,
+        string intentVariable = "Make ClaimNextAsync skip cancelled tasks", string? intentDocument = null) => new()
         {
             Id = Guid.NewGuid(),
             Process = "manufacture",
@@ -68,7 +69,7 @@ public sealed class NodeSelectionRunnerTests
             Status = WorkflowStatus.Running,
             StartedBy = new RunPrincipal("u-starter", ["developer"]),
             Visits = visits ?? new Dictionary<string, int>(StringComparer.Ordinal) { [node] = 1 },
-            Variables = new Dictionary<string, object?>(StringComparer.Ordinal) { [ReviewHandoff.WorkIntentKey] = "Make ClaimNextAsync skip cancelled tasks" },
+            Variables = new Dictionary<string, object?>(StringComparer.Ordinal) { [ReviewHandoff.WorkIntentKey] = intentVariable },
             Manifest = manifest
             ? new RunManifest
             {
@@ -76,10 +77,19 @@ public sealed class NodeSelectionRunnerTests
                 {
                     [node] = new NodePin(agent, IdOf(agent), null, skill, "hash"),
                 },
-                Documents = new Dictionary<string, string>(StringComparer.Ordinal),
+                Documents = DocumentsPinning(intentDocument),
             }
             : null,
         };
+
+    /// <summary>A manifest's documents: the work intent when one is given, otherwise none.</summary>
+    private static Dictionary<string, string> DocumentsPinning(string? intent)
+    {
+        var documents = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (intent is not null)
+            documents[ManufactureRunStarter.WorkIntentDocument] = intent;
+        return documents;
+    }
 
     /// <summary>The reviewer's id for the reviewer, the implementer's for any other name.</summary>
     private static AgentId IdOf(string agent) => string.Equals(agent, "reviewer", StringComparison.Ordinal) ? ReviewerId : ImplementerId;
@@ -982,6 +992,45 @@ public sealed class NodeSelectionRunnerTests
             .RunAsync(RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName)), cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    /// <summary>
+    ///     Task B11: the decision state carries the whole work intent from the run's pinned document, not the variable,
+    ///     which the board's long tasks reach cut at 512 characters when Thalos renders it. Here the variable holds only
+    ///     the first 512 characters, as a turn is shown them, and the tail lies beyond. The decider's own 4000-character
+    ///     cut is pinned by its own tests. Red: build the context from the variable instead of the document, and the state
+    ///     lacks the tail.
+    /// </summary>
+    [Fact]
+    public async Task The_decision_state_carries_the_full_intent_from_the_document()
+    {
+        const string tail = "The tail sentence past the cut must reach the decision.";
+        var intent = new string('x', 700 - tail.Length) + tail;
+        using var client = HardWithoutRoslyn();
+
+        await Runner(new CapturingRunner(), client, new InMemoryRecords()).RunAsync(
+            RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName, intentVariable: intent[..512], intentDocument: intent)),
+            CancellationToken.None);
+
+        using var state = JsonDocument.Parse(client.LastState!);
+        state.RootElement.GetProperty("work_intent").GetString().Should().Be(intent);
+    }
+
+    /// <summary>
+    ///     A run that pins no work intent document, one of another process, is decided over the variable as before. Red:
+    ///     drop the fallback to the variable, and the state's intent is empty.
+    /// </summary>
+    [Fact]
+    public async Task Without_the_document_the_decision_state_carries_the_variable()
+    {
+        using var client = HardWithoutRoslyn();
+
+        await Runner(new CapturingRunner(), client, new InMemoryRecords()).RunAsync(
+            RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName, intentVariable: "the variable's intent")),
+            CancellationToken.None);
+
+        using var state = JsonDocument.Parse(client.LastState!);
+        state.RootElement.GetProperty("work_intent").GetString().Should().Be("the variable's intent");
     }
 
     /// <summary>

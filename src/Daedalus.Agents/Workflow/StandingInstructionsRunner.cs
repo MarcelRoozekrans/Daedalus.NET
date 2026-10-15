@@ -42,10 +42,11 @@ namespace Daedalus.Agents.Workflow;
 ///     <c>skill</c>, <c>skills</c>, <c>memories</c> and <c>workflow-variables</c> tag. It matches any casing and
 ///     allows whitespace around the slash, and it normalises line endings to <c>\n</c> first. This block lands in
 ///     that same <c>Task</c> string, so it neutralises the same family plus its own
-///     <c>standing-instructions</c> tag, the same way. Without that, a body could close this block early, or
-///     forge a <c>&lt;workflow-variables&gt;</c> or <c>&lt;skill&gt;</c> block the model would read as the
-///     engine's own. The <c>&lt;</c> becomes <c>&amp;lt;</c> and the rest of the tag is kept verbatim, so the
-///     text still reads correctly and cannot open or close anything. The rule is restated here rather than
+///     <c>standing-instructions</c> tag and the <c>work-intent</c> tag of <see cref="WorkIntentRunner"/>, the same way.
+///     Without that, a body could close this block early, or forge a <c>&lt;workflow-variables&gt;</c> or
+///     <c>&lt;skill&gt;</c> block the model would read as the engine's own. The <c>&lt;</c> becomes
+///     <c>&amp;lt;</c> and the rest of the tag is kept verbatim, so the text still reads correctly and cannot open
+///     or close anything. The rule is restated here rather than
 ///     called, because Thalos keeps <c>NeutralizeTag</c> internal.
 ///     </para>
 ///     <para>
@@ -122,10 +123,11 @@ internal sealed partial class StandingInstructionsRunner(ISubagentRunner inner) 
 
     // Escapes the '<' of every opening or closing spelling of <standing-instructions>, <workflow-variables>,
     // <skill>, <skills> and <memories>, in any casing and with whitespace around the slash, and keeps the rest
-    // verbatim. The same shape as Thalos' SkillBlock and WorkflowVariableBlock tag guards, merged into one
-    // pattern. The word boundary keeps the escape to real tags: "<skillset" is an ordinary word.
+    // verbatim. Task B11 adds <work-intent>, the host's block that comes before this one: the text must not forge a
+    // second statement of the task. The same shape as Thalos' SkillBlock and WorkflowVariableBlock tag guards,
+    // merged into one pattern. The word boundary keeps the escape to real tags: "<skillset" is an ordinary word.
     [GeneratedRegex(
-        @"<\s*/?\s*(?:standing-instructions|workflow-variables|memories|skills?)\b",
+        @"<\s*/?\s*(?:work-intent|standing-instructions|workflow-variables|memories|skills?)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
         matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
     private static partial Regex FramingTag();

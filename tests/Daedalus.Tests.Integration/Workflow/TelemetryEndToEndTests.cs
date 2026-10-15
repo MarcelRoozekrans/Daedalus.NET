@@ -113,6 +113,10 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
     ///     Red: tag the task title on a token measurement; the metric content assertion names the tokens instrument.
     ///     Red: add a sentinel to the token counter description; the exported-metric content assertion names it.
     ///     Red: wait for a node name that never runs; the done-span assertion fails with its message.
+    ///     Task B11, a long intent. Red: leave WorkIntentRunner out of the dispatcher's chain; the implement and review
+    ///     turns lack the tail, which lies past the variable's 512-character cut. Red: shorten the padding so the intent
+    ///     is 700 characters or fewer; the length assertion fails. Red: tag the block's text on Activity.Current in
+    ///     WorkIntentRunner; the content assertion names the dispatch span.
     ///     No exported-span scan exists: the exporter and the capture see the same Activity objects, and the subset check
     ///     keeps every exported source inside the captured ones, so a second span scan could never differ.
     ///     Guarded in Thalos 0.15.0, not here: the dispatch span, its own trace per dispatch, its host-action child, the
@@ -131,7 +135,11 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         var model = $"probe-model-{Guid.NewGuid():N}";
         var taskCode = $"TEL-{marker}";
         var title = $"Probe title {marker}";
-        var description = $"Probe description {marker}: filter cancelled tasks out of the claim query";
+        // Task B11: long enough that the work intent runs past the 512 characters Thalos renders of a variable, so the
+        // full intent reaches the turns only through WorkIntentRunner's block, and its tail is scanned for on its own.
+        var tail = $"Probe tail {marker}: the last sentence lies past the variable's cut.";
+        var description = $"Probe description {marker}: filter cancelled tasks out of the claim query. "
+            + string.Concat(Enumerable.Repeat("Keep the ordering and the paging of the claim query as they are. ", 9)) + tail;
         var prompt = $"Probe prompt {marker}: implement it carefully";
         var pullRequests = new FakePullRequestPublisher();
         var runtime = new ScriptedManufactureRuntime(new TurnUsage(1_200, 80, model) { CacheReadTokens = 900, CacheWriteTokens = 150 });
@@ -248,13 +256,18 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         exportedMetricList.Select(m => m.Name).Should().Contain(
             [ManufactureTelemetry.TokensMetricName, WorkflowTelemetry.RunsStartedName, WorkflowTelemetry.DispatchDurationName]);
 
+        // The long intent reached the turns in full, so the scan below covers a run that carried it.
+        DomainTaskIntent(title, description).Length.Should().BeGreaterThan(700);
+        runtime.TaskFor("implement").Should().Contain(tail, "the implement turn is handed the whole intent");
+        runtime.TaskFor("review").Should().Contain(tail, "a review lens pass is handed the whole intent");
+
         // No content anywhere: not in a span name, a tag, an event, a link, a status description, or a metric tag.
         pullRequests.LastBody.Should().NotBeNullOrEmpty();
         var forbidden = new List<string>
         {
             marker, taskCode, title, description, prompt, project.ProjectName, project.Description, host.Remote.Url, host.DataRoot,
             "filtered cancelled tasks", "the claim query ignored status", "TaskRepository.cs", ScriptedManufactureRuntime.ReviewEvidence,
-            "Run dotnet test.", ScriptedManufactureRuntime.LearnedLine, pullRequests.LastBody!, pullRequests.LastTitle!,
+            "Run dotnet test.", ScriptedManufactureRuntime.LearnedLine, pullRequests.LastBody!, pullRequests.LastTitle!, tail,
         };
         forbidden.AddRange(runtime.Nodes.Select(node => $"{node} done"));
         forbidden.AddRange(runtime.Nodes.Select(runtime.TaskFor).Where(text => text.Length > 0));
@@ -268,6 +281,9 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         MetricLeaks(measurements, forbidden).Should().BeEmpty("no captured measurement may carry content");
         MetricLeaks(exportedMetricList, forbidden).Should().BeEmpty("no exported metric may carry content");
     }
+
+    /// <summary>The work intent a board task starts its run with, as <c>TaskManufactureService</c> builds it.</summary>
+    private static string DomainTaskIntent(string title, string description) => $"{title}\n\n{description}";
 
     private static bool IsSpan(Activity span, string name) =>
         string.Equals(span.OperationName, name, StringComparison.Ordinal);

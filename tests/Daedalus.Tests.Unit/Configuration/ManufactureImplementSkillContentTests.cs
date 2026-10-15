@@ -47,6 +47,24 @@ public sealed partial class ManufactureImplementSkillContentTests
     }
 
     /// <summary>
+    ///     Task B11: the implementer builds from the host's <c>work-intent</c> block, not the variable Thalos cuts at 512
+    ///     characters. Reds, each applied once: change <see cref="Daedalus.Agents.Workflow.WorkIntentRunner.OpenTag"/>
+    ///     without the skill, and the tag assertion fails; delete the cut sentence, the authority sentence or the blocked
+    ///     sentence of the skill's "Your task" section, and that assertion fails.
+    /// </summary>
+    [Fact]
+    public void The_implement_skill_names_the_work_intent_block_as_the_full_task()
+    {
+        var skill = ImplementSkill();
+        var normalized = Normalize(skill);
+
+        skill.Should().Contain(Daedalus.Agents.Workflow.WorkIntentRunner.OpenTag);
+        normalized.Should().ContainEquivalentOf("work_intent variable may be cut at 512 characters");
+        normalized.Should().ContainEquivalentOf("the authoritative statement of the work");
+        normalized.Should().ContainEquivalentOf("you cannot see the whole task: report blocked");
+    }
+
+    /// <summary>
     ///     <c>AGENT.md</c> is a protected path, and the skill has to say so, or an implementer that learned something
     ///     spends its turn on a refused write instead of reporting <c>learnings</c>. Red: deleting <c>AGENT.md</c>
     ///     from the protected-path sentence.

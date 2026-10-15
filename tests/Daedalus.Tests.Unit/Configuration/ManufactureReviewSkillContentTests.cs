@@ -169,6 +169,25 @@ public sealed partial class ManufactureReviewSkillContentTests
     }
 
     /// <summary>
+    ///     Task B11: the reviewer judges against the host's <c>work-intent</c> block, not the variable Thalos cuts at 512
+    ///     characters, and an unseen tail is a rejection. Reds, each applied once: change
+    ///     <see cref="Daedalus.Agents.Workflow.WorkIntentRunner.OpenTag"/> without the skill, and the tag assertion fails;
+    ///     delete the cut sentence, the authority sentence or the rejection sentence of the skill's paragraph on the
+    ///     block, and that assertion fails.
+    /// </summary>
+    [Fact]
+    public void The_review_skill_names_the_work_intent_block_as_the_full_task()
+    {
+        var skill = ReviewSkill();
+        var normalized = Normalize(skill);
+
+        skill.Should().Contain(Daedalus.Agents.Workflow.WorkIntentRunner.OpenTag);
+        normalized.Should().ContainEquivalentOf("work_intent variable may be cut at 512 characters");
+        normalized.Should().ContainEquivalentOf("That block is the authoritative statement of the work");
+        normalized.Should().ContainEquivalentOf("that is a rejection naming the missing text, never a pass");
+    }
+
+    /// <summary>
     ///     A value the implementer wrote is read into the reviewer's prompt. That is the one channel by which
     ///     an implementer could steer its own reviewer, and the reviewer has to be told the block is another
     ///     agent's output rather than the engine's.
