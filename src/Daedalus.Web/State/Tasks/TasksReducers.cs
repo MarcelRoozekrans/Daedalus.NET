@@ -33,6 +33,7 @@ public static class TasksReducers
             Projects = null,
             ProjectNames = new Dictionary<Guid, string>(),
             ProjectsError = null,
+            ProjectsRequested = false,
         };
 
     [Reducer]
@@ -57,14 +58,17 @@ public static class TasksReducers
         return s with { Items = [.. s.Items.Select(t => t.Id == a.Task.Id ? a.Task : t)] };
     }
 
-    /// <summary>Projects that land after the page closed, with no load asked for since, are ignored.</summary>
+    [Reducer]
+    public static TasksState On(TasksState s, TaskProjectsLoadStarted _) => s with { ProjectsRequested = true };
+
+    /// <summary>Projects that land after the page closed, with no projects load asked for since, are ignored.</summary>
     [Reducer]
     public static TasksState On(TasksState s, TaskProjectsLoaded a) =>
-        !s.LoadRequested
+        !s.ProjectsRequested
             ? s
             : s with { Projects = a.Projects, ProjectNames = a.Projects.ToDictionary(p => p.Id, p => p.ProjectName), ProjectsError = null };
 
     /// <summary>A failure keeps the projects already loaded, so a failed refresh does not empty the picker.</summary>
     [Reducer]
-    public static TasksState On(TasksState s, TaskProjectsLoadFailed a) => !s.LoadRequested ? s : s with { ProjectsError = a.Error };
+    public static TasksState On(TasksState s, TaskProjectsLoadFailed a) => !s.ProjectsRequested ? s : s with { ProjectsError = a.Error };
 }

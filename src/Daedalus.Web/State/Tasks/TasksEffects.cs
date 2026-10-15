@@ -33,10 +33,11 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
 
     /// <summary>
     ///     Fetches the projects, the one fetch the board's Project column and the task dialogs' picker share. A failure is
-    ///     <see cref="TasksState.ProjectsError"/>.
+    ///     <see cref="TasksState.ProjectsError"/>. It does not load the board, so Home can call it for the create dialog.
     /// </summary>
     public async Task LoadProjectsAsync(CancellationToken ct)
     {
+        await dispatcher.DispatchAsync(new TaskProjectsLoadStarted());
         var result = await api.GetProjectsAsync(1, ProjectPage, ct);
         if (result.IsSuccess)
         {

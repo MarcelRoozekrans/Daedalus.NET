@@ -169,9 +169,9 @@ holds; a cancelled run's step has kind `Cancelled`: text `Cancelled`, Light.
 
 The general list, narrowed to what actually threatens this codebase:
 
-1. **No new gradients.** The theme has exactly one, on the sidebar. `Costs.razor` and `Home.razor` add
-   their own — that is the current ceiling, not a licence. Gradients are one moment per page at most,
-   never a page background.
+1. **No new gradients.** The theme has exactly one, on the sidebar, and no page adds its own; Home's
+   stat-card gradients went in phase 2.13. Gradients are one moment per page at most, never a page
+   background.
 2. **No hard-coded hex values in components.** Every colour is a `--rz-*` token. A literal hex is how
    a theme change silently stops applying to one page.
 3. **No colour-only status.** Every badge carries text as well as severity.

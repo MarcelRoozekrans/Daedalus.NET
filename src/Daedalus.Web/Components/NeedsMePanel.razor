@@ -1,0 +1,190 @@
+@* The signed-in Home: what needs the person, most urgent first, and one New task button. Its own component, so it loads
+   nothing for a visitor who is not signed in, and loads when a sign-in completes after Home rendered. Each card reads
+   one bounded page of the run list and fails on its own. *@
+@inject ApiClient Api
+@inject DialogService DialogService
+@inject TasksEffects Effects
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<div data-testid="needs-me">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween"
+                 Wrap="FlexWrap.Wrap" Gap="1rem" class="rz-mb-4">
+        <RadzenStack Gap="0.25rem" data-testid="home-title">
+            <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Home</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+                What needs you, most urgent first
+            </RadzenText>
+        </RadzenStack>
+        <RadzenButton Text="New task" ButtonStyle="ButtonStyle.Primary" Click="@OpenCreateDialogAsync"/>
+    </RadzenStack>
+
+    @if (_manufactureRefused is { } refused)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4"
+                     Close="@(() => _manufactureRefused = null)" data-testid="home-manufacture-refused">
+            @refused <RadzenLink Path="tasks" Text="Open Tasks"/>
+        </RadzenAlert>
+    }
+
+    @* One column below 1280px, the contract's tablet and phone widths, in order of urgency; two by two above it. *@
+    <RadzenRow Gap="1rem">
+        <RadzenColumn Size="12" SizeLG="6">
+            <NeedsMeCard Title="Awaiting approval" TestId="needs-me-awaiting" EmptyText="Nothing waiting for approval."
+                         Rows="@_awaiting.Rows" Error="@_awaiting.Error" More="@_awaiting.More"
+                         OnRetry="@(() => LoadAsync(_awaiting))">
+                <Row Context="run">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                        <RadzenStack Gap="0">
+                            <RadzenText TextStyle="TextStyle.Body1" Style="margin: 0; font-weight: 500;">@NeedsMe.Name(run)</RadzenText>
+                            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-text-secondary-color);"
+                                        title="@($"Waiting since {LocalTimes.ShortDateTime(run.UpdatedAt.UtcDateTime)}")">
+                                waiting @LocalTimes.Elapsed(run.UpdatedAt, _now)
+                            </RadzenText>
+                        </RadzenStack>
+                        <RadzenLink Path="@($"runs/{run.Id}")" Text="Open gate" aria-label="@($"Open gate, {NeedsMe.Name(run)}")"/>
+                    </RadzenStack>
+                </Row>
+            </NeedsMeCard>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeLG="6">
+            <NeedsMeCard Title="Running" TestId="needs-me-running" EmptyText="Nothing running."
+                         Rows="@_running.Rows" Error="@_running.Error" More="@_running.More"
+                         OnRetry="@(() => LoadAsync(_running))">
+                <Row Context="run">
+                    <RadzenStack Gap="0">
+                        <RadzenLink Path="@($"runs/{run.Id}")" Text="@NeedsMe.Name(run)"/>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-text-secondary-color);">
+                            at @run.CurrentNode
+                        </RadzenText>
+                    </RadzenStack>
+                </Row>
+            </NeedsMeCard>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeLG="6">
+            <NeedsMeCard Title="Failed in the last 7 days" TestId="needs-me-failed" EmptyText="No failed runs in the last 7 days."
+                         Rows="@_failed.Rows" Error="@_failed.Error" More="@_failed.More"
+                         OnRetry="@(() => LoadAsync(_failed))">
+                <Row Context="run">
+                    <RadzenStack Gap="0">
+                        <RadzenLink Path="@($"runs/{run.Id}")" Text="@NeedsMe.Name(run)"/>
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@(run.FailureReason ?? "No reason recorded.")</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-text-secondary-color);"
+                                    title="@LocalTimes.ShortDateTime(run.UpdatedAt.UtcDateTime)">
+                            failed @LocalTimes.Elapsed(run.UpdatedAt, _now) ago
+                        </RadzenText>
+                    </RadzenStack>
+                </Row>
+            </NeedsMeCard>
+        </RadzenColumn>
+        <RadzenColumn Size="12" SizeLG="6">
+            <NeedsMeCard Title="Recent pull requests" TestId="needs-me-prs" EmptyText="No pull requests yet." ShowCount="false"
+                         Rows="@_pullRequests.Rows" Error="@_pullRequests.Error" More="@_pullRequests.More"
+                         OnRetry="@(() => LoadAsync(_pullRequests))">
+                <Row Context="run">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                        <RadzenText TextStyle="TextStyle.Body1" Style="margin: 0;">@NeedsMe.Name(run)</RadzenText>
+                        <a href="@run.PrUrl" target="_blank" rel="noopener"
+                           aria-label="@($"Pull request {TaskStatusLabels.PullRequestText(run.PrUrl!)}, {NeedsMe.Name(run)}")">@TaskStatusLabels.PullRequestText(run.PrUrl!)</a>
+                    </RadzenStack>
+                </Row>
+            </NeedsMeCard>
+        </RadzenColumn>
+    </RadzenRow>
+</div>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+    private readonly Card _awaiting = new(NeedsMe.AwaitingQuery, (runs, _) => NeedsMe.AwaitingApproval(runs));
+    private readonly Card _running = new(NeedsMe.RunningQuery, (runs, _) => runs);
+    private readonly Card _failed = new(NeedsMe.FailedQuery, NeedsMe.FailedSince);
+    private readonly Card _pullRequests = new(NeedsMe.PullRequestQuery, (runs, _) => NeedsMe.RecentPullRequests(runs));
+
+    /// <summary>When the cards were last read, for how long a run has waited and the failed card's window.</summary>
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+    /// <summary>Why the last Create and manufacture could not start its run; null when none.</summary>
+    private string? _manufactureRefused;
+
+    protected override Task OnInitializedAsync() =>
+        Task.WhenAll(LoadAsync(_awaiting), LoadAsync(_running), LoadAsync(_failed), LoadAsync(_pullRequests));
+
+    /// <summary>Reads one card's list, showing its skeleton meanwhile; a failure stays on that card.</summary>
+    private async Task LoadAsync(Card card)
+    {
+        card.Rows = null;
+        card.Error = null;
+        card.More = false;
+        var result = await Api.GetRunsAsync(card.Query, _cts.Token);
+        if (_cts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (result.IsSuccess)
+        {
+            _now = DateTimeOffset.UtcNow;
+            card.Rows = card.Keep(result.Value.Runs, _now);
+            card.More = result.Value.Next is not null;
+        }
+        else
+        {
+            card.Error = result.Error;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    ///     Opens the create dialog as Tasks does. The dialog's project picker reads the projects Home loads here, since Home
+    ///     has no board. Create closes the dialog and stays on Home, with the dialog's "Task created"; the task is at the top
+    ///     of Tasks. Create and manufacture opens the run it started, or, when the start was refused, says why here.
+    /// </summary>
+    private async Task OpenCreateDialogAsync()
+    {
+        _manufactureRefused = null;
+        var projects = Effects.LoadProjectsAsync(_cts.Token);
+        var result = await DialogService.OpenAsync<TaskCreateDialog>("Create New Task",
+            options: new DialogOptions { Width = "700px", AutoFocusFirstElement = false });
+        await projects;
+
+        if (result is not TaskCreateOutcome outcome)
+        {
+            return;
+        }
+
+        if (outcome.RunId is { } runId)
+        {
+            Nav.NavigateTo($"runs/{runId}");
+            return;
+        }
+
+        _manufactureRefused = outcome.ManufactureRefusal is { } reason && !SessionExpiry.IsSigningIn(reason)
+            ? $"The task was created, but manufacture was refused: {reason}"
+            : null;
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        await _cts.CancelAsync();
+        _cts.Dispose();
+    }
+
+    /// <summary>One card's read, what it keeps of it, and what it holds now.</summary>
+    private sealed class Card(
+        RunListQuery query,
+        Func<IReadOnlyList<WorkflowRunListItem>, DateTimeOffset, IReadOnlyList<WorkflowRunListItem>> keep)
+    {
+        public RunListQuery Query { get; } = query;
+
+        public Func<IReadOnlyList<WorkflowRunListItem>, DateTimeOffset, IReadOnlyList<WorkflowRunListItem>> Keep { get; } = keep;
+
+        public IReadOnlyList<WorkflowRunListItem>? Rows { get; set; }
+
+        public string? Error { get; set; }
+
+        public bool More { get; set; }
+    }
+}

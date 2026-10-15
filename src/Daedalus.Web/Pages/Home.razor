@@ -1,9 +1,9 @@
 @page "/"
 
-@* Signed in, the dashboard; signed out, the landing page, which shows no data and asks the API for nothing. *@
+@* Signed in, what needs the person; signed out, the landing page, which shows no data and asks the API for nothing. *@
 <AuthorizeView>
     <Authorized>
-        <HomeDashboard/>
+        <NeedsMePanel/>
     </Authorized>
     <NotAuthorized>
         <SignedOutLanding/>

@@ -27,6 +27,9 @@ public readonly record struct TaskStartFinished(Guid Id);
 /// <summary>A task was re-fetched.</summary>
 public readonly record struct TaskUpdated(TaskDto Task);
 
+/// <summary>The projects are being fetched, for the board or for a create dialog opened from Home.</summary>
+public readonly record struct TaskProjectsLoadStarted;
+
 /// <summary>The projects arrived, for the board's Project column and the task dialogs' picker.</summary>
 public readonly record struct TaskProjectsLoaded(IReadOnlyList<ProjectDto> Projects);
 

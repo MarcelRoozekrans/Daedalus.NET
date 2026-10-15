@@ -69,13 +69,12 @@ public static class TaskStatusLabels
     ///     The text of a task's pull request link: <c>#N</c> for a URL that ends in the pull request's number, else
     ///     "Pull request"; null when the task has none.
     /// </summary>
-    public static string? PullRequestText(TaskDto task)
-    {
-        if (task.PullRequestUrl is not { } url)
-        {
-            return null;
-        }
+    public static string? PullRequestText(TaskDto task) => task.PullRequestUrl is { } url ? PullRequestText(url) : null;
 
+    /// <summary>The text of a pull request link: <c>#N</c> for a URL that ends in the pull request's number, else "Pull request".</summary>
+    public static string PullRequestText(Uri url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
         var last = url.AbsolutePath.TrimEnd('/').Split('/')[^1];
         return last.Length > 0 && last.All(char.IsAsciiDigit) ? $"#{last}" : "Pull request";
     }
