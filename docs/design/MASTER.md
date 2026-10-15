@@ -103,7 +103,9 @@ holding `RadzenPanelMenu` groups separated by `.sidebar-section-divider` caption
 
 `Runs.razor` is the reference implementation, with its grid in `Components/Runs/RunsGrid.razor`. The established shape:
 
-- The shared page header: an `H4` title and a `Body2` caption, with no icon beside the title
+- The shared page header: an `H4` title and a `Body2` caption, with no icon beside the title. The caption carries the
+  theme's `page-caption` class, `--rz-text-secondary-color`, which reaches 4.5:1 on the body and on a card; never an
+  `opacity`, which fades it below that
 - `RadzenCard` to group a grid and its controls, one card for the filters and one for the grid
 - `RadzenDataGrid` with `AllowSorting="true"`; a grid wider than a phone scrolls inside its card, never the page, and
   drops its less important columns below 1280px and 768px through `RadzenMediaQuery`
@@ -112,6 +114,10 @@ holding `RadzenPanelMenu` groups separated by `.sidebar-section-divider` caption
 - `RadzenAlert` for error and empty states, scoped to the card that failed
 - `RadzenStack` for arrangement; `RadzenText` for all copy
 - Filter controls as `RadzenDropDown` / `RadzenTextBox` inside a `RadzenFormField`
+
+Text drawn in or on a semantic colour uses its `-darker` shade, Radzen's `Shade.Darker`: the Manufacture button's
+white label on `--rz-success-darker`, and the outlined Priority badges' text. The default shades read below 4.5:1 with
+white or on white. The primary colour under white text is the open exception, #374.
 
 ### Status → severity mapping
 
