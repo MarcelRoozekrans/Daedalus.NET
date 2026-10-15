@@ -156,8 +156,14 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             ct).ConfigureAwait(false);
         var links = await tasks.GetRunLinksAsync([.. page.Runs.Select(r => r.Id)], ct).ConfigureAwait(false);
 
+        var items = new List<WorkflowRunListItem>(page.Runs.Count);
+        foreach (var summary in page.Runs)
+        {
+            items.Add(await ToListItemAsync(summary, links.GetValueOrDefault(summary.Id), ct).ConfigureAwait(false));
+        }
+
         return Ok(new WorkflowRunList(
-            [.. page.Runs.Select(r => ToListItem(r, links.GetValueOrDefault(r.Id)))],
+            items,
             page.Next is null ? null : WorkflowRunCursorCodec.Encode(page.Next)));
     }
 
@@ -179,9 +185,40 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         return null;
     }
 
-    private static WorkflowRunListItem ToListItem(WorkflowRunSummary run, TaskRunLink? task) => new(
-        run.Id, run.Process, run.ProcessVersion, run.Status.ToString(), run.CurrentNode, run.AwaitingSignal,
-        run.StartedBy?.Id, run.CreatedAt, run.UpdatedAt, task?.TaskId, task?.TaskCode, task?.Title, run.StartedBy?.DisplayName);
+    /// <summary>
+    ///     One list row. The summary carries neither the run's variables nor its error, so the run is read for its pull
+    ///     request link, through the same <see cref="ReadPrUrl"/> the view uses. Only a <c>Failed</c> run reads its steps and,
+    ///     when the review limit stopped it, its review evidence, so a page of healthy runs costs one lookup per row.
+    /// </summary>
+    private async Task<WorkflowRunListItem> ToListItemAsync(WorkflowRunSummary summary, TaskRunLink? task, CancellationToken ct)
+    {
+        var run = await runs.FindAsync(summary.Id, ct).ConfigureAwait(false);
+        var prUrl = run is null ? null : ReadPrUrl(run).Link;
+        string? reason = null;
+        if (summary.Status == WorkflowStatus.Failed)
+        {
+            var steps = WorkflowRunStepProjection.Project(await runs.ListEventsAsync(summary.Id, ct).ConfigureAwait(false));
+            reason = RunFailureReason.Derive(
+                summary.Status.ToString(), steps, run?.LastError, await RejectingLensAsync(summary.Id, steps, ct).ConfigureAwait(false));
+        }
+
+        return new WorkflowRunListItem(
+            summary.Id, summary.Process, summary.ProcessVersion, summary.Status.ToString(), summary.CurrentNode, summary.AwaitingSignal,
+            summary.StartedBy?.Id, summary.CreatedAt, summary.UpdatedAt, task?.TaskId, task?.TaskCode, task?.Title, summary.StartedBy?.DisplayName,
+            reason, prUrl);
+    }
+
+    /// <summary>The lens of the latest rejected review visit, read only when the steps end in the review limit; null when unreadable.</summary>
+    private async Task<string?> RejectingLensAsync(Guid runId, IReadOnlyList<WorkflowRunStepView> steps, CancellationToken ct)
+    {
+        if (!RunFailureReason.IsCappedReview(steps))
+        {
+            return null;
+        }
+
+        var review = await runs.ReadReviewAsync(runId, ct).ConfigureAwait(false);
+        return review.IsSuccess ? review.Value?.RejectedLens : null;
+    }
 
     /// <summary>Reads back one run's current state, including its write-once manifest pins when it has one.</summary>
     [HttpGet("{id:guid}")]
@@ -224,6 +261,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             .ToList();
         var unreadableSelections = readSelections.Where(x => x.View is null).Select(x => x.Record.Seq.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToList();
 
+        var steps = WorkflowRunStepProjection.Project(events);
+        var rejectingLens = review.IsSuccess ? review.Value?.RejectedLens : null;
         var (prUrl, unreadableLink) = ReadPrUrl(run);
         // The repository a deferred finding's existing issue number lives in. At the gate there is no pull request
         // yet: publish runs after it, so the run's workspace names the repository. Once a pull request exists,
@@ -256,13 +295,14 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             DeferredFindings: [.. deferred.Select(d => ToDeferredView(d, droppedIds, issueRepo))],
             DeferredFindingsError: error.Length > 0 ? error : null,
             FiledFindings: filed.IsSuccess ? [.. filed.Value.Values.Order(FiledOrder.Instance).Select(f => new FiledFindingView(f.FindingId, f.Mode, f.Issue, f.Url))] : [],
-            Steps: WorkflowRunStepProjection.Project(events),
+            Steps: steps,
             Checked: checkedItems,
             StartedByName: run.StartedBy?.DisplayName,
             NodeSelections: [.. readSelections.Select(x => x.View).OfType<NodeSelectionView>()],
             NodeSelectionsError: unreadableSelections.Count > 0
                 ? $"{unreadableSelections.Count} node-selection record(s) could not be read, at seq {string.Join(", ", unreadableSelections)}."
-                : null);
+                : null,
+            FailureReason: RunFailureReason.Derive(run.Status.ToString(), steps, run.LastError, rejectingLens));
     }
 
     /// <summary>Findings in the order a human reads them: by lens, then by number (so 2 comes before 10), with the summary last.</summary>

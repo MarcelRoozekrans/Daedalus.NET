@@ -12,7 +12,7 @@ public sealed class WorkflowRunViewJsonShapeTests
     /// <summary>
     ///     Every property name the API serves today, top level and nested.
     ///     Red: rename a NodePinView property, or a WorkflowRunView parameter, after the move.
-    ///     Red: rename a NodeSelectionView property, or NodeSelectionsError.
+    ///     Red: rename a NodeSelectionView property, or NodeSelectionsError. Red: rename FailureReason.
     /// </summary>
     [Fact]
     public void The_view_serializes_with_todays_names()
@@ -23,7 +23,7 @@ public sealed class WorkflowRunViewJsonShapeTests
         Names(root).Should().Equal(
             "id", "process", "processVersion", "status", "currentNode", "awaitingSignal", "lastError", "pins",
             "standingInstructionsDiff", "nodeUsage", "prUrl", "unreadablePullRequestLink", "startedBy", "writeAudit",
-            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "checked", "startedByName", "nodeSelections", "nodeSelectionsError");
+            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "checked", "startedByName", "nodeSelections", "nodeSelectionsError", "failureReason");
         Names(root.GetProperty("steps")[0]).Should().Equal(
             "seq", "kind", "fromNode", "toNode", "status", "outcome", "error", "inputTokens", "outputTokens",
             "cacheReadTokens", "at", "actor");
@@ -37,6 +37,23 @@ public sealed class WorkflowRunViewJsonShapeTests
             "id", "lens", "file", "line", "title", "scenario", "reason", "existingIssue", "dropped", "existingIssueUrl");
         Names(root.GetProperty("filedFindings")[0]).Should().Equal("findingId", "mode", "issue", "url");
         Names(root.GetProperty("nodeSelections")[0]).Should().Equal("seq", "node", "model", "level", "keptFamilies", "fallback", "confidence");
+    }
+
+    /// <summary>
+    ///     The list item serializes with the reason and the pull request link last.
+    ///     Red: rename FailureReason or PrUrl on WorkflowRunListItem, or move one before StartedByName.
+    /// </summary>
+    [Fact]
+    public void The_list_item_serializes_the_reason_and_the_pull_request_link_last()
+    {
+        var item = new WorkflowRunListItem(
+            Guid.NewGuid(), "manufacture", 9, "Failed", "review", null, "u", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+            null, null, null, "Dev", "why", new Uri("https://example.test/pr/1"));
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(item, JsonSerializerOptions.Web));
+
+        Names(json.RootElement).Should().Equal(
+            "id", "process", "processVersion", "status", "currentNode", "awaitingSignal", "startedBy", "createdAt", "updatedAt",
+            "taskId", "taskCode", "taskTitle", "startedByName", "failureReason", "prUrl");
     }
 
     /// <summary>
@@ -63,5 +80,5 @@ public sealed class WorkflowRunViewJsonShapeTests
         null, [new FiledFindingView("mechanism-1", "created", 12, new Uri("https://example.test/issues/12"))],
         [new WorkflowRunStepView(0, "Entered", null, "implement", "Running", null, null, null, null, null, DateTimeOffset.UnixEpoch, null)],
         [new LensCheckedView("mechanism", ["a.cs:3"])], "Dev",
-        [new NodeSelectionView(1, "implement", "m", "low", 3, null, 0.8)], "e");
+        [new NodeSelectionView(1, "implement", "m", "low", 3, null, 0.8)], "e", "Review rejected the change 3 times, the review limit.");
 }
