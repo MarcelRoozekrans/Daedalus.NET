@@ -248,32 +248,73 @@ public class ShellBrowserTests : BrowserTestBase
     }
 
     /// <summary>
-    ///     The sidebar renders in the state its width gives from its very first frame: closed on a phone and a tablet,
-    ///     open on a desktop. An init script records the sidebar's class every time the document changes, from before
-    ///     the console starts, so a frame that showed the wrong state is recorded however briefly it lasted.
+    ///     The sidebar renders in the state its width gives from its very first frame: closed on a tablet, open on a
+    ///     desktop. An init script records the sidebar's class every time the document changes, from before the console
+    ///     starts, so a frame that showed the wrong state is recorded however briefly it lasted.
     ///     Red: no width read before the first render and <c>_sidebarExpanded</c> starting true; at 1024px the sidebar
     ///     is expanded, since the first media query report matches the initial narrow guess and changes nothing.
     ///     Red: the width read but taken as a tablet's, the sidebar starting closed; at 1920px it is collapsed.
-    ///     The 375px case has no mutation that turns it red here: in test mode the media queries report before the
-    ///     sidebar's first render, which waits for the authentication state, so the phone collapse always lands first.
     /// </summary>
-    [TestCase(PhoneWidth, PhoneHeight, false)]
     [TestCase(1024, 800, false)]
     [TestCase(DesktopWidth, DesktopHeight, true)]
     [Description("The sidebar's first render matches its width")]
     public async Task The_sidebar_first_renders_in_the_state_its_width_gives(int width, int height, bool expanded)
     {
-        await Page.AddInitScriptAsync(SidebarStatesScript).ConfigureAwait(false);
-        await Page.SetViewportSizeAsync(width, height).ConfigureAwait(false);
-        await OpenAsync("/").ConfigureAwait(false);
-        await Expect(Page.Locator(".rz-body h4").First).ToBeVisibleAsync().ConfigureAwait(false);
-
-        var states = await Page.EvaluateAsync<string[]>("() => window.__daedalusSidebarStates").ConfigureAwait(false);
+        var states = await SidebarStatesAsync(width, height).ConfigureAwait(false);
         var expected = expanded ? "expanded" : "collapsed";
 
         states.Should().NotBeEmpty("the sidebar rendered");
         states.Should().OnlyContain(state => state == expected,
             $"at {width}px the sidebar is {expected} from its first frame: {string.Join(", ", states)}");
+    }
+
+    /// <summary>
+    ///     Regression guard, not a falsifiable test: on a phone the sidebar is closed from its first frame. No mutation
+    ///     turns it red on the test host, because in test mode the media queries report before the sidebar's first
+    ///     render, which waits for the authentication state, so the phone collapse always lands first. It stays to catch
+    ///     a sidebar that opens on a phone for any other reason, and has no Red: line.
+    /// </summary>
+    [Test]
+    [Description("Regression guard: on a phone the sidebar's first render is closed")]
+    public async Task On_a_phone_the_sidebar_first_renders_closed()
+    {
+        var states = await SidebarStatesAsync(PhoneWidth, PhoneHeight).ConfigureAwait(false);
+
+        states.Should().NotBeEmpty("the sidebar rendered");
+        states.Should().OnlyContain(state => state == "collapsed",
+            $"on a phone the sidebar is closed from its first frame: {string.Join(", ", states)}");
+    }
+
+    /// <summary>
+    ///     A page without the width helper, as a stale cached <c>index.html</c> would be, still gets its layout with no
+    ///     error: the menu starts closed and the media queries open it on a desktop. The helper is pinned to undefined
+    ///     before the page's own script runs, so its assignment there has no effect. The renderer keeps drawing after an
+    ///     unhandled exception, so the error is seen in Blazor's error bar, not in a missing sidebar.
+    ///     Red: the catch narrowed to <c>InvalidOperationException</c>, so the <c>JSException</c> escapes
+    ///     <c>OnInitialized</c>; the error bar shows.
+    ///     Red: <c>OnNarrowChanged</c> ignores the change; the closed fallback is never opened on the desktop.
+    /// </summary>
+    [Test]
+    [Description("Without the width helper the layout falls back to a closed menu that the media queries open")]
+    public async Task Without_the_width_helper_the_layout_still_renders()
+    {
+        await Page.AddInitScriptAsync(
+            "Object.defineProperty(window, 'daedalusViewportWidth', { value: undefined, writable: false });")
+            .ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight).ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
+
+        await Expect(Sidebar).ToHaveClassAsync(new Regex(@"\brz-sidebar-expanded\b")).ConfigureAwait(false);
+        await Expect(Page.Locator("#blazor-error-ui")).ToBeHiddenAsync().ConfigureAwait(false);
+    }
+
+    private async Task<string[]> SidebarStatesAsync(int width, int height)
+    {
+        await Page.AddInitScriptAsync(SidebarStatesScript).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(width, height).ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
+        await Expect(Page.Locator(".rz-body h4").First).ToBeVisibleAsync().ConfigureAwait(false);
+        return await Page.EvaluateAsync<string[]>("() => window.__daedalusSidebarStates").ConfigureAwait(false);
     }
 
     /// <summary>
