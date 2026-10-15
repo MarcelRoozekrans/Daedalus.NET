@@ -25,7 +25,8 @@ public sealed class CostAnalyticsService(
         "chat: agent sessions owned by a person. scheduled: agent sessions owned by schedule:*. Sessions owned by " +
         "workflow:* are a manufacture run's node turns; their node-usage records already count them, so they are left out. " +
         "Session sources carry no model and no cache split, so their tokens are unattributed and not priced, and they are " +
-        "dated by the day the session started. Input tokens include cache reads and writes and are priced at the model's input rate.";
+        "dated by the day the session started. Input tokens include cache reads and writes; cache reads are priced at 0.1 times and cache writes at 1.25 times the " +
+        "model's input rate unless the model configures its own cache prices, and only the remaining input at the input rate.";
 
     /// <summary>What the per-project and per-task tables cover (ruling P7).</summary>
     private const string HistoryScope =
@@ -44,7 +45,7 @@ public sealed class CostAnalyticsService(
             .. await SessionsAsync(ct).ConfigureAwait(false),
         ];
 
-        var (total, excluded) = PriceGroups(groups.Select(g => (g.ModelId, g.InputTokens, g.OutputTokens, g.Entries)));
+        var (total, excluded) = PriceGroups(groups.Select(g => (g.ModelId, g.InputTokens, g.OutputTokens, g.CacheReadTokens, g.CacheWriteTokens, g.Entries)));
         return new CostSummaryDto(
             groups.Sum(g => g.InputTokens),
             groups.Sum(g => g.OutputTokens),
@@ -165,12 +166,22 @@ public sealed class CostAnalyticsService(
     /// <summary>The group's cost at its own model's rate; 0 when the model is unattributed or unpriced (see <see cref="PriceGroups"/>).</summary>
     private decimal Price(UsageGroup group) =>
         group.ModelId is not null && _pricing.Models.TryGetValue(group.ModelId, out var pricing)
-            ? PriceTokens(pricing, group.InputTokens, group.OutputTokens)
+            ? PriceTokens(pricing, group.InputTokens, group.OutputTokens, group.CacheReadTokens, group.CacheWriteTokens)
             : 0m;
 
-    /// <summary>The one place a model's rate turns tokens into money.</summary>
-    private static decimal PriceTokens(ModelPricing pricing, long inputTokens, long outputTokens) =>
-        (inputTokens * pricing.InputTokenPricePerMillion / 1_000_000m) + (outputTokens * pricing.OutputTokenPricePerMillion / 1_000_000m);
+    /// <summary>
+    ///     The one place a model's rate turns tokens into money. <paramref name="inputTokens"/> includes the cache reads and
+    ///     writes, which Anthropic bills at their own rates, so only the remainder is priced as plain input. A malformed record
+    ///     whose cache tokens exceed its input prices no uncached input rather than a negative amount.
+    /// </summary>
+    private static decimal PriceTokens(ModelPricing pricing, long inputTokens, long outputTokens, long cacheReadTokens, long cacheWriteTokens)
+    {
+        var uncached = Math.Max(inputTokens - cacheReadTokens - cacheWriteTokens, 0);
+        return (uncached * pricing.InputTokenPricePerMillion / 1_000_000m)
+               + (cacheWriteTokens * pricing.EffectiveCacheWriteTokenPricePerMillion / 1_000_000m)
+               + (cacheReadTokens * pricing.EffectiveCacheReadTokenPricePerMillion / 1_000_000m)
+               + (outputTokens * pricing.OutputTokenPricePerMillion / 1_000_000m);
+    }
 
     public async Task<IReadOnlyList<ProjectCostDto>> GetCostsByProjectAsync(CancellationToken ct = default)
     {
@@ -199,7 +210,7 @@ public sealed class CostAnalyticsService(
             .GroupBy(r => new { r.Id, r.ProjectName })
             .Select(g =>
             {
-                var (cost, excluded) = PriceGroups(g.Select(r => (r.ModelId, r.InputTokens, r.OutputTokens, r.ExecutionCount)));
+                var (cost, excluded) = PriceGroups(g.Select(r => (r.ModelId, r.InputTokens, r.OutputTokens, 0L, 0L, r.ExecutionCount)));
                 return new ProjectCostDto(
                     g.Key.Id,
                     g.Key.ProjectName,
@@ -236,7 +247,7 @@ public sealed class CostAnalyticsService(
             .GroupBy(r => new { r.Id, r.Title })
             .Select(g =>
             {
-                var (cost, excluded) = PriceGroups(g.Select(r => (r.ModelId, r.InputTokens, r.OutputTokens, r.ExecutionCount)));
+                var (cost, excluded) = PriceGroups(g.Select(r => (r.ModelId, r.InputTokens, r.OutputTokens, 0L, 0L, r.ExecutionCount)));
                 return new TaskCostDto(
                     g.Key.Id,
                     g.Key.Title,
@@ -290,7 +301,9 @@ public sealed class CostAnalyticsService(
                 kvp.Key,
                 kvp.Value.DisplayName,
                 kvp.Value.InputTokenPricePerMillion,
-                kvp.Value.OutputTokenPricePerMillion))
+                kvp.Value.OutputTokenPricePerMillion,
+                kvp.Value.EffectiveCacheReadTokenPricePerMillion,
+                kvp.Value.EffectiveCacheWriteTokenPricePerMillion))
             .ToList() as IReadOnlyList<ModelPricingDto>;
 
         return Task.FromResult(result);
@@ -304,7 +317,7 @@ public sealed class CostAnalyticsService(
     ///     price.
     /// </summary>
     private (decimal Cost, ExcludedCostDto Excluded) PriceGroups(
-        IEnumerable<(string? ModelId, long InputTokens, long OutputTokens, int ExecutionCount)> groups)
+        IEnumerable<(string? ModelId, long InputTokens, long OutputTokens, long CacheReadTokens, long CacheWriteTokens, int ExecutionCount)> groups)
     {
         var cost = 0m;
         long unattributedInput = 0;
@@ -339,7 +352,7 @@ public sealed class CostAnalyticsService(
                 continue;
             }
 
-            cost += PriceTokens(pricing, group.InputTokens, group.OutputTokens);
+            cost += PriceTokens(pricing, group.InputTokens, group.OutputTokens, group.CacheReadTokens, group.CacheWriteTokens);
         }
 
         // Tokens as well as counts: a node-usage part beyond a record's first carries tokens and no entry of its own.

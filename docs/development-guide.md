@@ -209,6 +209,12 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   records (manufacture), chat sessions and scheduled sessions. Sessions owned by
   `workflow:*` are a manufacture run's node turns and are excluded from chat, so
   nothing counts twice. Session sources carry no model or cache split.
+- A usage group's input tokens include its cache reads and writes. `CostAnalyticsService.PriceTokens` prices the
+  uncached remainder at the input rate, reads at `ModelPricing.EffectiveCacheReadTokenPricePerMillion` and writes at
+  `EffectiveCacheWriteTokenPricePerMillion`. Unset, those are 0.1 and 1.25 times the input price, defined only in
+  `ModelPricing`; `CacheReadTokenPricePerMillion` and `CacheWriteTokenPricePerMillion` override them.
+  `ModelPricingConfigurationValidator` refuses negative prices at host start. `EstimateCostAsync` has no cache split
+  and stays at the input rate.
   The `by-session` cost endpoint was removed; `estimate` stays.
 - A `node-selection` run record (`WorkflowRunRecord.NodeSelectionKind`) holds the model and tool decision of one agent
   node visit, with the payload `{ level, model, tool_filter, kept_families, fallback, confidence, answers }`, `answers`

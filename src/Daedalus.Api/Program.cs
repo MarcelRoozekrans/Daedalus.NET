@@ -45,6 +45,8 @@ builder.Services.AddApplicationDatabase(builder.Configuration, "daedalus");
 // Register model pricing configuration
 builder.Services.Configure<ModelPricingConfiguration>(options =>
     builder.Configuration.GetSection(ModelPricingConfiguration.SectionName).Bind(options));
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<ModelPricingConfiguration>, ModelPricingConfigurationValidator>();
+builder.Services.AddOptions<ModelPricingConfiguration>().ValidateOnStart();
 
 // Add application layer services (command/query handlers, prompt builders)
 builder.Services.AddApplicationServices(builder.Configuration);

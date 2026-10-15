@@ -4,4 +4,6 @@ public record ModelPricingDto(
     string ModelId,
     string DisplayName,
     decimal InputPricePerMillion,
-    decimal OutputPricePerMillion);
+    decimal OutputPricePerMillion,
+    decimal CacheReadPricePerMillion,
+    decimal CacheWritePricePerMillion);

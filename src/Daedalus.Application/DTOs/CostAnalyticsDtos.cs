@@ -100,7 +100,9 @@ public record ModelPricingDto(
     string ModelId,
     string DisplayName,
     decimal InputPricePerMillion,
-    decimal OutputPricePerMillion);
+    decimal OutputPricePerMillion,
+    decimal CacheReadPricePerMillion,
+    decimal CacheWritePricePerMillion);
 
 /// <summary>
 ///     Tokens and executions a cost figure could not price, broken out by why, kept separate from

@@ -103,6 +103,7 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
     ///     Each model is priced at its own rate. Session tokens carry no model, so they are unattributed and unpriced.
     ///     Red: price a null model at the first configured rate; the unattributed slice's cost is no longer 0.
     ///     Red: price the node-usage input at model-a's rate; the model-b cost changes.
+    ///     Red: price model-b's 500 cache reads at the full input rate again; its cost is 0.0030 and the total 0.0075.
     /// </summary>
     [Fact]
     public async Task Session_tokens_are_unattributed_and_each_model_is_priced_at_its_own_rate()
@@ -113,11 +114,11 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
 
         var byModel = summary.ByModel.ToDictionary(m => m.Key, StringComparer.Ordinal);
         byModel[ModelA].Cost.Should().Be(0.0045m);        // 1000 × 3/1M + 100 × 15/1M
-        byModel[ModelB].Cost.Should().Be(0.003m);         // 2000 × 1/1M + 200 × 5/1M
+        byModel[ModelB].Cost.Should().Be(0.0026m);        // 1450 × 1/1M + 50 × 1.25/1M + 500 × 0.1/1M + 200 × 5/1M = 0.0025625, rounded
         byModel[CostSources.NoModel].Cost.Should().Be(0m);
         byModel[CostSources.NoModel].InputTokens.Should().Be(700);
         summary.Excluded.UnattributedInputTokens.Should().Be(700);
-        summary.TotalCost.Should().Be(0.0075m);
+        summary.TotalCost.Should().Be(0.0071m);          // 0.0045 + 0.0025625 = 0.0070625, rounded
     }
 
     /// <summary>Red: drop the cache mapping from the node-usage read; both cache totals are 0.</summary>
