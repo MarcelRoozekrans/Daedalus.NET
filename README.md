@@ -10,6 +10,12 @@ High-performance .NET 10 application using Railway-Oriented Programming for AI-d
 on a task board and starts a manufacture run for a task; the task's status follows that run. One presentation layer
 (Blazor Web + REST API), plus a CLI host, share one Application + Infrastructure stack, orchestrated via .NET Aspire.
 
+**Cost-aware manufacturing.** Before each implement and review step, a cheap [Minos.NET](https://github.com/MarcelRoozekrans/Minos.NET)
+decision picks the model and the tool families that step needs, from the set its role allows: a routine change runs on a
+small model, a harder one on a stronger model. In the phase 2.10 live comparison, routine tasks cost 72-78% less and four
+tasks together about 61% less, with no loss in what review caught. See
+[Per-node model and tool selection](#per-node-model-and-tool-selection).
+
 ## Table of Contents
 
 - [About the Name](#about-the-name)
@@ -117,6 +123,38 @@ A task on the board becomes work only when a person starts a manufacture run for
    records already count them. Session sources carry no model and no cache split, so their tokens are not priced. The
    host appends each `node-usage` record when a node completes, and a startup step backfills the records of older runs
    (it skips any run and sequence already recorded). The `by-session` cost endpoint no longer exists; `estimate` stays.
+
+### Per-node model and tool selection
+
+A manufacture run's implement and review steps do not all need the strongest model, or every tool. With decisions on,
+each visit of those steps first asks one [Minos.NET](https://github.com/MarcelRoozekrans/Minos.NET) question set,
+answered by `jev-latest` through OpenRouter for a fraction of a cent. It asks how demanding the work is and which tool
+families it needs. The answer picks a model from the role's `AllowedModels`, cheapest first, and narrows the tools the
+turn is offered. It never widens either, and Thalos refuses anything outside the role's own envelope.
+
+- **Fallback is today.** No key, a slow or failed decision, or a low-confidence answer gives the role's default model
+  and its full tool list. The reason is recorded and counted, and the node always runs.
+- **One decision per visit.** It is recorded as a `node-selection` run record, reused on redelivery and returned as
+  `nodeSelections` by `GET /api/workflow-runs/{id}`. The console does not show it yet (#354). The three review lens passes share it. After a rejected review, tools are no longer narrowed for the rest
+  of the run.
+- **Measured.** The phase 2.10 comparison ran four sandbox tasks with decisions off and on, priced cache-aware and
+  checked against Anthropic's billing:
+
+  | Task | Off | On | Saving |
+  |---|---|---|---|
+  | Routine (`Inventory.Remove`) | $1.57 | $0.44 | 72% |
+  | Routine (Kelvin conversions) | $2.22 | $0.48 | 78% |
+  | Harder (`Inventory.FromJson`) | $3.47 | $1.97 | 43% |
+  | Harder (reservations) | $2.61 | $0.91 | 65% |
+
+  Most of the saving is review, which moves from Opus 5 to Sonnet 5.5 for routine work. Replaying each review under
+  both setups found nothing the default reviewer raised that the decided one missed. One run per task per arm is a small
+  sample: review rounds vary, so the percentages will move. Details:
+  [phase 2.10 rulings](docs/plans/2026-10-15-phase-2.10-rulings.md).
+- **Turning it on.** Set the AppHost secret `Parameters:openrouter-key` (`OPENROUTER_API_KEY`). Turn on zero data
+  retention at openrouter.ai/settings/privacy and only then set `Thalos:Decisions:ZeroDataRetentionAccount` to `true`,
+  because a decision sends the task's text. The API's start-up log says whether decisions are on, and why not. See
+  [Thalos agents](#thalos-agents) for `AllowedModels` and the `Thalos:Decisions:*` settings.
 
 **History and frozen data.** `TaskExecutions` and `ExecutionSessions` are kept as read-only history, and the Web "Task
 Loop History" page only shows them. The `daedalus__search_failure_patterns` and `daedalus__search_learnings` tools read
