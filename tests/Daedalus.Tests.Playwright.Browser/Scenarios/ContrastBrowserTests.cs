@@ -51,6 +51,47 @@ public class ContrastBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     The empty states' text reaches 4.5:1: Tasks' "No tasks yet.", the Agent page's sentence with no session open,
+    ///     and the theme's <c>.daedalus-empty-state</c> pattern. No page renders that pattern today, so a block with its
+    ///     class is put in the page's body and measured as the theme paints it.
+    ///     Red: <c>opacity: 0.6</c> back on Agent's empty state in place of the caption class; it reads 3.29.
+    ///     Red: <c>.daedalus-empty-state</c>'s colour back to <c>--rz-base-500</c>; it reads 2.54.
+    ///     Red: Tasks' "No tasks yet." without the caption class, at <c>--rz-base-500</c>; it reads 2.68.
+    /// </summary>
+    [Test]
+    [Description("The empty states reach 4.5:1")]
+    public async Task The_empty_states_reach_text_contrast()
+    {
+        await Page.RouteAsync("**/api/tasks?*", route => route.FulfillAsync(new RouteFulfillOptions
+        {
+            Status = 200,
+            ContentType = "application/json",
+            Body = """{"items":[],"total":0,"page":1,"pageSize":15}""",
+        })).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(1920, 1080).ConfigureAwait(false);
+        var low = new List<string>();
+
+        await NavigateToAsync("/tasks").ConfigureAwait(false);
+        var tasksEmpty = Page.Locator("[data-testid='tasks-empty'] p");
+        await Expect(tasksEmpty).ToContainTextAsync("No tasks yet.").ConfigureAwait(false);
+        await CheckAsync(low, "Tasks empty state", tasksEmpty).ConfigureAwait(false);
+
+        var pattern = Page.Locator("[data-testid='contrast-empty-state']");
+        await Page.Locator(".rz-body > div").EvaluateAsync(
+            "body => { const e = document.createElement('div'); e.className = 'daedalus-empty-state'; " +
+            "e.dataset.testid = 'contrast-empty-state'; e.textContent = 'Nothing here yet.'; body.appendChild(e); }")
+            .ConfigureAwait(false);
+        await CheckAsync(low, ".daedalus-empty-state", pattern).ConfigureAwait(false);
+
+        await NavigateToAsync("/agent").ConfigureAwait(false);
+        var agentEmpty = Page.Locator("[data-testid='agent-empty']");
+        await Expect(agentEmpty).ToBeVisibleAsync().ConfigureAwait(false);
+        await CheckAsync(low, "Agent empty state", agentEmpty).ConfigureAwait(false);
+
+        string.Join("; ", low).Should().BeEmpty($"every empty state reaches {TextContrast.Text}:1");
+    }
+
+    /// <summary>
     ///     The signed-out landing's caption, the README's sentence under the product's name, reaches 4.5:1.
     ///     Red: <c>opacity: 0.6</c> back on the landing's caption in place of the shared caption class; it reads 3.29.
     /// </summary>
