@@ -26,8 +26,85 @@ public class TasksPageBrowserTests : BrowserTestBase
         await _tasksPage.NavigateAsync().ConfigureAwait(false);
         await Expect(_tasksPage.PageTitle).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_tasksPage.CreateTaskButton).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_tasksPage.CreateTaskButton).ToContainTextAsync("Create Task").ConfigureAwait(false);
+        await Expect(_tasksPage.CreateTaskButton).ToHaveTextAsync("New task").ConfigureAwait(false);
     }
+
+    /// <summary>
+    ///     An empty board says so in one muted sentence with the action, as the contract's empty state reads: "No tasks
+    ///     yet." and New task, which opens the create dialog. The task list is the API's answer, fulfilled empty here.
+    ///     Red: no <c>EmptyTemplate</c> on the grid, as before; Radzen's "No records to display." shows, not "No tasks yet.".
+    ///     Red: the empty state's New task without a handler; the dialog does not open.
+    /// </summary>
+    [Test]
+    [Description("An empty board says No tasks yet with New task")]
+    public async Task An_empty_board_says_no_tasks_yet_with_new_task()
+    {
+        await Page.RouteAsync("**/api/tasks?*", route => route.FulfillAsync(new RouteFulfillOptions
+        {
+            Status = 200,
+            ContentType = "application/json",
+            Body = """{"items":[],"total":0,"page":1,"pageSize":15}""",
+        })).ConfigureAwait(false);
+        await _tasksPage.NavigateAsync().ConfigureAwait(false);
+
+        var empty = _tasksPage.DataGrid.Locator("[data-testid='tasks-empty']");
+        await Expect(empty).ToContainTextAsync("No tasks yet.").ConfigureAwait(false);
+
+        await empty.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "New task", Exact = true }).ClickAsync()
+            .ConfigureAwait(false);
+        await Expect(_tasksPage.ProjectPicker).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     A board that could not be read is not empty: the error says why, and the grid does not claim "No tasks yet."
+    ///     Red: the empty state rendered whatever the read said; "No tasks yet." shows under the error.
+    /// </summary>
+    [Test]
+    [Description("A board that failed to load does not say No tasks yet")]
+    public async Task A_board_that_failed_to_load_does_not_say_no_tasks_yet()
+    {
+        await Page.RouteAsync("**/api/tasks?*", route => route.FulfillAsync(new RouteFulfillOptions { Status = 500 }))
+            .ConfigureAwait(false);
+        await _tasksPage.NavigateAsync().ConfigureAwait(false);
+
+        await Expect(_tasksPage.ErrorAlert.First).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_tasksPage.DataGrid).Not.ToContainTextAsync("No tasks yet.").ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     At 375px the header actions of Tasks and Projects keep their text on one line beside a caption that wraps.
+    ///     Red: the Tasks header as before, with no wrap and no <c>white-space: nowrap</c>, the button squeezed beside
+    ///     the caption; the text takes two lines.
+    ///     Red: the same on Projects; "Create Project" takes two lines.
+    /// </summary>
+    [TestCase("/tasks", "btn-create-task")]
+    [TestCase("/projects", "btn-create-project")]
+    [Description("No header action wraps at 375px")]
+    public async Task No_header_action_wraps_on_a_phone(string path, string testId)
+    {
+        await Page.SetViewportSizeAsync(375, 812).ConfigureAwait(false);
+        await NavigateToAsync(path).ConfigureAwait(false);
+        var button = Page.Locator($"[data-testid='{testId}']");
+        await Expect(button).ToBeVisibleAsync().ConfigureAwait(false);
+
+        var lines = await button.Locator(".rz-button-text").EvaluateAsync<int>(LinesScript).ConfigureAwait(false);
+        lines.Should().Be(1, $"the {path} header action is one line");
+    }
+
+    /// <summary>The number of lines an element's text takes, from its text's line boxes.</summary>
+    private const string LinesScript = """
+        e => {
+            const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+            const tops = new Set();
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                if (!node.textContent.trim()) { continue; }
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                Array.from(range.getClientRects()).filter(r => r.width > 0).forEach(r => tops.add(Math.round(r.top)));
+            }
+            return tops.size;
+        }
+        """;
 
     [Test]
     [Description("Tasks page should display data grid with seeded tasks")]
