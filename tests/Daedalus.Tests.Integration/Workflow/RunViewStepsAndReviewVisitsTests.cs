@@ -13,7 +13,7 @@ namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>A run parked at the gate shows its event log as steps and, on its latest review visit, each lens's checked items.</summary>
 [Collection(DatabaseCollection.Name)]
-public sealed class RunViewStepsAndCheckedTests(PostgresFixture fixture)
+public sealed class RunViewStepsAndReviewVisitsTests(PostgresFixture fixture)
 {
     private const string Starter = "a-developer";
 
