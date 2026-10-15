@@ -90,9 +90,13 @@ else
         Navigation.NavigateToLogin("authentication/login");
     }
 
+    /// <summary>
+    ///     Signs out and returns to Home. The identity provider comes back to <c>authentication/logout-callback</c>, which
+    ///     reads its <c>state</c> and then goes to this return URL, so Home's address carries no query.
+    /// </summary>
     private void BeginLogout()
     {
-        Navigation.NavigateToLogout("authentication/logout");
+        Navigation.NavigateToLogout("authentication/logout", "/");
     }
 
 }
