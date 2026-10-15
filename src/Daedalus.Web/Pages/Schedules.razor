@@ -533,7 +533,7 @@ else
     };
 
     private static string FormatDateTime(DateTime value) =>
-        value == default ? "-" : value.ToLocalTime().ToString("g");
+        value == default ? "-" : LocalTimes.ShortDateTime(value);
 
     private static string FormatDuration(TimeSpan span)
     {

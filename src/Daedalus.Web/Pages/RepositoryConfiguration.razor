@@ -93,7 +93,7 @@ else if (_repositories is not null)
                     }
 
                     <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.4;">
-                        Added @repo.CreatedAt.ToLocalTime().ToString("g")
+                        Added @LocalTimes.ShortDateTime(repo.CreatedAt)
                     </RadzenText>
 
                     <hr style="opacity: 0.1; margin: 0.75rem 0;"/>
