@@ -313,13 +313,16 @@ public class NavigationBrowserTests : BrowserTestBase
 
     // ── Layout structure ─────────────────────────────────────────────────────
 
+    /// <summary>
+    ///     The footer names the product. Its version is the assembly's, checked by
+    ///     <c>ShellBrowserTests.The_footer_shows_the_consoles_own_version</c>; this test pinned the old hardcoded v1.0.0.
+    /// </summary>
     [Test]
-    [Description("Footer should display version and platform info")]
-    public async Task Footer_ShouldDisplay_VersionInfo()
+    [Description("Footer should display platform info")]
+    public async Task Footer_ShouldDisplay_PlatformInfo()
     {
         await NavigateToAsync("/").ConfigureAwait(false);
         await Expect(_mainPage.Footer).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.Footer).ToContainTextAsync("Daedalus").ConfigureAwait(false);
-        await Expect(_mainPage.Footer).ToContainTextAsync("v1.0.0").ConfigureAwait(false);
     }
 }
