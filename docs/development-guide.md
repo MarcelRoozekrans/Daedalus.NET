@@ -186,6 +186,21 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   question fails until the version is raised. A record without `answers`, written before they existed or for a visit
   nothing was asked about, still reads.
 
+### Web: signed-out visitors and the page set
+
+`Home` renders `NeedsMePanel` for a signed-in person and `SignedOutLanding` otherwise; the landing page asks the API for
+nothing. `App.razor` sends every other signed-out request to `RedirectToLogin`. `MainLayout` shows no menu and no toggle
+signed out, and reads the sign-in before it draws the chrome. A request whose session has ended returns
+`SessionExpiry.SigningInAgain`; the layout shows it once as an Info notification, and pages do not show it as an error.
+The menu is in `MainLayout.razor`: Home, Tasks, Runs, Projects; PRD Generator, Agent; Operations with Schedules and
+Costs; Admin with Git Repositories, behind the `admin` role. There is no Executions page.
+
+A run's page reads `failureReason` and `reviewVisits` from the run view, and its list items carry `failureReason` and
+`prUrl`. `GET /api/workflow-runs` takes `signal` and `updatedSince`, an ISO 8601 timestamp with its zone. The store
+cannot filter on either, so the controller scans up to 500 summaries (`WorkflowRunsController.ScanCap`, issue #367).
+`POST /api/tasks` takes an optional `prompt`, and `TasksController` answers its refusals as `application/problem+json`;
+the other controllers still differ (issue #366).
+
 ### Costs and history
 
 - After each agent node completes with usage, the host appends a `node-usage`
@@ -224,8 +239,9 @@ uses and which tool families it keeps. The aim is fewer tokens and fewer tools t
   above. See "Node selection".
 - A `review-response` run record (`WorkflowRunRecord.ReviewResponseKind`) holds the `review_response` one `implement`
   visit reported, at that visit's seq, with the payload `{ response }`. `ReviewHandoffWorkflowStore` writes it before the
-  completion, and a write failure fails the run. The run variable is overwritten by each visit; the record keeps every
-  answer. The run view's `reviewVisits` pairs each rejected review visit with the next implement visit's record. The
+  completion, but only while the completion is acceptable, the run still `Running` at that seq: a completion the inner
+  store would refuse records nothing. A write failure fails the run. The run variable is
+  overwritten by each visit; the record keeps every answer. The run view's `reviewVisits` pairs each rejected review visit with the next implement visit's record. The
   reviewer's dispatch never carries it.
 - `TaskExecutions` and `ExecutionSessions` are read-only history. The Web
   "Task Loop History" page shows them and cannot change them.
