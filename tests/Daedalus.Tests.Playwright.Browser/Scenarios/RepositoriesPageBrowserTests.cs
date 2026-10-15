@@ -142,6 +142,24 @@ public class RepositoriesPageBrowserTests : BrowserTestBase
             }),
         }));
 
+    /// <summary>Refuses <paramref name="method"/> on the listed repository with <paramref name="status"/>.</summary>
+    private Task RefuseWriteAsync(string method, int status) =>
+        Page.RouteAsync($"**/api/repositories/{ListedId}", async route =>
+        {
+            if (string.Equals(route.Request.Method, method, StringComparison.Ordinal))
+            {
+                await route.FulfillAsync(new RouteFulfillOptions
+                {
+                    Status = status,
+                    ContentType = "application/problem+json",
+                    Body = """{"detail":"Refused by the test."}""",
+                }).ConfigureAwait(false);
+                return;
+            }
+
+            await route.ContinueAsync().ConfigureAwait(false);
+        });
+
     /// <summary>
     ///     The card's Added time is the viewer's local time: in Auckland, 23:30 UTC on 15 October is 12:30 PM on the 16th.
     ///     Red: the card shows <c>repo.CreatedAt.ToString("g")</c>, unconverted; it reads the UTC time.
@@ -164,6 +182,60 @@ public class RepositoriesPageBrowserTests : BrowserTestBase
         await repos.NavigateAsync().ConfigureAwait(false);
 
         await Expect(repos.GetCardByName(ListedName)).ToContainTextAsync($"Added {expected}").ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     An update the API refuses or fails says so in an Error notification with what failed and the status, and never
+    ///     in a success message.
+    ///     Red: the refused branch notifies Success "The repository was updated."; no Error notification shows.
+    ///     Red: Refused returns what failed and the HTTP version, not the status; the notification does not name it.
+    ///     Red: the success notification sent before the status is checked; a success message showed.
+    /// </summary>
+    [TestCase(403)]
+    [TestCase(500)]
+    [Description("A refused update says why, and never that it succeeded")]
+    public async Task A_refused_update_says_why_and_never_that_it_succeeded(int status)
+    {
+        await RouteOneRepositoryAsync(Page, new DateTime(2026, 10, 15, 12, 0, 0, DateTimeKind.Utc)).ConfigureAwait(false);
+        await RefuseWriteAsync("PUT", status).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ".rz-notification-success").ConfigureAwait(false);
+        await _reposPage.NavigateAsync().ConfigureAwait(false);
+
+        await _reposPage.GetEditButton(ListedName).ClickAsync().ConfigureAwait(false);
+        await _reposPage.DialogSubmitButton.ClickAsync().ConfigureAwait(false);
+
+        var error = Page.Locator(".rz-notification-error");
+        await Expect(error).ToContainTextAsync("Failed to update repository.").ConfigureAwait(false);
+        await Expect(error).ToContainTextAsync($"The server answered {status}").ConfigureAwait(false);
+        (await TestAuth.PathsThatShowedAsync(Page, ".rz-notification-success").ConfigureAwait(false))
+            .Should().BeEmpty("a refused update never says it succeeded");
+    }
+
+    /// <summary>
+    ///     A delete the API refuses or fails says so in an Error notification with what failed and the status, and never
+    ///     in a success message.
+    ///     Red: the refused branch notifies Success "The repository was removed."; no Error notification shows.
+    ///     Red: Refused returns what failed and the HTTP version, not the status; the notification does not name it.
+    ///     Red: the success notification sent before the status is checked; a success message showed.
+    /// </summary>
+    [TestCase(403)]
+    [TestCase(500)]
+    [Description("A refused delete says why, and never that it succeeded")]
+    public async Task A_refused_delete_says_why_and_never_that_it_succeeded(int status)
+    {
+        await RouteOneRepositoryAsync(Page, new DateTime(2026, 10, 15, 12, 0, 0, DateTimeKind.Utc)).ConfigureAwait(false);
+        await RefuseWriteAsync("DELETE", status).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ".rz-notification-success").ConfigureAwait(false);
+        await _reposPage.NavigateAsync().ConfigureAwait(false);
+
+        await _reposPage.GetDeleteButton(ListedName).ClickAsync().ConfigureAwait(false);
+        await _reposPage.ConfirmDeleteButton.ClickAsync().ConfigureAwait(false);
+
+        var error = Page.Locator(".rz-notification-error");
+        await Expect(error).ToContainTextAsync("Failed to delete repository.").ConfigureAwait(false);
+        await Expect(error).ToContainTextAsync($"The server answered {status}").ConfigureAwait(false);
+        (await TestAuth.PathsThatShowedAsync(Page, ".rz-notification-success").ConfigureAwait(false))
+            .Should().BeEmpty("a refused delete never says it succeeded");
     }
 
     // ── Add Repository dialog ────────────────────────────────────────────────
