@@ -52,4 +52,36 @@ public sealed class RunStatusLabelsTests
         RunStatusLabels.StepText(kind, outcome).Should().Be(text);
         RunStatusLabels.StepStyle(kind, outcome).Should().Be(style);
     }
+
+    /// <summary>
+    ///     A step shows a badge unless its outcome is <c>none</c> and its kind is not one of the five that always show.
+    ///     Red: <c>ShowsStepBadge</c> returns true; the Completed rows with outcome none or None are shown.
+    ///     Red: <c>ShowsStepBadge</c> ignores the kind; the Failed and Retried rows with outcome none are hidden.
+    ///     Red: <c>ShowsStepBadge</c> hides a null outcome too; the Entered row is hidden.
+    /// </summary>
+    [Theory]
+    [InlineData("Completed", "none", false)]
+    [InlineData("Completed", "None", false)]
+    [InlineData("Completed", "approved", true)]
+    [InlineData("Entered", null, true)]
+    [InlineData("Failed", "none", true)]
+    [InlineData("CapExceeded", "none", true)]
+    [InlineData("Cancelled", "none", true)]
+    [InlineData("Resumed", "none", true)]
+    [InlineData("Retried", "none", true)]
+    public void Step_badge_shown(string kind, string? outcome, bool shown) =>
+        RunStatusLabels.ShowsStepBadge(kind, outcome).Should().Be(shown);
+
+    /// <summary>
+    ///     A review verdict maps to the contract's severity: Unreadable is a Warning and never reads as Approved, and a
+    ///     verdict the contract does not name is muted.
+    ///     Red: map Unreadable to Success. Red: map Rejected to Warning. Red: map the default to Success.
+    /// </summary>
+    [Theory]
+    [InlineData("Approved", BadgeStyle.Success)]
+    [InlineData("Rejected", BadgeStyle.Danger)]
+    [InlineData("Unreadable", BadgeStyle.Warning)]
+    [InlineData("Unheard", BadgeStyle.Light)]
+    public void Review_verdict(string verdict, BadgeStyle style) =>
+        RunStatusLabels.VerdictStyle(verdict).Should().Be(style);
 }

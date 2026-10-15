@@ -42,6 +42,25 @@ public static class RunStatusLabels
         _ => BadgeStyle.Light,
     };
 
+    /// <summary>
+    ///     Whether a timeline step shows a badge at all. A completion whose outcome is <c>none</c> says nothing a badge could
+    ///     carry, so it has none; one of the five kinds that always show their kind keeps its badge whatever the outcome.
+    /// </summary>
+    public static bool ShowsStepBadge(string kind, string? outcome) =>
+        IsSignificantKind(kind) || !string.Equals(outcome, "none", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     The badge severity of a review visit's verdict, whose text is the verdict itself. <c>Unreadable</c> is a warning,
+    ///     never a success: a record of the visit could not be read, so its verdict is unknown.
+    /// </summary>
+    public static BadgeStyle VerdictStyle(string verdict) => verdict switch
+    {
+        "Approved" => BadgeStyle.Success,
+        "Rejected" => BadgeStyle.Danger,
+        "Unreadable" => BadgeStyle.Warning,
+        _ => BadgeStyle.Light,
+    };
+
     /// <summary>The engine reports <c>none</c> when a node completed with no outcome; it is not a meaningful outcome to show.</summary>
     private static bool IsNoOutcome(string? outcome) =>
         outcome is null || string.Equals(outcome, "none", StringComparison.OrdinalIgnoreCase);

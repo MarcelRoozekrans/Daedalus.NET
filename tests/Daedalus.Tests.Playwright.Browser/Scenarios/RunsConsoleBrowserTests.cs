@@ -362,7 +362,7 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
         await _runPage.NavigateAsync(Runs.Succeeded).ConfigureAwait(false);
 
         var link = Page.Locator("[data-testid='run-pr-link']");
-        await Expect(link).ToHaveTextAsync("Pull request #42").ConfigureAwait(false);
+        await Expect(link).ToHaveAccessibleNameAsync("Pull request #42, opens in a new tab").ConfigureAwait(false);
         await Expect(link).ToHaveClassAsync(new Regex(@"(^|\s)rz-link(\s|$)")).ConfigureAwait(false);
         await Expect(link).ToHaveAttributeAsync("target", "_blank").ConfigureAwait(false);
         await Expect(link).ToHaveAttributeAsync("href", RunSeeds.PullRequestUrl).ConfigureAwait(false);
