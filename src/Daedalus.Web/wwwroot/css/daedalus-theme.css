@@ -110,6 +110,25 @@
     padding-top: 0.5rem;
 }
 
+/* ── A closed sidebar ────────────────────────────────────────────────── */
+/* Radzen narrows a closed sidebar to nothing but leaves its links in the tab order; hidden, it is out of it. */
+.rz-sidebar.rz-sidebar-collapsed {
+    visibility: hidden;
+}
+
+/* ── Phone: the sidebar overlays the page ────────────────────────────── */
+/* Below 768px Radzen pushes the page right by the sidebar's width. Here the sidebar lies over the page instead,
+   under the header and above the backdrop MainLayout renders, and the page keeps its place and width. */
+@media (max-width: 767.98px) {
+    .rz-layout > .rz-sidebar {
+        position: fixed;
+        top: var(--rz-header-min-height);
+        bottom: 0;
+        left: 0;
+        z-index: 3;
+    }
+}
+
 /* ── Sidebar section divider ─────────────────────────────────────────── */
 .sidebar-section-label {
     padding: 1.25rem 1.25rem 0.375rem;
@@ -178,6 +197,16 @@
    auto 1fr, and the body's own overflow lets it shrink below its content. */
 .rz-layout .rz-body {
     scrollbar-gutter: stable;
+}
+
+/* ── Alerts wrap within the column ───────────────────────────────────── */
+/* An alert's message is a flex item that will not shrink below its longest word, so an error naming a URL or a type
+   pushed the alert, and the page, past a phone's width. It wraps anywhere instead. */
+.rz-alert .rz-alert-item,
+.rz-alert .rz-alert-message,
+.rz-alert .rz-alert-content {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 /* ── Page content fade-in ────────────────────────────────────────────── */

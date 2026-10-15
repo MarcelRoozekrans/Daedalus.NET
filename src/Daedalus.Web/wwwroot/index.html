@@ -18,38 +18,39 @@
 <body>
 <div id="app">
     <div class="app-loading">
-        <div class="app-loading-spinner"></div>
-        <p>Loading Daedalus...</p>
+        <p class="app-loading-name">Daedalus</p>
+        <div class="app-loading-indicator" role="progressbar" aria-label="Loading Daedalus"></div>
     </div>
 </div>
 
 <style>
     /* The loading screen centres itself, not #app: a centring #app would shrink the app's layout to its content
-       once it renders, so the content column's width would change from page to page. Its colours are Radzen
-       tokens: material-base.css and the theme are stylesheets in the head, which block rendering, so the tokens
-       are defined before this screen paints. */
+       once it renders, so the content column's width would change from page to page. It is the page as the app
+       paints it, the body background, with the product name and a progress indicator in the primary colour, as
+       Radzen's circular progress bar draws it. Its colours are Radzen tokens: material-base.css and the theme are
+       stylesheets in the head, which block rendering, so the tokens are defined before this screen paints. */
     .app-loading {
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
+        gap: 1.25rem;
         height: 100vh;
-        background: linear-gradient(135deg, var(--rz-primary) 0%, var(--rz-secondary) 100%);
-        text-align: center;
-        color: var(--rz-on-primary);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background-color: var(--rz-body-background-color);
+        color: var(--rz-text-title-color);
+        font-family: var(--rz-text-font-family);
     }
-    .app-loading p {
-        margin-top: 1.25rem;
-        font-size: 0.9375rem;
-        opacity: 0.85;
+    .app-loading-name {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -0.025em;
     }
-    .app-loading-spinner {
+    .app-loading-indicator {
         width: 48px;
         height: 48px;
-        margin: 0 auto;
-        border: 3px solid color-mix(in srgb, var(--rz-on-primary) 25%, transparent);
-        border-top-color: var(--rz-on-primary);
+        border: 4px solid var(--rz-base-200);
+        border-top-color: var(--rz-primary);
         border-radius: 50%;
         animation: app-spin 0.8s linear infinite;
     }

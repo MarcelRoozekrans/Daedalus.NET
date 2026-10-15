@@ -1,7 +1,13 @@
 @inherits LayoutComponentBase
-@implements IDisposable
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
 @inject SessionExpiry Expiry
 @inject NotificationService Notifications
+@inject NavigationManager Navigation
+@inject IJSRuntime Js
+
+@* Below 768px the menu lies over the page, as the contract's phone layout draws it; the header is compact there too. *@
+<RadzenMediaQuery Query="(max-width: 767.98px)" Change="@OnPhoneChanged"/>
 
 <RadzenLayout>
     <RadzenHeader>
@@ -11,7 +17,8 @@
                 @* Signed out, the header holds only the logo and Sign in: no menu, so no toggle. *@
                 @if (_chrome == Chrome.SignedIn)
                 {
-                    <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)"/>
+                    <RadzenSidebarToggle Click="@ToggleMenu" ToggleAriaLabel="Menu" aria-controls="main-menu"
+                                         aria-expanded="@(_sidebarExpanded ? "true" : "false")"/>
                 }
                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
                     <RadzenIcon Icon="hub" Style="font-size: 1.5rem; color: var(--rz-primary);"/>
@@ -30,35 +37,36 @@
     @* Signed out, or not yet known, no menu at all: nothing in it is open to a visitor. *@
     @if (_chrome == Chrome.SignedIn)
     {
-        <RadzenSidebar @bind-Expanded="@_sidebarExpanded" Style="width: 260px;">
+        <RadzenSidebar Expanded="@_sidebarExpanded" ExpandedChanged="@OnSidebarExpandedChanged" Style="width: 260px;"
+                       id="main-menu" role="navigation" aria-label="Main">
+            @* The path a task takes, then the two other ways into it, then what an operator runs. *@
             <RadzenPanelMenu>
-                <RadzenPanelMenuItem Text="Dashboard" Icon="dashboard" Path="/"/>
+                <RadzenPanelMenuItem Text="Home" Icon="home" Path="/"/>
+                <RadzenPanelMenuItem Text="Tasks" Icon="task_alt" Path="tasks"/>
+                <RunsMenuItem/>
+                <RadzenPanelMenuItem Text="Projects" Icon="folder_special" Path="projects"/>
+            </RadzenPanelMenu>
+
+            <div class="sidebar-section-divider" role="separator"></div>
+            <RadzenPanelMenu>
+                <RadzenPanelMenuItem Text="PRD Generator" Icon="description" Path="prd-generator"/>
+                <RadzenPanelMenuItem Text="Agent" Icon="smart_toy" Path="agent"/>
             </RadzenPanelMenu>
 
             <div class="sidebar-section-divider">Operations</div>
             <RadzenPanelMenu>
-                <RadzenPanelMenuItem Text="Tasks" Icon="task_alt" Path="tasks"/>
-                <RunsMenuItem/>
-                <RadzenPanelMenuItem Text="Projects" Icon="folder_special" Path="projects"/>
-                <RadzenPanelMenuItem Text="Executions" Icon="receipt_long" Path="executions"/>
                 <RadzenPanelMenuItem Text="Schedules" Icon="schedule" Path="schedules"/>
                 <RadzenPanelMenuItem Text="Costs" Icon="attach_money" Path="costs"/>
-                <RadzenPanelMenuItem Text="Agent" Icon="smart_toy" Path="agent"/>
             </RadzenPanelMenu>
 
             @* Admins only: every /api/repositories action needs the API's Admin policy, the admin role. The section holds
                nothing else, so its heading goes with it. *@
             <AuthorizeView Roles="admin">
-                <div class="sidebar-section-divider">Configuration</div>
+                <div class="sidebar-section-divider">Admin</div>
                 <RadzenPanelMenu>
                     <RadzenPanelMenuItem Text="Git Repositories" Icon="source" Path="repositories"/>
                 </RadzenPanelMenu>
             </AuthorizeView>
-
-            <div class="sidebar-section-divider">AI Tools</div>
-            <RadzenPanelMenu>
-                <RadzenPanelMenuItem Text="PRD Generator" Icon="description" Path="prd-generator"/>
-            </RadzenPanelMenu>
         </RadzenSidebar>
     }
 
@@ -81,6 +89,12 @@
     </RadzenFooter>
 </RadzenLayout>
 
+@* On a phone the open menu dims the page behind it; a tap there closes the menu. *@
+@if (MenuOverlays)
+{
+    <div class="menu-backdrop" data-testid="menu-backdrop" aria-hidden="true" @onclick="@(() => CloseMenu())"></div>
+}
+
 <RadzenDialog/>
 <RadzenNotification/>
 <RadzenTooltip/>
@@ -88,6 +102,22 @@
 
 @code {
     bool _sidebarExpanded = true;
+
+    /// <summary>Whether the viewport is a phone's, below 768px, where the menu overlays the page.</summary>
+    private bool _phone;
+
+    /// <summary>Set when the menu opened or closed, so the render after it takes or gives back the focus.</summary>
+    private bool _menuChanged;
+
+    /// <summary>Whether a closing menu gives the focus back to the toggle: not when only the breakpoint changed.</summary>
+    private bool _restoreFocus;
+
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _trap;
+    private DotNetObjectReference<MainLayout>? _self;
+
+    /// <summary>The menu is open over the page, with its backdrop and the focus kept in it.</summary>
+    private bool MenuOverlays => _phone && _sidebarExpanded && _chrome == Chrome.SignedIn;
 
     private Task<AuthenticationState>? _evaluated;
 
@@ -103,7 +133,11 @@
     /// </summary>
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
-    protected override void OnInitialized() => Expiry.Changed += OnExpiryChanged;
+    protected override void OnInitialized()
+    {
+        Expiry.Changed += OnExpiryChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -129,10 +163,108 @@
         }
     }
 
-    public void Dispose() => Expiry.Changed -= OnExpiryChanged;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_menuChanged)
+        {
+            return;
+        }
 
-    private void Apply() =>
+        _menuChanged = false;
+        if (MenuOverlays && _trap is null)
+        {
+            _self ??= DotNetObjectReference.Create(this);
+            _module ??= await Js.InvokeAsync<IJSObjectReference>("import", "./js/menu-overlay.js");
+            _trap = await _module.InvokeAsync<IJSObjectReference>("trap", _self);
+        }
+        else if (!MenuOverlays && _trap is { } trap)
+        {
+            _trap = null;
+            await trap.InvokeVoidAsync("release", _restoreFocus);
+            await trap.DisposeAsync();
+        }
+    }
+
+    /// <summary>Closes the menu where it overlays the page: from Escape, the backdrop, or a navigation.</summary>
+    [JSInvokable]
+    public Task CloseMenu()
+    {
+        if (MenuOverlays)
+        {
+            _sidebarExpanded = false;
+            _restoreFocus = true;
+            _menuChanged = true;
+            StateHasChanged();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Expiry.Changed -= OnExpiryChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+        try
+        {
+            if (_trap is not null)
+            {
+                await _trap.InvokeVoidAsync("release", false);
+                await _trap.DisposeAsync();
+            }
+
+            if (_module is not null)
+            {
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The page is gone, and the listener with it.
+        }
+
+        _self?.Dispose();
+    }
+
+    private void ToggleMenu()
+    {
+        _sidebarExpanded = !_sidebarExpanded;
+        _restoreFocus = true;
+        _menuChanged = true;
+    }
+
+    private void OnSidebarExpandedChanged(bool expanded)
+    {
+        _sidebarExpanded = expanded;
+        _restoreFocus = false;
+        _menuChanged = true;
+    }
+
+    private void OnPhoneChanged(bool phone)
+    {
+        // A phone's menu starts closed, as one that shrinks to a phone's width does: it would cover the page.
+        if (phone && !_phone)
+        {
+            _sidebarExpanded = false;
+        }
+
+        _phone = phone;
+        _restoreFocus = false;
+        _menuChanged = true;
+    }
+
+    /// <summary>A menu click on a phone has done its work once the page changes: the menu closes.</summary>
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(CloseMenu);
+
+    /// <summary>
+    ///     Decides the chrome. A chrome that loses the menu, as when the session ends, also lets go of an open phone
+    ///     menu's hold on the focus and the keyboard.
+    /// </summary>
+    private void Apply()
+    {
         _chrome = _signedIn?.Identity?.IsAuthenticated == true && !Expiry.Expired ? Chrome.SignedIn : Chrome.SignedOut;
+        _restoreFocus = false;
+        _menuChanged = true;
+    }
 
     /// <summary>
     ///     A session that ended is shown once, here, as information: the pages show no error of their own for the

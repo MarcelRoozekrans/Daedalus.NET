@@ -11,14 +11,13 @@ public sealed class MainPage(IPage page, Uri baseUrl) : BasePage(page, baseUrl)
 
     // Sidebar section dividers
     public ILocator OperationsDivider => _page.Locator(".sidebar-section-divider", new PageLocatorOptions { HasText = "Operations" });
-    public ILocator ConfigurationDivider => _page.Locator(".sidebar-section-divider", new PageLocatorOptions { HasText = "Configuration" });
-    public ILocator AiToolsDivider => _page.Locator(".sidebar-section-divider", new PageLocatorOptions { HasText = "AI Tools" });
+    public ILocator AdminDivider => _page.Locator(".sidebar-section-divider", new PageLocatorOptions { HasText = "Admin" });
 
     // Menu items
-    public ILocator DashboardMenuItem => _page.Locator(".rz-sidebar").GetByText("Dashboard", new LocatorGetByTextOptions { Exact = true });
+    public ILocator HomeMenuItem => _page.Locator(".rz-sidebar").GetByText("Home", new LocatorGetByTextOptions { Exact = true });
     public ILocator TasksMenuItem => _page.Locator(".rz-sidebar").GetByText("Tasks", new LocatorGetByTextOptions { Exact = true });
     public ILocator ProjectsMenuItem => _page.Locator(".rz-sidebar").GetByText("Projects", new LocatorGetByTextOptions { Exact = true });
-    public ILocator ExecutionsMenuItem => _page.Locator(".rz-sidebar").GetByText("Executions", new LocatorGetByTextOptions { Exact = true });
+    public ILocator AgentMenuItem => _page.Locator(".rz-sidebar").GetByText("Agent", new LocatorGetByTextOptions { Exact = true });
     public ILocator PrdGeneratorMenuItem => _page.Locator(".rz-sidebar").GetByText("PRD Generator", new LocatorGetByTextOptions { Exact = true });
     public ILocator GitRepositoriesMenuItem => _page.Locator(".rz-sidebar").GetByText("Git Repositories", new LocatorGetByTextOptions { Exact = true });
 

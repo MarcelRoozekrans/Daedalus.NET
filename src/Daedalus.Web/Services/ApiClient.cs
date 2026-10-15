@@ -68,25 +68,6 @@ public sealed class ApiClient(HttpClient httpClient)
         CancellationToken ct = default) =>
         await GetAsync<TaskDto>($"/api/tasks/{id}", ct);
 
-    // TaskExecutions
-    public async Task<Result<PagedResultDto<TaskExecutionDto>>> GetExecutionsByTaskAsync(
-        Guid taskId,
-        int page = 1,
-        int pageSize = 10,
-        CancellationToken ct = default) =>
-        await GetAsync<PagedResultDto<TaskExecutionDto>>(
-            $"/api/taskexecutions/task/{taskId}?page={page}&pageSize={pageSize}",
-            ct);
-
-    public async Task<Result<PagedResultDto<TaskExecutionDto>>> GetExecutionsBySessionAsync(
-        Guid sessionId,
-        int page = 1,
-        int pageSize = 10,
-        CancellationToken ct = default) =>
-        await GetAsync<PagedResultDto<TaskExecutionDto>>(
-            $"/api/taskexecutions/session/{sessionId}?page={page}&pageSize={pageSize}",
-            ct);
-
     // Projects
     public async Task<Result<PagedResultDto<ProjectDto>>> GetProjectsAsync(
         int page = 1,

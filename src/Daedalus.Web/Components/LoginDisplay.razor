@@ -3,12 +3,31 @@
 @* The layout decides who is signed in, so a session that has ended shows Sign in here at once, not the user it had. *@
 @if (User is not null)
 {
-    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-        <RadzenIcon Icon="account_circle" Style="font-size: 1.25rem; color: var(--rz-text-color);"/>
-        <RadzenText Text="@User.Identity?.Name" TextStyle="TextStyle.Body2"
-                    Style="margin: 0; color: var(--rz-text-color);"/>
-        <RadzenButton Text="Log out" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@BeginLogout"/>
-    </RadzenStack>
+    @* From 768px the name and Log out sit in the header; below it they move into the user menu, so the header keeps to
+       one line. CSS picks one: both are rendered, and the hidden one is out of the accessibility tree. *@
+    <div class="user-full">
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+            <RadzenIcon Icon="account_circle" Style="font-size: 1.25rem; color: var(--rz-text-color);"/>
+            <RadzenText Text="@User.Identity?.Name" TextStyle="TextStyle.Body2"
+                        Style="margin: 0; color: var(--rz-text-color);"/>
+            <RadzenButton Text="Log out" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@BeginLogout"/>
+        </RadzenStack>
+    </div>
+
+    <div class="user-compact">
+        <RadzenButton @ref="_userMenuButton" Icon="account_circle" Variant="Variant.Text" ButtonStyle="ButtonStyle.Base"
+                      Click="@ToggleUserMenu" aria-label="User menu" aria-haspopup="menu"
+                      aria-expanded="@(_open ? "true" : "false")" aria-controls="user-menu"/>
+        @if (_open)
+        {
+            <div class="user-menu-dismiss" aria-hidden="true" @onclick="@(() => CloseAsync())"></div>
+            <div class="user-menu" id="user-menu" role="menu" aria-label="User menu" @onkeydown="@OnMenuKeyDown">
+                <span class="user-menu-name" role="none" data-testid="user-menu-name">@User.Identity?.Name</span>
+                <RadzenButton @ref="_logoutItem" Text="Log out" role="menuitem" ButtonStyle="ButtonStyle.Light"
+                              Size="ButtonSize.Small" Click="@BeginLogout"/>
+            </div>
+        }
+    </div>
 }
 else
 {
@@ -17,8 +36,46 @@ else
 
 @code {
 
+    private bool _open;
+    private bool _focusMenu;
+    private RadzenButton? _userMenuButton;
+    private RadzenButton? _logoutItem;
+
     /// <summary>The signed-in user, or null when no one is.</summary>
     [Parameter] public ClaimsPrincipal? User { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusMenu && _logoutItem is not null)
+        {
+            _focusMenu = false;
+            await _logoutItem.Element.FocusAsync();
+        }
+    }
+
+    private void ToggleUserMenu()
+    {
+        _open = !_open;
+        _focusMenu = _open;
+    }
+
+    /// <summary>Closes the user menu and gives the focus back to its button.</summary>
+    private async Task CloseAsync()
+    {
+        _open = false;
+        if (_userMenuButton is not null)
+        {
+            await _userMenuButton.Element.FocusAsync();
+        }
+    }
+
+    private async Task OnMenuKeyDown(KeyboardEventArgs e)
+    {
+        if (string.Equals(e.Key, "Escape", StringComparison.Ordinal))
+        {
+            await CloseAsync();
+        }
+    }
 
     private void BeginLogin()
     {
