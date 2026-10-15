@@ -78,9 +78,10 @@ A task on the board becomes work only when a person starts a manufacture run for
    Creating and editing a task needs the `task-manager` or `admin` role. A new task needs only a project, a title and a
    description. Priority (0 Low to 3 Critical) and Complexity (0 Low to 2 High) have defaults, and the Prompt, under
    Advanced, is optional: when empty, the description is the prompt (`POST /api/tasks` takes an optional `prompt`).
-   The dialog's **Create and manufacture** creates the task and starts its run in one step, then opens the run. If the
-   task is created but the start is refused, the Tasks page says why, using the `detail` of the API's problem. A refused
-   `POST /api/tasks` answers `application/problem+json`, so its reason is in `detail`.
+   The dialog's **Create and manufacture** creates the task and starts its run in one step, then opens the run. It shows
+   only for the `developer` or `admin` role, which starting a run needs. If the task is created but the start is
+   refused, the page the dialog was opened from, Tasks or Home, says why, using the `detail` of the API's problem. A
+   refused `POST /api/tasks` answers `application/problem+json`, so its reason is in `detail`.
 2. **Press Manufacture** on the Tasks page (or use Create and manufacture), or call
    `POST /api/tasks/{id}/manufacture`. It needs the `developer` or `admin` role (the `WorkflowResume` policy, as
    `POST /api/workflow-runs`). The run's work intent is the task's title, a blank line, then its description. The answer
@@ -149,7 +150,9 @@ Executions page: the retired loop's iterations are history on Costs, and `/execu
   a session ends mid-use, the page shows one Info notification for 1.5 seconds and then goes to sign in. Log out returns
   to the landing page. The Web app's `Oidc:PostLogoutRedirectUri` is its `authentication/logout-callback` address.
 - **Home** (signed in) shows four cards: runs awaiting approval, running runs, runs that failed in the last 7 days, and
-  recent pull requests. **New task** opens the create dialog.
+  recent pull requests. The cards need the `developer` or `admin` role, as the run list does; anyone else sees one line
+  saying runs are visible to developers and admins, and Home reads no runs for them. **New task** opens the create
+  dialog.
 - **Tasks** lists a task's project, status, pull request, and on screens 1280px or wider its priority and when it was
   created. The grid shows Created, not Updated, because no "last updated" time exists yet (issue #373). The status links
   to the task's run. Below 768px the grid is one column: the title, then the status and pull request, then the actions.
