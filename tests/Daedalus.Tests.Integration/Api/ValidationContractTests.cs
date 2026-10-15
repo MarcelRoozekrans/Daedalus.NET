@@ -104,6 +104,40 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
         updated.ParallelGroup.Should().Be(1, "an omitted ParallelGroup must not be coerced to 0 and re-validated");
     }
 
+    [Fact]
+    public async Task Creating_a_task_with_only_project_title_and_description_succeeds()
+    {
+        var projectId = Guid.NewGuid();
+        await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(fixture.ConnectionString)))
+        {
+            db.Projects.Add(IntegrationTestFactory.CreateProject(projectId));
+            await db.SaveChangesAsync();
+        }
+
+        var response = await Send(new { projectId, title = "Only three fields", description = "The description" });
+
+        // Red: restore the Must(IsPresent) rule on Prompt or the plain int ParallelGroup; the create is then 400.
+        response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var created = await response.Content.ReadFromJsonAsync<TaskDto>();
+        // Red: drop the description fallback in the handler; the create is then refused.
+        created!.Prompt.Should().Be("The description");
+        // Red: default a missing group to 0 in the handler; this reads 0.
+        created.ParallelGroup.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_refused_create_returns_problem_details_with_the_reason()
+    {
+        var response = await Send(new { projectId = Guid.NewGuid(), title = "t", description = "d" });
+
+        // Red: map the failure back to BadRequest with an anonymous error object; status holds, content type fails.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        // Red: same mutation; the body then has no detail member.
+        problem!.Detail.Should().NotBeNullOrWhiteSpace();
+    }
+
     /// <summary>
     ///     <c>CreateTask</c> sits behind both the class-level authenticated-user check and the
     ///     <c>TaskManagement</c> policy (role <c>task-manager</c> or <c>admin</c>) — without the roles header this

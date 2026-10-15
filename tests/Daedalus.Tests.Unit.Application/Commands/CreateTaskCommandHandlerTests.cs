@@ -122,60 +122,69 @@ public class CreateTaskCommandHandlerTests
 
     #endregion
 
-    #region Prompt Validation
+    #region Prompt and ParallelGroup defaults
 
     [Fact]
-    public async Task Handle_WithNullPrompt_ShouldReturnFailure()
+    public async Task A_task_without_a_prompt_takes_its_description()
     {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-004", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            null!
-        );
+        var captured = await HandleAndCapture(null, 1);
 
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("Prompt");
+        // Red: drop the description fallback in the handler; the stored prompt is then empty and Create fails.
+        captured.Prompt.Should().Be("Description of the work");
     }
 
     [Fact]
-    public async Task Handle_WithEmptyPrompt_ShouldReturnFailure()
+    public async Task A_blank_prompt_counts_as_missing()
     {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-005", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            ""
-        );
+        var captured = await HandleAndCapture("   ", 1);
 
-        // Act
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("Prompt");
+        // Red: test only for null in the handler; the blank prompt is then refused and capture stays null.
+        captured.Prompt.Should().Be("Description of the work");
     }
 
     [Fact]
-    public async Task Handle_WithWhitespacePrompt_ShouldReturnFailure()
+    public async Task A_given_prompt_wins_over_the_description()
     {
-        // Arrange
-        var command = new CreateTaskCommand(
-            Guid.NewGuid(), "TASK-006", "Title", "Description",
-            Priority.Medium, "Phase", 1, Complexity.Medium,
-            "   "
-        );
+        var captured = await HandleAndCapture("Explicit prompt", 1);
 
-        // Act
+        // Red: always use the description in the handler; the prompt then reads "Description of the work".
+        captured.Prompt.Should().Be("Explicit prompt");
+    }
+
+    [Fact]
+    public async Task A_task_without_a_parallel_group_takes_one()
+    {
+        var captured = await HandleAndCapture("Prompt", null);
+
+        // Red: default a missing group to 0 in the handler; the group is then 0 and Create refuses or this reads 0.
+        captured.ParallelGroup.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_given_parallel_group_is_kept()
+    {
+        var captured = await HandleAndCapture("Prompt", 3);
+
+        // Red: always use 1 in the handler; the group then reads 1.
+        captured.ParallelGroup.Should().Be(3);
+    }
+
+    private async Task<DomainTask> HandleAndCapture(string? prompt, int? parallelGroup)
+    {
+        var command = new CreateTaskCommand(
+            Guid.NewGuid(), "TASK-004", "Title", "Description of the work",
+            Priority.Medium, "Phase", parallelGroup, Complexity.Medium,
+            prompt);
+
+        DomainTask? capturedTask = null;
+        _taskRepository
+            .AddAsync(Arg.Do<DomainTask>(t => capturedTask = t), Arg.Any<CancellationToken>())
+            .Returns(_ => Result<DomainTask>.Success(capturedTask!));
+
         var result = await _handler.Handle(command, CancellationToken.None);
 
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("Prompt");
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : null);
+        return capturedTask!;
     }
 
     #endregion

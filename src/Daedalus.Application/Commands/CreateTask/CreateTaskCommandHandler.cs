@@ -14,13 +14,16 @@ namespace Daedalus.Application.Commands.CreateTask;
 public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
     : IRequestHandler<CreateTaskCommand, Result<TaskDto>>
 {
+    private const int DefaultParallelGroup = 1;
+
     /// <summary>
     ///     Creates a new task and returns its DTO representation.
     /// </summary>
     public async ValueTask<Result<TaskDto>> Handle(CreateTaskCommand command, CancellationToken ct)
     {
         // Validate and normalize command input using optimized zero-allocation validation
-        var promptValidation = PerformanceOptimizations.ValidateAndTrimString(command.Prompt, out var promptError);
+        var prompt = string.IsNullOrWhiteSpace(command.Prompt) ? command.Description : command.Prompt;
+        var promptValidation = PerformanceOptimizations.ValidateAndTrimString(prompt, out var promptError);
         if (promptValidation == null)
         {
             return Result<TaskDto>.Failure($"Prompt: {promptError}");
@@ -35,7 +38,7 @@ public sealed class CreateTaskCommandHandler(ITaskRepository taskRepository)
             command.Description,
             command.Priority,
             command.Phase,
-            command.ParallelGroup,
+            command.ParallelGroup ?? DefaultParallelGroup,
             command.Complexity,
             promptValidation);
 

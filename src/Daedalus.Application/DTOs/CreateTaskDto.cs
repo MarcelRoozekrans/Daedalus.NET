@@ -21,12 +21,11 @@ public record CreateTaskDto(
     [property: MaxLength(100, Message = "Phase cannot exceed 100 characters.")]
     string? Phase,
     [property: GreaterThanOrEqualTo(1, Message = "Parallel group must be at least 1.")]
-    int ParallelGroup,
+    int? ParallelGroup,
     [property: InclusiveBetween(0, 3, Message = "Estimated complexity must be between 0 (Simple) and 3 (VeryComplex).")]
     int EstimatedComplexity,
-    [property: Must(nameof(CreateTaskDto.IsPresent), Message = "Prompt is required.")]
     [property: MaxLength(8000, Message = "Prompt cannot exceed 8000 characters.")]
-    string Prompt,
+    string? Prompt,
     IReadOnlyList<string>? Dependencies,
     IReadOnlyList<string>? FilesToModify)
 {
