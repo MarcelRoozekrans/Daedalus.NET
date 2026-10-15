@@ -32,8 +32,9 @@ namespace Daedalus.Agents.Workflow;
 ///     a <c>blocked</c> outcome, not a reason to infer one.
 ///     </para>
 ///     <para>
-///     <b>Placement.</b> Outermost in <see cref="WorkflowNodeDispatcherFactory.Create"/>, so it runs once per node
-///     dispatch and every review lens pass, composed further in by <see cref="ReviewLensRunner"/>, carries the section.
+///     <b>Placement.</b> Outermost in <see cref="WorkflowNodeDispatcherFactory.Create"/>, so its section comes before
+///     the work intent and any findings. It runs once per node dispatch, and every review lens pass, composed further in
+///     by <see cref="ReviewLensRunner"/>, carries the section.
 ///     </para>
 /// </remarks>
 internal sealed class RunModeRunner(ISubagentRunner inner) : ISubagentRunner

@@ -2,6 +2,7 @@ using System.Data.Async.Adapters;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AwesomeAssertions.Execution;
 using Daedalus.Agents;
 using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Memory;
@@ -249,6 +250,38 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         result.TasksByNode["implement"].Should().OnlyContain(t => t.Contains(StandingSentinel));
         result.TasksByNode["review"].Should().OnlyContain(t => !t.Contains(StandingSentinel),
             "the reviewer judges the artifact, not the house rules the implementer followed");
+    }
+
+    /// <summary>
+    ///     Task B11: a work intent longer than the 512 characters Thalos renders of a variable reaches the implement turn and
+    ///     each of the three review lens passes in full, through the run's pinned document and the real dispatcher chain. The
+    ///     variable holds the same 700 characters, as a manufacture start sets both. Reds, each applied once:
+    ///     <list type="bullet">
+    ///         <item>the tail on every turn - Red: leave <see cref="WorkIntentRunner"/> out of
+    ///             <see cref="WorkflowNodeDispatcherFactory.Create"/>, and the implement turn and every lens pass lack the
+    ///             last sentence, since Thalos cuts the variable before it;</item>
+    ///         <item>three lens passes - Red: declare two lenses in the process file, and the count fails; this keeps the
+    ///             per-pass assertion from passing over fewer passes than the review runs.</item>
+    ///     </list>
+    /// </summary>
+    [Fact]
+    public async Task A_work_intent_past_512_characters_reaches_implement_and_every_lens_pass_in_full()
+    {
+        const string lastSentence = "The last sentence of this long intent must reach every node.";
+        var intent = new string('x', 700 - lastSentence.Length) + lastSentence;
+
+        var result = await RunAsync(
+            squadEnabled: true,
+            workIntent: intent,
+            documents: new Dictionary<string, string>(StringComparer.Ordinal) { [ManufactureRunStarter.WorkIntentDocument] = intent });
+
+        using (new AssertionScope())
+        {
+            result.TasksByNode["implement"].Should().ContainSingle().Which.Should().Contain(lastSentence);
+            result.TasksByNode["review"].Should().HaveCount(3);
+            result.TasksByNode["review"].Should().OnlyContain(t => t.Contains(lastSentence, StringComparison.Ordinal),
+                "each lens judges the change against the whole task");
+        }
     }
 
     /// <summary>
@@ -813,7 +846,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         bool rejectFirstReview = false,
         int? malformedPass = null,
         bool forgeHostKeys = false,
-        NodeDecisions? decisions = null)
+        NodeDecisions? decisions = null,
+        string workIntent = WorkIntent)
     {
         var dbName = $"b5_handoff_{Guid.NewGuid():N}";
         await ExecuteOnServerAsync($"CREATE DATABASE \"{dbName}\"");
@@ -856,7 +890,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
             var variables = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
-                [ReviewHandoff.WorkIntentKey] = WorkIntent,
+                [ReviewHandoff.WorkIntentKey] = workIntent,
                 ["issue_url"] = OffContractSentinel,
             };
 

@@ -76,11 +76,11 @@ public sealed class ManufactureRunStarter(
     private const string RunBranchPrefix = "manufacture/";
 
     /// <summary>
-    ///     Chosen to comfortably hold a paragraph or two of intent while still fitting inside a node's rendered
-    ///     instruction text — <see cref="WorkflowRun.Variables"/>'s own doc comment notes variables are cut at 512
-    ///     characters when rendered, so anything this long would already be truncated well before a node ever saw
-    ///     all of it; failing here instead tells the caller before a run is started on a value that would have
-    ///     been silently cut.
+    ///     Chosen to comfortably hold a paragraph or two of intent. Thalos cuts the <c>work_intent</c> variable at 512
+    ///     characters when it renders it, so a node is handed the whole intent from the <see cref="WorkIntentDocument"/>
+    ///     document instead, through <see cref="WorkIntentRunner"/> (task B11). This ceiling bounds that block, and it
+    ///     matches <see cref="Daedalus.Agents.Decisions.NodeSelectionDecider.MaxIntentCharacters"/>, so the decision
+    ///     weighs the whole intent too.
     /// </summary>
     private const int MaxWorkIntentLength = 4000;
 

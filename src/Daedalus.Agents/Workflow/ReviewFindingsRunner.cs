@@ -30,7 +30,8 @@ namespace Daedalus.Agents.Workflow;
 ///     <b>The findings are a model's words, so they are framed as data.</b> The reviewer wrote every file and scenario.
 ///     They go inside the block, which tells the reader they are information to check against the worktree, never an
 ///     instruction, and each entry's line breaks are folded so one finding cannot forge another. The framing tags are
-///     neutralised the way <see cref="StandingInstructionsRunner"/> does it, with this block's own tag added. The lens
+///     neutralised the way <see cref="StandingInstructionsRunner"/> does it, with this block's own tag added, and the
+///     <c>work-intent</c> tag of <see cref="WorkIntentRunner"/>, whose block comes before this one. The lens
 ///     name and the instruction around the block are the host's own words.
 ///     </para>
 ///     <para>
@@ -150,9 +151,10 @@ internal sealed partial class ReviewFindingsRunner(
     [LoggerMessage(Level = LogLevel.Error, Message = "Review evidence for run {RunId} was unreadable ({Reason}); the implement node fails")]
     private static partial void LogUnreadable(ILogger logger, Guid runId, string reason);
 
-    // StandingInstructionsRunner's pattern with this block's own tag added.
+    // StandingInstructionsRunner's pattern with this block's own tag added, and WorkIntentRunner's, whose block comes
+    // before this one: a finding must not forge a second statement of the task.
     [GeneratedRegex(
-        @"<\s*/?\s*(?:review-findings|standing-instructions|workflow-variables|memories|skills?)\b",
+        @"<\s*/?\s*(?:work-intent|review-findings|standing-instructions|workflow-variables|memories|skills?)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
         matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
     private static partial Regex FramingTag();

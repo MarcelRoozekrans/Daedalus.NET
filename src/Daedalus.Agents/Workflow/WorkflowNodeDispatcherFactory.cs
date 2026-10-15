@@ -64,8 +64,8 @@ internal static class WorkflowNodeDispatcherFactory
         // innermost one, so a node that runs three lens passes runs three separately budgeted turns rather than
         // three passes sharing one turn's ceiling - reversing the two would let a two-lens review exhaust the
         // budget and fail the node on the third, which is a cost control silently becoming a correctness bug.
-        // StandingInstructionsRunner is outermost: a review node's pinned skill never matches its eligible set
-        // (manufacture-implement, manufacture-retrospect), so it is inert on every lens pass regardless of where
+        // StandingInstructionsRunner sits outside the lens runner: a review node's pinned skill never matches its
+        // eligible set (manufacture-implement, manufacture-retrospect), so it is inert on every lens pass regardless of where
         // it sits, but sitting outside means the eligibility check runs once per node dispatch rather than once
         // per lens pass. RunModeRunner sits outside it for the same reason: it states the run's mode once per node
         // dispatch, and every lens pass ReviewLensRunner composes from the request it was handed carries the statement.
@@ -76,36 +76,43 @@ internal static class WorkflowNodeDispatcherFactory
         // and so one model, one tool set and one cached prompt prefix. Inside it would decide per pass, three decisions
         // where the design allows one, and each pass a cache write. It only sets Model and ToolFilter, so its place
         // relative to the task-text decorators around it changes no text.
+        // WorkIntentRunner (phase 2.10 task B11) appends the full work intent, which the 512-character variable cuts. It
+        // sits outside ReviewLensRunner, so implement and every lens pass carry the block, composed once per node dispatch.
+        // It sits outside ReviewFindingsRunner too, so on an implement revisit the intent comes before the rejection's
+        // findings: each decorator appends, and an outer one's text comes first. The block is the same on every visit,
+        // so it leaves a run's cached prompt prefix intact.
         new RunModeRunner(
-            new ReviewFindingsRunner(
-                new NodeSelectionRunner(
-                    new StandingInstructionsRunner(
-                        new ReviewLensRunner(
-                            new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
-                            sp.GetRequiredService<IProcessDefinitionStore>(),
-                            // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
-                            // dependency.
-                            sp.GetRequiredService<IServiceScopeFactory>(),
-                            sp.GetRequiredService<TimeProvider>(),
-                            // Empty while decisions are off: a pin is part of the decided setup, not of today's.
-                            sp.GetRequiredService<ActiveLensPins>().Models,
-                            // The same recorder the store below records completions through, so it takes back what a review
-                            // held for its per-model split.
-                            sp.GetRequiredService<NodeUsageRecorder>(),
-                            sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
-                    sp.GetRequiredService<NodeSelectionDecider>(),
-                    // Each decision reads and records through a fresh scope, as ReviewLensRunner does.
+            new WorkIntentRunner(
+                new ReviewFindingsRunner(
+                    new NodeSelectionRunner(
+                        new StandingInstructionsRunner(
+                            new ReviewLensRunner(
+                                new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+                                sp.GetRequiredService<IProcessDefinitionStore>(),
+                                // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
+                                // dependency.
+                                sp.GetRequiredService<IServiceScopeFactory>(),
+                                sp.GetRequiredService<TimeProvider>(),
+                                // Empty while decisions are off: a pin is part of the decided setup, not of today's.
+                                sp.GetRequiredService<ActiveLensPins>().Models,
+                                // The same recorder the store below records completions through, so it takes back what a review
+                                // held for its per-model split.
+                                sp.GetRequiredService<NodeUsageRecorder>(),
+                                sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
+                        sp.GetRequiredService<NodeSelectionDecider>(),
+                        // Each decision reads and records through a fresh scope, as ReviewLensRunner does.
+                        sp.GetRequiredService<IServiceScopeFactory>(),
+                        sp.GetRequiredService<TimeProvider>(),
+                        sp.GetRequiredService<DaedalusAgentsOptions>(),
+                        sp.GetRequiredService<IAgentCatalog>(),
+                        sp.GetRequiredService<IChatClientProvider>(),
+                        sp.GetRequiredService<Thalos.Tools.IToolCatalog>(),
+                        sp.GetRequiredService<Thalos.Runtime.IAgentFactory>(),
+                        sp.GetRequiredService<ILogger<NodeSelectionRunner>>()),
+                    // The same reason: each read resolves the record store through a fresh scope.
                     sp.GetRequiredService<IServiceScopeFactory>(),
-                    sp.GetRequiredService<TimeProvider>(),
-                    sp.GetRequiredService<DaedalusAgentsOptions>(),
-                    sp.GetRequiredService<IAgentCatalog>(),
-                    sp.GetRequiredService<IChatClientProvider>(),
-                    sp.GetRequiredService<Thalos.Tools.IToolCatalog>(),
-                    sp.GetRequiredService<Thalos.Runtime.IAgentFactory>(),
-                    sp.GetRequiredService<ILogger<NodeSelectionRunner>>()),
-                // The same reason: each read resolves the record store through a fresh scope.
-                sp.GetRequiredService<IServiceScopeFactory>(),
-                sp.GetRequiredService<ILogger<ReviewFindingsRunner>>())),
+                    sp.GetRequiredService<ILogger<ReviewFindingsRunner>>()),
+                sp.GetRequiredService<ILogger<WorkIntentRunner>>())),
         sp.GetRequiredService<IWorkflowReferenceResolver>(),
         sp.GetRequiredService<IProcessDefinitionStore>(),
         sp.GetRequiredService<ISkillStore>(),
