@@ -1,0 +1,126 @@
+@* Every review visit of the run, newest first: its verdict, each lens's checked list and findings behind a button, and for a
+   visit that sent the run back to implement, the answer implement gave. Shown to the operator only. *@
+<RadzenCard class="rz-mb-4" data-testid="review-visits">
+    <RadzenText TextStyle="TextStyle.H6">Visits</RadzenText>
+    @if (Run.ReviewVisitsError is { } error)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4"
+                     data-testid="review-visits-error">@error</RadzenAlert>
+    }
+
+    @if (Run.ReviewVisits.Count == 0)
+    {
+        @if (Run.ReviewVisitsError is null)
+        {
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">No review has run yet.</RadzenText>
+        }
+    }
+    else
+    {
+        <RadzenStack Gap="1rem">
+            @for (var v = 0; v < Run.ReviewVisits.Count; v++)
+            {
+                var visit = Run.ReviewVisits[v];
+                var number = Run.ReviewVisits.Count - v;
+                <RadzenStack @key="visit.Seq" Gap="0.5rem" data-testid="review-visit">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                        <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin: 0;" data-testid="review-visit-title">Visit @number</RadzenText>
+                        <RadzenBadge Text="@visit.Verdict" BadgeStyle="@RunStatusLabels.VerdictStyle(visit.Verdict)" IsPill="true"
+                                     data-testid="review-visit-verdict"/>
+                        @if (visit.RejectingLens is { } rejecting)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">rejected by @rejecting</RadzenText>
+                        }
+                    </RadzenStack>
+
+                    @if (visit.Lenses.Count == 0)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">No lens of this visit could be read.</RadzenText>
+                    }
+                    @for (var l = 0; l < visit.Lenses.Count; l++)
+                    {
+                        var lens = visit.Lenses[l];
+                        var id = LensId(visit, l);
+                        var open = _open.Contains(id);
+                        <div @key="lens.Lens">
+                            <RadzenButton Variant="Variant.Text" ButtonStyle="ButtonStyle.Base" Size="ButtonSize.Small"
+                                          Click="@(() => Toggle(id))" aria-expanded="@(open ? "true" : "false")" aria-controls="@id"
+                                          data-testid="review-lens-toggle">
+                                <RadzenIcon Icon="@(open ? "expand_less" : "expand_more")" aria-hidden="true"/>
+                                <span>@lens.Lens · @lens.Checked.Count checked · @Findings(lens.Findings.Count)</span>
+                            </RadzenButton>
+                            @if (open)
+                            {
+                                <RadzenStack id="@id" Gap="0.25rem" class="rz-ms-6" data-testid="review-lens-body">
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">Checked</RadzenText>
+                                    @if (lens.Checked.Count == 0)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">None</RadzenText>
+                                    }
+                                    else
+                                    {
+                                        <ul style="margin: 0;">
+                                            @foreach (var item in lens.Checked)
+                                            {
+                                                <li><RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@item</RadzenText></li>
+                                            }
+                                        </ul>
+                                    }
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">Findings</RadzenText>
+                                    @if (lens.Findings.Count == 0)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">None</RadzenText>
+                                    }
+                                    else
+                                    {
+                                        <ul style="margin: 0;">
+                                            @foreach (var finding in lens.Findings)
+                                            {
+                                                <li>
+                                                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">
+                                                        <span style="font-family: monospace;">@finding.File:@finding.Line</span> · @finding.Scenario
+                                                    </RadzenText>
+                                                </li>
+                                            }
+                                        </ul>
+                                    }
+                                </RadzenStack>
+                            }
+                        </div>
+                    }
+
+                    @if (visit.Verdict is "Rejected" or "Unreadable")
+                    {
+                        <div data-testid="review-answer">
+                            <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin: 0;">How implement answered</RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; white-space: pre-wrap;">@(visit.ReviewResponse ?? "No response recorded")</RadzenText>
+                        </div>
+                    }
+                </RadzenStack>
+            }
+        </RadzenStack>
+    }
+</RadzenCard>
+
+@code {
+    /// <summary>The ids of the lens sections that are open.</summary>
+    private readonly HashSet<string> _open = new(StringComparer.Ordinal);
+
+    /// <summary>The run whose review visits the tab lists.</summary>
+    [Parameter, EditorRequired] public WorkflowRunView Run { get; set; } = default!;
+
+    /// <summary>The id of a lens section, unique on the page: the run, the visit and the lens's place in it.</summary>
+    private string LensId(ReviewVisitView visit, int lens) =>
+        string.Create(CultureInfo.InvariantCulture, $"review-lens-{Run.Id:N}-{visit.Seq}-{lens}");
+
+    private void Toggle(string id)
+    {
+        if (!_open.Remove(id))
+        {
+            _open.Add(id);
+        }
+    }
+
+    private static string Findings(int count) =>
+        string.Create(CultureInfo.InvariantCulture, $"{count} {(count == 1 ? "finding" : "findings")}");
+}

@@ -51,14 +51,16 @@
                         }
                     </Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="StartedBy" Title="Started by" Width="@Px(StartedByWidth)"
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="StartedByName" Title="Started by" Width="@Px(StartedByWidth)"
                                       Visible="@_desktop">
-                    <Template Context="run">@(run.StartedByName ?? run.StartedBy)</Template>
+                    <Template Context="run">@(run.StartedByName ?? "unknown")</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="CreatedAt" Title="Started" FormatString="{0:g}" Width="@Px(StartedWidth)"
-                                      Visible="@_tablet"/>
-                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="UpdatedAt" Title="Updated" FormatString="{0:g}" Width="@Px(UpdatedWidth)"
-                                      Visible="@_desktop"/>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="CreatedAt" Title="Started" Width="@Px(StartedWidth)" Visible="@_tablet">
+                    <Template Context="run">@LocalTimes.ShortDateTime(run.CreatedAt.UtcDateTime)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="UpdatedAt" Title="Updated" Width="@Px(UpdatedWidth)" Visible="@_desktop">
+                    <Template Context="run">@LocalTimes.ShortDateTime(run.UpdatedAt.UtcDateTime)</Template>
+                </RadzenDataGridColumn>
             </Columns>
         </RadzenDataGrid>
         </div>

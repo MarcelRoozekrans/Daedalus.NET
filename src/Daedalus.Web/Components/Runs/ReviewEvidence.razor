@@ -4,36 +4,6 @@
         <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4">@evidenceError</RadzenAlert>
     }
 
-    <RadzenText TextStyle="TextStyle.H6">Checked</RadzenText>
-    @if (Run.Checked.Count == 0)
-    {
-        <RadzenText TextStyle="TextStyle.Body2">None</RadzenText>
-    }
-    else
-    {
-        <RadzenStack Gap="0.5rem" class="rz-mb-4">
-            @foreach (var lens in Run.Checked)
-            {
-                <div @key="lens.Lens">
-                    <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin: 0;">@lens.Lens</RadzenText>
-                    @if (lens.Checked.Count == 0)
-                    {
-                        <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">None</RadzenText>
-                    }
-                    else
-                    {
-                        <ul style="margin: 0;">
-                            @foreach (var item in lens.Checked)
-                            {
-                                <li><RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@item</RadzenText></li>
-                            }
-                        </ul>
-                    }
-                </div>
-            }
-        </RadzenStack>
-    }
-
     <RadzenText TextStyle="TextStyle.H6">Deferred</RadzenText>
     @if (Run.DeferredFindings.Count == 0)
     {
@@ -85,6 +55,6 @@
 </RadzenCard>
 
 @code {
-    /// <summary>The run whose review evidence, deferred findings and filed findings the tab shows.</summary>
+    /// <summary>The run whose deferred and filed findings the tab shows; <see cref="ReviewVisits"/> lists its visits.</summary>
     [Parameter, EditorRequired] public WorkflowRunView Run { get; set; } = default!;
 }

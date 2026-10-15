@@ -49,7 +49,7 @@ else
         <RadzenTabs RenderMode="TabRenderMode.Client">
             <Tabs>
                 <RadzenTabsItem Text="Timeline"><RunTimeline Steps="@run.Steps" Run="@run"/></RadzenTabsItem>
-                <RadzenTabsItem Text="Review"><ReviewEvidence Run="@run"/></RadzenTabsItem>
+                <RadzenTabsItem Text="Review"><ReviewVisits Run="@run"/><ReviewEvidence Run="@run"/></RadzenTabsItem>
                 <RadzenTabsItem Text="Usage"><NodeUsageTable Usage="@run.NodeUsage"/></RadzenTabsItem>
                 <RadzenTabsItem Text="Writes"><WriteAuditTable Audit="@run.WriteAudit"/></RadzenTabsItem>
             </Tabs>

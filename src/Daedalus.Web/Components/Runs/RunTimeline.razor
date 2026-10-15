@@ -14,8 +14,11 @@
                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
                         <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; font-family: monospace;">#@step.Seq</RadzenText>
                         <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@NodeText(step)</RadzenText>
-                        <RadzenBadge Text="@RunStatusLabels.StepText(step.Kind, step.Outcome)"
-                                     BadgeStyle="@RunStatusLabels.StepStyle(step.Kind, step.Outcome)" Shade="Shade.Lighter"/>
+                        @if (RunStatusLabels.ShowsStepBadge(step.Kind, step.Outcome))
+                        {
+                            <RadzenBadge Text="@RunStatusLabels.StepText(step.Kind, step.Outcome)"
+                                         BadgeStyle="@RunStatusLabels.StepStyle(step.Kind, step.Outcome)" Shade="Shade.Lighter"/>
+                        }
                         <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
                             @step.At.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)@(duration is { } d ? $" · +{Duration(d)}" : "")@(step.Actor is { } actor ? $" · by {actor}" : "")
                         </RadzenText>

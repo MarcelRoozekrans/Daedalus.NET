@@ -102,9 +102,10 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
 
     /// <summary>
     ///     Starts a <see cref="Process"/> run at <c>implement</c> as the E2E user. <paramref name="correlationKey"/> must
-    ///     be unique for all time, as the store requires.
+    ///     be unique for all time, as the store requires. <paramref name="startedBy"/> replaces the E2E user, for a scenario
+    ///     about who started the run.
     /// </summary>
-    public async Task<Guid> StartAsync(string correlationKey, CancellationToken ct)
+    public async Task<Guid> StartAsync(string correlationKey, CancellationToken ct, RunPrincipal? startedBy = null)
     {
         var started = await store.StartAsync(
             new WorkflowStartRequest
@@ -113,7 +114,7 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
                 Version = 9,
                 CorrelationKey = correlationKey,
                 StartNode = "implement",
-                StartedBy = new RunPrincipal("e2e-test-user", ["admin"]) { DisplayName = StarterName },
+                StartedBy = startedBy ?? new RunPrincipal("e2e-test-user", ["admin"]) { DisplayName = StarterName },
             },
             ct).ConfigureAwait(false);
         if (started.IsFailure)
@@ -150,10 +151,6 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     /// </summary>
     private async Task AppendReviewEvidenceAsync(Guid runId, long seq, CancellationToken ct)
     {
-        await using var scope = scopes.CreateAsyncScope();
-        var records = scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>();
-        var principal = $"workflow:{Process}:{runId}";
-
         object[] payloads =
         [
             new { lens = "correctness", verdict = ReviewEvidence.Approved, @checked = new[] { "src/Feature.cs" }, deferred = Array.Empty<object>() },
@@ -180,16 +177,27 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
 
         foreach (var payload in payloads)
         {
-            var record = WorkflowRunRecord.Create(
-                runId, seq, "review", WorkflowRunRecord.ReviewEvidenceKind, principal, "e2e-test-user",
-                JsonSerializer.Serialize(payload), DateTime.UtcNow);
-            if (record.IsFailure)
-            {
-                throw new InvalidOperationException($"Seeding review evidence failed: {record.Error}");
-            }
-
-            await records.AppendAsync(record.Value, ct).ConfigureAwait(false);
+            await AppendRecordAsync(runId, seq, "review", WorkflowRunRecord.ReviewEvidenceKind, JsonSerializer.Serialize(payload), ct)
+                .ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    ///     Appends one run record of <paramref name="kind"/> at (<paramref name="runId"/>, <paramref name="seq"/>) with
+    ///     <paramref name="payloadJson"/> as it is, through the real record store, as the host writes one.
+    /// </summary>
+    public async Task AppendRecordAsync(Guid runId, long seq, string node, string kind, string payloadJson, CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var records = scope.ServiceProvider.GetRequiredService<IWorkflowRunRecordStore>();
+        var record = WorkflowRunRecord.Create(
+            runId, seq, node, kind, $"workflow:{Process}:{runId}", "e2e-test-user", payloadJson, DateTime.UtcNow);
+        if (record.IsFailure)
+        {
+            throw new InvalidOperationException($"Seeding a {kind} record failed: {record.Error}");
+        }
+
+        await records.AppendAsync(record.Value, ct).ConfigureAwait(false);
     }
 
     /// <summary>Attaches <paramref name="runId"/> to the task <paramref name="taskCode"/> through the domain method, as Manufacture does.</summary>

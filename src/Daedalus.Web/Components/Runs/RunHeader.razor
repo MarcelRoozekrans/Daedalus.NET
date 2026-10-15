@@ -7,17 +7,27 @@
         <LiveIndicator/>
     </RadzenStack>
     <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
-        @Run.Process v@(Run.ProcessVersion) · at @Run.CurrentNode@((Run.StartedByName ?? Run.StartedBy) is { } by ? $" · started by {by}" : "")
+        @Run.Process v@(Run.ProcessVersion) · at @Run.CurrentNode · started by @(Run.StartedByName ?? UnknownStarter)
         @if (Run.PrUrl is { } pr)
         {
-            <span> · </span><RadzenLink Path="@pr.AbsoluteUri" Target="_blank" rel="noopener" Text="@($"Pull request #{pr.Segments[^1].TrimEnd('/')}")" data-testid="run-pr-link"/>
+            var text = $"Pull request #{pr.Segments[^1].TrimEnd('/')}";
+            <span> · </span>
+            <RadzenLink Path="@pr.AbsoluteUri" Target="_blank" rel="noopener" aria-label="@($"{text}, opens in a new tab")"
+                        Style="color: var(--rz-primary);" data-testid="run-pr-link">
+                @text
+                <RadzenIcon Icon="open_in_new" aria-hidden="true" Style="font-size: 1em; vertical-align: text-bottom;"/>
+            </RadzenLink>
         }
     </RadzenText>
     @if (Run.UnreadablePullRequestLink is { } unreadable)
     {
         <RadzenText TextStyle="TextStyle.Caption" Style="color: var(--rz-warning); margin: 0;">Pull request link could not be read: @unreadable</RadzenText>
     }
-    @if (Run.LastError is { } lastError)
+    @if (Run.Status == "Failed")
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="run-failure">@(Run.FailureReason ?? NoFailureReason)</RadzenAlert>
+    }
+    else if (Run.LastError is { } lastError)
     {
         <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="run-last-error">@lastError</RadzenAlert>
     }
@@ -31,6 +41,12 @@
 </RadzenStack>
 
 @code {
+    /// <summary>Who started a run that records no display name: never its subject id.</summary>
+    private const string UnknownStarter = "unknown";
+
+    /// <summary>The Failed alert's text when the view carries no reason; the failed step's error is in the timeline.</summary>
+    private const string NoFailureReason = "The run failed; the reason is in the timeline.";
+
     /// <summary>The run whose identity, place and failure the header shows.</summary>
     [Parameter, EditorRequired] public WorkflowRunView Run { get; set; } = default!;
 
