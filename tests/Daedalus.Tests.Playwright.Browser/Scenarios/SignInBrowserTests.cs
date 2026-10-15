@@ -93,13 +93,14 @@ public class SignInBrowserTests : BrowserTestBase
     /// <summary>
     ///     A signed-out visitor at / sees the landing: the product name, one sentence and Sign in, with no menu, no
     ///     toggle and no data. Sign in starts the console's sign-in and returns to /.
-    ///     Red: render HomeDashboard instead of SignedOutLanding in Home.razor; the landing is missing.
+    ///     Red: render NeedsMePanel instead of SignedOutLanding in Home.razor; the landing is missing.
     ///     Red: title the landing "Welcome"; the Daedalus heading is missing.
     ///     Red: change the landing sentence; the text assertion fails.
     ///     Red: label LoginDisplay's button "Log in"; the header has no Sign in.
     ///     Red: render RadzenSidebar whoever is signed in; the sidebar count is 1.
     ///     Red: render RadzenSidebarToggle whoever is signed in; the toggle count is 1.
-    ///     Red: render HomeDashboard beside SignedOutLanding; /api/tasks is requested.
+    ///     Red: render the Tasks page beside SignedOutLanding; /api/tasks is requested. NeedsMePanel beside it no longer
+    ///     turns this red: it reads no runs for a user without the developer or admin role, an anonymous one included.
     ///     Red: make the landing's button call NavigateTo, not NavigateToLogin; the return URL is null.
     /// </summary>
     [Test]
