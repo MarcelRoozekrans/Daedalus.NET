@@ -35,7 +35,8 @@ public sealed class TaskDtoMapperRunStatusTests
     }
 
     /// <summary>
-    ///     A task with no run carries no run status, so its badge is Pending, even when a status read says otherwise.
+    ///     A task with no run carries no run status, even when a status read says otherwise, so its badge shows its own
+    ///     stored or derived status, muted.
     ///     Red: map RunStatus whatever the task holds; it reads "Unknown".
     /// </summary>
     [Fact]

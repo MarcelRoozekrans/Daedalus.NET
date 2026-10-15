@@ -111,8 +111,9 @@
             </Template>
         </RadzenDataGridColumn>
 
-        <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" FormatString="{0:g}" Width="@Px(CreatedWidth)"
-                              Visible="@_desktop"/>
+        <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" Width="@Px(CreatedWidth)" Visible="@_desktop">
+            <Template Context="task">@LocalTimes.ShortDateTime(task.CreatedAt)</Template>
+        </RadzenDataGridColumn>
 
         <RadzenDataGridColumn TItem="TaskDto" Title="Actions" Width="@Px(ActionsWidth)" Sortable="false" Filterable="false">
             <Template Context="task">

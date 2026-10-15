@@ -437,6 +437,107 @@ public class TaskCreateBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     A refused create releases the hold, so Escape closes the dialog again afterwards.
+    ///     Red: no release on a refused create; Escape stays blocked and the dialog stays open.
+    /// </summary>
+    [Test]
+    [Description("Escape closes the create dialog after a refused create")]
+    public async Task Escape_closes_the_create_dialog_after_a_refused_create()
+    {
+        await _tasks.NavigateAsync().ConfigureAwait(false);
+        await _tasks.OpenCreateDialogAsync().ConfigureAwait(false);
+        await _tasks.FillNewTaskAsync(TestProject, new string('z', 501), "Too long a title").ConfigureAwait(false);
+        await _tasks.CreateButton.ClickAsync().ConfigureAwait(false);
+        await Expect(_tasks.DialogAlert).ToContainTextAsync("Title cannot exceed 500 characters").ConfigureAwait(false);
+        await WaitUntilEscapeWouldCloseAsync().ConfigureAwait(false);
+
+        await Page.Keyboard.PressAsync("Escape").ConfigureAwait(false);
+
+        await Expect(_tasks.Dialog).ToBeHiddenAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     A dialog that goes away mid-submit, here because the page navigates while the create is in flight, leaves no
+    ///     hold behind: back on Tasks, Escape closes a new dialog.
+    ///     Red: DialogHold.DisposeAsync does not release a hold; Escape stays blocked on the new dialog.
+    /// </summary>
+    [Test]
+    [Description("A dialog closed mid-submit leaves no stuck hold")]
+    public async Task A_dialog_closed_mid_submit_leaves_no_stuck_hold()
+    {
+        await Page.RouteAsync("**/api/tasks", async route =>
+        {
+            if (string.Equals(route.Request.Method, "POST", StringComparison.Ordinal))
+            {
+                await Task.Delay(3000).ConfigureAwait(false);
+            }
+
+            await route.ContinueAsync().ConfigureAwait(false);
+        }).ConfigureAwait(false);
+        await _tasks.NavigateAsync().ConfigureAwait(false);
+        await _tasks.OpenCreateDialogAsync().ConfigureAwait(false);
+        await _tasks.FillNewTaskAsync(TestProject, Unique("Navigated away"), "Left mid-submit").ConfigureAwait(false);
+        await _tasks.CreateButton.ClickAsync().ConfigureAwait(false);
+
+        await Page.EvaluateAsync("() => Blazor.navigateTo('/runs')").ConfigureAwait(false);
+        await Expect(_tasks.Dialog).ToBeHiddenAsync().ConfigureAwait(false);
+        await Page.WaitForTimeoutAsync(3500).ConfigureAwait(false);
+        await Page.EvaluateAsync("() => Blazor.navigateTo('/tasks')").ConfigureAwait(false);
+        await _tasks.OpenCreateDialogAsync().ConfigureAwait(false);
+        await WaitUntilEscapeWouldCloseAsync().ConfigureAwait(false);
+
+        await Page.Keyboard.PressAsync("Escape").ConfigureAwait(false);
+
+        await Expect(_tasks.Dialog).ToBeHiddenAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Created shows the creation time in the viewer's time zone, on Tasks and on Projects, for both the project and
+    ///     its tasks. The browser runs in Pacific/Auckland, so a UTC time differs by hours.
+    ///     Red: Tasks renders <c>CreatedAt</c> with <c>FormatString="{0:g}"</c>, as before; the row shows UTC.
+    ///     Red: Projects renders the project's <c>CreatedAt</c> with <c>{0:g}</c>; its row shows UTC.
+    ///     Red: Projects renders a task's <c>CreatedAt</c> with <c>{0:g}</c>; the task row shows UTC.
+    /// </summary>
+    [Test]
+    [Description("Created shows the viewer's local time")]
+    public async Task Created_shows_the_viewers_local_time()
+    {
+        var auckland = TimeZoneInfo.FindSystemTimeZoneById("Pacific/Auckland");
+        var tasks = await GetApiAsync<JsonElement>("/api/tasks?page=1&pageSize=200").ConfigureAwait(false);
+        var task = tasks.GetProperty("items").EnumerateArray().First(t => string.Equals(t.GetProperty("title").GetString(), "Fix bug B", StringComparison.Ordinal));
+        var projects = await GetApiAsync<JsonElement>("/api/projects?page=1&pageSize=200").ConfigureAwait(false);
+        var project = projects.GetProperty("items").EnumerateArray().First(p => string.Equals(p.GetProperty("projectName").GetString(), TestProject, StringComparison.Ordinal));
+        string Local(JsonElement e) => TimeZoneInfo.ConvertTimeFromUtc(e.GetProperty("createdAt").GetDateTime().ToUniversalTime(), auckland)
+            .ToString("g", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+
+        await using var context = await Browser.NewContextAsync(new BrowserNewContextOptions
+        {
+            TimezoneId = "Pacific/Auckland",
+            Locale = "en-US",
+            ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
+        }).ConfigureAwait(false);
+        var page = await context.NewPageAsync().ConfigureAwait(false);
+        var board = new TasksPage(page, BaseUrl);
+        await board.NavigateAsync().ConfigureAwait(false);
+        await Expect(board.GetRowByText("Fix bug B")).ToContainTextAsync(Local(task)).ConfigureAwait(false);
+
+        var projectsPage = new ProjectsPage(page, BaseUrl);
+        await projectsPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(projectsPage.GetRowByText(TestProject)).ToContainTextAsync(Local(project)).ConfigureAwait(false);
+        await projectsPage.GetRowByText(TestProject).GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = TestProject })
+            .ClickAsync().ConfigureAwait(false);
+        await Expect(projectsPage.SelectedProjectPanel.Locator("tr", new LocatorLocatorOptions { HasText = "Fix bug B" }))
+            .ToContainTextAsync(Local(task)).ConfigureAwait(false);
+    }
+
+    /// <summary>Waits until Radzen would close the dialog on Escape: armed 500ms after opening, and no popup showing.</summary>
+    private async Task WaitUntilEscapeWouldCloseAsync() =>
+        await Page.WaitForFunctionAsync(
+                "() => document.querySelector('.rz-dialog-content').options !== undefined"
+                + " && Array.from(document.querySelectorAll('.rz-popup,.rz-overlaypanel')).every(p => p.style.display === 'none')")
+            .ConfigureAwait(false);
+
+    /// <summary>
     ///     The dialog opens with focus on the Project picker.
     ///     Red: no focus call after the first render; focus never reaches the picker and the wait times out.
     /// </summary>

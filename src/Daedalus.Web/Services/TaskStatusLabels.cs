@@ -3,9 +3,10 @@ using Radzen;
 namespace Daedalus.Web.Services;
 
 /// <summary>
-///     What the Web decides from a task's status, shared by every page that shows one. A task's badge is its run's, through
-///     <see cref="RunStatusLabels"/>; the derived <c>Status</c>, where 5 and 6 come from the run and are never stored
-///     (phase 2.8), decides what the task offers.
+///     What the Web decides from a task's status, shared by every page that shows one. A task with a run shows its run's
+///     badge, through <see cref="RunStatusLabels"/>; a task with no run shows its own stored or derived status by
+///     <see cref="Name"/>, muted. The derived <c>Status</c>, where 5 and 6 come from the run and are never stored (phase
+///     2.8), decides what the task offers.
 /// </summary>
 public static class TaskStatusLabels
 {
