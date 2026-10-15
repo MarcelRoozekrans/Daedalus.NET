@@ -14,7 +14,7 @@
              JustifyContent="JustifyContent.SpaceBetween" class="rz-mb-4">
     <RadzenStack Gap="0.25rem">
         <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Tasks</RadzenText>
-        <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+        <RadzenText TextStyle="TextStyle.Body2" class="page-caption" Style="margin: 0;">
             Plan work and start manufacture runs
         </RadzenText>
     </RadzenStack>
@@ -107,7 +107,7 @@
         <RadzenDataGridColumn TItem="TaskDto" Property="Priority" Title="Priority" Width="@Px(PriorityWidth)" Visible="@_desktop">
             <Template Context="task">
                 <RadzenBadge Text="@GetPriorityName(task.Priority)" BadgeStyle="@GetPriorityBadgeStyle(task.Priority)"
-                             Variant="Variant.Outlined"/>
+                             Variant="Variant.Outlined" Shade="Shade.Darker"/>
             </Template>
         </RadzenDataGridColumn>
 
@@ -123,7 +123,7 @@
                     @if (TaskStatusLabels.IsStartable(task))
                     {
                         <RadzenButton Icon="precision_manufacturing" Text="Manufacture" Size="ButtonSize.Small"
-                                      ButtonStyle="ButtonStyle.Success" Disabled="@TaskStore.Value.Starting.Contains(task.Id)"
+                                      ButtonStyle="ButtonStyle.Success" Shade="Shade.Darker" Disabled="@TaskStore.Value.Starting.Contains(task.Id)"
                                       Click="@(() => ManufactureTask(task))" title="Manufacture" aria-label="Manufacture"/>
                     }
                     <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Danger"

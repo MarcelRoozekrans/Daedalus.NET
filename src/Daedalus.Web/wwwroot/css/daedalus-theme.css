@@ -154,8 +154,16 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: rgba(148, 163, 184, 0.5);
+    /* The menu items' own colour: a caption on the navy sidebar needs 4.5:1, which a faded slate does not reach. */
+    color: var(--rz-panel-menu-item-color);
     cursor: default;
+}
+
+/* ── Page caption ────────────────────────────────────────────────────── */
+/* The Body2 line under a page's H4 title, and the footer's lines: secondary text, in Radzen's secondary text colour,
+   which reaches 4.5:1 on the body and on a card. An opacity would fade it below that. */
+.page-caption {
+    color: var(--rz-text-secondary-color);
 }
 
 /* ── Header bottom accent ────────────────────────────────────────────── */
@@ -240,7 +248,7 @@
     align-items: center;
     gap: 0.75rem;
     padding: 3rem 1rem;
-    color: var(--rz-base-500);
+    color: var(--rz-text-secondary-color);
 }
 
 .daedalus-empty-state .rzi {
