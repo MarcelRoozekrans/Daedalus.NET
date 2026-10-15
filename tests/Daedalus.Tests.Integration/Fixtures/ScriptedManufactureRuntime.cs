@@ -15,16 +15,23 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     review lens pass reports evidence and <c>approved</c>, and retrospect proposes the pinned text plus one
 ///     learned line. It edits no file. Publish has no arm: in v6 it is a host action, and no agent turn runs
 ///     there. It records each node's task text and agent. The implement turn reports <c>implementUsage</c> as its token
-///     usage, the way a provider reports it, and every other turn reports none. Moved out of
+///     usage, the way a provider reports it, and every other turn reports none. With <c>rejectReview</c> every review
+///     visit rejects, its first lens pass reporting one finding and the outcome <c>rejected</c>, so the loop runs to review's cap. Moved out of
 ///     <c>ManufactureSeamEndToEndTests</c> by task B15, whose <c>RunViewUsageTests</c> walk the same process.
 /// </summary>
-internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = default) : IAgentRuntime
+internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = default, bool rejectReview = false) : IAgentRuntime
 {
     /// <summary>The line retrospect proposes adding, and the learning implement reports.</summary>
     public const string LearnedLine = "Integration tests need Docker running.";
 
     /// <summary>The evidence every review lens pass reports as checked: the review text a telemetry test must not find.</summary>
     public const string ReviewEvidence = "TaskRepository.ClaimNextAsync now filters cancelled rows";
+
+    /// <summary>The lens that rejects when the runtime is built with <c>rejectReview</c>.</summary>
+    public const string RejectingLens = "correctness";
+
+    private const string RejectionFindings =
+        """[{"file":"src/Daedalus.Infrastructure/Persistence/TaskRepository.cs","line":42,"scenario":"cancelled rows are still claimed"}]""";
 
     private static readonly string[] Lenses = ["correctness", "falsifiability", "mechanism"];
 
@@ -81,6 +88,7 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
                 [ReviewHandoff.RationaleKey] = "the claim query ignored status",
                 [ReviewHandoff.LearningsKey] = new[] { LearnedLine },
             })],
+            "review" when rejectReview => RejectPass(tool),
             "review" => ReviewPass(tool, Lenses[_lensPasses.AddOrUpdate(run.Id, 0, (_, n) => n + 1) % Lenses.Length]),
             "retrospect" => [Outcome(tool, ReviewHandoff.RetrospectProposedOutcome, new Dictionary<string, object?>(StringComparer.Ordinal)
             {
@@ -99,6 +107,16 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
         run.Manifest is not null && run.Manifest.Documents.TryGetValue(ManufactureRunStarter.StandingInstructionsDocument, out var text)
             ? text
             : "";
+
+    private static ToolCallSummary[] RejectPass(string tool) =>
+    [
+        new ToolCallSummary(
+            ToolCallId.New(),
+            DaedalusReviewTools.QualifiedReportReviewOutcomeToolName,
+            JsonSerializer.Serialize(new { lens = RejectingLens, verdict = "rejected", findings = RejectionFindings }),
+            Succeeded: true, "Recorded", TimeSpan.FromMilliseconds(1)),
+        Outcome(tool, "rejected", null),
+    ];
 
     private static ToolCallSummary[] ReviewPass(string tool, string lens) =>
     [
