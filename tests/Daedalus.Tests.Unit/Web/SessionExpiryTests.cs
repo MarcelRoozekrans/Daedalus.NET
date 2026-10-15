@@ -13,7 +13,18 @@ public sealed class SessionExpiryTests : IDisposable
 {
     private readonly ExpiredSession _session = new();
 
-    public void Dispose() => _session.Dispose();
+    /// <summary>A session whose wait before sign-in follows <see cref="_time"/>.</summary>
+    private readonly ExpiredSession _timed;
+
+    private readonly FakeTimeProvider _time = new();
+
+    public SessionExpiryTests() => _timed = new ExpiredSession(_time);
+
+    public void Dispose()
+    {
+        _session.Dispose();
+        _timed.Dispose();
+    }
 
     /// <summary>Every client call that reaches the API, by name, with the failure it returns.</summary>
     public static TheoryData<string> Calls() => new()
@@ -99,17 +110,16 @@ public sealed class SessionExpiryTests : IDisposable
     [Fact]
     public async Task The_redirect_waits_while_the_notice_is_read()
     {
-        var time = new FakeTimeProvider();
-        using var session = new ExpiredSession(time);
+        var session = _timed;
 
         var call = CallAsync(session, "ApiClient.GetTasksAsync");
 
         session.Expiry.Expired.Should().BeTrue("the session ends at once");
         session.Js.Calls.Should().Contain("module.clearStoredUser", "the stored user is cleared at once");
         session.Navigation.Navigations.Should().BeEmpty("the notice is on screen first");
-        time.Advance(TimeSpan.FromMilliseconds(1499));
+        _time.Advance(TimeSpan.FromMilliseconds(1499));
         session.Navigation.Navigations.Should().BeEmpty("the notice stays for 1.5 seconds");
-        time.Advance(TimeSpan.FromMilliseconds(1));
+        _time.Advance(TimeSpan.FromMilliseconds(1));
         (await call).Should().Be(SessionExpiry.SigningInAgain);
         session.Navigation.Navigations.Should().ContainSingle("then the browser goes to sign in");
     }
