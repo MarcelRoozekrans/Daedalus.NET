@@ -60,8 +60,9 @@
                 ShowPagingSummary="true" IsLoading="@TaskStore.Value.Loading"
                 Style="@GridStyle" data-testid="tasks-grid">
     <EmptyTemplate>
-        @* A board that could not be read is not empty: the alert above says why, and the grid claims nothing. *@
-        @if (string.IsNullOrEmpty(TaskStore.Value.Error))
+        @* Only a board that was read and is empty says so. One that could not be read is not empty: the alert above says
+           why. One still loading, or not yet asked for, as the initial state is, has nothing to claim either. *@
+        @if (TaskStore.Value is { LoadRequested: true, Loading: false } && string.IsNullOrEmpty(TaskStore.Value.Error))
         {
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem"
                          Wrap="FlexWrap.Wrap" class="rz-p-4" data-testid="tasks-empty">
