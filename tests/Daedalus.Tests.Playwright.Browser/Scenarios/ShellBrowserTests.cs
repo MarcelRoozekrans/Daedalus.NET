@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
 using Daedalus.Tests.Playwright.Browser.Utilities;
@@ -24,6 +25,25 @@ public class ShellBrowserTests : BrowserTestBase
     private ILocator Sidebar => Page.Locator(".rz-sidebar");
     private ILocator Backdrop => Page.Locator("[data-testid='menu-backdrop']");
     private ILocator UserMenuButton => Page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "User menu", Exact = true });
+
+    /// <summary>
+    ///     The footer shows the console's own version, its assembly's informational version without the source revision
+    ///     the SDK appends after a <c>+</c>, not a hardcoded one.
+    ///     Red: the footer hardcodes v1.0.0 again; it is not the assembly's version.
+    ///     Red: AppVersion.Display returns its input; the footer carries the +commit suffix.
+    /// </summary>
+    [Test]
+    [Description("The footer shows the console's own version")]
+    public async Task The_footer_shows_the_consoles_own_version()
+    {
+        var informational = typeof(Daedalus.Web.Services.AppVersion).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
+        var expected = $"v{informational.Split('+')[0]}";
+
+        await OpenAsync("/").ConfigureAwait(false);
+
+        await Expect(Page.Locator("[data-testid='app-version']")).ToHaveTextAsync(expected).ConfigureAwait(false);
+    }
 
     /// <summary>
     ///     The menu, top to bottom, is exactly the contract's: the path, then the two front doors, then Operations, then,
