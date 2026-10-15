@@ -172,6 +172,60 @@ public class SignInBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     The notice that the session ended is on screen for about 1.5 seconds before the browser leaves for sign-in, so
+    ///     it can be read, and it shows once although both of the board's reads fail. An init script records when the
+    ///     notice first shows and when the address turns to sign-in, from before the console starts.
+    ///     Red: the Info notification dropped from MainLayout's OnExpiryChanged; no notice is recorded.
+    ///     Red: the wait dropped from SessionExpiry.SignInAgainAsync; the address changes 66ms after the notice.
+    ///     Red: OnExpiryChanged raising a second Info notice, the same summary with a detail; two are recorded. Radzen
+    ///     drops a notice equal to one on screen, so only a second, different notice can show.
+    /// </summary>
+    [Test]
+    public async Task The_session_ended_notice_stays_before_the_redirect()
+    {
+        await TestAuth.UseAsync(Page, TestAuth.Token).ConfigureAwait(false);
+        await TestAuth.ExpireTokenFromStartAsync(Page).ConfigureAwait(false);
+        await Page.AddInitScriptAsync(NoticeTimesScript).ConfigureAwait(false);
+        await NavigateToAsync("/tasks").ConfigureAwait(false);
+
+        await Page.WaitForURLAsync("**/authentication/login").ConfigureAwait(false);
+        var times = JsonSerializer.Deserialize<NoticeTimes>(
+            await Page.EvaluateAsync<string>("() => JSON.stringify(window.__daedalusNotice)").ConfigureAwait(false))!;
+
+        times.Shown.Should().NotBeNull("the notice showed before the redirect");
+        (times.Redirected - times.Shown!.Value).Should().BeGreaterThanOrEqualTo(1200,
+            "the notice is on screen for about 1.5 seconds before the address changes");
+        times.Count.Should().Be(1, "one notice says the session ended");
+    }
+
+    /// <summary>When the session-ended notice first showed, how many showed, and when the address turned to sign-in.</summary>
+    private const string NoticeTimesScript = """
+        (() => {
+            const state = window.__daedalusNotice = { Shown: null, Redirected: null, Count: 0 };
+            const seen = new Set();
+            const look = () => {
+                document.querySelectorAll('.rz-notification-info').forEach(e => {
+                    if (!seen.has(e) && (e.textContent || '').includes('Your session has ended')) {
+                        seen.add(e);
+                        state.Count++;
+                        if (state.Shown === null) { state.Shown = performance.now(); }
+                    }
+                });
+                if (state.Redirected === null && location.pathname.startsWith('/authentication/login')) {
+                    state.Redirected = performance.now();
+                }
+            };
+            for (const name of ['pushState', 'replaceState']) {
+                const original = history[name];
+                history[name] = function (...args) { const result = original.apply(this, args); look(); return result; };
+            }
+            new MutationObserver(look).observe(document, { subtree: true, childList: true, characterData: true });
+        })();
+        """;
+
+    private sealed record NoticeTimes(double? Shown, double Redirected, int Count);
+
+    /// <summary>
     ///     A submit on a page that calls the API through HttpClient itself, Git Repositories, whose session has ended
     ///     shows the one Info notification and none of the page's own failure text: no Error notification and no
     ///     "Failed to create repository."

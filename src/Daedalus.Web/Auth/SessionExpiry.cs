@@ -16,8 +16,14 @@ namespace Daedalus.Web.Auth;
 ///     by the API client's handler and the run hub, so a second failure while the first redirect is under way does not
 ///     redirect again.
 /// </remarks>
-public sealed class SessionExpiry(IJSRuntime js, NavigationManager navigation)
+public sealed class SessionExpiry(IJSRuntime js, NavigationManager navigation, TimeProvider time)
 {
+    /// <summary>
+    ///     How long the layout's notice that the session ended stays on screen before the browser leaves for sign-in, so
+    ///     it can be read.
+    /// </summary>
+    public static readonly TimeSpan NoticeTime = TimeSpan.FromSeconds(1.5);
+
     /// <summary>The failure a request returns once its session has ended; the browser is already on its way to sign in.</summary>
     public const string SigningInAgain = "Your session has ended. Signing in again.";
 
@@ -40,8 +46,9 @@ public sealed class SessionExpiry(IJSRuntime js, NavigationManager navigation)
     public AccessTokenNotAvailableException Unavailable(AccessTokenResult result) => new(navigation, result, scopes: null);
 
     /// <summary>
-    ///     Clears the stored OIDC user and sends the browser to sign in, as <paramref name="exception"/> says, returning to
-    ///     the current page. Once only until <see cref="Reset"/>.
+    ///     Clears the stored OIDC user and, once the notice has been on screen for <see cref="NoticeTime"/>, sends the
+    ///     browser to sign in, as <paramref name="exception"/> says, returning to the current page. Once only until
+    ///     <see cref="Reset"/>.
     /// </summary>
     public async Task SignInAgainAsync(AccessTokenNotAvailableException exception)
     {
@@ -54,6 +61,7 @@ public sealed class SessionExpiry(IJSRuntime js, NavigationManager navigation)
         Expired = true;
         Changed?.Invoke(this, EventArgs.Empty);
         await ClearStoredUserAsync();
+        await Task.Delay(NoticeTime, time);
         exception.Redirect();
     }
 
