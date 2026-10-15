@@ -75,9 +75,14 @@ A task on the board becomes work only when a person starts a manufacture run for
 1. **Create the task.** The task's project must have a `RepositoryUrl` that matches an entry of
    `Thalos:Workflow:Repositories`. For a github.com URL the match is on owner and name, ignoring case. For any other
    remote it is an exact match of the remote, after trimming one trailing `/` and one trailing `.git` from each side.
-   Creating and editing a task needs the `task-manager` or `admin` role.
-2. **Press Manufacture** on the Tasks page, or call `POST /api/tasks/{id}/manufacture`. It needs the `developer` or
-   `admin` role (the `WorkflowResume` policy, as `POST /api/workflow-runs`). The run's work intent is the task's title,
+   Creating and editing a task needs the `task-manager` or `admin` role. A new task needs only a project, a title and a
+   description. Priority (0 Low to 3 Critical) and Complexity (0 Low to 2 High) have defaults, and the Prompt, under
+   Advanced, is optional: when empty, the description is the prompt (`POST /api/tasks` takes an optional `prompt`).
+   The dialog's **Create and manufacture** creates the task and starts its run in one step, then opens the run. If the
+   task is created but the start is refused, the Tasks page says why, using the `detail` of the API's problem. A refused
+   `POST /api/tasks` answers `application/problem+json`, so its reason is in `detail`.
+2. **Press Manufacture** on the Tasks page (or use Create and manufacture), or call
+   `POST /api/tasks/{id}/manufacture`. It needs the `developer` or `admin` role (the `WorkflowResume` policy, as `POST /api/workflow-runs`). The run's work intent is the task's title,
    a blank line, then its description. The answer is `201` with `{ "runId": "..." }`; the run id is attached to the task.
    Starting again later replaces it, and earlier runs stay in the workflow run history. Every precondition is checked
    before the run starts:
@@ -106,6 +111,10 @@ A task on the board becomes work only when a person starts a manufacture run for
    answers `409`. The Manufacture button shows for `Pending`, `Failed`, `Abandoned` and `Cancelled` tasks.
 4. **Approve at the gate.** The run waits for `human_approval`. Open it in the console: the **Runs** item lists the runs
    and shows a count of those awaiting approval. A run's page shows the timeline, the review, the usage and the writes.
+   A `Failed` run says why in the alert at the top of its page (`failureReason`), such as the review limit and the lens
+   that rejected last. The Review tab lists every review visit, newest first, as Approved, Rejected or Unreadable, each
+   lens's checked list and findings, and for a rejected visit "How implement answered", the `review_response` the next
+   implement visit reported. Home also lists the runs awaiting approval.
    Its gate panel lets a developer or admin approve, drop findings, or cancel the run. The page updates live, with no
    refresh. A script can do the same with `POST /api/workflow-runs/{runId}/resume` and the body
    `{ "signal": "human_approval", "payload": null }`; `applyStandingInstructions` (default `false`) and `dropFindings`
@@ -128,6 +137,20 @@ A task on the board becomes work only when a person starts a manufacture run for
    has no cache split and still prices its prompt tokens at the input rate. The
    host appends each `node-usage` record when a node completes, and a startup step backfills the records of older runs
    (it skips any run and sequence already recorded). The `by-session` cost endpoint no longer exists; `estimate` stays.
+
+### The Web app
+
+The menu groups the pages by the path a task takes. Home, Tasks, Runs and Projects come first. PRD Generator and Agent
+follow. Under Operations are Schedules and Costs, and under Admin, shown to admins only, Git Repositories. There is no
+Executions page: the retired loop's iterations are history on Costs.
+
+- **Signed out.** `/` shows a landing page with Sign in and no data. Every other page sends the visitor to sign in. When
+  a session ends mid-use, the page shows one Info notification and goes to sign in.
+- **Home** (signed in) shows four cards: runs awaiting approval, running runs, runs that failed in the last 7 days, and
+  recent pull requests. **New task** opens the create dialog.
+- **Tasks** lists a task's project, status, pull request, and on screens 1280px or wider its priority and when it was
+  created. The status links to the task's run.
+- **Runs** lists the runs, and each run's page is described in step 4 above.
 
 ### Per-node model and tool selection
 
