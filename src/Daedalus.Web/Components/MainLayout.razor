@@ -6,8 +6,11 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime Js
 
-@* Below 768px the menu lies over the page, as the contract's phone layout draws it; the header is compact there too. *@
+@* Below 768px the menu lies over the page, as the contract's phone layout draws it; the header is compact there too.
+   Below 1280px, phone or tablet, the menu starts closed. The first render already has both from the viewport's width,
+   read before it; these keep them as the width changes. *@
 <RadzenMediaQuery Query="(max-width: 767.98px)" Change="@OnPhoneChanged"/>
+<RadzenMediaQuery Query="(max-width: 1279.98px)" Change="@OnNarrowChanged"/>
 
 <RadzenLayout>
     <RadzenHeader>
@@ -37,7 +40,8 @@
     @* Signed out, or not yet known, no menu at all: nothing in it is open to a visitor. *@
     @if (_chrome == Chrome.SignedIn)
     {
-        <RadzenSidebar Expanded="@_sidebarExpanded" ExpandedChanged="@OnSidebarExpandedChanged" Style="width: 260px;"
+        <RadzenSidebar Expanded="@_sidebarExpanded" ExpandedChanged="@OnSidebarExpandedChanged" Responsive="false"
+                       Style="width: 260px;"
                        id="main-menu" role="navigation" aria-label="Main">
             @* The path a task takes, then the two other ways into it, then what an operator runs. *@
             <RadzenPanelMenu>
@@ -101,10 +105,14 @@
 <RadzenContextMenu/>
 
 @code {
-    bool _sidebarExpanded = true;
+    /// <summary>Whether the menu is open. Set from the viewport's width before the first render, then by the toggle.</summary>
+    private bool _sidebarExpanded;
 
     /// <summary>Whether the viewport is a phone's, below 768px, where the menu overlays the page.</summary>
     private bool _phone;
+
+    /// <summary>Whether the viewport is below 1280px, a phone's or a tablet's, where the menu starts closed.</summary>
+    private bool _narrow = true;
 
     /// <summary>Set when the menu opened or closed, so the render after it takes or gives back the focus.</summary>
     private bool _menuChanged;
@@ -137,6 +145,16 @@
     {
         Expiry.Changed += OnExpiryChanged;
         Navigation.LocationChanged += OnLocationChanged;
+
+        // The media queries report only after the first render, which would show the menu in the wrong state for a
+        // frame. In the browser the width can be read at once; without it the menu starts closed.
+        if (Js is IJSInProcessRuntime browser)
+        {
+            var width = browser.Invoke<double>("daedalusViewportWidth");
+            _phone = width < PhoneBelow;
+            _narrow = width < DesktopFrom;
+            _sidebarExpanded = !_narrow;
+        }
     }
 
     protected override async Task OnParametersSetAsync()
@@ -176,13 +194,31 @@
             _self ??= DotNetObjectReference.Create(this);
             _module ??= await Js.InvokeAsync<IJSObjectReference>("import", "./js/menu-overlay.js");
             _trap = await _module.InvokeAsync<IJSObjectReference>("trap", _self);
+
+            // The menu may have closed while the module loaded: the render for that close found no trap to release,
+            // so this one lets go of it now.
+            if (!MenuOverlays)
+            {
+                await ReleaseTrapAsync();
+            }
         }
-        else if (!MenuOverlays && _trap is { } trap)
+        else if (!MenuOverlays)
         {
-            _trap = null;
-            await trap.InvokeVoidAsync("release", _restoreFocus);
-            await trap.DisposeAsync();
+            await ReleaseTrapAsync();
         }
+    }
+
+    /// <summary>Lets go of the open menu's hold on the focus and the keyboard, if it has one.</summary>
+    private async Task ReleaseTrapAsync()
+    {
+        if (_trap is not { } trap)
+        {
+            return;
+        }
+
+        _trap = null;
+        await trap.InvokeVoidAsync("release", _restoreFocus);
+        await trap.DisposeAsync();
     }
 
     /// <summary>Closes the menu where it overlays the page: from Escape, the backdrop, or a navigation.</summary>
@@ -241,7 +277,7 @@
 
     private void OnPhoneChanged(bool phone)
     {
-        // A phone's menu starts closed, as one that shrinks to a phone's width does: it would cover the page.
+        // A menu open over a page that shrinks to a phone's width would cover it: it closes.
         if (phone && !_phone)
         {
             _sidebarExpanded = false;
@@ -250,6 +286,19 @@
         _phone = phone;
         _restoreFocus = false;
         _menuChanged = true;
+    }
+
+    /// <summary>The menu closes when the width drops below 1280px and opens again at 1280px and up.</summary>
+    private void OnNarrowChanged(bool narrow)
+    {
+        if (narrow != _narrow)
+        {
+            _sidebarExpanded = !narrow;
+            _restoreFocus = false;
+            _menuChanged = true;
+        }
+
+        _narrow = narrow;
     }
 
     /// <summary>A menu click on a phone has done its work once the page changes: the menu closes.</summary>
@@ -284,6 +333,12 @@
 
         _ = InvokeAsync(StateHasChanged);
     }
+
+    /// <summary>The width a phone's viewport stays below.</summary>
+    private const double PhoneBelow = 768;
+
+    /// <summary>The width from which the menu starts open.</summary>
+    private const double DesktopFrom = 1280;
 
     /// <summary>The three states of the chrome.</summary>
     private enum Chrome

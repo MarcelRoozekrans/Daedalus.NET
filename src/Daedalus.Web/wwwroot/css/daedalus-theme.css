@@ -104,6 +104,14 @@
 .rz-sidebar {
     background: linear-gradient(180deg, #1a1f36 0%, #1e2440 100%);
     border-right: none;
+    /* Radzen's width and opacity, plus visibility: a closing sidebar stays visible while it narrows, then hides. */
+    transition: width var(--rz-transition), opacity var(--rz-transition), visibility var(--rz-transition);
+}
+
+/* An opening sidebar is visible at once, not at the end of the transition, so the phone menu can take the focus as it
+   opens. A transition follows the state it goes to, so only the closing one carries visibility. */
+.rz-sidebar.rz-sidebar-expanded {
+    transition: width var(--rz-transition), opacity var(--rz-transition);
 }
 
 .rz-sidebar .rz-panel-menu {

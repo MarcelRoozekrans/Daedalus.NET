@@ -69,11 +69,19 @@ else
         }
     }
 
+    /// <summary>
+    ///     Escape closes the menu back to its button. Tab, either way, closes it and lets the focus go on, as a menu does:
+    ///     the focus never leaves an open menu behind it.
+    /// </summary>
     private async Task OnMenuKeyDown(KeyboardEventArgs e)
     {
         if (string.Equals(e.Key, "Escape", StringComparison.Ordinal))
         {
             await CloseAsync();
+        }
+        else if (string.Equals(e.Key, "Tab", StringComparison.Ordinal))
+        {
+            _open = false;
         }
     }
 
