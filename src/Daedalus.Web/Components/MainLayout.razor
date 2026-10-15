@@ -150,10 +150,18 @@
         // frame. In the browser the width can be read at once; without it the menu starts closed.
         if (Js is IJSInProcessRuntime browser)
         {
-            var width = browser.Invoke<double>("daedalusViewportWidth");
-            _phone = width < PhoneBelow;
-            _narrow = width < DesktopFrom;
-            _sidebarExpanded = !_narrow;
+            try
+            {
+                var width = browser.Invoke<double>("daedalusViewportWidth");
+                _phone = width < PhoneBelow;
+                _narrow = width < DesktopFrom;
+                _sidebarExpanded = !_narrow;
+            }
+            catch (JSException)
+            {
+                // A page without the helper, such as a stale cached index.html: the menu starts closed and the media
+                // queries set it once they report.
+            }
         }
     }
 
