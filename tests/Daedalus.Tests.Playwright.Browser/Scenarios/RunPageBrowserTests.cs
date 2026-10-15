@@ -136,7 +136,7 @@ public sealed class RunPageBrowserTests : BrowserTestBase
         await Expect(first).ToContainTextAsync("rejected by mechanism").ConfigureAwait(false);
 
         await RunDetailPage.LensToggle(first, "mechanism").ClickAsync().ConfigureAwait(false);
-        var lens = first.Locator("[data-testid='review-lens-body']");
+        var lens = first.Locator("[data-testid='review-lens-body']:visible");
         await Expect(lens).ToContainTextAsync($"{RetryFile}:12").ConfigureAwait(false);
         await Expect(lens).ToContainTextAsync(FirstScenario).ConfigureAwait(false);
         await Expect(lens).ToContainTextAsync("src/Feature.cs").ConfigureAwait(false);
@@ -254,12 +254,15 @@ public sealed class RunPageBrowserTests : BrowserTestBase
     }
 
     /// <summary>
-    ///     Each lens section opens with a button that says whether it is open, and the section it controls shows only
-    ///     when it is.
+    ///     Each lens section opens with a button that says whether it is open. The section it controls is always in the
+    ///     page, so <c>aria-controls</c> names an element even while closed, and shows only when open.
     ///     Red: <c>ReviewVisits</c> renders the lens heading as a <c>div</c>; there is no button.
     ///     Red: <c>ReviewVisits</c> leaves <c>aria-expanded</c> at "false" after the click; it never reads "true".
-    ///     Red: <c>ReviewVisits</c> renders the body whether open or not; it shows while collapsed.
+    ///     Red: <c>ReviewVisits</c> drops <c>hidden</c> from the section; it is visible while collapsed.
+    ///     Red: <c>ReviewVisits</c> renders the section only while open, as before fix round 1; the controlled element
+    ///     is missing while collapsed.
     ///     Red: <c>ReviewVisits</c> points <c>aria-controls</c> at an id nothing has; the controlled section is missing.
+    ///     Red: <c>ReviewVisits</c> sets <c>hidden</c> always; the section stays hidden after the click.
     /// </summary>
     [Test]
     [Description("Lens sections are buttons with aria-expanded")]
@@ -274,14 +277,17 @@ public sealed class RunPageBrowserTests : BrowserTestBase
         var toggle = RunDetailPage.LensToggle(first, "mechanism");
         await Expect(toggle).ToHaveRoleAsync(AriaRole.Button).ConfigureAwait(false);
         await Expect(toggle).ToHaveAttributeAsync("aria-expanded", "false").ConfigureAwait(false);
-        await Expect(first.Locator("[data-testid='review-lens-body']")).ToHaveCountAsync(0).ConfigureAwait(false);
+        var controls = await toggle.GetAttributeAsync("aria-controls").ConfigureAwait(false);
+        controls.Should().NotBeNullOrEmpty();
+        var section = Page.Locator($"#{controls}");
+        await Expect(section).ToHaveCountAsync(1).ConfigureAwait(false);
+        await Expect(section).ToBeHiddenAsync().ConfigureAwait(false);
 
         await toggle.ClickAsync().ConfigureAwait(false);
 
         await Expect(toggle).ToHaveAttributeAsync("aria-expanded", "true").ConfigureAwait(false);
-        var controls = await toggle.GetAttributeAsync("aria-controls").ConfigureAwait(false);
-        controls.Should().NotBeNullOrEmpty();
-        await Expect(Page.Locator($"#{controls}")).ToContainTextAsync(FirstScenario).ConfigureAwait(false);
+        await Expect(section).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(section).ToContainTextAsync(FirstScenario).ConfigureAwait(false);
 
         await toggle.ClickAsync().ConfigureAwait(false);
         await Expect(toggle).ToHaveAttributeAsync("aria-expanded", "false").ConfigureAwait(false);

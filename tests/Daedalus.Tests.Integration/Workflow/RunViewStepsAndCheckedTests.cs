@@ -11,7 +11,7 @@ using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
 
-/// <summary>A run parked at the gate shows its event log as steps and each lens's checked items.</summary>
+/// <summary>A run parked at the gate shows its event log as steps and, on its latest review visit, each lens's checked items.</summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class RunViewStepsAndCheckedTests(PostgresFixture fixture)
 {
@@ -44,8 +44,9 @@ public sealed class RunViewStepsAndCheckedTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Each lens's checked items appear, read off the latest review visit, and are the ones the scripted lenses reported.
-    ///     Red: pass [] for Checked. Red: map Checked from the deferred findings.
+    ///     Each lens of the latest review visit shows its checked items, the ones the scripted lenses reported.
+    ///     Red: map each lens's checked list to [] in ReviewVisitHistory.ToView.
+    ///     Red: pass [] for ReviewVisits in ToViewAsync.
     /// </summary>
     [Fact]
     public async Task Each_lens_shows_what_it_checked()
@@ -57,8 +58,10 @@ public sealed class RunViewStepsAndCheckedTests(PostgresFixture fixture)
 
             var view = await host.Client.GetFromJsonAsync<WorkflowRunView>($"/api/workflow-runs/{runId}");
 
-            view!.Checked.Should().NotBeEmpty();
-            view.Checked.Should().OnlyContain(l => l.Checked.Contains(ScriptedManufactureRuntime.ReviewEvidence));
+            view!.ReviewVisits.Should().NotBeEmpty();
+            var lenses = view.ReviewVisits[0].Lenses;
+            lenses.Should().NotBeEmpty();
+            lenses.Should().OnlyContain(l => l.Checked.Contains(ScriptedManufactureRuntime.ReviewEvidence));
         });
     }
 

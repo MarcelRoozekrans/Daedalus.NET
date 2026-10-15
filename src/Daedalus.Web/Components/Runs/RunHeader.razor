@@ -7,7 +7,7 @@
         <LiveIndicator/>
     </RadzenStack>
     <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">
-        @Run.Process v@(Run.ProcessVersion) · at @Run.CurrentNode · started by @(Run.StartedByName ?? UnknownStarter)
+        @Run.Process v@(Run.ProcessVersion) · at @Run.CurrentNode · started by @RunStarter.Name(Run.StartedByName)
         @if (Run.PrUrl is { } pr)
         {
             var text = $"Pull request #{pr.Segments[^1].TrimEnd('/')}";
@@ -41,9 +41,6 @@
 </RadzenStack>
 
 @code {
-    /// <summary>Who started a run that records no display name: never its subject id.</summary>
-    private const string UnknownStarter = "unknown";
-
     /// <summary>The Failed alert's text when the view carries no reason; the failed step's error is in the timeline.</summary>
     private const string NoFailureReason = "The run failed; the reason is in the timeline.";
 

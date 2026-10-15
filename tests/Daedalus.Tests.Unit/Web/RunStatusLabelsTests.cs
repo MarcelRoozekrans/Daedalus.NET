@@ -58,6 +58,7 @@ public sealed class RunStatusLabelsTests
     ///     Red: <c>ShowsStepBadge</c> returns true; the Completed rows with outcome none or None are shown.
     ///     Red: <c>ShowsStepBadge</c> ignores the kind; the Failed and Retried rows with outcome none are hidden.
     ///     Red: <c>ShowsStepBadge</c> hides a null outcome too; the Entered row is hidden.
+    ///     Red: <c>ShowsStepBadge</c> returns <c>IsSignificantKind(kind)</c> only; the Completed approved row is hidden.
     /// </summary>
     [Theory]
     [InlineData("Completed", "none", false)]
@@ -76,6 +77,7 @@ public sealed class RunStatusLabelsTests
     ///     A review verdict maps to the contract's severity: Unreadable is a Warning and never reads as Approved, and a
     ///     verdict the contract does not name is muted.
     ///     Red: map Unreadable to Success. Red: map Rejected to Warning. Red: map the default to Success.
+    ///     Red: map Approved to Info; the Approved row fails.
     /// </summary>
     [Theory]
     [InlineData("Approved", BadgeStyle.Success)]
@@ -84,4 +86,39 @@ public sealed class RunStatusLabelsTests
     [InlineData("Unheard", BadgeStyle.Light)]
     public void Review_verdict(string verdict, BadgeStyle style) =>
         RunStatusLabels.VerdictStyle(verdict).Should().Be(style);
+
+    /// <summary>
+    ///     A rejection and an unreadable visit wait for implement's answer; an approval, and a verdict the contract does not
+    ///     name, do not.
+    ///     Red: <c>VerdictAwaitsAnswer</c> checks Rejected only; the Unreadable row fails.
+    ///     Red: <c>VerdictAwaitsAnswer</c> returns true; the Approved and unknown rows fail.
+    ///     Red: <c>VerdictAwaitsAnswer</c> checks Unreadable only; the Rejected row fails.
+    /// </summary>
+    [Theory]
+    [InlineData(RunStatusLabels.VerdictRejected, true)]
+    [InlineData(RunStatusLabels.VerdictUnreadable, true)]
+    [InlineData(RunStatusLabels.VerdictApproved, false)]
+    [InlineData("Unheard", false)]
+    public void Verdict_awaits_answer(string verdict, bool awaits) =>
+        RunStatusLabels.VerdictAwaitsAnswer(verdict).Should().Be(awaits);
+
+    /// <summary>
+    ///     The verdict constants are the API's verdict strings, which the views carry as text.
+    ///     Red: change <c>VerdictUnreadable</c> to "Unknown"; the third value differs.
+    /// </summary>
+    [Fact]
+    public void Verdict_constants_are_the_apis_strings() =>
+        new[] { RunStatusLabels.VerdictApproved, RunStatusLabels.VerdictRejected, RunStatusLabels.VerdictUnreadable }
+            .Should().Equal("Approved", "Rejected", "Unreadable");
+
+    /// <summary>
+    ///     A starter is named by display name, else "unknown".
+    ///     Red: <c>RunStarter.Name</c> returns <c>displayName ?? ""</c>; the null row fails.
+    ///     Red: <c>RunStarter.Name</c> returns <see cref="RunStarter.Unknown"/> always; the named row fails.
+    /// </summary>
+    [Theory]
+    [InlineData("Dev Eloper", "Dev Eloper")]
+    [InlineData(null, "unknown")]
+    public void Starter_name(string? displayName, string shown) =>
+        RunStarter.Name(displayName).Should().Be(shown);
 }

@@ -62,11 +62,6 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 ///     The run's event log in seq order: every start, completion, branch, park, resume, failure, retry and
 ///     cancellation.
 /// </param>
-/// <param name="Checked">
-///     Each lens of the latest review visit as <paramref name="ReviewVisits"/> lists it, with its <c>checked[]</c> and its
-///     findings, approving or rejecting; empty before review has run,
-///     and when the review records cannot be read, which <paramref name="DeferredFindingsError"/> says.
-/// </param>
 /// <param name="NodeSelections">
 ///     The model and tool decision taken for each node visit, from the run's <c>node-selection</c> records, in seq order.
 ///     Empty when no node was decided. A record that cannot be read is not listed; <paramref name="NodeSelectionsError"/> says so.
@@ -103,7 +98,6 @@ public sealed record WorkflowRunView(
     string? DeferredFindingsError,
     IReadOnlyList<FiledFindingView> FiledFindings,
     IReadOnlyList<WorkflowRunStepView> Steps,
-    IReadOnlyList<LensCheckedView> Checked,
     string? StartedByName,
     IReadOnlyList<NodeSelectionView> NodeSelections,
     string? NodeSelectionsError,

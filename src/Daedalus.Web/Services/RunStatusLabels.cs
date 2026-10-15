@@ -49,17 +49,32 @@ public static class RunStatusLabels
     public static bool ShowsStepBadge(string kind, string? outcome) =>
         IsSignificantKind(kind) || !string.Equals(outcome, "none", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The verdict of a review visit no lens rejected.</summary>
+    public const string VerdictApproved = "Approved";
+
+    /// <summary>The verdict of a review visit a lens rejected.</summary>
+    public const string VerdictRejected = "Rejected";
+
+    /// <summary>The verdict of a review visit with a record that could not be read, so its verdict is unknown.</summary>
+    public const string VerdictUnreadable = "Unreadable";
+
     /// <summary>
     ///     The badge severity of a review visit's verdict, whose text is the verdict itself. <c>Unreadable</c> is a warning,
     ///     never a success: a record of the visit could not be read, so its verdict is unknown.
     /// </summary>
     public static BadgeStyle VerdictStyle(string verdict) => verdict switch
     {
-        "Approved" => BadgeStyle.Success,
-        "Rejected" => BadgeStyle.Danger,
-        "Unreadable" => BadgeStyle.Warning,
+        VerdictApproved => BadgeStyle.Success,
+        VerdictRejected => BadgeStyle.Danger,
+        VerdictUnreadable => BadgeStyle.Warning,
         _ => BadgeStyle.Light,
     };
+
+    /// <summary>
+    ///     Whether a visit with <paramref name="verdict"/> sent the run back to implement, so the run page shows implement's
+    ///     answer beside it: a rejection, and an unreadable visit, which the API pairs with an answer as it does a rejection.
+    /// </summary>
+    public static bool VerdictAwaitsAnswer(string verdict) => verdict is VerdictRejected or VerdictUnreadable;
 
     /// <summary>The engine reports <c>none</c> when a node completed with no outcome; it is not a meaningful outcome to show.</summary>
     private static bool IsNoOutcome(string? outcome) =>
