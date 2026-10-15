@@ -1,5 +1,4 @@
 using System.Collections.Frozen;
-using System.Text.RegularExpressions;
 using Thalos;
 using ZeroAlloc.Results;
 
@@ -41,13 +40,13 @@ namespace Daedalus.Agents.Workflow;
 ///     <c>WorkflowVariableBlock.NeutralizeTag</c>. That escapes the <c>&lt;</c> of every opening or closing
 ///     <c>skill</c>, <c>skills</c>, <c>memories</c> and <c>workflow-variables</c> tag. It matches any casing and
 ///     allows whitespace around the slash, and it normalises line endings to <c>\n</c> first. This block lands in
-///     that same <c>Task</c> string, so it neutralises the same family plus its own
-///     <c>standing-instructions</c> tag and the <c>work-intent</c> tag of <see cref="WorkIntentRunner"/>, the same way.
-///     Without that, a body could close this block early, or forge a <c>&lt;workflow-variables&gt;</c> or
-///     <c>&lt;skill&gt;</c> block the model would read as the engine's own. The <c>&lt;</c> becomes
-///     <c>&amp;lt;</c> and the rest of the tag is kept verbatim, so the text still reads correctly and cannot open
-///     or close anything. The rule is restated here rather than
-///     called, because Thalos keeps <c>NeutralizeTag</c> internal.
+///     that same <c>Task</c> string, so it neutralises the same family plus the host's own tags, its
+///     <c>standing-instructions</c> and the <c>review-findings</c> and <c>work-intent</c> of the other host blocks, through
+///     <see cref="FramingTags"/>. Without that, a body could close this block early, or forge a
+///     <c>&lt;workflow-variables&gt;</c>, <c>&lt;skill&gt;</c> or <c>&lt;work-intent&gt;</c> block the model would read as
+///     the engine's or the host's own. The <c>&lt;</c> becomes <c>&amp;lt;</c> and the rest of the tag is kept verbatim,
+///     so the text still reads correctly and cannot open or close anything. The rule is restated in
+///     <see cref="FramingTags"/> rather than called, because Thalos keeps <c>NeutralizeTag</c> internal.
 ///     </para>
 ///     <para>
 ///     <b>Placed outside <see cref="ReviewLensRunner"/>, not inside it.</b> A review node's pinned skill is
@@ -56,7 +55,7 @@ namespace Daedalus.Agents.Workflow;
 ///     concatenation it guards, run once per node dispatch rather than once per lens pass.
 ///     </para>
 /// </remarks>
-internal sealed partial class StandingInstructionsRunner(ISubagentRunner inner) : ISubagentRunner
+internal sealed class StandingInstructionsRunner(ISubagentRunner inner) : ISubagentRunner
 {
     /// <summary>The pinned skills whose turn is handed the standing instructions alongside its own task.</summary>
     private static readonly FrozenSet<string> EligibleSkills =
@@ -116,19 +115,7 @@ internal sealed partial class StandingInstructionsRunner(ISubagentRunner inner) 
     /// </summary>
     private static string BuildBlock(string text)
     {
-        var neutralised = FramingTag().Replace(
-            text.ReplaceLineEndings("\n"), static m => string.Concat("&lt;", m.ValueSpan[1..]));
+        var neutralised = FramingTags.Neutralise(text.ReplaceLineEndings("\n"));
         return string.Concat(OpenTag, "\n", neutralised, "\n", CloseTag);
     }
-
-    // Escapes the '<' of every opening or closing spelling of <standing-instructions>, <workflow-variables>,
-    // <skill>, <skills> and <memories>, in any casing and with whitespace around the slash, and keeps the rest
-    // verbatim. Task B11 adds <work-intent>, the host's block that comes before this one: the text must not forge a
-    // second statement of the task. The same shape as Thalos' SkillBlock and WorkflowVariableBlock tag guards,
-    // merged into one pattern. The word boundary keeps the escape to real tags: "<skillset" is an ordinary word.
-    [GeneratedRegex(
-        @"<\s*/?\s*(?:work-intent|standing-instructions|workflow-variables|memories|skills?)\b",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-        matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
-    private static partial Regex FramingTag();
 }

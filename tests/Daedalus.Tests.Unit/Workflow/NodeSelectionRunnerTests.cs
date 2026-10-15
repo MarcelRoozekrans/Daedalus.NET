@@ -1017,16 +1017,20 @@ public sealed class NodeSelectionRunnerTests
     }
 
     /// <summary>
-    ///     A run that pins no work intent document, one of another process, is decided over the variable as before. Red:
-    ///     drop the fallback to the variable, and the state's intent is empty.
+    ///     A run that pins no work intent document, one of another process, is decided over the variable as before, and so
+    ///     is a run that pins a blank one, which <see cref="WorkIntentRunner"/> treats as absent too. Reds, each applied
+    ///     once: drop the fallback to the variable, and both rows' intent is empty; drop the blank check, and the blank
+    ///     row's intent is the blank document.
     /// </summary>
-    [Fact]
-    public async Task Without_the_document_the_decision_state_carries_the_variable()
+    [Theory]
+    [InlineData(null)]
+    [InlineData(" \n ")]
+    public async Task Without_the_document_the_decision_state_carries_the_variable(string? document)
     {
         using var client = HardWithoutRoslyn();
 
         await Runner(new CapturingRunner(), client, new InMemoryRecords()).RunAsync(
-            RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName, intentVariable: "the variable's intent")),
+            RequestFor(RunAt("implement", ReviewHandoff.ImplementSkillName, intentVariable: "the variable's intent", intentDocument: document)),
             CancellationToken.None);
 
         using var state = JsonDocument.Parse(client.LastState!);

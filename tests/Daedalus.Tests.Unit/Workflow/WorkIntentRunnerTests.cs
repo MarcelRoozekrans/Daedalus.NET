@@ -70,14 +70,13 @@ public sealed class WorkIntentRunnerTests
     ///         <item>the engine's task first - Red: prepend the block instead of appending it, and every row fails;</item>
     ///         <item>the framing - Red: drop <c>OpenTag</c> from the block, and every row fails on the opening tag; drop
     ///             <c>CloseTag</c>, and every row fails on the closing one;</item>
-    ///         <item>every node - Red: act only on <see cref="ReviewHandoff.ImplementSkillName"/>, and the review and
-    ///             retrospect rows fail.</item>
+    ///         <item>both nodes - Red: act only on <see cref="ReviewHandoff.ImplementSkillName"/>, and the review row
+    ///             fails.</item>
     ///     </list>
     /// </summary>
     [Theory]
     [InlineData("implement", ReviewHandoff.ImplementSkillName)]
     [InlineData("review", ReviewHandoff.ReviewSkillName)]
-    [InlineData("retrospect", ReviewHandoff.RetrospectSkillName)]
     public async Task A_700_character_intent_reaches_the_node_in_full(string node, string skill)
     {
         var (sent, _) = await SendAsync(RequestFor(RunAt(node, skill, Pinning(LongIntent))));
@@ -142,8 +141,10 @@ public sealed class WorkIntentRunnerTests
     /// <summary>
     ///     A turn this runner has nothing to add to is forwarded as the very instance it was handed, not a copy. Reds, each
     ///     applied once: forward <c>request with { }</c> on the pass-through path, and every row fails; drop the blank
-    ///     check, and the blank row is handed an empty block, so it is a different instance.
+    ///     check, and the blank row is handed an empty block, so it is a different instance; drop the skill check, and the
+    ///     retrospect row is handed the intent, which <c>RetrospectReads</c> and its skill keep from it.
     ///     <list type="bullet">
+    ///         <item>retrospect: a retrospect node of a run that pins the intent;</item>
     ///         <item>other-process: a run of another process, whose manifest pins documents but no work intent;</item>
     ///         <item>no-document: a manufacture run whose manifest pins no work intent;</item>
     ///         <item>blank-document: a work intent pinned as whitespace;</item>
@@ -152,6 +153,7 @@ public sealed class WorkIntentRunnerTests
     ///     </list>
     /// </summary>
     [Theory]
+    [InlineData("retrospect")]
     [InlineData("other-process")]
     [InlineData("no-document")]
     [InlineData("blank-document")]
@@ -161,6 +163,7 @@ public sealed class WorkIntentRunnerTests
     {
         var request = shape switch
         {
+            "retrospect" => RequestFor(RunAt("retrospect", ReviewHandoff.RetrospectSkillName, Pinning(LongIntent))),
             "other-process" => RequestFor(RunAt("triage", "triage-skill",
                 new Dictionary<string, string>(StringComparer.Ordinal) { [ManufactureRunStarter.StandingInstructionsDocument] = "rules" },
                 process: "nightly-triage")),

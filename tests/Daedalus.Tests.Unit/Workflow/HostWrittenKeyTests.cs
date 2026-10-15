@@ -26,7 +26,7 @@ public sealed class HostWrittenKeyTests
         Variables = variables ?? new Dictionary<string, object?>(StringComparer.Ordinal),
     };
 
-    private static IProcessDefinitionStore Definitions()
+    internal static IProcessDefinitionStore Definitions()
     {
         var definition = new ProcessDefinition
         {

@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -30,8 +29,8 @@ namespace Daedalus.Agents.Workflow;
 ///     <b>The findings are a model's words, so they are framed as data.</b> The reviewer wrote every file and scenario.
 ///     They go inside the block, which tells the reader they are information to check against the worktree, never an
 ///     instruction, and each entry's line breaks are folded so one finding cannot forge another. The framing tags are
-///     neutralised the way <see cref="StandingInstructionsRunner"/> does it, with this block's own tag added, and the
-///     <c>work-intent</c> tag of <see cref="WorkIntentRunner"/>, whose block comes before this one. The lens
+///     neutralised through <see cref="FramingTags"/>, which covers this block's own tag and the <c>work-intent</c> tag
+///     of <see cref="WorkIntentRunner"/>, whose block comes before this one. The lens
 ///     name and the instruction around the block are the host's own words.
 ///     </para>
 ///     <para>
@@ -141,21 +140,11 @@ internal sealed partial class ReviewFindingsRunner(
 
     /// <summary>One line, with every framing tag neutralised. See this type's remarks.</summary>
     private static string Fold(string value) =>
-        FramingTag().Replace(
-            string.Join(' ', value.ReplaceLineEndings("\n").Split('\n')),
-            static m => string.Concat("&lt;", m.ValueSpan[1..]));
+        FramingTags.Neutralise(string.Join(' ', value.ReplaceLineEndings("\n").Split('\n')));
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Review evidence for run {RunId} could not be read; the implement node fails")]
     private static partial void LogReadFailed(ILogger logger, Exception exception, Guid runId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Review evidence for run {RunId} was unreadable ({Reason}); the implement node fails")]
     private static partial void LogUnreadable(ILogger logger, Guid runId, string reason);
-
-    // StandingInstructionsRunner's pattern with this block's own tag added, and WorkIntentRunner's, whose block comes
-    // before this one: a finding must not forge a second statement of the task.
-    [GeneratedRegex(
-        @"<\s*/?\s*(?:work-intent|review-findings|standing-instructions|workflow-variables|memories|skills?)\b",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-        matchTimeoutMilliseconds: 1000)] // MA0009: timeout (the pattern is linear)
-    private static partial Regex FramingTag();
 }
