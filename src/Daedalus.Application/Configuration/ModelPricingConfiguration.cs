@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+
 namespace Daedalus.Application.Configuration;
 
 /// <summary>
@@ -53,9 +55,9 @@ public sealed class ModelPricing
 ///     Refuses a model price that is negative, so a typo cannot turn spend into a credit. Run at host start through
 ///     <c>ValidateOnStart</c>, and directly by tests.
 /// </summary>
-public sealed class ModelPricingConfigurationValidator : Microsoft.Extensions.Options.IValidateOptions<ModelPricingConfiguration>
+public sealed class ModelPricingConfigurationValidator : IValidateOptions<ModelPricingConfiguration>
 {
-    public Microsoft.Extensions.Options.ValidateOptionsResult Validate(string? name, ModelPricingConfiguration options)
+    public ValidateOptionsResult Validate(string? name, ModelPricingConfiguration options)
     {
         ArgumentNullException.ThrowIfNull(options);
         List<string>? failures = null;
@@ -68,8 +70,8 @@ public sealed class ModelPricingConfigurationValidator : Microsoft.Extensions.Op
         }
 
         return failures is null
-            ? Microsoft.Extensions.Options.ValidateOptionsResult.Success
-            : Microsoft.Extensions.Options.ValidateOptionsResult.Fail(failures);
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(failures);
 
         void Check(string modelId, string property, decimal? value)
         {

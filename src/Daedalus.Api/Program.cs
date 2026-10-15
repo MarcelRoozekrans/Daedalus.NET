@@ -21,6 +21,7 @@ using Daedalus.ServiceDefaults;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using Thalos.Workflow;
 
@@ -45,7 +46,7 @@ builder.Services.AddApplicationDatabase(builder.Configuration, "daedalus");
 // Register model pricing configuration
 builder.Services.Configure<ModelPricingConfiguration>(options =>
     builder.Configuration.GetSection(ModelPricingConfiguration.SectionName).Bind(options));
-builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<ModelPricingConfiguration>, ModelPricingConfigurationValidator>();
+builder.Services.AddSingleton<IValidateOptions<ModelPricingConfiguration>, ModelPricingConfigurationValidator>();
 builder.Services.AddOptions<ModelPricingConfiguration>().ValidateOnStart();
 
 // Add application layer services (command/query handlers, prompt builders)
