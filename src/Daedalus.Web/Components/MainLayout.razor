@@ -96,9 +96,12 @@
             <RadzenText TextStyle="TextStyle.Caption" class="page-caption" Style="margin: 0;">
                 Daedalus &bull; A person plans work on a task board and starts a manufacture run for a task
             </RadzenText>
-            <RadzenText TextStyle="TextStyle.Caption" class="page-caption" Style="margin: 0;">
-                v1.0.0
-            </RadzenText>
+            @if (AppVersion.Shown is { } version)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" class="page-caption" Style="margin: 0;" data-testid="app-version">
+                    v@(version)
+                </RadzenText>
+            }
         </RadzenStack>
     </RadzenFooter>
 </RadzenLayout>
