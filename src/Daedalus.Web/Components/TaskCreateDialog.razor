@@ -24,8 +24,12 @@
                           Click="@(() => DialogService.Close(null))"/>
             <RadzenButton Text="Create" ButtonStyle="ButtonStyle.Primary" Variant="Variant.Outlined"
                           IsBusy="@_submitting" Disabled="@_submitting" Click="@(() => SubmitAsync(manufacture: false))"/>
-            <RadzenButton Text="Create and manufacture" ButtonStyle="ButtonStyle.Primary"
-                          IsBusy="@_submitting" Disabled="@_submitting" Click="@(() => SubmitAsync(manufacture: true))"/>
+            @* Only for someone who may start a run: the manufacture endpoint needs the developer or admin role. *@
+            @if (_canStart)
+            {
+                <RadzenButton Text="Create and manufacture" ButtonStyle="ButtonStyle.Primary"
+                              IsBusy="@_submitting" Disabled="@_submitting" Click="@(() => SubmitAsync(manufacture: true))"/>
+            }
         </TaskDialogActions>
     </RadzenStack>
 </RadzenTemplateForm>
@@ -39,6 +43,10 @@
     private string? _error;
     private bool _submitting;
     private bool _preselected;
+    private bool _canStart;
+
+    /// <summary>The signed-in user, for whether Create and manufacture shows.</summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
     protected override void SubscribeStores() => Subscribe(TaskStore);
 
@@ -46,6 +54,12 @@
     {
         base.OnInitialized();
         _hold = new DialogHold(Js);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        _canStart = AuthenticationState is { } state && RunAccess.CanStart((await state).User);
     }
 
     /// <summary>

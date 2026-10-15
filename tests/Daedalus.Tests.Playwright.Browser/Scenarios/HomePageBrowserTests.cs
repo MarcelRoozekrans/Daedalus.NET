@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
 using Daedalus.Tests.Playwright.Browser.PageObjects;
+using Daedalus.Tests.Playwright.Browser.Utilities;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 
@@ -274,6 +275,65 @@ public class HomePageBrowserTests : BrowserTestBase
 
         await Expect(tasks.Dialog).ToBeHiddenAsync().ConfigureAwait(false);
         await Expect(_home.ManufactureRefusedAlert).ToContainTextAsync("no repository URL").ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The run list needs the developer or admin role, so for anyone else Home reads none of it: one muted line says
+    ///     who sees runs, in place of the four cards, with no alert. New task stays, and its dialog offers Create but not
+    ///     Create and manufacture, which the manufacture endpoint would refuse with the same rule.
+    ///     Red: the panel reads the four lists whatever the role; a run list request is made.
+    ///     Red: the line's text left out; it is not the sentence.
+    ///     Red: a Danger alert for a refused card added under the line; an alert showed on Home.
+    ///     Red: Create and manufacture shown to everyone, _canStart = true; the dialog holds it.
+    /// </summary>
+    [TestCase("task-manager")]
+    [TestCase("project-manager")]
+    [TestCase("analyst")]
+    [Description("Home for someone who may not see runs reads none and says so")]
+    public async Task Home_for_someone_who_may_not_see_runs_reads_none_and_says_so(string role)
+    {
+        await TestRoles.WriteAsync(Context, BaseUrl, role).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ".rz-alert").ConfigureAwait(false);
+        var runReads = new List<string>();
+        Page.Request += (_, request) =>
+        {
+            if (request.Url.Contains("/api/workflow-runs", StringComparison.Ordinal))
+            {
+                runReads.Add(request.Url);
+            }
+        };
+        await _home.NavigateAsync().ConfigureAwait(false);
+
+        await Expect(_home.NoRunsLine).ToHaveTextAsync("Runs are visible to developers and admins.").ConfigureAwait(false);
+        await Expect(_home.Card(HomePage.Awaiting)).ToHaveCountAsync(0).ConfigureAwait(false);
+        var tasks = new TasksPage(Page, BaseUrl);
+        await _home.NewTaskButton.ClickAsync().ConfigureAwait(false);
+        await Expect(tasks.CreateButton).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(tasks.CreateAndManufactureButton).ToHaveCountAsync(0).ConfigureAwait(false);
+
+        runReads.Should().BeEmpty($"a {role} may not read the run list");
+        (await TestAuth.PathsThatShowedAsync(Page, ".rz-alert").ConfigureAwait(false))
+            .Should().BeEmpty($"Home shows a {role} no alert");
+    }
+
+    /// <summary>
+    ///     A developer may start a run, so the dialog from Home offers Create and manufacture, and Home shows the cards,
+    ///     not the line.
+    ///     Red: Create and manufacture hidden from everyone, _canStart = false; the dialog lacks it.
+    ///     Red: the line rendered outside the role check; it is there for a developer.
+    /// </summary>
+    [Test]
+    [Description("Home for a developer shows the cards and offers Create and manufacture")]
+    public async Task Home_for_a_developer_shows_the_cards_and_offers_create_and_manufacture()
+    {
+        await TestRoles.WriteAsync(Context, BaseUrl, "developer").ConfigureAwait(false);
+        await _home.NavigateAsync().ConfigureAwait(false);
+
+        await Expect(_home.Row(HomePage.Running, RunSeeds.LinkedTaskTitle)).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_home.NoRunsLine).ToHaveCountAsync(0).ConfigureAwait(false);
+        var tasks = new TasksPage(Page, BaseUrl);
+        await _home.NewTaskButton.ClickAsync().ConfigureAwait(false);
+        await Expect(tasks.CreateAndManufactureButton).ToBeVisibleAsync().ConfigureAwait(false);
     }
 
     /// <summary>
