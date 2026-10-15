@@ -4,6 +4,7 @@ using Daedalus.Web.Auth;
 using Daedalus.Web.State;
 using Daedalus.Web.State.Runs;
 using Daedalus.Web.State.Tasks;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
@@ -26,6 +27,9 @@ builder.RootComponents.Add<Microsoft.AspNetCore.Components.Web.HeadOutlet>("head
 var testMode = string.Equals(builder.Configuration["TestMode"], "true", StringComparison.OrdinalIgnoreCase)
                || (OperatingSystem.IsBrowser()
                    && string.IsNullOrEmpty(builder.Configuration["Oidc:Authority"]));
+
+// In test mode, how the console signs in (TestAuth.cs). Never read outside test mode.
+var testAuth = testMode ? TestAuthModes.Parse(builder.Configuration["TestAuth"]) : TestAuthMode.SignedIn;
 
 // In test mode without explicit ApiBaseUrl, fall back to the host address
 // so the WASM app calls back to the same test server.
@@ -67,11 +71,31 @@ if (!OperatingSystem.IsBrowser())
     });
 }
 
-if (testMode)
+// A request whose token cannot be refreshed ends the session and goes to sign in (SessionExpiry). The handler is the
+// outermost on the API client, so every caller of the client is covered. One SessionExpiry per app: the handler's own
+// DI scope and the layout must see the same one.
+builder.Services.AddSingleton<SessionExpiry>();
+builder.Services.AddTransient<SessionExpiryHandler>();
+
+if (testMode && testAuth == TestAuthMode.Token)
+{
+    // Test mode with a token: the OIDC build's AuthorizationMessageHandler over a test token provider, so a test can
+    // make a token refresh fail as it fails against a dead session.
+    builder.Services.AddScoped<IAccessTokenProvider, TestAccessTokenProvider>();
+    builder.Services.AddHttpClient("Daedalus.Api",
+            client => client.BaseAddress = new Uri(apiBaseAddress))
+        .AddHttpMessageHandler<SessionExpiryHandler>()
+        .AddHttpMessageHandler(sp => new AuthorizationMessageHandler(
+                sp.GetRequiredService<IAccessTokenProvider>(),
+                sp.GetRequiredService<NavigationManager>())
+            .ConfigureHandler(authorizedUrls: new[] { apiBaseAddress }));
+}
+else if (testMode)
 {
     // Test mode: plain HttpClient without OIDC token attachment
     builder.Services.AddHttpClient("Daedalus.Api",
-        client => client.BaseAddress = new Uri(apiBaseAddress));
+            client => client.BaseAddress = new Uri(apiBaseAddress))
+        .AddHttpMessageHandler<SessionExpiryHandler>();
 }
 else
 {
@@ -80,6 +104,7 @@ else
     // allows cross-origin token attachment when the API is on a different origin than the web app.
     builder.Services.AddHttpClient("Daedalus.Api",
             client => client.BaseAddress = new Uri(apiBaseAddress))
+        .AddHttpMessageHandler<SessionExpiryHandler>()
         .AddHttpMessageHandler(sp =>
         {
             var handler = sp.GetRequiredService<AuthorizationMessageHandler>()
@@ -120,9 +145,16 @@ builder.Services.AddCascadingAuthenticationState();
 
 if (testMode)
 {
-    // Test mode: bypass OIDC, use AlwaysAuthenticatedStateProvider
+    // Test mode: bypass OIDC, use AlwaysAuthenticatedStateProvider, or no user at all when a test asks for that
     builder.Services.AddAuthorizationCore();
-    builder.Services.AddScoped<AuthenticationStateProvider, AlwaysAuthenticatedStateProvider>();
+    if (testAuth == TestAuthMode.SignedOut)
+    {
+        builder.Services.AddScoped<AuthenticationStateProvider, SignedOutStateProvider>();
+    }
+    else
+    {
+        builder.Services.AddScoped<AuthenticationStateProvider, AlwaysAuthenticatedStateProvider>();
+    }
 }
 else
 {

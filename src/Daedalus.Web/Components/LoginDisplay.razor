@@ -1,20 +1,24 @@
 @inject NavigationManager Navigation
 
-<AuthorizeView>
-    <Authorized>
-        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-            <RadzenIcon Icon="account_circle" Style="font-size: 1.25rem; color: var(--rz-text-color);"/>
-            <RadzenText Text="@context.User.Identity?.Name" TextStyle="TextStyle.Body2"
-                        Style="margin: 0; color: var(--rz-text-color);"/>
-            <RadzenButton Text="Log out" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@BeginLogout"/>
-        </RadzenStack>
-    </Authorized>
-    <NotAuthorized>
-        <RadzenButton Text="Log in" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" Click="@BeginLogin"/>
-    </NotAuthorized>
-</AuthorizeView>
+@* The layout decides who is signed in, so a session that has ended shows Sign in here at once, not the user it had. *@
+@if (User is not null)
+{
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+        <RadzenIcon Icon="account_circle" Style="font-size: 1.25rem; color: var(--rz-text-color);"/>
+        <RadzenText Text="@User.Identity?.Name" TextStyle="TextStyle.Body2"
+                    Style="margin: 0; color: var(--rz-text-color);"/>
+        <RadzenButton Text="Log out" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@BeginLogout"/>
+    </RadzenStack>
+}
+else
+{
+    <RadzenButton Text="Sign in" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" Click="@BeginLogin"/>
+}
 
 @code {
+
+    /// <summary>The signed-in user, or null when no one is.</summary>
+    [Parameter] public ClaimsPrincipal? User { get; set; }
 
     private void BeginLogin()
     {

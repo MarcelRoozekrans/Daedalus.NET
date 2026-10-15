@@ -1,51 +1,61 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject SessionExpiry Expiry
 
 <RadzenLayout>
     <RadzenHeader>
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0"
                      JustifyContent="JustifyContent.SpaceBetween" Style="padding: 0 1rem; width: 100%;">
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0">
-                <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)"/>
+                @* Signed out, the header holds only the logo and Sign in: no menu, so no toggle. *@
+                @if (_user is not null)
+                {
+                    <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)"/>
+                }
                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
                     <RadzenIcon Icon="hub" Style="font-size: 1.5rem; color: var(--rz-primary);"/>
                     <RadzenText Text="Daedalus" TextStyle="TextStyle.H5"
                                 Style="margin: 0; font-weight: 700; letter-spacing: -0.025em;"/>
                 </RadzenStack>
             </RadzenStack>
-            <LoginDisplay/>
+            <LoginDisplay User="@_user"/>
         </RadzenStack>
     </RadzenHeader>
 
-    <RadzenSidebar @bind-Expanded="@_sidebarExpanded" Style="width: 260px;">
-        <RadzenPanelMenu>
-            <RadzenPanelMenuItem Text="Dashboard" Icon="dashboard" Path="/"/>
-        </RadzenPanelMenu>
-
-        <div class="sidebar-section-divider">Operations</div>
-        <RadzenPanelMenu>
-            <RadzenPanelMenuItem Text="Tasks" Icon="task_alt" Path="tasks"/>
-            <RunsMenuItem/>
-            <RadzenPanelMenuItem Text="Projects" Icon="folder_special" Path="projects"/>
-            <RadzenPanelMenuItem Text="Executions" Icon="receipt_long" Path="executions"/>
-            <RadzenPanelMenuItem Text="Schedules" Icon="schedule" Path="schedules"/>
-            <RadzenPanelMenuItem Text="Costs" Icon="attach_money" Path="costs"/>
-            <RadzenPanelMenuItem Text="Agent" Icon="smart_toy" Path="agent"/>
-        </RadzenPanelMenu>
-
-        @* Admins only: every /api/repositories action needs the API's Admin policy, the admin role. The section holds
-           nothing else, so its heading goes with it. *@
-        <AuthorizeView Roles="admin">
-            <div class="sidebar-section-divider">Configuration</div>
+    @* Signed out, no menu at all: nothing in it is open to a visitor. *@
+    @if (_user is not null)
+    {
+        <RadzenSidebar @bind-Expanded="@_sidebarExpanded" Style="width: 260px;">
             <RadzenPanelMenu>
-                <RadzenPanelMenuItem Text="Git Repositories" Icon="source" Path="repositories"/>
+                <RadzenPanelMenuItem Text="Dashboard" Icon="dashboard" Path="/"/>
             </RadzenPanelMenu>
-        </AuthorizeView>
 
-        <div class="sidebar-section-divider">AI Tools</div>
-        <RadzenPanelMenu>
-            <RadzenPanelMenuItem Text="PRD Generator" Icon="description" Path="prd-generator"/>
-        </RadzenPanelMenu>
-    </RadzenSidebar>
+            <div class="sidebar-section-divider">Operations</div>
+            <RadzenPanelMenu>
+                <RadzenPanelMenuItem Text="Tasks" Icon="task_alt" Path="tasks"/>
+                <RunsMenuItem/>
+                <RadzenPanelMenuItem Text="Projects" Icon="folder_special" Path="projects"/>
+                <RadzenPanelMenuItem Text="Executions" Icon="receipt_long" Path="executions"/>
+                <RadzenPanelMenuItem Text="Schedules" Icon="schedule" Path="schedules"/>
+                <RadzenPanelMenuItem Text="Costs" Icon="attach_money" Path="costs"/>
+                <RadzenPanelMenuItem Text="Agent" Icon="smart_toy" Path="agent"/>
+            </RadzenPanelMenu>
+
+            @* Admins only: every /api/repositories action needs the API's Admin policy, the admin role. The section holds
+               nothing else, so its heading goes with it. *@
+            <AuthorizeView Roles="admin">
+                <div class="sidebar-section-divider">Configuration</div>
+                <RadzenPanelMenu>
+                    <RadzenPanelMenuItem Text="Git Repositories" Icon="source" Path="repositories"/>
+                </RadzenPanelMenu>
+            </AuthorizeView>
+
+            <div class="sidebar-section-divider">AI Tools</div>
+            <RadzenPanelMenu>
+                <RadzenPanelMenuItem Text="PRD Generator" Icon="description" Path="prd-generator"/>
+            </RadzenPanelMenu>
+        </RadzenSidebar>
+    }
 
     <RadzenBody>
         <div class="rz-p-4">
@@ -73,4 +83,54 @@
 
 @code {
     bool _sidebarExpanded = true;
+
+    private Task<AuthenticationState>? _evaluated;
+
+    /// <summary>The user the authentication state last named, signed in or not.</summary>
+    private ClaimsPrincipal? _signedIn;
+
+    /// <summary>The signed-in user, or null while no one is: signed out, still being read, or a session that ended.</summary>
+    private ClaimsPrincipal? _user;
+
+    /// <summary>
+    ///     The signed-in user, replaced whenever the authentication state changes, so the chrome follows a sign-in that
+    ///     completes after the layout rendered.
+    /// </summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    protected override void OnInitialized() => Expiry.Changed += OnExpiryChanged;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthenticationState is not { } state || ReferenceEquals(state, _evaluated))
+        {
+            return;
+        }
+
+        if (_evaluated is not null)
+        {
+            // A new authentication state, as after a sign-in that completes in place: it decides, not the session
+            // that ended before it.
+            Expiry.Reset();
+        }
+
+        _evaluated = state;
+        var user = (await state).User;
+        if (ReferenceEquals(state, _evaluated))
+        {
+            _signedIn = user;
+            Apply();
+        }
+    }
+
+    public void Dispose() => Expiry.Changed -= OnExpiryChanged;
+
+    private void Apply() =>
+        _user = _signedIn?.Identity?.IsAuthenticated == true && !Expiry.Expired ? _signedIn : null;
+
+    private void OnExpiryChanged(object? sender, EventArgs e)
+    {
+        Apply();
+        _ = InvokeAsync(StateHasChanged);
+    }
 }

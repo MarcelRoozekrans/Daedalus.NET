@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Agents;
+using Daedalus.Web.Auth;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.AspNetCore.Components.WebAssembly.Http;
 
@@ -16,7 +17,6 @@ namespace Daedalus.Web.Services;
 public sealed class AgentApiClient(HttpClient http)
 {
     private const string ErrorEventKind = "error";
-    private const string LoginRequired = "Please log in to access the agent.";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -42,7 +42,7 @@ public sealed class AgentApiClient(HttpClient http)
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result<string>.Failure(LoginRequired);
+            return Result<string>.Failure(SessionExpiry.SigningInAgain);
         }
         catch (HttpRequestException ex)
         {
@@ -70,7 +70,7 @@ public sealed class AgentApiClient(HttpClient http)
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result.Failure(LoginRequired);
+            return Result.Failure(SessionExpiry.SigningInAgain);
         }
         catch (HttpRequestException ex)
         {
@@ -125,7 +125,7 @@ public sealed class AgentApiClient(HttpClient http)
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result.Failure(LoginRequired);
+            return Result.Failure(SessionExpiry.SigningInAgain);
         }
         catch (HttpRequestException ex)
         {
@@ -188,7 +188,7 @@ public sealed class AgentApiClient(HttpClient http)
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result<T>.Failure(LoginRequired);
+            return Result<T>.Failure(SessionExpiry.SigningInAgain);
         }
         catch (HttpRequestException ex)
         {

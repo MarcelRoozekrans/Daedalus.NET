@@ -1,3 +1,6 @@
+using Daedalus.Web.Auth;
+using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+
 namespace Daedalus.Web.Services;
 
 /// <summary>Implementation of project API client.</summary>
@@ -30,6 +33,10 @@ public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient)
                 ? Result<ProjectDto>.Success(result)
                 : Result<ProjectDto>.Failure("Failed to deserialize response");
         }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result<ProjectDto>.Failure(SessionExpiry.SigningInAgain);
+        }
         catch (Exception ex)
         {
             return Result<ProjectDto>.Failure($"Error creating project: {ex.Message}");
@@ -54,6 +61,10 @@ public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient)
                 ? Result<ProjectDto>.Success(result)
                 : Result<ProjectDto>.Failure("Failed to deserialize response");
         }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result<ProjectDto>.Failure(SessionExpiry.SigningInAgain);
+        }
         catch (Exception ex)
         {
             return Result<ProjectDto>.Failure($"Error updating project: {ex.Message}");
@@ -73,6 +84,10 @@ public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient)
             }
 
             return Result<bool>.Success(true);
+        }
+        catch (AccessTokenNotAvailableException)
+        {
+            return Result<bool>.Failure(SessionExpiry.SigningInAgain);
         }
         catch (Exception ex)
         {
