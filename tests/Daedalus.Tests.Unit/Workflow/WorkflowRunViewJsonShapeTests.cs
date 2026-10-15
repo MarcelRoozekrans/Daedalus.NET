@@ -15,6 +15,8 @@ public sealed class WorkflowRunViewJsonShapeTests
     ///     Red: rename a NodeSelectionView property, or NodeSelectionsError. Red: rename FailureReason.
     ///     Red: rename ReviewVisits, ReviewVisitsError, a ReviewVisitView property, LensCheckedView.Findings or a
     ///     ReviewFindingView property.
+    ///     Red: put the <c>Checked</c> parameter back on WorkflowRunView; "checked" is served again.
+    ///     Red: rename a LensCheckedView property; the lens names differ.
     /// </summary>
     [Fact]
     public void The_view_serializes_with_todays_names()
@@ -25,12 +27,13 @@ public sealed class WorkflowRunViewJsonShapeTests
         Names(root).Should().Equal(
             "id", "process", "processVersion", "status", "currentNode", "awaitingSignal", "lastError", "pins",
             "standingInstructionsDiff", "nodeUsage", "prUrl", "unreadablePullRequestLink", "startedBy", "writeAudit",
-            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "checked", "startedByName", "nodeSelections", "nodeSelectionsError", "failureReason",
+            "deferredFindings", "deferredFindingsError", "filedFindings", "steps", "startedByName", "nodeSelections", "nodeSelectionsError", "failureReason",
             "reviewVisits", "reviewVisitsError");
         Names(root.GetProperty("steps")[0]).Should().Equal(
             "seq", "kind", "fromNode", "toNode", "status", "outcome", "error", "inputTokens", "outputTokens",
             "cacheReadTokens", "at", "actor");
-        Names(root.GetProperty("checked")[0]).Should().Equal("lens", "checked", "findings");
+        root.TryGetProperty("checked", out _).Should().BeFalse("the latest-only checked list went; reviewVisits carries every visit's lenses");
+        Names(root.GetProperty("reviewVisits")[0].GetProperty("lenses")[0]).Should().Equal("lens", "checked", "findings");
         Names(root.GetProperty("reviewVisits")[0]).Should().Equal("seq", "verdict", "rejectingLens", "lenses", "reviewResponse");
         Names(root.GetProperty("reviewVisits")[0].GetProperty("lenses")[0].GetProperty("findings")[0]).Should().Equal("file", "line", "scenario");
         Names(root.GetProperty("pins").GetProperty("implement")).Should().Equal(
@@ -84,7 +87,7 @@ public sealed class WorkflowRunViewJsonShapeTests
         [new DeferredFindingView("mechanism-1", "mechanism", "a.cs", 3, "t", "s", "different-area", 7, false, new Uri("https://github.com/o/r/issues/7"))],
         null, [new FiledFindingView("mechanism-1", "created", 12, new Uri("https://example.test/issues/12"))],
         [new WorkflowRunStepView(0, "Entered", null, "implement", "Running", null, null, null, null, null, DateTimeOffset.UnixEpoch, null)],
-        [new LensCheckedView("mechanism", ["a.cs:3"], [])], "Dev",
+        "Dev",
         [new NodeSelectionView(1, "implement", "m", "low", 3, null, 0.8)], "e", "Review rejected the change 3 times, the review limit.",
         [new ReviewVisitView(2, "Rejected", "correctness", [new LensCheckedView("correctness", [], [new ReviewFindingView("a.cs", 3, "s")])], "addressed")],
         null);

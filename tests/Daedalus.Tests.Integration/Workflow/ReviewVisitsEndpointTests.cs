@@ -22,7 +22,7 @@ public sealed class ReviewVisitsEndpointTests(PostgresFixture fixture)
     ///     Red: drop the recorder call from ReviewHandoffWorkflowStore.CompleteNodeAsync, and every response is null.
     ///     Red: pair each visit with the response at the latest seq after it, and the four older visits read none.
     ///     Red: add ReviewResponseKey to ReviewHandoff.ReviewReads, and the review task text carries a response.
-    ///     Red: map the findings of the latest-visit Checked list to [], and its rejecting lens has none.
+    ///     Red: map each lens's findings to [] in ReviewVisitHistory.ToView, and every visit's lens has none.
     /// </summary>
     [Fact]
     public async Task The_run_view_lists_review_visits()
@@ -60,7 +60,6 @@ public sealed class ReviewVisitsEndpointTests(PostgresFixture fixture)
             v.Lenses.Should().ContainSingle().Which.Findings.Should().ContainSingle()
                 .Which.Should().Be(new ReviewFindingView("src/Daedalus.Infrastructure/Persistence/TaskRepository.cs", 42, "cancelled rows are still claimed"));
         });
-        view.Checked.Should().ContainSingle().Which.Findings.Should().Equal(view.ReviewVisits[0].Lenses[0].Findings);
         view.ReviewVisits.Select(v => v.ReviewResponse).Should().Equal(
             Enumerable.Range(1, 5).Reverse().Select(k => ScriptedManufactureRuntime.ResponseFor(k + 1)));
         runtime.TaskFor("review").Should().NotContain("addressed:", "the reviewer's dispatch never carries implement's answer");

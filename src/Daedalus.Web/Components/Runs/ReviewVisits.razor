@@ -49,9 +49,9 @@
                                 <RadzenIcon Icon="@(open ? "expand_less" : "expand_more")" aria-hidden="true"/>
                                 <span>@lens.Lens · @lens.Checked.Count checked · @Findings(lens.Findings.Count)</span>
                             </RadzenButton>
-                            @if (open)
-                            {
-                                <RadzenStack id="@id" Gap="0.25rem" class="rz-ms-6" data-testid="review-lens-body">
+                            @* Always rendered, so aria-controls names an element; hidden while the section is closed. *@
+                            <div id="@id" hidden="@(!open)" data-testid="review-lens-body">
+                                <RadzenStack Gap="0.25rem" class="rz-ms-6">
                                     <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0;">Checked</RadzenText>
                                     @if (lens.Checked.Count == 0)
                                     {
@@ -85,11 +85,11 @@
                                         </ul>
                                     }
                                 </RadzenStack>
-                            }
+                            </div>
                         </div>
                     }
 
-                    @if (visit.Verdict is "Rejected" or "Unreadable")
+                    @if (RunStatusLabels.VerdictAwaitsAnswer(visit.Verdict))
                     {
                         <div data-testid="review-answer">
                             <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin: 0;">How implement answered</RadzenText>

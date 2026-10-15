@@ -27,7 +27,6 @@ internal static class RunViews
             DeferredFindingsError: null,
             FiledFindings: [],
             Steps: [],
-            Checked: [],
             StartedByName: "Dev Eloper",
             NodeSelections: [],
             NodeSelectionsError: null,

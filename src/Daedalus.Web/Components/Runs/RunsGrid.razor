@@ -53,7 +53,7 @@
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="StartedByName" Title="Started by" Width="@Px(StartedByWidth)"
                                       Visible="@_desktop">
-                    <Template Context="run">@(run.StartedByName ?? "unknown")</Template>
+                    <Template Context="run">@RunStarter.Name(run.StartedByName)</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="WorkflowRunListItem" Property="CreatedAt" Title="Started" Width="@Px(StartedWidth)" Visible="@_tablet">
                     <Template Context="run">@LocalTimes.ShortDateTime(run.CreatedAt.UtcDateTime)</Template>
