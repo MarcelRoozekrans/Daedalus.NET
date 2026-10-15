@@ -1,4 +1,5 @@
 using Daedalus.Tests.Playwright.Browser.PageObjects;
+using Daedalus.Tests.Playwright.Browser.Utilities;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 
@@ -53,6 +54,54 @@ public class TasksPageBrowserTests : BrowserTestBase
         await empty.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "New task", Exact = true }).ClickAsync()
             .ConfigureAwait(false);
         await Expect(_tasksPage.ProjectPicker).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     A board that is still loading is not empty: while the task list is held back, "No tasks yet." never shows,
+    ///     not even for a frame before the first load starts. A watch made before the page loads records any moment it
+    ///     showed. Once the list arrives empty, it shows.
+    ///     Red: the template's <c>Loading: false</c> check dropped; the empty state is recorded while the load runs.
+    ///     Red: the empty state never rendered; it does not show once the empty list arrives.
+    ///     The template's <c>LoadRequested</c> check has no Red: line. With only it dropped the test stays green: the
+    ///     page dispatches the load's start before its first render, so the initial state, not yet asked for, never
+    ///     paints. The check stays as a guard for that order.
+    /// </summary>
+    [Test]
+    [Description("A board that is loading does not say No tasks yet")]
+    public async Task A_board_that_is_loading_does_not_say_no_tasks_yet()
+    {
+        var release = new TaskCompletionSource();
+        async Task FulfillOnceReleasedAsync(IRoute route)
+        {
+            await release.Task.ConfigureAwait(false);
+            await route.FulfillAsync(new RouteFulfillOptions
+            {
+                Status = 200,
+                ContentType = "application/json",
+                Body = """{"items":[],"total":0,"page":1,"pageSize":15}""",
+            }).ConfigureAwait(false);
+        }
+
+        // The handler returns at once and answers later, once released.
+        var held = new List<Task>();
+        await Page.RouteAsync("**/api/tasks?*", route =>
+        {
+            held.Add(FulfillOnceReleasedAsync(route));
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, "[data-testid='tasks-empty']").ConfigureAwait(false);
+        // Not the page object's navigation, which waits for the network to go idle: the held request never lets it.
+        await NavigateToAsync("/tasks").ConfigureAwait(false);
+        await Expect(_tasksPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
+        await Page.WaitForTimeoutAsync(1000).ConfigureAwait(false);
+
+        (await TestAuth.PathsThatShowedAsync(Page, "[data-testid='tasks-empty']").ConfigureAwait(false))
+            .Should().BeEmpty("a board that is loading is not empty");
+
+        release.SetResult();
+        await Task.WhenAll(held).ConfigureAwait(false);
+        await Expect(_tasksPage.DataGrid.Locator("[data-testid='tasks-empty']")).ToContainTextAsync("No tasks yet.")
+            .ConfigureAwait(false);
     }
 
     /// <summary>
