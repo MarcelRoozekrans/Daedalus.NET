@@ -1,0 +1,77 @@
+@* One of Home's four cards: a heading with its count, then a skeleton line while it loads, its reason and Retry when its
+   read failed, one muted line when it is empty, or its rows. Each card reads and fails on its own. *@
+
+<RadzenCard Style="height: 100%;" data-testid="@TestId">
+    <RadzenStack Gap="0.75rem">
+        <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">@Heading</RadzenText>
+        @if (NeedsMe.ShownError(Error) is { } error)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="needs-me-error">
+                @Title could not be loaded: @error
+                <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@OnRetry"/>
+            </RadzenAlert>
+        }
+        else if (Rows is null)
+        {
+            <RadzenSkeleton Variant="SkeletonVariant.Text" aria-label="@($"Loading {Title}")"/>
+        }
+        else if (Rows.Count == 0)
+        {
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; color: var(--rz-text-secondary-color);"
+                        data-testid="needs-me-empty">@EmptyText</RadzenText>
+        }
+        else
+        {
+            <ul class="needs-me-rows">
+                @foreach (var run in Rows)
+                {
+                    <li @key="run.Id" data-testid="needs-me-row">@Row(run)</li>
+                }
+            </ul>
+        }
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    /// <summary>The card's heading, without its count.</summary>
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    /// <summary>The card's test id.</summary>
+    [Parameter, EditorRequired] public string TestId { get; set; } = "";
+
+    /// <summary>The one muted line an empty card shows, saying what is empty.</summary>
+    [Parameter, EditorRequired] public string EmptyText { get; set; } = "";
+
+    /// <summary>The rows, or null while the card loads or after its read failed.</summary>
+    [Parameter] public IReadOnlyList<WorkflowRunListItem>? Rows { get; set; }
+
+    /// <summary>Why the card's read failed, or null.</summary>
+    [Parameter] public string? Error { get; set; }
+
+    /// <summary>Whether the list has runs past the page the card read, so the count is a lower bound.</summary>
+    [Parameter] public bool More { get; set; }
+
+    /// <summary>Whether the heading carries the count; the pull requests card lists a fixed few and does not.</summary>
+    [Parameter] public bool ShowCount { get; set; } = true;
+
+    /// <summary>Reads the card's list again.</summary>
+    [Parameter] public EventCallback OnRetry { get; set; }
+
+    /// <summary>One row.</summary>
+    [Parameter, EditorRequired] public RenderFragment<WorkflowRunListItem> Row { get; set; } = null!;
+
+    /// <summary>The title, with the count once the rows are in; "n+" when the list holds more than the card read.</summary>
+    private string Heading
+    {
+        get
+        {
+            if (!ShowCount || Rows is not { } rows)
+            {
+                return Title;
+            }
+
+            var more = More ? "+" : "";
+            return string.Create(CultureInfo.InvariantCulture, $"{Title} ({rows.Count}{more})");
+        }
+    }
+}

@@ -270,7 +270,7 @@ public sealed class TasksEffectsTests : IDisposable
     /// <summary>
     ///     Leaving the page drops the projects with the board, and projects that land afterwards are ignored.
     ///     Red: leave Projects out of the TasksClosed reducer; they are still there.
-    ///     Red: drop the LoadRequested guard from TaskProjectsLoaded; the late projects land.
+    ///     Red: drop the ProjectsRequested guard from TaskProjectsLoaded; the late projects land.
     /// </summary>
     [Fact]
     public async Task Leaving_the_page_drops_the_projects()
@@ -287,6 +287,23 @@ public sealed class TasksEffectsTests : IDisposable
 
         await dispatcher.DispatchAsync(new TaskProjectsLoaded([Project()]));
         _store.Value.Projects.Should().BeNull("projects landing after the page closed are ignored");
+    }
+
+    /// <summary>
+    ///     Home opens the create dialog with no board loaded, so the projects load on their own, without marking a board
+    ///     load that a reconnect would then re-fetch.
+    ///     Red: guard TaskProjectsLoaded on LoadRequested again; the projects stay null.
+    ///     Red: LoadProjectsAsync dispatches TasksLoadStarted to get past the guard; LoadRequested is set.
+    /// </summary>
+    [Fact]
+    public async Task The_projects_load_without_the_board()
+    {
+        _handler.OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project()], 1, 1, 200)));
+
+        await _effects.LoadProjectsAsync(CancellationToken.None);
+
+        _store.Value.Projects.Should().HaveCount(1);
+        _store.Value.LoadRequested.Should().BeFalse("loading the projects is not a board load");
     }
 
     private static ProjectDto Project() => new(Guid.NewGuid(), "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, []);

@@ -25,7 +25,7 @@ public class RegressionScreenshotBrowserTests : BrowserTestBase
         var page = new HomePage(Page, BaseUrl);
         await page.NavigateAsync().ConfigureAwait(false);
         await Expect(page.Title).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(page.StatsRow).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(page.Panel).ToBeVisibleAsync().ConfigureAwait(false);
 
         await SaveRegressionScreenshotAsync($"{ReportFolder}/home.png").ConfigureAwait(false);
     }

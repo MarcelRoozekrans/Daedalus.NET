@@ -18,12 +18,17 @@ namespace Daedalus.Web.State.Tasks;
 /// </param>
 /// <param name="ProjectNames">Each project's name by its id, for the board's Project column.</param>
 /// <param name="ProjectsError">Why the last projects fetch failed, or <see langword="null"/>.</param>
+/// <param name="ProjectsRequested">
+///     Whether a projects load was asked for since the Tasks page was last left. Apart from <paramref name="LoadRequested"/>,
+///     because Home opens the create dialog, which needs the projects, without loading the board.
+/// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct TasksState(
     IReadOnlyList<TaskDto> Items, int Total, bool Loading, string? Error, IReadOnlySet<Guid> Starting, bool LoadRequested,
-    IReadOnlyList<ProjectDto>? Projects, IReadOnlyDictionary<Guid, string> ProjectNames, string? ProjectsError)
+    IReadOnlyList<ProjectDto>? Projects, IReadOnlyDictionary<Guid, string> ProjectNames, string? ProjectsError,
+    bool ProjectsRequested)
 {
     /// <summary>The state before the board has loaded.</summary>
     public static TasksState Initial(IServiceProvider services) =>
-        new([], 0, false, null, new HashSet<Guid>(), false, null, new Dictionary<Guid, string>(), null);
+        new([], 0, false, null, new HashSet<Guid>(), false, null, new Dictionary<Guid, string>(), null, false);
 }
