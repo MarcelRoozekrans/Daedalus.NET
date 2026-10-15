@@ -3,18 +3,19 @@ using Daedalus.Application.DTOs;
 namespace Daedalus.Tests.Playwright.Api.Scenarios;
 
 /// <summary>
-///     Comprehensive E2E tests for the Executions page using Playwright API requests.
+///     E2E tests for the task executions API, <c>/api/taskexecutions</c>, using Playwright API requests. The retired
+///     loop's history stays readable here after the console's Executions page was removed in phase 2.13.
 ///     Tests: task executions by task ID, by session ID, pagination, error handling.
 ///     Note: No executions are seeded, so most tests verify empty-state behavior.
 /// </summary>
 [TestFixture]
 [Category("E2E")]
 [Category("Executions")]
-public class ExecutionsPageTests : ApiTestBase
+public class TaskExecutionsApiTests : ApiTestBase
 {
     [Test]
-    [Description("User can navigate to the Executions page and see executions for a task")]
-    public async Task ExecutionsPage_NavigateByTask_PageLoadsSuccessfully()
+    [Description("The task executions API responds for a task")]
+    public async Task TaskExecutionsApi_ByTask_Responds()
     {
         // Arrange
         var tasks = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
@@ -30,8 +31,8 @@ public class ExecutionsPageTests : ApiTestBase
     }
 
     [Test]
-    [Description("Executions page shows empty state for task with no executions")]
-    public async Task ExecutionsPage_NoExecutions_DisplaysEmptyStateForTask()
+    [Description("The API returns an empty page for a task with no executions")]
+    public async Task TaskExecutionsApi_NoExecutions_ReturnsEmptyForTask()
     {
         // Arrange
         var tasks = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
@@ -48,8 +49,8 @@ public class ExecutionsPageTests : ApiTestBase
     }
 
     [Test]
-    [Description("Executions page shows empty state for session with no executions")]
-    public async Task ExecutionsPage_NoExecutions_DisplaysEmptyStateForSession()
+    [Description("The API returns an empty page for a session with no executions")]
+    public async Task TaskExecutionsApi_NoExecutions_ReturnsEmptyForSession()
     {
         // Act — use random GUID since no sessions exist
         var result = await GetApiAsync<PagedResultDto<TaskExecutionDto>>(
@@ -63,7 +64,7 @@ public class ExecutionsPageTests : ApiTestBase
 
     [Test]
     [Description("Executions by task pagination is respected")]
-    public async Task ExecutionsPage_Pagination_RespectsParametersForTask()
+    public async Task TaskExecutionsApi_Pagination_RespectsParametersForTask()
     {
         // Arrange
         var tasks = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
@@ -82,7 +83,7 @@ public class ExecutionsPageTests : ApiTestBase
 
     [Test]
     [Description("Executions by session pagination is respected")]
-    public async Task ExecutionsPage_Pagination_RespectsParametersForSession()
+    public async Task TaskExecutionsApi_Pagination_RespectsParametersForSession()
     {
         // Act
         var result = await GetApiAsync<PagedResultDto<TaskExecutionDto>>(
@@ -97,7 +98,7 @@ public class ExecutionsPageTests : ApiTestBase
 
     [Test]
     [Description("Executions by task endpoint returns correct content type")]
-    public async Task ExecutionsPage_ContentType_IsApplicationJson()
+    public async Task TaskExecutionsApi_ContentType_IsApplicationJson()
     {
         // Arrange
         var tasks = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
@@ -113,8 +114,8 @@ public class ExecutionsPageTests : ApiTestBase
     }
 
     [Test]
-    [Description("Executions page returns consistent results on refresh")]
-    public async Task ExecutionsPage_Refresh_ReturnsConsistentResults()
+    [Description("The API returns consistent results on a repeated request")]
+    public async Task TaskExecutionsApi_Refresh_ReturnsConsistentResults()
     {
         // Arrange
         var tasks = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
@@ -134,7 +135,7 @@ public class ExecutionsPageTests : ApiTestBase
 
     [Test]
     [Description("Page 2 returns empty when no executions")]
-    public async Task ExecutionsPage_Page2_ReturnsEmptyWhenNoData()
+    public async Task TaskExecutionsApi_Page2_ReturnsEmptyWhenNoData()
     {
         // Arrange
         var tasks = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
@@ -151,7 +152,7 @@ public class ExecutionsPageTests : ApiTestBase
 
     [Test]
     [Description("Executions for both seeded tasks return empty results")]
-    public async Task ExecutionsPage_AllSeededTasks_HaveNoExecutions()
+    public async Task TaskExecutionsApi_AllSeededTasks_HaveNoExecutions()
     {
         // Arrange
         var tasks = await GetApiAsync<PagedResultDto<TaskDto>>("/api/tasks").ConfigureAwait(false);
@@ -169,7 +170,7 @@ public class ExecutionsPageTests : ApiTestBase
 
     [Test]
     [Description("Session-based execution query returns correct paged structure")]
-    public async Task ExecutionsPage_SessionQuery_ReturnsPagedStructure()
+    public async Task TaskExecutionsApi_SessionQuery_ReturnsPagedStructure()
     {
         // Act
         var result = await GetApiAsync<PagedResultDto<TaskExecutionDto>>(

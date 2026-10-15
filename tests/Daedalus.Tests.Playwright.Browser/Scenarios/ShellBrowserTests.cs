@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
 using Daedalus.Tests.Playwright.Browser.Utilities;
 
@@ -82,6 +83,7 @@ public class ShellBrowserTests : BrowserTestBase
     ///     Red: no backdrop rendered; the backdrop is never visible.
     ///     Red: <c>LocationChanged</c> does not close the menu; after the click to Tasks the backdrop is still there.
     ///     The closed sidebar after the navigation goes red under the same mutation, after the backdrop.
+    ///     Red: a navigation closes the menu without restoring the focus; it is not on the toggle.
     /// </summary>
     [Test]
     [Description("On a phone the menu overlays the page and closes on navigation")]
@@ -108,6 +110,7 @@ public class ShellBrowserTests : BrowserTestBase
 
         await Expect(Backdrop).ToHaveCountAsync(0).ConfigureAwait(false);
         await Expect(Sidebar).ToBeHiddenAsync().ConfigureAwait(false);
+        await WaitForFocusAsync(OnToggle, "a navigation from the menu returns the focus to the toggle").ConfigureAwait(false);
     }
 
     /// <summary>
@@ -183,6 +186,151 @@ public class ShellBrowserTests : BrowserTestBase
 
         await Expect(Sidebar).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(Backdrop).Not.ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     On a tablet, 768px to 1279px, the sidebar starts closed and opens beside the page, with no overlay: no backdrop,
+    ///     and the focus stays on the toggle.
+    ///     Red: no <c>(max-width: 1279.98px)</c> query, the sidebar starting open below 1280px; it is not collapsed on load.
+    ///     Red: the overlay taken for every width below 1280px; the opened tablet menu has a backdrop.
+    /// </summary>
+    [Test]
+    [Description("On a tablet the sidebar starts collapsed and opens with no overlay")]
+    public async Task On_a_tablet_the_sidebar_starts_collapsed()
+    {
+        await Page.SetViewportSizeAsync(1024, 800).ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
+
+        await Expect(Sidebar).ToHaveClassAsync(new Regex(@"\brz-sidebar-collapsed\b")).ConfigureAwait(false);
+
+        await Toggle.ClickAsync().ConfigureAwait(false);
+        await Expect(Sidebar).ToHaveClassAsync(new Regex(@"\brz-sidebar-expanded\b")).ConfigureAwait(false);
+        await Expect(Backdrop).ToHaveCountAsync(0).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The sidebar follows the width across 1280px: open on a desktop, closed once the window narrows to a tablet's
+    ///     width, open again when it widens.
+    ///     Red: <c>OnNarrowChanged</c> ignores the change; the sidebar stays open at 1024px.
+    /// </summary>
+    [Test]
+    [Description("Crossing 1280px closes and reopens the sidebar")]
+    public async Task Crossing_1280px_closes_and_reopens_the_sidebar()
+    {
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight).ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
+        await Expect(Sidebar).ToHaveClassAsync(new Regex(@"\brz-sidebar-expanded\b")).ConfigureAwait(false);
+
+        await Page.SetViewportSizeAsync(1024, 800).ConfigureAwait(false);
+        await Expect(Sidebar).ToHaveClassAsync(new Regex(@"\brz-sidebar-collapsed\b")).ConfigureAwait(false);
+
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight).ConfigureAwait(false);
+        await Expect(Sidebar).ToHaveClassAsync(new Regex(@"\brz-sidebar-expanded\b")).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     A closing sidebar stays visible while it narrows and hides at the end, so the collapse animates: at the moment
+    ///     the class turns collapsed the sidebar is still visible, and it ends hidden.
+    ///     Red: visibility left out of the sidebar's transition; it is hidden the moment it collapses.
+    /// </summary>
+    [Test]
+    [Description("Closing the sidebar animates before it hides")]
+    public async Task Closing_the_sidebar_animates_before_it_hides()
+    {
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight).ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
+        await Expect(Sidebar).ToHaveClassAsync(new Regex(@"\brz-sidebar-expanded\b")).ConfigureAwait(false);
+
+        var visibility = await Page.EvaluateAsync<string>(CollapseVisibilityScript).ConfigureAwait(false);
+
+        visibility.Should().Be("visible", "the sidebar is still visible as its collapse starts");
+        await Expect(Sidebar).ToBeHiddenAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The sidebar renders in the state its width gives from its very first frame: closed on a phone and a tablet,
+    ///     open on a desktop. An init script records the sidebar's class every time the document changes, from before
+    ///     the console starts, so a frame that showed the wrong state is recorded however briefly it lasted.
+    ///     Red: no width read before the first render and <c>_sidebarExpanded</c> starting true; at 1024px the sidebar
+    ///     is expanded, since the first media query report matches the initial narrow guess and changes nothing.
+    ///     Red: the width read but taken as a tablet's, the sidebar starting closed; at 1920px it is collapsed.
+    ///     The 375px case has no mutation that turns it red here: in test mode the media queries report before the
+    ///     sidebar's first render, which waits for the authentication state, so the phone collapse always lands first.
+    /// </summary>
+    [TestCase(PhoneWidth, PhoneHeight, false)]
+    [TestCase(1024, 800, false)]
+    [TestCase(DesktopWidth, DesktopHeight, true)]
+    [Description("The sidebar's first render matches its width")]
+    public async Task The_sidebar_first_renders_in_the_state_its_width_gives(int width, int height, bool expanded)
+    {
+        await Page.AddInitScriptAsync(SidebarStatesScript).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(width, height).ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
+        await Expect(Page.Locator(".rz-body h4").First).ToBeVisibleAsync().ConfigureAwait(false);
+
+        var states = await Page.EvaluateAsync<string[]>("() => window.__daedalusSidebarStates").ConfigureAwait(false);
+        var expected = expanded ? "expanded" : "collapsed";
+
+        states.Should().NotBeEmpty("the sidebar rendered");
+        states.Should().OnlyContain(state => state == expected,
+            $"at {width}px the sidebar is {expected} from its first frame: {string.Join(", ", states)}");
+    }
+
+    /// <summary>
+    ///     A phone menu closed while its focus module still loads keeps no hold on the keyboard: once the module arrives,
+    ///     Tab moves the focus on from the toggle as on any page. The module's first load is held back to open that gap.
+    ///     Red: no re-check after the awaits in <c>OnAfterRenderAsync</c>; the trap lands on the closed menu and swallows
+    ///     Tab, so the focus stays on the toggle.
+    /// </summary>
+    [Test]
+    [Description("A phone menu closed while its module loads leaves no trap behind")]
+    public async Task A_menu_closed_while_its_module_loads_leaves_no_trap()
+    {
+        var released = new TaskCompletionSource();
+        await Page.RouteAsync("**/js/menu-overlay.js", async route =>
+        {
+            await released.Task.ConfigureAwait(false);
+            await route.ContinueAsync().ConfigureAwait(false);
+        }).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(PhoneWidth, PhoneHeight).ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
+
+        await Toggle.ClickAsync().ConfigureAwait(false);
+        await Expect(Backdrop).ToBeVisibleAsync().ConfigureAwait(false);
+        await Toggle.ClickAsync().ConfigureAwait(false);
+        await Expect(Backdrop).ToHaveCountAsync(0).ConfigureAwait(false);
+
+        var loaded = Page.WaitForResponseAsync("**/js/menu-overlay.js");
+        released.SetResult();
+        await loaded.ConfigureAwait(false);
+        await Task.Delay(500).ConfigureAwait(false);
+        await Toggle.FocusAsync().ConfigureAwait(false);
+        await Page.Keyboard.PressAsync("Tab").ConfigureAwait(false);
+
+        (await Page.EvaluateAsync<bool>(OnToggle).ConfigureAwait(false))
+            .Should().BeFalse($"Tab moves on from the toggle, to {await FocusedAsync().ConfigureAwait(false)}");
+        (await Page.EvaluateAsync<bool>(InSidebar).ConfigureAwait(false)).Should().BeFalse("the closed menu takes no focus");
+    }
+
+    /// <summary>
+    ///     The user menu closes when the focus leaves it by Tab, as a menu does, and the focus goes on.
+    ///     Red: Tab not handled in the user menu; it stays open with the focus outside it.
+    /// </summary>
+    [Test]
+    [Description("The user menu closes when Tab leaves it")]
+    public async Task The_user_menu_closes_when_tab_leaves_it()
+    {
+        await Page.SetViewportSizeAsync(PhoneWidth, PhoneHeight).ConfigureAwait(false);
+        await OpenAsync("/").ConfigureAwait(false);
+
+        await UserMenuButton.ClickAsync().ConfigureAwait(false);
+        var menu = Page.GetByRole(AriaRole.Menu, new PageGetByRoleOptions { Name = "User menu", Exact = true });
+        var logOut = menu.GetByRole(AriaRole.Menuitem, new LocatorGetByRoleOptions { Name = "Log out", Exact = true });
+        await Expect(logOut).ToBeFocusedAsync().ConfigureAwait(false);
+
+        await Page.Keyboard.PressAsync("Tab").ConfigureAwait(false);
+
+        await Expect(menu).ToHaveCountAsync(0).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -434,6 +582,36 @@ public class ShellBrowserTests : BrowserTestBase
 
     private Task<string> FocusedAsync() =>
         Page.EvaluateAsync<string>("() => document.activeElement ? document.activeElement.outerHTML.slice(0, 160) : 'nothing'");
+
+    /// <summary>Clicks the toggle and reads the sidebar's visibility the moment its class turns collapsed.</summary>
+    private const string CollapseVisibilityScript = """
+        () => new Promise(resolve => {
+            const sidebar = document.querySelector('.rz-sidebar');
+            new MutationObserver((_, observer) => {
+                if (sidebar.classList.contains('rz-sidebar-collapsed')) {
+                    observer.disconnect();
+                    resolve(getComputedStyle(sidebar).visibility);
+                }
+            }).observe(sidebar, { attributes: true });
+            document.querySelector('.rz-sidebar-toggle').click();
+        })
+        """;
+
+    /// <summary>Records the sidebar's state each time the document changes, from before the console starts.</summary>
+    private const string SidebarStatesScript = """
+        (() => {
+            window.__daedalusSidebarStates = [];
+            const look = () => {
+                const sidebar = document.querySelector('.rz-sidebar');
+                if (!sidebar) { return; }
+                const state = sidebar.classList.contains('rz-sidebar-collapsed') ? 'collapsed'
+                    : sidebar.classList.contains('rz-sidebar-expanded') ? 'expanded' : 'other:' + sidebar.className;
+                const states = window.__daedalusSidebarStates;
+                if (states[states.length - 1] !== state) { states.push(state); }
+            };
+            new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true });
+        })();
+        """;
 
     private const string InSidebar = "() => !!document.activeElement && !!document.activeElement.closest('.rz-sidebar')";
 

@@ -98,8 +98,9 @@ public class NavigationBrowserTests : BrowserTestBase
 
     /// <summary>
     ///     The sidebar toggle can be seen against the header: its icon's contrast with the header background is at least
-    ///     3:1, the WCAG minimum for a user-interface component. Below 1280px the sidebar starts collapsed, so this button
-    ///     is the only way to the menu.
+    ///     3:1, the WCAG minimum for a user-interface component. Below 1280px the sidebar starts collapsed, as
+    ///     <c>ShellBrowserTests.On_a_tablet_the_sidebar_starts_collapsed</c> checks, so this button is the only way to the
+    ///     menu there.
     ///     Red: drop <c>--rz-sidebar-toggle-color</c> from daedalus-theme.css; Material draws the icon white on the white
     ///     header, a contrast of 1:1.
     /// </summary>

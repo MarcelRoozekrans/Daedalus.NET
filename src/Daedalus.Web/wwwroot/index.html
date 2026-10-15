@@ -65,6 +65,11 @@
     <a class="dismiss">🗙</a>
 </div>
 
+<script>
+    // MainLayout reads the viewport's width before its first render, so the menu starts in the state the width gives:
+    // closed below 1280px, open from it.
+    window.daedalusViewportWidth = () => window.innerWidth;
+</script>
 <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
 <script src="_content/Microsoft.AspNetCore.Components.WebAssembly.Authentication/AuthenticationService.js"></script>
 <script src="_framework/blazor.webassembly.js"></script>
