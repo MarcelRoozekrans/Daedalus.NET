@@ -70,9 +70,10 @@ internal sealed class TokenRefreshFails(RecordingNavigation navigation) : HttpMe
 /// <summary>An API client's HTTP client, as Program.cs builds it, over a token handler that cannot get a token.</summary>
 internal sealed class ExpiredSession : IDisposable
 {
-    public ExpiredSession()
+    /// <summary>A session whose waits are over at once, or follow <paramref name="time"/> when one is given.</summary>
+    public ExpiredSession(TimeProvider? time = null)
     {
-        Expiry = new SessionExpiry(Js, Navigation);
+        Expiry = new SessionExpiry(Js, Navigation, time ?? new ImmediateTime());
         Http = new HttpClient(new SessionExpiryHandler(Expiry) { InnerHandler = new TokenRefreshFails(Navigation) })
         {
             BaseAddress = new Uri("http://localhost"),
@@ -88,4 +89,11 @@ internal sealed class ExpiredSession : IDisposable
     public HttpClient Http { get; }
 
     public void Dispose() => Http.Dispose();
+}
+
+/// <summary>A clock whose timers fire at once, whatever they wait for: a test that is not about a wait does not wait.</summary>
+internal sealed class ImmediateTime : TimeProvider
+{
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+        System.CreateTimer(callback, state, TimeSpan.Zero, period);
 }

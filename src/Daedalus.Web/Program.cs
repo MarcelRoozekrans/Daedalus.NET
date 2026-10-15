@@ -73,6 +73,7 @@ if (!OperatingSystem.IsBrowser())
 // A request whose token cannot be refreshed ends the session and goes to sign in (SessionExpiry). The handler is the
 // outermost on the API client, so every caller of the client is covered. One SessionExpiry per app: the handler's own
 // DI scope and the layout must see the same one.
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<SessionExpiry>();
 builder.Services.AddTransient<SessionExpiryHandler>();
 

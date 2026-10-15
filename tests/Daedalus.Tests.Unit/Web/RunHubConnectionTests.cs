@@ -144,7 +144,7 @@ public sealed class RunHubConnectionTests : IDisposable
         tokens.RequestAccessToken().Returns(ValueTask.FromResult(navigation.RefreshFailed()));
         await using var services = new ServiceCollection()
             .AddSingleton(tokens)
-            .AddSingleton(new SessionExpiry(js, navigation))
+            .AddSingleton(new SessionExpiry(js, navigation, new ImmediateTime()))
             .BuildServiceProvider();
         await using var hub = Hub(User("developer"), services: services);
 

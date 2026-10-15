@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Daedalus.Web.Auth;
 using Daedalus.Web.Services;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Daedalus.Tests.Unit.Web;
 
@@ -85,9 +86,39 @@ public sealed class SessionExpiryTests : IDisposable
         _session.Navigation.Navigations.Should().HaveCount(2);
     }
 
-    private async Task<string?> CallAsync(string call)
+    /// <summary>
+    ///     The browser leaves for sign-in only once the layout's notice has been on screen for 1.5 seconds, so it can be
+    ///     read; the session has ended, and its stored user is gone, from the start.
+    ///     Red: the wait dropped from SignInAgainAsync; the navigation is recorded before any time passes.
+    ///     Red: <c>NoticeTime</c> set to 100ms, as the 0.1s the review measured; the navigation is recorded 1.499s in.
+    ///     Red: the wait placed before ClearStoredUserAsync; no clearStoredUser call is recorded before time passes.
+    ///     Red: <c>Expired = true</c> and its event moved after the wait; Expired is false before time passes.
+    ///     Red: the Redirect dropped after the wait; no navigation is recorded once 1.5 seconds have passed.
+    ///     Red: restore "Please log in to access this data." in ApiClient.GetAsync; the call's error differs.
+    /// </summary>
+    [Fact]
+    public async Task The_redirect_waits_while_the_notice_is_read()
     {
-        var http = _session.Http;
+        var time = new FakeTimeProvider();
+        using var session = new ExpiredSession(time);
+
+        var call = CallAsync(session, "ApiClient.GetTasksAsync");
+
+        session.Expiry.Expired.Should().BeTrue("the session ends at once");
+        session.Js.Calls.Should().Contain("module.clearStoredUser", "the stored user is cleared at once");
+        session.Navigation.Navigations.Should().BeEmpty("the notice is on screen first");
+        time.Advance(TimeSpan.FromMilliseconds(1499));
+        session.Navigation.Navigations.Should().BeEmpty("the notice stays for 1.5 seconds");
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        (await call).Should().Be(SessionExpiry.SigningInAgain);
+        session.Navigation.Navigations.Should().ContainSingle("then the browser goes to sign in");
+    }
+
+    private Task<string?> CallAsync(string call) => CallAsync(_session, call);
+
+    private static async Task<string?> CallAsync(ExpiredSession session, string call)
+    {
+        var http = session.Http;
         var api = new ApiClient(http);
         var agents = new AgentApiClient(http);
         var projects = new ProjectApiClient(api, http);
