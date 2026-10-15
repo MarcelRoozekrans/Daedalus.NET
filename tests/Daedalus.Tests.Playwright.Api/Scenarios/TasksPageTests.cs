@@ -49,6 +49,51 @@ public class TasksPageTests : ApiTestBase
     }
 
     [Test]
+    [Description("A task needs only a project, a title and a description")]
+    public async Task Creating_a_task_with_only_project_title_and_description_succeeds()
+    {
+        var projects = await GetApiAsync<PagedResultDto<ProjectDto>>("/api/projects").ConfigureAwait(false);
+        if (projects is null || projects.Items.Count == 0)
+        {
+            Assert.Inconclusive("The seeded stack has no project to create a task in.");
+            return;
+        }
+
+        var response = await PostApiAsync("/api/tasks", new
+        {
+            projectId = projects.Items[0].Id,
+            title = "Prompt-less task",
+            description = "Only the three fields"
+        }).ConfigureAwait(false);
+
+        // Red: restore the required Prompt rule in CreateTaskDto; the create is then 400.
+        response.Status.Should().Be(201, await response.TextAsync().ConfigureAwait(false));
+        var created = JsonSerializer.Deserialize<TaskDto>(
+            await response.TextAsync().ConfigureAwait(false), ApiJsonOptions);
+        // Red: drop the description fallback in the handler; the create is then refused.
+        created!.Prompt.Should().Be("Only the three fields");
+    }
+
+    [Test]
+    [Description("A refused create explains itself in ProblemDetails")]
+    public async Task A_refused_create_returns_problem_details_with_the_reason()
+    {
+        var response = await PostApiAsync("/api/tasks", new
+        {
+            projectId = Guid.NewGuid(),
+            title = "No such project",
+            description = "d"
+        }).ConfigureAwait(false);
+
+        // Red: return BadRequest with an anonymous error object; the content type fails.
+        response.Status.Should().Be(400);
+        response.Headers["Content-Type"].Should().StartWith("application/problem+json");
+        using var doc = JsonDocument.Parse(await response.TextAsync().ConfigureAwait(false));
+        // Red: same mutation; the body then has no detail member.
+        doc.RootElement.GetProperty("detail").GetString().Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Test]
     [Description("Verify task information is complete")]
     public async Task TasksPageShould_DisplayCompleteTaskInfo()
     {

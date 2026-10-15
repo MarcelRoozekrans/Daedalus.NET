@@ -98,7 +98,23 @@ public sealed partial class TasksController(
 
         return result.IsSuccess
             ? CreatedAtAction(nameof(GetTaskById), new { id = result.Value.Id }, result.Value)
-            : BadRequest(new { error = result.Error });
+            : RefusedCreateProblem(result.Error);
+    }
+
+    /// <summary>
+    ///     A ProblemDetails 400 that keeps <c>application/problem+json</c>. The controller-level
+    ///     <c>[Produces("application/json")]</c> overwrites the content types of any <c>ObjectResult</c>,
+    ///     <c>Problem</c> included, so this returns a <see cref="JsonResult"/>, which the filter leaves alone.
+    /// </summary>
+    private JsonResult RefusedCreateProblem(string detail)
+    {
+        var problem = ProblemDetailsFactory.CreateProblemDetails(
+            HttpContext, StatusCodes.Status400BadRequest, detail: detail);
+        return new JsonResult(problem)
+        {
+            StatusCode = StatusCodes.Status400BadRequest,
+            ContentType = "application/problem+json"
+        };
     }
 
     /// <summary>Update a task's metadata.</summary>
