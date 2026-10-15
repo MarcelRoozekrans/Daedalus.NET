@@ -51,6 +51,25 @@ public sealed class NeedsMeTests
     }
 
     /// <summary>
+    ///     An empty card says what is empty; when the list has more than the page read, as when a server filter leaves a
+    ///     page with nothing of the card's, it says only the latest 20 runs had none, under its "(0+)" heading.
+    ///     Red, per card: its method passes more: false to Empty; its incomplete case is wrong.
+    ///     Red, per card: its method passes more: true to Empty; its complete case is wrong.
+    ///     Red: InLatest hardcodes "20" and Take becomes 25; the text does not name the page read.
+    /// </summary>
+    [Fact]
+    public void An_empty_card_says_how_much_was_read_when_the_list_has_more()
+    {
+        NeedsMe.NothingWaiting(more: false).Should().Be("Nothing waiting for approval.");
+        NeedsMe.NothingWaiting(more: true).Should().Be("Nothing waiting for approval in the latest 20 runs.");
+        NeedsMe.NothingRunning(more: false).Should().Be("Nothing running.");
+        NeedsMe.NothingRunning(more: true).Should().Be("Nothing running in the latest 20 runs.");
+        NeedsMe.NoFailedRuns(more: false).Should().Be("No failed runs in the last 7 days.");
+        NeedsMe.NoFailedRuns(more: true).Should().Be("No failed runs in the last 7 days in the latest 20 runs.");
+        NeedsMe.NothingWaiting(more: true).Should().Contain($" {NeedsMe.Take} runs", "the text names the page the card read");
+    }
+
+    /// <summary>
     ///     The pull requests card lists the first 5 runs, in the list's newest-first order, that have a pull request.
     ///     Red: no PrUrl filter; a run without a pull request is listed.
     ///     Red: take 6; six rows are listed.

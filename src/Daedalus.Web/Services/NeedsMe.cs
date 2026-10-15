@@ -52,8 +52,24 @@ public static class NeedsMe
     ///     What the pull requests card says when it found none: there are none at all only when the page it read was the
     ///     whole list; otherwise only the latest <see cref="Take"/> runs had none.
     /// </summary>
-    public static string NoPullRequests(bool more) =>
-        more ? string.Create(CultureInfo.InvariantCulture, $"No pull requests in the latest {Take} runs.") : "No pull requests yet.";
+    public static string NoPullRequests(bool more) => more ? InLatest("No pull requests") : "No pull requests yet.";
+
+    /// <summary>What the awaiting card says when it is empty, and, when the list has more, how much it read.</summary>
+    public static string NothingWaiting(bool more) => Empty("Nothing waiting for approval", more);
+
+    /// <summary>What the running card says when it is empty, and, when the list has more, how much it read.</summary>
+    public static string NothingRunning(bool more) => Empty("Nothing running", more);
+
+    /// <summary>What the failed card says when it is empty, and, when the list has more, how much it read.</summary>
+    public static string NoFailedRuns(bool more) => Empty("No failed runs in the last 7 days", more);
+
+    /// <summary>
+    ///     <paramref name="none"/> as a sentence; when the list has more than the page read, it says it is about the latest
+    ///     <see cref="Take"/> runs only, so a "(0+)" heading is not read as "there are none".
+    /// </summary>
+    private static string Empty(string none, bool more) => more ? InLatest(none) : $"{none}.";
+
+    private static string InLatest(string none) => string.Create(CultureInfo.InvariantCulture, $"{none} in the latest {Take} runs.");
 
     /// <summary>A row's name: the run's task, or, for a run with no task, its process and short id.</summary>
     public static string Name(WorkflowRunListItem run) => run.TaskTitle ?? $"{run.Process} run {run.Id.ToString()[..8]}";
