@@ -209,7 +209,11 @@ public sealed partial class RunHubConnection(
         .AddJsonProtocol(o => o.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, WorkflowRunsJsonContext.Default))
         .Build();
 
-    /// <summary>The bearer token for the hub, or none in test mode, where no token provider is registered.</summary>
+    /// <summary>
+    ///     The bearer token for the hub, or none in test mode, where no token provider is registered. A token that cannot
+    ///     be refreshed ends the session through <see cref="SessionExpiry"/>, as an API request's does, and fails the
+    ///     start or reconnect with the provider's exception instead of connecting without a token.
+    /// </summary>
     private async Task<string?> ReadTokenAsync()
     {
         if (services.GetService<IAccessTokenProvider>() is not { } provider)
@@ -218,7 +222,15 @@ public sealed partial class RunHubConnection(
         }
 
         var result = await provider.RequestAccessToken();
-        return result.TryGetToken(out var token) ? token.Value : null;
+        if (result.TryGetToken(out var token))
+        {
+            return token.Value;
+        }
+
+        var expiry = services.GetRequiredService<SessionExpiry>();
+        var unavailable = expiry.Unavailable(result);
+        await expiry.SignInAgainAsync(unavailable);
+        throw unavailable;
     }
 
     private async Task OnChangedAsync(WorkflowRunChanged change)

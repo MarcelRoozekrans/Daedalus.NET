@@ -3,15 +3,18 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Claims;
 using Daedalus.Application.DTOs.WorkflowRuns;
+using Daedalus.Web.Auth;
 using Daedalus.Web.State;
 using Daedalus.Web.State.Runs;
 using Daedalus.Web.State.Tasks;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NSubstitute;
 using ZeroAlloc.Flux;
 using ZeroAlloc.Flux.Generated;
 
@@ -121,6 +124,34 @@ public sealed class RunHubConnectionTests : IDisposable
 
         await hub.EnsureStartedAsync(CancellationToken.None);
 
+        _dispatcher.Actions.Should().Equal(new HubStatusChanged(HubStatus.Disconnected));
+    }
+
+    /// <summary>
+    ///     A hub token that cannot be refreshed ends the session as an API request's does: the stored user is cleared
+    ///     and the browser goes to sign-in, and the start is Disconnected, not a connection without a token.
+    ///     Red: restore the old ReadTokenAsync, which returned null when no token came; nothing is navigated.
+    ///     Red: skip ClearStoredUserAsync in SessionExpiry.SignInAgainAsync; no clearStoredUser call is recorded.
+    ///     Red: exclude AccessTokenNotAvailableException from TryStartAsync's catch; the exception escapes
+    ///     EnsureStartedAsync instead of a Disconnected status.
+    /// </summary>
+    [Fact]
+    public async Task A_hub_token_that_cannot_be_refreshed_signs_in_again()
+    {
+        var navigation = new RecordingNavigation();
+        var js = new RecordingJsRuntime();
+        var tokens = Substitute.For<IAccessTokenProvider>();
+        tokens.RequestAccessToken().Returns(ValueTask.FromResult(navigation.RefreshFailed()));
+        await using var services = new ServiceCollection()
+            .AddSingleton(tokens)
+            .AddSingleton(new SessionExpiry(js, navigation))
+            .BuildServiceProvider();
+        await using var hub = Hub(User("developer"), services: services);
+
+        await hub.EnsureStartedAsync(CancellationToken.None);
+
+        navigation.Navigations.Should().ContainSingle().Which.Uri.Should().Be("authentication/login");
+        js.Calls.Should().Contain("module.clearStoredUser");
         _dispatcher.Actions.Should().Equal(new HubStatusChanged(HubStatus.Disconnected));
     }
 
@@ -259,14 +290,18 @@ public sealed class RunHubConnectionTests : IDisposable
     ///     A connection whose background retries wait an hour unless a test passes another policy, so a test sees only
     ///     the tries it makes itself.
     /// </summary>
-    private RunHubConnection Hub(ClaimsPrincipal user, Action<HttpConnectionOptions>? transport = null, IRetryPolicy? retries = null)
+    private RunHubConnection Hub(
+        ClaimsPrincipal user,
+        Action<HttpConnectionOptions>? transport = null,
+        IRetryPolicy? retries = null,
+        IServiceProvider? services = null)
     {
         var dispatcher = _provider.GetRequiredService<IDispatcher>();
         var api = _handler.Client();
         return new RunHubConnection(
             new ApiBaseAddress(new Uri($"http://127.0.0.1:{RefusedPort()}")),
             new FixedAuthentication(user),
-            _provider,
+            services ?? _provider,
             _dispatcher,
             new RunsEffects(api, dispatcher, _provider.GetRequiredService<IStore<RunsState>>()),
             new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()),

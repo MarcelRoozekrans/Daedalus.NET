@@ -1,5 +1,6 @@
 @page "/agent"
 @page "/agent/{SessionId}"
+@attribute [Authorize]
 @using System.Diagnostics
 @using System.Globalization
 @using Daedalus.Application.DTOs.Agents
@@ -525,9 +526,9 @@
         {
             // Page disposed or session switched while streaming: nothing left to show here.
         }
-        catch (AccessTokenNotAvailableException ex)
+        catch (AccessTokenNotAvailableException)
         {
-            ex.Redirect();
+            // The API client's SessionExpiryHandler has already sent the user to sign in.
         }
         catch (HttpRequestException ex)
         {

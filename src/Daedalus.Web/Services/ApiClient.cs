@@ -2,6 +2,7 @@ global using ZeroAlloc.Results;
 using System.Net;
 using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Application.DTOs.WorkflowRuns;
+using Daedalus.Web.Auth;
 using Daedalus.Web.State.Runs;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
@@ -14,7 +15,10 @@ namespace Daedalus.Web.Services;
 
 // DTOs (copied from API for client-side use)
 
-/// <summary>HTTP client service for communicating with the API.</summary>
+/// <summary>
+///     HTTP client service for communicating with the API. A request whose token cannot be refreshed has already sent
+///     the user to sign in, through <see cref="SessionExpiryHandler"/>; it returns <see cref="SessionExpiry.SigningInAgain"/>.
+/// </summary>
 public sealed class ApiClient(HttpClient httpClient)
 {
     /// <summary>
@@ -33,7 +37,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result<T>.Failure("Please log in to access this data.");
+            return Result<T>.Failure(SessionExpiry.SigningInAgain);
         }
         catch (HttpRequestException ex)
         {
@@ -147,7 +151,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result<T>.Failure("Please log in to perform this action.");
+            return Result<T>.Failure(SessionExpiry.SigningInAgain);
         }
         catch (HttpRequestException ex)
         {
@@ -173,7 +177,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result.Failure("Please log in to perform this action.");
+            return Result.Failure(SessionExpiry.SigningInAgain);
         }
         catch (HttpRequestException ex)
         {
@@ -230,7 +234,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (AccessTokenNotAvailableException)
         {
-            return Result<RunLookup>.Failure("Please log in to perform this action.");
+            return Result<RunLookup>.Failure(SessionExpiry.SigningInAgain);
         }
         catch (HttpRequestException ex)
         {
