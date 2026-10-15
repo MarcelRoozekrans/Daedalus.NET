@@ -90,7 +90,7 @@ only once something demonstrably better runs in its place.
 | 2.10 | Per-node model and tool selection with Minos.NET | complete |
 | 2.11 | The GitHub HTTP path | complete (2026-10-12; #343) |
 | 2.12 | Manufacturing console | complete (2026-10-13; #352) |
-| 2.13 | Navigation and flow review | active |
+| 2.13 | Navigation and flow review | complete |
 | 2.14 | Flux across the Web app | pending |
 
 Full phase text, including what each completed phase actually proved and carried forward, is in
