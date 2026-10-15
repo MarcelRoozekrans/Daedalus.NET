@@ -1,13 +1,13 @@
 @* The create and edit dialogs' fields, in the contract's order. It sits inside a RadzenTemplateForm, whose EditContext the
    validators join, so a required field is checked on blur and on submit and its error shows under it. *@
 
-<RadzenFormField Text="Project" Style="width: 100%;">
+<RadzenFormField Text="Project" Component="Project" Style="width: 100%;">
     <ChildContent>
         <RadzenDropDown @ref="_project" TValue="Guid?" Name="Project" @bind-Value="@Model.ProjectId" Data="@Projects"
                         ValueProperty="Id" TextProperty="ProjectName" AllowFiltering="true"
                         FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" Disabled="@ProjectLocked"
                         Placeholder="@(Projects is null && ProjectError is null ? "Loading projects…" : "Choose a project")"
-                        Style="width: 100%;" data-testid="task-project">
+                        Style="width: 100%;" InputAttributes="@ProjectInput" data-testid="task-project">
             <Template Context="item">
                 @{ var project = (ProjectDto)item; }
                 <RadzenStack Gap="0">
@@ -37,7 +37,7 @@
     </Helper>
 </RadzenFormField>
 
-<RadzenFormField Text="Title" Style="width: 100%;">
+<RadzenFormField Text="Title" Component="Title" Style="width: 100%;">
     <ChildContent>
         <RadzenTextBox Name="Title" @bind-Value="@Model.Title" Style="width: 100%;" data-testid="task-title"/>
     </ChildContent>
@@ -46,7 +46,7 @@
     </Helper>
 </RadzenFormField>
 
-<RadzenFormField Text="Description" Style="width: 100%;">
+<RadzenFormField Text="Description" Component="Description" Style="width: 100%;">
     <ChildContent>
         <RadzenTextArea Name="Description" @bind-Value="@Model.Description" Rows="3" Style="width: 100%;"
                         data-testid="task-description"/>
@@ -58,21 +58,21 @@
 
 <RadzenRow Gap="1rem">
     <RadzenColumn Size="12" SizeSM="6">
-        <RadzenFormField Text="Priority" Style="width: 100%;">
-            <RadzenDropDown TValue="int" @bind-Value="@Model.Priority" Data="@Priorities" TextProperty="Text"
-                            ValueProperty="Value" Style="width: 100%;"/>
+        <RadzenFormField Text="Priority" Component="Priority" Style="width: 100%;">
+            <RadzenDropDown TValue="int" Name="Priority" @bind-Value="@Model.Priority" Data="@Priorities" TextProperty="Text"
+                            ValueProperty="Value" Style="width: 100%;" InputAttributes="@PriorityInput"/>
         </RadzenFormField>
     </RadzenColumn>
     <RadzenColumn Size="12" SizeSM="6">
-        <RadzenFormField Text="Complexity" Style="width: 100%;">
-            <RadzenDropDown TValue="int" @bind-Value="@Model.EstimatedComplexity" Data="@Complexities" TextProperty="Text"
-                            ValueProperty="Value" Style="width: 100%;"/>
+        <RadzenFormField Text="Complexity" Component="Complexity" Style="width: 100%;">
+            <RadzenDropDown TValue="int" Name="Complexity" @bind-Value="@Model.EstimatedComplexity" Data="@Complexities"
+                            TextProperty="Text" ValueProperty="Value" Style="width: 100%;" InputAttributes="@ComplexityInput"/>
         </RadzenFormField>
     </RadzenColumn>
 </RadzenRow>
 
 <RadzenFieldset Text="Advanced" AllowCollapse="true" Collapsed="true" Style="width: 100%;">
-    <RadzenFormField Text="Prompt" Style="width: 100%;">
+    <RadzenFormField Text="Prompt" Component="Prompt" Style="width: 100%;">
         <ChildContent>
             <RadzenTextArea Name="Prompt" @bind-Value="@Model.Prompt" Rows="5" Style="width: 100%;" data-testid="task-prompt"/>
         </ChildContent>
@@ -86,6 +86,16 @@
 
 @code {
     private RadzenDropDown<Guid?>? _project;
+
+    // Each field's accessible name is its visible label. A FormField's Component points its label at the input of that
+    // Name, which is enough for a text box. A drop-down names its own input after the selected value, which wins over
+    // the label, so its input is named here instead.
+    private static readonly Dictionary<string, object> ProjectInput = Named("Project");
+    private static readonly Dictionary<string, object> PriorityInput = Named("Priority");
+    private static readonly Dictionary<string, object> ComplexityInput = Named("Complexity");
+
+    private static Dictionary<string, object> Named(string label) =>
+        new(StringComparer.Ordinal) { ["aria-label"] = label };
 
     private readonly record struct Choice(string Text, int Value);
 

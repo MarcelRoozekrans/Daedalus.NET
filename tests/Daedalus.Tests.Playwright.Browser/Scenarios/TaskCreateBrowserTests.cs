@@ -554,4 +554,49 @@ public class TaskCreateBrowserTests : BrowserTestBase
             .ConfigureAwait(false);
         (await focused.JsonValueAsync<bool>().ConfigureAwait(false)).Should().BeTrue();
     }
+
+    /// <summary>
+    ///     Every field in the create and the edit dialog is named for a screen reader by its visible label, so a role query
+    ///     by that label finds exactly one field. The drop-downs are Radzen's, whose input Radzen names after the value.
+    ///     Red: <c>Component</c> dropped from Title's form field; the label points at nothing and no textbox is named Title.
+    ///     Red: <c>Component</c> dropped from Description's form field; no textbox is named Description.
+    ///     Red: <c>Component</c> dropped from Prompt's form field; no textbox is named Prompt.
+    ///     Red: the Project picker's <c>InputAttributes</c> removed; it is named "Empty", not Project.
+    ///     Red: the Priority picker's <c>InputAttributes</c> removed; it is named "1", not Priority.
+    ///     Red: the Complexity picker's <c>InputAttributes</c> removed; it is named "1", not Complexity.
+    ///     Each goes red in both dialogs: they share <c>TaskFields</c>.
+    /// </summary>
+    [TestCase("create")]
+    [TestCase("edit")]
+    [Description("Every task dialog field is named by its label")]
+    public async Task Every_task_dialog_field_is_named_by_its_label(string dialog)
+    {
+        await _tasks.NavigateAsync().ConfigureAwait(false);
+        if (string.Equals(dialog, "create", StringComparison.Ordinal))
+        {
+            await _tasks.OpenCreateDialogAsync().ConfigureAwait(false);
+        }
+        else
+        {
+            await _tasks.GetEditButton("Fix bug B").ClickAsync().ConfigureAwait(false);
+            await Expect(_tasks.TitleInput).ToBeVisibleAsync().ConfigureAwait(false);
+        }
+
+        await _tasks.Dialog.GetByText("Advanced", new LocatorGetByTextOptions { Exact = true }).ClickAsync().ConfigureAwait(false);
+
+        var unnamed = new List<string>();
+        foreach (var label in new[] { "Project", "Title", "Description", "Priority", "Complexity", "Prompt" })
+        {
+            var count = await _tasks.Dialog
+                .GetByRole(AriaRole.Textbox, new LocatorGetByRoleOptions { Name = label, Exact = true })
+                .CountAsync().ConfigureAwait(false);
+            if (count != 1)
+            {
+                unnamed.Add($"{label} ({count} found)");
+            }
+        }
+
+        string.Join("; ", unnamed).Should().BeEmpty($"every field in the {dialog} dialog is named by its label:\n"
+            + await _tasks.Dialog.AriaSnapshotAsync().ConfigureAwait(false));
+    }
 }
