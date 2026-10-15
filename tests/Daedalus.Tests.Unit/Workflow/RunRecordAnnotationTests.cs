@@ -325,7 +325,7 @@ public sealed class RunRecordAnnotationTests
 
     /// <summary>
     ///     A run the inner store cannot find is treated as unpinned, not as a crash - the same "answer the safe
-    ///     default rather than throw" shape <c>ReviewHandoffWorkflowStore.ProjectionForAsync</c> uses for an
+    ///     default rather than throw" shape <c>ReviewHandoffWorkflowStore.ProjectionFor</c> uses for an
     ///     unresolvable definition, because a run about to fail its own lookup elsewhere has no manifest worth
     ///     asserting either way.
     /// </summary>

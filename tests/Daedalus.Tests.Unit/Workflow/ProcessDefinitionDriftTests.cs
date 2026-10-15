@@ -9,7 +9,7 @@ namespace Daedalus.Tests.Unit.Workflow;
 ///     <c>retrospect</c> node to the exact skill name <see cref="ReviewHandoff.RetrospectSkillName"/> names. A
 ///     process author who renamed the node's <c>skill:</c> — even to something that still parses and validates —
 ///     would silently stop the retrospect projection and the standing-instructions block from ever applying to
-///     that node, with no error anywhere: <c>ReviewHandoffWorkflowStore.ProjectionForAsync</c> would answer
+///     that node, with no error anywhere: <c>ReviewHandoffWorkflowStore.ProjectionFor</c> would answer
 ///     <see langword="null"/> instead of <see cref="ReviewHandoff.RetrospectReads"/>, and the node would receive
 ///     the implementer's whole narrative — exactly the leak the projection exists to prevent.
 /// </summary>

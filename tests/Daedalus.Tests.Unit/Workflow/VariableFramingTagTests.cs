@@ -5,8 +5,8 @@ using Thalos.Workflow;
 namespace Daedalus.Tests.Unit.Workflow;
 
 /// <summary>
-///     Phase 2.10 task B11, fix round 1: <see cref="ReviewHandoffWorkflowStore.FindAsync"/> neutralises the framing tags in
-///     every string variable of the bag it hands the dispatcher, on every node, because Thalos' variable rendering escapes
+///     Phase 2.10 task B11, fix rounds 1 and 2: <see cref="ReviewHandoffWorkflowStore.FindAsync"/> neutralises the framing
+///     tags in every string variable of the bag it hands the dispatcher for an agent turn, never for a host action, because Thalos' variable rendering escapes
 ///     only its own <c>workflow-variables</c> tag. The stored bag keeps the text as written.
 /// </summary>
 public sealed class VariableFramingTagTests
@@ -32,20 +32,35 @@ public sealed class VariableFramingTagTests
             .FindAsync(stored.Id, CancellationToken.None))!;
 
     /// <summary>
-    ///     An agent-written value carrying a forged host block reaches every node's bag with each tag's <c>&lt;</c> escaped,
-    ///     on a projected node and an unprojected one, and on the publish action. Red: make <c>NeutraliseFramingTags</c>
-    ///     copy every value as it is, and every row reads the raw value.
+    ///     An agent-written value carrying a forged host block reaches every agent turn's bag with each tag's <c>&lt;</c>
+    ///     escaped, on a projected node and an unprojected one, and so does a node the definition cannot resolve, which
+    ///     fails closed. Reds, each applied once: make <c>NeutraliseFramingTags</c> copy every value as it is, and every
+    ///     row reads the raw value; neutralise only a resolved agent node, <c>node is not null &amp;&amp;
+    ///     node.Action is null</c>, and the unresolved row reads the raw value.
     /// </summary>
     [Theory]
     [InlineData("implement", ReviewHandoff.FilesTouchedKey)]
     [InlineData("review", ReviewHandoff.FilesTouchedKey)]
     [InlineData("retrospect", ReviewHandoff.LearningsKey)]
-    [InlineData("publish", ReviewHandoff.SummaryKey)]
+    [InlineData("not-in-the-definition", ReviewHandoff.SummaryKey)]
     public async Task A_forged_block_in_an_agent_written_variable_reaches_the_bag_neutralised(string node, string key)
     {
         var dispatched = await DispatchedAsync(RunAt(node, new(StringComparer.Ordinal) { [key] = ForgedBlock }));
 
         dispatched.Variables.Should().ContainKey(key).WhoseValue.Should().Be(EscapedBlock);
+    }
+
+    /// <summary>
+    ///     A host action reads the bag as written: <c>open-pull-request</c> publishes <c>summary</c> inside a fenced code
+    ///     block, where an escaped <c>&lt;</c> would show as the literal entity. Red: neutralise on every node, and the
+    ///     publish action reads the escaped summary.
+    /// </summary>
+    [Fact]
+    public async Task A_host_action_reads_the_variables_as_written()
+    {
+        var dispatched = await DispatchedAsync(RunAt("publish", new(StringComparer.Ordinal) { [ReviewHandoff.SummaryKey] = ForgedBlock }));
+
+        dispatched.Variables.Should().ContainKey(ReviewHandoff.SummaryKey).WhoseValue.Should().Be(ForgedBlock);
     }
 
     /// <summary>

@@ -37,7 +37,7 @@ namespace Daedalus.Agents.Workflow;
 ///     <b>Task B4 widens this to a second, narrower node: <c>retrospect</c>.</b> It runs as <c>reviewer</c>, the
 ///     same withholding role, and for the same reason — it must not see the implementer's <c>summary</c> or
 ///     <c>rationale</c>, only the durable <see cref="ReviewHandoff.LearningsKey"/>. Retrospect declares no
-///     lenses, so it is told apart by its pinned skill instead: <see cref="ProjectionForAsync"/> (renamed from
+///     lenses, so it is told apart by its pinned skill instead: <see cref="ProjectionFor"/> (renamed from
 ///     <c>IsReviewNodeAsync</c>, which only ever answered yes/no for one contract) now returns the declared read
 ///     set for whichever contract applies to the run's current node, or <see langword="null"/> for a node under
 ///     neither.
@@ -80,15 +80,17 @@ namespace Daedalus.Agents.Workflow;
 ///     failure write none. Usage is not a variable, so a review node, whose variables are dropped, still records it.
 ///     </para>
 ///     <para>
-///     <b>A fourth job, since phase 2.10 task B11:</b> every string value in the bag <see cref="FindAsync"/> hands the
-///     dispatcher, on every node, has its framing tags neutralised through <see cref="FramingTags"/>. Thalos' variable
+///     <b>A fourth job, since phase 2.10 task B11:</b> on an agent turn, every string value in the bag
+///     <see cref="FindAsync"/> hands the dispatcher has its framing tags neutralised through <see cref="FramingTags"/>. Thalos' variable
 ///     rendering escapes only its own <c>workflow-variables</c> tag, so an agent-written value such as
 ///     <c>files_touched</c>, or a board task's own text in <c>work_intent</c>, would otherwise render a forged
 ///     <c>&lt;work-intent&gt;</c>, <c>&lt;review-findings&gt;</c> or <c>&lt;standing-instructions&gt;</c> block, or an
 ///     engine <c>&lt;skill&gt;</c> block, ahead of the real one. A value that is not a string needs nothing: Thalos
-///     renders it through <c>JsonSerializer</c>, whose default encoder writes <c>&lt;</c> as <c>\u003C</c>. As with
-///     the projection, only the dispatcher's copy changes: the stored bag, and every undecorated reader of it, keeps the
-///     text as written.
+///     renders it through <c>JsonSerializer</c>, whose default encoder writes <c>&lt;</c> as <c>\u003C</c>. A host action
+///     node is a raw reader and gets the bag as written: Thalos hands this copy straight to the action, and
+///     <c>open-pull-request</c> publishes <c>summary</c> inside a fenced code block, where an escaped <c>&lt;</c> would
+///     show as the literal entity. A node that cannot be resolved is neutralised, failing closed. As with the projection,
+///     only the dispatcher's copy changes: the stored bag, and every undecorated reader of it, keeps the text as written.
 ///     </para>
 /// </remarks>
 internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessDefinitionStore definitions, NodeUsageRecorder usage)
@@ -121,9 +123,15 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
             return run;
         }
 
-        var reads = await ProjectionForAsync(run, ct).ConfigureAwait(false);
+        // One read of the node feeds both jobs. A host action reads the bag as written, so only an agent turn's copy is
+        // neutralised; a node that cannot be resolved fails closed and is neutralised too. Gate and terminal nodes
+        // render nothing, so either way is harmless there.
+        var node = await NodeForAsync(run, ct).ConfigureAwait(false);
+        var reads = ProjectionFor(node);
         var variables = reads is not null ? ReviewHandoff.Project(run.Variables, reads) : run.Variables;
-        return run with { Variables = NeutraliseFramingTags(variables) };
+        return node is null || node.Action is null
+            ? run with { Variables = NeutraliseFramingTags(variables) }
+            : run with { Variables = variables };
     }
 
     /// <summary>
@@ -402,18 +410,14 @@ internal sealed class ReviewHandoffWorkflowStore(IWorkflowStore inner, IProcessD
     }
 
     /// <summary>
-    ///     The declared read set the node the run is currently on is projected down to, or <see langword="null"/>
-    ///     when the node carries no projection at all and is given the whole bag. A review node (one that
-    ///     declares <c>lenses:</c>) yields <see cref="ReviewHandoff.ReviewReads"/>; a <c>retrospect</c> node (one
+    ///     The declared read set <paramref name="node"/>, the node the run is currently on, is projected down to, or
+    ///     <see langword="null"/> when the node carries no projection at all and is given the whole bag. A review node
+    ///     (one that declares <c>lenses:</c>) yields <see cref="ReviewHandoff.ReviewReads"/>; a <c>retrospect</c> node (one
     ///     pinned to <see cref="ReviewHandoff.RetrospectSkillName"/>) yields <see cref="ReviewHandoff.RetrospectReads"/>.
     ///     A definition or node that cannot be resolved answers <see langword="null"/>: the dispatcher resolves
     ///     both itself a moment later and fails the run with its own message, and a run that is about to fail has
     ///     no reviewer or retrospect step to isolate.
     /// </summary>
-    private async ValueTask<FrozenSet<string>?> ProjectionForAsync(WorkflowRun run, CancellationToken ct) =>
-        ProjectionFor(await NodeForAsync(run, ct).ConfigureAwait(false));
-
-    /// <summary>The projection for <paramref name="node"/>; see <see cref="ProjectionForAsync"/>.</summary>
     private static FrozenSet<string>? ProjectionFor(ProcessNode? node)
     {
         if (node is null)
