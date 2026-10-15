@@ -148,13 +148,21 @@ else
                     CredentialIdentifier = repo.CredentialIdentifier,
                     Description = repo.Description
                 };
-                await Http.PostAsJsonAsync("api/repositories", createDto);
-                NotificationService.Notify(NotificationSeverity.Success, "Created", "Repository added successfully.");
+                using var response = await Http.PostAsJsonAsync("api/repositories", createDto);
+                if (response.IsSuccessStatusCode)
+                {
+                    NotificationService.Notify(NotificationSeverity.Success, "Created", "Repository added successfully.");
+                }
+                else
+                {
+                    NotificationService.NotifyFailure("Error", Refused("Failed to create repository.", response));
+                }
+
                 await LoadRepositories();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", "Failed to create repository.");
+                NotificationService.NotifyFailure("Error", ex, "Failed to create repository.");
             }
         }
     }
@@ -192,13 +200,21 @@ else
                     IsActive = editCopy.IsActive,
                     Description = editCopy.Description
                 };
-                await Http.PutAsJsonAsync($"api/repositories/{editCopy.Id}", updateDto);
-                NotificationService.Notify(NotificationSeverity.Success, "Updated", "Repository updated successfully.");
+                using var response = await Http.PutAsJsonAsync($"api/repositories/{editCopy.Id}", updateDto);
+                if (response.IsSuccessStatusCode)
+                {
+                    NotificationService.Notify(NotificationSeverity.Success, "Updated", "Repository updated successfully.");
+                }
+                else
+                {
+                    NotificationService.NotifyFailure("Error", Refused("Failed to update repository.", response));
+                }
+
                 await LoadRepositories();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", "Failed to update repository.");
+                NotificationService.NotifyFailure("Error", ex, "Failed to update repository.");
             }
         }
     }
@@ -207,7 +223,7 @@ else
     {
         try
         {
-            var response = await Http.PostAsync($"api/repositories/{id}/test-connection", null);
+            using var response = await Http.PostAsync($"api/repositories/{id}/test-connection", null);
             if (response.IsSuccessStatusCode)
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Success", "Connection test passed.");
@@ -217,9 +233,9 @@ else
                 NotificationService.Notify(NotificationSeverity.Warning, "Failed", "Connection test failed.");
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            NotificationService.Notify(NotificationSeverity.Error, "Error", "Could not test connection.");
+            NotificationService.NotifyFailure("Error", ex, "Could not test connection.");
         }
     }
 
@@ -234,14 +250,26 @@ else
         {
             try
             {
-                await Http.DeleteAsync($"api/repositories/{id}");
-                NotificationService.Notify(NotificationSeverity.Success, "Deleted", "Repository removed.");
+                using var response = await Http.DeleteAsync($"api/repositories/{id}");
+                if (response.IsSuccessStatusCode)
+                {
+                    NotificationService.Notify(NotificationSeverity.Success, "Deleted", "Repository removed.");
+                }
+                else
+                {
+                    NotificationService.NotifyFailure("Error", Refused("Failed to delete repository.", response));
+                }
+
                 await LoadRepositories();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", "Failed to delete repository.");
+                NotificationService.NotifyFailure("Error", ex, "Failed to delete repository.");
             }
         }
     }
+
+    /// <summary>A refused write's message: what failed and the status the API answered with.</summary>
+    private static string Refused(string what, HttpResponseMessage response) =>
+        $"{what} The server answered {(int)response.StatusCode} {response.ReasonPhrase}.";
 }

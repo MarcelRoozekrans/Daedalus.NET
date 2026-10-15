@@ -24,7 +24,8 @@ else if (Runs.Value is { SelectedNotFound: true } notFound && notFound.SelectedI
         Run not found. <RadzenLink Path="runs" Text="Back to Runs"/>
     </RadzenAlert>
 }
-else if (Runs.Value is { Selected: null, SelectedError: { } error } failed && failed.SelectedId == Id)
+else if (Runs.Value is { Selected: null, SelectedError: { } error } failed && failed.SelectedId == Id
+         && !SessionExpiry.IsSigningIn(error))
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="run-error">
         @error
@@ -196,9 +197,17 @@ else
                 new ConfirmOptions { OkButtonText = "Retry", CancelButtonText = "Keep as is" }) is true)
         {
             var result = await Effects.RetryAsync(Id, _cts.Token);
-            NotificationService.Notify(result.IsSuccess
-                ? new NotificationMessage { Severity = NotificationSeverity.Success, Summary = "Retry started", Duration = NotificationMilliseconds }
-                : new NotificationMessage { Severity = NotificationSeverity.Error, Summary = "Could not retry", Detail = result.Error });
+            if (result.IsSuccess)
+            {
+                NotificationService.Notify(new NotificationMessage
+                {
+                    Severity = NotificationSeverity.Success, Summary = "Retry started", Duration = NotificationMilliseconds,
+                });
+            }
+            else
+            {
+                NotificationService.NotifyFailure("Could not retry", result.Error);
+            }
         }
     }
 

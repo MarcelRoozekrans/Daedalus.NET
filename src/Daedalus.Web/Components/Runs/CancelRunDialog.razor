@@ -57,7 +57,7 @@
         {
             DialogService.Close(true);
         }
-        else
+        else if (!SessionExpiry.IsSigningIn(result.Error))
         {
             _error = result.Error;
         }

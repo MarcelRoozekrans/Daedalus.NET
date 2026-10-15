@@ -24,7 +24,8 @@ public sealed class AlwaysAuthenticatedStateProvider(IJSRuntime js) : Authentica
     /// <summary>The <c>localStorage</c> key a test sets to choose the user's roles.</summary>
     public const string RolesKey = "daedalus.test-roles";
 
-    private static readonly string[] DefaultRoles = ["admin", "task-manager", "project-manager", "analyst"];
+    /// <summary>The roles of the test user when no test chose others.</summary>
+    internal static readonly string[] DefaultRoles = ["admin", "task-manager", "project-manager", "analyst"];
 
     private Task<AuthenticationState>? _state;
     private DotNetObjectReference<AlwaysAuthenticatedStateProvider>? _self;
@@ -86,6 +87,12 @@ public sealed class AlwaysAuthenticatedStateProvider(IJSRuntime js) : Authentica
             ? DefaultRoles
             : stored.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
+        return new AuthenticationState(User(roles));
+    }
+
+    /// <summary>The signed-in test user with <paramref name="roles"/>.</summary>
+    internal static ClaimsPrincipal User(IEnumerable<string> roles)
+    {
         List<Claim> claims =
         [
             new(ClaimTypes.NameIdentifier, "e2e-test-user"),
@@ -94,6 +101,6 @@ public sealed class AlwaysAuthenticatedStateProvider(IJSRuntime js) : Authentica
             .. roles.Select(role => new Claim(ClaimTypes.Role, role)),
         ];
 
-        return new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth")));
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
     }
 }

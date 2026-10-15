@@ -21,12 +21,11 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<Microsoft.AspNetCore.Components.Web.HeadOutlet>("head::after");
 
-// Determine test mode: explicitly set via config (the E2E test fixture overrides
-// /appsettings.json with {"TestMode":"true"} so the browser runtime boots against
-// the test server), or detected when the OIDC Authority is missing.
-var testMode = string.Equals(builder.Configuration["TestMode"], "true", StringComparison.OrdinalIgnoreCase)
-               || (OperatingSystem.IsBrowser()
-                   && string.IsNullOrEmpty(builder.Configuration["Oidc:Authority"]));
+// Test mode is one rule, set only by configuration: the E2E test fixture overrides /appsettings.json with
+// a TestMode of true, so the browser runtime boots against the test server. A missing OIDC authority is not test
+// mode but a configuration fault, which the OIDC sign-in reports. Every component that needs to know reads the flag.
+var testMode = string.Equals(builder.Configuration["TestMode"], "true", StringComparison.OrdinalIgnoreCase);
+builder.Services.AddSingleton(new TestModeFlag(testMode));
 
 // In test mode, how the console signs in (TestAuth.cs). Never read outside test mode.
 var testAuth = testMode ? TestAuthModes.Parse(builder.Configuration["TestAuth"]) : TestAuthMode.SignedIn;
@@ -150,6 +149,10 @@ if (testMode)
     if (testAuth == TestAuthMode.SignedOut)
     {
         builder.Services.AddScoped<AuthenticationStateProvider, SignedOutStateProvider>();
+    }
+    else if (testAuth == TestAuthMode.Late)
+    {
+        builder.Services.AddScoped<AuthenticationStateProvider, LateAuthenticatedStateProvider>();
     }
     else
     {

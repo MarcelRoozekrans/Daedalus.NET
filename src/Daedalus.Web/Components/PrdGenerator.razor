@@ -121,6 +121,10 @@
                 Logger.LogError("PRD generation failed: {Error}", _errorMessage);
             }
         }
+        catch (Exception ex) when (SessionExpiry.IsSigningIn(ex))
+        {
+            // The session ended: the layout says so and the browser is on its way to sign in.
+        }
         catch (Exception ex)
         {
             _errorMessage = $"Error: {ex.Message}";
@@ -170,6 +174,10 @@
                 _showError = true;
                 Logger.LogError("Task conversion failed: {Error}", _errorMessage);
             }
+        }
+        catch (Exception ex) when (SessionExpiry.IsSigningIn(ex))
+        {
+            // The session ended: the layout says so and the browser is on its way to sign in.
         }
         catch (Exception ex)
         {

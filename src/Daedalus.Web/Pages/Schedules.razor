@@ -359,7 +359,7 @@ else
             _overview = result.Value;
             _state = LoadState.Loaded;
         }
-        else
+        else if (!SessionExpiry.IsSigningIn(result.Error))
         {
             _errorMessage = result.Error;
             _state = LoadState.Error;
@@ -384,7 +384,7 @@ else
         {
             state.Runs = result.Value;
         }
-        else
+        else if (!SessionExpiry.IsSigningIn(result.Error))
         {
             state.Error = result.Error;
         }
@@ -456,7 +456,7 @@ else
         {
             state.Succeeded = true;
         }
-        else
+        else if (!SessionExpiry.IsSigningIn(result.Error))
         {
             state.ErrorMessage = result.Error;
         }

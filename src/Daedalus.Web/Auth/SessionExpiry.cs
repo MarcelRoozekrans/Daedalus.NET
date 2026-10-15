@@ -21,6 +21,15 @@ public sealed class SessionExpiry(IJSRuntime js, NavigationManager navigation)
     /// <summary>The failure a request returns once its session has ended; the browser is already on its way to sign in.</summary>
     public const string SigningInAgain = "Your session has ended. Signing in again.";
 
+    /// <summary>
+    ///     Whether <paramref name="error"/> is the failure a request returns because its session ended. A caller shows no
+    ///     error of its own for it: the layout's one notification says what is happening.
+    /// </summary>
+    public static bool IsSigningIn(string? error) => string.Equals(error, SigningInAgain, StringComparison.Ordinal);
+
+    /// <summary>Whether <paramref name="exception"/> is a request failing because its session ended.</summary>
+    public static bool IsSigningIn(Exception exception) => exception is AccessTokenNotAvailableException;
+
     /// <summary>Whether the session has ended and sign-in is under way.</summary>
     public bool Expired { get; private set; }
 

@@ -151,9 +151,9 @@ else
             _errorMessage = null;
             var result = await ProjectApiClient.GetAllProjectsAsync(1, 100, _cts?.Token ?? CancellationToken.None);
             _projects = result.IsSuccess ? result.Value : null;
-            if (result.IsFailure) _errorMessage = result.Error ?? "Failed to load projects";
+            if (result.IsFailure && !SessionExpiry.IsSigningIn(result.Error)) _errorMessage = result.Error ?? "Failed to load projects";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!SessionExpiry.IsSigningIn(ex))
         {
             _errorMessage = $"Error loading projects: {ex.Message}";
         }
@@ -170,11 +170,11 @@ else
             var result = await ProjectApiClient.GetProjectWithTasksAsync(projectId, _cts?.Token ?? CancellationToken.None);
             _selectedProject = result.IsSuccess ? result.Value : null;
             if (result.IsFailure)
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error ?? "Failed to load project");
+                NotificationService.NotifyFailure("Error", result.Error ?? "Failed to load project");
         }
         catch (Exception ex)
         {
-            NotificationService.Notify(NotificationSeverity.Error, "Error", ex.Message);
+            NotificationService.NotifyFailure("Error", ex, ex.Message);
         }
     }
 
@@ -221,7 +221,7 @@ else
             }
             else
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error ?? "Failed to delete");
+                NotificationService.NotifyFailure("Error", result.Error ?? "Failed to delete");
             }
         }
     }

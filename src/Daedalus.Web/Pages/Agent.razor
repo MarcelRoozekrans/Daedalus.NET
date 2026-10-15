@@ -663,7 +663,7 @@
     {
         if (!_pageCts.IsCancellationRequested)
         {
-            NotificationService.Notify(NotificationSeverity.Error, "Agent", error);
+            NotificationService.NotifyFailure("Agent", error);
         }
     }
 

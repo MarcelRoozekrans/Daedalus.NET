@@ -211,7 +211,7 @@
             _summary = summary.IsSuccess ? summary.Value : null;
             _projectCosts = projects.IsSuccess ? projects.Value : [];
             _pricingModels = pricing.IsSuccess ? pricing.Value : [];
-            if (summary.IsFailure)
+            if (summary.IsFailure && !SessionExpiry.IsSigningIn(summary.Error))
             {
                 _errorMessage = summary.Error;
             }
@@ -227,7 +227,7 @@
         {
             // The page was left while loading.
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!SessionExpiry.IsSigningIn(ex))
         {
             _errorMessage = $"Error loading cost data: {ex.Message}";
         }

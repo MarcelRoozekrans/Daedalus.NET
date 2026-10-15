@@ -1,13 +1,13 @@
 @inject NavigationManager Navigation
 
-@* What a visitor who is not signed in sees at /: the product, one sentence from the README's opening line, and Sign
-   in, which returns here. No menu, counts or data. *@
+@* What a visitor who is not signed in sees at /: the product, the README's second sentence, which says what a
+   visitor gets, and Sign in, which returns here. No menu, counts or data. *@
 <RadzenStack AlignItems="AlignItems.Center" JustifyContent="JustifyContent.Center" Gap="1.5rem"
              Style="min-height: 60vh; text-align: center;" data-testid="signed-out-landing">
     <RadzenStack Gap="0.25rem" AlignItems="AlignItems.Center">
         <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Daedalus</RadzenText>
-        <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0; max-width: 40rem;">
-            High-performance .NET 10 application using Railway-Oriented Programming for AI-driven task execution.
+        <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0; max-width: 40rem;">
+            A person plans work on a task board and starts a manufacture run for a task; the task's status follows that run.
         </RadzenText>
     </RadzenStack>
     <RadzenButton Text="Sign in" ButtonStyle="ButtonStyle.Primary" Click="@SignIn"/>
