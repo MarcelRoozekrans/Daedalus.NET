@@ -1,3 +1,5 @@
+using Radzen;
+
 namespace Daedalus.Web.Services;
 
 /// <summary>
@@ -8,16 +10,37 @@ namespace Daedalus.Web.Services;
 public static class TaskStatusLabels
 {
     /// <summary>
-    ///     The badge status of a task with no run: it has not been started. It is no run status, so
-    ///     <see cref="RunStatusLabels"/> shows it as itself, muted.
+    ///     The text of a task's own status, stored or derived. A badge shows it only for a task with no run: a new task,
+    ///     Pending, or frozen history from the retired loop, such as Completed or Abandoned. A task with a run shows its
+    ///     run's status through <see cref="RunStatusLabels"/> instead.
     /// </summary>
-    public const string NotStarted = "Pending";
+    public static string Name(int status) => status switch
+    {
+        0 => "Pending",
+        1 => "In Progress",
+        2 => "Completed",
+        3 => "Failed",
+        4 => "Abandoned",
+        5 => "Awaiting Approval",
+        6 => "Cancelled",
+        _ => "Unknown",
+    };
 
     /// <summary>
-    ///     The status a task's badge shows: its run's, mapped by <see cref="RunStatusLabels"/> exactly as the Runs page
-    ///     maps it, or <see cref="NotStarted"/> for a task with no run.
+    ///     The muted badge text of a task with no run, its own status's <see cref="Name"/>; null for a task with a run,
+    ///     whose badge is its run's.
     /// </summary>
-    public static string BadgeStatus(TaskDto task) => task.RunStatus ?? NotStarted;
+    public static string? NoRunText(TaskDto task) => task.RunStatus is null ? Name(task.Status) : null;
+
+    /// <summary>The severity of a task with no run: muted, because its text carries the meaning.</summary>
+    public const BadgeStyle NoRunStyle = BadgeStyle.Light;
+
+    /// <summary>The badge text of a task: its run's, as <see cref="RunStatusLabels"/> names it, or its own when it has none.</summary>
+    public static string BadgeText(TaskDto task) => NoRunText(task) ?? RunStatusLabels.Text(task.RunStatus!, task.AwaitingSignal);
+
+    /// <summary>The badge severity of a task: its run's, as <see cref="RunStatusLabels"/> maps it, or <see cref="NoRunStyle"/>.</summary>
+    public static BadgeStyle BadgeStyleOf(TaskDto task) =>
+        task.RunStatus is { } run ? RunStatusLabels.Style(run, task.AwaitingSignal) : NoRunStyle;
 
     /// <summary>
     ///     Whether the task can be edited: not while a run is live, and not once the task completed. A task whose run
