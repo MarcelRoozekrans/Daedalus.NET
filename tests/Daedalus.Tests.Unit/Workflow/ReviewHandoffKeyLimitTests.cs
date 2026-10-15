@@ -124,6 +124,26 @@ public sealed class ReviewHandoffKeyLimitTests
     }
 
     /// <summary>
+    ///     A completion the inner store would refuse, at a seq behind the run's or for a run no longer Running, is never used to
+    ///     fail the run, even when its report breaks the cap: it falls through to the inner store, which refuses it. The run
+    ///     has moved on, and a stale delivery must not fail it.
+    ///     Red: check the key cap before, or regardless of, IsAcceptable, and both rows record a failure.
+    /// </summary>
+    [Theory]
+    [InlineData(2L, WorkflowStatus.Running)]
+    [InlineData(3L, WorkflowStatus.Failed)]
+    public async Task A_stale_completion_that_breaks_the_cap_leaves_the_run_unfailed(long seq, WorkflowStatus status)
+    {
+        var inner = new RecordingWorkflowStore(RunWith("implement", Keys("standing", 10)) with { Status = status });
+        var store = new ReviewHandoffWorkflowStore(inner, Definitions(), TestNodeUsage.Recorder(), TestNodeUsage.Responses());
+
+        await store.CompleteNodeAsync(inner.Run!.Id, seq, AnyTransition(), new NodeResult("changed", Report("fresh", 2)), CancellationToken.None);
+
+        inner.FailureMessage.Should().BeNull("a delivery the inner store would refuse must not fail the run");
+        inner.Completed.Should().NotBeNull("it is handed to the inner store, whose refusal is the answer");
+    }
+
+    /// <summary>
     ///     The mirror assertion, without which the one above would be satisfied by a decorator that failed
     ///     every transition: nine keys plus two fresh ones plus the host's five is exactly sixteen.
     /// </summary>

@@ -106,7 +106,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <c>WorkflowConcurrencyException</c>. The record is written first, so without the same check here a lost-lease implement
 ///     dispatch that finished after its redelivery would append its answer at that seq last, the reader's last-wins rule would
 ///     show an answer the run never accepted, and a failed write would fail a run that had already moved on. The check reads
-///     the run this method has just re-read from the inner store. <b>A narrow race remains:</b> two deliveries of the same
+///     the run this method has just re-read from the inner store. The key-cap check is skipped for such a completion for the
+///     same reason: its <c>FailAsync</c> would fail a run that has moved on. It falls through to the inner store, which
+///     refuses it. <b>A narrow race remains:</b> two deliveries of the same
 ///     visit that both pass the check before either completes both append, and the reader shows whichever appended last,
 ///     which need not be the one the inner store accepted. Closing it needs the record and the completion in one transaction,
 ///     which the two stores do not share.
@@ -204,7 +206,12 @@ internal sealed class ReviewHandoffWorkflowStore(
         var node = await NodeForAsync(run, ct).ConfigureAwait(false);
         var authored = EnforceAuthorship(run, node, DropReviewVariables(node, result));
 
-        if (node is { Action: null })
+        // A completion the inner store would refuse, at a stale seq or for a run no longer Running, is neither checked against
+        // the key cap nor recorded: either could fail a run that has moved on. It falls through to the inner store, which
+        // refuses it.
+        var acceptable = IsAcceptable(run, seq);
+
+        if (acceptable && node is { Action: null })
         {
             var breach = DescribeKeyLimitBreach(run, authored.Variables);
             if (breach is not null)
@@ -217,7 +224,7 @@ internal sealed class ReviewHandoffWorkflowStore(
         // Phase 2.13: implement's answer to the review, kept per visit, before the completion that would overwrite the
         // variable. Only implement can carry the key here: EnforceAuthorship has stripped it from every other node's report.
         // A completion the inner store would refuse records nothing: see this type's remarks, "A fifth job".
-        if (IsAcceptable(run, seq)
+        if (acceptable
             && authored.Variables.TryGetValue(ReviewHandoff.ReviewResponseKey, out var response) && ReviewResponseRecord.IsResponse(response))
         {
             var recorded = await _responses.RecordAsync(runId, seq, run.CurrentNode, run.StartedBy?.Id, response, ct).ConfigureAwait(false);
