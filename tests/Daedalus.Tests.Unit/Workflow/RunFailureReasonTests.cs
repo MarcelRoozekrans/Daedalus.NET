@@ -18,7 +18,7 @@ public sealed class RunFailureReasonTests
     /// <summary>The step the engine records when review's cap is hit: from the leaving node into the onExceeded target.</summary>
     private static WorkflowRunStepView Capped() => Step("CapExceeded", "implement", "adjudicate", outcome: "changed");
 
-    private static WorkflowRunStepView Adjudicated() => Step("Entered", "implement", "adjudicate", "Failed");
+    private static WorkflowRunStepView Adjudicated() => Step("Completed", "adjudicate", "adjudicate", "Failed");
 
     /// <summary>Five visits of review as the engine records them, then the cap and the terminal step.</summary>
     private static WorkflowRunStepView[] RealCappedLog() =>

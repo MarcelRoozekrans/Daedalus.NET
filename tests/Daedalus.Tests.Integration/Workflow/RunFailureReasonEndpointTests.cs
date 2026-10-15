@@ -69,6 +69,40 @@ public sealed class RunFailureReasonEndpointTests(PostgresFixture fixture)
         publishedItem.PrUrl.Should().Be(new Uri(FakePullRequestPublisher.Url)).And.Be(publishedView.PrUrl);
     }
 
+    /// <summary>
+    ///     A run whose review rejects on every visit is capped by the engine at review's five visits and fails at adjudicate.
+    ///     Its view and its list item both carry the review-limit reason with the count and the rejecting lens, read off
+    ///     the steps and the review-evidence the real engine and lens runner wrote.
+    ///     Red: match the cap step by FromNode == review instead of its ToNode, as the first version did.
+    ///     Red: pass a null lens to Derive in ToViewAsync, or in ToListItemAsync, for the two assertions respectively.
+    /// </summary>
+    [Fact]
+    public async Task A_run_the_review_limit_stopped_says_so_on_its_view_and_its_list_item()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture,
+            new ScriptedManufactureRuntime(rejectReview: true),
+            seed: [("README.md", "usage"), ("AGENT.md", "Run dotnet test.\n")],
+            configureServices: services =>
+            {
+                services.RemoveAll<WorkflowOutboxDispatchOptions>();
+                services.AddSingleton(new WorkflowOutboxDispatchOptions { PollingInterval = TimeSpan.FromMilliseconds(250) });
+            });
+        using var client = host.Client("a-developer", "developer");
+
+        var runId = await StartAsync(client);
+        await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Failed, "failed at the review limit");
+
+        const string expected =
+            $"Review rejected the change 5 times, the review limit. Last rejecting lens: {ScriptedManufactureRuntime.RejectingLens}.";
+        var view = await client.GetFromJsonAsync<WorkflowRunView>($"/api/workflow-runs/{runId}");
+        var list = await client.GetFromJsonAsync<WorkflowRunList>("/api/workflow-runs?status=Failed");
+
+        view!.Steps.Should().Contain(s => s.Kind == "CapExceeded" && s.ToNode == "adjudicate");
+        view.FailureReason.Should().Be(expected);
+        list!.Runs.Single(r => r.Id == runId).FailureReason.Should().Be(expected);
+    }
+
     private static async Task<Guid> StartAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync(

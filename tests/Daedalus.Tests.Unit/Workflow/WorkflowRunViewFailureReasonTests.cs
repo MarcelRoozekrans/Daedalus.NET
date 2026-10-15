@@ -90,7 +90,7 @@ public sealed class WorkflowRunViewFailureReasonTests
         }
 
         events.Add(Event(events.Count, "CapExceeded", "implement", "adjudicate", "Running", "changed"));
-        events.Add(Event(events.Count, "Entered", "implement", "adjudicate", "Failed", null));
+        events.Add(Event(events.Count, "Completed", "adjudicate", "adjudicate", "Failed", null));
         return [.. events];
     }
 
