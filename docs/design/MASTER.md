@@ -101,12 +101,15 @@ holding `RadzenPanelMenu` groups separated by `.sidebar-section-divider` caption
 
 ### Data-heavy pages
 
-`Executions.razor` is the reference implementation. The established shape:
+`Runs.razor` is the reference implementation, with its grid in `Components/Runs/RunsGrid.razor`. The established shape:
 
-- `RadzenDataGrid` with `AllowPaging="true"`, `AllowSorting="true"`, `PageSize="15"`
-- `RadzenCard` to group a grid and its controls
-- `RadzenBadge` for status, carrying the semantic colour
-- `RadzenAlert` for error and empty states
+- The shared page header: an `H4` title and a `Body2` caption, with no icon beside the title
+- `RadzenCard` to group a grid and its controls, one card for the filters and one for the grid
+- `RadzenDataGrid` with `AllowSorting="true"`; a grid wider than a phone scrolls inside its card, never the page, and
+  drops its less important columns below 1280px and 768px through `RadzenMediaQuery`
+- Paging with Previous and Next buttons under the grid when the API pages by cursor, as runs do
+- `RadzenBadge` for status, carrying the semantic colour and its text, through `RunStatusBadge`
+- `RadzenAlert` for error and empty states, scoped to the card that failed
 - `RadzenStack` for arrangement; `RadzenText` for all copy
 - Filter controls as `RadzenDropDown` / `RadzenTextBox` inside a `RadzenFormField`
 

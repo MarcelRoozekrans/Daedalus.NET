@@ -11,11 +11,17 @@
 @inject IJSRuntime Js
 @implements IAsyncDisposable
 
-<div data-testid="agent-page">
-<RadzenStack Orientation="Orientation.Horizontal" Gap="0" Style="height: calc(100vh - 80px);">
+<div data-testid="agent-page" class="agent-page">
+<RadzenStack Gap="0.25rem" class="rz-mb-4" Style="flex-shrink: 0;">
+    <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Agent</RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" Style="opacity: 0.6; margin: 0;">
+        Chat with an agent in sessions it remembers, and see the tools it calls as it answers.
+    </RadzenText>
+</RadzenStack>
+<RadzenStack Orientation="Orientation.Horizontal" Gap="0" class="agent-columns" Style="flex: 1; min-height: 0;">
 
     @* Left column: agent picker + sessions *@
-    <RadzenStack Gap="0.5rem" class="rz-p-2 rz-border-right" Style="width: 280px; flex-shrink: 0; overflow-y: auto;">
+    <RadzenStack Gap="0.5rem" class="rz-p-2 rz-border-right agent-sessions" Style="flex-shrink: 0; overflow-y: auto;">
         <RadzenDropDown TValue="string" Data="@_agents" TextProperty="Name" ValueProperty="Id"
                         @bind-Value="@_selectedAgentId" Placeholder="Select an agent"
                         Style="width: 100%;" data-testid="agent-select"/>

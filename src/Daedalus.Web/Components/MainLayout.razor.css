@@ -1,5 +1,22 @@
 /* =============================================================================
    MainLayout – scoped styles
+   Section dividers and the phone sidebar are styled in daedalus-theme.css: the sidebar is Radzen's element, which a
+   scoped rule cannot reach.
    ============================================================================= */
 
-/* No scoped styles needed — section dividers are styled in daedalus-theme.css */
+/* ── Phone menu backdrop ─────────────────────────────────────────────── */
+/* Dims the page under the open phone menu, as a dialog's mask does; the header stays above it. Rendered only on a
+   phone, and hidden from 768px in case the breakpoint moves before the layout re-renders. */
+.menu-backdrop {
+    position: fixed;
+    inset: var(--rz-header-min-height) 0 0 0;
+    z-index: 2;
+    background-color: var(--rz-dialog-mask-background-color);
+    opacity: 0.5;
+}
+
+@media (min-width: 768px) {
+    .menu-backdrop {
+        display: none;
+    }
+}

@@ -1,0 +1,22 @@
+/* The page fills the body's height: the header on top, then the sessions and the chat, which scroll on their own. */
+.agent-page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 80px);
+}
+
+.agent-page ::deep .agent-sessions {
+    width: 280px;
+}
+
+/* On a phone the sessions sit above the chat, as one column, and the chat keeps the page's width. */
+@media (max-width: 767.98px) {
+    .agent-page ::deep .agent-columns {
+        flex-direction: column;
+    }
+
+    .agent-page ::deep .agent-sessions {
+        width: 100%;
+        max-height: 40%;
+    }
+}

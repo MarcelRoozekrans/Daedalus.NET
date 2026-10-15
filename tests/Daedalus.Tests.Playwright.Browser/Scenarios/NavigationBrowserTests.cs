@@ -30,15 +30,15 @@ public class NavigationBrowserTests : BrowserTestBase
     }
 
     [Test]
-    [Description("Sidebar should have all six navigation menu items")]
+    [Description("Sidebar should have the navigation menu items")]
     public async Task Sidebar_ShouldDisplay_AllMenuItems()
     {
         await NavigateToAsync("/").ConfigureAwait(false);
         await Expect(_mainPage.Sidebar).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_mainPage.DashboardMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_mainPage.HomeMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.TasksMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.ProjectsMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_mainPage.ExecutionsMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_mainPage.AgentMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.PrdGeneratorMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_mainPage.GitRepositoriesMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
     }
@@ -61,16 +61,6 @@ public class NavigationBrowserTests : BrowserTestBase
         await _mainPage.NavigateToMenuItemAsync("Projects").ConfigureAwait(false);
         await Page.WaitForURLAsync("**/projects").ConfigureAwait(false);
         Page.Url.Should().Contain("/projects");
-    }
-
-    [Test]
-    [Description("Clicking Executions menu item should navigate to /executions")]
-    public async Task Sidebar_ClickExecutions_ShouldNavigate()
-    {
-        await NavigateToAsync("/").ConfigureAwait(false);
-        await _mainPage.NavigateToMenuItemAsync("Executions").ConfigureAwait(false);
-        await Page.WaitForURLAsync("**/executions").ConfigureAwait(false);
-        Page.Url.Should().Contain("/executions");
     }
 
     [Test]
@@ -103,7 +93,7 @@ public class NavigationBrowserTests : BrowserTestBase
         await Task.Delay(300).ConfigureAwait(false);
         await _mainPage.SidebarToggle.ClickAsync().ConfigureAwait(false);
         await Task.Delay(300).ConfigureAwait(false);
-        await Expect(_mainPage.DashboardMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_mainPage.HomeMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
     }
 
     /// <summary>
@@ -141,10 +131,10 @@ public class NavigationBrowserTests : BrowserTestBase
         """;
 
     /// <summary>
-    ///     Git Repositories and its Configuration heading are for admins only, as the repositories API is, and follow a
+    ///     Git Repositories and its Admin heading are for admins only, as the repositories API is, and follow a
     ///     role change without a reload: absent for an analyst, present once an admin, absent again as a developer.
     ///     Red: <c>MainLayout</c> shows the item to everyone; the analyst sees it.
-    ///     Red: the item rendered for admins, but its Configuration heading outside the <c>AuthorizeView</c>; the analyst
+    ///     Red: the item rendered for admins, but its Admin heading outside the <c>AuthorizeView</c>; the analyst
     ///     sees the heading.
     /// </summary>
     [Test]
@@ -160,15 +150,15 @@ public class NavigationBrowserTests : BrowserTestBase
         // The header names the user only once the user is known, so the absence is checked after it.
         await Expect(main.Header).ToContainTextAsync("E2E Test User").ConfigureAwait(false);
         await Expect(main.GitRepositoriesMenuItem).ToHaveCountAsync(0).ConfigureAwait(false);
-        await Expect(main.ConfigurationDivider).ToHaveCountAsync(0).ConfigureAwait(false);
+        await Expect(main.AdminDivider).ToHaveCountAsync(0).ConfigureAwait(false);
 
         await TestRoles.WriteAsync(context, BaseUrl, "admin").ConfigureAwait(false);
         await Expect(main.GitRepositoriesMenuItem).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(main.ConfigurationDivider).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(main.AdminDivider).ToBeVisibleAsync().ConfigureAwait(false);
 
         await TestRoles.WriteAsync(context, BaseUrl, "developer").ConfigureAwait(false);
         await Expect(main.GitRepositoriesMenuItem).ToHaveCountAsync(0).ConfigureAwait(false);
-        await Expect(main.ConfigurationDivider).ToHaveCountAsync(0).ConfigureAwait(false);
+        await Expect(main.AdminDivider).ToHaveCountAsync(0).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -176,7 +166,7 @@ public class NavigationBrowserTests : BrowserTestBase
     ///     a short page does not shrink the layout to its content, and a page long enough to scroll keeps the width a
     ///     short one has. The body never scrolls sideways. <c>clientWidth</c> is measured, the width the content gets,
     ///     which a scrollbar takes from. A page's start is its first heading, or its first element when it has none.
-    ///     Red: <c>#app</c> centres its child again, as the loading screen's style did; the Dashboard's body is narrower
+    ///     Red: <c>#app</c> centres its child again, as the loading screen's style did; the Home page's body is narrower
     ///     than the Tasks one's.
     ///     Red: no <c>scrollbar-gutter</c> on the body; a page long enough to scroll has a narrower body.
     ///     Red: only the pages too short to scroll measured, /costs and /agent left out; no measured page scrolls.
@@ -187,7 +177,7 @@ public class NavigationBrowserTests : BrowserTestBase
     public async Task Layout_ContentColumn_IsTheSameOnEveryPage()
     {
         string[] paths =
-            ["/", "/tasks", "/runs", "/projects", "/executions", "/schedules", "/costs", "/agent", "/prd-generator", "/repositories"];
+            ["/", "/tasks", "/runs", "/projects", "/schedules", "/costs", "/agent", "/prd-generator", "/repositories"];
 
         // Headless Chromium hides scrollbars unless told not to, and a hidden scrollbar takes no width, so this test
         // uses a browser of its own that shows them, as a person's browser does.
@@ -224,8 +214,8 @@ public class NavigationBrowserTests : BrowserTestBase
         }
     }
 
-    /// <summary>A page's first heading, or the Agent page, which has none.</summary>
-    private const string PageStartSelector = ".rz-body :is(h1, h2, h3, h4, h5, h6), [data-testid='agent-page']";
+    /// <summary>A page's first heading: every page has the shared page header.</summary>
+    private const string PageStartSelector = ".rz-body :is(h1, h2, h3, h4, h5, h6)";
 
     private const string ContentColumnScript = """
         () => {
@@ -253,8 +243,7 @@ public class NavigationBrowserTests : BrowserTestBase
     {
         await NavigateToAsync("/").ConfigureAwait(false);
         await Expect(_mainPage.OperationsDivider).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_mainPage.ConfigurationDivider).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_mainPage.AiToolsDivider).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_mainPage.AdminDivider).ToBeVisibleAsync().ConfigureAwait(false);
     }
 
     [Test]
@@ -265,10 +254,12 @@ public class NavigationBrowserTests : BrowserTestBase
         {
             ("Tasks", "/tasks"),
             ("Projects", "/projects"),
-            ("Executions", "/executions"),
+            ("Agent", "/agent"),
+            ("Schedules", "/schedules"),
+            ("Costs", "/costs"),
             ("Git Repositories", "/repositories"),
             ("PRD Generator", "/prd-generator"),
-            ("Dashboard", "/")
+            ("Home", "/")
         };
 
         foreach (var (menuText, expectedPath) in menuRoutes)

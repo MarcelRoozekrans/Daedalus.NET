@@ -24,8 +24,8 @@ public class SignInBrowserTests : BrowserTestBase
     private const string ErrorShown = ".rz-notification-error, .rz-alert.rz-danger";
 
     /// <summary>
-    ///     Every page that loads data as it opens, each of which must send an expired session to sign in. Executions
-    ///     loads nothing until a search, and the run pages need a user who may view runs, which opens the run hub.
+    ///     Every page that loads data as it opens, each of which must send an expired session to sign in. The run pages
+    ///     need a user who may view runs, which opens the run hub.
     /// </summary>
     private static readonly string[] DataPages =
     [

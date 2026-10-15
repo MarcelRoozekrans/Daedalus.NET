@@ -1,0 +1,24 @@
+/* Everything stays inside the content column, down to a 375px phone. */
+.prd-generator {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+/* Radzen lays the four steps out in one row, wider than a phone: they wrap onto a second line instead, each title
+   whole. */
+.prd-generator ::deep .rz-steps > ul {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+}
+
+.prd-generator ::deep .rz-steps {
+    overflow-wrap: normal;
+}
+
+/* Long PRD text wraps; a preformatted block keeps its lines and scrolls inside its own box. */
+.prd-generator ::deep pre {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-wrap: normal;
+}
