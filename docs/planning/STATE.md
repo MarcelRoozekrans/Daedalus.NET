@@ -1,8 +1,52 @@
 # Session State
 
-**Last session:** 2026-10-13, with the owner present
+**Last session:** 2026-10-14 to 2026-10-15, with the owner present
 
-## Current Position - phase 2.12 complete and merged (PR #352, 2026-10-13); next is phase 2.13
+## Current Position - phase 2.10 complete and merged (PR #362, 2026-10-15); next is phase 2.13
+
+**Milestone 2, phase 2.10, per-node model and tool selection with Minos.NET.** Rebase-merged to `main` as PR #362
+(40 commits, head `dc89c52`) on 2026-10-15. Thalos.NET 0.17.0 shipped first (Thalos#325, release #326; #330 a test
+gap). The first session died mid-B3 and a second resumed from the SDD ledger. Rulings, the live proof and the comparison
+are in `docs/plans/2026-10-15-phase-2.10-rulings.md`.
+
+- **What shipped:**
+  - A Minos decision (`jev-latest` over OpenRouter) picks each implement and review visit's model from the role's
+    `AllowedModels` and narrows its tool families; only ever narrowing, enforced in Thalos; today's setup whenever a
+    decision cannot be trusted. Off by default: it needs the `openrouter-key` secret and
+    `Thalos:Decisions:ZeroDataRetentionAccount: true`.
+  - `node-selection` run records, reused on redelivery; lens pins only while decisions are on; review usage priced per
+    model; `review-replay`.
+  - B11: every node now gets the full work intent. A 512-character Thalos variable cap had cut any longer task for
+    implement and review; found by B9.
+- **Live comparison (B9):** routine tasks 72% and 78% cheaper, four tasks about 61%; the review replays found nothing
+  the default reviewer raised that the decided one missed, and the decided one caught a real defect the default
+  approved; 21 runs, $25.09, matching Anthropic's billing. Verdict: ship with cheaper models and narrowing on.
+- **Also this session:** ASP.NET Core 10.0.13 for three advisories (#358); the sandbox PRs rebased and merged
+  (daedalus-sandbox `main` at `b0cfcd3`, 33 tests); the README presents per-node selection as a key feature.
+
+## Needs the owner
+
+1. **Release: still on hold.** The release-please PR is stale: generated at phase 2.9, it proposes 1.0.0, not the
+   expected 0.2.0. Dispatch the workflow when releasing and check it proposes 0.2.0 and counts 2.10's commits.
+2. **Minos.NET 1.0.1 on nuget.org**, with the NuGet team. Then remove the vendored packages per #361.
+3. Carried from 2.12: remove any external `daedalus-console` deployment; decide #345, #347 and the earlier #325, #327,
+   #328, #332, #334, #322, #318, #319; delete the backup refs.
+
+## Filed or tracked
+
+- New in 2.10: #357, #359, #360, #361; Thalos#329, Thalos#333; Minos.NET#202.
+- Still open from earlier: #354 (selections in the console), #345 to #351, #340, #335, #332, #331, #328, #327, #326,
+  #325, #322, #319, #318, #312, #311, #309, #295, #280.
+
+## Recommended Next Step
+
+1. Merge this close-out PR.
+2. Start phase 2.13, the navigation and flow review, from `docs/regression-report-2026-10-13-1033.md` and #348 to
+   #351. #360, cache-aware cost analytics, is a small, high-value fix worth taking early.
+
+---
+
+## Previous position (2026-10-13) - phase 2.12 complete and merged (PR #352, 2026-10-13); next is phase 2.13
 
 **Milestone 2, phase 2.12, the manufacturing console.** Rebase-merged to `main` as PR #352 (66 commits, head
 `5a87ef2`) on 2026-10-13. ZeroAlloc.Flux 1.1.11 (ZeroAlloc.Flux#156, release #158) and Thalos.NET 0.16.0
