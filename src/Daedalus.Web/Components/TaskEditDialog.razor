@@ -58,6 +58,16 @@
 
     protected override void OnParametersSet() => _model = TaskForm.From(Task);
 
+    protected override void OnInitialized() => _hold = new DialogHold(Js);
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _hold!.Prepare();
+        }
+    }
+
     /// <summary>
     ///     Reads the task's project, so the locked picker names it; a task cannot move to another project. A project that
     ///     cannot be read says why under the picker, unless the session is signing in again, and the rest of the form
@@ -65,7 +75,6 @@
     /// </summary>
     protected override async Task OnInitializedAsync()
     {
-        _hold = new DialogHold(Js);
         var project = await Api.GetProjectAsync(Task.ProjectId, _cts.Token);
         if (project.IsSuccess)
         {
@@ -85,12 +94,23 @@
             return;
         }
 
+        // Read before any await: once the dialog is gone its token source is disposed, and nothing below may touch it.
+        var ct = _cts.Token;
         _submitting = true;
         _error = null;
         try
         {
-            await _hold!.HoldAsync();
-            var result = await Api.UpdateTaskAsync(Task.Id, _model.ToUpdate(Task), _cts.Token);
+            if (!await _hold!.HoldAsync())
+            {
+                return;
+            }
+
+            var result = await Api.UpdateTaskAsync(Task.Id, _model.ToUpdate(Task), ct);
+            if (_hold.IsDisposed)
+            {
+                return;
+            }
+
             await _hold.ReleaseAsync();
             if (result.IsFailure)
             {

@@ -55,8 +55,9 @@ else if (_projects is not null && _projects.Items.Count > 0)
                     <RadzenBadge Text="@project.Tasks.Count.ToString()" BadgeStyle="BadgeStyle.Info"/>
                 </Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="ProjectDto" Property="CreatedAt" Title="Created" Width="140px"
-                                  FormatString="{0:g}"/>
+            <RadzenDataGridColumn TItem="ProjectDto" Property="CreatedAt" Title="Created" Width="140px">
+                <Template Context="project">@LocalTimes.ShortDateTime(project.CreatedAt)</Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="ProjectDto" Title="Actions" Width="150px" TextAlign="TextAlign.Center"
                                   Sortable="false">
                 <Template Context="project">
@@ -115,8 +116,9 @@ else
                             @(TaskStatusLabels.HasLoopHistory(task) ? $"{task.IterationCount} / {task.MaxIterations}" : "—")
                         </Template>
                     </RadzenDataGridColumn>
-                    <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" Width="140px"
-                                          FormatString="{0:g}"/>
+                    <RadzenDataGridColumn TItem="TaskDto" Property="CreatedAt" Title="Created" Width="140px">
+                        <Template Context="task">@LocalTimes.ShortDateTime(task.CreatedAt)</Template>
+                    </RadzenDataGridColumn>
                 </Columns>
             </RadzenDataGrid>
         }

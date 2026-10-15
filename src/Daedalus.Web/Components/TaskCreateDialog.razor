@@ -54,9 +54,13 @@
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && _fields is not null)
+        if (firstRender)
         {
-            await _fields.FocusProjectAsync();
+            _hold!.Prepare();
+            if (_fields is not null)
+            {
+                await _fields.FocusProjectAsync();
+            }
         }
 
         if (!_preselected && TaskStore.Value.Projects is { } projects)
@@ -82,12 +86,23 @@
             return;
         }
 
+        // Read before any await: once the dialog is gone its token source is disposed, and nothing below may touch it.
+        var ct = _cts.Token;
         _submitting = true;
         _error = null;
         try
         {
-            await _hold!.HoldAsync();
-            var created = await Api.CreateTaskAsync(_model.ToCreate(), _cts.Token);
+            if (!await _hold!.HoldAsync())
+            {
+                return;
+            }
+
+            var created = await Api.CreateTaskAsync(_model.ToCreate(), ct);
+            if (_hold.IsDisposed)
+            {
+                return;
+            }
+
             if (created.IsFailure)
             {
                 _error = SessionExpiry.IsSigningIn(created.Error) ? null : created.Error;
@@ -104,7 +119,12 @@
                 return;
             }
 
-            var started = await Effects.ManufactureAsync(taskId, _cts.Token);
+            var started = await Effects.ManufactureAsync(taskId, ct);
+            if (_hold.IsDisposed)
+            {
+                return;
+            }
+
             await _hold.ReleaseAsync();
             DialogService.Close(started.IsSuccess
                 ? new TaskCreateOutcome(taskId, started.Value.RunId, null)
