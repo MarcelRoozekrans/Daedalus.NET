@@ -10,7 +10,7 @@
         @Run.Process v@(Run.ProcessVersion) · at @Run.CurrentNode · started by @RunStarter.Name(Run.StartedByName)
         @if (Run.PrUrl is { } pr)
         {
-            var text = $"Pull request #{pr.Segments[^1].TrimEnd('/')}";
+            var text = TaskStatusLabels.PullRequestLabel(pr);
             <span> · </span>
             <RadzenLink Path="@pr.AbsoluteUri" Target="_blank" rel="noopener" aria-label="@($"{text}, opens in a new tab")"
                         Style="color: var(--rz-primary);" data-testid="run-pr-link">

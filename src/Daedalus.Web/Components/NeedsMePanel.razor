@@ -95,7 +95,7 @@
                                      JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap" Gap="0.5rem">
                             <RadzenText TextStyle="TextStyle.Body1" Style="margin: 0;">@NeedsMe.Name(run)</RadzenText>
                             <a href="@run.PrUrl" target="_blank" rel="noopener"
-                               aria-label="@($"Pull request {TaskStatusLabels.PullRequestText(run.PrUrl!)}, {NeedsMe.Name(run)}, opens in a new tab")">@TaskStatusLabels.PullRequestText(run.PrUrl!)</a>
+                               aria-label="@($"{TaskStatusLabels.PullRequestLabel(run.PrUrl!)}, {NeedsMe.Name(run)}, opens in a new tab")">@TaskStatusLabels.PullRequestText(run.PrUrl!)</a>
                         </RadzenStack>
                     </Row>
                 </NeedsMeCard>

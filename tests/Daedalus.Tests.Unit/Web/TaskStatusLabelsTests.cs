@@ -111,6 +111,21 @@ public sealed class TaskStatusLabelsTests
     public void A_pull_request_url_without_a_number_reads_as_pull_request() =>
         TaskStatusLabels.PullRequestText(Task(0, new Uri("https://github.com/o/r/pull/7/files"))).Should().Be("Pull request");
 
+    /// <summary>
+    ///     A run's header and an accessible name call a pull request "Pull request #N", and one whose URL does not end in
+    ///     its number just "Pull request", never "Pull request #files" as RunHeader's own copy read it.
+    ///     Red: PullRequestLabel prefixes "Pull request " whatever PullRequestText says; the fallback reads
+    ///     "Pull request Pull request".
+    ///     Red: PullRequestLabel returns PullRequestText; the number case reads "#42".
+    ///     Red: PullRequestText splits the raw path without trimming '/'; the trailing slash case reads "Pull request".
+    /// </summary>
+    [Theory]
+    [InlineData("https://github.com/o/r/pull/42", "Pull request #42")]
+    [InlineData("https://github.com/o/r/pull/42/", "Pull request #42")]
+    [InlineData("https://github.com/o/r/pull/7/files", "Pull request")]
+    public void A_pull_request_label_names_its_number_or_falls_back(string link, string label) =>
+        TaskStatusLabels.PullRequestLabel(new Uri(link)).Should().Be(label);
+
     /// <summary>Red: return "—" instead of null; the grid renders a dead link.</summary>
     [Fact]
     public void A_task_without_a_pull_request_has_no_pull_request_text() =>

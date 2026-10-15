@@ -78,4 +78,14 @@ public static class TaskStatusLabels
         var last = url.AbsolutePath.TrimEnd('/').Split('/')[^1];
         return last.Length > 0 && last.All(char.IsAsciiDigit) ? $"#{last}" : "Pull request";
     }
+
+    /// <summary>
+    ///     A pull request link named in full, for a run's header and an accessible name: "Pull request #N" for a URL that
+    ///     ends in the pull request's number, else "Pull request".
+    /// </summary>
+    public static string PullRequestLabel(Uri url)
+    {
+        var text = PullRequestText(url);
+        return text.StartsWith('#') ? $"Pull request {text}" : text;
+    }
 }
