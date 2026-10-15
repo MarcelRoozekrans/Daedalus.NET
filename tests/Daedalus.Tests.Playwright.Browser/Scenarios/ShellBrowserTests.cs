@@ -391,6 +391,29 @@ public class ShellBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     While the sign-in is still being read, the hidden content is not a blank page: the body shows a progress
+    ///     indicator named Loading, and it goes once the chrome is known.
+    ///     Red: the layout's indicator for an unknown chrome removed; no progress bar named Loading is in the body.
+    ///     Red: the indicator rendered for any chrome but signed out; it is still there after the sign-in resolves.
+    /// </summary>
+    [Test]
+    [Description("A sign-in being read shows a loading indicator, not a blank page")]
+    public async Task A_sign_in_being_read_shows_a_loading_indicator()
+    {
+        await TestAuth.UseAsync(Page, TestAuth.Late).ConfigureAwait(false);
+        await TestAuth.HoldSignInAsync(Page).ConfigureAwait(false);
+        await Page.SetViewportSizeAsync(DesktopWidth, DesktopHeight).ConfigureAwait(false);
+        await Page.GotoAsync(new Uri(BaseUrl, "/tasks").ToString()).ConfigureAwait(false);
+        var loading = Page.Locator(".rz-body").GetByRole(AriaRole.Progressbar, new LocatorGetByRoleOptions { Name = "Loading", Exact = true });
+
+        await Expect(loading).ToBeVisibleAsync().ConfigureAwait(false);
+
+        await TestAuth.ReleaseSignInAsync(Page).ConfigureAwait(false);
+        await Expect(Page.Locator(".rz-body h4").First).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(loading).ToHaveCountAsync(0).ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     Records each distinct left edge the page's content shows at while it is visible, on every frame and every
     ///     change to the document, from before the console starts.
     /// </summary>
