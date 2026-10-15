@@ -1,0 +1,4 @@
+/* The grid keeps every shown column at its width (MinGridWidth) and scrolls inside its wrapper, never the page. */
+.tasks-grid {
+    overflow-x: auto;
+}

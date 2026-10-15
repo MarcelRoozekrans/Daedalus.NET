@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Daedalus.Tests.Playwright.Browser.PageObjects;
 using Daedalus.Tests.Playwright.Browser.Utilities;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
@@ -138,7 +139,8 @@ public class SignInBrowserTests : BrowserTestBase
     ///     Red: drop the Expired check from MainLayout's Apply; the header still names E2E Test User.
     ///     Red: label LoginDisplay's button "Log in"; the header has no Sign in.
     ///     Red: drop the Info notification from MainLayout's OnExpiryChanged; no Info notification shows.
-    ///     Red: make TaskCreateDialog notify with Notify Error, not NotifyFailure; an Error notification shows.
+    ///     Red: make TaskCreateDialog notify a refused create with Notify Error as well as its alert; an Error notification
+    ///     shows.
     /// </summary>
     [Test]
     public async Task An_expired_session_redirects_to_sign_in_and_back()
@@ -150,14 +152,11 @@ public class SignInBrowserTests : BrowserTestBase
         await Expect(Page.Locator("[data-testid='tasks-grid']")).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(Header).ToContainTextAsync("E2E Test User").ConfigureAwait(false);
 
-        await Page.Locator("[data-testid='btn-create-task']").ClickAsync().ConfigureAwait(false);
-        var dialog = Page.Locator(".rz-dialog-content");
-        await dialog.Locator("input").First.FillAsync("Expired mid-form").ConfigureAwait(false);
-        await dialog.Locator("textarea").Nth(1).FillAsync("Write the thing.").ConfigureAwait(false);
+        var tasks = new TasksPage(Page, BaseUrl);
+        await tasks.OpenCreateDialogAsync().ConfigureAwait(false);
+        await tasks.FillNewTaskAsync("Test Project", "Expired mid-form", "Write the thing.").ConfigureAwait(false);
         await TestAuth.ExpireTokenAsync(Page).ConfigureAwait(false);
-        // The button's accessible name carries its icon's ligature, so the name is matched, not equalled.
-        await dialog.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Create Task" })
-            .ClickAsync().ConfigureAwait(false);
+        await tasks.CreateButton.ClickAsync().ConfigureAwait(false);
 
         await Page.WaitForURLAsync("**/authentication/login").ConfigureAwait(false);
         (await TestAuth.ReturnUrlAsync(Page).ConfigureAwait(false)).Should()

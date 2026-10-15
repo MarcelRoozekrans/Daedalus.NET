@@ -176,29 +176,6 @@ public class TasksPageBrowserTests : BrowserTestBase
         await Expect(badge).ToBeVisibleAsync().ConfigureAwait(false);
     }
 
-    // ── Iteration display ────────────────────────────────────────────────────
-
-    [Test]
-    [Description("Task rows should display iteration counts")]
-    public async Task TasksPage_DataGrid_ShouldDisplay_IterationCounts()
-    {
-        await _tasksPage.NavigateAsync().ConfigureAwait(false);
-        await Expect(_tasksPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
-        var iterationCell = _tasksPage.GetIterationText("Implement feature A");
-        await Expect(iterationCell).ToContainTextAsync("/").ConfigureAwait(false);
-    }
-
-    [Test]
-    [Description("A task created since the loop was retired shows no iteration count")]
-    public async Task TasksPage_DataGrid_ShouldShowNoIterationCount_ForATaskWithoutLoopHistory()
-    {
-        await _tasksPage.NavigateAsync().ConfigureAwait(false);
-        await Expect(_tasksPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_tasksPage.GetRowByText("Fix bug B")).ToBeVisibleAsync().ConfigureAwait(false);
-        var iterationCell = _tasksPage.GetIterationText("Fix bug B");
-        await Expect(iterationCell).ToHaveTextAsync("—").ConfigureAwait(false);
-    }
-
     // ── Create dialog content ────────────────────────────────────────────────
 
     [Test]

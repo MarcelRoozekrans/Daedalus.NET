@@ -1,0 +1,14 @@
+/* Cancel, Create, then the primary action on the right; on a phone the three stack, primary on top, then Create, then
+   Cancel. A column's items stretch, so each button is as wide as the dialog. */
+.task-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+@media (max-width: 767.98px) {
+    .task-dialog-actions {
+        flex-direction: column-reverse;
+    }
+}

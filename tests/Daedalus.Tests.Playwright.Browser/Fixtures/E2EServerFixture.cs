@@ -607,6 +607,27 @@ public class E2EServerFixture
 
             dbContext.Projects.Add(project);
 
+            // A second project with a repository URL, so the create dialog's picker shows a repository beside a name. The
+            // URL is on no allow-list, so a manufacture of its tasks is refused. TASK-004 carries the seeded Succeeded
+            // run (RunSeeds), so the Tasks grid shows that run's pull request.
+            var widgetsResult = Project.Create(
+                Guid.NewGuid(), RunSeeds.RepositoryProjectName, "A project with a repository", repositoryUrl: RunSeeds.RepositoryProjectUrl);
+            if (widgetsResult.IsSuccess)
+            {
+                var shipResult = Domain.Entities.Task.Create(
+                    Guid.NewGuid(), widgetsResult.Value.Id, RunSeeds.PullRequestTaskId, RunSeeds.PullRequestTaskTitle,
+                    "A task whose run opened a pull request",
+                    Priority.Medium, "Backend", 1,
+                    Complexity.Low,
+                    "Ship the widget");
+                if (shipResult.IsSuccess)
+                {
+                    widgetsResult.Value.AddTask(shipResult.Value);
+                }
+
+                dbContext.Projects.Add(widgetsResult.Value);
+            }
+
             // TASK-001 stands in for an old task-loop task. Task.Create no longer takes the loop settings, so set them
             // as EF does when it reads an old row. TASK-002 stays a new task with none.
             if (task1Result.IsSuccess)

@@ -1,0 +1,101 @@
+@* The create and edit dialogs' fields, in the contract's order. It sits inside a RadzenTemplateForm, whose EditContext the
+   validators join, so a required field is checked on blur and on submit and its error shows under it. *@
+
+<RadzenFormField Text="Project" Style="width: 100%;">
+    <ChildContent>
+        <RadzenDropDown @ref="_project" TValue="Guid?" Name="Project" @bind-Value="@Model.ProjectId" Data="@Projects"
+                        ValueProperty="Id" TextProperty="ProjectName" AllowFiltering="true"
+                        FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" Disabled="@ProjectLocked"
+                        Placeholder="@(Projects is null ? "Loading projects…" : "Choose a project")"
+                        Style="width: 100%;" data-testid="task-project">
+            <Template Context="item">
+                @{ var project = (ProjectDto)item; }
+                <RadzenStack Gap="0">
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@project.ProjectName</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-text-secondary-color);">
+                        @(string.IsNullOrWhiteSpace(project.RepositoryUrl) ? "No repository" : project.RepositoryUrl)
+                    </RadzenText>
+                </RadzenStack>
+            </Template>
+            <ValueTemplate Context="item">@(((ProjectDto)item).ProjectName)</ValueTemplate>
+        </RadzenDropDown>
+    </ChildContent>
+    <Helper>
+        <RadzenRequiredValidator Component="Project" Text="Choose a project."/>
+    </Helper>
+</RadzenFormField>
+
+<RadzenFormField Text="Title" Style="width: 100%;">
+    <ChildContent>
+        <RadzenTextBox Name="Title" @bind-Value="@Model.Title" Style="width: 100%;" data-testid="task-title"/>
+    </ChildContent>
+    <Helper>
+        <RadzenRequiredValidator Component="Title" Text="Title is required."/>
+    </Helper>
+</RadzenFormField>
+
+<RadzenFormField Text="Description" Style="width: 100%;">
+    <ChildContent>
+        <RadzenTextArea Name="Description" @bind-Value="@Model.Description" Rows="3" Style="width: 100%;"
+                        data-testid="task-description"/>
+    </ChildContent>
+    <Helper>
+        <RadzenRequiredValidator Component="Description" Text="Description is required."/>
+    </Helper>
+</RadzenFormField>
+
+<RadzenRow Gap="1rem">
+    <RadzenColumn Size="12" SizeSM="6">
+        <RadzenFormField Text="Priority" Style="width: 100%;">
+            <RadzenDropDown TValue="int" @bind-Value="@Model.Priority" Data="@Priorities" TextProperty="Text"
+                            ValueProperty="Value" Style="width: 100%;"/>
+        </RadzenFormField>
+    </RadzenColumn>
+    <RadzenColumn Size="12" SizeSM="6">
+        <RadzenFormField Text="Complexity" Style="width: 100%;">
+            <RadzenDropDown TValue="int" @bind-Value="@Model.EstimatedComplexity" Data="@Complexities" TextProperty="Text"
+                            ValueProperty="Value" Style="width: 100%;"/>
+        </RadzenFormField>
+    </RadzenColumn>
+</RadzenRow>
+
+<RadzenFieldset Text="Advanced" AllowCollapse="true" Collapsed="true" Style="width: 100%;">
+    <RadzenFormField Text="Prompt" Style="width: 100%;">
+        <ChildContent>
+            <RadzenTextArea Name="Prompt" @bind-Value="@Model.Prompt" Rows="5" Style="width: 100%;" data-testid="task-prompt"/>
+        </ChildContent>
+        <Helper>
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-text-secondary-color);">
+                Optional. When empty, the description is the prompt.
+            </RadzenText>
+        </Helper>
+    </RadzenFormField>
+</RadzenFieldset>
+
+@code {
+    private RadzenDropDown<Guid?>? _project;
+
+    private readonly record struct Choice(string Text, int Value);
+
+    private static readonly Choice[] Priorities = [new("Low", 0), new("Medium", 1), new("High", 2), new("Critical", 3)];
+
+    private static readonly Choice[] Complexities = [new("Simple", 0), new("Medium", 1), new("Complex", 2), new("Epic", 3)];
+
+    /// <summary>The values the fields bind.</summary>
+    [Parameter, EditorRequired] public TaskForm Model { get; set; } = null!;
+
+    /// <summary>The projects to pick from, or null while they load.</summary>
+    [Parameter] public IReadOnlyList<ProjectDto>? Projects { get; set; }
+
+    /// <summary>Whether the project is shown but cannot change, as for a task that exists.</summary>
+    [Parameter] public bool ProjectLocked { get; set; }
+
+    /// <summary>Moves focus to the Project picker.</summary>
+    public async Task FocusProjectAsync()
+    {
+        if (_project is not null)
+        {
+            await _project.FocusAsync();
+        }
+    }
+}

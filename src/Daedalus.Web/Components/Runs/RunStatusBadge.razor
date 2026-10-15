@@ -1,8 +1,18 @@
-<RadzenBadge Text="@RunStatusLabels.Text(Status, AwaitingSignal)"
-             BadgeStyle="@RunStatusLabels.Style(Status, AwaitingSignal)"
-             Shade="Shade.Lighter" data-testid="run-status"/>
+@* The one status badge, solid and pill-shaped, on Runs and Tasks alike. A run passes Status and AwaitingSignal, mapped
+   by RunStatusLabels; a board task passes TaskStatus, its status derived from its run, mapped by TaskStatusLabels. *@
+<RadzenBadge Text="@Text" BadgeStyle="@Style" IsPill="true" data-testid="run-status"/>
 
 @code {
-    [Parameter, EditorRequired] public string Status { get; set; } = "";
+    /// <summary>A run's status, as the runs API names it. Ignored when <see cref="TaskStatus"/> is set.</summary>
+    [Parameter] public string Status { get; set; } = "";
+
+    /// <summary>The signal a parked run awaits.</summary>
     [Parameter] public string? AwaitingSignal { get; set; }
+
+    /// <summary>A board task's status, for a badge on the Tasks page.</summary>
+    [Parameter] public int? TaskStatus { get; set; }
+
+    private string Text => TaskStatus is { } task ? TaskStatusLabels.Name(task) : RunStatusLabels.Text(Status, AwaitingSignal);
+
+    private BadgeStyle Style => TaskStatus is { } task ? TaskStatusLabels.Style(task) : RunStatusLabels.Style(Status, AwaitingSignal);
 }
