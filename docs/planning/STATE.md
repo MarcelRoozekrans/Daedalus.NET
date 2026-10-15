@@ -1,8 +1,61 @@
 # Session State
 
-**Last session:** 2026-10-14 to 2026-10-15, with the owner present
+**Last session:** 2026-10-15 to 2026-10-16; the owner was present for the spec, contract and plan, and asleep for the rest
 
-## Current Position - phase 2.10 complete and merged (PR #362, 2026-10-15); next is phase 2.13
+## Current Position - phase 2.13 complete, PR open to `main` (2026-10-16); next is phase 2.14
+
+**Milestone 2, phase 2.13, navigation and flow.** Built subagent-driven on `phase/2.13-navigation-flow` from `main`
+`dd049f0`: ten tasks, each with its own implementer and reviewer, then a UI review, a regression sweep and a
+whole-branch review. The owner approved the spec, the UI contract and the plan, and was asleep for the second half.
+Every decision taken on the owner's behalf is in `docs/plans/2026-10-15-phase-2.13-rulings.md`, 24 rulings, each with
+what it costs if wrong. The UI review is `docs/plans/2026-10-15-ui-review-phase-2.13.md`. The sweep is
+`docs/regression-report-2026-10-15-2026.md`.
+
+- **What shipped:**
+  - Sign-in: signed-out visitors get a landing page at `/` and sign-in elsewhere. An expired session shows one notice
+    and returns to the same page after sign-in. The header never claims a dead session (#350).
+  - A grouped menu with Executions removed, and a phone layout: overlay menu, compact header, one column (#349, #351).
+  - Home shows what needs the person: awaiting approval, running, failed in the last 7 days, recent pull requests,
+    and one New task button (#351).
+  - Tasks: create with project, title and description; an optional Prompt; Create and manufacture; refusals say why;
+    one status badge with Runs (#348).
+  - Run page: why a run failed; every review visit with implement's answer, from a new `review-response` run record;
+    a styled pull request link and started-by name (#347, #354).
+  - API: refusals on `/api/tasks` are `application/problem+json` with `detail`; the run list gains `failureReason`,
+    `prUrl`, and `signal`/`updatedSince` filters; the run view drops `checked`.
+- **Reviews:** per-task reviews caught a review-limit reason that could never fire on a real run, an unreadable review
+  shown as Approved, a stale completion overwriting implement's answer, a signed-out header flashing for signed-in
+  users, and Home cards that misreported on a busy install. The UI review's ten findings and the final review's
+  findings were fixed in the phase. The 2.12 sweep's 16 findings are fixed; one accepted deviation is carried.
+
+## Needs the owner
+
+1. **Review and merge the 2.13 PR.** Then read the rulings; each says what to undo if you disagree.
+2. **Decide #373:** what "updated" means on Tasks, task edits or run activity. Tasks shows Created until then.
+3. **Decide #374:** the primary and success tokens are under 4.5:1 with white text; it is a palette change.
+4. **Release: still on hold.** When dispatching release-please, check it proposes 0.2.0 and counts 2.10 and 2.13.
+5. **Dev data:** the UI review left a scratch project, "UI review 2.13", with two tasks in the dev database.
+6. Carried: remove any external `daedalus-console` deployment; decide #345 and the earlier #325, #327, #328, #332,
+   #334, #322, #318, #319; delete the backup refs.
+
+## Filed or tracked
+
+- New in 2.13: #366, #367, #368, #370, #371, #372, #373, #374, #375. #361 was closed by #369, so Minos.NET now
+  comes from nuget.org.
+- Closed by the 2.13 PR: #347, #348, #349, #350, #351, #354.
+- Still open from earlier: #357, #359, #345, #340, #335, #332, #331, #328, #327, #326, #325, #322, #319, #318, #312,
+  #311, #309, #295, #280.
+
+## Recommended Next Step
+
+1. Merge the 2.13 PR.
+2. Start phase 2.14, Flux across the remaining pages, which are now Projects, Schedules, Costs, Agent, Git
+   Repositories and PRD Generator. Executions is gone. #367, a store-side run query, is the most valuable follow-up:
+   it removes the per-row reads and the 500-run scan behind Home.
+
+---
+
+## Previous position (2026-10-15) - phase 2.10 complete and merged (PR #362, 2026-10-15); next was phase 2.13
 
 **Milestone 2, phase 2.10, per-node model and tool selection with Minos.NET.** Rebase-merged to `main` as PR #362
 (40 commits, head `dc89c52`) on 2026-10-15. Thalos.NET 0.17.0 shipped first (Thalos#325, release #326; #330 a test
