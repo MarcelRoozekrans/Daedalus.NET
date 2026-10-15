@@ -88,8 +88,6 @@ temp/
 .nuget/
 *.nupkg
 *.snupkg
-# TEMPORARY: Minos.NET 1.0.1 vendored until nuget.org lists it, see vendor/nuget/README.md.
-!vendor/nuget/*.nupkg
 
 
 # Agent worktrees — transient checkouts, never committed

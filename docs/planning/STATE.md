@@ -28,8 +28,7 @@ are in `docs/plans/2026-10-15-phase-2.10-rulings.md`.
 
 1. **Release: still on hold.** The release-please PR is stale: generated at phase 2.9, it proposes 1.0.0, not the
    expected 0.2.0. Dispatch the workflow when releasing and check it proposes 0.2.0 and counts 2.10's commits.
-2. **Minos.NET 1.0.1 on nuget.org**, with the NuGet team. Then remove the vendored packages per #361.
-3. Carried from 2.12: remove any external `daedalus-console` deployment; decide #345, #347 and the earlier #325, #327,
+2. Carried from 2.12: remove any external `daedalus-console` deployment; decide #345, #347 and the earlier #325, #327,
    #328, #332, #334, #322, #318, #319; delete the backup refs.
 
 ## Filed or tracked
