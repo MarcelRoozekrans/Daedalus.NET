@@ -5,8 +5,6 @@
 !Directory.Build.props
 !Directory.Packages.props
 !nuget.config
-# TEMPORARY: the vendored Minos.NET folder nuget.config names, until nuget.org lists 1.0.1.
-!vendor/nuget/
 !.editorconfig
 !src/Daedalus.Sandbox/
 **/bin/

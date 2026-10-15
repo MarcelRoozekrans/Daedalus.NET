@@ -912,17 +912,6 @@ versions (`ManagePackageVersionsCentrally = true`). Every `.csproj`
 `PackageReference` carries no `Version` attribute — add or bump a version in
 `Directory.Packages.props` only.
 
-### Vendored packages until nuget.org has them
-
-Minos.NET 1.0.1 is not on nuget.org yet: its publish hit a reserved package-ID prefix and is with the NuGet team. Until
-it is, the three Minos packages Daedalus restores are committed in `vendor/nuget/`, and `nuget.config` maps
-`Minos.NET*` to that folder; every other package comes from nuget.org. The API, Web and Sandbox Dockerfiles copy the
-folder before restore, because NuGet fails on a configured source folder that is missing, even one a project never uses.
-
-This is a stopgap, not the design: CI builds against binaries packed from the `v1.0.1` tag, not the published package.
-`vendor/nuget/README.md` lists the removal steps, tracked in #361. Follow them as soon as nuget.org lists 1.0.1, and
-delete the cached `~/.nuget/packages/minos.net*/1.0.1` folders so a restore fetches the published copies.
-
 ## The recurring defect: tests that pass for the wrong reason
 
 Phase 1.7 (the ZeroAlloc migration) found eight separate instances of tests

@@ -2,8 +2,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY Directory.Build.props Directory.Packages.props nuget.config ./
-# TEMPORARY: nuget.config names the vendored Minos.NET folder, and restore fails on a missing source, until nuget.org lists 1.0.1.
-COPY vendor/nuget/ vendor/nuget/
 COPY .editorconfig ./
 COPY src/Daedalus.Sandbox/Daedalus.Sandbox.csproj src/Daedalus.Sandbox/
 RUN dotnet restore src/Daedalus.Sandbox/Daedalus.Sandbox.csproj
