@@ -12,11 +12,17 @@ internal static class RunFailureReason
     private const string FailedStatus = "Failed";
     private const string CapExceededKind = "CapExceeded";
     private const string ReviewNode = "review";
+    private const string AdjudicateNode = "adjudicate";
     private const string ImplementNode = "implement";
     private const string RejectedOutcome = "rejected";
     private const string BlockedOutcome = "blocked";
 
-    /// <summary>Whether <paramref name="steps"/> end in the review loop hitting its cap, which is the one reason that needs the lens.</summary>
+    /// <summary>
+    ///     Whether <paramref name="steps"/> include the review loop hitting its cap, which is the one reason that needs the lens. The
+    ///     engine checks a cap on the edge's target node and then takes that node's <c>onExceeded</c> edge, so the step is recorded
+    ///     from the node that was leaving (implement) to the <c>onExceeded</c> target, <c>adjudicate</c> in the manufacture process.
+    ///     Review is the only capped node, so a <c>CapExceeded</c> step into adjudicate is the review limit.
+    /// </summary>
     internal static bool IsCappedReview(IReadOnlyList<WorkflowRunStepView> steps) =>
         steps.Any(IsReviewCap);
 
@@ -65,5 +71,5 @@ internal static class RunFailureReason
 
     private static bool IsReviewCap(WorkflowRunStepView step) =>
         string.Equals(step.Kind, CapExceededKind, StringComparison.Ordinal)
-        && string.Equals(step.FromNode, ReviewNode, StringComparison.Ordinal);
+        && string.Equals(step.ToNode, AdjudicateNode, StringComparison.Ordinal);
 }
