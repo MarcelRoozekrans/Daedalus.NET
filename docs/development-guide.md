@@ -196,8 +196,9 @@ The menu is in `MainLayout.razor`: Home, Tasks, Runs, Projects; PRD Generator, A
 Costs; Admin with Git Repositories, behind the `admin` role. There is no Executions page.
 
 A run's page reads `failureReason` and `reviewVisits` from the run view, and its list items carry `failureReason` and
-`prUrl`. `GET /api/workflow-runs` takes `signal` and `updatedSince`, an ISO 8601 timestamp with its zone. The store
-cannot filter on either, so the controller scans up to 500 summaries (`WorkflowRunsController.ScanCap`, issue #367).
+`prUrl`, read per row from the run's variables (issue #367). `GET /api/workflow-runs` takes `signal` and `updatedSince`,
+an ISO 8601 timestamp with its zone. The store cannot filter on either, so the controller scans up to 500 summaries
+(`WorkflowRunsController.ScanCap`, issue #367).
 `POST /api/tasks` takes an optional `prompt`, and `TasksController` answers its refusals as `application/problem+json`;
 the other controllers still differ (issue #366).
 
@@ -240,9 +241,9 @@ the other controllers still differ (issue #366).
 - A `review-response` run record (`WorkflowRunRecord.ReviewResponseKind`) holds the `review_response` one `implement`
   visit reported, at that visit's seq, with the payload `{ response }`. `ReviewHandoffWorkflowStore` writes it before the
   completion, but only while the completion is acceptable, the run still `Running` at that seq: a completion the inner
-  store would refuse records nothing. A write failure fails the run. The run variable is
-  overwritten by each visit; the record keeps every answer. The run view's `reviewVisits` pairs each rejected review visit with the next implement visit's record. The
-  reviewer's dispatch never carries it.
+  store would refuse records nothing. A write failure fails the run. The run variable is overwritten by each visit; the
+  record keeps every answer. The run view's `reviewVisits` pairs each rejected review visit with the next implement
+  visit's record. The reviewer's dispatch never carries it.
 - `TaskExecutions` and `ExecutionSessions` are read-only history. The Web
   "Task Loop History" page shows them and cannot change them.
 - `daedalus__search_failure_patterns` and `daedalus__search_learnings` read data
