@@ -142,15 +142,20 @@ A task on the board becomes work only when a person starts a manufacture run for
 
 The menu groups the pages by the path a task takes. Home, Tasks, Runs and Projects come first. PRD Generator and Agent
 follow. Under Operations are Schedules and Costs, and under Admin, shown to admins only, Git Repositories. There is no
-Executions page: the retired loop's iterations are history on Costs.
+Executions page: the retired loop's iterations are history on Costs, and `/executions`, like any unknown address, shows
+"Page not found" with a link to Home.
 
 - **Signed out.** `/` shows a landing page with Sign in and no data. Every other page sends the visitor to sign in. When
-  a session ends mid-use, the page shows one Info notification and goes to sign in.
+  a session ends mid-use, the page shows one Info notification for 1.5 seconds and then goes to sign in. Log out returns
+  to the landing page. The Web app's `Oidc:PostLogoutRedirectUri` is its `authentication/logout-callback` address.
 - **Home** (signed in) shows four cards: runs awaiting approval, running runs, runs that failed in the last 7 days, and
   recent pull requests. **New task** opens the create dialog.
 - **Tasks** lists a task's project, status, pull request, and on screens 1280px or wider its priority and when it was
   created. The grid shows Created, not Updated, because no "last updated" time exists yet (issue #373). The status links
-  to the task's run.
+  to the task's run. Below 768px the grid is one column: the title, then the status and pull request, then the actions.
+  An empty board says "No tasks yet." with **New task**.
+- **Git Repositories** is an admin's page. Anyone else who opens it by its address is told that git repositories are
+  managed by admins.
 - **Runs** lists the runs, and each run's page is described in step 4 above.
 
 ### Per-node model and tool selection
