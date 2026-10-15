@@ -71,6 +71,10 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 ///     Empty when no node was decided. A record that cannot be read is not listed; <paramref name="NodeSelectionsError"/> says so.
 /// </param>
 /// <param name="NodeSelectionsError">Which node-selection records could not be read, by seq, otherwise <see langword="null"/>.</param>
+/// <param name="FailureReason">
+///     Why the run failed, derived on read, for a <c>Failed</c> run; <see langword="null"/> for every other status. It names the
+///     review limit and its last rejecting lens, a blocked implement, the host's error, or else the node the run ended at.
+/// </param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
@@ -93,7 +97,8 @@ public sealed record WorkflowRunView(
     IReadOnlyList<LensCheckedView> Checked,
     string? StartedByName,
     IReadOnlyList<NodeSelectionView> NodeSelections,
-    string? NodeSelectionsError);
+    string? NodeSelectionsError,
+    string? FailureReason);
 
 /// <summary>
 ///     The model and tool decision of one node visit, as its <c>node-selection</c> record holds it. The tool filter is
@@ -191,11 +196,15 @@ public sealed record WriteAuditView(long Seq, string Node, string Tool, string? 
 /// <param name="Next">The opaque cursor for the next page, or <see langword="null"/> on the last page.</param>
 public sealed record WorkflowRunList(IReadOnlyList<WorkflowRunListItem> Runs, string? Next);
 
-/// <summary>One run in the list: no variables, no error, and the board task it belongs to when there is one.</summary>
+/// <summary>
+///     One run in the list: no variables, no raw error, and the board task it belongs to when there is one.
+///     <paramref name="FailureReason"/> is the derived reason of a <c>Failed</c> run and <see langword="null"/> otherwise;
+///     <paramref name="PrUrl"/> is the run's pull request link, <see langword="null"/> when it has none or it is not an http link.
+/// </summary>
 public sealed record WorkflowRunListItem(
     Guid Id, string Process, int ProcessVersion, string Status, string CurrentNode, string? AwaitingSignal,
     string? StartedBy, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, Guid? TaskId, string? TaskCode, string? TaskTitle,
-    string? StartedByName);
+    string? StartedByName, string? FailureReason, Uri? PrUrl);
 
 /// <summary>
 ///     What the console's hub sends when a run changes: which run, and where it now stands. Nothing else, ever: no

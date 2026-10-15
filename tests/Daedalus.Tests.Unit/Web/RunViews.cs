@@ -30,12 +30,14 @@ internal static class RunViews
             Checked: [],
             StartedByName: "Dev Eloper",
             NodeSelections: [],
-            NodeSelectionsError: null);
+            NodeSelectionsError: null,
+            FailureReason: null);
 
     /// <summary>One list row for <paramref name="id"/>.</summary>
     public static WorkflowRunListItem Item(Guid id, string status = "Running", string? awaitingSignal = null) =>
         new(id, "manufacture", 1, status, "build", awaitingSignal, "dev", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
-            TaskId: null, TaskCode: null, TaskTitle: null, StartedByName: "Dev Eloper");
+            TaskId: null, TaskCode: null, TaskTitle: null, StartedByName: "Dev Eloper",
+            FailureReason: null, PrUrl: null);
 
     public static string Json<T>(T value) => JsonSerializer.Serialize(value, JsonSerializerOptions.Web);
 }
