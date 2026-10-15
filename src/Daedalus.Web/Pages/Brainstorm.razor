@@ -125,7 +125,7 @@
         }
         else
         {
-            NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+            NotificationService.NotifyFailure("Error", result.Error);
         }
     }
 
@@ -144,7 +144,7 @@
 
             if (result.IsFailure)
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+                NotificationService.NotifyFailure("Error", result.Error);
             }
 
             await LoadSession();
@@ -169,7 +169,7 @@
             }
             else
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+                NotificationService.NotifyFailure("Error", result.Error);
             }
         }
         finally
@@ -194,7 +194,7 @@
             }
             else
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+                NotificationService.NotifyFailure("Error", result.Error);
             }
         }
         finally

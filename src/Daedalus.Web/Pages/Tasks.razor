@@ -22,7 +22,7 @@
                   data-testid="btn-create-task"/>
 </RadzenStack>
 
-@if (!string.IsNullOrEmpty(TaskStore.Value.Error))
+@if (!string.IsNullOrEmpty(TaskStore.Value.Error) && !SessionExpiry.IsSigningIn(TaskStore.Value.Error))
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4"
                  Close="@(() => Dispatcher.DispatchAsync(new TasksErrorDismissed()).AsTask())">
@@ -167,7 +167,7 @@
             return;
         }
 
-        NotificationService.Notify(NotificationSeverity.Error, "Could not start", result.Error);
+        NotificationService.NotifyFailure("Could not start", result.Error);
         await LoadTasks();
     }
 
@@ -187,7 +187,7 @@
             }
             else
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+                NotificationService.NotifyFailure("Error", result.Error);
             }
             await LoadTasks();
         }

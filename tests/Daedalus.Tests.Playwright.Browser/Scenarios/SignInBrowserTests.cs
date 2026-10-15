@@ -16,7 +16,12 @@ namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 public class SignInBrowserTests : BrowserTestBase
 {
     private const string LandingSentence =
-        "High-performance .NET 10 application using Railway-Oriented Programming for AI-driven task execution.";
+        "A person plans work on a task board and starts a manufacture run for a task; the task's status follows that run.";
+
+    private const string SigningInAgain = "Your session has ended. Signing in again.";
+
+    /// <summary>An Error notification or a Danger alert: the error rendering an ended session must not cause.</summary>
+    private const string ErrorShown = ".rz-notification-error, .rz-alert.rz-danger";
 
     /// <summary>
     ///     Every page that loads data as it opens, each of which must send an expired session to sign in. Executions
@@ -52,6 +57,18 @@ public class SignInBrowserTests : BrowserTestBase
 
     private ILocator HeaderSignIn =>
         Header.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Sign in", Exact = true });
+
+    private ILocator InfoNotice => Page.Locator(".rz-notification-info", new PageLocatorOptions { HasText = SigningInAgain });
+
+    private ILocator ErrorNotice => Page.Locator(".rz-notification-error");
+
+    /// <summary>
+    ///     The Info notification shows before the failed request returns to its caller, which then decides what to show.
+    ///     The caller is given time to show an error first; a notification stays three seconds, so one shown in this
+    ///     time is still there when it is counted. It is counted once, not with Expect's retries, which would wait for
+    ///     the notification to close and then pass.
+    /// </summary>
+    private Task LetTheFailedRequestFinishAsync() => Page.WaitForTimeoutAsync(1000);
 
     /// <summary>
     ///     A signed-out visit to a data page goes to the console's sign-in, carrying the page to come back to, and asks
@@ -121,6 +138,8 @@ public class SignInBrowserTests : BrowserTestBase
     ///     Red: skip ClearStoredUserAsync in SessionExpiry; the seeded user is still in sessionStorage.
     ///     Red: drop the Expired check from MainLayout's Apply; the header still names E2E Test User.
     ///     Red: label LoginDisplay's button "Log in"; the header has no Sign in.
+    ///     Red: drop the Info notification from MainLayout's OnExpiryChanged; no Info notification shows.
+    ///     Red: make TaskCreateDialog notify with Notify Error, not NotifyFailure; an Error notification shows.
     /// </summary>
     [Test]
     public async Task An_expired_session_redirects_to_sign_in_and_back()
@@ -147,25 +166,89 @@ public class SignInBrowserTests : BrowserTestBase
             .BeFalse("a session that cannot refresh is cleared, so no later read claims it");
         await Expect(Header).Not.ToContainTextAsync("E2E Test User").ConfigureAwait(false);
         await Expect(HeaderSignIn).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(InfoNotice).ToBeVisibleAsync().ConfigureAwait(false);
+        await LetTheFailedRequestFinishAsync().ConfigureAwait(false);
+        (await ErrorNotice.CountAsync().ConfigureAwait(false)).Should().Be(0, "an ended session raises no Error notification");
     }
 
     /// <summary>
-    ///     With a session that cannot get a token, every data page goes to sign-in and returns to itself, and none ever
-    ///     shows "Please log in", even for a moment. The user may not view runs, so the run hub never opens and each
-    ///     redirect is the page's own request.
-    ///     Red: restore the code before #350: the "Please log in to access this data." failure in ApiClient.GetAsync
-    ///     and no SessionExpiryHandler on the token-mode client; /tasks shows it. The message alone does not turn it
-    ///     red: the redirect replaces the page before the failure renders.
+    ///     A submit on a page that calls the API through HttpClient itself, Git Repositories, whose session has ended
+    ///     shows the one Info notification and none of the page's own failure text: no Error notification and no
+    ///     "Failed to create repository."
+    ///     Red: drop the Info notification from MainLayout's OnExpiryChanged; no Info notification shows.
+    ///     Red: make RepositoryConfiguration's create catch notify with Notify Error, as before; an Error notification
+    ///     is counted.
+    ///     Red: make that catch notify "Failed to create repository." at Warning; the "Failed to" text is counted.
+    /// </summary>
+    [Test]
+    public async Task An_expired_submit_shows_only_that_sign_in_is_under_way()
+    {
+        await TestAuth.UseAsync(Page, TestAuth.Token).ConfigureAwait(false);
+        await NavigateToAsync("/repositories").ConfigureAwait(false);
+        await Page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Add Repository" }).First.ClickAsync()
+            .ConfigureAwait(false);
+        var dialog = Page.Locator(".rz-dialog-content");
+        await dialog.Locator("input").First.FillAsync("Expired").ConfigureAwait(false);
+        await dialog.Locator("input").Nth(1).FillAsync("https://github.com/example/expired").ConfigureAwait(false);
+        await TestAuth.ExpireTokenAsync(Page).ConfigureAwait(false);
+        await dialog.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Create" }).ClickAsync()
+            .ConfigureAwait(false);
+
+        await Page.WaitForURLAsync("**/authentication/login").ConfigureAwait(false);
+        await Expect(InfoNotice).ToBeVisibleAsync().ConfigureAwait(false);
+        await LetTheFailedRequestFinishAsync().ConfigureAwait(false);
+        (await ErrorNotice.CountAsync().ConfigureAwait(false)).Should().Be(0, "an ended session raises no Error notification");
+        (await Page.GetByText("Failed to").CountAsync().ConfigureAwait(false)).Should()
+            .Be(0, "the page shows none of its own failure text for an ended session");
+    }
+
+    /// <summary>
+    ///     While the authentication state is still being read, as an OIDC boot reads its stored user, the header shows
+    ///     the logo only: no Sign in, no user, no toggle and no menu. Once it resolves, the signed-in chrome follows.
+    ///     Red: rename the header's "Daedalus" text; the logo precondition fails.
+    ///     Red: start MainLayout's chrome as SignedOut instead of Unknown; Sign in shows while the state is held.
+    ///     Red: render LoginDisplay whatever the chrome; Sign in shows while the state is held.
+    ///     Red: render the toggle unless signed out; the toggle count is 1 while the state is held.
+    ///     Red: render the sidebar unless signed out; the sidebar count is 1 while the state is held.
+    ///     Red: never apply the resolved state, so the chrome stays Unknown; the toggle does not show after release.
+    ///     Red: render LoginDisplay only when signed out; the header lacks the user after release.
+    /// </summary>
+    [Test]
+    public async Task A_sign_in_still_being_read_shows_only_the_logo()
+    {
+        await TestAuth.UseAsync(Page, TestAuth.Late).ConfigureAwait(false);
+        await TestAuth.HoldSignInAsync(Page).ConfigureAwait(false);
+
+        await NavigateToAsync("/").ConfigureAwait(false);
+
+        await Expect(Header.GetByText("Daedalus", new LocatorGetByTextOptions { Exact = true })).ToBeVisibleAsync()
+            .ConfigureAwait(false);
+        await Expect(HeaderSignIn).ToHaveCountAsync(0).ConfigureAwait(false);
+        await Expect(Page.Locator(".rz-sidebar-toggle")).ToHaveCountAsync(0).ConfigureAwait(false);
+        await Expect(Page.Locator(".rz-sidebar")).ToHaveCountAsync(0).ConfigureAwait(false);
+
+        await TestAuth.ReleaseSignInAsync(Page).ConfigureAwait(false);
+
+        await Expect(Page.Locator(".rz-sidebar-toggle")).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(Header).ToContainTextAsync("E2E Test User").ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     With a session that cannot get a token, every data page goes to sign-in and returns to itself, and none shows
+    ///     an Error notification or a Danger alert for it, even for a moment: the layout's one Info notification says
+    ///     what is happening. The user may not view runs, so the run hub never opens and each redirect is the page's own
+    ///     request.
+    ///     Red: make Agent's NotifyError notify with Notify Error, not NotifyFailure; /agent shows an Error notification.
     ///     Red: drop the SessionExpiryHandler from the token-mode API client in Program.cs; /tasks stays put.
     /// </summary>
     [Test]
-    public async Task No_page_shows_please_log_in()
+    public async Task No_page_shows_an_error_for_an_expired_session()
     {
         await TestAuth.UseAsync(Page, TestAuth.Token).ConfigureAwait(false);
         await TestAuth.ExpireTokenFromStartAsync(Page).ConfigureAwait(false);
         await Page.AddInitScriptAsync(
             $"localStorage.setItem('{TestRoles.Key}', 'task-manager,project-manager,analyst');").ConfigureAwait(false);
-        await TestAuth.WatchForTextAsync(Page, "Please log in").ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ErrorShown).ConfigureAwait(false);
 
         var stayed = new List<string>();
         var showed = new List<string>();
@@ -191,7 +274,7 @@ public class SignInBrowserTests : BrowserTestBase
             showed.AddRange(await TestAuth.PathsThatShowedAsync(Page).ConfigureAwait(false));
         }
 
-        showed.Should().BeEmpty("no page tells the user to log in; it sends them to sign in");
+        showed.Should().BeEmpty("an ended session is not an error: no page shows one for it, it sends the user to sign in");
         stayed.Should().BeEmpty("every data page sends an expired session to sign in and back to itself");
     }
 }

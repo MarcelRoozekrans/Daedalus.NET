@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject SessionExpiry Expiry
+@inject NotificationService Notifications
 
 <RadzenLayout>
     <RadzenHeader>
@@ -8,7 +9,7 @@
                      JustifyContent="JustifyContent.SpaceBetween" Style="padding: 0 1rem; width: 100%;">
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0">
                 @* Signed out, the header holds only the logo and Sign in: no menu, so no toggle. *@
-                @if (_user is not null)
+                @if (_chrome == Chrome.SignedIn)
                 {
                     <RadzenSidebarToggle Click="@(() => _sidebarExpanded = !_sidebarExpanded)"/>
                 }
@@ -18,12 +19,16 @@
                                 Style="margin: 0; font-weight: 700; letter-spacing: -0.025em;"/>
                 </RadzenStack>
             </RadzenStack>
-            <LoginDisplay User="@_user"/>
+            @* While the sign-in is still being read, neither the user nor Sign in: either could be wrong. *@
+            @if (_chrome != Chrome.Unknown)
+            {
+                <LoginDisplay User="@(_chrome == Chrome.SignedIn ? _signedIn : null)"/>
+            }
         </RadzenStack>
     </RadzenHeader>
 
-    @* Signed out, no menu at all: nothing in it is open to a visitor. *@
-    @if (_user is not null)
+    @* Signed out, or not yet known, no menu at all: nothing in it is open to a visitor. *@
+    @if (_chrome == Chrome.SignedIn)
     {
         <RadzenSidebar @bind-Expanded="@_sidebarExpanded" Style="width: 260px;">
             <RadzenPanelMenu>
@@ -89,8 +94,8 @@
     /// <summary>The user the authentication state last named, signed in or not.</summary>
     private ClaimsPrincipal? _signedIn;
 
-    /// <summary>The signed-in user, or null while no one is: signed out, still being read, or a session that ended.</summary>
-    private ClaimsPrincipal? _user;
+    /// <summary>Which chrome the layout shows: unknown until the authentication state is read.</summary>
+    private Chrome _chrome = Chrome.Unknown;
 
     /// <summary>
     ///     The signed-in user, replaced whenever the authentication state changes, so the chrome follows a sign-in that
@@ -115,6 +120,7 @@
         }
 
         _evaluated = state;
+        _chrome = Chrome.Unknown;
         var user = (await state).User;
         if (ReferenceEquals(state, _evaluated))
         {
@@ -126,11 +132,37 @@
     public void Dispose() => Expiry.Changed -= OnExpiryChanged;
 
     private void Apply() =>
-        _user = _signedIn?.Identity?.IsAuthenticated == true && !Expiry.Expired ? _signedIn : null;
+        _chrome = _signedIn?.Identity?.IsAuthenticated == true && !Expiry.Expired ? Chrome.SignedIn : Chrome.SignedOut;
 
+    /// <summary>
+    ///     A session that ended is shown once, here, as information: the pages show no error of their own for the
+    ///     requests it failed.
+    /// </summary>
     private void OnExpiryChanged(object? sender, EventArgs e)
     {
-        Apply();
+        if (_signedIn is not null)
+        {
+            Apply();
+        }
+
+        if (Expiry.Expired)
+        {
+            Notifications.Notify(NotificationSeverity.Info, SessionExpiry.SigningInAgain);
+        }
+
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>The three states of the chrome.</summary>
+    private enum Chrome
+    {
+        /// <summary>The authentication state is still being read: the header shows the logo only.</summary>
+        Unknown,
+
+        /// <summary>Someone is signed in: menu, toggle, the user and Log out.</summary>
+        SignedIn,
+
+        /// <summary>No one is, or the session ended: the logo and Sign in.</summary>
+        SignedOut,
     }
 }

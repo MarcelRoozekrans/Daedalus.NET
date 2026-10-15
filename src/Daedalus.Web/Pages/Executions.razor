@@ -138,7 +138,7 @@ else if (string.IsNullOrEmpty(_filterType))
             }
             else
             {
-                _errorMessage = result.Error;
+                _errorMessage = SessionExpiry.IsSigningIn(result.Error) ? "" : result.Error;
                 _executions = null;
                 _totalCount = 0;
             }
@@ -147,7 +147,7 @@ else if (string.IsNullOrEmpty(_filterType))
         {
             /* Expected on cancellation */
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!SessionExpiry.IsSigningIn(ex))
         {
             _errorMessage = $"Error loading executions: {ex.Message}";
         }

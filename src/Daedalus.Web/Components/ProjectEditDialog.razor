@@ -57,7 +57,7 @@
             }
             else
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error ?? "Failed to update");
+                NotificationService.NotifyFailure("Error", result.Error ?? "Failed to update");
             }
         }
         finally

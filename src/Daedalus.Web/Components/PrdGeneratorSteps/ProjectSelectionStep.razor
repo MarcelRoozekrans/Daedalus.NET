@@ -62,6 +62,10 @@
             var page = await Http.GetFromJsonAsync<PagedResultDto<ProjectDto>>("api/projects?page=1&pageSize=100");
             _projects = page?.Items.ToList() ?? [];
         }
+        catch (Exception ex) when (SessionExpiry.IsSigningIn(ex))
+        {
+            // The session ended: the layout says so and the browser is on its way to sign in.
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading projects");

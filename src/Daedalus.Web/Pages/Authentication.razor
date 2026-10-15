@@ -1,9 +1,9 @@
 @page "/authentication/{action}"
-@inject IConfiguration Configuration
+@inject TestModeFlag TestMode
 
 @* Test mode has no identity provider and no OIDC services for RemoteAuthenticatorView to use; a browser test stops at
    this route and reads where sign-in would return to. *@
-@if (_testMode)
+@if (TestMode.Enabled)
 {
     <p data-testid="test-sign-in">Sign-in is not available in test mode.</p>
 }
@@ -13,10 +13,5 @@ else
 }
 
 @code {
-    private bool _testMode;
-
     [Parameter] public string? Action { get; set; }
-
-    protected override void OnInitialized() =>
-        _testMode = string.Equals(Configuration["TestMode"], "true", StringComparison.OrdinalIgnoreCase);
 }

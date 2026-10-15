@@ -10,6 +10,9 @@ public static class TestAuth
     /// <summary>No one is signed in: every authentication state is anonymous.</summary>
     public const string SignedOut = "signed-out";
 
+    /// <summary>Signed in, but the authentication state waits until <see cref="ReleaseSignInAsync"/>.</summary>
+    public const string Late = "late";
+
     /// <summary>
     ///     Signed in, with requests to the API carrying a bearer token from a test token provider. The provider reads
     ///     <see cref="TokenKey"/> on every request, and <c>expired</c> there makes it answer as a token refresh that
@@ -59,19 +62,31 @@ public static class TestAuth
         page.EvaluateAsync<bool>("([key]) => sessionStorage.getItem(key) !== null", new[] { StoredUserKey });
 
     /// <summary>
-    ///     Records every path whose document ever contained <paramref name="text"/>, however briefly, so a test sees an
-    ///     alert that showed and went before it looked. Read it with <see cref="PathsThatShowedAsync"/>.
+    ///     Records every path whose document ever held an element matching <paramref name="selector"/>, however
+    ///     briefly, so a test sees an alert or a notification that showed and went before it looked. Read it with
+    ///     <see cref="PathsThatShowedAsync"/>.
     /// </summary>
-    public static Task WatchForTextAsync(IPage page, string text) =>
+    public static Task WatchForAsync(IPage page, string selector) =>
         page.AddInitScriptAsync(
             "window.__daedalusShowed = []; " +
-            $"const needle = {JsonSerializer.Serialize(text)}; " +
-            "const look = () => { const t = document.documentElement ? document.documentElement.textContent : ''; " +
-            "if (t && t.includes(needle) && !window.__daedalusShowed.includes(location.pathname)) " +
+            $"const selector = {JsonSerializer.Serialize(selector)}; " +
+            "const look = () => { if (document.querySelector(selector) && !window.__daedalusShowed.includes(location.pathname)) " +
             "{ window.__daedalusShowed.push(location.pathname); } }; " +
-            "new MutationObserver(look).observe(document, { subtree: true, childList: true, characterData: true });");
+            "new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true });");
 
-    /// <summary>The paths recorded by <see cref="WatchForTextAsync"/>.</summary>
+    /// <summary>
+    ///     Makes the console's authentication state wait for <see cref="ReleaseSignInAsync"/>, in the <c>late</c> mode,
+    ///     as an OIDC boot waits while it reads the stored user.
+    /// </summary>
+    public static Task HoldSignInAsync(IPage page) =>
+        page.AddInitScriptAsync(
+            "const held = new Promise(resolve => { window.daedalusReleaseAuth = resolve; }); " +
+            "window.daedalusTestAuthGate = () => held;");
+
+    /// <summary>Lets the held authentication state resolve.</summary>
+    public static Task ReleaseSignInAsync(IPage page) => page.EvaluateAsync("() => window.daedalusReleaseAuth()");
+
+    /// <summary>The paths recorded by <see cref="WatchForAsync"/>.</summary>
     public static Task<string[]> PathsThatShowedAsync(IPage page) =>
         page.EvaluateAsync<string[]>("() => window.__daedalusShowed || []");
 

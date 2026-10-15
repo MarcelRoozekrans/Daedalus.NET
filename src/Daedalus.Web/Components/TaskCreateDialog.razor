@@ -134,7 +134,7 @@
             }
             else
             {
-                NotificationService.Notify(NotificationSeverity.Error, "Error", result.Error);
+                NotificationService.NotifyFailure("Error", result.Error);
             }
         }
         finally

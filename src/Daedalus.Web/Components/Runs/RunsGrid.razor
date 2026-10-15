@@ -7,7 +7,7 @@
     @* The two queries are the contract's breakpoints: a column below its breakpoint is not rendered at all. *@
     <RadzenMediaQuery Query="(min-width: 1280px)" Change="@(matches => _desktop = matches)"/>
     <RadzenMediaQuery Query="(min-width: 768px)" Change="@(matches => _tablet = matches)"/>
-    @if (Runs.Value.ListError is { } error)
+    @if (Runs.Value.ListError is { } error && !SessionExpiry.IsSigningIn(error))
     {
         <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4">
             @error
