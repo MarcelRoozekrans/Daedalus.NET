@@ -87,7 +87,7 @@ only once something demonstrably better runs in its place.
 | 2.7 | Issues as a first-class output | complete (2026-10-09; #323) |
 | 2.8 | Ralph retirement | complete (2026-10-10; #329) |
 | 2.9 | Observability | complete (2026-10-11; #336) |
-| 2.10 | Per-node model and tool selection with Minos.NET | active |
+| 2.10 | Per-node model and tool selection with Minos.NET | complete |
 | 2.11 | The GitHub HTTP path | complete (2026-10-12; #343) |
 | 2.12 | Manufacturing console | complete (2026-10-13; #352) |
 | 2.13 | Navigation and flow review | pending |
