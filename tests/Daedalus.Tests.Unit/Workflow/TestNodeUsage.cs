@@ -10,4 +10,8 @@ internal static class TestNodeUsage
     /// <summary>A recorder whose scopes resolve <paramref name="records"/>, or a store that accepts every append.</summary>
     public static NodeUsageRecorder Recorder(IWorkflowRunRecordStore? records = null) =>
         new(RecordStoreScopes.For(records), TimeProvider.System, NullLogger<NodeUsageRecorder>.Instance);
+
+    /// <summary>A review-response recorder whose scopes resolve <paramref name="records"/>, or a store that accepts every append.</summary>
+    public static ReviewResponseRecorder Responses(IWorkflowRunRecordStore? records = null) =>
+        new(RecordStoreScopes.For(records), TimeProvider.System, NullLogger<ReviewResponseRecorder>.Instance);
 }

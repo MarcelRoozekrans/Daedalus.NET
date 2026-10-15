@@ -575,6 +575,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // of its own, like the review lens runner, so this singleton captures nothing scoped.
         services.AddSingleton<NodeUsageRecorder>();
 
+        // Phase 2.13: writes each implement visit's review_response as a run record, so every visit's answer outlives the
+        // variable the next visit overwrites. A singleton for the same reason as the recorder above.
+        services.AddSingleton<ReviewResponseRecorder>();
+
         // Phase 2.10: the recorder also drops the per-model usage a review held for a run the store cancels or fails, since
         // no completion will take it.
         services.AddSingleton<IWorkflowRunObserver>(sp => sp.GetRequiredService<NodeUsageRecorder>());

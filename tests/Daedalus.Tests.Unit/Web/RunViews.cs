@@ -31,7 +31,9 @@ internal static class RunViews
             StartedByName: "Dev Eloper",
             NodeSelections: [],
             NodeSelectionsError: null,
-            FailureReason: null);
+            FailureReason: null,
+            ReviewVisits: [],
+            ReviewVisitsError: null);
 
     /// <summary>One list row for <paramref name="id"/>.</summary>
     public static WorkflowRunListItem Item(Guid id, string status = "Running", string? awaitingSignal = null) =>

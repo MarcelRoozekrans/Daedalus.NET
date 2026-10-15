@@ -72,7 +72,7 @@ public sealed class NodeUsageRecordTests
         new("done", WorkflowStatus.Running, awaitingSignal: null, WorkflowEventKind.Branched);
 
     private ReviewHandoffWorkflowStore Store(IWorkflowStore inner) =>
-        new(inner, Definitions(), TestNodeUsage.Recorder(_records));
+        new(inner, Definitions(), TestNodeUsage.Recorder(_records), TestNodeUsage.Responses(_records));
 
     /// <summary>
     ///     Red: delete the append after <c>Inner.CompleteNodeAsync</c>; nothing is received.

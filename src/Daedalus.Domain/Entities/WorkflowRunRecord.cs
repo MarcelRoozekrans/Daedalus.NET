@@ -35,6 +35,13 @@ public sealed class WorkflowRunRecord
     public const string ReviewEvidenceKind = "review-evidence";
 
     /// <summary>
+    ///     The <see cref="Kind"/> of a record of the <c>review_response</c> an <c>implement</c> visit reported, written by the host
+    ///     at that visit's <see cref="Seq"/> when the visit completes with one. Its payload is <c>{ response }</c>, the value as
+    ///     implement wrote it. The run variable is overwritten by each visit; this record keeps every visit's answer.
+    /// </summary>
+    public const string ReviewResponseKind = "review-response";
+
+    /// <summary>
     ///     The <see cref="Kind"/> of a record that a human resumed a gate dropping some of the run's deferred findings, or
     ///     none. Its payload is <c>{ dropped: [ids], by }</c> and its <see cref="PrincipalId"/> is the resumer. The latest
     ///     one applies.

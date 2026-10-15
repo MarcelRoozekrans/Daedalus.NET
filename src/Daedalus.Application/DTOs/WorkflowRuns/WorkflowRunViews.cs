@@ -75,6 +75,14 @@ public sealed record CancelWorkflowRunRequest(string? Reason);
 ///     Why the run failed, derived on read, for a <c>Failed</c> run; <see langword="null"/> for every other status. It names the
 ///     review limit and its last rejecting lens, a blocked implement, the host's error, or else the node the run ended at.
 /// </param>
+/// <param name="ReviewVisits">
+///     Every review visit of the run, newest first, read off its <c>review-evidence</c> records, each rejected one with the
+///     <c>review_response</c> implement reported on the visit that answered it. Empty before review has run. A record that
+///     cannot be read is left out, and <paramref name="ReviewVisitsError"/> says so.
+/// </param>
+/// <param name="ReviewVisitsError">
+///     Which <c>review-evidence</c> or <c>review-response</c> records could not be read, by seq, otherwise <see langword="null"/>.
+/// </param>
 public sealed record WorkflowRunView(
     Guid Id,
     string Process,
@@ -98,7 +106,27 @@ public sealed record WorkflowRunView(
     string? StartedByName,
     IReadOnlyList<NodeSelectionView> NodeSelections,
     string? NodeSelectionsError,
-    string? FailureReason);
+    string? FailureReason,
+    IReadOnlyList<ReviewVisitView> ReviewVisits,
+    string? ReviewVisitsError);
+
+/// <summary>One review visit of a run, as its <c>review-evidence</c> records hold it.</summary>
+/// <param name="Seq">The seq of the review visit.</param>
+/// <param name="Verdict"><c>Rejected</c> when any lens rejected, otherwise <c>Approved</c>.</param>
+/// <param name="RejectingLens">The first lens that rejected, or <see langword="null"/> on an approval.</param>
+/// <param name="Lenses">Each lens the visit ran, in the order it ran, with what it checked and the findings it reported.</param>
+/// <param name="ReviewResponse">
+///     On a rejected visit, the <c>review_response</c> implement reported on the next implement visit, the one the rejection
+///     sent the run back to; <see langword="null"/> when that visit recorded none, when it has not run yet, and on an approval.
+///     Shown to the operator only: the reviewer's own dispatch never carries it.
+/// </param>
+public sealed record ReviewVisitView(long Seq, string Verdict, string? RejectingLens, IReadOnlyList<LensCheckedView> Lenses, string? ReviewResponse);
+
+/// <summary>One finding a review lens reported, as the run page shows it.</summary>
+/// <param name="File">The repository-relative file the finding is in.</param>
+/// <param name="Line">The one-based line it is at.</param>
+/// <param name="Scenario">How the defect shows.</param>
+public sealed record ReviewFindingView(string File, int Line, string Scenario);
 
 /// <summary>
 ///     The model and tool decision of one node visit, as its <c>node-selection</c> record holds it. The tool filter is
@@ -134,10 +162,11 @@ public sealed record WorkflowRunStepView(
     long Seq, string Kind, string? FromNode, string ToNode, string Status, string? Outcome, string? Error,
     int? InputTokens, int? OutputTokens, int? CacheReadTokens, DateTimeOffset At, string? Actor);
 
-/// <summary>What one review lens recorded as checked on the run's latest review visit.</summary>
+/// <summary>What one review lens recorded on a review visit: what it checked and the findings it reported.</summary>
 /// <param name="Lens">The lens name.</param>
 /// <param name="Checked">What the lens reports it checked.</param>
-public sealed record LensCheckedView(string Lens, IReadOnlyList<string> Checked);
+/// <param name="Findings">The findings the lens reported; empty on an approving lens.</param>
+public sealed record LensCheckedView(string Lens, IReadOnlyList<string> Checked, IReadOnlyList<ReviewFindingView> Findings);
 
 /// <summary>The write-once agent and skill pin of one task node, as the run's manifest recorded it.</summary>
 /// <param name="AgentName">The agent the node runs.</param>

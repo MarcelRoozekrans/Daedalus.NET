@@ -242,9 +242,14 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var writes = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.WorkspaceWriteKind, ct);
         var selections = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.NodeSelectionKind, ct);
         var review = await runs.ReadReviewAsync(run.Id, ct);
+        var (reviewVisits, reviewVisitsError) = ReviewVisitHistory.Read(
+            await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.ReviewEvidenceKind, ct),
+            await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.ReviewResponseKind, ct));
         IReadOnlyList<IdentifiedDeferredFinding> deferred = review.IsSuccess ? ReviewVisit.DeferredOf(review.Value) : [];
         IReadOnlyList<LensCheckedView> checkedItems = review.IsSuccess && review.Value is { } visit
-            ? [.. visit.Lenses.Select(l => new LensCheckedView(l.Lens, l.Checked))]
+            ? [.. visit.Lenses.Select(l => new LensCheckedView(l.Lens, l.Checked, string.Equals(l.Lens, visit.RejectedLens, StringComparison.Ordinal)
+                ? [.. visit.Findings.Select(f => new ReviewFindingView(f.File, f.Line, f.Scenario))]
+                : []))]
             : [];
         var drops = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDroppedKind, ct);
         var voids = await runs.ListRecordsAsync(run.Id, WorkflowRunRecord.FindingsDropVoidedKind, ct);
@@ -303,7 +308,9 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
             NodeSelectionsError: unreadableSelections.Count > 0
                 ? $"{unreadableSelections.Count} node-selection record(s) could not be read, at seq {string.Join(", ", unreadableSelections)}."
                 : null,
-            FailureReason: RunFailureReason.Derive(run.Status.ToString(), steps, run.LastError, rejectingLens));
+            FailureReason: RunFailureReason.Derive(run.Status.ToString(), steps, run.LastError, rejectingLens),
+            ReviewVisits: reviewVisits,
+            ReviewVisitsError: reviewVisitsError);
     }
 
     /// <summary>Findings in the order a human reads them: by lens, then by number (so 2 comes before 10), with the summary last.</summary>

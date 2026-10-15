@@ -128,7 +128,7 @@ public sealed class NodeUsageSplitTests
         recorder.HoldPasses(failed, 4, [Decided1, Pinned]);
         recorder.HoldPasses(failed, 6, [Decided1, Pinned]);
         recorder.HoldPasses(other, 4, [Decided1, Pinned]);
-        var store = new ReviewHandoffWorkflowStore(Substitute.For<IWorkflowStore>(), Substitute.For<IProcessDefinitionStore>(), recorder);
+        var store = new ReviewHandoffWorkflowStore(Substitute.For<IWorkflowStore>(), Substitute.For<IProcessDefinitionStore>(), recorder, TestNodeUsage.Responses());
 
         await store.FailAsync(failed, "the review failed", CancellationToken.None);
 
@@ -158,7 +158,7 @@ public sealed class NodeUsageSplitTests
         }));
         inner.CompleteNodeAsync(runId, 4, Arg.Any<WorkflowTransition>(), Arg.Any<NodeResult>(), Arg.Any<CancellationToken>())
             .Returns(_ => ValueTask.FromException(new WorkflowConcurrencyException("stale seq")));
-        var store = new ReviewHandoffWorkflowStore(inner, Substitute.For<IProcessDefinitionStore>(), recorder);
+        var store = new ReviewHandoffWorkflowStore(inner, Substitute.For<IProcessDefinitionStore>(), recorder, TestNodeUsage.Responses());
         recorder.HoldPasses(runId, 4, [Decided1, Pinned]);
 
         var act = async () => await store.CompleteNodeAsync(
