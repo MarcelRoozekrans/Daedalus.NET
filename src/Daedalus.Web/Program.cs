@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Daedalus.Web;
 using Daedalus.Web.Auth;
 using Daedalus.Web.State;
+using Daedalus.Web.State.Agent;
 using Daedalus.Web.State.Brainstorm;
 using Daedalus.Web.State.Costs;
 using Daedalus.Web.State.Home;
@@ -152,6 +153,7 @@ builder.Services.AddScoped<CostsEffects>();
 builder.Services.AddScoped<SchedulesEffects>();
 builder.Services.AddScoped<PrdEffects>();
 builder.Services.AddScoped<BrainstormEffects>();
+builder.Services.AddScoped<AgentEffects>();
 builder.Services.AddScoped<RunHubConnection>();
 
 // The signed-in user as a cascading value that is replaced whenever the authentication state changes, so the layout
