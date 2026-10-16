@@ -217,10 +217,11 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
     /// <summary>
     ///     Generate posts the project and requirements, and the review step shows the PRD's overview, its goals and every
     ///     item. The answer is camelCase, as the API writes it: this is R8's red test.
-    ///     Red: <c>PrdGenerator</c> deserializes without <c>ApiJson</c>, case-sensitively; it binds nulls and the review
-    ///     step throws on <c>Prd.Goals</c>, so the review heading never shows. The convert scenario fails with it too.
-    ///     Red: the request carries <c>Guid.Empty</c> for the project; the posted project id is not Test Project's.
-    ///     Red: the success branch leaves <c>_currentStep</c> at RequirementsInput; the review heading never shows.
+    ///     Red: <c>ApiClient.TryReadJsonAsync</c> reads without the web defaults, case-sensitively; it binds nulls and the
+    ///     review step throws on <c>Prd.Goals</c>, so the review heading never shows. The convert scenario fails with it too.
+    ///     Red: <c>PrdEffects.GenerateAsync</c> posts <c>Guid.Empty</c> for the project; the posted project id is not Test
+    ///     Project's.
+    ///     Red: the <c>PrdGenerated</c> reducer leaves <c>Step</c> at RequirementsInput; the review heading never shows.
     ///     Red: the review renders <c>Prd.Id</c> for the overview; the overview text does not show.
     ///     Red: the Goals list renders the first assumption for each goal; the goal does not show.
     ///     Red: <c>AllItems</c> returns only the features; the heading reads (1), and the task item is missing.
@@ -245,7 +246,7 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
     /// <summary>
     ///     Converting the selected items posts only those, and the last step lists the created tasks.
     ///     Red: <c>HandleConvert</c> converts every item, not the selected ones; the posted items include the task item.
-    ///     Red: the success branch leaves <c>_currentStep</c> at PrdReview; "Tasks Created Successfully!" never shows.
+    ///     Red: the <c>PrdConverted</c> reducer leaves <c>Step</c> at PrdReview; "Tasks Created Successfully!" never shows.
     ///     Red: the success alert counts <c>0</c>; it does not read "1 tasks have been created".
     ///     Red: the Prompt column binds <c>Title</c>; the created task's prompt does not show.
     /// </summary>
@@ -270,8 +271,9 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
 
     /// <summary>
     ///     A generate the API refuses shows the refusal's reason and stays on the requirements step.
-    ///     Red: the failure branch sets a fixed "Failed to generate PRD"; the reason does not show.
-    ///     Red: the failure branch moves to PrdReview; the requirements step's Generate button is gone.
+    ///     Red: <c>PrdEffects.GenerateAsync</c> fails with a fixed "Failed to generate PRD"; the reason does not show.
+    ///     Red: the <c>PrdRequestFailed</c> reducer moves <c>Step</c> to PrdReview; the requirements step's Generate button
+    ///     is gone.
     /// </summary>
     [Test]
     [Description("A refused generate says why and stays on the requirements")]
