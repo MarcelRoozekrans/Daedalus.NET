@@ -5,6 +5,7 @@ using Daedalus.Web.State.Projects;
 using Daedalus.Web.State.Tasks;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ZeroAlloc.Flux;
 using ZeroAlloc.Flux.Generated;
 
@@ -23,11 +24,12 @@ public sealed class ProjectsEffectsTests : IDisposable
     private readonly ServiceProvider _provider = new ServiceCollection().AddZeroAllocFlux().BuildServiceProvider();
     private readonly IStore<ProjectsState> _store;
     private readonly ProjectsEffects _effects;
+    private readonly RecordingLogger<ProjectsEffects> _logger = new();
 
     public ProjectsEffectsTests()
     {
         _store = _provider.GetRequiredService<IStore<ProjectsState>>();
-        _effects = new ProjectsEffects(_handler.Client(), _handler.ProjectClient(), _provider.GetRequiredService<IDispatcher>(), _store);
+        _effects = new ProjectsEffects(_handler.Client(), _handler.ProjectClient(), _provider.GetRequiredService<IDispatcher>(), _store, _logger);
     }
 
     public void Dispose()
@@ -162,6 +164,7 @@ public sealed class ProjectsEffectsTests : IDisposable
     ///     the projects already loaded stay, and loading ends.
     ///     Red: dispatch ProjectsLoadFailed for SigningInAgain too; the error is the signing-in text.
     ///     Red: dispatch nothing for SigningInAgain; Loading stays set.
+    ///     Red: log the failure before the SigningInAgain check in LoadAsync; the renewal writes a warning.
     /// </summary>
     [Fact]
     public async Task Signing_in_again_stores_no_error()
@@ -177,6 +180,7 @@ public sealed class ProjectsEffectsTests : IDisposable
         _store.Value.Error.Should().BeNull("a session being renewed is not an error to show");
         _store.Value.Loading.Should().BeFalse();
         _store.Value.Projects.Should().ContainSingle().Which.Id.Should().Be(kept);
+        _logger.Entries.Should().BeEmpty("a session being renewed is not a failure");
     }
 
     /// <summary>
@@ -269,14 +273,19 @@ public sealed class ProjectsEffectsTests : IDisposable
     // ── The Projects page's selected project ───────────────────────────────────
 
     /// <summary>
-    ///     Selecting a project shows it with its tasks.
+    ///     Selecting a project shows it with its tasks, and clears an earlier click's failure.
     ///     Red: drop the ProjectSelectLoaded dispatch from LoadSelectedAsync; nothing is selected.
     ///     Red: leave Selected unset in the ProjectSelectLoaded reducer.
+    ///     Red: set SelectedId to null in the ProjectSelectLoaded reducer; the project asked for is lost.
+    ///     Red: keep SelectError in the ProjectSelectRequested reducer; the earlier failure is still the error.
     /// </summary>
     [Fact]
     public async Task Selecting_a_project_shows_it_with_its_tasks()
     {
         var id = Guid.NewGuid();
+        _handler.OnJson(WithTasks(id), "{}", HttpStatusCode.InternalServerError);
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+        _store.Value.SelectError.Should().NotBeNull("the earlier click failed");
         _handler.OnJson(WithTasks(id), RunViews.Json(Project(id, "Widgets")));
 
         await _effects.LoadSelectedAsync(id, CancellationToken.None);
@@ -321,6 +330,27 @@ public sealed class ProjectsEffectsTests : IDisposable
         await _effects.LoadSelectedAsync(id, CancellationToken.None);
 
         _store.Value.SelectError.Should().BeNull("a session being renewed is not an error to show");
+        _store.Value.Selected.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     A select cancelled because the page closed stores no error, and shows no project.
+    ///     Red: drop the cancellation check from LoadSelectedAsync; the error is "Request was cancelled".
+    /// </summary>
+    [Fact]
+    public async Task A_select_cancelled_by_its_page_stores_no_error()
+    {
+        var id = Guid.NewGuid();
+        using var closing = new CancellationTokenSource();
+        _handler.On(WithTasks(id), async () =>
+        {
+            await closing.CancelAsync();
+            throw new OperationCanceledException(closing.Token);
+        });
+
+        await _effects.LoadSelectedAsync(id, closing.Token);
+
+        _store.Value.SelectError.Should().BeNull("the page that asked is gone");
         _store.Value.Selected.Should().BeNull();
     }
 
@@ -453,6 +483,7 @@ public sealed class ProjectsEffectsTests : IDisposable
     ///     Red: drop the ProjectSaved dispatch from DeleteAsync; there is no outcome.
     ///     Red: leave Selected in the ProjectSaved reducer for a delete; the deleted project still shows.
     ///     Red: clear Selected for any delete, whatever its id; the other delete hides the shown project.
+    ///     Red: send the delete as a GET in ProjectApiClient.DeleteProjectAsync; the last request is not a DELETE.
     /// </summary>
     [Fact]
     public async Task Deleting_the_shown_project_stops_showing_it()
@@ -475,7 +506,8 @@ public sealed class ProjectsEffectsTests : IDisposable
 
     /// <summary>
     ///     A refused delete is the refusal, and the project still shows.
-    ///     Red: dispatch ProjectSaved on a failure; the outcome is a success and the project is gone.
+    ///     Red: dispatch ProjectSaved on a failure; the outcome is a success.
+    ///     Red: clear Selected in the ProjectSaveRefused reducer; the project no longer shows.
     /// </summary>
     [Fact]
     public async Task A_refused_delete_is_the_refusal()
@@ -512,6 +544,50 @@ public sealed class ProjectsEffectsTests : IDisposable
         });
         await _effects.DeleteAsync(id, closing.Token);
         _store.Value.LastSave.Should().BeNull("a write whose page closed has no one to show it to");
+    }
+
+    // ── Logging ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    ///     A failed load writes exactly one warning, with the error text.
+    ///     Red: drop the LogLoadFailed call; no warning is written.
+    ///     Red: call LogLoadFailed twice; two warnings are written.
+    ///     Red: log the fixed text "load failed" instead of the error; the error text is missing.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_load_writes_one_warning()
+    {
+        _handler.On(ProjectsPath, HttpResponseMessage () => throw new TaskCanceledException("The request timed out."));
+
+        await _effects.LoadAsync(CancellationToken.None);
+
+        _logger.Entries.Should().ContainSingle().Which.Should().Match<(LogLevel Level, string Message)>(e =>
+            e.Level == LogLevel.Warning && e.Message.Contains("Request was cancelled"));
+    }
+
+    /// <summary>
+    ///     A failed select and a refused write each write one warning with the error text; a session being renewed
+    ///     writes none.
+    ///     Red: drop the LogSelectFailed call; the select writes no warning.
+    ///     Red: drop the LogWriteRefused call; the refusal writes no warning.
+    ///     Red: log before the SigningInAgain check in LoadSelectedAsync; the renewal writes a warning.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_select_and_a_refused_write_each_write_one_warning()
+    {
+        var id = Guid.NewGuid();
+        _handler.On(WithTasks(id), SigningIn());
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+        _logger.Entries.Should().BeEmpty("a session being renewed is not a failure");
+
+        _handler.OnJson(WithTasks(id), "{}", HttpStatusCode.InternalServerError);
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+        _logger.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Warning);
+
+        _handler.On("/api/projects", () => Text(HttpStatusCode.BadRequest, "Name taken"));
+        await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+        _logger.Entries.Should().HaveCount(2);
+        _logger.Entries[^1].Message.Should().Contain("Failed to create project: Name taken");
     }
 
     private static string WithTasks(Guid id) => $"/api/projects/{id}/with-tasks";

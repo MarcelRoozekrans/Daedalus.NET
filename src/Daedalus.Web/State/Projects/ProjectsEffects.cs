@@ -1,4 +1,5 @@
 using Daedalus.Web.Auth;
+using Microsoft.Extensions.Logging;
 using ZeroAlloc.Flux;
 
 namespace Daedalus.Web.State.Projects;
@@ -7,10 +8,11 @@ namespace Daedalus.Web.State.Projects;
 ///     The projects feature's I/O: the one load the Tasks page, the task create dialog and Home's New task share. Each
 ///     reader calls <see cref="LoadAsync"/> when it opens; see <see cref="ProjectsState"/> for why nothing clears the
 ///     list. An expected failure is an action, never an exception. A session being renewed and a load whose reader went
-///     away store no error.
+///     away store no error. A failure that is stored is logged as a warning, with the error text only.
 /// </summary>
-public sealed class ProjectsEffects(
-    ApiClient api, IProjectApiClient writes, IDispatcher dispatcher, IStore<ProjectsState> projects)
+public sealed partial class ProjectsEffects(
+    ApiClient api, IProjectApiClient writes, IDispatcher dispatcher, IStore<ProjectsState> projects,
+    ILogger<ProjectsEffects> logger)
 {
     /// <summary>Every reader reads one page of this many projects, the size the Tasks page has always read.</summary>
     public const int Page = 200;
@@ -36,6 +38,7 @@ public sealed class ProjectsEffects(
         }
         else
         {
+            LogLoadFailed(logger, result.Error);
             await dispatcher.DispatchAsync(new ProjectsLoadFailed(sequence, result.Error));
         }
     }
@@ -71,6 +74,7 @@ public sealed class ProjectsEffects(
         }
         else
         {
+            LogSelectFailed(logger, result.Error);
             await dispatcher.DispatchAsync(new ProjectSelectFailed(id, result.Error));
         }
     }
@@ -115,7 +119,9 @@ public sealed class ProjectsEffects(
         }
         else if (!SessionExpiry.IsSigningIn(result.Error) && !ct.IsCancellationRequested)
         {
-            await dispatcher.DispatchAsync(new ProjectSaveRefused(write, result.Error ?? $"Failed to {Verb(write)}"));
+            var reason = result.Error ?? $"Failed to {Verb(write)}";
+            LogWriteRefused(logger, write, reason);
+            await dispatcher.DispatchAsync(new ProjectSaveRefused(write, reason));
         }
     }
 
@@ -125,4 +131,13 @@ public sealed class ProjectsEffects(
         ProjectWrite.Updated => "update",
         _ => "delete",
     };
+
+    [LoggerMessage(EventId = 3200, Level = LogLevel.Warning, Message = "The projects could not be loaded: {Error}")]
+    private static partial void LogLoadFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = 3201, Level = LogLevel.Warning, Message = "A project with its tasks could not be loaded: {Error}")]
+    private static partial void LogSelectFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = 3202, Level = LogLevel.Warning, Message = "A project write ({Write}) was refused: {Reason}")]
+    private static partial void LogWriteRefused(ILogger logger, ProjectWrite write, string reason);
 }

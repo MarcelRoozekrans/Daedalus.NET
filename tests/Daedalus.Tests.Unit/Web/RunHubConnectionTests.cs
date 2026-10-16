@@ -288,7 +288,7 @@ public sealed class RunHubConnectionTests : IDisposable
             new FixedDelay(TimeSpan.FromMilliseconds(10)));
         _handler.OnJson(CountPath, RunViews.Json(new WorkflowRunList([], null)))
             .OnJson(projectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([], 0, 1, 200)));
-        await new ProjectsEffects(_handler.Client(), _handler.ProjectClient(), _provider.GetRequiredService<IDispatcher>(), _provider.GetRequiredService<IStore<ProjectsState>>())
+        await new ProjectsEffects(_handler.Client(), _handler.ProjectClient(), _provider.GetRequiredService<IDispatcher>(), _provider.GetRequiredService<IStore<ProjectsState>>(), new RecordingLogger<ProjectsEffects>())
             .LoadAsync(CancellationToken.None);
         _handler.Requests.Clear();
 
@@ -347,7 +347,7 @@ public sealed class RunHubConnectionTests : IDisposable
             _dispatcher,
             new RunsEffects(api, dispatcher, _provider.GetRequiredService<IStore<RunsState>>()),
             new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()),
-            new ProjectsEffects(api, _handler.ProjectClient(), dispatcher, _provider.GetRequiredService<IStore<ProjectsState>>()),
+            new ProjectsEffects(api, _handler.ProjectClient(), dispatcher, _provider.GetRequiredService<IStore<ProjectsState>>(), new RecordingLogger<ProjectsEffects>()),
             _logger)
         {
             ConfigureTransport = transport,

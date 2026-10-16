@@ -43,12 +43,12 @@
             var dto = new CreateProjectDto(_projectName.Trim(), _description.Trim(), _version.Trim());
             await ProjectsEffects.CreateAsync(dto, CancellationToken.None);
             // No outcome is a session being renewed: the layout says so, and the dialog stays open, as it did.
-            if (ProjectStore.Value.LastSave is { Succeeded: true })
+            if (ProjectStore.Value.LastSave is { Write: ProjectWrite.Created, Succeeded: true })
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Success", "Project created");
                 DialogService.Close(true);
             }
-            else if (ProjectStore.Value.LastSave is { Refusal: { } refusal })
+            else if (ProjectStore.Value.LastSave is { Write: ProjectWrite.Created, Refusal: { } refusal })
             {
                 NotificationService.NotifyFailure("Error", refusal);
             }

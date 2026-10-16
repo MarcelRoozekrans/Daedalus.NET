@@ -50,18 +50,42 @@
 
     [Parameter] public EventCallback<Guid> OnProjectSelected { get; set; }
 
+    /// <summary>Whether the load this step started is in flight; only that shows the spinner.</summary>
+    private bool _loading = true;
+
     /// <summary>
-    ///     The projects the step shows, or <see langword="null"/> while they load. A failed load shows as no projects,
-    ///     as the step always showed it, and a session being renewed keeps the spinner: the layout says so and the
-    ///     browser is on its way to sign in.
+    ///     The projects the step shows, or <see langword="null"/> for the spinner: while its own load is in flight, and
+    ///     after a session being renewed, as the layout says so and the browser is on its way to sign in. A failed load
+    ///     shows as no projects, as the step always showed it; a background refresh, such as a reconnect's, keeps the
+    ///     cards showing.
     /// </summary>
-    private IReadOnlyList<ProjectDto>? Shown =>
-        ProjectStore.Value.Settled ?? (ProjectStore.Value.Error is not null ? [] : null);
+    private IReadOnlyList<ProjectDto>? Shown
+    {
+        get
+        {
+            if (_loading)
+            {
+                return null;
+            }
+
+            return ProjectStore.Value.Current ?? (ProjectStore.Value.Error is not null ? [] : null);
+        }
+    }
 
     protected override void SubscribeStores() => Subscribe(ProjectStore);
 
     /// <summary>The projects are shared and never cleared, so the step re-reads them on every open.</summary>
-    protected override Task OnInitializedAsync() => ProjectsEffects.LoadAsync(_cts.Token);
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await ProjectsEffects.LoadAsync(_cts.Token);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {

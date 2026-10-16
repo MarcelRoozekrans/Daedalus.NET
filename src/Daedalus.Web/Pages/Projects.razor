@@ -28,12 +28,13 @@
     </RadzenAlert>
 }
 
-@* Settled, not Projects: a failed load shows the empty state, as the page always did, never a list held from before. *@
-@if (ProjectStore.Value.Loading)
+@* The spinner is for the page's own loads only: a background refresh, such as a reconnect's, keeps the list showing.
+   Current, not Projects: a failed load shows the empty state, as the page always did, never a list held from before. *@
+@if (_loading)
 {
     <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"/>
 }
-else if (ProjectStore.Value.Settled is { Count: > 0 } projects)
+else if (ProjectStore.Value.Current is { Count: > 0 } projects)
 {
     <RadzenDataGrid TItem="ProjectDto" Data="@projects" AllowSorting="true" AllowColumnResize="true"
                     Style="height: auto;" data-testid="projects-grid">
@@ -139,10 +140,26 @@ else
 @code {
     private readonly CancellationTokenSource _cts = new();
 
+    /// <summary>Whether a load this page started is in flight; only that shows the spinner.</summary>
+    private bool _loading = true;
+
     protected override void SubscribeStores() => Subscribe(ProjectStore);
 
     /// <summary>The projects are shared and never cleared, so the page re-reads them on every open.</summary>
-    protected override Task OnInitializedAsync() => ProjectsEffects.LoadAsync(_cts.Token);
+    protected override Task OnInitializedAsync() => LoadProjectsAsync();
+
+    private async Task LoadProjectsAsync()
+    {
+        _loading = true;
+        try
+        {
+            await ProjectsEffects.LoadAsync(_cts.Token);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
 
     private async Task SelectProjectAsync(Guid projectId)
     {
@@ -161,7 +178,7 @@ else
 
         if (result is bool confirmed1 && confirmed1)
         {
-            await ProjectsEffects.LoadAsync(_cts.Token);
+            await LoadProjectsAsync();
         }
     }
 
@@ -173,7 +190,7 @@ else
 
         if (result is bool confirmed2 && confirmed2)
         {
-            await ProjectsEffects.LoadAsync(_cts.Token);
+            await LoadProjectsAsync();
             if (ProjectStore.Value.Selected?.Id == project.Id)
                 await SelectProjectAsync(project.Id);
         }
@@ -190,12 +207,12 @@ else
         {
             // The effect stops showing the project if it was shown.
             await ProjectsEffects.DeleteAsync(project.Id, _cts.Token);
-            if (ProjectStore.Value.LastSave is { Succeeded: true })
+            if (ProjectStore.Value.LastSave is { Write: ProjectWrite.Deleted, Succeeded: true })
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Deleted", "Project deleted");
-                await ProjectsEffects.LoadAsync(_cts.Token);
+                await LoadProjectsAsync();
             }
-            else if (ProjectStore.Value.LastSave is { Refusal: { } refusal })
+            else if (ProjectStore.Value.LastSave is { Write: ProjectWrite.Deleted, Refusal: { } refusal })
             {
                 NotificationService.NotifyFailure("Error", refusal);
             }

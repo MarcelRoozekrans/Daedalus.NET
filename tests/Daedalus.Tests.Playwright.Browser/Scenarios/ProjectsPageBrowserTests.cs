@@ -170,7 +170,9 @@ public class ProjectsPageBrowserTests : BrowserTestBase
     /// <summary>
     ///     A failed load shows the error and the empty state, as the page always did, never the list a page opened before
     ///     left in the shared feature.
-    ///     Red: render the grid from ProjectsState.Projects instead of Settled; the held list shows under the error.
+    ///     The empty state and the grid are the two branches of one if, so the empty state showing is the grid hidden.
+    ///     Red: show the alert only for an error over 100000 characters; the alert is missing.
+    ///     Red: render the grid from ProjectsState.Projects instead of Current; the held list shows, not the empty state.
     /// </summary>
     [Test]
     [Description("A failed load shows the error and the empty state, not a held list")]
@@ -178,21 +180,22 @@ public class ProjectsPageBrowserTests : BrowserTestBase
     {
         var menu = new MainPage(Page, BaseUrl);
         await _projectsPage.NavigateAsync().ConfigureAwait(false);
-        await Expect(_projectsPage.GetRowByText("Test Project")).ToBeVisibleAsync().ConfigureAwait(false);
+        await _projectsPage.GetRowByText("Test Project").WaitForAsync().ConfigureAwait(false);
         await menu.TasksMenuItem.ClickAsync().ConfigureAwait(false);
-        await Expect(_projectsPage.DataGrid).ToBeHiddenAsync().ConfigureAwait(false);
+        await Page.WaitForURLAsync("**/tasks").ConfigureAwait(false);
 
         await Page.RouteAsync("**/api/projects?*", route => route.FulfillAsync(new RouteFulfillOptions { Status = 500 })).ConfigureAwait(false);
         await menu.ProjectsMenuItem.ClickAsync().ConfigureAwait(false);
 
         await Expect(_projectsPage.ErrorAlert).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_projectsPage.EmptyStateTitle).ToBeVisibleAsync().ConfigureAwait(false);
-        await Expect(_projectsPage.DataGrid).ToBeHiddenAsync().ConfigureAwait(false);
     }
 
     /// <summary>
     ///     Deleting the project whose tasks show stops showing them. The delete is answered by a stub, so the seeded
     ///     project stays for the other tests and the list re-read still shows it.
+    ///     Red: drop the ProjectSelectLoaded dispatch from LoadSelectedAsync; the tasks panel never shows.
+    ///     Red: drop the "Project deleted" toast from the page's delete; the notification is missing.
     ///     Red: leave Selected in the ProjectSaved reducer for a delete; the tasks panel stays.
     /// </summary>
     [Test]
@@ -219,6 +222,7 @@ public class ProjectsPageBrowserTests : BrowserTestBase
     /// <summary>
     ///     A refused create says why, in the words the dialog always used, and the dialog stays open.
     ///     Red: store a fixed "Failed to create" instead of the client's error; the server's reason is missing.
+    ///     Red: close the dialog after the refusal's toast; the dialog is gone.
     /// </summary>
     [Test]
     [Description("A refused create says why and the dialog stays open")]
@@ -229,7 +233,6 @@ public class ProjectsPageBrowserTests : BrowserTestBase
             : route.ContinueAsync()).ConfigureAwait(false);
         await _projectsPage.NavigateAsync().ConfigureAwait(false);
         await _projectsPage.CreateProjectButton.ClickAsync().ConfigureAwait(false);
-        await Expect(_projectsPage.Dialog).ToBeVisibleAsync().ConfigureAwait(false);
 
         await _projectsPage.Dialog.Locator("input").First.FillAsync("Atlas").ConfigureAwait(false);
         await _projectsPage.Dialog.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Create" }).ClickAsync().ConfigureAwait(false);

@@ -119,6 +119,7 @@ public sealed class ProjectsReducersTests
     ///     Red: keep SelectedId; a late answer for the closed page's click still lands.
     ///     Red: keep LastSave; the closed page's outcome outlives it.
     ///     Red: set Projects to null in the ProjectsPageClosed reducer; the list is gone.
+    ///     Red: drop the id check from the ProjectSelectLoaded reducer; the late answer is shown after the close.
     /// </summary>
     [Fact]
     public void The_page_closing_clears_its_selection_and_its_last_save_and_keeps_the_list()
@@ -162,6 +163,7 @@ public sealed class ProjectsReducersTests
     ///     A save start clears the last outcome, and a refusal is kept with its write.
     ///     Red: keep LastSave in the ProjectSaveStarted reducer.
     ///     Red: store the refusal with a null reason; it reads as saved.
+    ///     Red: make ProjectSave.Succeeded always true; the refusal reads as saved.
     /// </summary>
     [Fact]
     public void A_save_start_clears_the_last_outcome()
@@ -173,6 +175,25 @@ public sealed class ProjectsReducersTests
         state = ProjectsReducers.On(state, new ProjectSaveStarted(ProjectWrite.Updated));
 
         state.LastSave.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     What a list shows outside a load of its own: the held list while a background refresh is in flight, so a
+    ///     reconnect neither shows a spinner nor empties it, and nothing once a load has failed.
+    ///     Red: make Current return Settled; the held list is gone while the refresh is in flight.
+    ///     Red: make Current return Projects; the held list shows over the failure.
+    /// </summary>
+    [Fact]
+    public void A_background_refresh_keeps_the_held_list_current_until_it_fails()
+    {
+        var state = ProjectsReducers.On(ProjectsState.Initial(null!), new ProjectsLoadStarted(1));
+        state = ProjectsReducers.On(state, new ProjectsLoaded(1, [First]));
+
+        state = ProjectsReducers.On(state, new ProjectsLoadStarted(2));
+        state.Current.Should().Equal([First], "a refresh in flight keeps the held list");
+
+        state = ProjectsReducers.On(state, new ProjectsLoadFailed(2, "boom"));
+        state.Current.Should().BeNull("a failed load shows as it always did");
     }
 
     private static ProjectDto Project(string name) => new(Guid.NewGuid(), name, "", "1.0", "", "main", DateTime.UnixEpoch, null, []);

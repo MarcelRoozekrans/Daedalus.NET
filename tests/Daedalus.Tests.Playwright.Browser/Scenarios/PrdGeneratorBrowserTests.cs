@@ -100,7 +100,7 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
 
     /// <summary>
     ///     A projects load that fails shows no projects, as the step always showed it, rather than a spinner forever.
-    ///     Red: show ProjectsState.Settled alone; a failed load keeps the spinner and "No projects found" never shows.
+    ///     Red: show ProjectsState.Current alone; a failed load keeps the spinner and "No projects found" never shows.
     /// </summary>
     [Test]
     [Description("Step 1 shows no projects when the projects cannot be loaded")]

@@ -43,7 +43,10 @@ namespace Daedalus.Web.State.Projects;
 /// </param>
 /// <param name="LastSave">
 ///     The outcome of the last create, update or delete, or <see langword="null"/> while one is in flight, before any,
-///     and after one that ended with the session being renewed or its reader gone: neither is an outcome to show.
+///     and after one that ended with the session being renewed or its reader gone: neither is an outcome to show. A
+///     dialog's write is not cancelled by the page closing, so its outcome can land after
+///     <see cref="ProjectsPageClosed"/> and stay until the next write starts. It is read only by the component that
+///     awaited that write, at once and by its <see cref="ProjectSave.Write"/>, so a left-over outcome is never shown.
 /// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct ProjectsState(
@@ -57,6 +60,14 @@ public readonly partial record struct ProjectsState(
     ///     failed refresh could not confirm.
     /// </summary>
     public IReadOnlyList<ProjectDto>? Settled => Loading || Error is not null ? null : Projects;
+
+    /// <summary>
+    ///     The projects a list shows outside a load of its own: the held list while a background refresh, such as a
+    ///     reconnect's, is in flight, so that refresh shows no spinner and does not empty the list; and
+    ///     <see langword="null"/> once a load has failed, so the failure shows as it always did, never over a held list.
+    ///     The Projects page and the PRD project step show their spinner only for a load they started.
+    /// </summary>
+    public IReadOnlyList<ProjectDto>? Current => Error is null ? Projects : null;
 
     /// <summary>The state before any load.</summary>
     public static ProjectsState Initial(IServiceProvider services) =>
