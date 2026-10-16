@@ -26,6 +26,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Pushes and PRs made with GITHUB_TOKEN trigger no workflows, so bot PRs
+      # never got their required checks. A token from the release bot GitHub App
+      # acts as the App, and its pushes trigger CI like anyone else's.
+      - name: Mint a release bot token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+
       # Everything is read from release-please-config.json and .release-please-manifest.json. Pass no
       # release-type input here: with one, the action ignores the config file, so bump-minor-pre-major
       # is lost and a breaking change on 0.x jumps to 1.0.0. The config sets release-type simple: the
@@ -36,3 +49,5 @@ jobs:
       # chosen with a `Release-As: x.y.z` footer on an empty commit (docs/release.md).
       - name: Create or update the release pull request
         uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
