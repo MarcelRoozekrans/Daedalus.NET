@@ -155,7 +155,7 @@ public static class AgentReducers
         switch (evt.Kind)
         {
             case "text-delta":
-                return s with { Reply = reply with { Text = reply.Text + evt.Text } };
+                return s with { Reply = reply with { Content = reply.Content.Append(evt.Text) } };
             case "tool-call" when evt.ToolCall is { } started:
                 return s with { Reply = reply with { ToolCalls = reply.ToolCalls.Add(AgentToolCall.Started(started)) } };
             case "tool-result" when evt.ToolCall is { } finished:
@@ -168,7 +168,7 @@ public static class AgentReducers
                     Reply = reply with
                     {
                         Usage = reply.Usage ?? result.Usage,
-                        Text = reply.IsTextEmpty && !string.IsNullOrEmpty(result.Text) ? result.Text : reply.Text,
+                        Content = reply.IsTextEmpty ? AgentText.From(result.Text) : reply.Content,
                     },
                 };
             case "error":

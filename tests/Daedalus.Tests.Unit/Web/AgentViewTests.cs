@@ -59,8 +59,8 @@ public sealed class AgentViewTests
     /// <summary>
     ///     Anything but grown text renders at once: a tool call, the end of the turn, and a state with nothing changed,
     ///     which is the page's own input.
-    ///     Red: drop the last clause, the equality with the text put back, in AgentView.OnlyTheReplyTextGrew; a tool
-    ///     call within 50 ms waits.
+    ///     Red: drop the last clause, the equality with the old content put back, in
+    ///     AgentView.OnlyTheReplyTextGrew; a tool call within 50 ms waits.
     ///     Red: return !rendered.Equals(current) from AgentView.OnlyTheReplyTextGrew, so any change counts as text; the
     ///     tool call and the end of the turn wait.
     ///     Red: drop the !rendered.Equals(current) clause in AgentView.OnlyTheReplyTextGrew; a render with nothing in the

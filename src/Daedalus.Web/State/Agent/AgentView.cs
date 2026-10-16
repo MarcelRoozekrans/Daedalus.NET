@@ -17,9 +17,12 @@ public static class AgentView
 
     /// <summary>
     ///     Whether the page renders <paramref name="current"/>, having last rendered <paramref name="rendered"/>
-    ///     <paramref name="sinceRender"/> ago. Text that only grew waits for <see cref="RenderInterval"/>; every other
-    ///     change renders at once: a tool card, the usage, the end of the turn, and a render with nothing in the store
-    ///     changed, which is the page's own input. Text held back shows with the next render.
+    ///     <paramref name="sinceRender"/> ago. While the reply's text alone has grown since the last render, every
+    ///     render waits for <see cref="RenderInterval"/>, including one the page's own input asks for, such as a click
+    ///     on Memories: the held text and the input both show with the next render, at the next stream event after
+    ///     the interval or at the end of the turn. Every other change renders at once: a tool card, the usage, the end
+    ///     of the turn, and a render with nothing in the store changed since the last one. The decision compares the
+    ///     reply's chunk lists by reference, never its text.
     /// </summary>
     public static bool ShouldRender(AgentState rendered, AgentState current, TimeSpan sinceRender) =>
         sinceRender >= RenderInterval || !OnlyTheReplyTextGrew(rendered, current);
@@ -33,5 +36,5 @@ public static class AgentView
         rendered.Reply is { } before
         && current.Reply is { } after
         && !rendered.Equals(current)
-        && rendered.Equals(current with { Reply = after with { Text = before.Text } });
+        && rendered.Equals(current with { Reply = after with { Content = before.Content } });
 }

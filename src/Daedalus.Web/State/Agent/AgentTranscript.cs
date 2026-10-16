@@ -8,22 +8,25 @@ namespace Daedalus.Web.State.Agent;
 ///     render that holds an older record keeps seeing what it rendered.
 /// </summary>
 /// <param name="IsUser">Whether the person wrote it; otherwise the assistant did.</param>
-/// <param name="Text">The bubble's text, so far for a reply still streaming.</param>
+/// <param name="Content">The bubble's text as its chunks, so far for a reply still streaming.</param>
 /// <param name="ToolCalls">The tool calls under an assistant bubble, in the order they started.</param>
 /// <param name="Usage">The model and token counts, once the turn reports them.</param>
-public sealed record AgentChatMessage(bool IsUser, string Text, ImmutableList<AgentToolCall> ToolCalls, TurnUsageDto? Usage)
+public sealed record AgentChatMessage(bool IsUser, AgentText Content, ImmutableList<AgentToolCall> ToolCalls, TurnUsageDto? Usage)
 {
+    /// <summary>The bubble's text, built from its chunks when the page renders it.</summary>
+    public string Text => Content.ToString();
+
     /// <summary>Whether the bubble has no text yet.</summary>
-    public bool IsTextEmpty => Text.Length == 0;
+    public bool IsTextEmpty => Content.Length == 0;
 
     /// <summary>Whether the bubble has neither text nor a tool call: a reply that produced nothing is not kept.</summary>
     public bool IsEmpty => IsTextEmpty && ToolCalls.IsEmpty;
 
     /// <summary>The person's message <paramref name="text"/>.</summary>
-    public static AgentChatMessage User(string text) => new(true, text, [], null);
+    public static AgentChatMessage User(string text) => new(true, AgentText.From(text), [], null);
 
     /// <summary>An assistant reply before its first event.</summary>
-    public static AgentChatMessage Assistant() => new(false, string.Empty, [], null);
+    public static AgentChatMessage Assistant() => new(false, AgentText.Empty, [], null);
 
     /// <summary>A message of the stored transcript.</summary>
     public static AgentChatMessage FromDto(AgentMessageDto dto)
@@ -31,7 +34,7 @@ public sealed record AgentChatMessage(bool IsUser, string Text, ImmutableList<Ag
         ArgumentNullException.ThrowIfNull(dto);
         return new AgentChatMessage(
             string.Equals(dto.Role, "user", StringComparison.OrdinalIgnoreCase),
-            dto.Text ?? string.Empty,
+            AgentText.From(dto.Text),
             [.. dto.ToolCalls.Select(AgentToolCall.FromHistory)],
             null);
     }

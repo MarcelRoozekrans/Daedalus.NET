@@ -227,6 +227,33 @@ public sealed class AgentReducersTests
     }
 
     /// <summary>
+    ///     A long answer streamed a token at a time costs linear work: each text-delta appends its chunk and copies
+    ///     nothing it holds, so 10,000 one-character tokens allocate a few hundred bytes each, not the reply so far.
+    ///     The text built at the end is every chunk in order.
+    ///     Red: append with <c>AgentText.From(reply.Text + evt.Text)</c> in the text-delta case of ApplyEvent; the
+    ///     stream allocates about 100 MB.
+    ///     Red: build only the last chunk in AgentText.ToString; the text is "x".
+    /// </summary>
+    [Fact]
+    public void A_long_stream_appends_its_chunks_in_linear_work()
+    {
+        const int tokens = 10_000;
+        var state = Streaming();
+        var delta = new AgentTurnEvent(A, 2, Delta("x"));
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var token = 0; token < tokens; token++)
+        {
+            state = AgentReducers.On(state, delta);
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.Should().BeLessThan(tokens * 500L, "each token allocates its own records, never a copy of the reply");
+        state.Reply!.Text.Should().Be(new string('x', tokens));
+    }
+
+    /// <summary>
     ///     A late chunk of session A's turn, arriving after the page switched to session B and sent a turn there, is
     ///     ignored: B's reply shows nothing of A, and A's stop never puts "The turn was stopped." on B.
     ///     Red: drop the IsCurrent check for AgentTurnEvent; A's text streams into B's reply.
