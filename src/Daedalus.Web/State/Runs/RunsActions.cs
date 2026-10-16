@@ -11,6 +11,12 @@ public readonly record struct RunListLoaded(RunListQuery Query, WorkflowRunList 
 /// <summary>The list page for <paramref name="Query"/> could not be fetched.</summary>
 public readonly record struct RunListFailed(RunListQuery Query, string Error);
 
+/// <summary>
+///     The list page for <paramref name="Query"/> got no answer because the session is being renewed: the load ends
+///     and no error is stored, because the layout already says "Signing in again".
+/// </summary>
+public readonly record struct RunListAbandoned(RunListQuery Query);
+
 /// <summary>The operator moved to the page after this one.</summary>
 public readonly record struct RunListPagedForward(string Next);
 
@@ -44,6 +50,11 @@ public readonly record struct RunForbidden(Guid Id);
 /// <summary>The run could not be fetched.</summary>
 public readonly record struct RunLoadFailed(Guid Id, string Error);
 
+/// <summary>
+///     The run got no answer because the session is being renewed: the load ends and no error is stored.
+/// </summary>
+public readonly record struct RunLoadAbandoned(Guid Id);
+
 /// <summary>The operator marked a deferred finding as dropped, or took the mark back.</summary>
 public readonly record struct GateFindingToggled(string FindingId, bool Dropped);
 
@@ -58,6 +69,11 @@ public readonly record struct GateSubmitSucceeded;
 
 /// <summary>The approval was refused.</summary>
 public readonly record struct GateSubmitFailed(string Error);
+
+/// <summary>
+///     The approval got no answer because the session is being renewed: the draft is free again, with no error.
+/// </summary>
+public readonly record struct GateSubmitAbandoned;
 
 /// <summary>The awaiting-approval count arrived.</summary>
 public readonly record struct AwaitingApprovalLoaded(int Count, bool More);

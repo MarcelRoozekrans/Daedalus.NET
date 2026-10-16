@@ -16,13 +16,17 @@ namespace Daedalus.Web.State.Runs;
 /// <param name="PreviousCursors">The cursors of the pages before this one, so Back can return to them.</param>
 /// <param name="List">The list page, or <see langword="null"/> before one has loaded.</param>
 /// <param name="ListLoading">Whether a list page is being fetched.</param>
-/// <param name="ListError">Why the last list fetch failed, or <see langword="null"/>.</param>
+/// <param name="ListError">
+///     Why the last list fetch failed, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
+/// </param>
 /// <param name="SelectedId">The open run's id, or <see langword="null"/> when none is open.</param>
 /// <param name="Selected">The open run, or <see langword="null"/> before it has loaded.</param>
 /// <param name="SelectedLoading">Whether the open run is being fetched for the first time.</param>
 /// <param name="SelectedNotFound">Whether the server said the open run does not exist.</param>
 /// <param name="SelectedForbidden">Whether the server refused the open run to this user, a 403.</param>
-/// <param name="SelectedError">Why the last fetch of the open run failed, or <see langword="null"/>.</param>
+/// <param name="SelectedError">
+///     Why the last fetch of the open run failed, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
+/// </param>
 /// <param name="Gate">The operator's gate draft for the open run.</param>
 /// <param name="AwaitingApproval">How many runs await human approval, up to one page of 100.</param>
 /// <param name="AwaitingApprovalMore">Whether more runs await than that page holds.</param>
@@ -66,7 +70,9 @@ public readonly partial record struct RunsState(
 ///     Whether an approval is in flight or was accepted and the run has not yet left the gate. It stays set after
 ///     success, so Approve and Cancel stay busy until a fetch shows the run off the gate; the draft then resets.
 /// </param>
-/// <param name="Error">Why the last approval was refused, or <see langword="null"/>.</param>
+/// <param name="Error">
+///     Why the last approval was refused, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
+/// </param>
 public sealed record GateDraft(IReadOnlySet<string> Dropped, bool ApplyStandingInstructions, bool Submitting, string? Error)
 {
     /// <summary>A draft with nothing chosen.</summary>

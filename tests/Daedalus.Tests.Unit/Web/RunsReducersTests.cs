@@ -195,4 +195,35 @@ public sealed class RunsReducersTests
         RunsReducers.On(paged, new RunListRequested(new RunListQuery("Failed", null, null))).PreviousCursors.Should().BeEmpty();
         RunsReducers.On(paged, new RunListRequested(new RunListQuery(null, null, "c1"))).PreviousCursors.Should().HaveCount(1);
     }
+
+    /// <summary>
+    ///     A list read abandoned for another query, or after the list page closed, changes nothing; one for the shown
+    ///     query ends its load.
+    ///     Red: drop the query check in the RunListAbandoned reducer. Red: drop the ListRequested check.
+    ///     Red: return the state unchanged for the shown query.
+    /// </summary>
+    [Fact]
+    public void An_abandoned_list_read_ends_only_its_own_load()
+    {
+        var requested = RunsReducers.On(Empty, new RunListRequested(RunListQuery.First));
+        var closed = RunsReducers.On(requested, new RunListClosed()) with { ListLoading = true };
+
+        RunsReducers.On(requested, new RunListAbandoned(new RunListQuery("Failed", null, null))).ListLoading.Should().BeTrue();
+        RunsReducers.On(closed, new RunListAbandoned(RunListQuery.First)).ListLoading.Should().BeTrue();
+        RunsReducers.On(requested, new RunListAbandoned(RunListQuery.First)).ListLoading.Should().BeFalse();
+    }
+
+    /// <summary>
+    ///     A run read abandoned for another run than the open one changes nothing; one for the open run ends its load.
+    ///     Red: drop the id check in the RunLoadAbandoned reducer. Red: return the state unchanged for the open run.
+    /// </summary>
+    [Fact]
+    public void An_abandoned_run_read_ends_only_its_own_load()
+    {
+        var id = Guid.NewGuid();
+        var loading = RunsReducers.On(RunsReducers.On(Empty, new RunSelected(id)), new RunLoadStarted(id));
+
+        RunsReducers.On(loading, new RunLoadAbandoned(Guid.NewGuid())).SelectedLoading.Should().BeTrue();
+        RunsReducers.On(loading, new RunLoadAbandoned(id)).SelectedLoading.Should().BeFalse();
+    }
 }

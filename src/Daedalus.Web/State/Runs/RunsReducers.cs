@@ -29,6 +29,11 @@ public static class RunsReducers
     public static RunsState On(RunsState s, RunListFailed a) =>
         a.Query != s.Query || !s.ListRequested ? s : s with { ListLoading = false, ListError = a.Error };
 
+    /// <summary>Stale on the same terms as <see cref="RunListLoaded"/>; ends the load and stores no error.</summary>
+    [Reducer]
+    public static RunsState On(RunsState s, RunListAbandoned a) =>
+        a.Query != s.Query || !s.ListRequested ? s : s with { ListLoading = false };
+
     [Reducer]
     public static RunsState On(RunsState s, RunListClosed _) =>
         s with { List = null, ListLoading = false, ListError = null, ListRequested = false };
@@ -111,6 +116,11 @@ public static class RunsReducers
     public static RunsState On(RunsState s, RunLoadFailed a) =>
         a.Id != s.SelectedId ? s : s with { SelectedLoading = false, SelectedError = a.Error };
 
+    /// <summary>Ends the load of the open run and stores no error; an answer for another run is ignored.</summary>
+    [Reducer]
+    public static RunsState On(RunsState s, RunLoadAbandoned a) =>
+        a.Id != s.SelectedId ? s : s with { SelectedLoading = false };
+
     [Reducer]
     public static RunsState On(RunsState s, GateFindingToggled a)
     {
@@ -141,6 +151,10 @@ public static class RunsReducers
     [Reducer]
     public static RunsState On(RunsState s, GateSubmitFailed a) =>
         s with { Gate = s.Gate with { Submitting = false, Error = a.Error } };
+
+    /// <summary>Frees the draft. <see cref="GateSubmitStarted"/> already cleared the last refusal, so none shows.</summary>
+    [Reducer]
+    public static RunsState On(RunsState s, GateSubmitAbandoned _) => s with { Gate = s.Gate with { Submitting = false } };
 
     [Reducer]
     public static RunsState On(RunsState s, AwaitingApprovalLoaded a) =>

@@ -35,7 +35,7 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
     private const string Path = "/api/repositories";
 
     /// <summary>The caller's token was cancelled: its page went, and there is nothing to show. Matches ApiClient's text.</summary>
-    public const string Cancelled = "Request was cancelled";
+    public const string Cancelled = ApiClient.Cancelled;
 
     /// <summary>The read ran out of time: the client's own timeout, not the page going away.</summary>
     public const string TimedOut = "The request timed out.";

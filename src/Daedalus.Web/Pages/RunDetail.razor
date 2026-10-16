@@ -24,8 +24,7 @@ else if (Runs.Value is { SelectedNotFound: true } notFound && notFound.SelectedI
         Run not found. <RadzenLink Path="runs" Text="Back to Runs"/>
     </RadzenAlert>
 }
-else if (Runs.Value is { Selected: null, SelectedError: { } error } failed && failed.SelectedId == Id
-         && !SessionExpiry.IsSigningIn(error))
+else if (Runs.Value is { Selected: null, SelectedError: { } error } failed && failed.SelectedId == Id)
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="run-error">
         @error

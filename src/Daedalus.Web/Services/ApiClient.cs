@@ -15,6 +15,9 @@ namespace Daedalus.Web.Services;
 /// </summary>
 public sealed class ApiClient(HttpClient httpClient)
 {
+    /// <summary>The failure a request whose caller's token was cancelled returns.</summary>
+    public const string Cancelled = "Request was cancelled";
+
     /// <summary>
     ///     Executes an HTTP GET request with Result of T error handling and cancellation support.
     /// </summary>
@@ -39,7 +42,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (OperationCanceledException)
         {
-            return Result<T>.Failure("Request was cancelled");
+            return Result<T>.Failure(Cancelled);
         }
         catch (Exception ex)
         {
@@ -134,7 +137,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (OperationCanceledException)
         {
-            return Result<T>.Failure("Request was cancelled");
+            return Result<T>.Failure(Cancelled);
         }
     }
 
@@ -160,7 +163,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (OperationCanceledException)
         {
-            return Result.Failure("Request was cancelled");
+            return Result.Failure(Cancelled);
         }
     }
 
@@ -217,7 +220,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (OperationCanceledException)
         {
-            return Result<RunLookup>.Failure("Request was cancelled");
+            return Result<RunLookup>.Failure(Cancelled);
         }
     }
 
