@@ -248,6 +248,7 @@ public sealed class ProjectsEffectsTests : IDisposable
     ///     A refresh that fails leaves the held one-project list in the picker but not settled, so the create dialog does
     ///     not preselect from a list the newest load could not confirm.
     ///     Red: drop the Error condition from ProjectsState.Settled; the held project is preselected after the failure.
+    ///     Red: Settled is never the list; the confirmed one-project list is not preselected before the refresh.
     /// </summary>
     [Fact]
     public async Task No_preselect_from_a_held_list_after_a_failed_refresh()
