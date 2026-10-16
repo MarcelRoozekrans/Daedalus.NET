@@ -12,21 +12,14 @@ public static class HomeReducers
     public static HomeState On(HomeState s, HomeOpened a) => s with { Open = true };
 
     /// <summary>
-    ///     Takes the read's number whether or not Home is open, so a number is never handed out twice; the card waits for
-    ///     the read only while Home is open. A read that is not a background one shows the card's skeleton; a background
-    ///     one keeps the rows on show until its answer lands.
+    ///     Takes the read's number, so a number is never handed out twice, even across a close. A read that is not a
+    ///     background one shows the card's skeleton; a background one keeps the rows on show until its answer lands.
     /// </summary>
     [Reducer]
     public static HomeState On(HomeState s, HomeCardLoadStarted a)
     {
-        var numbered = s with { Sequence = Math.Max(s.Sequence, a.Sequence) };
-        if (!s.Open)
-        {
-            return numbered;
-        }
-
         var card = s.Card(a.Card);
-        return numbered.With(a.Card, a.Background
+        return (s with { Sequence = Math.Max(s.Sequence, a.Sequence) }).With(a.Card, a.Background
             ? card with { Sequence = a.Sequence }
             : new HomeCard(null, null, false, a.Sequence));
     }

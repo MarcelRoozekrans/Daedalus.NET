@@ -53,7 +53,8 @@ public sealed class HomeEffectsTests : IDisposable
     ///     Red: read the failed card with RunningQuery; the failed card's path is never requested.
     ///     Red: keep every run on the pull requests card; it holds the run with no pull request.
     ///     Red: set More from nothing; the running card's "+" is lost.
-    ///     Red: stamp ReadAt before the read with DateTimeOffset.MinValue; the wait is measured from the start of time.
+    ///     Red: stamp ReadAt with DateTimeOffset.MinValue; the wait is measured from the start of time.
+    ///     Red: drop the HomeOpened dispatch; Home is not open, so every answer is dropped.
     /// </summary>
     [Fact]
     public async Task Home_reads_the_four_cards_and_each_keeps_its_own()
@@ -78,7 +79,7 @@ public sealed class HomeEffectsTests : IDisposable
     /// <summary>
     ///     Someone who may not view runs gets no read at all, and Home is not open, so a run change re-fetches nothing.
     ///     Red: drop the canView check from LoadAsync; the four lists are requested.
-    ///     Red: dispatch HomeOpened before the canView check; Home is open for someone who may not see runs.
+    ///     Red: dispatch HomeOpened in place of HomeClosed for someone who may not view runs; Home is open.
     /// </summary>
     [Fact]
     public async Task Someone_who_may_not_view_runs_gets_no_read()
@@ -111,12 +112,13 @@ public sealed class HomeEffectsTests : IDisposable
     }
 
     /// <summary>
-    ///     A card whose read fails says why, and only that card fails; the failure is logged as a warning with its text.
+    ///     A card whose read fails says why; the failure is logged as a warning with its text. That the other cards
+    ///     still load is pinned by the browser test A_card_that_cannot_load_says_why_and_retries_on_its_own.
     ///     Red: dispatch nothing on a failure; the failed card has no error.
-    ///     Red: drop the LogLoadFailed call; no warning is written.
+    ///     Red: log only a background read's failure; no warning is written.
     /// </summary>
     [Fact]
-    public async Task A_failed_card_says_why_and_only_that_card_fails()
+    public async Task A_failed_card_says_why_and_logs_a_warning()
     {
         RouteAll();
         _handler.OnJson(FailedPath, """{"detail":"The run store is down."}""", HttpStatusCode.InternalServerError);
@@ -124,14 +126,13 @@ public sealed class HomeEffectsTests : IDisposable
         await _effects.LoadAsync(canView: true, CancellationToken.None);
 
         _store.Value.Failed.Error.Should().Be("The run store is down.");
-        _store.Value.Awaiting.Rows.Should().NotBeNull("the other cards still load");
         _logger.Entries.Should().ContainSingle().Which.Should().Match<(LogLevel Level, string Message)>(
             e => e.Level == LogLevel.Warning && e.Message.Contains("The run store is down.", StringComparison.Ordinal));
     }
 
     /// <summary>
     ///     A read whose token cannot be refreshed stores no error and logs nothing, because the browser is already on its
-    ///     way to sign in; the card keeps its skeleton, as it always did.
+    ///     way to sign in; the card keeps its skeleton, as it always did, since no answer is stored.
     ///     Red: dispatch HomeCardLoadFailed for SigningInAgain too; the error is the signing-in text.
     ///     Red: log before the SigningInAgain check; the renewal writes a warning.
     /// </summary>
@@ -145,13 +146,12 @@ public sealed class HomeEffectsTests : IDisposable
         await _effects.LoadAsync(canView: true, CancellationToken.None);
 
         _store.Value.Awaiting.Error.Should().BeNull("a session being renewed is not an error to show");
-        _store.Value.Awaiting.Rows.Should().BeNull();
         _logger.Entries.Should().BeEmpty("a session being renewed is not a failure");
     }
 
     /// <summary>
     ///     A read cancelled because Home closed stores no error and logs nothing.
-    ///     Red: drop the cancellation check; the error is "Request was cancelled".
+    ///     Red: drop the cancellation check; the error is "Request was cancelled", and a warning is written.
     /// </summary>
     [Fact]
     public async Task A_read_cancelled_by_home_closing_stores_no_error()
@@ -202,6 +202,7 @@ public sealed class HomeEffectsTests : IDisposable
     /// <summary>
     ///     A card in error keeps its alert until Retry: a run change re-fetches only cards that loaded.
     ///     Red: re-fetch every live card whatever it holds; the failed list is requested again and its alert goes.
+    ///     Red: OnRunChangedAsync fetches nothing; the awaiting list is not requested.
     /// </summary>
     [Fact]
     public async Task A_card_in_error_is_not_refetched_by_a_run_change()
@@ -220,9 +221,9 @@ public sealed class HomeEffectsTests : IDisposable
     }
 
     /// <summary>
-    ///     Retry reads a card in error again, showing its skeleton meanwhile, and the rows land.
+    ///     Retry reads a card in error again, showing its skeleton meanwhile, not the old alert, and the rows land.
     ///     Red: RetryAsync reads nothing; the error stays.
-    ///     Red: Retry as a background read; the failed card is no longer loaded, so nothing is read.
+    ///     Red: Retry as a background read; the old alert stays on show while the read is in flight.
     /// </summary>
     [Fact]
     public async Task Retry_reads_a_card_in_error_again()
@@ -230,18 +231,26 @@ public sealed class HomeEffectsTests : IDisposable
         RouteAll();
         _handler.OnJson(FailedPath, """{"detail":"The run store is down."}""", HttpStatusCode.InternalServerError);
         await _effects.LoadAsync(canView: true, CancellationToken.None);
-        _handler.OnJson(FailedPath, RunViews.Json(new WorkflowRunList([RunViews.Item(Guid.NewGuid(), "Failed")], null)));
+        HomeCard? inFlight = null;
+        _handler.On(FailedPath, () =>
+        {
+            inFlight = _store.Value.Failed;
+            return Task.FromResult(RecordingHandler.Json(
+                HttpStatusCode.OK, RunViews.Json(new WorkflowRunList([RunViews.Item(Guid.NewGuid(), "Failed")], null))));
+        });
 
         await _effects.RetryAsync(HomeCardKind.Failed, CancellationToken.None);
 
+        inFlight.Should().NotBeNull();
+        inFlight!.Value.Error.Should().BeNull("Retry shows the skeleton, not the old alert");
         _store.Value.Failed.Error.Should().BeNull();
         _store.Value.Failed.Rows.Should().ContainSingle();
     }
 
     /// <summary>
-    ///     No re-fetch runs after Home closed, for a change or a reconnect.
-    ///     Red: drop the Open check from the re-fetch; the live cards are requested after the close.
-    ///     Red: HomeClosed leaves Open set; the live cards are requested after the close.
+    ///     No re-fetch runs after Home closed, for a change or a reconnect: the close clears every card, and only a card
+    ///     that loaded is re-fetched.
+    ///     Red: HomeClosed returns the state unchanged; the loaded cards are requested after the close.
     /// </summary>
     [Fact]
     public async Task No_refetch_runs_after_home_closed()
@@ -312,6 +321,7 @@ public sealed class HomeEffectsTests : IDisposable
     /// <summary>
     ///     A background re-fetch that fails says why on that card, as a failed read always has, and logs a warning.
     ///     Red: drop the failure dispatch for a background read; the running card keeps its stale rows silently.
+    ///     Red: log only a foreground read's failure; no warning is written.
     /// </summary>
     [Fact]
     public async Task A_failed_refetch_says_why()

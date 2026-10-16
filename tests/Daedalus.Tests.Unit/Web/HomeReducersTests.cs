@@ -25,7 +25,7 @@ public sealed class HomeReducersTests
     ///     Red: HomeCardLoaded returns the state unchanged; the running card has no rows.
     ///     Red: HomeCardLoaded drops More; the count reads as exact.
     ///     Red: HomeCardLoaded leaves ReadAt; the wait is measured from the start of time.
-    ///     Red: HomeState.With writes every kind into Awaiting; the awaiting card holds the running rows.
+    ///     Red: HomeState.With writes the running card into Awaiting; the running card has no rows.
     /// </summary>
     [Fact]
     public void An_answer_lands_on_its_own_card()
@@ -124,12 +124,10 @@ public sealed class HomeReducersTests
     }
 
     /// <summary>
-    ///     A read started after the close is not kept: its start still takes a number, but the card does not wait for it,
-    ///     so its answer is dropped, and Home reopened later never takes that number again.
-    ///     Red: HomeCardLoadStarted applies while closed; the late answer fills the closed card.
-    ///     Red: HomeCardLoadStarted leaves Sequence while closed; the reopened card's first read reuses its number.
-    ///     Red: drop the Open check from HomeCardLoaded; the answer to a read the card waits for, landing after the
-    ///     close, fills the closed card.
+    ///     An answer that lands after the close is not kept, whether its read began before the close or after it; every
+    ///     start still takes a number, so Home reopened later never hands that number out again.
+    ///     Red: HomeCardLoadStarted never moves the state's Sequence; it is not 3 after the third start.
+    ///     Red: drop the Open check from Awaited; the answer to the read started after the close fills the closed card.
     /// </summary>
     [Fact]
     public void A_read_after_the_close_is_not_kept()
@@ -141,6 +139,7 @@ public sealed class HomeReducersTests
 
         state = HomeReducers.On(state, new HomeCardLoadStarted(HomeCardKind.Running, 3, Background: true));
         state.Sequence.Should().Be(3, "a start takes its number even while closed");
+        state.Running.Sequence.Should().Be(3);
         state = HomeReducers.On(state, new HomeCardLoaded(HomeCardKind.Running, 3, Two, More: false, ReadAt));
         state.Running.Rows.Should().BeNull("a read started while closed is not kept");
     }

@@ -70,12 +70,8 @@ public sealed partial class HomeEffects(
         {
             // Everything asked for so far is served by this round.
             Interlocked.Exchange(ref _refetchesAsked, 1);
+            // A closed Home has no card loaded, so nothing is re-fetched after HomeClosed.
             var state = home.Value;
-            if (!state.Open)
-            {
-                continue;
-            }
-
             await Task.WhenAll(HomeState.Live.Where(kind => state.Card(kind).Loaded).Select(kind => LoadCardAsync(kind, true, ct)));
         }
         while (Interlocked.CompareExchange(ref _refetchesAsked, 0, 1) != 1);
