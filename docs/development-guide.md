@@ -198,7 +198,7 @@ Costs; Admin with Git Repositories, behind the `admin` role. There is no Executi
 A run's page reads `failureReason` and `reviewVisits` from the run view, and its list items carry `failureReason` and
 `prUrl`, read per row from the run's variables (issue #367). `GET /api/workflow-runs` takes `signal` and `updatedSince`,
 an ISO 8601 timestamp with its zone. The store cannot filter on either, so the controller scans up to 500 summaries
-(`WorkflowRunsController.ScanCap`, issue #367).
+(`RunListLimits.ScanCap`, issue #367).
 `POST /api/tasks` takes an optional `prompt`, and `TasksController` answers its refusals as `application/problem+json`;
 the other controllers still differ (issue #366).
 
