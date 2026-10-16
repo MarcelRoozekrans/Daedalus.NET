@@ -54,22 +54,31 @@ public static class NeedsMe
     /// </summary>
     public static string NoPullRequests(bool more) => more ? InLatest("No pull requests") : "No pull requests yet.";
 
-    /// <summary>What the awaiting card says when it is empty, and, when the list has more, how much it read.</summary>
-    public static string NothingWaiting(bool more) => Empty("Nothing waiting for approval", more);
-
-    /// <summary>What the running card says when it is empty, and, when the list has more, how much it read.</summary>
-    public static string NothingRunning(bool more) => Empty("Nothing running", more);
-
-    /// <summary>What the failed card says when it is empty, and, when the list has more, how much it read.</summary>
-    public static string NoFailedRuns(bool more) => Empty("No failed runs in the last 7 days", more);
+    /// <summary>
+    ///     What the awaiting card says when it is empty. The server filters its signal by scanning, so an empty page with a
+    ///     cursor means it read <see cref="RunListLimits.ScanCap"/> runs and found none waiting for approval among them.
+    /// </summary>
+    public static string NothingWaiting(bool more) => more ? Scanned("Nothing waiting for approval") : "Nothing waiting for approval.";
 
     /// <summary>
-    ///     <paramref name="none"/> as a sentence; when the list has more than the page read, it says it is about the latest
-    ///     <see cref="Take"/> runs only, so a "(0+)" heading is not read as "there are none".
+    ///     What the running card says when it is empty. The store filters on status itself, so a cursor here follows a full
+    ///     page of <see cref="Take"/>; the text says how much that page held.
     /// </summary>
-    private static string Empty(string none, bool more) => more ? InLatest(none) : $"{none}.";
+    public static string NothingRunning(bool more) => more ? InLatest("Nothing running") : "Nothing running.";
 
+    /// <summary>
+    ///     What the failed card says when it is empty. The server filters the 7 days by scanning, so an empty page with a
+    ///     cursor means it read <see cref="RunListLimits.ScanCap"/> runs and found no recent failure among them.
+    /// </summary>
+    public static string NoFailedRuns(bool more) =>
+        more ? Scanned("No failed runs in the last 7 days") : "No failed runs in the last 7 days.";
+
+    /// <summary><paramref name="none"/>, about the latest <see cref="Take"/> runs: the one page the card read.</summary>
     private static string InLatest(string none) => string.Create(CultureInfo.InvariantCulture, $"{none} in the latest {Take} runs.");
+
+    /// <summary><paramref name="none"/>, about the <see cref="RunListLimits.ScanCap"/> runs the server checked for the card.</summary>
+    private static string Scanned(string none) =>
+        string.Create(CultureInfo.InvariantCulture, $"{none} in the latest {RunListLimits.ScanCap} runs checked.");
 
     /// <summary>A row's name: the run's task, or, for a run with no task, its process and short id.</summary>
     public static string Name(WorkflowRunListItem run) => run.TaskTitle ?? $"{run.Process} run {run.Id.ToString()[..8]}";
