@@ -214,4 +214,24 @@ public class SchedulesPageBrowserTests : BrowserTestBase
         await Expect(OverviewRow(UndeliveredName)).ToContainTextAsync("Undelivered").ConfigureAwait(false);
         await Expect(alert).ToHaveCountAsync(0).ConfigureAwait(false);
     }
+
+    /// <summary>
+    ///     On a page opened without a deep link, the first click on a row's toggler expands that row and keeps it open.
+    ///     Red: <c>OnRowExpand</c> leaves <c>_appliedDeepLink</c> false; the schedule it puts in the address reads as a
+    ///     deep link not yet applied, <c>ExpandRow</c> on the open row collapses it, and no run history heading shows.
+    ///     Red: <c>OnRowExpand</c> does not navigate; the address has no <c>scheduleId</c>.
+    /// </summary>
+    [Test]
+    [Description("The first expand on a page opened without a deep link keeps the row open")]
+    public async Task The_first_expand_keeps_the_row_open()
+    {
+        await RouteSchedulesAsync().ConfigureAwait(false);
+        await NavigateAsync().ConfigureAwait(false);
+
+        await Toggler(UndeliveredName).ClickAsync().ConfigureAwait(false);
+
+        await Expect(HistoryHeading(UndeliveredName)).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(Page).ToHaveURLAsync(new Uri(BaseUrl, $"/schedules?scheduleId={UndeliveredScheduleId}").ToString())
+            .ConfigureAwait(false);
+    }
 }

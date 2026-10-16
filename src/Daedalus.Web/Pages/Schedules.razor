@@ -402,6 +402,9 @@ else
     private Task OnRowExpand(RunDiagnosis row)
     {
         _focusExpandedPending = true;
+        // A row the person expands is the one in the address now, so a later render must not apply it as a deep link:
+        // ExpandRow on an open row collapses it.
+        _appliedDeepLink = true;
         Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("scheduleId", row.ScheduleId.ToString()), replace: true);
         return EnsureHistoryLoadedAsync(row.ScheduleId);
     }
