@@ -72,7 +72,7 @@ public class HomePageBrowserTests : BrowserTestBase
     ///     human gate moves from Running to Awaiting approval without a reload. The change is a real commit through the
     ///     store, which the broadcaster sends over the hub; the test waits for the hub's handshake before making it, so
     ///     the change cannot be sent before the browser listens.
-    ///     Red: drop the HomeEffects.OnRunChangedAsync call from RunHubConnection.OnChangedAsync; the gate never shows.
+    ///     Red: drop the HomeEffects.OnRunChanged call from RunHubConnection.OnChangedAsync; the gate never shows.
     ///     Red: HomeState.Live without Running; the run stays under Running after it parked.
     ///     Red: the change re-fetches as a foreground read; the awaiting card turns into its skeleton, so its row count
     ///     drops to zero while the re-fetch is in flight, which the row-count watch sees.

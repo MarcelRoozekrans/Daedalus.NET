@@ -132,7 +132,7 @@ public class CostsPageBrowserTests : BrowserTestBase
     /// <summary>
     ///     The By Source table lists each source with its tokens and cost, and the project table lists each project's
     ///     history.
-    ///     Red: the By Source grid binds <c>_summary.ByModel</c>; no manufacture row shows.
+    ///     Red: the By Source grid binds <c>View.Summary?.ByModel</c>; no manufacture row shows.
     ///     Red: the Source Input column formats with "{0:N2}"; the row reads 1,000,000.00.
     ///     Red: the Source Cost column formats with "{0:C2}"; the row reads $11.11, not $11.1111.
     ///     Red: the project grid binds an empty list; no Widgets row shows.
