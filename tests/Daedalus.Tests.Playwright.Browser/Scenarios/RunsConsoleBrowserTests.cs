@@ -274,9 +274,21 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
             .ClickAsync().ConfigureAwait(false);
         await sent.ConfigureAwait(false);
 
+        // Leaving cancels the call, and the browser gives the held request up: once it has, and the page has
+        // rendered once more, any failure toast the cancellation caused has shown.
+        var givenUp = new TaskCompletionSource();
+        Page.RequestFailed += (_, request) =>
+        {
+            if (request.Url.EndsWith("/retry", StringComparison.Ordinal))
+            {
+                givenUp.TrySetResult();
+            }
+        };
         await Page.EvaluateAsync("() => Blazor.navigateTo('/runs')").ConfigureAwait(false);
         await Page.WaitForURLAsync("**/runs").ConfigureAwait(false);
-        await Page.WaitForTimeoutAsync(1500).ConfigureAwait(false);
+        await givenUp.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+            .ConfigureAwait(false);
 
         (await TestAuth.PathsThatShowedAsync(Page, ".rz-notification-error", "Could not retry").ConfigureAwait(false))
             .Should().BeEmpty("a call cut short by leaving the page is not a failure to report");
