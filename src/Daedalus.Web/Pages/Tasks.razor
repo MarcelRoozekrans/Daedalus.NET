@@ -154,6 +154,17 @@
     /// <summary>Why the last Create and manufacture could not start its run, for the board's alert; null when none.</summary>
     private string? _manufactureRefused;
 
+    /// <summary>
+    ///     Whether the user may start a run, so the rows offer Manufacture: the manufacture endpoint needs the developer
+    ///     or admin role. Decided for each authentication state, so it follows a change of roles.
+    /// </summary>
+    private bool _canStart;
+
+    private Task<AuthenticationState>? _evaluated;
+
+    /// <summary>The signed-in user. <c>AddCascadingAuthenticationState</c> always provides it.</summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
     private int MinGridWidth =>
         TitleMinWidth + ProjectWidth + StatusWidth + PullRequestWidth + ActionsWidth
         + (_desktop ? PriorityWidth + CreatedWidth : 0);
@@ -190,12 +201,12 @@
             }
         </text>;
 
-    /// <summary>Edit, Manufacture when the task can start, and Delete.</summary>
+    /// <summary>Edit, Manufacture when the task can start and the user may start a run, and Delete.</summary>
     private RenderFragment ActionsCell(TaskDto task) =>
         @<RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" AlignItems="AlignItems.Center">
             <RadzenButton Icon="edit" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
                           Click="@(() => OpenEditDialog(task))" title="Edit task" aria-label="Edit task"/>
-            @if (TaskStatusLabels.IsStartable(task))
+            @if (_canStart && TaskStatusLabels.IsStartable(task))
             {
                 <RadzenButton Icon="precision_manufacturing" Text="Manufacture" Size="ButtonSize.Small"
                               ButtonStyle="ButtonStyle.Success" Shade="Shade.Darker" Disabled="@TaskStore.Value.Starting.Contains(task.Id)"
@@ -245,6 +256,22 @@
     {
         await Effects.LoadAsync(_cts.Token);
         await Effects.LoadProjectsAsync(_cts.Token);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        if (AuthenticationState is not { } state || ReferenceEquals(state, _evaluated))
+        {
+            return;
+        }
+
+        _evaluated = state;
+        var user = (await state).User;
+        if (ReferenceEquals(state, _evaluated))
+        {
+            _canStart = RunAccess.CanStart(user);
+        }
     }
 
     private Task LoadTasks() => Effects.LoadAsync(_cts.Token);

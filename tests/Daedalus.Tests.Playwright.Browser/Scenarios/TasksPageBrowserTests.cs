@@ -198,6 +198,24 @@ public class TasksPageBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     Manufacture starts a run, which the manufacture endpoint allows only the developer or admin role, so a task
+    ///     manager's rows do not offer it and a developer's do. Edit shows for both, so the row has rendered its actions.
+    ///     Red: _canStart set for any signed-in user, user.Identity is not null; the task manager's row holds it.
+    ///     Red: _canStart never set, user.Identity is null; the developer's row lacks it.
+    /// </summary>
+    [TestCase("task-manager", false)]
+    [TestCase("developer", true)]
+    [Description("Manufacture shows only for a role that may start a run")]
+    public async Task Manufacture_shows_only_for_a_role_that_may_start_a_run(string role, bool shown)
+    {
+        await TestRoles.WriteAsync(Context, BaseUrl, role).ConfigureAwait(false);
+        await _tasksPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_tasksPage.GetEditButton("Implement feature A")).ToBeVisibleAsync().ConfigureAwait(false);
+
+        await Expect(_tasksPage.GetManufactureButton("Implement feature A")).ToHaveCountAsync(shown ? 1 : 0).ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     The icon-only row buttons are named for what they do, not for the icon's ligature text.
     ///     Red: drop the aria-label from the Manufacture button; the exact role-name lookup no longer finds it.
     /// </summary>
