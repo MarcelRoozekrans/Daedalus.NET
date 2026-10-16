@@ -10,23 +10,24 @@ public sealed class ProjectsReducersTests
     private static readonly ProjectDto Second = Project("Second");
 
     /// <summary>
-    ///     A start marks loading and a load asked for, and keeps the last error, so the board's projects alert stays
-    ///     until a load succeeds, as it always has.
+    ///     A start marks loading and a load asked for, and clears the last error: the state is shared, so a failure from
+    ///     an earlier reader must not show under another reader's picker while that reader re-fetches.
     ///     Red: leave Loading unset in the ProjectsLoadStarted reducer.
     ///     Red: leave LoadRequested unset in the ProjectsLoadStarted reducer.
-    ///     Red: clear Error in the ProjectsLoadStarted reducer.
+    ///     Red: keep Error in the ProjectsLoadStarted reducer; the earlier failure is still the error.
     /// </summary>
     [Fact]
-    public void A_start_marks_loading_and_keeps_the_last_error()
+    public void A_start_marks_loading_and_clears_the_last_error()
     {
         var state = ProjectsReducers.On(ProjectsState.Initial(null!), new ProjectsLoadStarted(1));
         state = ProjectsReducers.On(state, new ProjectsLoadFailed(1, "boom"));
+        state.Error.Should().Be("boom");
 
         state = ProjectsReducers.On(state, new ProjectsLoadStarted(2));
 
         state.Loading.Should().BeTrue();
         state.LoadRequested.Should().BeTrue();
-        state.Error.Should().Be("boom");
+        state.Error.Should().BeNull("an earlier reader's failure is not this load's");
     }
 
     /// <summary>
@@ -72,25 +73,20 @@ public sealed class ProjectsReducersTests
     }
 
     /// <summary>
-    ///     A failure keeps the projects already loaded, so a failed refresh does not empty the picker; the next
-    ///     success clears the error.
+    ///     A failure keeps the projects already loaded, so a failed refresh does not empty the picker.
     ///     Red: set Projects to null in the ProjectsLoadFailed reducer.
-    ///     Red: keep Error in the ProjectsLoaded reducer.
     /// </summary>
     [Fact]
-    public void A_failure_keeps_the_projects_and_a_success_clears_the_error()
+    public void A_failure_keeps_the_projects()
     {
         var state = ProjectsReducers.On(ProjectsState.Initial(null!), new ProjectsLoadStarted(1));
         state = ProjectsReducers.On(state, new ProjectsLoaded(1, [First]));
         state = ProjectsReducers.On(state, new ProjectsLoadStarted(2));
 
         state = ProjectsReducers.On(state, new ProjectsLoadFailed(2, "boom"));
+
         state.Projects.Should().Equal(First);
         state.Error.Should().Be("boom");
-
-        state = ProjectsReducers.On(state, new ProjectsLoadStarted(3));
-        state = ProjectsReducers.On(state, new ProjectsLoaded(3, [Second]));
-        state.Error.Should().BeNull();
     }
 
     /// <summary>

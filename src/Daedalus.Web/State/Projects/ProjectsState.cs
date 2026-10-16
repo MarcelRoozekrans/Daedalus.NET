@@ -30,6 +30,13 @@ public readonly partial record struct ProjectsState(
     IReadOnlyList<ProjectDto>? Projects, IReadOnlyDictionary<Guid, string> Names, string? Error, bool Loading, long Sequence,
     bool LoadRequested)
 {
+    /// <summary>
+    ///     The projects once the newest load has finished, or <see langword="null"/> while one is in flight or before any
+    ///     succeeded. A decision made once, such as the create dialog's one-project preselect, waits for this, so it is
+    ///     never made on a list a closed page left behind.
+    /// </summary>
+    public IReadOnlyList<ProjectDto>? Settled => Loading ? null : Projects;
+
     /// <summary>The state before any load.</summary>
     public static ProjectsState Initial(IServiceProvider services) =>
         new(null, new Dictionary<Guid, string>(), null, false, 0, false);

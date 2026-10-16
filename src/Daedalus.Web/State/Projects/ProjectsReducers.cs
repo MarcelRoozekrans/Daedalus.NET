@@ -9,13 +9,15 @@ namespace Daedalus.Web.State.Projects;
 public static class ProjectsReducers
 {
     /// <summary>
-    ///     Marks the newest load. The last error stays until a load succeeds, so the board's projects alert does not
-    ///     flicker away on Retry. A start seen out of order never moves the sequence back.
+    ///     Marks the newest load and clears the last error: the state is shared, so one reader's failure must not show
+    ///     under another reader's picker while that reader re-fetches. A start seen out of order never moves the
+    ///     sequence back.
     /// </summary>
     [Reducer]
     public static ProjectsState On(ProjectsState s, ProjectsLoadStarted a) =>
-        s with { Sequence = Math.Max(s.Sequence, a.Sequence), Loading = true, LoadRequested = true };
+        s with { Sequence = Math.Max(s.Sequence, a.Sequence), Loading = true, LoadRequested = true, Error = null };
 
+    /// <summary>Needs no error clear: the start of the same load cleared it, and an older failure is dropped.</summary>
     [Reducer]
     public static ProjectsState On(ProjectsState s, ProjectsLoaded a) =>
         a.Sequence < s.Sequence
@@ -24,7 +26,6 @@ public static class ProjectsReducers
             {
                 Projects = a.Projects,
                 Names = a.Projects.ToDictionary(p => p.Id, p => p.ProjectName),
-                Error = null,
                 Loading = false,
             };
 

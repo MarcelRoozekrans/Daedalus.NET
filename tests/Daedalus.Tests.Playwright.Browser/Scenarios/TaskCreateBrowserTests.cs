@@ -181,13 +181,14 @@ public class TaskCreateBrowserTests : BrowserTestBase
     }
 
     /// <summary>
-    ///     The projects are one shared list that no page clears when it closes, so Home's New task, then the board's
-    ///     Project column, then Home's New task again all show them, navigating in the app. Blazor disposes the page being
-    ///     left after it initialises the next, so a clear on close would land after the next page asked for the projects.
-    ///     Red: Home's New task does not load the projects; the first picker has no Test Project option.
-    ///     Red: NeedsMePanel's dispose dispatches a clear that empties the list and drops the answer in flight, and Tasks
-    ///     does not re-read the projects on open; the board's Fix bug B row lacks Test Project. The clear alone stays
-    ///     green: it lands before Tasks starts its projects load, which follows the board's.
+    ///     The projects are one shared list that no page clears when it closes. Home's New task loads it, the board shows
+    ///     it, and back on Home the second New task, whose own re-fetch is held unanswered, still offers the list held
+    ///     from before and preselects nothing from it. Blazor disposes the page being left after it initialises the
+    ///     next, so a clear on close would land after Home rendered and empty the picker.
+    ///     Red: add a ProjectsReducers.On for TasksClosed that drops the projects; the held picker has no Test Project
+    ///     option.
+    ///     Red: drop the Loading condition from ProjectsState.Settled, with the projects answered as Test Project alone;
+    ///     see the unit test No_preselect_from_a_held_list_while_the_newest_load_is_in_flight, which pins the preselect.
     /// </summary>
     [Test]
     [Description("The projects survive Home, then Tasks, then Home")]
@@ -196,28 +197,43 @@ public class TaskCreateBrowserTests : BrowserTestBase
         var home = new HomePage(Page, BaseUrl);
         var menu = new MainPage(Page, BaseUrl);
         await home.NavigateAsync().ConfigureAwait(false);
-        await PickTestProjectFromHomeAsync(home).ConfigureAwait(false);
+        await OpenNewTaskFromHomeAsync(home).ConfigureAwait(false);
+        await _tasks.ProjectPicker.ClickAsync().ConfigureAwait(false);
+        await Expect(_tasks.ProjectOption(TestProject)).ToBeVisibleAsync().ConfigureAwait(false);
+        await _tasks.ProjectOption(TestProject).ClickAsync().ConfigureAwait(false);
+        await _tasks.DialogCancelButton.ClickAsync().ConfigureAwait(false);
+        await Expect(_tasks.Dialog).ToBeHiddenAsync().ConfigureAwait(false);
 
         await menu.TasksMenuItem.ClickAsync().ConfigureAwait(false);
         await Expect(_tasks.GetRowByText("Fix bug B")).ToContainTextAsync(TestProject).ConfigureAwait(false);
 
         await menu.HomeMenuItem.ClickAsync().ConfigureAwait(false);
-        await PickTestProjectFromHomeAsync(home).ConfigureAwait(false);
+        await Expect(home.NewTaskButton).ToBeVisibleAsync().ConfigureAwait(false);
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await Page.RouteAsync("**/api/projects?*", _ =>
+        {
+            held.TrySetResult();
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
+        await OpenNewTaskFromHomeAsync(home).ConfigureAwait(false);
+        await held.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+        // The picker's label shows the chosen project; with none chosen it shows the placeholder.
+        var chosen = _tasks.ProjectPicker.Locator(".rz-dropdown-label");
+        await Expect(chosen).ToHaveClassAsync(new Regex(@"\brz-placeholder\b")).ConfigureAwait(false);
+        await Expect(chosen).Not.ToContainTextAsync(TestProject).ConfigureAwait(false);
+        await _tasks.ProjectPicker.ClickAsync().ConfigureAwait(false);
+        await Expect(_tasks.ProjectOption(TestProject)).ToBeVisibleAsync().ConfigureAwait(false);
     }
 
-    /// <summary>Opens Home's New task, picks Test Project from its picker, and cancels the dialog.</summary>
-    private async Task PickTestProjectFromHomeAsync(HomePage home)
+    /// <summary>Opens Home's New task and waits until the dialog shows and its opening animation has finished.</summary>
+    private async Task OpenNewTaskFromHomeAsync(HomePage home)
     {
         await home.NewTaskButton.ClickAsync().ConfigureAwait(false);
         await Expect(_tasks.ProjectPicker).ToBeVisibleAsync().ConfigureAwait(false);
         await Page.WaitForFunctionAsync(
                 "() => { const d = document.querySelector('.rz-dialog'); return d !== null && d.getAnimations({ subtree: true }).length === 0; }")
             .ConfigureAwait(false);
-        await _tasks.ProjectPicker.ClickAsync().ConfigureAwait(false);
-        await Expect(_tasks.ProjectOption(TestProject)).ToBeVisibleAsync().ConfigureAwait(false);
-        await _tasks.ProjectOption(TestProject).ClickAsync().ConfigureAwait(false);
-        await _tasks.DialogCancelButton.ClickAsync().ConfigureAwait(false);
-        await Expect(_tasks.Dialog).ToBeHiddenAsync().ConfigureAwait(false);
     }
 
     /// <summary>

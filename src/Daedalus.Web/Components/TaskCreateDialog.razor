@@ -63,8 +63,9 @@
     }
 
     /// <summary>
-    ///     Focuses Project once, and preselects the only project once the shared projects have arrived, which may be after
-    ///     the dialog opened.
+    ///     Focuses Project once, and preselects the only project once the newest projects load has finished, which may be
+    ///     after the dialog opened. Never on a list held from before: every reader starts its load before the dialog
+    ///     can render.
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -77,7 +78,7 @@
             }
         }
 
-        if (!_preselected && ProjectStore.Value.Projects is { } projects)
+        if (!_preselected && ProjectStore.Value.Settled is { } projects)
         {
             _preselected = true;
             if (_model.ProjectId is null && TaskForm.Preselect(projects) is { } only)

@@ -261,9 +261,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // The projects are shared and never cleared, so the board re-reads them on every open. Started first, alongside
+        // the board, so the load is marked before anything renders and the create dialog waits for its answer.
+        var projects = ProjectsEffects.LoadAsync(_cts.Token);
         await Effects.LoadAsync(_cts.Token);
-        // The projects are shared and never cleared, so the board re-reads them on every open.
-        await ProjectsEffects.LoadAsync(_cts.Token);
+        await projects;
     }
 
     protected override async Task OnParametersSetAsync()

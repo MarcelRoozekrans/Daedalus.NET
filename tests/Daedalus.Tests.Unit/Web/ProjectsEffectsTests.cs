@@ -1,5 +1,6 @@
 using System.Net;
 using Daedalus.Application.DTOs;
+using Daedalus.Web.Services;
 using Daedalus.Web.State.Projects;
 using Daedalus.Web.State.Tasks;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
@@ -197,6 +198,53 @@ public sealed class ProjectsEffectsTests : IDisposable
         _store.Value.Error.Should().BeNull();
         _store.Value.Loading.Should().BeFalse();
     }
+
+    /// <summary>
+    ///     A load that times out while its reader is still open is the error: only the reader's own cancellation is
+    ///     abandoned. HttpClient reports a timeout as a TaskCanceledException, which ApiClient words like a cancellation.
+    ///     Red: abandon on the error text "Request was cancelled" instead of on the token; the error stays null.
+    /// </summary>
+    [Fact]
+    public async Task A_timed_out_load_is_the_error()
+    {
+        _handler.On(ProjectsPath, HttpResponseMessage () => throw new TaskCanceledException("The request timed out."));
+
+        await _effects.LoadAsync(CancellationToken.None);
+
+        _store.Value.Error.Should().Be("Request was cancelled");
+        _store.Value.Loading.Should().BeFalse();
+    }
+
+    /// <summary>
+    ///     A list held from before, with one project, is not settled while the newest load is in flight, so the create
+    ///     dialog does not preselect from it; once the fresh answer of two projects lands, nothing is preselected.
+    ///     Red: drop the Loading condition from ProjectsState.Settled; the held project is preselected while the fresh
+    ///     answer is held back.
+    /// </summary>
+    [Fact]
+    public async Task No_preselect_from_a_held_list_while_the_newest_load_is_in_flight()
+    {
+        var held = Guid.NewGuid();
+        _handler.OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project(held, "Held")], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        var release = new TaskCompletionSource();
+        _handler.On(ProjectsPath, async () =>
+        {
+            await release.Task;
+            return RecordingHandler.Json(HttpStatusCode.OK, RunViews.Json(new PagedResultDto<ProjectDto>(
+                [Project(held, "Held"), Project(Guid.NewGuid(), "Fresh")], 2, 1, 200)));
+        });
+
+        var fresh = _effects.LoadAsync(CancellationToken.None);
+        Preselected().Should().BeNull("the held list is not settled while the newest load is in flight");
+
+        release.SetResult();
+        await fresh;
+        _store.Value.Settled.Should().HaveCount(2);
+        Preselected().Should().BeNull("two projects preselect none");
+    }
+
+    private Guid? Preselected() => _store.Value.Settled is { } projects ? TaskForm.Preselect(projects) : null;
 
     private static ProjectDto Project(Guid id, string name) => new(id, name, "", "1.0", "", "main", DateTime.UnixEpoch, null, []);
 }

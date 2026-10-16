@@ -15,18 +15,14 @@ public sealed class ProjectsEffects(ApiClient api, IDispatcher dispatcher, IStor
     public const int Page = 200;
 
     /// <summary>
-    ///     The last load's sequence number. Static, so that every effects instance over a store numbers its loads in one
-    ///     order; only the order matters, never the value.
-    /// </summary>
-    private static long s_lastSequence;
-
-    /// <summary>
     ///     Fetches the projects. A failure is <see cref="ProjectsState.Error"/>; a <see cref="SessionExpiry.SigningInAgain"/>
     ///     failure, or one after <paramref name="ct"/> was cancelled, only ends the load.
     /// </summary>
     public async Task LoadAsync(CancellationToken ct)
     {
-        var sequence = Interlocked.Increment(ref s_lastSequence);
+        // Read and dispatched with no await between: the dispatch reduces at once, on the one browser thread, so the
+        // next load reads this one's number and takes the one after it.
+        var sequence = projects.Value.Sequence + 1;
         await dispatcher.DispatchAsync(new ProjectsLoadStarted(sequence));
         var result = await api.GetProjectsAsync(1, Page, ct);
         if (result.IsSuccess)
