@@ -30,7 +30,7 @@
 
 @* The spinner is for the page's own loads only: a background refresh, such as a reconnect's, keeps the list showing.
    Current, not Projects: a failed load shows the empty state, as the page always did, never a list held from before. *@
-@if (_loading)
+@if (ProjectsView.ShowSpinner(_loading, ProjectStore.Value))
 {
     <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"/>
 }

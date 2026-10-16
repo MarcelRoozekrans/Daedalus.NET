@@ -187,6 +187,7 @@ public sealed class ProjectsEffectsTests : IDisposable
     ///     A load cancelled because its reader closed stores no error: the list is shared and never cleared, so a stored
     ///     "Request was cancelled" would show under the next reader's picker.
     ///     Red: dispatch ProjectsLoadFailed for a cancelled load; the error is "Request was cancelled".
+    ///     Red: log the failure in the abandoned branch of LoadAsync; the cancellation writes a warning.
     /// </summary>
     [Fact]
     public async Task A_load_cancelled_by_its_reader_stores_no_error()
@@ -202,6 +203,7 @@ public sealed class ProjectsEffectsTests : IDisposable
 
         _store.Value.Error.Should().BeNull();
         _store.Value.Loading.Should().BeFalse();
+        _logger.Entries.Should().BeEmpty("a reader closing is not a failure");
     }
 
     /// <summary>
