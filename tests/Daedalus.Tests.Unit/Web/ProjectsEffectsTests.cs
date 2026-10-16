@@ -11,8 +11,9 @@ using ZeroAlloc.Flux.Generated;
 namespace Daedalus.Tests.Unit.Web;
 
 /// <summary>
-///     The projects effects: the one load the Tasks page, the task create dialog and Home's New task share, its
-///     reconnect refresh, and what it never stores.
+///     The projects effects: the one load the Projects page, the Tasks page, the task create dialog, Home's New task and
+///     the PRD project step share, its reconnect refresh, the Projects page's selected project and its writes, and what
+///     they never store.
 /// </summary>
 public sealed class ProjectsEffectsTests : IDisposable
 {
@@ -26,7 +27,7 @@ public sealed class ProjectsEffectsTests : IDisposable
     public ProjectsEffectsTests()
     {
         _store = _provider.GetRequiredService<IStore<ProjectsState>>();
-        _effects = new ProjectsEffects(_handler.Client(), _provider.GetRequiredService<IDispatcher>(), _store);
+        _effects = new ProjectsEffects(_handler.Client(), _handler.ProjectClient(), _provider.GetRequiredService<IDispatcher>(), _store);
     }
 
     public void Dispose()
@@ -264,6 +265,267 @@ public sealed class ProjectsEffectsTests : IDisposable
         _store.Value.Projects.Should().ContainSingle("the held list stays in the picker");
         Preselected().Should().BeNull("a failed refresh does not confirm the held list");
     }
+
+    // ── The Projects page's selected project ───────────────────────────────────
+
+    /// <summary>
+    ///     Selecting a project shows it with its tasks.
+    ///     Red: drop the ProjectSelectLoaded dispatch from LoadSelectedAsync; nothing is selected.
+    ///     Red: leave Selected unset in the ProjectSelectLoaded reducer.
+    /// </summary>
+    [Fact]
+    public async Task Selecting_a_project_shows_it_with_its_tasks()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson(WithTasks(id), RunViews.Json(Project(id, "Widgets")));
+
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+
+        _store.Value.Selected.Should().NotBeNull().And.Subject.As<ProjectDto>().Id.Should().Be(id);
+        _store.Value.SelectedId.Should().Be(id);
+        _store.Value.SelectError.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     A failed select is the select error, and shows no project, as the page showed none after a failure.
+    ///     Red: dispatch nothing on a failure; the error stays null.
+    ///     Red: keep Selected in the ProjectSelectFailed reducer; the project selected before still shows.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_select_is_the_error_and_shows_no_project()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson(WithTasks(id), RunViews.Json(Project(id, "Widgets")));
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+        _handler.OnJson(WithTasks(id), "{}", HttpStatusCode.InternalServerError);
+
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+
+        _store.Value.SelectError.Should().NotBeNull();
+        _store.Value.Selected.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     A select whose token cannot be refreshed stores no error, and shows no project, as the page showed none.
+    ///     Red: dispatch ProjectSelectFailed for SigningInAgain too; the error is the signing-in text.
+    ///     Red: dispatch nothing for SigningInAgain; the project selected before still shows.
+    /// </summary>
+    [Fact]
+    public async Task Signing_in_again_on_a_select_stores_no_error()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson(WithTasks(id), RunViews.Json(Project(id, "Widgets")));
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+        _handler.On(WithTasks(id), SigningIn());
+
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+
+        _store.Value.SelectError.Should().BeNull("a session being renewed is not an error to show");
+        _store.Value.Selected.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     Two clicks close together: the first project's answer lands after the second's and does not replace it.
+    ///     Red: drop the id check from the ProjectSelectLoaded reducer; the first project shows.
+    /// </summary>
+    [Fact]
+    public async Task A_late_answer_for_an_earlier_click_is_dropped()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var release = new TaskCompletionSource();
+        _handler.On(WithTasks(first), async () =>
+        {
+            await release.Task;
+            return RecordingHandler.Json(HttpStatusCode.OK, RunViews.Json(Project(first, "First")));
+        });
+        _handler.OnJson(WithTasks(second), RunViews.Json(Project(second, "Second")));
+
+        var late = _effects.LoadSelectedAsync(first, CancellationToken.None);
+        await _effects.LoadSelectedAsync(second, CancellationToken.None);
+        release.SetResult();
+        await late;
+
+        _store.Value.Selected.Should().NotBeNull().And.Subject.As<ProjectDto>().Id.Should().Be(second);
+    }
+
+    // ── The Projects page's writes ────────────────────────────────────────────
+
+    /// <summary>
+    ///     A created project is a saved outcome, and the create posts what was asked.
+    ///     Red: drop the ProjectSaved dispatch from CreateAsync; there is no outcome.
+    ///     Red: post the project with an empty name; the request body has no "Atlas".
+    /// </summary>
+    [Fact]
+    public async Task A_created_project_is_saved()
+    {
+        _handler.OnJson("/api/projects", RunViews.Json(Project(Guid.NewGuid(), "Atlas")));
+
+        await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+
+        _store.Value.LastSave.Should().Be(new ProjectSave(ProjectWrite.Created, null));
+        _handler.Requests.Should().ContainSingle(r => r.Method == HttpMethod.Post).Which.Body.Should().Contain("Atlas");
+    }
+
+    /// <summary>
+    ///     A refused create is the refusal, worded as the dialog always worded it.
+    ///     Red: dispatch ProjectSaved on a failure; the outcome is a success.
+    ///     Red: store a fixed "Failed to create" instead of the client's error; the server's reason is lost.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_create_is_the_refusal()
+    {
+        _handler.On("/api/projects", () => Text(HttpStatusCode.BadRequest, "Name taken"));
+
+        await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+
+        _store.Value.LastSave.Should().Be(new ProjectSave(ProjectWrite.Created, "Failed to create project: Name taken"));
+    }
+
+    /// <summary>
+    ///     A create whose token cannot be refreshed is no outcome: the dialog says nothing and stays open, as it did.
+    ///     Red: dispatch ProjectSaveRefused for SigningInAgain too; the refusal is the signing-in text.
+    ///     Red: drop the ProjectSaveStarted dispatch; the earlier save's success is still the outcome.
+    /// </summary>
+    [Fact]
+    public async Task Signing_in_again_on_a_create_stores_no_outcome()
+    {
+        _handler.OnJson("/api/projects", RunViews.Json(Project(Guid.NewGuid(), "Atlas")));
+        await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+        _handler.On("/api/projects", SigningIn());
+
+        await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+
+        _store.Value.LastSave.Should().BeNull("a session being renewed is not an outcome to show");
+    }
+
+    /// <summary>
+    ///     An updated project is a saved outcome, and the update puts what was asked to that project.
+    ///     Red: drop the ProjectSaved dispatch from UpdateAsync; there is no outcome.
+    ///     Red: put to Guid.Empty instead of the id; the request goes to another path.
+    /// </summary>
+    [Fact]
+    public async Task An_updated_project_is_saved()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson(ProjectPath(id), RunViews.Json(Project(id, "Atlas")));
+
+        await _effects.UpdateAsync(id, new UpdateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+
+        _store.Value.LastSave.Should().Be(new ProjectSave(ProjectWrite.Updated, null));
+        _handler.Requests.Should().ContainSingle().Which.Should().Match<RecordedRequest>(r =>
+            r.Method == HttpMethod.Put && r.PathAndQuery == ProjectPath(id) && r.Body!.Contains("Atlas"));
+    }
+
+    /// <summary>
+    ///     A refused update is the refusal, worded as the dialog always worded it.
+    ///     Red: dispatch ProjectSaved on a failure; the outcome is a success.
+    ///     Red: dispatch the refusal as ProjectWrite.Created; the write is wrong.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_update_is_the_refusal()
+    {
+        var id = Guid.NewGuid();
+        _handler.On(ProjectPath(id), () => Text(HttpStatusCode.Conflict, "Stale"));
+
+        await _effects.UpdateAsync(id, new UpdateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+
+        _store.Value.LastSave.Should().Be(new ProjectSave(ProjectWrite.Updated, "Failed to update project: Stale"));
+    }
+
+    /// <summary>
+    ///     An update whose token cannot be refreshed is no outcome.
+    ///     Red: dispatch ProjectSaveRefused for SigningInAgain too; the refusal is the signing-in text.
+    /// </summary>
+    [Fact]
+    public async Task Signing_in_again_on_an_update_stores_no_outcome()
+    {
+        var id = Guid.NewGuid();
+        _handler.On(ProjectPath(id), SigningIn());
+
+        await _effects.UpdateAsync(id, new UpdateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+
+        _store.Value.LastSave.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     Deleting the project the page shows is a saved outcome and stops showing it; deleting another keeps it.
+    ///     Red: drop the ProjectSaved dispatch from DeleteAsync; there is no outcome.
+    ///     Red: leave Selected in the ProjectSaved reducer for a delete; the deleted project still shows.
+    ///     Red: clear Selected for any delete, whatever its id; the other delete hides the shown project.
+    /// </summary>
+    [Fact]
+    public async Task Deleting_the_shown_project_stops_showing_it()
+    {
+        var shown = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        _handler.OnJson(WithTasks(shown), RunViews.Json(Project(shown, "Shown")));
+        _handler.On(ProjectPath(shown), () => new HttpResponseMessage(HttpStatusCode.NoContent));
+        _handler.On(ProjectPath(other), () => new HttpResponseMessage(HttpStatusCode.NoContent));
+        await _effects.LoadSelectedAsync(shown, CancellationToken.None);
+
+        await _effects.DeleteAsync(other, CancellationToken.None);
+        _store.Value.Selected.Should().NotBeNull("another project was deleted");
+
+        await _effects.DeleteAsync(shown, CancellationToken.None);
+        _store.Value.LastSave.Should().Be(new ProjectSave(ProjectWrite.Deleted, null));
+        _store.Value.Selected.Should().BeNull();
+        _handler.Requests[^1].Method.Should().Be(HttpMethod.Delete);
+    }
+
+    /// <summary>
+    ///     A refused delete is the refusal, and the project still shows.
+    ///     Red: dispatch ProjectSaved on a failure; the outcome is a success and the project is gone.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_delete_is_the_refusal()
+    {
+        var id = Guid.NewGuid();
+        _handler.OnJson(WithTasks(id), RunViews.Json(Project(id, "Shown")));
+        _handler.On(ProjectPath(id), () => Text(HttpStatusCode.Conflict, "In use"));
+        await _effects.LoadSelectedAsync(id, CancellationToken.None);
+
+        await _effects.DeleteAsync(id, CancellationToken.None);
+
+        _store.Value.LastSave.Should().Be(new ProjectSave(ProjectWrite.Deleted, "Failed to delete project: In use"));
+        _store.Value.Selected.Should().NotBeNull();
+    }
+
+    /// <summary>
+    ///     A delete whose token cannot be refreshed, or whose page closed meanwhile, is no outcome.
+    ///     Red: dispatch ProjectSaveRefused for SigningInAgain too; the refusal is the signing-in text.
+    ///     Red: dispatch ProjectSaveRefused for a cancelled delete; the refusal is the cancellation.
+    /// </summary>
+    [Fact]
+    public async Task Signing_in_again_or_closing_on_a_delete_stores_no_outcome()
+    {
+        var id = Guid.NewGuid();
+        _handler.On(ProjectPath(id), SigningIn());
+        await _effects.DeleteAsync(id, CancellationToken.None);
+        _store.Value.LastSave.Should().BeNull("a session being renewed is not an outcome to show");
+
+        using var closing = new CancellationTokenSource();
+        _handler.On(ProjectPath(id), async () =>
+        {
+            await closing.CancelAsync();
+            throw new OperationCanceledException(closing.Token);
+        });
+        await _effects.DeleteAsync(id, closing.Token);
+        _store.Value.LastSave.Should().BeNull("a write whose page closed has no one to show it to");
+    }
+
+    private static string WithTasks(Guid id) => $"/api/projects/{id}/with-tasks";
+
+    private static string ProjectPath(Guid id) => $"/api/projects/{id}";
+
+    private static Func<HttpResponseMessage> SigningIn()
+    {
+        var navigation = new RecordingNavigation();
+        return () => throw new AccessTokenNotAvailableException(navigation, navigation.RefreshFailed(), scopes: null);
+    }
+
+    private static HttpResponseMessage Text(HttpStatusCode code, string body) =>
+        new(code) { Content = new StringContent(body) };
 
     private Guid? Preselected() => _store.Value.Settled is { } projects ? TaskForm.Preselect(projects) : null;
 

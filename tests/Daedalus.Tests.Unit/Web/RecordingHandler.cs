@@ -38,7 +38,12 @@ internal sealed class RecordingHandler : HttpMessageHandler
     public RecordingHandler OnJson(string pathAndQuery, string json, HttpStatusCode code = HttpStatusCode.OK) =>
         On(pathAndQuery, () => Json(code, json));
 
-    public ApiClient Client() => new(new HttpClient(this) { BaseAddress = new Uri("http://localhost") });
+    public ApiClient Client() => new(Http());
+
+    /// <summary>The project client, whose writes go through this handler as its reads do.</summary>
+    public ProjectApiClient ProjectClient() => new(Client(), Http());
+
+    private HttpClient Http() => new(this, disposeHandler: false) { BaseAddress = new Uri("http://localhost") };
 
     public static HttpResponseMessage Json(HttpStatusCode code, string json) =>
         new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };

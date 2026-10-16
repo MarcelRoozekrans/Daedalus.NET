@@ -112,5 +112,68 @@ public sealed class ProjectsReducersTests
         state.Projects.Should().Equal(First);
     }
 
+    /// <summary>
+    ///     The Projects page closing clears its selection and its last save, and leaves the shared list: the next reader
+    ///     opens on it, as R3 requires.
+    ///     Red: keep Selected in the ProjectsPageClosed reducer; the page reopens on the old selection.
+    ///     Red: keep SelectedId; a late answer for the closed page's click still lands.
+    ///     Red: keep LastSave; the closed page's outcome outlives it.
+    ///     Red: set Projects to null in the ProjectsPageClosed reducer; the list is gone.
+    /// </summary>
+    [Fact]
+    public void The_page_closing_clears_its_selection_and_its_last_save_and_keeps_the_list()
+    {
+        var state = ProjectsReducers.On(ProjectsState.Initial(null!), new ProjectsLoadStarted(1));
+        state = ProjectsReducers.On(state, new ProjectsLoaded(1, [First]));
+        state = ProjectsReducers.On(state, new ProjectSelectRequested(First.Id));
+        state = ProjectsReducers.On(state, new ProjectSelectLoaded(First));
+        state = ProjectsReducers.On(state, new ProjectSaved(ProjectWrite.Updated, First.Id));
+
+        state = ProjectsReducers.On(state, new ProjectsPageClosed());
+
+        state.Selected.Should().BeNull();
+        state.SelectedId.Should().BeNull();
+        state.LastSave.Should().BeNull();
+        state.Projects.Should().Equal(First);
+        ProjectsReducers.On(state, new ProjectSelectLoaded(First)).Selected.Should().BeNull("the click was the closed page's");
+    }
+
+    /// <summary>
+    ///     A new click clears the last select error, so a toast for it is never read for the next click; a failure for a
+    ///     project no longer asked for is dropped.
+    ///     Red: keep SelectError in the ProjectSelectRequested reducer.
+    ///     Red: drop the id check from the ProjectSelectFailed reducer; the earlier click's failure is the error.
+    /// </summary>
+    [Fact]
+    public void A_new_click_clears_the_last_select_error()
+    {
+        var state = ProjectsReducers.On(ProjectsState.Initial(null!), new ProjectSelectRequested(First.Id));
+        state = ProjectsReducers.On(state, new ProjectSelectFailed(First.Id, "boom"));
+        state.SelectError.Should().Be("boom");
+
+        state = ProjectsReducers.On(state, new ProjectSelectRequested(Second.Id));
+        state.SelectError.Should().BeNull();
+
+        state = ProjectsReducers.On(state, new ProjectSelectFailed(First.Id, "late"));
+        state.SelectError.Should().BeNull("the failure is for a project no longer asked for");
+    }
+
+    /// <summary>
+    ///     A save start clears the last outcome, and a refusal is kept with its write.
+    ///     Red: keep LastSave in the ProjectSaveStarted reducer.
+    ///     Red: store the refusal with a null reason; it reads as saved.
+    /// </summary>
+    [Fact]
+    public void A_save_start_clears_the_last_outcome()
+    {
+        var state = ProjectsReducers.On(ProjectsState.Initial(null!), new ProjectSaveRefused(ProjectWrite.Created, "no"));
+        state.LastSave.Should().Be(new ProjectSave(ProjectWrite.Created, "no"));
+        state.LastSave!.Value.Succeeded.Should().BeFalse();
+
+        state = ProjectsReducers.On(state, new ProjectSaveStarted(ProjectWrite.Updated));
+
+        state.LastSave.Should().BeNull();
+    }
+
     private static ProjectDto Project(string name) => new(Guid.NewGuid(), name, "", "1.0", "", "main", DateTime.UnixEpoch, null, []);
 }

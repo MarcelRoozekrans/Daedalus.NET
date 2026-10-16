@@ -37,4 +37,47 @@ public static class ProjectsReducers
     [Reducer]
     public static ProjectsState On(ProjectsState s, ProjectsLoadAbandoned a) =>
         a.Sequence < s.Sequence ? s : s with { Loading = false };
+
+    /// <summary>
+    ///     Marks the project asked for and clears the last select error. The project shown stays until the answer lands,
+    ///     as the page always kept it.
+    /// </summary>
+    [Reducer]
+    public static ProjectsState On(ProjectsState s, ProjectSelectRequested a) =>
+        s with { SelectedId = a.Id, SelectError = null };
+
+    /// <summary>Kept only when it is the project asked for last; see <see cref="ProjectsState.SelectedId"/>.</summary>
+    [Reducer]
+    public static ProjectsState On(ProjectsState s, ProjectSelectLoaded a) =>
+        a.Project.Id == s.SelectedId ? s with { Selected = a.Project } : s;
+
+    /// <summary>A failure shows no project, as the page showed none after one.</summary>
+    [Reducer]
+    public static ProjectsState On(ProjectsState s, ProjectSelectFailed a) =>
+        a.Id == s.SelectedId ? s with { Selected = null, SelectError = a.Error } : s;
+
+    /// <summary>A session being renewed shows no project and stores no error.</summary>
+    [Reducer]
+    public static ProjectsState On(ProjectsState s, ProjectSelectAbandoned a) =>
+        a.Id == s.SelectedId ? s with { Selected = null } : s;
+
+    /// <summary>Clears the last outcome, so one that ends with no outcome is never read as the one before.</summary>
+    [Reducer]
+    public static ProjectsState On(ProjectsState s, ProjectSaveStarted a) => s with { LastSave = null };
+
+    /// <summary>A deleted project that the page shows is shown no longer.</summary>
+    [Reducer]
+    public static ProjectsState On(ProjectsState s, ProjectSaved a) =>
+        a.Write == ProjectWrite.Deleted && a.Id == s.SelectedId
+            ? s with { LastSave = new ProjectSave(a.Write, null), Selected = null, SelectedId = null }
+            : s with { LastSave = new ProjectSave(a.Write, null) };
+
+    [Reducer]
+    public static ProjectsState On(ProjectsState s, ProjectSaveRefused a) =>
+        s with { LastSave = new ProjectSave(a.Write, a.Reason) };
+
+    /// <summary>Clears the Projects page's own fields and leaves the shared list; see <see cref="ProjectsState"/>.</summary>
+    [Reducer]
+    public static ProjectsState On(ProjectsState s, ProjectsPageClosed a) =>
+        s with { Selected = null, SelectedId = null, SelectError = null, LastSave = null };
 }
