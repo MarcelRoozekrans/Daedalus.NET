@@ -187,8 +187,9 @@ public class TaskCreateBrowserTests : BrowserTestBase
     ///     next, so a clear on close would land after Home rendered and empty the picker.
     ///     Red: add a ProjectsReducers.On for TasksClosed that drops the projects; the held picker has no Test Project
     ///     option.
-    ///     Red: drop the Loading condition from ProjectsState.Settled, with the projects answered as Test Project alone;
-    ///     see the unit test No_preselect_from_a_held_list_while_the_newest_load_is_in_flight, which pins the preselect.
+    ///     Red: the dialog preselects the first project of whatever list it holds, instead of waiting for
+    ///     ProjectsState.Settled; the held picker's label is not the placeholder. The one-project rule on a held list is
+    ///     pinned by the unit test No_preselect_from_a_held_list_while_the_newest_load_is_in_flight.
     /// </summary>
     [Test]
     [Description("The projects survive Home, then Tasks, then Home")]
