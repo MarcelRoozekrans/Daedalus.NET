@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
+using AwesomeAssertions.Execution;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
+using Daedalus.Tests.Playwright.Browser.Utilities;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 
@@ -30,6 +32,43 @@ public class BrainstormPageBrowserTests : BrowserTestBase
         var sessionId = await E2EServerFixture.Brainstorms.StartAsync(CancellationToken.None).ConfigureAwait(false);
         await Page.GotoAsync(new Uri(BaseUrl, $"/brainstorm/{sessionId}").ToString()).ConfigureAwait(false);
         await Expect(Message("Assistant", BrainstormSeeds.OpeningMessage)).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     With a session open the page is exactly as tall as the content column, at desktop, tablet and phone widths:
+    ///     the composer and Send sit above the footer, the body has nothing to scroll, and the page reaches the column's
+    ///     bottom, so the composer sits at its foot.
+    ///     Red: the page's stack back on <c>height: calc(100vh - 80px)</c> without <c>page-fill</c>; the composer's and Send's
+    ///     bottoms are 38px under the footer's top, the body scrolls 78px and the page ends 78px past the column, at
+    ///     1920x1080 and 768x1024; 52px and 92px at 375x812. All four assertions go red.
+    ///     Red: the theme's <c>.rz-body > div:has(> .page-fill)</c> rule removed; the wrapper is only as tall as its
+    ///     content, the page's 100% resolves to auto, and the page ends hundreds of pixels above the column's bottom.
+    ///     Only the gap assertion goes red: a short transcript still fits.
+    /// </summary>
+    [TestCase(1920, 1080)]
+    [TestCase(768, 1024)]
+    [TestCase(375, 812)]
+    [Description("With a session open the Brainstorm page fits above the footer")]
+    public async Task With_a_session_open_the_brainstorm_page_fits_above_the_footer(int width, int height)
+    {
+        await Page.SetViewportSizeAsync(width, height).ConfigureAwait(false);
+        await OpenNewSessionAsync().ConfigureAwait(false);
+        var composer = Page.GetByTestId("brainstorm-input");
+        await Expect(composer).ToBeVisibleAsync().ConfigureAwait(false);
+
+        var composerOverlap = await LayoutFit.OverlapWithFooterAsync(Page, composer).ConfigureAwait(false);
+        var sendOverlap = await LayoutFit.OverlapWithFooterAsync(Page, Page.GetByTestId("btn-send-message")).ConfigureAwait(false);
+        var bodyOverflow = await LayoutFit.BodyOverflowAsync(Page).ConfigureAwait(false);
+        var gapBelow = await LayoutFit.GapBelowAsync(Page, Page.Locator(".rz-body > div > *").First).ConfigureAwait(false);
+
+        // All four are reported together: each Red line turns its own assertion red.
+        using (new AssertionScope())
+        {
+            composerOverlap.Should().BeLessThanOrEqualTo(0, "the composer's bottom is above the footer's top");
+            sendOverlap.Should().BeLessThanOrEqualTo(0, "Send's bottom is above the footer's top");
+            bodyOverflow.Should().BeLessThanOrEqualTo(0, "the page fits the column, so the body does not scroll");
+            gapBelow.Should().BeInRange(-1, 1, "the page fills the column down to its bottom, so the composer sits at the foot");
+        }
     }
 
     /// <summary>

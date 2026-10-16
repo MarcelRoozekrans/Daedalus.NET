@@ -219,6 +219,22 @@
     scrollbar-gutter: stable;
 }
 
+/* ── Pages that fill the column ──────────────────────────────────────── */
+/* A chat page is exactly as tall as the content column, so its composer sits above the footer and only its own panes
+   scroll. The column's height is the layout grid's middle row, whatever the header and footer take; the page's
+   wrapper takes all of it, padding included, and the page takes the rest. A fixed calc on the viewport cannot know
+   the header's and the footer's heights. */
+.rz-body > div:has(> .page-fill) {
+    box-sizing: border-box;
+    height: 100%;
+}
+
+.page-fill {
+    box-sizing: border-box;
+    height: 100%;
+    min-height: 0;
+}
+
 /* ── Alerts wrap within the column ───────────────────────────────────── */
 /* An alert's message is a flex item that will not shrink below its longest word, so an error naming a URL or a type
    pushed the alert, and the page, past a phone's width. It wraps anywhere instead. */
