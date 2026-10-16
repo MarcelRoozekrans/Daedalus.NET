@@ -207,6 +207,27 @@ public sealed class ProjectsEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     A load for a reader that has already gone dispatches nothing and sends nothing: the list, the sequence and the
+    ///     loading flag of a reader opened since stay, so that reader's own answer still lands.
+    ///     Red: drop the cancelled-token guard in LoadAsync; the sequence moves and the newer reader's answer is dropped.
+    /// </summary>
+    [Fact]
+    public async Task A_load_for_a_reader_already_gone_changes_nothing()
+    {
+        _handler.OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project(Guid.NewGuid(), "Widgets")], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        var sequence = _store.Value.Sequence;
+        using var gone = new CancellationTokenSource();
+        await gone.CancelAsync();
+
+        await _effects.LoadAsync(gone.Token);
+
+        _store.Value.Sequence.Should().Be(sequence);
+        _store.Value.Projects.Should().ContainSingle();
+        _handler.Requests.Should().ContainSingle("the reader that asked is gone");
+    }
+
+    /// <summary>
     ///     A load that times out while its reader is still open is the error: only the reader's own cancellation is
     ///     abandoned. HttpClient reports a timeout as a TaskCanceledException, which ApiClient words like a cancellation.
     ///     Red: abandon on the error text "Request was cancelled" instead of on the token; the error stays null.
@@ -384,17 +405,39 @@ public sealed class ProjectsEffectsTests : IDisposable
     // ── The Projects page's writes ────────────────────────────────────────────
 
     /// <summary>
+    ///     A select for a page that has already gone dispatches nothing: the project the reopened page asked for stays
+    ///     the one asked for, so its answer still lands.
+    ///     Red: drop the cancelled-token guard in LoadSelectedAsync; SelectedId moves to the gone page's project.
+    /// </summary>
+    [Fact]
+    public async Task A_select_for_a_page_already_gone_changes_nothing()
+    {
+        var shown = Guid.NewGuid();
+        _handler.OnJson(WithTasks(shown), RunViews.Json(Project(shown, "Shown")));
+        await _effects.LoadSelectedAsync(shown, CancellationToken.None);
+        using var gone = new CancellationTokenSource();
+        await gone.CancelAsync();
+
+        await _effects.LoadSelectedAsync(Guid.NewGuid(), gone.Token);
+
+        _store.Value.SelectedId.Should().Be(shown);
+        _store.Value.Selected.Should().NotBeNull();
+    }
+
+    /// <summary>
     ///     A created project is a saved outcome, and the create posts what was asked.
     ///     Red: drop the ProjectSaved dispatch from CreateAsync; there is no outcome.
     ///     Red: post the project with an empty name; the request body has no "Atlas".
+    ///     Red: SettleAsync returns null on a save; the returned outcome is missing.
     /// </summary>
     [Fact]
     public async Task A_created_project_is_saved()
     {
         _handler.OnJson("/api/projects", RunViews.Json(Project(Guid.NewGuid(), "Atlas")));
 
-        await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+        var outcome = await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
 
+        outcome.Should().Be(new ProjectSave(ProjectWrite.Created, null));
         _store.Value.LastSave.Should().Be(new ProjectSave(ProjectWrite.Created, null));
         _handler.Requests.Should().ContainSingle(r => r.Method == HttpMethod.Post).Which.Body.Should().Contain("Atlas");
     }
@@ -403,14 +446,16 @@ public sealed class ProjectsEffectsTests : IDisposable
     ///     A refused create is the refusal, worded as the dialog always worded it.
     ///     Red: dispatch ProjectSaved on a failure; the outcome is a success.
     ///     Red: store a fixed "Failed to create" instead of the client's error; the server's reason is lost.
+    ///     Red: SettleAsync returns null on a refusal; the returned outcome is missing.
     /// </summary>
     [Fact]
     public async Task A_refused_create_is_the_refusal()
     {
         _handler.On("/api/projects", () => Text(HttpStatusCode.BadRequest, "Name taken"));
 
-        await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+        var outcome = await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
 
+        outcome.Should().Be(new ProjectSave(ProjectWrite.Created, "Failed to create project: Name taken"));
         _store.Value.LastSave.Should().Be(new ProjectSave(ProjectWrite.Created, "Failed to create project: Name taken"));
     }
 
@@ -426,8 +471,9 @@ public sealed class ProjectsEffectsTests : IDisposable
         await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
         _handler.On("/api/projects", SigningIn());
 
-        await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
+        var outcome = await _effects.CreateAsync(new CreateProjectDto("Atlas", "d", "1.0"), CancellationToken.None);
 
+        outcome.Should().BeNull("a session being renewed is not an outcome to show");
         _store.Value.LastSave.Should().BeNull("a session being renewed is not an outcome to show");
     }
 
@@ -546,6 +592,34 @@ public sealed class ProjectsEffectsTests : IDisposable
         });
         await _effects.DeleteAsync(id, closing.Token);
         _store.Value.LastSave.Should().BeNull("a write whose page closed has no one to show it to");
+    }
+
+    /// <summary>
+    ///     A delete that ends with no outcome returns none, even when another delete left its refusal in the store
+    ///     meanwhile: the page shows only what its own write returned, so it never shows another's toast.
+    ///     Red: SettleAsync returns projects.Value.LastSave instead of the outcome it dispatched; the renewed delete
+    ///     returns the other delete's refusal.
+    /// </summary>
+    [Fact]
+    public async Task A_write_with_no_outcome_returns_none_whatever_another_left()
+    {
+        var renewedId = Guid.NewGuid();
+        var refusedId = Guid.NewGuid();
+        var release = new TaskCompletionSource();
+        var renewal = SigningIn();
+        _handler.On(ProjectPath(renewedId), async () =>
+        {
+            await release.Task;
+            return renewal();
+        });
+        _handler.On(ProjectPath(refusedId), () => Text(HttpStatusCode.Conflict, "In use"));
+
+        var renewed = _effects.DeleteAsync(renewedId, CancellationToken.None);
+        var refused = await _effects.DeleteAsync(refusedId, CancellationToken.None);
+        release.SetResult();
+
+        refused.Should().Be(new ProjectSave(ProjectWrite.Deleted, "Failed to delete project: In use"));
+        (await renewed).Should().BeNull("the renewed delete has no outcome of its own");
     }
 
     // ── Logging ─────────────────────────────────────────────────────────────

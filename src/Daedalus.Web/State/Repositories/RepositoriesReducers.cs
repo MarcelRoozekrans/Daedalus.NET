@@ -40,5 +40,5 @@ public static class RepositoriesReducers
     /// <summary>Clears the page's fields and keeps the sequence; see <see cref="RepositoriesState"/>.</summary>
     [Reducer]
     public static RepositoriesState On(RepositoriesState s, RepositoriesClosed a) =>
-        RepositoriesState.Initial(null!) with { Sequence = s.Sequence };
+        RepositoriesState.Empty with { Sequence = s.Sequence };
 }

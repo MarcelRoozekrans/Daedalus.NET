@@ -1,5 +1,4 @@
 @inject ProjectsEffects ProjectsEffects
-@inject IStore<ProjectsState> ProjectStore
 @inject DialogService DialogService
 @inject NotificationService NotificationService
 
@@ -50,14 +49,15 @@
         try
         {
             var dto = new UpdateProjectDto(_projectName.Trim(), _description.Trim(), _version.Trim());
-            await ProjectsEffects.UpdateAsync(Project.Id, dto, CancellationToken.None);
-            // No outcome is a session being renewed: the layout says so, and the dialog stays open, as it did.
-            if (ProjectStore.Value.LastSave is { Write: ProjectWrite.Updated, Succeeded: true })
+            var outcome = await ProjectsEffects.UpdateAsync(Project.Id, dto, CancellationToken.None);
+            // Only this write's own outcome. None is a session being renewed: the layout says so, and the dialog stays
+            // open, as it did.
+            if (outcome is { Succeeded: true })
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Success", "Project updated");
                 DialogService.Close(true);
             }
-            else if (ProjectStore.Value.LastSave is { Write: ProjectWrite.Updated, Refusal: { } refusal })
+            else if (outcome is { Refusal: { } refusal })
             {
                 NotificationService.NotifyFailure("Error", refusal);
             }

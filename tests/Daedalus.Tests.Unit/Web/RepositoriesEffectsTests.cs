@@ -154,6 +154,28 @@ public sealed class RepositoriesEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     A read for a page that has already gone, such as the reload after a write that finished once the page was left
+    ///     and opened again, dispatches nothing and sends nothing: the reopened page's list and sequence stay, so its own
+    ///     answer still lands.
+    ///     Red: drop the cancelled-token guard in LoadAsync; the list is cleared and the sequence moves.
+    /// </summary>
+    [Fact]
+    public async Task A_read_for_a_page_already_gone_changes_nothing()
+    {
+        _handler.OnJson(Path, List("atlas"));
+        await _effects.LoadAsync(CancellationToken.None);
+        var sequence = _store.Value.Sequence;
+        using var gone = new CancellationTokenSource();
+        await gone.CancelAsync();
+
+        await _effects.LoadAsync(gone.Token);
+
+        _store.Value.Repositories.Should().ContainSingle();
+        _store.Value.Sequence.Should().Be(sequence);
+        _handler.Requests.Should().ContainSingle("the page that asked is gone");
+    }
+
+    /// <summary>
     ///     Two reads close together, such as Retry clicked twice: the first one's answer lands after the second's and
     ///     does not replace it.
     ///     Red: number every read 1 in LoadAsync; the older list wins.
@@ -191,12 +213,15 @@ public sealed class RepositoriesEffectsTests : IDisposable
         { RepositoryWrite.Tested, "POST", $"{Path}/{Id}/test-connection" },
     };
 
-    private Task WriteAsync(RepositoryWrite write, CancellationToken ct = default) => write switch
+    private Task<RepositorySave?> WriteAsync(RepositoryWrite write, CancellationToken ct = default) =>
+        WriteAsync(write, Id, ct);
+
+    private Task<RepositorySave?> WriteAsync(RepositoryWrite write, Guid id, CancellationToken ct = default) => write switch
     {
         RepositoryWrite.Created => _effects.CreateAsync(new CreateRepositoryConfigurationDto { Name = "atlas" }, ct),
-        RepositoryWrite.Updated => _effects.UpdateAsync(Id, new UpdateRepositoryConfigurationDto { Name = "atlas" }, ct),
-        RepositoryWrite.Deleted => _effects.DeleteAsync(Id, ct),
-        _ => _effects.TestConnectionAsync(Id, ct),
+        RepositoryWrite.Updated => _effects.UpdateAsync(id, new UpdateRepositoryConfigurationDto { Name = "atlas" }, ct),
+        RepositoryWrite.Deleted => _effects.DeleteAsync(id, ct),
+        _ => _effects.TestConnectionAsync(id, ct),
     };
 
     /// <summary>
@@ -205,6 +230,7 @@ public sealed class RepositoriesEffectsTests : IDisposable
     ///     Red: send UpdateAsync through api.CreateAsync; the PUT is a POST to the list.
     ///     Red: send TestConnectionAsync through api.DeleteAsync; the test is a DELETE.
     ///     Red: dispatch Created for every write; the outcome's write is wrong.
+    ///     Red: SaveAsync returns null on a save; the returned outcome is missing.
     /// </summary>
     [Theory]
     [MemberData(nameof(Writes))]
@@ -212,8 +238,9 @@ public sealed class RepositoriesEffectsTests : IDisposable
     {
         _handler.On(path, () => new HttpResponseMessage(HttpStatusCode.NoContent));
 
-        await WriteAsync(write);
+        var outcome = await WriteAsync(write);
 
+        outcome.Should().Be(new RepositorySave(write, null));
         _handler.Requests.Should().ContainSingle().Which.Should().Match<RecordedRequest>(r =>
             r.Method.Method == method && r.PathAndQuery == path);
         _store.Value.LastSave.Should().Be(new RepositorySave(write, null));
@@ -237,6 +264,7 @@ public sealed class RepositoriesEffectsTests : IDisposable
     ///     A write the server refuses is refused with the status it answered, and is logged as a warning.
     ///     Red: dispatch nothing on a refusal in SaveAsync; LastSave stays null.
     ///     Red: drop the LogWriteRefused call; no warning is written.
+    ///     Red: SaveAsync returns null on a refusal; the returned outcome is missing.
     /// </summary>
     [Theory]
     [MemberData(nameof(Writes))]
@@ -245,8 +273,9 @@ public sealed class RepositoriesEffectsTests : IDisposable
         _ = method;
         _handler.On(path, () => new HttpResponseMessage(HttpStatusCode.InternalServerError));
 
-        await WriteAsync(write);
+        var outcome = await WriteAsync(write);
 
+        outcome.Should().Be(new RepositorySave(write, ServerError));
         _store.Value.LastSave.Should().Be(new RepositorySave(write, ServerError));
         _logger.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Warning);
     }
@@ -281,8 +310,9 @@ public sealed class RepositoriesEffectsTests : IDisposable
         _logger.Entries.Clear();
         _handler.On($"{Path}/{Id}", SigningIn);
 
-        await WriteAsync(RepositoryWrite.Updated);
+        var outcome = await WriteAsync(RepositoryWrite.Updated);
 
+        outcome.Should().BeNull();
         _store.Value.LastSave.Should().BeNull();
         _logger.Entries.Should().BeEmpty("a session being renewed is not a failure");
     }
@@ -321,5 +351,31 @@ public sealed class RepositoriesEffectsTests : IDisposable
         await WriteAsync(RepositoryWrite.Deleted);
 
         _store.Value.Repositories.Should().ContainSingle();
+    }
+
+    /// <summary>
+    ///     A write that ends with no outcome returns none, even when another write of the same kind left its outcome in
+    ///     the store meanwhile: the page shows only what its own write returned, so it never shows another's toast.
+    ///     Red: SaveAsync returns repositories.Value.LastSave instead of the outcome it dispatched; the renewed delete
+    ///     returns the other delete's refusal.
+    /// </summary>
+    [Fact]
+    public async Task A_write_with_no_outcome_returns_none_whatever_another_left()
+    {
+        var other = Guid.NewGuid();
+        var release = new TaskCompletionSource();
+        _handler.On($"{Path}/{Id}", async () =>
+        {
+            await release.Task;
+            return SigningIn();
+        });
+        _handler.On($"{Path}/{other}", () => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+
+        var renewed = WriteAsync(RepositoryWrite.Deleted, Id);
+        var refused = await WriteAsync(RepositoryWrite.Deleted, other);
+        release.SetResult();
+
+        refused.Should().Be(new RepositorySave(RepositoryWrite.Deleted, ServerError));
+        (await renewed).Should().BeNull("the renewed delete has no outcome of its own");
     }
 }

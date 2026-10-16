@@ -171,6 +171,31 @@ public sealed class HomeEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     A load, a role change or a Retry from a panel that has already gone dispatches nothing and reads nothing: the
+    ///     cards, the sequence and the open Home of a panel opened since stay, so its own answers still land.
+    ///     Red: drop the cancelled-token guard in LoadCardAsync; the cards turn into their skeleton and the sequence moves.
+    ///     Red: drop the cancelled-token guard in LoadAsync; the gone panel's role change closes the open Home.
+    /// </summary>
+    [Fact]
+    public async Task A_read_for_a_panel_already_gone_changes_nothing()
+    {
+        RouteAll();
+        await _effects.LoadAsync(canView: true, CancellationToken.None);
+        var sequence = _store.Value.Sequence;
+        using var gone = new CancellationTokenSource();
+        await gone.CancelAsync();
+
+        await _effects.LoadAsync(canView: true, gone.Token);
+        await _effects.RetryAsync(HomeCardKind.Awaiting, gone.Token);
+        await _effects.LoadAsync(canView: false, gone.Token);
+
+        _store.Value.Sequence.Should().Be(sequence);
+        _store.Value.Awaiting.Rows.Should().NotBeNull("the card keeps its rows");
+        _store.Value.Open.Should().BeTrue("a gone panel does not close the Home on show");
+        _handler.Requests.Should().HaveCount(4, "the panel that asked is gone");
+    }
+
+    /// <summary>
     ///     A run change re-fetches the awaiting, running and failed cards, not the pull requests card, and the new rows
     ///     land; while the re-fetch is in flight the old rows stay on show, so the card never turns into its skeleton.
     ///     Red: OnRunChanged fetches nothing; no request is made.

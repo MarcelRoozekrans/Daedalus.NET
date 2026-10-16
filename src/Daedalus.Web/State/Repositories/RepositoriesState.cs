@@ -31,6 +31,9 @@ public readonly partial record struct RepositoriesState(
     IReadOnlyList<RepositoryConfigurationDto>? Repositories, bool Forbidden, string? Error, long Sequence,
     RepositorySave? LastSave)
 {
+    /// <summary>The page with nothing read and no outcome, numbered from the start.</summary>
+    public static RepositoriesState Empty { get; } = new(null, false, null, 0, null);
+
     /// <summary>The state before any read.</summary>
-    public static RepositoriesState Initial(IServiceProvider services) => new(null, false, null, 0, null);
+    public static RepositoriesState Initial(IServiceProvider services) => Empty;
 }

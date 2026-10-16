@@ -29,6 +29,12 @@ public sealed partial class HomeEffects(
     /// </summary>
     public async Task LoadAsync(bool canView, CancellationToken ct)
     {
+        // A panel already gone dispatches nothing: its close or open would act on the Home a panel opened since shows.
+        if (ct.IsCancellationRequested)
+        {
+            return;
+        }
+
         if (!canView)
         {
             await dispatcher.DispatchAsync(new HomeClosed());
@@ -133,6 +139,13 @@ public sealed partial class HomeEffects(
     /// </summary>
     private async Task LoadCardAsync(HomeCardKind card, bool background, CancellationToken ct)
     {
+        // A caller already gone, such as a gone panel's Retry, dispatches nothing: a start would
+        // clear what a page opened since shows and move the sequence past its answer.
+        if (ct.IsCancellationRequested)
+        {
+            return;
+        }
+
         // Read and dispatched with no await between: the dispatch reduces at once, on the one browser thread, so the
         // next read takes the number after this one.
         var sequence = home.Value.Sequence + 1;

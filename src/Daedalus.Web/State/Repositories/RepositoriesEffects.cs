@@ -21,6 +21,13 @@ public sealed partial class RepositoriesEffects(
     /// </summary>
     public async Task LoadAsync(CancellationToken ct)
     {
+        // A caller already gone, such as a page left before a late write's reload, dispatches nothing: a start would
+        // clear what a page opened since shows and move the sequence past its answer.
+        if (ct.IsCancellationRequested)
+        {
+            return;
+        }
+
         // Read and dispatched with no await between: the dispatch reduces at once, on the one browser thread, so the
         // next read takes the number after this one's.
         var sequence = repositories.Value.Sequence + 1;
@@ -37,43 +44,53 @@ public sealed partial class RepositoriesEffects(
         }
     }
 
-    /// <summary>Adds a repository; the outcome is <see cref="RepositoriesState.LastSave"/>.</summary>
-    public Task CreateAsync(CreateRepositoryConfigurationDto repository, CancellationToken ct) =>
+    /// <summary>Adds a repository; returns the outcome; see <see cref="SaveAsync"/>.</summary>
+    public Task<RepositorySave?> CreateAsync(CreateRepositoryConfigurationDto repository, CancellationToken ct) =>
         SaveAsync(RepositoryWrite.Created, token => api.CreateAsync(repository, token), ct);
 
-    /// <summary>Updates repository <paramref name="id"/>; the outcome is <see cref="RepositoriesState.LastSave"/>.</summary>
-    public Task UpdateAsync(Guid id, UpdateRepositoryConfigurationDto repository, CancellationToken ct) =>
+    /// <summary>Updates repository <paramref name="id"/>; returns the outcome; see <see cref="SaveAsync"/>.</summary>
+    public Task<RepositorySave?> UpdateAsync(Guid id, UpdateRepositoryConfigurationDto repository, CancellationToken ct) =>
         SaveAsync(RepositoryWrite.Updated, token => api.UpdateAsync(id, repository, token), ct);
 
-    /// <summary>Deletes repository <paramref name="id"/>; the outcome is <see cref="RepositoriesState.LastSave"/>.</summary>
-    public Task DeleteAsync(Guid id, CancellationToken ct) =>
+    /// <summary>Deletes repository <paramref name="id"/>; returns the outcome; see <see cref="SaveAsync"/>.</summary>
+    public Task<RepositorySave?> DeleteAsync(Guid id, CancellationToken ct) =>
         SaveAsync(RepositoryWrite.Deleted, token => api.DeleteAsync(id, token), ct);
 
     /// <summary>
-    ///     Tests the connection to repository <paramref name="id"/>; the outcome is
-    ///     <see cref="RepositoriesState.LastSave"/>, passed or refused like a write.
+    ///     Tests the connection to repository <paramref name="id"/>; returns the outcome, passed or refused like a write;
+    ///     see <see cref="SaveAsync"/>.
     /// </summary>
-    public Task TestConnectionAsync(Guid id, CancellationToken ct) =>
+    public Task<RepositorySave?> TestConnectionAsync(Guid id, CancellationToken ct) =>
         SaveAsync(RepositoryWrite.Tested, token => api.TestConnectionAsync(id, token), ct);
 
     /// <summary>
     ///     Runs a write and dispatches its outcome: saved, or refused with the client's text. A
     ///     <see cref="SessionExpiry.SigningInAgain"/> failure, or one after <paramref name="ct"/> was cancelled, is no
     ///     outcome: the session is being renewed, or the caller is gone.
+    ///     <para>
+    ///         Returns the outcome it dispatched, or <see langword="null"/> for none. The caller shows that, never the
+    ///         store's <see cref="RepositoriesState.LastSave"/>: another write of the same kind may have left its own
+    ///         outcome there meanwhile.
+    ///     </para>
     /// </summary>
-    private async Task SaveAsync(RepositoryWrite write, Func<CancellationToken, Task<Result>> send, CancellationToken ct)
+    private async Task<RepositorySave?> SaveAsync(RepositoryWrite write, Func<CancellationToken, Task<Result>> send, CancellationToken ct)
     {
         await dispatcher.DispatchAsync(new RepositorySaveStarted(write));
         var result = await send(ct);
         if (result.IsSuccess)
         {
             await dispatcher.DispatchAsync(new RepositorySaved(write));
+            return new RepositorySave(write, null);
         }
-        else if (!SessionExpiry.IsSigningIn(result.Error) && !ct.IsCancellationRequested)
+
+        if (SessionExpiry.IsSigningIn(result.Error) || ct.IsCancellationRequested)
         {
-            LogWriteRefused(logger, write, result.Error);
-            await dispatcher.DispatchAsync(new RepositorySaveRefused(write, result.Error));
+            return null;
         }
+
+        LogWriteRefused(logger, write, result.Error);
+        await dispatcher.DispatchAsync(new RepositorySaveRefused(write, result.Error));
+        return new RepositorySave(write, result.Error);
     }
 
     [LoggerMessage(EventId = 3400, Level = LogLevel.Warning, Message = "The repositories could not be loaded: {Error}")]

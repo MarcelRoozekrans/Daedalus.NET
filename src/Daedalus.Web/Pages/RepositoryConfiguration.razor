@@ -166,8 +166,7 @@ else if (View.Repositories is { } repositories)
 
         if (result is bool resultValue && resultValue)
         {
-            await RepositoriesEffects.CreateAsync(RepositoryDrafts.ToCreate(draft), CancellationToken.None);
-            await ShowOutcomeAsync(RepositoryWrite.Created);
+            await ShowOutcomeAsync(await RepositoriesEffects.CreateAsync(RepositoryDrafts.ToCreate(draft), CancellationToken.None));
         }
     }
 
@@ -182,15 +181,14 @@ else if (View.Repositories is { } repositories)
 
         if (result is bool resultValue && resultValue)
         {
-            await RepositoriesEffects.UpdateAsync(draft.Id, RepositoryDrafts.ToUpdate(draft), CancellationToken.None);
-            await ShowOutcomeAsync(RepositoryWrite.Updated);
+            await ShowOutcomeAsync(
+                await RepositoriesEffects.UpdateAsync(draft.Id, RepositoryDrafts.ToUpdate(draft), CancellationToken.None));
         }
     }
 
     private async Task TestConnection(Guid id)
     {
-        await RepositoriesEffects.TestConnectionAsync(id, CancellationToken.None);
-        await ShowOutcomeAsync(RepositoryWrite.Tested);
+        await ShowOutcomeAsync(await RepositoriesEffects.TestConnectionAsync(id, CancellationToken.None));
     }
 
     private async Task ConfirmDelete(Guid id)
@@ -202,18 +200,17 @@ else if (View.Repositories is { } repositories)
 
         if (confirmed == true)
         {
-            await RepositoriesEffects.DeleteAsync(id, CancellationToken.None);
-            await ShowOutcomeAsync(RepositoryWrite.Deleted);
+            await ShowOutcomeAsync(await RepositoriesEffects.DeleteAsync(id, CancellationToken.None));
         }
     }
 
     /// <summary>
-    ///     Shows the outcome <paramref name="write"/> left, and reloads the list when the server answered it. No outcome
-    ///     is a session being renewed, which the layout says, so nothing shows.
+    ///     Shows the outcome this page's own write returned, and reloads the list when the server answered it. No
+    ///     outcome is a session being renewed, which the layout says, so nothing shows.
     /// </summary>
-    private async Task ShowOutcomeAsync(RepositoryWrite write)
+    private async Task ShowOutcomeAsync(RepositorySave? outcome)
     {
-        if (View.LastSave is not { } save || save.Write != write)
+        if (outcome is not { } save)
         {
             return;
         }

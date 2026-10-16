@@ -206,13 +206,13 @@ else
         if (confirmed is true)
         {
             // The effect stops showing the project if it was shown.
-            await ProjectsEffects.DeleteAsync(project.Id, _cts.Token);
-            if (ProjectStore.Value.LastSave is { Write: ProjectWrite.Deleted, Succeeded: true })
+            var outcome = await ProjectsEffects.DeleteAsync(project.Id, _cts.Token);
+            if (outcome is { Succeeded: true })
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Deleted", "Project deleted");
                 await LoadProjectsAsync();
             }
-            else if (ProjectStore.Value.LastSave is { Write: ProjectWrite.Deleted, Refusal: { } refusal })
+            else if (outcome is { Refusal: { } refusal })
             {
                 NotificationService.NotifyFailure("Error", refusal);
             }
