@@ -1,3 +1,4 @@
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Auth;
 using Daedalus.Web.Services;
 
@@ -51,22 +52,26 @@ public sealed class NeedsMeTests
     }
 
     /// <summary>
-    ///     An empty card says what is empty; when the list has more than the page read, as when a server filter leaves a
-    ///     page with nothing of the card's, it says only the latest 20 runs had none, under its "(0+)" heading.
-    ///     Red, per card: its method passes more: false to Empty; its incomplete case is wrong.
-    ///     Red, per card: its method passes more: true to Empty; its complete case is wrong.
-    ///     Red: InLatest hardcodes "20" and Take becomes 25; the text does not name the page read.
+    ///     An empty card says what is empty; when the list has more, it says how much was read. The awaiting and failed cards
+    ///     are filtered by a server scan, so a cursor with no rows means the server checked 500 runs, its scan cap; the
+    ///     running card's status is filtered by the store, so its cursor follows one page of 20.
+    ///     Red, per card: its method's more branch returns the complete-list text; its incomplete case is wrong.
+    ///     Red, per card: its method always takes the more branch; its complete case is wrong.
+    ///     Red, per scanned card: its method uses InLatest; it says "latest 20 runs", not "500 runs checked".
+    ///     Red: Scanned hardcodes "500" and RunListLimits.ScanCap becomes 400; the text does not name the scan cap.
+    ///     Red: InLatest hardcodes "20" and Take becomes 25; the running text does not name the page read.
     /// </summary>
     [Fact]
     public void An_empty_card_says_how_much_was_read_when_the_list_has_more()
     {
         NeedsMe.NothingWaiting(more: false).Should().Be("Nothing waiting for approval.");
-        NeedsMe.NothingWaiting(more: true).Should().Be("Nothing waiting for approval in the latest 20 runs.");
+        NeedsMe.NothingWaiting(more: true).Should().Be("Nothing waiting for approval in the latest 500 runs checked.");
         NeedsMe.NothingRunning(more: false).Should().Be("Nothing running.");
         NeedsMe.NothingRunning(more: true).Should().Be("Nothing running in the latest 20 runs.");
         NeedsMe.NoFailedRuns(more: false).Should().Be("No failed runs in the last 7 days.");
-        NeedsMe.NoFailedRuns(more: true).Should().Be("No failed runs in the last 7 days in the latest 20 runs.");
-        NeedsMe.NothingWaiting(more: true).Should().Contain($" {NeedsMe.Take} runs", "the text names the page the card read");
+        NeedsMe.NoFailedRuns(more: true).Should().Be("No failed runs in the last 7 days in the latest 500 runs checked.");
+        NeedsMe.NothingWaiting(more: true).Should().Contain($" {RunListLimits.ScanCap} runs checked", "the text names the scan cap");
+        NeedsMe.NothingRunning(more: true).Should().Contain($" {NeedsMe.Take} runs", "the text names the page the card read");
     }
 
     /// <summary>

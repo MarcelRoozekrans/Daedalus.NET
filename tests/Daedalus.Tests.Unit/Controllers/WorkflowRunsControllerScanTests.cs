@@ -45,7 +45,7 @@ public sealed class WorkflowRunsControllerScanTests
     }
 
     /// <summary>
-    ///     A scan that finds no match reads at most <see cref="WorkflowRunsController.ScanCap"/> summaries and then returns a
+    ///     A scan that finds no match reads at most <see cref="RunListLimits.ScanCap"/> summaries and then returns a
     ///     cursor, since matches may remain past it.
     ///     Red: no cap; it reads all 600 and returns no cursor.
     ///     Red: return no cursor at the cap; the cursor is null.
@@ -58,7 +58,7 @@ public sealed class WorkflowRunsControllerScanTests
         var list = await ListAsync(store, take: 20, signal: Gate);
 
         list.Runs.Should().BeEmpty();
-        store.Read.Should().Be(WorkflowRunsController.ScanCap);
+        store.Read.Should().Be(RunListLimits.ScanCap);
         list.Next.Should().NotBeNull("runs past the cap may still match");
     }
 

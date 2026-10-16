@@ -108,13 +108,6 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     }
 
     /// <summary>
-    ///     The most run summaries one list request reads from the store while it looks for runs that match
-    ///     <c>signal</c> or <c>updatedSince</c>, which the store cannot filter on. A request that reaches it returns what
-    ///     it found and a cursor, so the caller knows the list may hold more.
-    /// </summary>
-    public const int ScanCap = 500;
-
-    /// <summary>
     ///     The ISO 8601 forms <c>updatedSince</c> takes, each with its zone: <c>Z</c> or an offset. The fraction of a
     ///     second, up to seven digits, is optional, so whole seconds and the round-trip "O" form both parse. A loose form
     ///     such as <c>10/08/2026</c>, which reads as two different days by culture, is refused.
@@ -130,8 +123,8 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
     ///     <paramref name="signal"/> keeps the runs awaiting that signal, and <paramref name="updatedSince"/> the runs that
     ///     last changed at or after that instant. The store filters only on status and process, so with either of them
     ///     the list reads the store page by page, keeps the matches, and stops at <paramref name="take"/> matches, at the
-    ///     end of the store, or after <see cref="ScanCap"/> summaries. <c>Next</c> is set only when more matches may
-    ///     remain: <c>take</c> was reached before the end of the store, or the cap was.
+    ///     end of the store, or after <see cref="RunListLimits.ScanCap"/> summaries. <c>Next</c> is set only when more
+    ///     matches may remain: <c>take</c> was reached before the end of the store, or the cap was.
     /// </remarks>
     [HttpGet]
     [ProducesResponseType(typeof(WorkflowRunList), StatusCodes.Status200OK)]
@@ -221,9 +214,9 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 
     /// <summary>
     ///     Reads <paramref name="filter"/>'s runs from the store, newest first, keeping those <paramref name="matches"/>
-    ///     accepts, until <see cref="WorkflowRunFilter.Take"/> are kept, the store has no more, or <see cref="ScanCap"/>
-    ///     summaries were read. The cursor names the last summary read, so the next page goes on from there; it is null
-    ///     only when the store has no more.
+    ///     accepts, until <see cref="WorkflowRunFilter.Take"/> are kept, the store has no more, or
+    ///     <see cref="RunListLimits.ScanCap"/> summaries were read. The cursor names the last summary read, so the next page
+    ///     goes on from there; it is null only when the store has no more.
     /// </summary>
     private static async Task<WorkflowRunPage> ScanAsync(
         IWorkflowRunQuery query, WorkflowRunFilter filter, Func<WorkflowRunSummary, bool> matches, CancellationToken ct)
@@ -231,7 +224,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
         var kept = new List<WorkflowRunSummary>(filter.Take);
         var after = filter.After;
         var scanned = 0;
-        while (scanned < ScanCap)
+        while (scanned < RunListLimits.ScanCap)
         {
             var page = await query.ListAsync(
                     new WorkflowRunFilter
@@ -239,7 +232,7 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
                         Status = filter.Status,
                         Process = filter.Process,
                         After = after,
-                        Take = Math.Min(WorkflowRunFilter.MaxTake, ScanCap - scanned),
+                        Take = Math.Min(WorkflowRunFilter.MaxTake, RunListLimits.ScanCap - scanned),
                     },
                     ct)
                 .ConfigureAwait(false);
