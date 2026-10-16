@@ -9,6 +9,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Extensions;
+using Daedalus.Application.Services.Brainstorm;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Extensions;
@@ -55,6 +56,9 @@ public class E2EServerFixture
 
     /// <summary>The seeded runs and the store they were written through; set during set-up, before the server starts.</summary>
     public static RunSeeds Runs { get; private set; } = null!;
+
+    /// <summary>Starts brainstorm sessions through the real repository, one per scenario.</summary>
+    public static BrainstormSeeds Brainstorms { get; private set; } = null!;
 
     /// <summary>
     ///     The engine's background work, by implementation type: the hosted services that dispatch, sweep or sync workflow
@@ -189,6 +193,10 @@ public class E2EServerFixture
             builder.Services.AddScoped<TaskManufactureService>();
             builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
             builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
+
+            // Brainstorm, as Program.cs and AddExternalServices register it; the model behind it is the stubbed IAgentFactory.
+            builder.Services.AddScoped<IBrainstormRepository, BrainstormRepository>();
+            builder.Services.AddScoped<IBrainstormService, BrainstormService>();
 
             // Override external services with stubs. Commands and queries are NOT stubbed here: the
             // 8 commands reachable through IApplicationCommands only touch ITaskRepository/
@@ -395,6 +403,7 @@ public class E2EServerFixture
             var runs = new RunSeeds(app.Services.GetRequiredService<IWorkflowStore>(), app.Services.GetRequiredService<IServiceScopeFactory>());
             await runs.SeedAsync(CancellationToken.None).ConfigureAwait(false);
             Runs = runs;
+            Brainstorms = new BrainstormSeeds(app.Services.GetRequiredService<IServiceScopeFactory>());
 
             // 6. Start the server
             await app.StartAsync().ConfigureAwait(false);
