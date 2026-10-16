@@ -144,7 +144,7 @@ public sealed class SessionExpiryTests : IDisposable
         var http = session.Http;
         var api = new ApiClient(http);
         var agents = new AgentApiClient(http);
-        var projects = new ProjectApiClient(api, http);
+        var projects = new ProjectApiClient(http);
         var repositories = new RepositoriesApiClient(http);
         return call switch
         {

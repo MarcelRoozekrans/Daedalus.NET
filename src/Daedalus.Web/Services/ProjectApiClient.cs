@@ -4,18 +4,8 @@ using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 namespace Daedalus.Web.Services;
 
 /// <summary>Implementation of project API client.</summary>
-public sealed class ProjectApiClient(ApiClient apiClient, HttpClient httpClient) : IProjectApiClient
+public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
 {
-    public async Task<Result<PagedResultDto<ProjectDto>>> GetAllProjectsAsync(int page = 1, int pageSize = 10,
-        CancellationToken ct = default) =>
-        await apiClient.GetProjectsAsync(page, pageSize, ct).ConfigureAwait(false);
-
-    public async Task<Result<ProjectDto>> GetProjectByIdAsync(Guid id, CancellationToken ct = default) =>
-        await apiClient.GetProjectAsync(id, ct).ConfigureAwait(false);
-
-    public async Task<Result<ProjectDto>> GetProjectWithTasksAsync(Guid id, CancellationToken ct = default) =>
-        await apiClient.GetProjectWithTasksAsync(id, ct).ConfigureAwait(false);
-
     public async Task<Result<ProjectDto>> CreateProjectAsync(CreateProjectDto request, CancellationToken ct = default)
     {
         try

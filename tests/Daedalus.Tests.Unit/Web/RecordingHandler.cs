@@ -41,7 +41,7 @@ internal sealed class RecordingHandler : HttpMessageHandler
     public ApiClient Client() => new(Http());
 
     /// <summary>The project client, whose writes go through this handler as its reads do.</summary>
-    public ProjectApiClient ProjectClient() => new(Client(), Http());
+    public ProjectApiClient ProjectClient() => new(Http());
 
     private HttpClient Http() => new(this, disposeHandler: false) { BaseAddress = new Uri("http://localhost") };
 

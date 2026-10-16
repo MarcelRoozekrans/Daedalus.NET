@@ -38,7 +38,7 @@ public sealed class ProjectApiClientTests
         {
             BaseAddress = new Uri("http://localhost"),
         };
-        return new ProjectApiClient(new ApiClient(http), http);
+        return new ProjectApiClient(http);
     }
 
     private sealed class StubHandler(Func<HttpResponseMessage> respond) : HttpMessageHandler
