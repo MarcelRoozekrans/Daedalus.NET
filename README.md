@@ -544,7 +544,9 @@ The **API** and **CLI** projects each have their own `appsettings.json`. The API
 #### LLM Provider Configuration
 
 `IAgentFactory` (brainstorm and PRD generation) reads the Claude section. Thalos agent turns are configured under
-`Thalos:Anthropic` instead (see [Thalos agents](#thalos-agents)).
+`Thalos:Anthropic` instead (see [Thalos agents](#thalos-agents)). With no `Model` of its own, the Claude section uses
+`Thalos:Anthropic:DefaultModel`, so one setting decides the model of every Anthropic call. The API refuses to start
+when neither is set, or when the model has no `ModelPricing:Models` price.
 
 ```json
 {
@@ -552,7 +554,6 @@ The **API** and **CLI** projects each have their own `appsettings.json`. The API
         "Llm": {
             "Claude": {
                 "ApiKey": null,
-                "Model": "claude-sonnet-4-20250514",
                 "MaxTokens": 8192
             }
         }
@@ -560,11 +561,11 @@ The **API** and **CLI** projects each have their own `appsettings.json`. The API
 }
 ```
 
-| Setting               | Description                                            |
-|-----------------------|--------------------------------------------------------|
-| `Llm.Claude.ApiKey`   | Anthropic API key (or set `ANTHROPIC_API_KEY` env var) |
-| `Llm.Claude.Model`    | Claude model identifier                                |
-| `Llm.Claude.MaxTokens`| Output token cap per invocation                        |
+| Setting               | Description                                                              |
+|-----------------------|--------------------------------------------------------------------------|
+| `Llm.Claude.ApiKey`   | Anthropic API key (or set `ANTHROPIC_API_KEY` env var)                   |
+| `Llm.Claude.Model`    | Claude model identifier; defaults to `Thalos:Anthropic:DefaultModel`     |
+| `Llm.Claude.MaxTokens`| Output token cap per invocation                                          |
 
 #### MCP (Model Context Protocol) Integration
 

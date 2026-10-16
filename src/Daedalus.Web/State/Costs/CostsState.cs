@@ -9,8 +9,11 @@ namespace Daedalus.Web.State.Costs;
 /// <param name="PromptTokens">The estimated prompt tokens per turn.</param>
 public readonly record struct CostEstimator(string ModelId, int Turns, int PromptTokens)
 {
-    /// <summary>What the estimator starts on before the pricing lands, as the page always did.</summary>
-    public static CostEstimator Default { get; } = new("claude-sonnet-4-20250514", 10, 4000);
+    /// <summary>
+    ///     What the estimator starts on before the pricing lands: no model, which the pricing then supplies with the model
+    ///     the API calls, listed first.
+    /// </summary>
+    public static CostEstimator Default { get; } = new("", 10, 4000);
 }
 
 /// <summary>
@@ -30,7 +33,7 @@ public readonly record struct CostEstimator(string ModelId, int Turns, int Promp
 ///     Why the summary failed to load, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>,
 ///     and never a cancellation: neither is stored. Only the summary's failure shows; the tables show empty.
 /// </param>
-/// <param name="Estimator">What the estimator asks for; the first priced model once the pricing lands.</param>
+/// <param name="Estimator">What the estimator asks for; no model until the pricing lands, then the first priced model.</param>
 /// <param name="Estimate">The newest estimate, or <see langword="null"/> before one and after one failed.</param>
 /// <param name="TaskCosts">Each expanded project's tasks, by project id; a project is read once.</param>
 /// <param name="Sequence">The number of the newest page read, never reset; an answer to an older one is dropped.</param>

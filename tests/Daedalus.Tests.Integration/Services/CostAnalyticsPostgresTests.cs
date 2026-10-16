@@ -1,5 +1,6 @@
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
+using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.Options;
@@ -65,7 +66,7 @@ public sealed class CostAnalyticsPostgresTests(PostgresFixture fixture) : IAsync
         await db.SaveChangesAsync();
         var pricing = Options.Create(new ModelPricingConfiguration());
 
-        var summary = await new CostAnalyticsService(db, pricing).GetSummaryAsync();
+        var summary = await new CostAnalyticsService(db, pricing, Options.Create(new ClaudeConfiguration())).GetSummaryAsync();
 
         summary.ByDay.Select(d => (d.Day, d.Source, d.InputTokens, d.Entries)).Should().Equal(
             (new DateOnly(2026, 10, 1), CostSources.History, 100L, 1),

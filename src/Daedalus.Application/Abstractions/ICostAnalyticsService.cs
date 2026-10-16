@@ -23,6 +23,6 @@ public interface ICostAnalyticsService
     /// </summary>
     Task<Result<CostEstimateDto>> EstimateCostAsync(string modelId, int maxIterations, int estimatedPromptTokens, CancellationToken ct = default);
 
-    /// <summary>Get all configured model pricing.</summary>
+    /// <summary>Get all configured model pricing, the model this host calls first, then the table's order.</summary>
     Task<IReadOnlyList<ModelPricingDto>> GetPricingAsync(CancellationToken ct = default);
 }

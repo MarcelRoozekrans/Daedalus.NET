@@ -13,6 +13,7 @@ using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Extensions;
 using Daedalus.Application.Services.Brainstorm;
+using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Repositories;
@@ -57,6 +58,9 @@ builder.Services.AddExternalServices(builder.Configuration);
 
 // Add Agent Framework services (Claude via IAgentFactory, MCP tools)
 builder.Services.AddAgentFrameworkServices(builder.Configuration);
+
+// The model those services call must be priced, or its spend is left out of every cost total (#385).
+builder.Services.AddSingleton<IValidateOptions<ClaudeConfiguration>, ClaudeModelPricedValidator>();
 
 // Register Ollama embedding generator (optional). The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama).
 // The DI singleton feeds the Thalos memory index (Rag.NET on the app database; without it memories stay index_pending); the same

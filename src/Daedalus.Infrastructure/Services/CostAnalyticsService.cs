@@ -1,6 +1,7 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
+using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -15,7 +16,8 @@ namespace Daedalus.Infrastructure.Services;
 /// </summary>
 public sealed class CostAnalyticsService(
     ApplicationDbContext dbContext,
-    IOptions<ModelPricingConfiguration> pricingOptions) : ICostAnalyticsService
+    IOptions<ModelPricingConfiguration> pricingOptions,
+    IOptions<ClaudeConfiguration> claudeOptions) : ICostAnalyticsService
 {
     /// <summary>What the summary covers. Amendment A3 of the phase 2.8 design.</summary>
     private const string SummaryScope =
@@ -34,6 +36,9 @@ public sealed class CostAnalyticsService(
         "run is not linked to a project's cost table; its usage is in the summary's manufacture source.";
 
     private readonly ModelPricingConfiguration _pricing = pricingOptions.Value;
+
+    /// <summary>The model this host calls, which <see cref="GetPricingAsync"/> lists first.</summary>
+    private readonly string? _configuredModel = claudeOptions.Value.Model;
 
     public async Task<CostSummaryDto> GetSummaryAsync(CancellationToken ct = default)
     {
@@ -297,6 +302,7 @@ public sealed class CostAnalyticsService(
     public Task<IReadOnlyList<ModelPricingDto>> GetPricingAsync(CancellationToken ct = default)
     {
         var result = _pricing.Models
+            .OrderBy(kvp => string.Equals(kvp.Key, _configuredModel, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .Select(kvp => new ModelPricingDto(
                 kvp.Key,
                 kvp.Value.DisplayName,

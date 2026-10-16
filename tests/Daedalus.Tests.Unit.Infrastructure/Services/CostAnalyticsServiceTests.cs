@@ -1,5 +1,6 @@
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
+using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -67,6 +68,8 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
                 [ModelB] = new() { DisplayName = "Model B", InputTokenPricePerMillion = 1.0m, OutputTokenPricePerMillion = 5.0m }
             }
         });
+
+    private static IOptions<ClaudeConfiguration> Claude(string model) => Options.Create(new ClaudeConfiguration { Model = model });
 
     /// <summary>Adds a Project and a single Task within it, and returns their ids. Does not call SaveChanges.</summary>
     private (Guid ProjectId, Guid TaskId) SeedProjectWithTask(string taskLabel = "TASK-1")
@@ -139,7 +142,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         // Falsifiability: reverting CostAnalyticsService.EstimateCostAsync's `if (!_pricing.Models.TryGetValue(...))`
         // branch to the old silent-substitution behaviour (relabel to the first configured entry) turns this red —
         // the result would be a success carrying "claude-sonnet-4-20250514" instead of a failure.
-        var sut = new CostAnalyticsService(_dbContext, PricingWithOneModel());
+        var sut = new CostAnalyticsService(_dbContext, PricingWithOneModel(), Claude(PricedModelId));
 
         var result = await sut.EstimateCostAsync("claude-sonnet-5", maxIterations: 10, estimatedPromptTokens: 4000);
 
@@ -154,7 +157,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         // CostAnalyticsService.EstimateCostAsync's cost formula turns this red — EstimatedMinCost/EstimatedMaxCost
         // would come out as 0.081/0.27 instead of 0.189/0.63. Prompt tokens (1000) are deliberately different from
         // the 4000-token response-token default below, so the two prices can't cancel each other out symmetrically.
-        var sut = new CostAnalyticsService(_dbContext, PricingWithOneModel());
+        var sut = new CostAnalyticsService(_dbContext, PricingWithOneModel(), Claude(PricedModelId));
 
         var result = await sut.EstimateCostAsync(PricedModelId, maxIterations: 10, estimatedPromptTokens: 1000);
 
@@ -183,7 +186,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         SeedExecution(taskId, Guid.NewGuid(), ModelB, inputTokens: 500, outputTokens: 1000); // 0.0005 + 0.005 = 0.0055
         await _dbContext.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels());
+        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetSummaryAsync();
 
@@ -205,7 +208,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         SeedExecution(taskId, Guid.NewGuid(), modelId: null, inputTokens: 700, outputTokens: 300); // unattributed
         await _dbContext.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels());
+        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetSummaryAsync();
 
@@ -228,7 +231,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         SeedExecution(taskId, Guid.NewGuid(), "model-unknown", inputTokens: 400, outputTokens: 600); // unpriced
         await _dbContext.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels());
+        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetSummaryAsync();
 
@@ -248,7 +251,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
     [Fact]
     public async Task The_summary_scope_names_the_four_sources_and_the_workflow_exclusion()
     {
-        var result = await new CostAnalyticsService(_dbContext, PricingWithOneModel()).GetSummaryAsync();
+        var result = await new CostAnalyticsService(_dbContext, PricingWithOneModel(), Claude(PricedModelId)).GetSummaryAsync();
 
         result.Scope.Should().Contain("node-usage").And.Contain("workflow:*").And.Contain("schedule:*").And.Contain("TaskExecutions");
         result.Scope.Should().Contain("not priced").And.Contain("cache reads and writes");
@@ -272,7 +275,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         SeedExecution(taskB, Guid.NewGuid(), ModelB, inputTokens: 500, outputTokens: 1000); // 0.0055
         await _dbContext.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels());
+        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetCostsByProjectAsync();
 
@@ -297,7 +300,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         await _dbContext.SaveChangesAsync();
         var projectId = await _dbContext.Tasks.Where(t => t.Id == taskId).Select(t => t.ProjectId).SingleAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels());
+        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetCostsByProjectIdAsync(projectId);
 
@@ -308,6 +311,25 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         taskCost.IterationCount.Should().Be(2);
         taskCost.EstimatedCost.Should().Be(0.0385m);
         taskCost.Excluded.Should().Be(ExcludedCostDto.None);
+    }
+
+    #endregion
+
+    #region Pricing
+
+    /// <summary>
+    ///     #385: the model the host calls is priced first, so the Costs page's estimator, which starts on the first priced
+    ///     model, starts on it rather than on whichever model the table lists first.
+    ///     Red: return the pricing in the table's order; model-a comes first.
+    /// </summary>
+    [Fact]
+    public async Task The_configured_model_is_priced_first()
+    {
+        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelB));
+
+        var pricing = await sut.GetPricingAsync();
+
+        pricing.Select(p => p.ModelId).Should().Equal(ModelB, ModelA);
     }
 
     #endregion

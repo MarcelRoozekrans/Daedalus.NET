@@ -38,6 +38,6 @@ public sealed class TaskExecution : Entity<Guid>
     /// <summary>Gets the number of output tokens produced by this invocation.</summary>
     public int OutputTokens { get; init; }
 
-    /// <summary>Gets the model ID used for this invocation (e.g., "claude-sonnet-4-20250514").</summary>
+    /// <summary>Gets the model ID used for this invocation (e.g., "claude-sonnet-5").</summary>
     public string? ModelId { get; init; }
 }

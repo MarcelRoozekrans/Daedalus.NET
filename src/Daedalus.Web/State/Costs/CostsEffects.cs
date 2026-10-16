@@ -50,7 +50,12 @@ public sealed partial class CostsEffects(
             projects.IsSuccess ? projects.Value : [],
             pricing.IsSuccess ? pricing.Value : [],
             error));
-        await EstimateAsync(costs.Value.Estimator, ct);
+
+        // With no pricing the estimator has no model, and an estimate for none can only fail.
+        if (costs.Value.Estimator.ModelId.Length > 0)
+        {
+            await EstimateAsync(costs.Value.Estimator, ct);
+        }
     }
 
     /// <summary>
