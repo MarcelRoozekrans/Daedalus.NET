@@ -7,7 +7,7 @@ public readonly record struct RepositoryNotice(NotificationSeverity Severity, st
 
 /// <summary>
 ///     What the Git Repositories page shows for a write's outcome, word for word as it always did, and whether it reloads
-///     the list after it. Pure: the page passes the outcome its write left in the state.
+///     the list after it. Pure: the page passes the outcome its write returned.
 /// </summary>
 public static class RepositoriesView
 {

@@ -3,7 +3,15 @@ using ZeroAlloc.Flux;
 
 namespace Daedalus.Web.State.Runs;
 
-/// <summary>Everything the console shows about runs: the list page, the open run, its gate draft, the count and the live link.</summary>
+/// <summary>
+///     Everything the console shows about runs: the list page, the open run, its gate draft, the count and the live link.
+///     <para>
+///         Lifetime: the list is page-only, cleared by <see cref="RunListClosed"/>, and the open run with its gate draft
+///         by <see cref="RunClosed"/>. The awaiting-approval count and the hub status are read by the menu and the live
+///         indicator on every page, and live as long as the app. The query is kept, so the list opens again with the
+///         same filters, on its first page.
+///     </para>
+/// </summary>
 /// <param name="Query">The list page asked for last.</param>
 /// <param name="PreviousCursors">The cursors of the pages before this one, so Back can return to them.</param>
 /// <param name="List">The list page, or <see langword="null"/> before one has loaded.</param>
