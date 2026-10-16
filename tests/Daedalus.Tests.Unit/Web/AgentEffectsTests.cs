@@ -326,6 +326,42 @@ public sealed class AgentEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     An agents read whose page closes after its answer arrived, before the effect resumes, stores nothing and is no
+    ///     outcome. The client reads the whole answer with no await that could yield, so the close is stepped in: the read
+    ///     runs on <see cref="SteppedContext"/>, which queues every continuation, and the page closes just before the
+    ///     effect's own continuation runs.
+    ///     Red: drop the cancelled-token check on the success branch in LoadAgentsAsync; the agents land and it is Done.
+    /// </summary>
+    [Fact]
+    public async Task An_agents_read_answered_after_its_page_closed_stores_nothing()
+    {
+        var answer = new TaskCompletionSource<HttpResponseMessage>();
+        _handler.On(AgentsPath, () => answer.Task);
+        using var closing = new CancellationTokenSource();
+        var context = new SteppedContext();
+        Task<AgentOutcome?> loading;
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            loading = _effects.LoadAgentsAsync(closing.Token);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+
+        answer.SetResult(RecordingHandler.Json(
+            HttpStatusCode.OK, Json(new[] { new AgentSummaryDto("architect", "Daedalus Architect", "", []) })));
+        await context.RunUntilAsync(nameof(AgentEffects.LoadAgentsAsync), closing.CancelAsync);
+        var agents = await loading.WaitAsync(TimeSpan.FromSeconds(5));
+
+        context.Closed.Should().BeTrue("the page must close before the effect resumes, or the test proves nothing");
+        agents.Should().BeNull("the page that asked is gone");
+        _store.Value.Agents.Should().BeEmpty();
+    }
+
+    /// <summary>
     ///     A failed read returns its reason for the page's toast and is logged as a warning; a read whose token cannot be
     ///     refreshed is no outcome and logs nothing.
     ///     Red: return Done on a failure in LoadAgentsAsync; the reason is lost.
@@ -473,5 +509,39 @@ public sealed class AgentEffectsTests : IDisposable
         forgotten.Should().Be(AgentOutcome.Done);
         _store.Value.MemoriesPage.Should().Be(1);
         _store.Value.Memories.Should().ContainSingle().Which.Id.Should().Be("m1");
+    }
+
+    /// <summary>
+    ///     A context that queues every continuation and runs them one at a time, without setting itself as current, so no
+    ///     continuation runs inline with another. <see cref="RunUntilAsync"/> runs them, and closes the page just before
+    ///     the continuation of the effect method it names.
+    /// </summary>
+    private sealed class SteppedContext : SynchronizationContext
+    {
+        private readonly System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = [];
+
+        public bool Closed { get; private set; }
+
+        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
+
+        public async Task RunUntilAsync(string method, Func<Task> close)
+        {
+            while (_queue.TryTake(out var item, TimeSpan.FromSeconds(5)))
+            {
+                var resumes = item.State is Delegate { Target: { } target }
+                    && target.GetType().ToString().Contains($"<{method}>", StringComparison.Ordinal);
+                if (resumes && !Closed)
+                {
+                    await close();
+                    Closed = true;
+                }
+
+                item.Callback(item.State);
+                if (resumes)
+                {
+                    return;
+                }
+            }
+        }
     }
 }

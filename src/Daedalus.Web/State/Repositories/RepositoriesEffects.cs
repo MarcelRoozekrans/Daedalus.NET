@@ -16,8 +16,8 @@ public sealed partial class RepositoriesEffects(
 {
     /// <summary>
     ///     Reads the repositories: the list, or the Forbidden state for a 403. A failure is
-    ///     <see cref="RepositoriesState.Error"/>; a <see cref="SessionExpiry.SigningInAgain"/> failure, or one after
-    ///     <paramref name="ct"/> was cancelled, shows nothing.
+    ///     <see cref="RepositoriesState.Error"/>; a <see cref="SessionExpiry.SigningInAgain"/> failure shows nothing, and
+    ///     so does any answer, success or failure, after <paramref name="ct"/> was cancelled.
     /// </summary>
     public async Task LoadAsync(CancellationToken ct)
     {
@@ -33,11 +33,17 @@ public sealed partial class RepositoriesEffects(
         var sequence = repositories.Value.Sequence + 1;
         await dispatcher.DispatchAsync(new RepositoriesLoadStarted(sequence));
         var result = await api.GetAllAsync(ct);
+        if (ct.IsCancellationRequested)
+        {
+            // The page went while the read was in flight: its answer, a list or a failure, has no one to show it to.
+            return;
+        }
+
         if (result.IsSuccess)
         {
             await dispatcher.DispatchAsync(new RepositoriesLoaded(sequence, result.Value));
         }
-        else if (!SessionExpiry.IsSigningIn(result.Error) && !ct.IsCancellationRequested)
+        else if (!SessionExpiry.IsSigningIn(result.Error))
         {
             LogLoadFailed(logger, result.Error);
             await dispatcher.DispatchAsync(new RepositoriesLoadFailed(sequence, result.Error));

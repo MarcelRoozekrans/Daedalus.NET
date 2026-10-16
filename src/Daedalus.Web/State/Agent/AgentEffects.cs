@@ -24,17 +24,17 @@ public sealed partial class AgentEffects(
 {
     private CancellationTokenSource? _turn;
 
-    /// <summary>Reads the registered agents.</summary>
+    /// <summary>Reads the registered agents; an answer after <paramref name="ct"/> was cancelled stores nothing.</summary>
     public async Task<AgentOutcome?> LoadAgentsAsync(CancellationToken ct)
     {
         var result = await api.GetAgentsAsync(ct);
-        if (result.IsSuccess)
+        if (result.IsSuccess && !ct.IsCancellationRequested)
         {
             await dispatcher.DispatchAsync(new AgentsLoaded(result.Value));
             return AgentOutcome.Done;
         }
 
-        return Failed(result.Error, ct);
+        return result.IsSuccess ? null : Failed(result.Error, ct);
     }
 
     /// <summary>Reads the caller's sessions.</summary>

@@ -154,6 +154,27 @@ public sealed class RepositoriesEffectsTests : IDisposable
     }
 
     /// <summary>
+    ///     A read whose page closes as its answer arrives stores nothing. The page closes while the client buffers the
+    ///     403's body: the client still returns the Forbidden success, which reads no body, so only the effect's own
+    ///     check can drop it.
+    ///     Red: drop the cancelled-token check on the success branch in LoadAsync; the late refusal is Forbidden.
+    /// </summary>
+    [Fact]
+    public async Task A_read_answered_after_its_page_closed_stores_nothing()
+    {
+        using var closing = new CancellationTokenSource();
+        _handler.On(Path, () => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new ClosingContent(closing),
+        });
+
+        await _effects.LoadAsync(closing.Token);
+
+        _store.Value.Forbidden.Should().BeFalse("the page that asked is gone");
+        _store.Value.Error.Should().BeNull();
+    }
+
+    /// <summary>
     ///     A read for a page that has already gone, such as the reload after a write that finished once the page was left
     ///     and opened again, dispatches nothing and sends nothing: the reopened page's list and sequence stay, so its own
     ///     answer still lands.
@@ -343,5 +364,18 @@ public sealed class RepositoriesEffectsTests : IDisposable
         await WriteAsync(RepositoryWrite.Deleted);
 
         _store.Value.Repositories.Should().ContainSingle();
+    }
+
+    /// <summary>A body that closes the page while the client buffers it, after the answer has arrived.</summary>
+    private sealed class ClosingContent(CancellationTokenSource closing) : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context) =>
+            await closing.CancelAsync();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return true;
+        }
     }
 }
