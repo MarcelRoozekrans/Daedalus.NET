@@ -17,7 +17,8 @@ namespace Daedalus.Web.State.Runs;
 /// <param name="List">The list page, or <see langword="null"/> before one has loaded.</param>
 /// <param name="ListLoading">Whether a list page is being fetched.</param>
 /// <param name="ListError">
-///     Why the last list fetch failed, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
+///     Why the last list fetch failed, or <see langword="null"/>. Never
+///     <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
 /// </param>
 /// <param name="SelectedId">The open run's id, or <see langword="null"/> when none is open.</param>
 /// <param name="Selected">The open run, or <see langword="null"/> before it has loaded.</param>
@@ -25,7 +26,8 @@ namespace Daedalus.Web.State.Runs;
 /// <param name="SelectedNotFound">Whether the server said the open run does not exist.</param>
 /// <param name="SelectedForbidden">Whether the server refused the open run to this user, a 403.</param>
 /// <param name="SelectedError">
-///     Why the last fetch of the open run failed, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
+///     Why the last fetch of the open run failed, or <see langword="null"/>. Never
+///     <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
 /// </param>
 /// <param name="Gate">The operator's gate draft for the open run.</param>
 /// <param name="AwaitingApproval">How many runs await human approval, up to one page of 100.</param>
@@ -71,7 +73,8 @@ public readonly partial record struct RunsState(
 ///     success, so Approve and Cancel stay busy until a fetch shows the run off the gate; the draft then resets.
 /// </param>
 /// <param name="Error">
-///     Why the last approval was refused, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
+///     Why the last approval was refused, or <see langword="null"/>. Never
+///     <see cref="Auth.SessionExpiry.SigningInAgain"/>, and never a failure that came back after its caller went away.
 /// </param>
 public sealed record GateDraft(IReadOnlySet<string> Dropped, bool ApplyStandingInstructions, bool Submitting, string? Error)
 {

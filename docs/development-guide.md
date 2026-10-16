@@ -771,8 +771,8 @@ decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-ruling
   `OnInitialized`. A page dispatches its `…Closed` action from `DisposeAsync`, after it unsubscribes, so a live change
   does not re-fetch what is off screen.
 - **View helpers** are pure static classes beside the state, such as `ProjectsView`, `RepositoriesView`,
-  `SchedulesView`, `AgentView` and `TasksView`. A decision a component would otherwise make in markup, such as whether to show the
-  spinner or which notification a write gets, goes there, so it is unit-tested without a renderer.
+  `SchedulesView`, `AgentView` and `TasksView`. A decision a component would otherwise make in markup, such as whether
+  to show the spinner or which notification a write gets, goes there, so it is unit-tested without a renderer.
 
 ### Rules
 
@@ -782,7 +782,8 @@ decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-ruling
 - **The clients catch Polly's rejections.** The resilience handler throws `ExecutionRejectedException` when its circuit
   is open or its timeout fires. `ApiClient`, `AgentApiClient`, `RepositoriesApiClient` and `ProjectApiClient` catch it
   beside `HttpRequestException` and return a failed `Result`. `ProjectApiClient` also catches a cancellation and a body
-  it cannot write or read, and lets any other exception through as a defect. No page needs a catch-all. The Agent stream still reports a rejection with the old catch-all text (issue #383).
+  it cannot write or read, and lets any other exception through as a defect. No page needs a catch-all. The Agent
+  stream still reports a rejection with the old catch-all text (issue #383).
 - **A cancelled caller dispatches nothing.** An effect checks its token before its first dispatch. A page already gone
   would otherwise clear what a page opened since shows, or move the request sequence past its answer. A failure that
   comes back after the token was cancelled stores no error. It ends the load in the 2.14 features; Runs and Tasks
