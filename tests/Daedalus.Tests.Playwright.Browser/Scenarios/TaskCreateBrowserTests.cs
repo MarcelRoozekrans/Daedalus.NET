@@ -185,8 +185,9 @@ public class TaskCreateBrowserTests : BrowserTestBase
     ///     Project column, then Home's New task again all show them, navigating in the app. Blazor disposes the page being
     ///     left after it initialises the next, so a clear on close would land after the next page asked for the projects.
     ///     Red: Home's New task does not load the projects; the first picker has no Test Project option.
-    ///     Red: NeedsMePanel's dispose dispatches a clear that empties the list and drops the answer in flight; the
-    ///     board's Project column reads "—".
+    ///     Red: NeedsMePanel's dispose dispatches a clear that empties the list and drops the answer in flight, and Tasks
+    ///     does not re-read the projects on open; the board's Fix bug B row lacks Test Project. The clear alone stays
+    ///     green: it lands before Tasks starts its projects load, which follows the board's.
     /// </summary>
     [Test]
     [Description("The projects survive Home, then Tasks, then Home")]
