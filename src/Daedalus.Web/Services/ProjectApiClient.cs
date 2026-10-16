@@ -1,9 +1,15 @@
+using System.Text.Json;
 using Daedalus.Web.Auth;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using Polly;
 
 namespace Daedalus.Web.Services;
 
-/// <summary>Implementation of project API client.</summary>
+/// <summary>
+///     Implementation of project API client. A request that failed, was cancelled, timed out or was rejected by the
+///     resilience handler, or whose body could not be written or read, is a failed Result with the exception's message;
+///     any other exception is a defect and propagates.
+/// </summary>
 public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
 {
     public async Task<Result<ProjectDto>> CreateProjectAsync(CreateProjectDto request, CancellationToken ct = default)
@@ -27,7 +33,8 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
         {
             return Result<ProjectDto>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or ExecutionRejectedException
+                                       or JsonException or NotSupportedException)
         {
             return Result<ProjectDto>.Failure($"Error creating project: {ex.Message}");
         }
@@ -55,7 +62,8 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
         {
             return Result<ProjectDto>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or ExecutionRejectedException
+                                       or JsonException or NotSupportedException)
         {
             return Result<ProjectDto>.Failure($"Error updating project: {ex.Message}");
         }
@@ -79,7 +87,7 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
         {
             return Result<bool>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or ExecutionRejectedException)
         {
             return Result<bool>.Failure($"Error deleting project: {ex.Message}");
         }

@@ -780,9 +780,9 @@ decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-ruling
   `IProjectApiClient` or `RepositoriesApiClient`, and the Web binds the Application DTOs directly; it keeps no copies.
   `WebLayer_KeepsNoCopyOf_AnApplicationDto` in `Daedalus.Tests.Unit`'s `CleanArchitectureTests` guards the second.
 - **The clients catch Polly's rejections.** The resilience handler throws `ExecutionRejectedException` when its circuit
-  is open or its timeout fires. `ApiClient`, `AgentApiClient` and `RepositoriesApiClient` catch it beside
-  `HttpRequestException` and return a failed `Result`; `ProjectApiClient` catches every exception. No page needs a
-  catch-all. The Agent stream still reports a rejection with the old catch-all text (issue #383).
+  is open or its timeout fires. `ApiClient`, `AgentApiClient`, `RepositoriesApiClient` and `ProjectApiClient` catch it
+  beside `HttpRequestException` and return a failed `Result`. `ProjectApiClient` also catches a cancellation and a body
+  it cannot write or read, and lets any other exception through as a defect. No page needs a catch-all. The Agent stream still reports a rejection with the old catch-all text (issue #383).
 - **A cancelled caller dispatches nothing.** An effect checks its token before its first dispatch. A page already gone
   would otherwise clear what a page opened since shows, or move the request sequence past its answer. A failure that
   comes back after the token was cancelled ends the load and stores no error.
