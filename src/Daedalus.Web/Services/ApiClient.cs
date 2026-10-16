@@ -5,6 +5,7 @@ using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Auth;
 using Daedalus.Web.State.Runs;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using Polly;
 
 namespace Daedalus.Web.Services;
 
@@ -127,7 +128,7 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result<T>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result<T>.Failure($"API error: {ex.Message}");
         }
@@ -153,7 +154,7 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result.Failure($"API error: {ex.Message}");
         }
@@ -210,7 +211,7 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result<RunLookup>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result<RunLookup>.Failure($"API error: {ex.Message}");
         }

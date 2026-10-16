@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using Daedalus.Application.DTOs;
 using Daedalus.Web.Services;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 
 namespace Daedalus.Tests.Unit.Web;
 
@@ -291,5 +293,37 @@ public sealed class RepositoriesApiClientTests
             cancellationToken.ThrowIfCancellationRequested();
             return respond(request, cancellationToken);
         }
+    }
+
+    /// <summary>
+    ///     The resilience handler's own timeout is the read's timeout, and an open circuit is the reason the circuit
+    ///     gives: neither escapes as an exception. In production the 60 s total timeout fires before HttpClient's 100 s.
+    ///     Red: drop the TimeoutRejectedException catch in GetAllAsync; the read throws.
+    ///     Red: drop ExecutionRejectedException from the read's message filter; the open circuit throws.
+    /// </summary>
+    [Fact]
+    public async Task A_resilience_rejection_on_the_read_is_a_failure()
+    {
+        var timedOut = await Client(HttpResponseMessage () => throw new TimeoutRejectedException()).GetAllAsync(CancellationToken.None);
+        var broken = await Client(HttpResponseMessage () => throw new BrokenCircuitException("The circuit is now open."))
+            .GetAllAsync(CancellationToken.None);
+
+        timedOut.Error.Should().Be(RepositoriesApiClient.TimedOut);
+        broken.Error.Should().Be("The circuit is now open.");
+    }
+
+    /// <summary>
+    ///     A write the resilience handler rejects got no answer, so the page says only what failed, as its catch-all did.
+    ///     Red: drop ExecutionRejectedException from the write filter; the timeout throws.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Writes))]
+    public async Task A_resilience_rejection_on_a_write_is_no_answer(string write)
+    {
+        var timedOut = await Write(Client(HttpResponseMessage () => throw new TimeoutRejectedException()), write);
+        var broken = await Write(Client(HttpResponseMessage () => throw new BrokenCircuitException()), write);
+
+        timedOut.Error.Should().Be(RepositoriesApiClient.NoAnswer);
+        broken.Error.Should().Be(RepositoriesApiClient.NoAnswer);
     }
 }

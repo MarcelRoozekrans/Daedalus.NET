@@ -2,6 +2,8 @@ using System.Net;
 using System.Text.Json;
 using Daedalus.Web.Auth;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using Polly;
+using Polly.Timeout;
 
 namespace Daedalus.Web.Services;
 
@@ -46,8 +48,8 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
 
     /// <summary>
     ///     Every repository, or <see cref="RepositoryListing.Denied"/> for a 403. Any other refusal reads "The server
-    ///     answered {status}.", a timeout <see cref="TimedOut"/>, and a request that failed or a body that is not the list
-    ///     the reader's own message.
+    ///     answered {status}.", a timeout <see cref="TimedOut"/>, and a request that failed, one the resilience handler
+    ///     rejected with its circuit open, or a body that is not the list the exception's own message.
     /// </summary>
     public async Task<Result<RepositoryListing>> GetAllAsync(CancellationToken ct)
     {
@@ -75,12 +77,13 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
         {
             return Result<RepositoryListing>.Failure(Cancelled);
         }
-        catch (TaskCanceledException)
+        catch (Exception ex) when (ex is TaskCanceledException or TimeoutRejectedException)
         {
-            // Not cancelled by the caller, so the client's timeout ran out.
+            // Not cancelled by the caller, so a timeout ran out: the client's own, or the resilience handler's, which in
+            // production fires first.
             return Result<RepositoryListing>.Failure(TimedOut);
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or NotSupportedException)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException or JsonException or NotSupportedException)
         {
             return Result<RepositoryListing>.Failure(ex.Message);
         }
@@ -109,7 +112,8 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
 
     /// <summary>
     ///     Sends a write whose success body is not read. A refusal reads "The server answered {status}.", and a caller that
-    ///     went away is <see cref="Cancelled"/>. A request that failed, timed out or whose body could not be written is
+    ///     went away is <see cref="Cancelled"/>. A request that failed, timed out, was rejected by the resilience handler or
+    ///     whose body could not be written is
     ///     <see cref="NoAnswer"/>, as the page's catch-all once made it "Failed to … repository.".
     /// </summary>
     private static async Task<Result> SendAsync(Func<CancellationToken, Task<HttpResponseMessage>> send, CancellationToken ct)
@@ -129,7 +133,8 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
         {
             return Result.Failure(Cancelled);
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or NotSupportedException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or ExecutionRejectedException
+                                       or JsonException or NotSupportedException)
         {
             return Result.Failure(NoAnswer);
         }

@@ -5,6 +5,7 @@ using Daedalus.Application.DTOs.Agents;
 using Daedalus.Web.Auth;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.AspNetCore.Components.WebAssembly.Http;
+using Polly;
 
 namespace Daedalus.Web.Services;
 
@@ -43,7 +44,7 @@ public sealed class AgentApiClient(HttpClient http)
         {
             return Result<string>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result<string>.Failure($"API error: {ex.Message}");
         }
@@ -71,7 +72,7 @@ public sealed class AgentApiClient(HttpClient http)
         {
             return Result.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result.Failure($"API error: {ex.Message}");
         }
@@ -126,7 +127,7 @@ public sealed class AgentApiClient(HttpClient http)
         {
             return Result.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result.Failure($"API error: {ex.Message}");
         }
@@ -189,7 +190,7 @@ public sealed class AgentApiClient(HttpClient http)
         {
             return Result<T>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result<T>.Failure($"API error: {ex.Message}");
         }
