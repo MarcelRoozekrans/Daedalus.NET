@@ -2,7 +2,7 @@
 
 **Last session:** 2026-10-15 to 2026-10-16; the owner was present for the spec, contract and plan, and asleep for the rest
 
-## Current Position - phase 2.13 complete, PR open to `main` (2026-10-16); next is phase 2.14
+## Current Position - phase 2.13 complete, PR #376 open to `main` (2026-10-16); next is phase 2.14
 
 **Milestone 2, phase 2.13, navigation and flow.** Built subagent-driven on `phase/2.13-navigation-flow` from `main`
 `dd049f0`: ten tasks, each with its own implementer and reviewer, then a UI review, a regression sweep and a
@@ -30,7 +30,7 @@ what it costs if wrong. The UI review is `docs/plans/2026-10-15-ui-review-phase-
 
 ## Needs the owner
 
-1. **Review and merge the 2.13 PR.** Then read the rulings; each says what to undo if you disagree.
+1. **Review and merge PR #376.** Then read the rulings; each says what to undo if you disagree.
 2. **Decide #373:** what "updated" means on Tasks, task edits or run activity. Tasks shows Created until then.
 3. **Decide #374:** the primary and success tokens are under 4.5:1 with white text; it is a palette change.
 4. **Release: still on hold.** When dispatching release-please, check it proposes 0.2.0 and counts 2.10 and 2.13.
