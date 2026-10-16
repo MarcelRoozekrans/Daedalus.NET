@@ -87,7 +87,8 @@ public sealed partial class HomeEffects(
 
     /// <summary>
     ///     Re-fetches the live cards that have loaded, round after round, until no ask arrived during a round. A fault
-    ///     ends the loop with the count reset, so the next ask starts a new one instead of waiting forever on this one.
+    ///     ends the loop with the count reset, so the next ask starts a new one instead of waiting forever on this one;
+    ///     asks that arrived during the faulted round start that new loop at once.
     /// </summary>
     private async Task RefetchLoopAsync()
     {
@@ -114,9 +115,11 @@ public sealed partial class HomeEffects(
         }
         finally
         {
-            if (!ended)
+            // Asks that arrived during the faulted round would be lost with the reset, so they start one new loop. It is
+            // bounded: a loop starts again only for asks that arrived during the one before.
+            if (!ended && Interlocked.Exchange(ref _refetchesAsked, 0) > 1)
             {
-                Interlocked.Exchange(ref _refetchesAsked, 0);
+                AskForRefetch();
             }
         }
     }

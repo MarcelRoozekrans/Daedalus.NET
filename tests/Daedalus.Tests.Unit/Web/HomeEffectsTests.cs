@@ -373,6 +373,41 @@ public sealed class HomeEffectsTests : IDisposable
         _handler.Paths.Should().Contain(AwaitingPath, "the next change still re-fetches");
     }
 
+    /// <summary>
+    ///     A change that arrives while a round faults is not lost with the reset: it starts one new loop, which reads
+    ///     again. The first awaiting read is held until the change has arrived, then throws what ApiClient does not
+    ///     catch.
+    ///     Red: reset the count in RefetchLoopAsync's finally without starting a loop for the pending asks; one awaiting
+    ///     read in all.
+    /// </summary>
+    [Fact]
+    public async Task A_change_during_a_faulted_refetch_is_not_lost()
+    {
+        RouteAll();
+        await _effects.LoadAsync(canView: true, CancellationToken.None);
+        var release = new TaskCompletionSource();
+        var reads = 0;
+        _handler.On(AwaitingPath, async () =>
+        {
+            if (Interlocked.Increment(ref reads) == 1)
+            {
+                await release.Task;
+                throw new InvalidOperationException("Not caught by ApiClient.");
+            }
+
+            return RecordingHandler.Json(HttpStatusCode.OK, RunViews.Json(new WorkflowRunList([], null)));
+        });
+
+        _effects.OnRunChanged(Change);
+        var faulted = _effects.Refetching;
+        _effects.OnRunChanged(Change);
+        release.SetResult();
+        await faulted;
+        await _effects.Refetching;
+
+        Volatile.Read(ref reads).Should().Be(2, "the change that arrived during the faulted round re-fetches");
+    }
+
     /// <summary>Sends one change and waits for the re-fetch it asked for.</summary>
     private Task ChangeAsync()
     {
