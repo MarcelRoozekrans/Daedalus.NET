@@ -7,7 +7,7 @@
 **Milestone 2, phase 2.13, navigation and flow.** Built subagent-driven on `phase/2.13-navigation-flow` from `main`
 `dd049f0`: ten tasks, each with its own implementer and reviewer, then a UI review, a regression sweep and a
 whole-branch review. The owner approved the spec, the UI contract and the plan, and was asleep for the second half.
-Every decision taken on the owner's behalf is in `docs/plans/2026-10-15-phase-2.13-rulings.md`, 24 rulings, each with
+Every decision taken on the owner's behalf is in `docs/plans/2026-10-15-phase-2.13-rulings.md`, 26 rulings, each with
 what it costs if wrong. The UI review is `docs/plans/2026-10-15-ui-review-phase-2.13.md`. The sweep is
 `docs/regression-report-2026-10-15-2026.md`.
 
