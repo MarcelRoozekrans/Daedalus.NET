@@ -771,7 +771,7 @@ decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-ruling
   `OnInitialized`. A page dispatches its `…Closed` action from `DisposeAsync`, after it unsubscribes, so a live change
   does not re-fetch what is off screen.
 - **View helpers** are pure static classes beside the state, such as `ProjectsView`, `RepositoriesView`,
-  `SchedulesView` and `AgentView`. A decision a component would otherwise make in markup, such as whether to show the
+  `SchedulesView`, `AgentView` and `TasksView`. A decision a component would otherwise make in markup, such as whether to show the
   spinner or which notification a write gets, goes there, so it is unit-tested without a renderer.
 
 ### Rules
@@ -785,7 +785,8 @@ decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-ruling
   it cannot write or read, and lets any other exception through as a defect. No page needs a catch-all. The Agent stream still reports a rejection with the old catch-all text (issue #383).
 - **A cancelled caller dispatches nothing.** An effect checks its token before its first dispatch. A page already gone
   would otherwise clear what a page opened since shows, or move the request sequence past its answer. A failure that
-  comes back after the token was cancelled ends the load and stores no error.
+  comes back after the token was cancelled stores no error. It ends the load in the 2.14 features; Runs and Tasks
+  dispatch nothing for it, because the page's `RunListClosed`, `RunClosed` or `TasksClosed` already ended it.
 - **A request sequence drops stale answers.** A read's start takes the next sequence number and dispatches it, with no
   await between the read of the number and the dispatch. An answer with an older number is ignored, so an earlier
   reader's late answer never replaces a later one. A feature's `…Closed` keeps the number, and `PrdClosed` and
@@ -795,11 +796,11 @@ decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-ruling
 - **Started clears the last error.** A load's start clears the feature's last error, so a failure from another page
   never shows under a list that is being read again.
 - **`SessionExpiry.SigningInAgain` is never stored.** The layout already says "Signing in again", so an effect that
-  sees it, through `SessionExpiry.IsSigningIn`, stores no error and returns no outcome. Runs and Tasks, from phase 2.12,
-  still store it, and their components skip it when they render.
-- **Failures are logged.** A failure the 2.14 effects store, or a background one they drop, is logged as a warning
-  through a `[LoggerMessage]` method, with the error text only: never the request, a prompt, a message or a PRD. The
-  2.12 `RunsEffects` and `TasksEffects` do not log.
+  sees it, through `SessionExpiry.IsSigningIn`, stores no error and returns no outcome. Runs and Tasks end the load
+  with an `…Abandoned` action instead; Tasks marks the board unread, so `TasksView.ShowEmpty` claims no empty board.
+- **Failures are logged.** A failure an effect stores, or a background one it drops, is logged as a warning
+  through a `[LoggerMessage]` method, with the error text only: never the request, a prompt, a message or a PRD. A
+  refused write is logged the same way, unless the session is being renewed or the caller is gone.
 - **Writes return their outcome.** A write effect returns its outcome, such as `ProjectSave`, `RepositorySave`,
   `ScheduleResend`, `BrainstormOutcome` or `AgentOutcome`, to the component that asked, and that component shows the
   toast through `FailureNotices`. There is no last-outcome state, so a component never shows another write's outcome.
