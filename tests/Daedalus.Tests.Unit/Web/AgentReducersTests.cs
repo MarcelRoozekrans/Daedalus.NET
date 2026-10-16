@@ -182,7 +182,7 @@ public sealed class AgentReducersTests
     ///     Red: drop the text-delta case in ApplyEvent; the text stays empty.
     ///     Red: drop the tool-call case in ApplyEvent; the card is added only by its result, so the mid-stream card is missing.
     ///     Red: leave the call running in the tool-result case of ApplyEvent; the card says running.
-    ///     Red: drop the usage case in ApplyEvent; the usage is null.
+    ///     Red: drop the usage case in ApplyEvent; the reply takes the result's usage instead.
     ///     Red: drop the memory-recalled ids in ApplyEvent; no ids are kept.
     ///     Red: drop the memory-stored case in ApplyEvent; the status still reads "2 memories recalled".
     ///     Red: leave Reply set in the AgentTurnEnded reducer; the turn never ends.
@@ -202,7 +202,9 @@ public sealed class AgentReducersTests
             Delta("3 callers."),
             new AgentEventDto("usage", Usage: Usage),
             new AgentEventDto("memory-stored", Memory: new MemoryEventDto(MemoryId: "m3", Deduped: false)),
-            new AgentEventDto("done", Result: new AgentTurnResultDto("t1", "Let me look. Foo has 3 callers.", Usage, [CallDone], 5)),
+            // The result's usage differs, so only the usage event can put Usage on the reply.
+            new AgentEventDto(
+                "done", Result: new AgentTurnResultDto("t1", "Let me look. Foo has 3 callers.", Usage with { ModelId = "result" }, [CallDone], 5)),
         };
 
         var midway = Play(Streaming(), A, 2, recorded[..4]);
@@ -225,28 +227,29 @@ public sealed class AgentReducersTests
     }
 
     /// <summary>
-    ///     A late chunk of session A's turn, arriving after the page switched to session B, is ignored: B shows nothing
-    ///     of A, and A's stop never puts "The turn was stopped." on B.
-    ///     Red: drop the session and turn check for AgentTurnEvent; A's text streams into B.
-    ///     Red: drop the session and turn check in the AgentTurnEnded reducer; A's stop shows on B.
+    ///     A late chunk of session A's turn, arriving after the page switched to session B and sent a turn there, is
+    ///     ignored: B's reply shows nothing of A, and A's stop never puts "The turn was stopped." on B.
+    ///     Red: drop the IsCurrent check for AgentTurnEvent; A's text streams into B's reply.
+    ///     Red: drop the IsCurrent check in the AgentTurnEnded reducer; A's stop ends B's turn with its alert.
     /// </summary>
     [Fact]
     public void A_late_chunk_after_a_session_switch_is_ignored()
     {
-        var onB = Opened(Play(Streaming(), A, 2, Delta("Let me")), B, 3);
+        var onB = AgentReducers.On(Opened(Play(Streaming(), A, 2, Delta("Let me")), B, 3), new AgentTurnStarted(B, 4, "on b"));
 
         var late = Play(onB, A, 2, Delta(" look."), new AgentEventDto("tool-call", ToolCall: Call));
         var stopped = AgentReducers.On(late, new AgentTurnEnded(A, 2, AgentError.Cancelled));
 
         stopped.Should().Be(onB);
-        stopped.Reply.Should().BeNull();
-        stopped.Transcript.Should().BeEmpty();
+        stopped.Reply!.Text.Should().BeEmpty();
+        stopped.Reply.ToolCalls.Should().BeEmpty();
+        stopped.Transcript.Select(m => m.Text).Should().Equal("on b");
         stopped.Error.Should().BeNull();
     }
 
     /// <summary>
     ///     A late chunk of an earlier turn of the same session, after the session was opened again, is ignored too.
-    ///     Red: check only the session id for AgentTurnEvent; turn 2's text streams into turn 4.
+    ///     Red: check IsShown instead of IsCurrent for AgentTurnEvent; turn 2's text streams into turn 4.
     /// </summary>
     [Fact]
     public void A_late_chunk_of_an_earlier_turn_is_ignored()

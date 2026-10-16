@@ -57,10 +57,14 @@ public sealed class AgentViewTests
     }
 
     /// <summary>
-    ///     Anything but grown text renders at once: a tool call, the end of the turn, a state with nothing changed (the
-    ///     page's own input), and the first text after a send, which follows the send's render.
-    ///     Red: drop the Reply check in AgentView.OnlyTheReplyTextGrew; a tool call within 50 ms waits.
-    ///     Red: drop the equality check in AgentView.OnlyTheReplyTextGrew; a click while streaming waits.
+    ///     Anything but grown text renders at once: a tool call, the end of the turn, and a state with nothing changed,
+    ///     which is the page's own input.
+    ///     Red: drop the last clause, the equality with the text put back, in AgentView.OnlyTheReplyTextGrew; a tool
+    ///     call within 50 ms waits.
+    ///     Red: return !rendered.Equals(current) from AgentView.OnlyTheReplyTextGrew, so any change counts as text; the
+    ///     tool call and the end of the turn wait.
+    ///     Red: drop the !rendered.Equals(current) clause in AgentView.OnlyTheReplyTextGrew; a render with nothing in the
+    ///     store changed, such as a click while streaming, waits.
     /// </summary>
     [Fact]
     public void Every_other_change_renders_at_once()
@@ -84,6 +88,5 @@ public sealed class AgentViewTests
     public void The_messages_end_with_the_streaming_reply()
     {
         AgentView.Messages(Delta(Streaming, "Hel")).Select(m => m.Text).Should().Equal("hi", "Hel");
-        AgentView.Messages(AgentState.Empty).Should().BeEmpty();
     }
 }

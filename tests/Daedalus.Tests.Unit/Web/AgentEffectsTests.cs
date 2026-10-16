@@ -121,7 +121,7 @@ public sealed class AgentEffectsTests : IDisposable
     /// <summary>
     ///     Stop cancels the turn: the text that streamed stays and "The turn was stopped." shows; nothing is logged.
     ///     Red: make StopTurn do nothing; the turn waits for the next event and the test times out.
-    ///     Red: dispatch AgentTurnEnded with no error on a stop in SendAsync; no alert.
+    ///     Red: return null instead of AgentError.Cancelled for a stop in StreamAsync; no alert.
     /// </summary>
     [Fact]
     public async Task Stop_ends_the_turn_and_says_so()
@@ -144,7 +144,7 @@ public sealed class AgentEffectsTests : IDisposable
     /// <summary>
     ///     A connection lost mid-turn says so and is logged as a warning with the transport's text, never the prompt or
     ///     the reply.
-    ///     Red: drop the HttpRequestException catch in SendAsync; it reads as an unexpected error.
+    ///     Red: drop the HttpRequestException catch in StreamAsync; it reads as an unexpected error.
     ///     Red: drop the LogTurnTransportFailed call; no warning.
     /// </summary>
     [Fact]
@@ -165,7 +165,7 @@ public sealed class AgentEffectsTests : IDisposable
     /// <summary>
     ///     A failure the page did not expect, such as the resilience handler's open circuit, shows its type as the page
     ///     always did, and is logged with the type alone.
-    ///     Red: drop the catch-all in SendAsync; the exception escapes.
+    ///     Red: drop the catch-all in StreamAsync; the exception escapes.
     ///     Red: drop the LogTurnFailed call; no warning.
     /// </summary>
     [Fact]
@@ -201,7 +201,10 @@ public sealed class AgentEffectsTests : IDisposable
     ///     Opening another session mid-turn stops the turn, and nothing of it reaches the new session: no text, no
     ///     "stopped" alert, no recall. The session list is still refreshed, as before.
     ///     Red: drop the StopTurn call in OpenSessionAsync; the turn streams on and the test times out.
-    ///     Red: stamp AgentTurnEnded with the store's turn in SendAsync; "The turn was stopped." shows on B.
+    ///     Red: in the AgentTurnEnded reducer, check neither IsCurrent nor the reply, ending
+    ///     <c>s.Reply ?? AgentChatMessage.Assistant()</c>; "The turn was stopped." shows on B.
+    ///     Red: keep Reply in the AgentSessionOpened reducer; A's reply still streams on B.
+    ///     Red: stamp AgentSessionLoaded with turn - 1 in OpenSessionAsync; B's read is dropped: no header, no transcript.
     ///     Red: skip the session list refresh in SendAsync when the session changed; the list is not read.
     /// </summary>
     [Fact]
@@ -227,8 +230,9 @@ public sealed class AgentEffectsTests : IDisposable
     /// <summary>
     ///     A turn whose token cannot be refreshed stores no error and logs nothing: the layout already says "Signing in
     ///     again". The turn still ends, so the composer is not left disabled.
-    ///     Red: map AccessTokenNotAvailableException as a transport failure in SendAsync; an error is stored.
+    ///     Red: drop <c>and not AccessTokenNotAvailableException</c> from StreamAsync's catch-all; an error is stored and logged.
     ///     Red: drop the AgentTurnEnded dispatch on a renewal in SendAsync; the turn stays streaming.
+    ///     Red: return AgentOutcome.Done on a renewal in SendAsync; it is an outcome.
     /// </summary>
     [Fact]
     public async Task A_session_renewal_mid_turn_stores_no_error()
@@ -247,13 +251,20 @@ public sealed class AgentEffectsTests : IDisposable
     /// <summary>
     ///     A page that closes mid-turn gets no outcome, and the effect dispatches nothing after: no end, no refresh. A
     ///     send for a page already gone dispatches nothing at all.
-    ///     Red: drop the page-gone check in SendAsync's cancellation catch; the turn ends with "The turn was stopped.".
     ///     Red: drop the cancelled-token guard at the top of SendAsync; the turn number moves.
+    ///     Red: drop the page-gone filter on StreamAsync's cancellation catch; the turn ends with "The turn was stopped.".
+    ///     Red: dispatch AgentTurnEnded before returning on a page gone in SendAsync; the reply is ended.
+    ///     Red: return AfterTurnAsync with no token on a page gone in SendAsync; the list is read and there is an outcome.
     /// </summary>
     [Fact]
     public async Task A_page_gone_mid_turn_dispatches_nothing_more()
     {
         await OpenedAsync();
+        using var gone = new CancellationTokenSource();
+        await gone.CancelAsync();
+        var turn = _store.Value.Turn;
+        var forGone = await _effects.SendAsync(A, Prompt, gone.Token);
+        var turnAfterGone = _store.Value.Turn;
         using var page = new CancellationTokenSource();
         _feed.Send(Delta("Foo"));
         var sending = _effects.SendAsync(A, Prompt, page.Token);
@@ -261,15 +272,13 @@ public sealed class AgentEffectsTests : IDisposable
 
         await page.CancelAsync();
         var outcome = await sending.WaitAsync(TimeSpan.FromSeconds(5));
-        var turn = _store.Value.Turn;
-        var forGone = await _effects.SendAsync(A, Prompt, page.Token);
 
+        forGone.Should().BeNull();
+        turnAfterGone.Should().Be(turn);
         outcome.Should().BeNull();
         _store.Value.Error.Should().BeNull();
         _store.Value.Reply.Should().NotBeNull();
         _handler.Paths.Should().NotContain(SessionsPath);
-        forGone.Should().BeNull();
-        _store.Value.Turn.Should().Be(turn);
         _logger.Entries.Should().BeEmpty();
     }
 
@@ -285,9 +294,11 @@ public sealed class AgentEffectsTests : IDisposable
         var sending = _effects.SendAsync(A, Prompt, CancellationToken.None);
         await UntilAsync(s => s.Streaming);
 
-        var second = await _effects.SendAsync(A, "again", CancellationToken.None);
+        var again = _effects.SendAsync(A, "again", CancellationToken.None);
+        await Task.WhenAny(again, Task.Delay(TimeSpan.FromMilliseconds(200)));
         _feed.End();
         await sending.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = await again.WaitAsync(TimeSpan.FromSeconds(5));
 
         second.Should().BeNull();
         _handler.Paths.Count(p => string.Equals(p, StreamA, StringComparison.Ordinal)).Should().Be(1);
@@ -297,6 +308,8 @@ public sealed class AgentEffectsTests : IDisposable
     ///     The agents and the session list are read for the page.
     ///     Red: drop the AgentsLoaded dispatch in LoadAgentsAsync; no agents.
     ///     Red: drop the AgentSessionsLoaded dispatch in RefreshSessionsAsync; no sessions.
+    ///     Red: return null on a success in LoadAgentsAsync; there is no outcome.
+    ///     Red: return null on a success in RefreshSessionsAsync; there is no outcome.
     /// </summary>
     [Fact]
     public async Task The_agents_and_sessions_are_read()
@@ -316,8 +329,8 @@ public sealed class AgentEffectsTests : IDisposable
     ///     A failed read returns its reason for the page's toast and is logged as a warning; a read whose token cannot be
     ///     refreshed is no outcome and logs nothing.
     ///     Red: return Done on a failure in LoadAgentsAsync; the reason is lost.
-    ///     Red: drop the LogReadFailed call in LoadAgentsAsync; no warning.
-    ///     Red: drop the SigningInAgain check in OpenSessionAsync; the renewal is a refusal.
+    ///     Red: drop the LogReadFailed call in Failed; no warning.
+    ///     Red: drop the SigningInAgain check in Failed; the renewal is a refusal, and is logged.
     /// </summary>
     [Fact]
     public async Task A_failed_read_says_why_and_a_renewal_says_nothing()
@@ -338,7 +351,9 @@ public sealed class AgentEffectsTests : IDisposable
     ///     nothing; opening none reads nothing.
     ///     Red: return null on a success in OpenSessionAsync; there is no outcome.
     ///     Red: drop the cancelled-token guard at the top of OpenSessionAsync; the turn number moves.
-    ///     Red: read the session when the id is null in OpenSessionAsync; a request is made for /agent.
+    ///     Red: drop the null check in OpenSessionAsync; the read of no session throws.
+    ///     Red: return null for no session in OpenSessionAsync; there is no outcome.
+    ///     Red: dispatch AgentSessionOpened only for a session in OpenSessionAsync; the page still shows A.
     /// </summary>
     [Fact]
     public async Task Opening_a_session_reads_it()
@@ -395,6 +410,7 @@ public sealed class AgentEffectsTests : IDisposable
     ///     Closing the shown session marks it Closed and refreshes the list; a refusal returns its reason and leaves it.
     ///     Red: drop the AgentSessionClosed dispatch in CloseSessionAsync; it still reads Idle.
     ///     Red: dispatch AgentSessionClosed on a refusal in CloseSessionAsync; it reads Closed.
+    ///     Red: return Done on a refusal in CloseSessionAsync; the reason is lost.
     /// </summary>
     [Fact]
     public async Task Closing_a_session_marks_it_closed()
