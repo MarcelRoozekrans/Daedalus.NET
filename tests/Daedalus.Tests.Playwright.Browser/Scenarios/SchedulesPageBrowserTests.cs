@@ -104,7 +104,7 @@ public class SchedulesPageBrowserTests : BrowserTestBase
     ///     Red: the deep link applies only when <c>_appliedDeepLink</c> is already true; no run history heading shows.
     ///     Red: the deep link expands the first row whose id does not match; no heading names the linked schedule.
     ///     Red: <c>OnRowExpand</c> leaves <c>_focusExpandedPending</c> false; the heading is not focused.
-    ///     Red: <c>OnRowExpand</c> does not call <c>EnsureHistoryLoadedAsync</c>; the region stays at "Loading run history…".
+    ///     Red: <c>OnRowExpand</c> does not call <c>SchedulesEffects.EnsureHistoryAsync</c>; the region stays at "Loading run history…".
     ///     Red: the history grid's Step reached column renders <c>"-"</c>; the run does not read Done.
     /// </summary>
     [Test]
@@ -148,8 +148,8 @@ public class SchedulesPageBrowserTests : BrowserTestBase
     ///     An undelivered run's detail says why it was dead-lettered, and Resend posts that run's execution and says it was
     ///     requeued.
     ///     Red: the Undelivered alert leaves out <c>run.DeadLetterError</c>; the reason does not show.
-    ///     Red: <c>ResendAsync</c> posts <c>run.ScheduleId</c> as the execution; the request names the wrong execution.
-    ///     Red: the success branch leaves <c>state.Succeeded</c> false; "Requeued." never shows.
+    ///     Red: <c>SchedulesEffects.ResendAsync</c> posts <c>run.ScheduleId</c> as the execution; the request names the wrong execution.
+    ///     Red: <c>SchedulesEffects.ResendAsync</c> returns no outcome on a success; "Requeued." never shows.
     /// </summary>
     [Test]
     [Description("Resend requeues an undelivered run and says so")]
@@ -173,8 +173,8 @@ public class SchedulesPageBrowserTests : BrowserTestBase
 
     /// <summary>
     ///     A resend the API refuses shows the refusal's reason and never claims the run was requeued.
-    ///     Red: the failure branch drops <c>result.Error</c>; the reason does not show.
-    ///     Red: <c>state.Succeeded</c> is set before the result is checked; "Requeued." shows on a refusal.
+    ///     Red: <c>SchedulesEffects.ResendAsync</c> returns a refusal with an empty reason; the reason does not show.
+    ///     Red: the page's <c>ResendAsync</c> shows <c>ScheduleResend.Requeued</c> whatever the outcome; "Requeued." shows on a refusal.
     /// </summary>
     [Test]
     [Description("A refused resend says why")]
@@ -192,7 +192,7 @@ public class SchedulesPageBrowserTests : BrowserTestBase
 
     /// <summary>
     ///     An overview that fails to load says so with a Retry, and Retry loads it again.
-    ///     Red: the Error alert shows a fixed "Load failed." in place of <c>_errorMessage</c>; the failure's text does not show.
+    ///     Red: the Error alert shows a fixed "Load failed." in place of <c>View.Error</c>; the failure's text does not show.
     ///     Red: Retry's <c>Click</c> is a no-op; the schedules never show.
     /// </summary>
     [Test]

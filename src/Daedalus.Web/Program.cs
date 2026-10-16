@@ -7,6 +7,7 @@ using Daedalus.Web.State.Home;
 using Daedalus.Web.State.Projects;
 using Daedalus.Web.State.Repositories;
 using Daedalus.Web.State.Runs;
+using Daedalus.Web.State.Schedules;
 using Daedalus.Web.State.Tasks;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -146,6 +147,7 @@ builder.Services.AddScoped<ProjectsEffects>();
 builder.Services.AddScoped<HomeEffects>();
 builder.Services.AddScoped<RepositoriesEffects>();
 builder.Services.AddScoped<CostsEffects>();
+builder.Services.AddScoped<SchedulesEffects>();
 builder.Services.AddScoped<RunHubConnection>();
 
 // The signed-in user as a cascading value that is replaced whenever the authentication state changes, so the layout
