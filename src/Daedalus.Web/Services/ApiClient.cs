@@ -5,15 +5,9 @@ using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Auth;
 using Daedalus.Web.State.Runs;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
-using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
-using BrainstormSessionDto = Daedalus.Application.DTOs.BrainstormSessionDto;
-using BrainstormSessionSummaryDto = Daedalus.Application.DTOs.BrainstormSessionSummaryDto;
-using CreateBrainstormSessionDto = Daedalus.Application.DTOs.CreateBrainstormSessionDto;
-using SendBrainstormMessageDto = Daedalus.Application.DTOs.SendBrainstormMessageDto;
+using Polly;
 
 namespace Daedalus.Web.Services;
-
-// DTOs (copied from API for client-side use)
 
 /// <summary>
 ///     HTTP client service for communicating with the API. A request whose token cannot be refreshed has already sent
@@ -21,6 +15,9 @@ namespace Daedalus.Web.Services;
 /// </summary>
 public sealed class ApiClient(HttpClient httpClient)
 {
+    /// <summary>The failure a request whose caller's token was cancelled returns.</summary>
+    public const string Cancelled = "Request was cancelled";
+
     /// <summary>
     ///     Executes an HTTP GET request with Result of T error handling and cancellation support.
     /// </summary>
@@ -45,7 +42,7 @@ public sealed class ApiClient(HttpClient httpClient)
         }
         catch (OperationCanceledException)
         {
-            return Result<T>.Failure("Request was cancelled");
+            return Result<T>.Failure(Cancelled);
         }
         catch (Exception ex)
         {
@@ -134,13 +131,13 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result<T>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result<T>.Failure($"API error: {ex.Message}");
         }
         catch (OperationCanceledException)
         {
-            return Result<T>.Failure("Request was cancelled");
+            return Result<T>.Failure(Cancelled);
         }
     }
 
@@ -160,13 +157,13 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result.Failure($"API error: {ex.Message}");
         }
         catch (OperationCanceledException)
         {
-            return Result.Failure("Request was cancelled");
+            return Result.Failure(Cancelled);
         }
     }
 
@@ -217,13 +214,13 @@ public sealed class ApiClient(HttpClient httpClient)
         {
             return Result<RunLookup>.Failure(SessionExpiry.SigningInAgain);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
         {
             return Result<RunLookup>.Failure($"API error: {ex.Message}");
         }
         catch (OperationCanceledException)
         {
-            return Result<RunLookup>.Failure("Request was cancelled");
+            return Result<RunLookup>.Failure(Cancelled);
         }
     }
 
@@ -336,6 +333,19 @@ public sealed class ApiClient(HttpClient httpClient)
     public async Task<Result<List<TaskDto>>> GenerateBrainstormTasksAsync(
         Guid sessionId, CancellationToken ct = default) =>
         await PostAsync<List<TaskDto>>($"/api/brainstorm/sessions/{sessionId}/generate-tasks", new { }, ct);
+
+    // PRD generator
+    /// <summary>
+    ///     Generates a PRD from the user's requirements. The API answers in camelCase, read with the web defaults; a
+    ///     refusal carries the controller's <c>error</c>.
+    /// </summary>
+    public Task<Result<PrdResponseDto>> GeneratePrdAsync(PrdRequestDto request, CancellationToken ct = default) =>
+        PostAsync<PrdResponseDto>("/api/prd/generate", request, ct);
+
+    /// <summary>Turns the selected PRD items into tasks; a refusal carries the controller's <c>error</c>.</summary>
+    public Task<Result<List<TaskDto>>> ConvertPrdToTasksAsync(
+        PrdConversionRequestDto request, CancellationToken ct = default) =>
+        PostAsync<List<TaskDto>>("/api/prd/convert-to-tasks", request, ct);
 
     // Schedules — resend
     /// <summary>

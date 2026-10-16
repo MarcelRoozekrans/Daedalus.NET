@@ -1,4 +1,3 @@
-@using Daedalus.Application.DTOs
 @inject DialogService DialogService
 
 @if (Repository != null)
@@ -82,12 +81,8 @@
 
     protected override void OnInitialized()
     {
-        Repository ??= new RepositoryConfigurationDto
-        {
-            Id = Guid.NewGuid(),
-            Platform = "GitHub",
-            DefaultBranch = "main"
-        };
+        // The page passes a draft, a copy built from the state; the form never binds to the state's own repository.
+        Repository ??= RepositoryDrafts.New();
     }
 
     private void OnSubmit()

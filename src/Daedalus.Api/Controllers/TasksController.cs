@@ -7,6 +7,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.CreateTask;
 using Daedalus.Application.Commands.DeleteTask;
 using Daedalus.Application.Commands.UpdateTask;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;

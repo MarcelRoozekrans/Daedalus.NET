@@ -1,4 +1,3 @@
-@using TaskDto = Daedalus.Application.DTOs.TaskDto
 @inject NavigationManager Nav
 
 <RadzenCard>
@@ -55,7 +54,7 @@
 </RadzenCard>
 
 @code {
-    [Parameter] public List<TaskDto> CreatedTasks { get; set; } = [];
+    [Parameter] public IReadOnlyList<TaskDto> CreatedTasks { get; set; } = [];
 
     [Parameter] public EventCallback OnDone { get; set; }
 }

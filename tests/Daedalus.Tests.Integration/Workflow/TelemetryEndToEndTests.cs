@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;

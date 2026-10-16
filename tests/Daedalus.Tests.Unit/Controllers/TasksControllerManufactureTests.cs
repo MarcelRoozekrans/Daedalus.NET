@@ -5,6 +5,7 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;

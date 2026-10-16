@@ -1,8 +1,49 @@
 # Session State
 
-**Last session:** 2026-10-15 to 2026-10-16; the owner was present for the spec, contract and plan, and asleep for the rest
+**Last session:** 2026-10-16, with the owner present at the start and for the side PRs
 
-## Current Position - phase 2.13 complete, PR #376 open to `main` (2026-10-16); next is phase 2.14
+## Current Position - phase 2.14 complete, PR open to `main` (2026-10-16); every phase of milestone 2 is done
+
+**Milestone 2, phase 2.14, Flux across the Web app.** Built subagent-driven on `phase/2.14-flux` from `main` `54a4ac6`,
+with `main` merged in at `7a46a15` for #379 and #380. The owner approved the spec with two calls (#372 in scope, Home
+live) and chose the execution method. Rulings, deviations and filed issues: `docs/plans/2026-10-16-phase-2.14-rulings.md`.
+Sweep: `docs/regression-report-2026-10-16-1745.md`.
+
+- **What shipped:**
+  - Every page keeps its state in a ZeroAlloc.Flux feature: Home, Projects, Repositories, Costs, Schedules, PRD,
+    Brainstorm and the Agent chat join Tasks and Runs. The rules are in the development guide's Web state section.
+  - Typed clients only: no component injects `HttpClient`. Polly rejections are handled in the clients.
+  - Home's Awaiting, Running and Failed cards update live on run changes.
+  - #372: the Web's 15 DTO copies are gone, and an architecture test keeps them out.
+  - Found and fixed on the way: the PRD review step crashing on the API's camelCase, the first Schedules row closing,
+    brainstorm messages not being saved, quadratic Agent reply text, toasts after leaving a page, project dialog field
+    names, and Agent and Brainstorm overflowing the footer.
+- **Tests:** unit 1984, Unit.Domain 356, Unit.Application 276, Unit.Infrastructure 251; integration 736; browser 211
+  before the last two fixes, plus their new tests.
+
+## Needs the owner
+
+1. **Review and merge the 2.14 PR.** Then read the rulings; each says what it costs if wrong.
+2. **#385 is urgent:** PRD generation and brainstorm call a retired model ID and fail. It predates 2.14.
+3. **Decide #383** (resilience rejection text), **#373** (Updated on Tasks) and **#374** (token contrast).
+4. **Milestone 2:** every phase, 2.1 to 2.14, is complete once this PR merges. Next is `audit-milestone`.
+5. **Release** still on hold; when dispatched, check it proposes 0.2.0.
+6. **Dev data** from the sweeps: the scratch project "UI review 2.13", two failed sandbox runs, seven Agent sessions and
+   nine cost entries.
+
+## Filed or tracked
+
+- New in 2.14: #377, #383, #384, #385, #386, #387. Backlog: #382 (GitHub App authentication).
+- Still open from 2.13: #366, #367, #368, #370, #371, #373, #374, #375.
+
+## Recommended Next Step
+
+1. Merge the 2.14 PR, then fix #385 so PRD and brainstorm work again.
+2. Run `audit-milestone` for milestone 2.
+
+---
+
+## Previous position (2026-10-16) - phase 2.13 complete, PR #376 merged; next was phase 2.14
 
 **Milestone 2, phase 2.13, navigation and flow.** Built subagent-driven on `phase/2.13-navigation-flow` from `main`
 `dd049f0`: ten tasks, each with its own implementer and reviewer, then a UI review, a regression sweep and a

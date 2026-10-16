@@ -151,7 +151,8 @@ Executions page: the retired loop's iterations are history on Costs, and `/execu
   to the landing page. The Web app's `Oidc:PostLogoutRedirectUri` is its `authentication/logout-callback` address.
 - **Home** (signed in) shows four cards: runs awaiting approval, running runs, runs that failed in the last 7 days, and
   recent pull requests. The cards need the `developer` or `admin` role, as the run list does; anyone else sees one line
-  saying runs are visible to developers and admins, and Home reads no runs for them. **New task** opens the create
+  saying runs are visible to developers and admins, and Home reads no runs for them. The first three cards update live
+  as runs change, with no refresh; the pull requests card is read when Home opens. **New task** opens the create
   dialog.
 - **Tasks** lists a task's project, status, pull request, and on screens 1280px or wider its priority and when it was
   created. The grid shows Created, not Updated, because no "last updated" time exists yet (issue #373). The status links

@@ -1,3 +1,4 @@
+using Daedalus.Application.DTOs;
 using Daedalus.Web.Services;
 
 namespace Daedalus.Tests.Unit.Web;
@@ -63,5 +64,5 @@ public sealed class TaskFormTests
         dto.Should().BeEquivalentTo(new UpdateTaskDto("t", "new description", null, null, null, 2, "new description"));
     }
 
-    private static ProjectDto Project() => new(Guid.NewGuid(), "p", "", "1.0", null, DateTime.UnixEpoch, null, []);
+    private static ProjectDto Project() => new(Guid.NewGuid(), "p", "", "1.0", "", "main", DateTime.UnixEpoch, null, []);
 }

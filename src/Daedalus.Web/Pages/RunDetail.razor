@@ -24,8 +24,7 @@ else if (Runs.Value is { SelectedNotFound: true } notFound && notFound.SelectedI
         Run not found. <RadzenLink Path="runs" Text="Back to Runs"/>
     </RadzenAlert>
 }
-else if (Runs.Value is { Selected: null, SelectedError: { } error } failed && failed.SelectedId == Id
-         && !SessionExpiry.IsSigningIn(error))
+else if (Runs.Value is { Selected: null, SelectedError: { } error } failed && failed.SelectedId == Id)
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="run-error">
         @error
@@ -196,7 +195,9 @@ else
         if (await DialogService.Confirm("Retry the failed step of this run?", "Retry run",
                 new ConfirmOptions { OkButtonText = "Retry", CancelButtonText = "Keep as is" }) is true)
         {
-            var result = await Effects.RetryAsync(Id, _cts.Token);
+            // Read before the await: once the page is gone its token source is disposed.
+            var ct = _cts.Token;
+            var result = await Effects.RetryAsync(Id, ct);
             if (result.IsSuccess)
             {
                 NotificationService.Notify(new NotificationMessage
@@ -204,8 +205,9 @@ else
                     Severity = NotificationSeverity.Success, Summary = "Retry started", Duration = NotificationMilliseconds,
                 });
             }
-            else
+            else if (!ct.IsCancellationRequested)
             {
+                // A page already left reports no failure: the failure is only that it went away.
                 NotificationService.NotifyFailure("Could not retry", result.Error);
             }
         }

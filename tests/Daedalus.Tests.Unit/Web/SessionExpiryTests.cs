@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Daedalus.Application.DTOs;
 using Daedalus.Web.Auth;
 using Daedalus.Web.Services;
 using Microsoft.Extensions.Time.Testing;
@@ -33,6 +34,13 @@ public sealed class SessionExpiryTests : IDisposable
         "ApiClient.CreateTaskAsync",
         "ApiClient.DeleteTaskAsync",
         "ApiClient.GetRunAsync",
+        "ApiClient.GeneratePrdAsync",
+        "ApiClient.ConvertPrdToTasksAsync",
+        "RepositoriesApiClient.GetAllAsync",
+        "RepositoriesApiClient.CreateAsync",
+        "RepositoriesApiClient.UpdateAsync",
+        "RepositoriesApiClient.DeleteAsync",
+        "RepositoriesApiClient.TestConnectionAsync",
         "AgentApiClient.GetAgentsAsync",
         "AgentApiClient.CreateSessionAsync",
         "AgentApiClient.CloseSessionAsync",
@@ -47,6 +55,11 @@ public sealed class SessionExpiryTests : IDisposable
     ///     the stored user is cleared and the browser goes to sign-in, returning to the page it was on.
     ///     Red: restore "Please log in to access this data." in ApiClient.GetAsync; GetTasksAsync's error differs.
     ///     Red: drop the AccessTokenNotAvailableException catches from ProjectApiClient; its errors read "Error ...".
+    ///     Red: drop the AccessTokenNotAvailableException catch from RepositoriesApiClient.GetAllAsync; the read throws.
+    ///     Red: drop the AccessTokenNotAvailableException catch from RepositoriesApiClient's write helper; the four
+    ///     writes throw.
+    ///     Red: drop the AccessTokenNotAvailableException catch from ApiClient's generic SendAsync; both PRD calls and
+    ///     CreateTaskAsync throw.
     ///     Red: make SessionExpiryHandler's catch skip SignInAgainAsync; no clear and no navigation is recorded.
     ///     Red: skip ClearStoredUserAsync in SignInAgainAsync; no clearStoredUser call is recorded.
     ///     Red: NavigateToLogin "authentication/log-in" in SignInAgainAsync; the navigation's URI differs.
@@ -131,7 +144,8 @@ public sealed class SessionExpiryTests : IDisposable
         var http = session.Http;
         var api = new ApiClient(http);
         var agents = new AgentApiClient(http);
-        var projects = new ProjectApiClient(api, http);
+        var projects = new ProjectApiClient(http);
+        var repositories = new RepositoriesApiClient(http);
         return call switch
         {
             "ApiClient.GetTasksAsync" => (await api.GetTasksAsync()).Error,
@@ -139,6 +153,13 @@ public sealed class SessionExpiryTests : IDisposable
                 Guid.Empty, null, "t", "d", 1, null, 0, 0, "p", null, null))).Error,
             "ApiClient.DeleteTaskAsync" => (await api.DeleteTaskAsync(Guid.NewGuid())).Error,
             "ApiClient.GetRunAsync" => (await api.GetRunAsync(Guid.NewGuid())).Error,
+            "ApiClient.GeneratePrdAsync" => (await api.GeneratePrdAsync(new PrdRequestDto(Guid.NewGuid(), "r"))).Error,
+            "ApiClient.ConvertPrdToTasksAsync" => (await api.ConvertPrdToTasksAsync(new PrdConversionRequestDto(Guid.NewGuid(), []))).Error,
+            "RepositoriesApiClient.GetAllAsync" => (await repositories.GetAllAsync(CancellationToken.None)).Error,
+            "RepositoriesApiClient.CreateAsync" => (await repositories.CreateAsync(new CreateRepositoryConfigurationDto())).Error,
+            "RepositoriesApiClient.UpdateAsync" => (await repositories.UpdateAsync(Guid.NewGuid(), new UpdateRepositoryConfigurationDto())).Error,
+            "RepositoriesApiClient.DeleteAsync" => (await repositories.DeleteAsync(Guid.NewGuid())).Error,
+            "RepositoriesApiClient.TestConnectionAsync" => (await repositories.TestConnectionAsync(Guid.NewGuid())).Error,
             "AgentApiClient.GetAgentsAsync" => (await agents.GetAgentsAsync()).Error,
             "AgentApiClient.CreateSessionAsync" => (await agents.CreateSessionAsync("agent")).Error,
             "AgentApiClient.CloseSessionAsync" => (await agents.CloseSessionAsync("session")).Error,

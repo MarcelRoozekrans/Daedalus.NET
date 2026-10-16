@@ -628,7 +628,3 @@ public sealed class WorkflowRunsController(WorkflowRunGateway runs) : Controller
 ///     <c>Repository</c> is a 400.
 /// </param>
 public sealed record StartWorkflowRunRequest(string WorkIntent, string Repository, string? Process = null, string? BaseBranch = null);
-
-/// <summary>Response body for <see cref="WorkflowRunsController.Start"/>.</summary>
-/// <param name="RunId">The id of the run that was just started.</param>
-public sealed record StartWorkflowRunResponse(Guid RunId);

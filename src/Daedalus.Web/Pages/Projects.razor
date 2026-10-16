@@ -1,7 +1,10 @@
 @page "/projects"
 @attribute [Authorize]
+@inherits FluxComponent
 @implements IAsyncDisposable
-@inject IProjectApiClient ProjectApiClient
+@inject IStore<ProjectsState> ProjectStore
+@inject IDispatcher Dispatcher
+@inject ProjectsEffects ProjectsEffects
 @inject DialogService DialogService
 @inject NotificationService NotificationService
 
@@ -17,20 +20,23 @@
                   Style="white-space: nowrap;" data-testid="btn-create-project"/>
 </RadzenStack>
 
-@if (!string.IsNullOrEmpty(_errorMessage))
+@* ProjectsEffects stores no SigningInAgain failure, so this alert needs no sign-in check. *@
+@if (ProjectStore.Value.Error is { } error)
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4">
-        @_errorMessage
+        @error
     </RadzenAlert>
 }
 
-@if (_isLoading)
+@* The spinner is for the page's own loads only: a background refresh, such as a reconnect's, keeps the list showing.
+   Current, not Projects: a failed load shows the empty state, as the page always did, never a list held from before. *@
+@if (ProjectsView.ShowSpinner(_loading, ProjectStore.Value))
 {
     <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"/>
 }
-else if (_projects is not null && _projects.Items.Count > 0)
+else if (ProjectStore.Value.Current is { Count: > 0 } projects)
 {
-    <RadzenDataGrid TItem="ProjectDto" Data="@_projects.Items" AllowSorting="true" AllowColumnResize="true"
+    <RadzenDataGrid TItem="ProjectDto" Data="@projects" AllowSorting="true" AllowColumnResize="true"
                     Style="height: auto;" data-testid="projects-grid">
         <Columns>
             <RadzenDataGridColumn TItem="ProjectDto" Property="ProjectName" Title="Name" Width="200px">
@@ -86,15 +92,15 @@ else
     </div>
 }
 
-@if (_selectedProject is not null)
+@if (ProjectStore.Value.Selected is { } selected)
 {
     <RadzenCard class="rz-mt-6">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-4">
-            @_selectedProject.ProjectName — Tasks
+            @selected.ProjectName — Tasks
         </RadzenText>
-        @if (_selectedProject.Tasks.Count > 0)
+        @if (selected.Tasks.Count > 0)
         {
-            <RadzenDataGrid TItem="TaskDto" Data="@_selectedProject.Tasks" AllowSorting="true" Style="height: auto;">
+            <RadzenDataGrid TItem="TaskDto" Data="@selected.Tasks" AllowSorting="true" Style="height: auto;">
                 <Columns>
                     <RadzenDataGridColumn TItem="TaskDto" Property="Title" Title="Title" Width="200px"/>
                     <RadzenDataGridColumn TItem="TaskDto" Property="Prompt" Title="Prompt" Width="300px">
@@ -132,50 +138,36 @@ else
 }
 
 @code {
-    private CancellationTokenSource? _cts;
-    private PagedResultDto<ProjectDto>? _projects;
-    private ProjectDto? _selectedProject;
-    private bool _isLoading = true;
-    private string? _errorMessage;
+    private readonly CancellationTokenSource _cts = new();
 
-    protected override async Task OnInitializedAsync()
-    {
-        _cts = new CancellationTokenSource();
-        await LoadProjectsAsync();
-    }
+    /// <summary>Whether a load this page started is in flight; only that shows the spinner.</summary>
+    private bool _loading = true;
+
+    protected override void SubscribeStores() => Subscribe(ProjectStore);
+
+    /// <summary>The projects are shared and never cleared, so the page re-reads them on every open.</summary>
+    protected override Task OnInitializedAsync() => LoadProjectsAsync();
 
     private async Task LoadProjectsAsync()
     {
+        _loading = true;
         try
         {
-            _isLoading = true;
-            _errorMessage = null;
-            var result = await ProjectApiClient.GetAllProjectsAsync(1, 100, _cts?.Token ?? CancellationToken.None);
-            _projects = result.IsSuccess ? result.Value : null;
-            if (result.IsFailure && !SessionExpiry.IsSigningIn(result.Error)) _errorMessage = result.Error ?? "Failed to load projects";
-        }
-        catch (Exception ex) when (!SessionExpiry.IsSigningIn(ex))
-        {
-            _errorMessage = $"Error loading projects: {ex.Message}";
+            await ProjectsEffects.LoadAsync(_cts.Token);
         }
         finally
         {
-            _isLoading = false;
+            _loading = false;
         }
     }
 
     private async Task SelectProjectAsync(Guid projectId)
     {
-        try
+        await ProjectsEffects.LoadSelectedAsync(projectId, _cts.Token);
+        // Only for the project asked for last: a later click's failure is that click's to show.
+        if (ProjectStore.Value is { SelectedId: var asked, SelectError: { } error } && asked == projectId)
         {
-            var result = await ProjectApiClient.GetProjectWithTasksAsync(projectId, _cts?.Token ?? CancellationToken.None);
-            _selectedProject = result.IsSuccess ? result.Value : null;
-            if (result.IsFailure)
-                NotificationService.NotifyFailure("Error", result.Error ?? "Failed to load project");
-        }
-        catch (Exception ex)
-        {
-            NotificationService.NotifyFailure("Error", ex, ex.Message);
+            NotificationService.NotifyFailure("Error", error);
         }
     }
 
@@ -199,7 +191,7 @@ else
         if (result is bool confirmed2 && confirmed2)
         {
             await LoadProjectsAsync();
-            if (_selectedProject?.Id == project.Id)
+            if (ProjectStore.Value.Selected?.Id == project.Id)
                 await SelectProjectAsync(project.Id);
         }
     }
@@ -213,27 +205,26 @@ else
 
         if (confirmed is true)
         {
-            var result = await ProjectApiClient.DeleteProjectAsync(project.Id, _cts?.Token ?? CancellationToken.None);
-            if (result.IsSuccess)
+            // The effect stops showing the project if it was shown.
+            var outcome = await ProjectsEffects.DeleteAsync(project.Id, _cts.Token);
+            if (outcome is { Succeeded: true })
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Deleted", "Project deleted");
-                if (_selectedProject?.Id == project.Id) _selectedProject = null;
                 await LoadProjectsAsync();
             }
-            else
+            else if (outcome is { Refusal: { } refusal })
             {
-                NotificationService.NotifyFailure("Error", result.Error ?? "Failed to delete");
+                NotificationService.NotifyFailure("Error", refusal);
             }
         }
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        if (_cts is not null)
-        {
-            await _cts.CancelAsync();
-            _cts.Dispose();
-        }
+        Dispose();
+        await _cts.CancelAsync();
+        _cts.Dispose();
+        await Dispatcher.DispatchAsync(new ProjectsPageClosed());
     }
 
 }

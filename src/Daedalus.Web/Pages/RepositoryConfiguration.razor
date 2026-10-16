@@ -1,12 +1,12 @@
 @page "/repositories"
 @attribute [Authorize]
-@using System.Net
-@using System.Text.Json
-@using Daedalus.Application.DTOs
-@inject HttpClient Http
+@inherits FluxComponent
+@implements IAsyncDisposable
+@inject IStore<RepositoriesState> RepositoriesStore
+@inject IDispatcher Dispatcher
+@inject RepositoriesEffects RepositoriesEffects
 @inject DialogService DialogService
 @inject NotificationService NotificationService
-@implements IDisposable
 
 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
              JustifyContent="JustifyContent.SpaceBetween" class="rz-mb-4">
@@ -16,7 +16,7 @@
             Configure the repositories projects link to.
         </RadzenText>
     </RadzenStack>
-    @if (!_forbidden)
+    @if (!View.Forbidden)
     {
         <RadzenButton Text="Add Repository" Icon="add" Click="@ShowAddForm"
                       ButtonStyle="ButtonStyle.Primary"/>
@@ -28,21 +28,21 @@
     <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"
                                Style="display: block; margin: 3rem auto;"/>
 }
-else if (_forbidden)
+else if (View.Forbidden)
 {
     @* The API refuses everyone but an admin. A refusal is not an empty list, so it says so, and offers nothing to add. *@
     <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false" data-testid="repositories-forbidden">
         Git repositories are managed by admins.
     </RadzenAlert>
 }
-else if (_loadError is { } loadError)
+else if (View.Error is { } loadError)
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="repositories-error">
         The repositories could not be loaded: @loadError
         <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small" Click="@LoadRepositories"/>
     </RadzenAlert>
 }
-else if (_repositories is { Count: 0 })
+else if (View.Repositories is { Count: 0 })
 {
     <div class="empty-state">
         <RadzenIcon Icon="source" Style="font-size: 3rem; opacity: 0.3;"/>
@@ -54,11 +54,11 @@ else if (_repositories is { Count: 0 })
                       ButtonStyle="ButtonStyle.Primary" Variant="Variant.Outlined"/>
     </div>
 }
-else if (_repositories is not null)
+else if (View.Repositories is { } repositories)
 {
     @* Null with no error is a read whose session ended: the layout's notice says so, and sign-in is under way. *@
     <RadzenRow Gap="1rem">
-        @foreach (var repo in _repositories)
+        @foreach (var repo in repositories)
         {
             <RadzenColumn Size="12" SizeMD="6">
                 <RadzenCard>
@@ -116,69 +116,39 @@ else if (_repositories is not null)
 }
 
 @code {
-    private List<RepositoryConfigurationDto>? _repositories;
+    /// <summary>Cancelled when the page goes, so a read still running stops with it. Writes are not: they finish.</summary>
+    private readonly CancellationTokenSource _cts = new();
+
+    /// <summary>The page's token, read once: it stays readable after the source is disposed.</summary>
+    private CancellationToken _token;
+
+    /// <summary>Whether a read this page started is in flight; only the page reads its repositories.</summary>
     private bool _isLoading = true;
 
-    /// <summary>Whether the API refused the read, 403: the user is not an admin.</summary>
-    private bool _forbidden;
+    private RepositoriesState View => RepositoriesStore.Value;
 
-    /// <summary>Why the read failed, for any failure but a refusal or an ended session; null when it did not.</summary>
-    private string? _loadError;
-
-    /// <summary>Cancelled when the page goes, so a read still running stops with it.</summary>
-    private readonly CancellationTokenSource _cts = new();
+    protected override void SubscribeStores() => Subscribe(RepositoriesStore);
 
     protected override async Task OnInitializedAsync()
     {
+        _token = _cts.Token;
         await LoadRepositories();
     }
 
-    public void Dispose()
+    async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        _cts.Cancel();
+        Dispose();
+        await _cts.CancelAsync();
         _cts.Dispose();
+        await Dispatcher.DispatchAsync(new RepositoriesClosed());
     }
 
     private async Task LoadRepositories()
     {
         _isLoading = true;
-        _forbidden = false;
-        _loadError = null;
-        _repositories = null;
-        // Read before any await: once the page is gone its token source is disposed.
-        var ct = _cts.Token;
         try
         {
-            using var response = await Http.GetAsync("api/repositories", ct);
-            if (response.StatusCode == HttpStatusCode.Forbidden)
-            {
-                _forbidden = true;
-            }
-            else if (!response.IsSuccessStatusCode)
-            {
-                _loadError = $"The server answered {HttpStatusText.Of(response)}.";
-            }
-            else
-            {
-                _repositories = await response.Content.ReadFromJsonAsync<List<RepositoryConfigurationDto>>(ct) ?? [];
-            }
-        }
-        catch (Exception ex) when (SessionExpiry.IsSigningIn(ex))
-        {
-            // The session ended: the layout's one notice says so, and the page shows nothing of its own.
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // The page went: the read stopped with it, and there is nothing to show.
-        }
-        catch (TaskCanceledException)
-        {
-            // Not cancelled by the page, so the client's timeout ran out.
-            _loadError = "The request timed out.";
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or NotSupportedException)
-        {
-            _loadError = ex.Message;
+            await RepositoriesEffects.LoadAsync(_token);
         }
         finally
         {
@@ -188,120 +158,37 @@ else if (_repositories is not null)
 
     private async Task ShowAddForm()
     {
-        var repo = new RepositoryConfigurationDto
-        {
-            Id = Guid.NewGuid(),
-            Platform = "GitHub",
-            DefaultBranch = "main"
-        };
+        var draft = RepositoryDrafts.New();
 
         var result = await DialogService.OpenAsync<RepositoryForm>("Add Repository",
-            new Dictionary<string, object> { { "Repository", repo }, { "IsEditing", false } },
+            new Dictionary<string, object> { { "Repository", draft }, { "IsEditing", false } },
             new DialogOptions { Width = "600px", CloseDialogOnOverlayClick = true });
 
         if (result is bool resultValue && resultValue)
         {
-            try
-            {
-                var createDto = new CreateRepositoryConfigurationDto
-                {
-                    Name = repo.Name,
-                    Url = repo.Url,
-                    Platform = repo.Platform,
-                    DefaultBranch = repo.DefaultBranch,
-                    AuthenticationMethod = repo.AuthenticationMethod,
-                    CredentialIdentifier = repo.CredentialIdentifier,
-                    Description = repo.Description
-                };
-                using var response = await Http.PostAsJsonAsync("api/repositories", createDto);
-                if (response.IsSuccessStatusCode)
-                {
-                    NotificationService.Notify(NotificationSeverity.Success, "Created", "Repository added successfully.");
-                }
-                else
-                {
-                    NotificationService.NotifyFailure("Error", Refused("Failed to create repository.", response));
-                }
-
-                await LoadRepositories();
-            }
-            catch (Exception ex)
-            {
-                NotificationService.NotifyFailure("Error", ex, "Failed to create repository.");
-            }
+            await ShowOutcomeAsync(await RepositoriesEffects.CreateAsync(RepositoryDrafts.ToCreate(draft), CancellationToken.None));
         }
     }
 
     private async Task EditRepository(RepositoryConfigurationDto repo)
     {
-        var editCopy = new RepositoryConfigurationDto
-        {
-            Id = repo.Id,
-            Name = repo.Name,
-            Url = repo.Url,
-            Platform = repo.Platform,
-            DefaultBranch = repo.DefaultBranch,
-            AuthenticationMethod = repo.AuthenticationMethod,
-            CredentialIdentifier = repo.CredentialIdentifier,
-            IsActive = repo.IsActive,
-            Description = repo.Description
-        };
+        // The form binds to what it is given, so it gets a copy: the card in the state stays as it was if it cancels.
+        var draft = RepositoryDrafts.For(repo);
 
         var result = await DialogService.OpenAsync<RepositoryForm>("Edit Repository",
-            new Dictionary<string, object> { { "Repository", editCopy }, { "IsEditing", true } },
+            new Dictionary<string, object> { { "Repository", draft }, { "IsEditing", true } },
             new DialogOptions { Width = "600px", CloseDialogOnOverlayClick = true });
 
         if (result is bool resultValue && resultValue)
         {
-            try
-            {
-                var updateDto = new UpdateRepositoryConfigurationDto
-                {
-                    Name = editCopy.Name,
-                    Url = editCopy.Url,
-                    DefaultBranch = editCopy.DefaultBranch,
-                    AuthenticationMethod = editCopy.AuthenticationMethod,
-                    CredentialIdentifier = editCopy.CredentialIdentifier,
-                    IsActive = editCopy.IsActive,
-                    Description = editCopy.Description
-                };
-                using var response = await Http.PutAsJsonAsync($"api/repositories/{editCopy.Id}", updateDto);
-                if (response.IsSuccessStatusCode)
-                {
-                    NotificationService.Notify(NotificationSeverity.Success, "Updated", "Repository updated successfully.");
-                }
-                else
-                {
-                    NotificationService.NotifyFailure("Error", Refused("Failed to update repository.", response));
-                }
-
-                await LoadRepositories();
-            }
-            catch (Exception ex)
-            {
-                NotificationService.NotifyFailure("Error", ex, "Failed to update repository.");
-            }
+            await ShowOutcomeAsync(
+                await RepositoriesEffects.UpdateAsync(draft.Id, RepositoryDrafts.ToUpdate(draft), CancellationToken.None));
         }
     }
 
     private async Task TestConnection(Guid id)
     {
-        try
-        {
-            using var response = await Http.PostAsync($"api/repositories/{id}/test-connection", null);
-            if (response.IsSuccessStatusCode)
-            {
-                NotificationService.Notify(NotificationSeverity.Success, "Success", "Connection test passed.");
-            }
-            else
-            {
-                NotificationService.Notify(NotificationSeverity.Warning, "Failed", "Connection test failed.");
-            }
-        }
-        catch (Exception ex)
-        {
-            NotificationService.NotifyFailure("Error", ex, "Could not test connection.");
-        }
+        await ShowOutcomeAsync(await RepositoriesEffects.TestConnectionAsync(id, CancellationToken.None));
     }
 
     private async Task ConfirmDelete(Guid id)
@@ -313,28 +200,26 @@ else if (_repositories is not null)
 
         if (confirmed == true)
         {
-            try
-            {
-                using var response = await Http.DeleteAsync($"api/repositories/{id}");
-                if (response.IsSuccessStatusCode)
-                {
-                    NotificationService.Notify(NotificationSeverity.Success, "Deleted", "Repository removed.");
-                }
-                else
-                {
-                    NotificationService.NotifyFailure("Error", Refused("Failed to delete repository.", response));
-                }
-
-                await LoadRepositories();
-            }
-            catch (Exception ex)
-            {
-                NotificationService.NotifyFailure("Error", ex, "Failed to delete repository.");
-            }
+            await ShowOutcomeAsync(await RepositoriesEffects.DeleteAsync(id, CancellationToken.None));
         }
     }
 
-    /// <summary>A refused write's message: what failed and the status the API answered with.</summary>
-    private static string Refused(string what, HttpResponseMessage response) =>
-        $"{what} The server answered {HttpStatusText.Of(response)}.";
+    /// <summary>
+    ///     Shows the outcome this page's own write returned, and reloads the list when the server answered it. No
+    ///     outcome is a session being renewed, which the layout says, so nothing shows.
+    /// </summary>
+    private async Task ShowOutcomeAsync(RepositorySave? outcome)
+    {
+        if (outcome is not { } save)
+        {
+            return;
+        }
+
+        var notice = RepositoriesView.Notice(save);
+        NotificationService.Notify(notice.Severity, notice.Summary, notice.Detail);
+        if (RepositoriesView.Reloads(save))
+        {
+            await LoadRepositories();
+        }
+    }
 }

@@ -8,6 +8,8 @@
 @inject IStore<TasksState> TaskStore
 @inject IDispatcher Dispatcher
 @inject TasksEffects Effects
+@inject IStore<ProjectsState> ProjectStore
+@inject ProjectsEffects ProjectsEffects
 @using Microsoft.JSInterop
 @inject IJSRuntime Js
 @implements IAsyncDisposable
@@ -25,7 +27,7 @@
                   Style="white-space: nowrap;" data-testid="btn-create-task"/>
 </RadzenStack>
 
-@if (!string.IsNullOrEmpty(TaskStore.Value.Error) && !SessionExpiry.IsSigningIn(TaskStore.Value.Error))
+@if (!string.IsNullOrEmpty(TaskStore.Value.Error))
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4"
                  Close="@(() => Dispatcher.DispatchAsync(new TasksErrorDismissed()).AsTask())">
@@ -33,12 +35,13 @@
     </RadzenAlert>
 }
 
-@if (TaskStore.Value.ProjectsError is { } projectsError && !SessionExpiry.IsSigningIn(projectsError))
+@* ProjectsEffects stores no SigningInAgain failure, so this alert needs no sign-in check. *@
+@if (ProjectStore.Value.Error is { } projectsError)
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4" data-testid="tasks-projects-error">
         The projects could not be loaded: @projectsError
         <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
-                      Click="@(() => Effects.LoadProjectsAsync(_cts.Token))"/>
+                      Click="@(() => ProjectsEffects.LoadAsync(_cts.Token))"/>
     </RadzenAlert>
 }
 
@@ -62,9 +65,7 @@
                 ShowPagingSummary="true" IsLoading="@TaskStore.Value.Loading"
                 Style="@GridStyle" data-testid="tasks-grid">
     <EmptyTemplate>
-        @* Only a board that was read and is empty says so. One that could not be read is not empty: the alert above says
-           why. One still loading, or not yet asked for, as the initial state is, has nothing to claim either. *@
-        @if (TaskStore.Value is { LoadRequested: true, Loading: false } && string.IsNullOrEmpty(TaskStore.Value.Error))
+        @if (TasksView.ShowEmpty(TaskStore.Value))
         {
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem"
                          Wrap="FlexWrap.Wrap" class="rz-p-4" data-testid="tasks-empty">
@@ -219,9 +220,13 @@
     private static string Px(int width) => string.Create(CultureInfo.InvariantCulture, $"{width}px");
 
     private string ProjectName(TaskDto task) =>
-        TaskStore.Value.ProjectNames.TryGetValue(task.ProjectId, out var name) ? name : "—";
+        ProjectStore.Value.Names.TryGetValue(task.ProjectId, out var name) ? name : "—";
 
-    protected override void SubscribeStores() => Subscribe(TaskStore);
+    protected override void SubscribeStores()
+    {
+        Subscribe(TaskStore);
+        Subscribe(ProjectStore);
+    }
 
     /// <summary>
     ///     The media queries report only after the first render, which would draw the grid for the wrong width for a
@@ -254,8 +259,10 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await Effects.LoadAsync(_cts.Token);
-        await Effects.LoadProjectsAsync(_cts.Token);
+        // The projects are shared and never cleared, so the board re-reads them on every open. Started first, alongside
+        // the board, so the load is marked before anything renders and the create dialog waits for its answer.
+        // Awaited together, so a fault in either load is observed.
+        await Task.WhenAll(ProjectsEffects.LoadAsync(_cts.Token), Effects.LoadAsync(_cts.Token));
     }
 
     protected override async Task OnParametersSetAsync()
@@ -321,10 +328,18 @@
             return;
         }
 
-        var result = await Effects.ManufactureAsync(task.Id, _cts.Token);
+        // Read before the await: once the page is gone its token source is disposed.
+        var ct = _cts.Token;
+        var result = await Effects.ManufactureAsync(task.Id, ct);
         if (result.IsSuccess)
         {
             Navigation.NavigateTo($"runs/{result.Value.RunId}");
+            return;
+        }
+
+        // A page already left reports nothing: the failure is only that it went away.
+        if (ct.IsCancellationRequested)
+        {
             return;
         }
 

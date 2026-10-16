@@ -91,7 +91,7 @@ only once something demonstrably better runs in its place.
 | 2.11 | The GitHub HTTP path | complete (2026-10-12; #343) |
 | 2.12 | Manufacturing console | complete (2026-10-13; #352) |
 | 2.13 | Navigation and flow review | complete |
-| 2.14 | Flux across the Web app | pending |
+| 2.14 | Flux across the Web app | complete |
 
 Full phase text, including what each completed phase actually proved and carried forward, is in
 `docs/planning/ROADMAP.md`.

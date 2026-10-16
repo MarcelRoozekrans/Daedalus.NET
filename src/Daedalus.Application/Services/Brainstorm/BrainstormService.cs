@@ -58,7 +58,9 @@ public sealed partial class BrainstormService(
             return Result<BrainstormSession>.Failure($"LLM invocation failed: {llmResult.Error}");
 
         session.AddMessage(MessageRole.Assistant, llmResult.Value.Response);
-        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        var saved = await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        if (saved.IsFailure)
+            return Result<BrainstormSession>.Failure(saved.Error);
 
         LogSessionCreated(logger, session.Id, projectId);
         return Result<BrainstormSession>.Success(session);
@@ -96,7 +98,9 @@ public sealed partial class BrainstormService(
             return Result<BrainstormMessage>.Failure($"LLM invocation failed: {llmResult.Error}");
 
         session.AddMessage(MessageRole.Assistant, llmResult.Value.Response);
-        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        var saved = await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        if (saved.IsFailure)
+            return Result<BrainstormMessage>.Failure(saved.Error);
 
         var lastMessage = session.Messages[^1];
         return Result<BrainstormMessage>.Success(lastMessage);
@@ -125,7 +129,9 @@ public sealed partial class BrainstormService(
             }
         }
 
-        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        var saved = await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        if (saved.IsFailure)
+            return Result<BrainstormSession>.Failure(saved.Error);
 
         LogPhaseAdvanced(logger, sessionId, session.Phase);
         return Result<BrainstormSession>.Success(session);
@@ -143,7 +149,9 @@ public sealed partial class BrainstormService(
         if (abandonResult.IsFailure)
             return abandonResult;
 
-        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        var saved = await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        if (saved.IsFailure)
+            return Result.Failure(saved.Error);
 
         LogSessionAbandoned(logger, sessionId);
         return Result.Success();
@@ -223,7 +231,10 @@ public sealed partial class BrainstormService(
         if (advanceResult.IsFailure)
             return Result<List<TaskDto>>.Failure(advanceResult.Error);
 
-        await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        var saved = await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        if (saved.IsFailure)
+            return Result<List<TaskDto>>.Failure(string.Create(CultureInfo.InvariantCulture,
+                $"Created {tasksResult.Value.Count} tasks, but the session could not be saved: {saved.Error}"));
 
         LogTasksGenerated(logger, sessionId, tasksResult.Value.Count);
         return Result<List<TaskDto>>.Success(tasksResult.Value);

@@ -6,7 +6,8 @@ namespace Daedalus.Web.State.Tasks;
 public static class TasksReducers
 {
     [Reducer]
-    public static TasksState On(TasksState s, TasksLoadStarted _) => s with { Loading = true, Error = null, LoadRequested = true };
+    public static TasksState On(TasksState s, TasksLoadStarted _) =>
+        s with { Loading = true, Error = null, LoadRequested = true, Abandoned = false };
 
     /// <summary>A board that lands after the page closed, with no load asked for since, is ignored.</summary>
     [Reducer]
@@ -16,6 +17,11 @@ public static class TasksReducers
     [Reducer]
     public static TasksState On(TasksState s, TasksLoadFailed a) =>
         !s.LoadRequested ? s : s with { Error = a.Error, Loading = false };
+
+    /// <summary>Ends the load and stores no error; ignored after the page closed, as a failure is.</summary>
+    [Reducer]
+    public static TasksState On(TasksState s, TasksLoadAbandoned _) =>
+        !s.LoadRequested ? s : s with { Loading = false, Abandoned = true };
 
     [Reducer]
     public static TasksState On(TasksState s, TasksErrorDismissed _) => s with { Error = null };
@@ -30,10 +36,6 @@ public static class TasksReducers
             Loading = false,
             Error = null,
             LoadRequested = false,
-            Projects = null,
-            ProjectNames = new Dictionary<Guid, string>(),
-            ProjectsError = null,
-            ProjectsRequested = false,
         };
 
     [Reducer]
@@ -57,18 +59,4 @@ public static class TasksReducers
 
         return s with { Items = [.. s.Items.Select(t => t.Id == a.Task.Id ? a.Task : t)] };
     }
-
-    [Reducer]
-    public static TasksState On(TasksState s, TaskProjectsLoadStarted _) => s with { ProjectsRequested = true };
-
-    /// <summary>Projects that land after the page closed, with no projects load asked for since, are ignored.</summary>
-    [Reducer]
-    public static TasksState On(TasksState s, TaskProjectsLoaded a) =>
-        !s.ProjectsRequested
-            ? s
-            : s with { Projects = a.Projects, ProjectNames = a.Projects.ToDictionary(p => p.Id, p => p.ProjectName), ProjectsError = null };
-
-    /// <summary>A failure keeps the projects already loaded, so a failed refresh does not empty the picker.</summary>
-    [Reducer]
-    public static TasksState On(TasksState s, TaskProjectsLoadFailed a) => !s.ProjectsRequested ? s : s with { ProjectsError = a.Error };
 }

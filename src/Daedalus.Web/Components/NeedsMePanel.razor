@@ -1,10 +1,14 @@
 @* The signed-in Home: what needs the person, most urgent first, and one New task button. Its own component, so it loads
    nothing for a visitor who is not signed in, and loads when a sign-in completes after Home rendered. Each card reads
-   one bounded page of the run list and fails on its own. The run list needs the developer or admin role, so anyone else
-   gets one line in place of the cards, and no read at all. *@
-@inject ApiClient Api
+   one bounded page of the run list and fails on its own, through HomeEffects, which also re-fetches the awaiting,
+   running and failed cards in the background as runs change. The run list needs the developer or admin role, so anyone
+   else gets one line in place of the cards, and no read at all. *@
+@inherits FluxComponent
+@inject IStore<HomeState> HomeStore
+@inject IDispatcher Dispatcher
+@inject HomeEffects HomeEffects
 @inject DialogService DialogService
-@inject TasksEffects Effects
+@inject ProjectsEffects ProjectsEffects
 @inject NavigationManager Nav
 @implements IAsyncDisposable
 
@@ -38,9 +42,9 @@
         @* One column below 1280px, the contract's tablet and phone widths, in order of urgency; two by two above it. *@
         <RadzenRow Gap="1rem">
             <RadzenColumn Size="12" SizeLG="6">
-                <NeedsMeCard Title="Awaiting approval" TestId="needs-me-awaiting" EmptyText="@NeedsMe.NothingWaiting(_awaiting.More)"
-                             Rows="@_awaiting.Rows" Error="@_awaiting.Error" More="@_awaiting.More"
-                             OnRetry="@(() => LoadAsync(_awaiting))">
+                <NeedsMeCard Title="Awaiting approval" TestId="needs-me-awaiting" EmptyText="@NeedsMe.NothingWaiting(Home.Awaiting.More)"
+                             Rows="@Home.Awaiting.Rows" Error="@Home.Awaiting.Error" More="@Home.Awaiting.More"
+                             OnRetry="@(() => HomeEffects.RetryAsync(HomeCardKind.Awaiting, _cts.Token))">
                     <Row Context="run">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap" Gap="0.5rem">
@@ -48,7 +52,7 @@
                                 <RadzenText TextStyle="TextStyle.Body1" Style="margin: 0; font-weight: 500;">@NeedsMe.Name(run)</RadzenText>
                                 <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-text-secondary-color);"
                                             title="@($"Waiting since {LocalTimes.ShortDateTime(run.UpdatedAt.UtcDateTime)}")">
-                                    waiting @LocalTimes.Elapsed(run.UpdatedAt, _now)
+                                    waiting @LocalTimes.Elapsed(run.UpdatedAt, Home.ReadAt)
                                 </RadzenText>
                             </RadzenStack>
                             <RadzenLink Path="@($"runs/{run.Id}")" Text="Open gate" aria-label="@($"Open gate, {NeedsMe.Name(run)}")"/>
@@ -57,9 +61,9 @@
                 </NeedsMeCard>
             </RadzenColumn>
             <RadzenColumn Size="12" SizeLG="6">
-                <NeedsMeCard Title="Running" TestId="needs-me-running" EmptyText="@NeedsMe.NothingRunning(_running.More)"
-                             Rows="@_running.Rows" Error="@_running.Error" More="@_running.More"
-                             OnRetry="@(() => LoadAsync(_running))">
+                <NeedsMeCard Title="Running" TestId="needs-me-running" EmptyText="@NeedsMe.NothingRunning(Home.Running.More)"
+                             Rows="@Home.Running.Rows" Error="@Home.Running.Error" More="@Home.Running.More"
+                             OnRetry="@(() => HomeEffects.RetryAsync(HomeCardKind.Running, _cts.Token))">
                     <Row Context="run">
                         <RadzenStack Gap="0">
                             <RadzenLink Path="@($"runs/{run.Id}")" Text="@NeedsMe.Name(run)"/>
@@ -71,25 +75,25 @@
                 </NeedsMeCard>
             </RadzenColumn>
             <RadzenColumn Size="12" SizeLG="6">
-                <NeedsMeCard Title="Failed in the last 7 days" TestId="needs-me-failed" EmptyText="@NeedsMe.NoFailedRuns(_failed.More)"
-                             Rows="@_failed.Rows" Error="@_failed.Error" More="@_failed.More"
-                             OnRetry="@(() => LoadAsync(_failed))">
+                <NeedsMeCard Title="Failed in the last 7 days" TestId="needs-me-failed" EmptyText="@NeedsMe.NoFailedRuns(Home.Failed.More)"
+                             Rows="@Home.Failed.Rows" Error="@Home.Failed.Error" More="@Home.Failed.More"
+                             OnRetry="@(() => HomeEffects.RetryAsync(HomeCardKind.Failed, _cts.Token))">
                     <Row Context="run">
                         <RadzenStack Gap="0">
                             <RadzenLink Path="@($"runs/{run.Id}")" Text="@NeedsMe.Name(run)"/>
                             <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">@(run.FailureReason ?? "No reason recorded.")</RadzenText>
                             <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; color: var(--rz-text-secondary-color);"
                                         title="@LocalTimes.ShortDateTime(run.UpdatedAt.UtcDateTime)">
-                                failed @LocalTimes.Elapsed(run.UpdatedAt, _now) ago
+                                failed @LocalTimes.Elapsed(run.UpdatedAt, Home.ReadAt) ago
                             </RadzenText>
                         </RadzenStack>
                     </Row>
                 </NeedsMeCard>
             </RadzenColumn>
             <RadzenColumn Size="12" SizeLG="6">
-                <NeedsMeCard Title="Recent pull requests" TestId="needs-me-prs" EmptyText="@NeedsMe.NoPullRequests(_pullRequests.More)" ShowCount="false"
-                             Rows="@_pullRequests.Rows" Error="@_pullRequests.Error" More="@_pullRequests.More"
-                             OnRetry="@(() => LoadAsync(_pullRequests))">
+                <NeedsMeCard Title="Recent pull requests" TestId="needs-me-prs" EmptyText="@NeedsMe.NoPullRequests(Home.PullRequests.More)" ShowCount="false"
+                             Rows="@Home.PullRequests.Rows" Error="@Home.PullRequests.Error" More="@Home.PullRequests.More"
+                             OnRetry="@(() => HomeEffects.RetryAsync(HomeCardKind.PullRequests, _cts.Token))">
                     <Row Context="run">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      JustifyContent="JustifyContent.SpaceBetween" Wrap="FlexWrap.Wrap" Gap="0.5rem">
@@ -106,13 +110,6 @@
 
 @code {
     private readonly CancellationTokenSource _cts = new();
-    private readonly Card _awaiting = new(_ => NeedsMe.AwaitingQuery, runs => runs);
-    private readonly Card _running = new(_ => NeedsMe.RunningQuery, runs => runs);
-    private readonly Card _failed = new(NeedsMe.FailedQuery, runs => runs);
-    private readonly Card _pullRequests = new(_ => NeedsMe.PullRequestQuery, NeedsMe.RecentPullRequests);
-
-    /// <summary>When the cards were last read, for how long a run has waited.</summary>
-    private DateTimeOffset _now = DateTimeOffset.UtcNow;
 
     /// <summary>Why the last Create and manufacture could not start its run; null when none.</summary>
     private string? _manufactureRefused;
@@ -128,7 +125,15 @@
     /// </summary>
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
-    /// <summary>Decides access for each new authentication state, and reads the four lists when the user becomes a viewer.</summary>
+    /// <summary>The four cards and when they were last read.</summary>
+    private HomeState Home => HomeStore.Value;
+
+    protected override void SubscribeStores() => Subscribe(HomeStore);
+
+    /// <summary>
+    ///     Decides access for each new authentication state. A user who becomes a viewer gets the four cards read; one who
+    ///     stops being one closes Home, with no read.
+    /// </summary>
     protected override async Task OnParametersSetAsync()
     {
         if (AuthenticationState is not { } state || ReferenceEquals(state, _evaluated))
@@ -144,49 +149,24 @@
             return;
         }
 
-        var couldView = _canView == true;
+        var could = _canView;
         _canView = RunAccess.CanView(user);
-        if (_canView == true && !couldView)
+        if (_canView != could)
         {
-            await Task.WhenAll(LoadAsync(_awaiting), LoadAsync(_running), LoadAsync(_failed), LoadAsync(_pullRequests));
+            await HomeEffects.LoadAsync(_canView == true, _cts.Token);
         }
-    }
-
-    /// <summary>Reads one card's list, showing its skeleton meanwhile; a failure stays on that card.</summary>
-    private async Task LoadAsync(Card card)
-    {
-        card.Rows = null;
-        card.Error = null;
-        card.More = false;
-        var result = await Api.GetRunsAsync(card.Query(DateTimeOffset.UtcNow), _cts.Token);
-        if (_cts.IsCancellationRequested)
-        {
-            return;
-        }
-
-        if (result.IsSuccess)
-        {
-            _now = DateTimeOffset.UtcNow;
-            card.Rows = card.Keep(result.Value.Runs);
-            card.More = result.Value.Next is not null;
-        }
-        else
-        {
-            card.Error = result.Error;
-        }
-
-        StateHasChanged();
     }
 
     /// <summary>
-    ///     Opens the create dialog as Tasks does. The dialog's project picker reads the projects Home loads here, since Home
-    ///     has no board. Create closes the dialog and stays on Home, with the dialog's "Task created"; the task is at the top
-    ///     of Tasks. Create and manufacture opens the run it started, or, when the start was refused, says why here.
+    ///     Opens the create dialog as Tasks does. The dialog's project picker reads the shared projects, which Home
+    ///     re-reads here on every press. Create closes the dialog and stays on Home, with the dialog's "Task created"; the
+    ///     task is at the top of Tasks. Create and manufacture opens the run it started, or, when the start was refused,
+    ///     says why here.
     /// </summary>
     private async Task OpenCreateDialogAsync()
     {
         _manufactureRefused = null;
-        var projects = Effects.LoadProjectsAsync(_cts.Token);
+        var projects = ProjectsEffects.LoadAsync(_cts.Token);
         var result = await DialogService.OpenAsync<TaskCreateDialog>("Create New Task",
             options: new DialogOptions { Width = "700px", AutoFocusFirstElement = false });
         await projects;
@@ -207,28 +187,12 @@
             : null;
     }
 
+    /// <summary>Unsubscribes, then closes Home, so a run change no longer re-fetches cards no page shows.</summary>
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
+        Dispose();
         await _cts.CancelAsync();
         _cts.Dispose();
-    }
-
-    /// <summary>
-    ///     One card's read at a given time, what it keeps of it, and what it holds now. Only the pull requests card keeps
-    ///     less than it read; the server filters the others.
-    /// </summary>
-    private sealed class Card(
-        Func<DateTimeOffset, RunListQuery> query,
-        Func<IReadOnlyList<WorkflowRunListItem>, IReadOnlyList<WorkflowRunListItem>> keep)
-    {
-        public Func<DateTimeOffset, RunListQuery> Query { get; } = query;
-
-        public Func<IReadOnlyList<WorkflowRunListItem>, IReadOnlyList<WorkflowRunListItem>> Keep { get; } = keep;
-
-        public IReadOnlyList<WorkflowRunListItem>? Rows { get; set; }
-
-        public string? Error { get; set; }
-
-        public bool More { get; set; }
+        await Dispatcher.DispatchAsync(new HomeClosed());
     }
 }

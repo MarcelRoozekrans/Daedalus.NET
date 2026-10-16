@@ -44,7 +44,7 @@
             <RadzenLabel Component="gate-apply" Text="Apply standing instructions"/>
         </RadzenStack>
     }
-    @if (Draft.Error is { } error && !SessionExpiry.IsSigningIn(error))
+    @if (Draft.Error is { } error)
     {
         <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" class="rz-mt-4" data-testid="gate-error">@error</RadzenAlert>
     }

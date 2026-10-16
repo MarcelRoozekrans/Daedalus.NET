@@ -2,7 +2,15 @@ using System.Security.Claims;
 using Daedalus.Web;
 using Daedalus.Web.Auth;
 using Daedalus.Web.State;
+using Daedalus.Web.State.Agent;
+using Daedalus.Web.State.Brainstorm;
+using Daedalus.Web.State.Costs;
+using Daedalus.Web.State.Home;
+using Daedalus.Web.State.Prd;
+using Daedalus.Web.State.Projects;
+using Daedalus.Web.State.Repositories;
 using Daedalus.Web.State.Runs;
+using Daedalus.Web.State.Schedules;
 using Daedalus.Web.State.Tasks;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -129,6 +137,7 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddScoped<ApiClient>();
 builder.Services.AddScoped<AgentApiClient>();
 builder.Services.AddScoped<IProjectApiClient, ProjectApiClient>();
+builder.Services.AddScoped<RepositoriesApiClient>();
 builder.Services.AddRadzenComponents();
 
 // The console's state: the Flux stores and dispatcher, the effects that fill them, and the one live connection
@@ -137,6 +146,14 @@ builder.Services.AddSingleton(new ApiBaseAddress(new Uri(apiBaseAddress)));
 builder.Services.AddZeroAllocFlux();
 builder.Services.AddScoped<RunsEffects>();
 builder.Services.AddScoped<TasksEffects>();
+builder.Services.AddScoped<ProjectsEffects>();
+builder.Services.AddScoped<HomeEffects>();
+builder.Services.AddScoped<RepositoriesEffects>();
+builder.Services.AddScoped<CostsEffects>();
+builder.Services.AddScoped<SchedulesEffects>();
+builder.Services.AddScoped<PrdEffects>();
+builder.Services.AddScoped<BrainstormEffects>();
+builder.Services.AddScoped<AgentEffects>();
 builder.Services.AddScoped<RunHubConnection>();
 
 // The signed-in user as a cascading value that is replaced whenever the authentication state changes, so the layout

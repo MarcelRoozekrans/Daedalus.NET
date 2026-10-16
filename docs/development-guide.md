@@ -738,24 +738,122 @@ Exported logs are not yet covered by this rule (Daedalus#334).
 
 ## Web state with ZeroAlloc.Flux
 
-The manufacturing console keeps its state in ZeroAlloc.Flux stores. Tasks use the same pattern; phase 2.14 moves
-the remaining pages, once 2.13 has decided which of them stay.
+Every page of the Web app keeps its state in a ZeroAlloc.Flux store. Runs and Tasks moved in phase 2.12; phase 2.14
+moved the rest: Home, Projects, Git Repositories, Costs, Schedules, the PRD generator, Brainstorm and Agent. The
+decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-rulings.md`.
 
-- **Features** live in `Daedalus.Web/State`, one folder per feature (`Runs`, `Tasks`). Each state is a
-  `readonly partial record struct` marked `[Feature(InitialState = nameof(Initial))]`, because the default state leaves
-  collections `null`. See `RunsState` and `TasksState`.
-- **Reducers** are pure static `On` methods (`RunsReducers`). A reducer for a response compares the request it answers,
-  the query or the id, and ignores a stale one. It also ignores a response that lands after the page closed, using the
+| Feature | Read by | Lifetime |
+|---|---|---|
+| `RunsState` | Runs, a run's page, the Runs menu count, the live indicator | the list and the open run are page-only, cleared by `RunListClosed` and `RunClosed`; the count and the hub status live as long as the app |
+| `TasksState` | Tasks | page-only, `TasksClosed` |
+| `ProjectsState` | Projects, Tasks, the task create dialog, Home's New task, the PRD project step | shared, never cleared on close |
+| `HomeState` | Home's `NeedsMePanel` | page-only, `HomeClosed` |
+| `RepositoriesState` | Git Repositories | page-only, `RepositoriesClosed` |
+| `CostsState` | Costs | page-only, `CostsClosed` |
+| `SchedulesState` | Schedules | page-only, `SchedulesClosed` |
+| `PrdState` | PRD Generator | page-only, `PrdClosed`, and `PrdReset` on Start over |
+| `BrainstormState` | `/brainstorm/{id}` | page-only, `BrainstormClosed` |
+| `AgentState` | Agent | page-only, `AgentClosed` |
+
+### The pattern
+
+- **Features** live in `Daedalus.Web/State`, one folder per feature. Each state is a `readonly partial record struct`
+  marked `[Feature(InitialState = nameof(Initial))]`, because the default state leaves collections `null`. The record's
+  summary states its lifetime.
+- **Actions** are `readonly record struct`s in the feature's `…Actions.cs`.
+- **Reducers** are pure static `On` methods marked `[Reducer]`. A reducer for an answer compares it with the request it
+  answers and ignores a stale one.
+- **Effects** are scoped services, registered together in one block in `Program.cs`. They inject their typed clients,
+  `IDispatcher`, the stores they read and a logger: `ProjectsEffects` takes two clients, `ApiClient` for reads and
+  `IProjectApiClient` for writes, and `HomeEffects` also takes a `TimeProvider` for the cards' read time. They take no
+  `NotificationService`, `DialogService` or `NavigationManager`, so every effect can be unit-tested without a renderer.
+  Most dispatch every outcome of a read as an action. Brainstorm and Agent store a read's answer but not its failure:
+  they return the failure as an outcome, `BrainstormOutcome` or `AgentOutcome`, for the page to toast. No effect throws
+  for an expected failure.
+- **Components** inherit `FluxComponent`, override `SubscribeStores()` and call `Subscribe`. One that also overrides
+  `OnInitialized`, such as Tasks, `TaskCreateDialog` and `PrdGenerator`, calls `base.OnInitialized()` first. A page
+  dispatches its `…Closed` action from `DisposeAsync`, after it unsubscribes, so a live change does not re-fetch what
+  is off screen.
+- **View helpers** are pure static classes beside the state, such as `ProjectsView`, `RepositoriesView`,
+  `SchedulesView`, `AgentView` and `TasksView`. A decision a component would otherwise make in markup, such as whether
+  to show the spinner or which notification a write gets, goes there, so it is unit-tested without a renderer.
+
+### Rules
+
+- **Typed clients only.** No component injects `HttpClient`. Pages and effects call `ApiClient`, `AgentApiClient`,
+  `IProjectApiClient` or `RepositoriesApiClient`, and the Web binds the Application DTOs directly; it keeps no copies.
+  `WebLayer_KeepsNoCopyOf_AnApplicationDto` in `Daedalus.Tests.Unit`'s `CleanArchitectureTests` guards the second.
+- **The clients turn Polly's rejections into a failed `Result`.** The resilience handler throws
+  `ExecutionRejectedException` when its circuit is open or its timeout fires. `AgentApiClient`, `RepositoriesApiClient`,
+  `ProjectApiClient` and `ApiClient`'s writes catch it by name beside `HttpRequestException`. `ApiClient`'s reads, all
+  through its `GetAsync`, still end in a catch-all: a rejection, or a body it cannot read such as a `JsonException`,
+  returns a failed `Result` that reads "Unexpected error: …". Narrowing it changes failure text that tests pin, so it
+  is tracked on issue #383, as is the Agent stream, which reports a rejection with the same old catch-all text.
+  `ProjectApiClient` also catches a cancellation and a body it cannot write or read, and lets any other exception
+  through as a defect. No page needs a catch-all.
+- **A cancelled caller dispatches nothing.** An effect checks its token before its first dispatch. A page already gone
+  would otherwise clear what a page opened since shows, or move the request sequence past its answer. A failure that
+  comes back after the token was cancelled stores no error. Only Projects ends the load for it, with
+  `ProjectsLoadAbandoned`, because `ProjectsState` has no `…Closed` to end it. Every other feature returns without a
+  dispatch and relies on its page's `…Closed`, which already ended the load: `RunListClosed`, `RunClosed` and
+  `TasksClosed` for Runs and Tasks, and each 2.14 page's own. Git Repositories, Costs, Schedules, PRD, Brainstorm and
+  Agent drop a success that comes back after the cancellation the same way. Home dispatches it, and its reducers drop
+  it: `HomeClosed` has marked Home closed, or a newer read has taken the card's number. `AgentApiClient`'s reads let a
+  cancellation through as an `OperationCanceledException` instead of a failed `Result`; Blazor ignores a cancelled
+  lifecycle or event task.
+- **A request sequence drops stale answers.** A read's start takes the next sequence number and dispatches it, with no
+  await between the read of the number and the dispatch. An answer with an older number is ignored, so an earlier
+  reader's late answer never replaces a later one. A feature's `…Closed` keeps the number, and `PrdClosed` and
+  `PrdReset` advance it, so an answer to a read made before the close never matches one made after it. The 2.12
+  features compare an answer with the query or id it answers instead, and drop one that lands after the close by the
   `ListRequested` flag on `RunsState` and the `LoadRequested` flag on `TasksState`.
-- **Effects** are scoped services that inject `ApiClient` and `IDispatcher`, as `RunsEffects` does. They dispatch every
-  outcome as an action and never throw for an expected failure. `ApiClient` reports a cancellation as a failed
-  `Result`, so an effect checks for cancellation before it re-fetches after a failure.
-- **Components** inherit `FluxComponent`, override `SubscribeStores()` and call `Subscribe`, and never override
-  `OnInitialized`. A page dispatches `RunClosed`, `RunListClosed` or `TasksClosed` from `DisposeAsync`, after it
-  unsubscribes, so a live change does not re-fetch what is off screen.
+- **Started clears the last error.** A load's start clears the feature's last error, so a failure from another page
+  never shows under a list that is being read again.
+- **`SessionExpiry.SigningInAgain` is never stored.** The layout already says "Signing in again", so an effect that
+  sees it, through `SessionExpiry.IsSigningIn`, stores no error and returns no outcome. Runs and Tasks end the load
+  with an `…Abandoned` action instead; Tasks marks the board unread, so `TasksView.ShowEmpty` claims no empty board.
+- **Failures are logged.** A failure an effect stores, or a background one it drops, is logged as a warning
+  through a `[LoggerMessage]` method, with the error text only: never the request, a prompt, a message or a PRD. A
+  refused write is logged the same way, unless the session is being renewed or the caller is gone.
+- **Writes return their outcome.** A write effect returns its outcome, such as `ProjectSave`, `RepositorySave`,
+  `ScheduleResend`, `BrainstormOutcome` or `AgentOutcome`, to the component that asked, and that component shows the
+  toast through `FailureNotices`. There is no last-outcome state, so a component never shows another write's outcome.
+  `null` means no outcome: the session is being renewed, or the caller is gone.
+- **The spinner is only for a load the component started.** A component keeps a flag for its own load and asks a pure
+  view helper, such as `ProjectsView.ShowSpinner`, whether to show the spinner. A background refresh, from the hub, a
+  reconnect or another page, renders silently over the rows already shown.
+
+### `ProjectsState`, the shared feature
+
+`ProjectsState` is never cleared when a page closes. Blazor disposes the page being left after it initialises the next
+one, so a clear from the old page would land after the new page asked for the projects. Instead every reader re-fetches
+the list when it opens, and the request sequence drops an older reader's late answer. What a closed page left behind
+shows at most until that re-fetch lands. Two derived views say what a reader may use:
+
+- `Settled` is the list once the newest load finished without an error, and `null` otherwise. A decision made once,
+  such as the create dialog's one-project preselect, waits for it.
+- `Current` is the list a reader shows outside a load of its own: the held list during a background refresh, and
+  `null` once a load has failed, so the failure shows as before.
+
+`Selected`, `SelectedId` and `SelectError` are the Projects page's own and are cleared by `ProjectsPageClosed`, which
+leaves the list alone.
+
+### Home's live updates
+
+Home's Awaiting, Running and Failed cards re-fetch on each `RunChanged` and on reconnect, while Home is open; the Recent
+pull requests card is read only on open and on Retry. `HomeEffects` returns at once from a change: SignalR runs its
+handlers one at a time and waits for each, so a handler that waited for the re-fetch would hold back every change behind
+it. Changes that arrive while a re-fetch is in flight are coalesced into one more round after it. A background
+re-fetch that fails keeps the card's rows and logs a warning; only a read that showed the skeleton, on open or Retry,
+shows the card's error.
+
+### Other conventions
+
 - **Status text** for a run comes from `RunStatusLabels`. Who may see the console comes from `RunAccess` in
   `Daedalus.Web/Auth`: `CanView` is `developer` or `admin`, `CanRetry` is `admin`. `RolesClaimsPrincipalFactory` splits
   Keycloak's `roles` array into role claims so `IsInRole` works.
+- **The Agent stream** dispatches one action per event into immutable transcript records. The component throttles its
+  renders to one per 50 ms through `AgentView.ShouldRender`.
 
 ## Live run updates
 

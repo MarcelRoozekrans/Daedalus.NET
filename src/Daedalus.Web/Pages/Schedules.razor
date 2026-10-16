@@ -2,10 +2,13 @@
 @attribute [Authorize]
 @using Daedalus.Application.DTOs.Scheduling
 @using Microsoft.JSInterop
-@inject ApiClient Api
+@inherits FluxComponent
+@implements IAsyncDisposable
+@inject IStore<SchedulesState> SchedulesStore
+@inject IDispatcher Dispatcher
+@inject SchedulesEffects SchedulesEffects
 @inject NavigationManager Navigation
 @inject IJSRuntime Js
-@implements IAsyncDisposable
 
 <RadzenStack Gap="0.25rem" class="rz-mb-4">
     <RadzenText TextStyle="TextStyle.H4" TagName="TagName.H1" Style="margin: 0;">Schedules</RadzenText>
@@ -62,20 +65,20 @@
                     Dead-lettered after @retries retry attempt@(retries == 1 ? "" : "s"): @run.DeadLetterError
                 </RadzenAlert>
 
-                var resend = GetResendState(run.ExecutionId);
+                var resend = _resends.GetValueOrDefault(run.ExecutionId);
                 <div aria-live="polite" style="margin-top: 0.5rem;">
                     <RadzenButton Text="@(resend.InFlight ? "Resending…" : "Resend")"
                                   ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
                                   IsBusy="@resend.InFlight" Disabled="@resend.InFlight"
                                   Click="@(() => ResendAsync(run))"/>
-                    @if (resend.Succeeded)
+                    @if (resend.Outcome is { Succeeded: true })
                     {
                         <RadzenText TextStyle="TextStyle.Caption"
                                     Style="color: var(--rz-success); display: block; margin-top: 0.25rem;">
                             Requeued. The verdict will update on the next refresh.
                         </RadzenText>
                     }
-                    @if (resend.ErrorMessage is { } resendError)
+                    @if (resend.Outcome?.Refusal is { } resendError)
                     {
                         <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" Style="margin-top: 0.25rem;">
                             @resendError
@@ -110,17 +113,17 @@
     </div>;
 }
 
-@if (_state == LoadState.Error)
+@if (Show == SchedulesShow.Error)
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter">
-        @_errorMessage
+        @View.Error
         <div style="margin-top: 0.5rem;">
             <RadzenButton Text="Retry" Icon="refresh" ButtonStyle="ButtonStyle.Danger" Variant="Variant.Outlined"
                           Click="@LoadOverviewAsync"/>
         </div>
     </RadzenAlert>
 }
-else if (_state == LoadState.Loaded && _overview.Count == 0)
+else if (Show == SchedulesShow.Empty)
 {
     <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter">
         No schedules configured. Add entries under the ScheduledRuns configuration section to see them here.
@@ -129,8 +132,8 @@ else if (_state == LoadState.Loaded && _overview.Count == 0)
 else
 {
     <div class="schedules-desktop-only">
-        <RadzenDataGrid @ref="_overviewGrid" TItem="RunDiagnosis" Data="@_overview"
-                        IsLoading="@(_state == LoadState.Loading)"
+        <RadzenDataGrid @ref="_overviewGrid" TItem="RunDiagnosis" Data="@Overview"
+                        IsLoading="@(Show == SchedulesShow.Loading)"
                         AllowPaging="true" PageSize="15" AllowSorting="true" AllowColumnResize="true"
                         ExpandMode="DataGridExpandMode.Single"
                         RowExpand="@OnRowExpand" RowCollapse="@OnRowCollapse"
@@ -171,8 +174,8 @@ else
                     <h2 tabindex="-1" @ref="_expandedRegionHeading" class="schedule-expanded-heading">
                         Run history — @row.ScheduleName
                     </h2>
-                    @{ var historyState = _historyByScheduleId.GetValueOrDefault(row.ScheduleId); }
-                    @if (historyState is null || historyState.Loading)
+                    @{ var held = View.Histories.TryGetValue(row.ScheduleId, out var history); }
+                    @if (!held || history.Loading)
                     {
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
                             <RadzenProgressBarCircular ProgressBarStyle="ProgressBarStyle.Primary"
@@ -181,23 +184,23 @@ else
                             <RadzenText TextStyle="TextStyle.Body2" Style="margin: 0;">Loading run history…</RadzenText>
                         </RadzenStack>
                     }
-                    else if (historyState.Error is not null)
+                    else if (history.Error is not null)
                     {
                         <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter">
-                            @historyState.Error
+                            @history.Error
                             <RadzenButton Text="Retry" Icon="refresh" ButtonStyle="ButtonStyle.Danger"
                                           Variant="Variant.Outlined" Size="ButtonSize.Small"
                                           Style="margin-left: 0.75rem;"
                                           Click="@(() => RetryHistoryAsync(row.ScheduleId))"/>
                         </RadzenAlert>
                     }
-                    else if (historyState.Runs.Count == 0)
+                    else if (history.Runs is not { Count: > 0 } runs)
                     {
                         <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter">No runs yet.</RadzenAlert>
                     }
                     else
                     {
-                        <RadzenDataGrid TItem="RunDiagnosis" Data="@historyState.Runs" AllowSorting="false"
+                        <RadzenDataGrid TItem="RunDiagnosis" Data="@runs" AllowSorting="false"
                                         AllowPaging="false" RowSelect="@(run => OnRunSelected(row.ScheduleId, run))">
                             <Columns>
                                 <RadzenDataGridColumn TItem="RunDiagnosis" Property="OccurrenceAtUtc" Title="Occurrence">
@@ -217,7 +220,7 @@ else
                             </Columns>
                         </RadzenDataGrid>
 
-                        @if (historyState.SelectedRun is { } selectedRun)
+                        @if (history.Selected is { } selectedRun)
                         {
                             <div class="run-detail-panel">
                                 @RunDetailTemplate(selectedRun)
@@ -229,7 +232,7 @@ else
         </RadzenDataGrid>
     </div>
 
-    @if (_state == LoadState.Loading)
+    @if (Show == SchedulesShow.Loading)
     {
         <ul class="schedules-mobile-only" aria-label="Schedules loading" aria-busy="true">
             @for (var i = 0; i < 3; i++)
@@ -247,7 +250,7 @@ else
     else
     {
         <ul class="schedules-mobile-only" aria-label="Schedules">
-            @foreach (var row in _overview)
+            @foreach (var row in Overview)
             {
                 var expanded = _mobileExpandedScheduleIds.Contains(row.ScheduleId);
                 var detailId = $"schedule-mobile-detail-{row.ScheduleId}";
@@ -293,41 +296,20 @@ else
 }
 
 @code {
-    private enum LoadState
-    {
-        Loading,
-        Loaded,
-        Error,
-    }
-
-    private sealed class RunHistoryState
-    {
-        public bool Loading = true;
-        public string? Error;
-        public IReadOnlyList<RunDiagnosis> Runs = [];
-        public RunDiagnosis? SelectedRun;
-    }
-
-    private sealed class ResendState
-    {
-        public bool InFlight;
-        public bool Succeeded;
-        public string? ErrorMessage;
-    }
-
-    private const int RunHistoryTake = 20;
+    /// <summary>A resend this page asked for: in flight, then the outcome it returned. A resend's outcome is not state.</summary>
+    private readonly record struct ResendView(bool InFlight, ScheduleResend? Outcome);
 
     [Parameter]
     [SupplyParameterFromQuery(Name = "scheduleId")]
     public Guid? ScheduleId { get; set; }
 
-    private LoadState _state = LoadState.Loading;
-    private IReadOnlyList<RunDiagnosis> _overview = [];
-    private string? _errorMessage;
-    private CancellationTokenSource? _cts;
+    /// <summary>Cancelled when the page goes, so a read or a resend still running stops with it.</summary>
+    private readonly CancellationTokenSource _cts = new();
 
-    private readonly Dictionary<Guid, RunHistoryState> _historyByScheduleId = new();
-    private readonly Dictionary<Guid, ResendState> _resendStates = new();
+    /// <summary>The page's token, read once: it stays readable after the source is disposed.</summary>
+    private CancellationToken _token;
+
+    private readonly Dictionary<Guid, ResendView> _resends = new();
     private readonly HashSet<Guid> _mobileExpandedScheduleIds = new();
 
     private RadzenDataGrid<RunDiagnosis>? _overviewGrid;
@@ -337,73 +319,32 @@ else
     private bool _appliedDeepLink;
     private IJSObjectReference? _jsModule;
 
-    protected override async Task OnInitializedAsync() => await LoadOverviewAsync();
+    private SchedulesState View => SchedulesStore.Value;
 
-    private async Task LoadOverviewAsync()
+    private SchedulesShow Show => SchedulesView.Overview(View);
+
+    private IReadOnlyList<RunDiagnosis> Overview => View.Overview ?? [];
+
+    protected override void SubscribeStores() => Subscribe(SchedulesStore);
+
+    protected override async Task OnInitializedAsync()
     {
-        _state = LoadState.Loading;
-        _errorMessage = null;
-        StateHasChanged();
-
-        if (_cts is not null)
-        {
-            await _cts.CancelAsync();
-            _cts.Dispose();
-        }
-
-        _cts = new CancellationTokenSource();
-
-        var result = await Api.GetScheduleOverviewAsync(_cts.Token);
-        if (result.IsSuccess)
-        {
-            _overview = result.Value;
-            _state = LoadState.Loaded;
-        }
-        else if (!SessionExpiry.IsSigningIn(result.Error))
-        {
-            _errorMessage = result.Error;
-            _state = LoadState.Error;
-        }
-
-        StateHasChanged();
+        _token = _cts.Token;
+        await LoadOverviewAsync();
     }
 
-    private async Task EnsureHistoryLoadedAsync(Guid scheduleId)
-    {
-        if (_historyByScheduleId.ContainsKey(scheduleId))
-        {
-            return;
-        }
+    private Task LoadOverviewAsync() => SchedulesEffects.LoadAsync(_token);
 
-        var state = new RunHistoryState();
-        _historyByScheduleId[scheduleId] = state;
-        StateHasChanged();
-
-        var result = await Api.GetScheduleRunHistoryAsync(scheduleId, RunHistoryTake, _cts?.Token ?? default);
-        if (result.IsSuccess)
-        {
-            state.Runs = result.Value;
-        }
-        else if (!SessionExpiry.IsSigningIn(result.Error))
-        {
-            state.Error = result.Error;
-        }
-
-        state.Loading = false;
-        StateHasChanged();
-    }
-
-    private Task RetryHistoryAsync(Guid scheduleId)
-    {
-        _historyByScheduleId.Remove(scheduleId);
-        return EnsureHistoryLoadedAsync(scheduleId);
-    }
+    private Task RetryHistoryAsync(Guid scheduleId) => SchedulesEffects.RetryHistoryAsync(scheduleId, _token);
 
     private Task OnRowExpand(RunDiagnosis row)
     {
         _focusExpandedPending = true;
+        // A row the person expands is the one in the address now, so a later render must not apply it as a deep link:
+        // ExpandRow on an open row collapses it.
+        _appliedDeepLink = true;
         Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("scheduleId", row.ScheduleId.ToString()), replace: true);
-        return EnsureHistoryLoadedAsync(row.ScheduleId);
+        return SchedulesEffects.EnsureHistoryAsync(row.ScheduleId, _token);
     }
 
     private Task OnRowCollapse(RunDiagnosis row)
@@ -413,13 +354,8 @@ else
         return Task.CompletedTask;
     }
 
-    private void OnRunSelected(Guid scheduleId, RunDiagnosis run)
-    {
-        if (_historyByScheduleId.TryGetValue(scheduleId, out var state))
-        {
-            state.SelectedRun = run;
-        }
-    }
+    private Task OnRunSelected(Guid scheduleId, RunDiagnosis run) =>
+        Dispatcher.DispatchAsync(new ScheduleRunSelected(scheduleId, run)).AsTask();
 
     private void ToggleMobileDetails(Guid scheduleId)
     {
@@ -429,40 +365,16 @@ else
         }
     }
 
-    private ResendState GetResendState(Guid executionId)
-    {
-        if (!_resendStates.TryGetValue(executionId, out var state))
-        {
-            state = new ResendState();
-            _resendStates[executionId] = state;
-        }
-
-        return state;
-    }
-
+    /// <summary>
+    ///     Resends <paramref name="run"/> and shows the outcome this resend returned under it. No outcome is a session
+    ///     being renewed, which the layout says, or the page gone, so nothing shows. The verdict is not rewritten: the
+    ///     page must never claim a delivery it has not seen, so it re-resolves from the server on the next read.
+    /// </summary>
     private async Task ResendAsync(RunDiagnosis run)
     {
-        var state = GetResendState(run.ExecutionId);
-        state.InFlight = true;
-        state.ErrorMessage = null;
-        state.Succeeded = false;
-        StateHasChanged();
-
-        // Do not optimistically rewrite the verdict: the page must never claim a delivery it has not
-        // observed. On success we only record that the request was accepted; the row's verdict re-resolves
-        // from the server the next time the overview is reloaded.
-        var result = await Api.ResendScheduleRunAsync(run.ScheduleId, run.ExecutionId, _cts?.Token ?? default);
-        if (result.IsSuccess)
-        {
-            state.Succeeded = true;
-        }
-        else if (!SessionExpiry.IsSigningIn(result.Error))
-        {
-            state.ErrorMessage = result.Error;
-        }
-
-        state.InFlight = false;
-        StateHasChanged();
+        _resends[run.ExecutionId] = new ResendView(true, null);
+        var outcome = await SchedulesEffects.ResendAsync(run, _token);
+        _resends[run.ExecutionId] = new ResendView(false, outcome);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -487,10 +399,10 @@ else
             await module.InvokeVoidAsync("focusElementById", RowNameElementId(collapsedScheduleId));
         }
 
-        if (!_appliedDeepLink && _state == LoadState.Loaded && ScheduleId is { } deepLinkId && _overviewGrid is not null)
+        if (!_appliedDeepLink && Show == SchedulesShow.Loaded && ScheduleId is { } deepLinkId && _overviewGrid is not null)
         {
             _appliedDeepLink = true;
-            var match = _overview.FirstOrDefault(r => r.ScheduleId == deepLinkId);
+            var match = Overview.FirstOrDefault(r => r.ScheduleId == deepLinkId);
             if (match is not null)
             {
                 await _overviewGrid.ExpandRow(match);
@@ -557,11 +469,10 @@ else
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        if (_cts is not null)
-        {
-            await _cts.CancelAsync();
-            _cts.Dispose();
-        }
+        Dispose();
+        await _cts.CancelAsync();
+        _cts.Dispose();
+        await Dispatcher.DispatchAsync(new SchedulesClosed());
 
         if (_jsModule is not null)
         {

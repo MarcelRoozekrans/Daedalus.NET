@@ -1,7 +1,10 @@
 @page "/costs"
 @attribute [Authorize]
-@inject ApiClient Api
+@inherits FluxComponent
 @implements IAsyncDisposable
+@inject IStore<CostsState> CostsStore
+@inject IDispatcher Dispatcher
+@inject CostsEffects CostsEffects
 
 <RadzenStack Gap="0.25rem" class="rz-mb-4">
     <RadzenText TextStyle="TextStyle.H4" Style="margin: 0;">Cost Analytics</RadzenText>
@@ -10,44 +13,44 @@
     </RadzenText>
 </RadzenStack>
 
-@if (!string.IsNullOrEmpty(_errorMessage))
+@if (!string.IsNullOrEmpty(View.Error))
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="true" class="rz-mb-4">
-        @_errorMessage
+        @View.Error
     </RadzenAlert>
 }
 
 <RadzenRow Gap="1rem" class="rz-mb-6" data-testid="cost-stats-row">
     <RadzenColumn Size="12" SizeMD="3">
         <RadzenCard data-testid="stat-total-tokens">
-            <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatNumber((_summary?.TotalInputTokens ?? 0) + (_summary?.TotalOutputTokens ?? 0))</RadzenText>
+            <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatNumber((View.Summary?.TotalInputTokens ?? 0) + (View.Summary?.TotalOutputTokens ?? 0))</RadzenText>
             <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">Total Tokens</RadzenText>
         </RadzenCard>
     </RadzenColumn>
     <RadzenColumn Size="12" SizeMD="3">
         <RadzenCard data-testid="stat-total-cost">
-            <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatCurrency(_summary?.TotalCost ?? 0)</RadzenText>
+            <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatCurrency(View.Summary?.TotalCost ?? 0)</RadzenText>
             <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">Priced Cost</RadzenText>
         </RadzenCard>
     </RadzenColumn>
     <RadzenColumn Size="12" SizeMD="3">
         <RadzenCard data-testid="stat-cache-read">
-            <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatNumber(_summary?.TotalCacheReadTokens ?? 0)</RadzenText>
+            <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatNumber(View.Summary?.TotalCacheReadTokens ?? 0)</RadzenText>
             <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">Cache Read Tokens (manufacture)</RadzenText>
         </RadzenCard>
     </RadzenColumn>
     <RadzenColumn Size="12" SizeMD="3">
         <RadzenCard data-testid="stat-total-entries">
-            <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatNumber(_summary?.TotalEntries ?? 0)</RadzenText>
+            <RadzenText TextStyle="TextStyle.H3" Style="margin: 0;">@FormatNumber(View.Summary?.TotalEntries ?? 0)</RadzenText>
             <RadzenText TextStyle="TextStyle.Caption" Style="margin: 0; opacity: 0.6;">Recorded Entries</RadzenText>
         </RadzenCard>
     </RadzenColumn>
 </RadzenRow>
 
-@if (_summary is { UnreadableRecords: > 0 })
+@if (View.Summary is { UnreadableRecords: > 0 } unreadable)
 {
     <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" class="rz-mb-4" data-testid="cost-unreadable">
-        @_summary.UnreadableRecords node-usage record(s) could not be read and are not in these figures.
+        @unreadable.UnreadableRecords node-usage record(s) could not be read and are not in these figures.
     </RadzenAlert>
 }
 
@@ -55,7 +58,7 @@
     <RadzenColumn Size="12" SizeMD="6">
         <RadzenCard data-testid="cost-by-source">
             <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">By Source</RadzenText>
-            <RadzenDataGrid Data="@(_summary?.BySource ?? [])" TItem="CostSliceDto" Density="Density.Compact">
+            <RadzenDataGrid Data="@(View.Summary?.BySource ?? [])" TItem="CostSliceDto" Density="Density.Compact">
                 <Columns>
                     <RadzenDataGridColumn TItem="CostSliceDto" Property="Key" Title="Source"/>
                     <RadzenDataGridColumn TItem="CostSliceDto" Property="InputTokens" Title="Input" FormatString="{0:N0}"/>
@@ -69,7 +72,7 @@
     <RadzenColumn Size="12" SizeMD="6">
         <RadzenCard data-testid="cost-by-model">
             <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">By Model</RadzenText>
-            <RadzenDataGrid Data="@(_summary?.ByModel ?? [])" TItem="CostSliceDto" Density="Density.Compact">
+            <RadzenDataGrid Data="@(View.Summary?.ByModel ?? [])" TItem="CostSliceDto" Density="Density.Compact">
                 <Columns>
                     <RadzenDataGridColumn TItem="CostSliceDto" Property="Key" Title="Model"/>
                     <RadzenDataGridColumn TItem="CostSliceDto" Property="InputTokens" Title="Input" FormatString="{0:N0}"/>
@@ -83,7 +86,7 @@
 
 <RadzenCard class="rz-mb-6" data-testid="cost-by-day">
     <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">By Day (UTC)</RadzenText>
-    <RadzenDataGrid Data="@(_summary?.ByDay ?? [])" TItem="CostDayDto" Density="Density.Compact" AllowPaging="true" PageSize="14">
+    <RadzenDataGrid Data="@(View.Summary?.ByDay ?? [])" TItem="CostDayDto" Density="Density.Compact" AllowPaging="true" PageSize="14">
         <Columns>
             <RadzenDataGridColumn TItem="CostDayDto" Property="Day" Title="Day"/>
             <RadzenDataGridColumn TItem="CostDayDto" Property="Source" Title="Source"/>
@@ -94,10 +97,10 @@
     </RadzenDataGrid>
 </RadzenCard>
 
-@if (_summary is not null)
+@if (View.Summary is { } summary)
 {
     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-6" Style="display: block; opacity: 0.7;" data-testid="cost-scope">
-        @_summary.Scope
+        @summary.Scope
     </RadzenText>
 }
 
@@ -108,27 +111,28 @@
             <RadzenStack Gap="0.75rem">
                 <div>
                     <RadzenLabel Text="Model" Component="ModelSelect"/>
-                    <RadzenDropDown @bind-Value="_selectedModelId" Data="_pricingModels" TextProperty="DisplayName" ValueProperty="ModelId"
-                                    Style="width: 100%;" Name="ModelSelect" Change="@OnEstimateParamsChanged"/>
+                    <RadzenDropDown TValue="string" Value="@View.Estimator.ModelId" Data="View.Pricing" TextProperty="DisplayName" ValueProperty="ModelId"
+                                    Style="width: 100%;" Name="ModelSelect"
+                                    ValueChanged="@((string modelId) => EstimateAsync(View.Estimator with { ModelId = modelId }))"/>
                 </div>
                 <div>
                     <RadzenLabel Text="Turns" Component="Turns"/>
-                    <RadzenNumeric @bind-Value="_estimateTurns" Min="1" Max="100" Style="width: 100%;" Name="Turns"
-                                   Change="@((int _) => OnEstimateParamsChanged())"/>
+                    <RadzenNumeric TValue="int" Value="@View.Estimator.Turns" Min="1" Max="100" Style="width: 100%;" Name="Turns"
+                                   ValueChanged="@((int turns) => EstimateAsync(View.Estimator with { Turns = turns }))"/>
                 </div>
                 <div>
                     <RadzenLabel Text="Estimated Prompt Tokens per Turn" Component="PromptTokens"/>
-                    <RadzenNumeric @bind-Value="_estimatePromptTokens" Min="100" Max="100000" Style="width: 100%;" Name="PromptTokens"
-                                   Change="@((int _) => OnEstimateParamsChanged())"/>
+                    <RadzenNumeric TValue="int" Value="@View.Estimator.PromptTokens" Min="100" Max="100000" Style="width: 100%;" Name="PromptTokens"
+                                   ValueChanged="@((int tokens) => EstimateAsync(View.Estimator with { PromptTokens = tokens }))"/>
                 </div>
-                @if (_estimate is not null)
+                @if (View.Estimate is { } estimate)
                 {
                     <RadzenCard Style="background: var(--rz-base-200);">
                         <RadzenText TextStyle="TextStyle.H4" Style="margin: 0; color: var(--rz-success);">
-                            @FormatCurrency(_estimate.EstimatedMinCost) — @FormatCurrency(_estimate.EstimatedMaxCost)
+                            @FormatCurrency(estimate.EstimatedMinCost) — @FormatCurrency(estimate.EstimatedMaxCost)
                         </RadzenText>
                         <RadzenText TextStyle="TextStyle.Caption" Style="opacity: 0.6; margin: 0.25rem 0 0 0;">
-                            Based on @_estimate.EstimatedResponseTokens average output tokens per turn
+                            Based on @estimate.EstimatedResponseTokens average output tokens per turn
                         </RadzenText>
                     </RadzenCard>
                 }
@@ -138,7 +142,7 @@
     <RadzenColumn Size="12" SizeMD="7">
         <RadzenCard data-testid="model-pricing">
             <RadzenText TextStyle="TextStyle.H6" class="rz-mb-4">Model Pricing</RadzenText>
-            <RadzenDataGrid Data="_pricingModels" TItem="ModelPricingDto" Density="Density.Compact">
+            <RadzenDataGrid Data="View.Pricing" TItem="ModelPricingDto" Density="Density.Compact">
                 <Columns>
                     <RadzenDataGridColumn TItem="ModelPricingDto" Property="DisplayName" Title="Model"/>
                     <RadzenDataGridColumn TItem="ModelPricingDto" Property="InputPricePerMillion" Title="Input $/1M" FormatString="{0:C2}"/>
@@ -156,7 +160,7 @@
     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-4" Style="display: block; opacity: 0.7;">
         Read-only: iterations of the task loop retired in phase 2.8. Manufacture runs are in the source table above.
     </RadzenText>
-    <RadzenDataGrid Data="_projectCosts" TItem="ProjectCostDto" AllowSorting="true" RowExpand="@OnRowExpand" ExpandMode="DataGridExpandMode.Single">
+    <RadzenDataGrid Data="View.Projects" TItem="ProjectCostDto" AllowSorting="true" RowExpand="@OnRowExpand" ExpandMode="DataGridExpandMode.Single">
         <Template Context="project">
             <RadzenDataGrid Data="@GetTaskCosts(project.ProjectId)" TItem="TaskCostDto" Density="Density.Compact" Style="margin: 0.5rem 1rem;">
                 <Columns>
@@ -179,87 +183,30 @@
 </RadzenCard>
 
 @code {
-    private CostSummaryDto? _summary;
-    private List<ProjectCostDto> _projectCosts = [];
-    private List<ModelPricingDto> _pricingModels = [];
-    private CostEstimateDto? _estimate;
-    private string _errorMessage = "";
-    private CancellationTokenSource? _cts;
-    private string _selectedModelId = "claude-sonnet-4-20250514";
-    private int _estimateTurns = 10;
-    private int _estimatePromptTokens = 4000;
-    private readonly Dictionary<Guid, List<TaskCostDto>> _taskCostsCache = new();
+    /// <summary>Cancelled when the page goes, so a read still running stops with it.</summary>
+    private readonly CancellationTokenSource _cts = new();
+
+    /// <summary>The page's token, read once: it stays readable after the source is disposed.</summary>
+    private CancellationToken _token;
+
+    private CostsState View => CostsStore.Value;
+
+    protected override void SubscribeStores() => Subscribe(CostsStore);
 
     protected override async Task OnInitializedAsync()
     {
-        _cts = new CancellationTokenSource();
-        await LoadDataAsync(_cts.Token);
+        _token = _cts.Token;
+        await CostsEffects.LoadAsync(_token);
     }
 
-    private async Task LoadDataAsync(CancellationToken ct)
-    {
-        try
-        {
-            var summaryTask = Api.GetCostSummaryAsync(ct);
-            var projectsTask = Api.GetCostsByProjectAsync(ct);
-            var pricingTask = Api.GetModelPricingAsync(ct);
-            await Task.WhenAll(summaryTask, projectsTask, pricingTask);
+    /// <summary>Asks for the estimate of the estimator's new inputs: a model, turns or prompt tokens changed.</summary>
+    private Task EstimateAsync(CostEstimator estimator) => CostsEffects.EstimateAsync(estimator, _token);
 
-            var summary = await summaryTask;
-            var projects = await projectsTask;
-            var pricing = await pricingTask;
-            _summary = summary.IsSuccess ? summary.Value : null;
-            _projectCosts = projects.IsSuccess ? projects.Value : [];
-            _pricingModels = pricing.IsSuccess ? pricing.Value : [];
-            if (summary.IsFailure && !SessionExpiry.IsSigningIn(summary.Error))
-            {
-                _errorMessage = summary.Error;
-            }
+    /// <summary>Reads the expanded project's tasks, once.</summary>
+    private Task OnRowExpand(ProjectCostDto project) => CostsEffects.LoadTaskCostsAsync(project.ProjectId, _token);
 
-            if (_pricingModels.Count > 0)
-            {
-                _selectedModelId = _pricingModels[0].ModelId;
-            }
-
-            await LoadEstimateAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            // The page was left while loading.
-        }
-        catch (Exception ex) when (!SessionExpiry.IsSigningIn(ex))
-        {
-            _errorMessage = $"Error loading cost data: {ex.Message}";
-        }
-    }
-
-    private async Task LoadEstimateAsync(CancellationToken ct)
-    {
-        var estimate = await Api.EstimateCostAsync(_selectedModelId, _estimateTurns, _estimatePromptTokens, ct);
-        _estimate = estimate.IsSuccess ? estimate.Value : null;
-    }
-
-    private async void OnEstimateParamsChanged()
-    {
-        if (_cts is null) return;
-        await LoadEstimateAsync(_cts.Token);
-        StateHasChanged();
-    }
-
-    private async void OnRowExpand(ProjectCostDto project)
-    {
-        if (_taskCostsCache.ContainsKey(project.ProjectId) || _cts is null) return;
-        var result = await Api.GetCostsByProjectIdAsync(project.ProjectId, _cts.Token);
-        if (result.IsSuccess)
-        {
-            _taskCostsCache[project.ProjectId] = result.Value;
-        }
-
-        StateHasChanged();
-    }
-
-    private List<TaskCostDto> GetTaskCosts(Guid projectId) =>
-        _taskCostsCache.TryGetValue(projectId, out var tasks) ? tasks : [];
+    private IReadOnlyList<TaskCostDto> GetTaskCosts(Guid projectId) =>
+        View.TaskCosts.TryGetValue(projectId, out var tasks) ? tasks : [];
 
     private static string FormatNumber(long number) => number switch
     {
@@ -272,10 +219,9 @@
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        if (_cts is not null)
-        {
-            await _cts.CancelAsync();
-            _cts.Dispose();
-        }
+        Dispose();
+        await _cts.CancelAsync();
+        _cts.Dispose();
+        await Dispatcher.DispatchAsync(new CostsClosed());
     }
 }

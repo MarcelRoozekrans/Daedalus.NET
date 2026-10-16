@@ -237,6 +237,67 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     A Retry still in flight when the person leaves the run reports nothing: leaving cancels the call, and "Could
+    ///     not retry" would be a failure that is only the page going away. The call is held at the route and never
+    ///     reaches the server, so the seeded failed run is not retried.
+    ///     Red: drop the cancellation check before NotifyFailure in <c>RunDetail.RetryAsync</c>; the toast is recorded.
+    /// </summary>
+    [Test]
+    [Description("A Retry cut short by leaving the run shows no failure")]
+    public async Task RunDetail_RetryCutShortByLeaving_ShowsNoFailure()
+    {
+        var release = new TaskCompletionSource();
+        var held = new List<Task>();
+        async Task AbortOnceReleasedAsync(IRoute route)
+        {
+            await release.Task.ConfigureAwait(false);
+            try
+            {
+                await route.AbortAsync().ConfigureAwait(false);
+            }
+            catch (PlaywrightException)
+            {
+                // The page already gave the request up when it left.
+            }
+        }
+
+        await Page.RouteAsync($"**/api/workflow-runs/{Runs.Failed}/retry", route =>
+        {
+            held.Add(AbortOnceReleasedAsync(route));
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ".rz-notification-error", "Could not retry").ConfigureAwait(false);
+        await _runPage.NavigateAsync(Runs.Failed).ConfigureAwait(false);
+        await _runPage.Retry.ClickAsync().ConfigureAwait(false);
+        var sent = Page.WaitForRequestAsync($"**/api/workflow-runs/{Runs.Failed}/retry");
+        await _runPage.Dialog.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Retry", Exact = true })
+            .ClickAsync().ConfigureAwait(false);
+        await sent.ConfigureAwait(false);
+
+        // Leaving cancels the call, and the browser gives the held request up: once it has, and the page has
+        // rendered once more, any failure toast the cancellation caused has shown.
+        var givenUp = new TaskCompletionSource();
+        Page.RequestFailed += (_, request) =>
+        {
+            if (request.Url.EndsWith("/retry", StringComparison.Ordinal))
+            {
+                givenUp.TrySetResult();
+            }
+        };
+        await Page.EvaluateAsync("() => Blazor.navigateTo('/runs')").ConfigureAwait(false);
+        await Page.WaitForURLAsync("**/runs").ConfigureAwait(false);
+        await givenUp.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+            .ConfigureAwait(false);
+
+        (await TestAuth.PathsThatShowedAsync(Page, ".rz-notification-error", "Could not retry").ConfigureAwait(false))
+            .Should().BeEmpty("a call cut short by leaving the page is not a failure to report");
+
+        release.SetResult();
+        await Task.WhenAll(held).ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     The console follows the user's roles as they change, without a reload, as it must follow an OIDC sign-in that
     ///     completes after the layout rendered. An analyst on /runs sees the role message and no Runs item; becoming a
     ///     developer shows the item and loads the rows; becoming an analyst again hides the item and shows the message.

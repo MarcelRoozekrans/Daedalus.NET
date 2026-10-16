@@ -1,18 +1,19 @@
-@inject IProjectApiClient ProjectApiClient
+@inject ProjectsEffects ProjectsEffects
 @inject DialogService DialogService
 @inject NotificationService NotificationService
 
+@* Each field is named by its label: the form field's Component is the label's for, and the input's Name its id. *@
 <RadzenStack Gap="1rem">
-    <RadzenFormField Text="Project Name *" Style="width: 100%;">
-        <RadzenTextBox @bind-Value="@_projectName" Placeholder="Enter project name" MaxLength="255"/>
+    <RadzenFormField Text="Project Name *" Component="ProjectName" Style="width: 100%;">
+        <RadzenTextBox Name="ProjectName" @bind-Value="@_projectName" Placeholder="Enter project name" MaxLength="255"/>
     </RadzenFormField>
 
-    <RadzenFormField Text="Description" Style="width: 100%;">
-        <RadzenTextArea @bind-Value="@_description" Rows="3" Placeholder="Enter project description" MaxLength="1000"/>
+    <RadzenFormField Text="Description" Component="Description" Style="width: 100%;">
+        <RadzenTextArea Name="Description" @bind-Value="@_description" Rows="3" Placeholder="Enter project description" MaxLength="1000"/>
     </RadzenFormField>
 
-    <RadzenFormField Text="Version" Style="width: 100%;">
-        <RadzenTextBox @bind-Value="@_version" Placeholder="e.g., 1.0"/>
+    <RadzenFormField Text="Version" Component="Version" Style="width: 100%;">
+        <RadzenTextBox Name="Version" @bind-Value="@_version" Placeholder="e.g., 1.0"/>
     </RadzenFormField>
 
     <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" class="rz-mt-4">
@@ -40,15 +41,17 @@
         try
         {
             var dto = new CreateProjectDto(_projectName.Trim(), _description.Trim(), _version.Trim());
-            var result = await ProjectApiClient.CreateProjectAsync(dto);
-            if (result.IsSuccess)
+            var outcome = await ProjectsEffects.CreateAsync(dto, CancellationToken.None);
+            // Only this write's own outcome. None is a session being renewed: the layout says so, and the dialog stays
+            // open, as it did.
+            if (outcome is { Succeeded: true })
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Success", "Project created");
                 DialogService.Close(true);
             }
-            else
+            else if (outcome is { Refusal: { } refusal })
             {
-                NotificationService.NotifyFailure("Error", result.Error ?? "Failed to create");
+                NotificationService.NotifyFailure("Error", refusal);
             }
         }
         finally

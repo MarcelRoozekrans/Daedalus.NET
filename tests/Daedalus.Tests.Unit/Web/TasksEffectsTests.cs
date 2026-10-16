@@ -1,28 +1,34 @@
 using System.Net;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Services;
 using Daedalus.Web.State.Tasks;
+using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ZeroAlloc.Flux;
 using ZeroAlloc.Flux.Generated;
 
 namespace Daedalus.Tests.Unit.Web;
 
-/// <summary>The tasks effects: the board load, the per-task re-fetch on a run change, and the start guard.</summary>
+/// <summary>
+///     The tasks effects: the board load, the per-task re-fetch on a run change, and the start guard. The projects
+///     cases moved to <see cref="ProjectsEffectsTests"/> and <see cref="ProjectsReducersTests"/>.
+/// </summary>
 public sealed class TasksEffectsTests : IDisposable
 {
     private const string ListPath = "/api/tasks?page=1&pageSize=200";
-    private const string ProjectsPath = "/api/projects?page=1&pageSize=200";
 
     private readonly RecordingHandler _handler = new();
     private readonly ServiceProvider _provider = new ServiceCollection().AddZeroAllocFlux().BuildServiceProvider();
     private readonly IStore<TasksState> _store;
     private readonly TasksEffects _effects;
+    private readonly RecordingLogger<TasksEffects> _logger = new();
 
     public TasksEffectsTests()
     {
         _store = _provider.GetRequiredService<IStore<TasksState>>();
-        _effects = new TasksEffects(_handler.Client(), _provider.GetRequiredService<IDispatcher>(), _store);
+        _effects = new TasksEffects(_handler.Client(), _provider.GetRequiredService<IDispatcher>(), _store, _logger);
     }
 
     public void Dispose()
@@ -89,9 +95,11 @@ public sealed class TasksEffectsTests : IDisposable
     }
 
     /// <summary>
-    ///     A reconnect leaves a board never asked for alone, and re-fetches one that was, even when its load failed.
+    ///     A reconnect leaves a board never asked for alone, and re-fetches one that was, even when its load failed. The
+    ///     projects are no longer the board's: ProjectsEffects re-fetches them on its own.
     ///     Red: reload whatever the state. Red: gate on Items.Count instead of LoadRequested.
     ///     Red: drop the reload from RefreshAsync.
+    ///     Red: re-fetch the projects from TasksEffects.RefreshAsync, as before; the paths hold the projects too.
     /// </summary>
     [Fact]
     public async Task Reconnect_re_fetches_only_a_board_that_was_asked_for()
@@ -105,7 +113,7 @@ public sealed class TasksEffectsTests : IDisposable
         await _effects.LoadAsync(CancellationToken.None);
         _handler.Requests.Clear();
         await _effects.RefreshAsync(CancellationToken.None);
-        _handler.Paths.Should().Equal(ListPath, ProjectsPath);
+        _handler.Paths.Should().Equal(ListPath);
     }
 
     /// <summary>
@@ -217,96 +225,167 @@ public sealed class TasksEffectsTests : IDisposable
     }
 
     /// <summary>
-    ///     Loading the projects names each one by its id, for the board's Project column.
-    ///     Red: key every name by Guid.Empty instead of the project's id; the id lookup misses.
-    ///     Red: drop the TaskProjectsLoaded dispatch; the names stay empty.
+    ///     A board read whose token cannot be refreshed stores no error, because the layout already says "Signing in
+    ///     again"; the rows shown stay, loading ends, and the board does not claim to be empty.
+    ///     Red: dispatch TasksLoadFailed for SigningInAgain too; the error is the signing-in text.
+    ///     Red: dispatch nothing for SigningInAgain; Loading stays set.
+    ///     Red: log the failure before the SigningInAgain check in LoadAsync; the renewal writes a warning.
+    ///     Red: leave Abandoned unset in the TasksLoadAbandoned reducer; the board says it is empty.
     /// </summary>
     [Fact]
-    public async Task Loading_the_projects_names_each_by_its_id()
+    public async Task Signing_in_again_stores_no_error_and_claims_no_empty_board()
     {
-        var id = Guid.NewGuid();
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)))
-            .OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([new ProjectDto(id, "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, [])], 1, 1, 200)));
+        _handler.On(ListPath, SigningIn());
+
         await _effects.LoadAsync(CancellationToken.None);
 
-        await _effects.LoadProjectsAsync(CancellationToken.None);
+        _store.Value.Error.Should().BeNull("a session being renewed is not an error to show");
+        _store.Value.Loading.Should().BeFalse();
+        TasksView.ShowEmpty(_store.Value).Should().BeFalse("a board that was not read is not known to be empty");
+        _logger.Entries.Should().BeEmpty("a session being renewed is not a failure");
 
-        _store.Value.ProjectNames.Should().ContainKey(id).WhoseValue.Should().Be("Widgets");
+        var kept = Board(Guid.NewGuid(), null, "kept");
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([kept], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        _handler.On(ListPath, SigningIn());
+
+        await _effects.LoadAsync(CancellationToken.None);
+
+        _store.Value.Items.Should().ContainSingle().Which.Id.Should().Be(kept.Id);
     }
 
     /// <summary>
-    ///     A failed projects load is the projects' error, and the board's own error stays clear.
-    ///     Red: dispatch nothing on a failure; the projects error stays null.
-    ///     Red: also dispatch TasksLoadFailed, as before; the board error is set.
+    ///     The board says it is empty only once a read came back empty: not while loading, not after a failure, not
+    ///     after an abandoned read, and again after a read that follows the abandoned one.
+    ///     Red: drop Loading from ShowEmpty. Red: drop the Error check. Red: drop the Abandoned check.
+    ///     Red: drop the LoadRequested check; the initial board says it is empty.
+    ///     Red: keep Abandoned in the TasksLoadStarted reducer; the next read never says empty.
     /// </summary>
     [Fact]
-    public async Task A_failed_projects_load_is_the_projects_error()
+    public void Only_a_board_read_empty_says_it_is_empty()
     {
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)));
-        await _effects.LoadAsync(CancellationToken.None);
+        var initial = TasksState.Initial(null!);
+        var loading = TasksReducers.On(initial, new TasksLoadStarted());
+        var failed = TasksReducers.On(loading, new TasksLoadFailed("boom"));
+        var abandoned = TasksReducers.On(loading, new TasksLoadAbandoned());
+        var readAgain = TasksReducers.On(TasksReducers.On(abandoned, new TasksLoadStarted()), new TasksLoaded([], 0));
 
-        await _effects.LoadProjectsAsync(CancellationToken.None);
-
-        _store.Value.ProjectsError.Should().NotBeNull();
-        _store.Value.Error.Should().BeNull("the board itself loaded");
+        TasksView.ShowEmpty(initial).Should().BeFalse();
+        TasksView.ShowEmpty(loading).Should().BeFalse();
+        TasksView.ShowEmpty(failed).Should().BeFalse();
+        TasksView.ShowEmpty(abandoned).Should().BeFalse();
+        TasksView.ShowEmpty(readAgain).Should().BeTrue();
     }
 
     /// <summary>
-    ///     A refresh re-fetches the projects with the board.
-    ///     Red: drop LoadProjectsAsync from RefreshAsync; the projects path is not requested.
+    ///     An abandoned read that lands after the page closed, with no load asked for since, changes nothing.
+    ///     Red: drop the LoadRequested guard in the TasksLoadAbandoned reducer.
     /// </summary>
     [Fact]
-    public async Task A_refresh_re_fetches_the_projects()
+    public void An_abandoned_read_after_the_page_closed_is_ignored()
     {
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)));
-        await _effects.LoadAsync(CancellationToken.None);
-        _handler.Requests.Clear();
+        var closed = TasksReducers.On(TasksReducers.On(TasksState.Initial(null!), new TasksLoadStarted()), new TasksClosed());
 
-        await _effects.RefreshAsync(CancellationToken.None);
-
-        _handler.Paths.Should().Contain(ProjectsPath);
+        TasksReducers.On(closed, new TasksLoadAbandoned()).Should().Be(closed);
     }
 
     /// <summary>
-    ///     Leaving the page drops the projects with the board, and projects that land afterwards are ignored.
-    ///     Red: leave Projects out of the TasksClosed reducer; they are still there.
-    ///     Red: drop the ProjectsRequested guard from TaskProjectsLoaded; the late projects land.
+    ///     A caller whose token is already cancelled dispatches nothing: no board is asked for and no start is marked.
+    ///     Red: drop the IsCancellationRequested guard at the top of LoadAsync; LoadRequested is set.
+    ///     Red: drop the guard before TaskStartRequested in ManufactureAsync; the start is marked during the call.
     /// </summary>
     [Fact]
-    public async Task Leaving_the_page_drops_the_projects()
+    public async Task A_cancelled_caller_dispatches_nothing()
     {
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)))
-            .OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project()], 1, 1, 200)));
-        await _effects.LoadAsync(CancellationToken.None);
-        await _effects.LoadProjectsAsync(CancellationToken.None);
-        var dispatcher = _provider.GetRequiredService<IDispatcher>();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        var marks = new List<int>();
+        _store.StateChanged += state => marks.Add(state.Starting.Count);
 
-        await dispatcher.DispatchAsync(new TasksClosed());
-        _store.Value.Projects.Should().BeNull();
-        _store.Value.ProjectNames.Should().BeEmpty();
+        await _effects.LoadAsync(cancelled.Token);
+        var started = await _effects.ManufactureAsync(Guid.NewGuid(), cancelled.Token);
 
-        await dispatcher.DispatchAsync(new TaskProjectsLoaded([Project()]));
-        _store.Value.Projects.Should().BeNull("projects landing after the page closed are ignored");
+        _store.Value.LoadRequested.Should().BeFalse();
+        started.IsFailure.Should().BeTrue();
+        marks.Should().OnlyContain(count => count == 0, "no start was marked");
     }
 
     /// <summary>
-    ///     Home opens the create dialog with no board loaded, so the projects load on their own, without marking a board
-    ///     load that a reconnect would then re-fetch.
-    ///     Red: guard TaskProjectsLoaded on LoadRequested again; the projects stay null.
-    ///     Red: LoadProjectsAsync dispatches TasksLoadStarted to get past the guard; LoadRequested is set.
+    ///     A board, a task or a start whose caller went away while it was in flight stores no error and logs nothing.
+    ///     Red: drop the cancelled branch in LoadAsync; the board stores "Request was cancelled".
+    ///     Red: drop the cancellation return in OnRunChangedAsync; the task's failure is logged.
+    ///     Red: drop the cancellation check before LogManufactureRefused; the start logs it.
     /// </summary>
     [Fact]
-    public async Task The_projects_load_without_the_board()
+    public async Task A_failure_after_the_caller_went_away_stores_nothing()
     {
-        _handler.OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project()], 1, 1, 200)));
+        var runId = Guid.NewGuid();
+        var watched = Board(Guid.NewGuid(), runId, "watched");
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([watched], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        using var boardGone = new CancellationTokenSource();
+        using var taskGone = new CancellationTokenSource();
+        using var startGone = new CancellationTokenSource();
+        _handler.On(ListPath, CancelThenThrow(boardGone))
+            .On($"/api/tasks/{watched.Id}", CancelThenThrow(taskGone))
+            .On($"/api/tasks/{watched.Id}/manufacture", CancelThenThrow(startGone));
 
-        await _effects.LoadProjectsAsync(CancellationToken.None);
+        await _effects.LoadAsync(boardGone.Token);
+        await _effects.OnRunChangedAsync(new WorkflowRunChanged(runId, "Running", "build", null), taskGone.Token);
+        await _effects.ManufactureAsync(watched.Id, startGone.Token);
 
-        _store.Value.Projects.Should().HaveCount(1);
-        _store.Value.LoadRequested.Should().BeFalse("loading the projects is not a board load");
+        _store.Value.Error.Should().BeNull();
+        _logger.Entries.Should().BeEmpty();
     }
 
-    private static ProjectDto Project() => new(Guid.NewGuid(), "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, []);
+    /// <summary>
+    ///     A board read, a task re-fetch and a refused start are each logged as a warning with the error text only; a
+    ///     session being renewed logs nothing.
+    ///     Red: drop LogLoadFailed. Red: drop LogTaskFailed. Red: drop LogManufactureRefused.
+    ///     Red: drop the SigningInAgain check before LogTaskFailed. Red: drop the one before LogManufactureRefused.
+    /// </summary>
+    [Fact]
+    public async Task Failures_are_logged_with_the_error_text()
+    {
+        var runId = Guid.NewGuid();
+        var watched = Board(Guid.NewGuid(), runId, "watched");
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([watched], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        _handler.OnJson(ListPath, """{"status":502,"detail":"Board down."}""", HttpStatusCode.BadGateway)
+            .OnJson($"/api/tasks/{watched.Id}", """{"status":500,"detail":"Task down."}""", HttpStatusCode.InternalServerError)
+            .OnJson($"/api/tasks/{watched.Id}/manufacture", """{"status":409,"detail":"A run is already live."}""", HttpStatusCode.Conflict);
+
+        await _effects.OnRunChangedAsync(new WorkflowRunChanged(runId, "Running", "build", null), CancellationToken.None);
+        await _effects.ManufactureAsync(watched.Id, CancellationToken.None);
+        await _effects.LoadAsync(CancellationToken.None);
+
+        _logger.Entries.Should().HaveCount(3).And.OnlyContain(e => e.Level == LogLevel.Warning);
+        _logger.Entries[0].Message.Should().StartWith("A task could not be re-fetched after its run changed: ");
+        _logger.Entries[1].Message.Should().Be("A manufacture start was refused: A run is already live.");
+        _logger.Entries[2].Message.Should().Be($"The tasks could not be loaded: {_store.Value.Error}");
+
+        _logger.Entries.Clear();
+        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([watched], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        _handler.On($"/api/tasks/{watched.Id}", SigningIn()).On($"/api/tasks/{watched.Id}/manufacture", SigningIn());
+
+        await _effects.OnRunChangedAsync(new WorkflowRunChanged(runId, "Running", "build", null), CancellationToken.None);
+        await _effects.ManufactureAsync(watched.Id, CancellationToken.None);
+
+        _logger.Entries.Should().BeEmpty("a session being renewed is not a failure");
+    }
+
+    private static Func<HttpResponseMessage> SigningIn()
+    {
+        var navigation = new RecordingNavigation();
+        return () => throw new AccessTokenNotAvailableException(navigation, navigation.RefreshFailed(), scopes: null);
+    }
+
+    private static Func<Task<HttpResponseMessage>> CancelThenThrow(CancellationTokenSource gone) => async () =>
+    {
+        await gone.CancelAsync();
+        throw new OperationCanceledException(gone.Token);
+    };
 
     private static TaskDto Board(Guid id, Guid? runId, string title) =>
         new(id, "T-1", Guid.NewGuid(), title, "", 1, "build", 0, [], [], 1, "", "", 1, 0, null, null, 0,

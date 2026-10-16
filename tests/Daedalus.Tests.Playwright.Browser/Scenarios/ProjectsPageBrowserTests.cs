@@ -164,4 +164,124 @@ public class ProjectsPageBrowserTests : BrowserTestBase
         await Expect(_projectsPage.Dialog).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(_projectsPage.DialogTitle).ToContainTextAsync("Create New Project").ConfigureAwait(false);
     }
+
+    // ── On the shared projects feature ───────────────────────────────────────
+
+    /// <summary>
+    ///     A failed load shows the error and the empty state, as the page always did, never the list a page opened before
+    ///     left in the shared feature.
+    ///     The empty state and the grid are the two branches of one if, so the empty state showing is the grid hidden.
+    ///     Red: show the alert only for an error over 100000 characters; the alert is missing.
+    ///     Red: render the grid from ProjectsState.Projects instead of Current; the held list shows, not the empty state.
+    /// </summary>
+    [Test]
+    [Description("A failed load shows the error and the empty state, not a held list")]
+    public async Task ProjectsPage_FailedLoad_ShowsTheErrorAndTheEmptyState()
+    {
+        var menu = new MainPage(Page, BaseUrl);
+        await _projectsPage.NavigateAsync().ConfigureAwait(false);
+        await _projectsPage.GetRowByText("Test Project").WaitForAsync().ConfigureAwait(false);
+        await menu.TasksMenuItem.ClickAsync().ConfigureAwait(false);
+        await Page.WaitForURLAsync("**/tasks").ConfigureAwait(false);
+
+        await Page.RouteAsync("**/api/projects?*", route => route.FulfillAsync(new RouteFulfillOptions { Status = 500 })).ConfigureAwait(false);
+        await menu.ProjectsMenuItem.ClickAsync().ConfigureAwait(false);
+
+        await Expect(_projectsPage.ErrorAlert).ToBeVisibleAsync().ConfigureAwait(false);
+        await Expect(_projectsPage.EmptyStateTitle).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Deleting the project whose tasks show stops showing them. The delete is answered by a stub, so the seeded
+    ///     project stays for the other tests and the list re-read still shows it.
+    ///     Red: drop the ProjectSelectLoaded dispatch from LoadSelectedAsync; the tasks panel never shows.
+    ///     Red: drop the "Project deleted" toast from the page's delete; the notification is missing.
+    ///     Red: leave Selected in the ProjectSaved reducer for a delete; the tasks panel stays.
+    /// </summary>
+    [Test]
+    [Description("Deleting the shown project hides its tasks panel")]
+    public async Task ProjectsPage_DeletingTheShownProject_HidesItsTasksPanel()
+    {
+        await _projectsPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_projectsPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
+        await _projectsPage.GetRowByText("Test Project")
+            .GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Test Project" }).ClickAsync().ConfigureAwait(false);
+        await Expect(_projectsPage.SelectedProjectPanel).ToBeVisibleAsync().ConfigureAwait(false);
+        await Page.RouteAsync("**/api/projects/*", route => string.Equals(route.Request.Method, "DELETE", StringComparison.Ordinal)
+            ? route.FulfillAsync(new RouteFulfillOptions { Status = 204 })
+            : route.ContinueAsync()).ConfigureAwait(false);
+
+        await _projectsPage.GetDeleteButton("Test Project").ClickAsync().ConfigureAwait(false);
+        await _projectsPage.ConfirmDialog
+            .GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Delete", Exact = true }).ClickAsync().ConfigureAwait(false);
+
+        await Expect(_projectsPage.Notification).ToContainTextAsync("Project deleted").ConfigureAwait(false);
+        await Expect(_projectsPage.SelectedProjectPanel).ToBeHiddenAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     A refused create says why, in the words the dialog always used, and the dialog stays open.
+    ///     Red: store a fixed "Failed to create" instead of the client's error; the server's reason is missing.
+    ///     Red: close the dialog after the refusal's toast; the dialog is gone.
+    /// </summary>
+    [Test]
+    [Description("A refused create says why and the dialog stays open")]
+    public async Task ProjectsPage_RefusedCreate_SaysWhyAndStaysOpen()
+    {
+        await Page.RouteAsync("**/api/projects", route => string.Equals(route.Request.Method, "POST", StringComparison.Ordinal)
+            ? route.FulfillAsync(new RouteFulfillOptions { Status = 400, Body = "Name taken" })
+            : route.ContinueAsync()).ConfigureAwait(false);
+        await _projectsPage.NavigateAsync().ConfigureAwait(false);
+        await _projectsPage.CreateProjectButton.ClickAsync().ConfigureAwait(false);
+
+        await _projectsPage.Dialog.Locator("input").First.FillAsync("Atlas").ConfigureAwait(false);
+        await _projectsPage.Dialog.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Create" }).ClickAsync().ConfigureAwait(false);
+
+        await Expect(_projectsPage.Notification).ToContainTextAsync("Failed to create project: Name taken").ConfigureAwait(false);
+        await Expect(_projectsPage.Dialog).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Every field in the Create and the Edit project dialog is named for a screen reader by its visible label, so a
+    ///     role query by that label finds exactly one field.
+    ///     Red: <c>Component</c> dropped from Project Name's form field; the label points at nothing and no textbox is
+    ///     named "Project Name *".
+    ///     Red: <c>Name</c> dropped from the Project Name textbox; its id is Radzen's random one and the label's for misses.
+    ///     Red: <c>Component</c> dropped from Description's form field; no textbox is named Description.
+    ///     Red: <c>Component</c> dropped from Version's form field; no textbox is named Version.
+    ///     Each is red in the dialog it is dropped from: the two dialogs have their own markup.
+    /// </summary>
+    [TestCase("create")]
+    [TestCase("edit")]
+    [Description("Every project dialog field is named by its label")]
+    public async Task Every_project_dialog_field_is_named_by_its_label(string dialog)
+    {
+        await _projectsPage.NavigateAsync().ConfigureAwait(false);
+        if (string.Equals(dialog, "create", StringComparison.Ordinal))
+        {
+            await _projectsPage.CreateProjectButton.ClickAsync().ConfigureAwait(false);
+        }
+        else
+        {
+            await Expect(_projectsPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
+            await _projectsPage.GetEditButton("Test Project").ClickAsync().ConfigureAwait(false);
+        }
+
+        await Expect(_projectsPage.Dialog.Locator("input").First).ToBeVisibleAsync().ConfigureAwait(false);
+
+        var unnamed = new List<string>();
+        foreach (var label in new[] { "Project Name *", "Description", "Version" })
+        {
+            var count = await _projectsPage.Dialog
+                .GetByRole(AriaRole.Textbox, new LocatorGetByRoleOptions { Name = label, Exact = true })
+                .CountAsync().ConfigureAwait(false);
+            if (count != 1)
+            {
+                unnamed.Add($"{label} ({count} found)");
+            }
+        }
+
+        string.Join("; ", unnamed).Should().BeEmpty($"every field in the {dialog} project dialog is named by its label:\n"
+            + await _projectsPage.Dialog.AriaSnapshotAsync().ConfigureAwait(false));
+    }
 }

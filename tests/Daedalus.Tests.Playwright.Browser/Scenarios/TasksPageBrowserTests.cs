@@ -121,6 +121,68 @@ public class TasksPageBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     A Manufacture still in flight when the person leaves the board reports nothing: leaving cancels the call, and
+    ///     "Could not start: Request was cancelled" would be a failure that is only the page going away. The call is
+    ///     held at the route and never reaches the server, so no run starts; a watch made before the page loads records
+    ///     any moment the toast showed.
+    ///     Red: drop the cancellation return before NotifyFailure in <c>ManufactureTask</c>; the toast is recorded.
+    /// </summary>
+    [Test]
+    [Description("A Manufacture cut short by leaving the board shows no failure")]
+    public async Task A_manufacture_cut_short_by_leaving_shows_no_failure()
+    {
+        var release = new TaskCompletionSource();
+        var held = new List<Task>();
+        async Task AbortOnceReleasedAsync(IRoute route)
+        {
+            await release.Task.ConfigureAwait(false);
+            try
+            {
+                await route.AbortAsync().ConfigureAwait(false);
+            }
+            catch (PlaywrightException)
+            {
+                // The page already gave the request up when it left.
+            }
+        }
+
+        await Page.RouteAsync("**/api/tasks/*/manufacture", route =>
+        {
+            held.Add(AbortOnceReleasedAsync(route));
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
+        await TestAuth.WatchForAsync(Page, ".rz-notification-error", "Could not start").ConfigureAwait(false);
+        await _tasksPage.NavigateAsync().ConfigureAwait(false);
+        var manufacture = _tasksPage.DataGrid
+            .GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Manufacture", Exact = true }).First;
+        var sent = Page.WaitForRequestAsync("**/api/tasks/*/manufacture");
+        await manufacture.ClickAsync().ConfigureAwait(false);
+        await sent.ConfigureAwait(false);
+
+        // Leaving cancels the call, and the browser gives the held request up: once it has, and the page has
+        // rendered once more, any failure toast the cancellation caused has shown.
+        var givenUp = new TaskCompletionSource();
+        Page.RequestFailed += (_, request) =>
+        {
+            if (request.Url.EndsWith("/manufacture", StringComparison.Ordinal))
+            {
+                givenUp.TrySetResult();
+            }
+        };
+        await Page.EvaluateAsync("() => Blazor.navigateTo('/projects')").ConfigureAwait(false);
+        await Page.WaitForURLAsync("**/projects").ConfigureAwait(false);
+        await givenUp.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        await Page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+            .ConfigureAwait(false);
+
+        (await TestAuth.PathsThatShowedAsync(Page, ".rz-notification-error", "Could not start").ConfigureAwait(false))
+            .Should().BeEmpty("a call cut short by leaving the page is not a failure to report");
+
+        release.SetResult();
+        await Task.WhenAll(held).ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     At 375px the header actions of Tasks and Projects keep their text on one line beside a caption that wraps.
     ///     Red: the Tasks header as before, with no wrap and no <c>white-space: nowrap</c>, the button squeezed beside
     ///     the caption; the text takes two lines.
