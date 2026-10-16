@@ -54,9 +54,9 @@ public class BrainstormPageBrowserTests : BrowserTestBase
     /// <summary>
     ///     Sending a message posts it, reloads the session and shows it as the person's with the model's reply, and clears
     ///     the input. The API keeps the message, so the reload shows it.
-    ///     Red: <c>SendMessage</c> posts <c>_userInput</c> after clearing it; the API refuses the empty message and
-    ///     nothing new shows.
-    ///     Red: <c>SendMessage</c> does not reload the session; the sent message never shows.
+    ///     Red: <c>SendMessage</c> passes <c>_userInput</c> to <c>BrainstormEffects.SendAsync</c> after clearing it; the API
+    ///     refuses the empty message and nothing new shows.
+    ///     Red: <c>SendMessage</c> does not call <c>LoadSession</c> after the send; the sent message never shows.
     ///     Red: the person's caption reads "Me"; the sent message is not captioned You.
     ///     Red: the message loop skips assistant messages after the first; the model's reply does not show.
     ///     Red: remove <c>ValueGeneratedNever</c> from <c>BrainstormMessageConfiguration</c>; the API does not keep the message.
@@ -81,9 +81,11 @@ public class BrainstormPageBrowserTests : BrowserTestBase
     /// <summary>
     ///     Advance moves the session to the next phase, marks the last one done, shows the model's opening of the new
     ///     phase, and withdraws the button until the new phase is complete.
-    ///     Red: <c>AdvancePhase</c> does not take the returned session; Clarify never becomes the primary badge.
+    ///     Red: <c>BrainstormEffects.AdvanceAsync</c> does not dispatch the returned session; Clarify never becomes the
+    ///     primary badge.
     ///     Red: <c>isCompleted</c> compares with <c>&lt;</c>; Context is not marked done.
-    ///     Red: <c>AdvancePhase</c> keeps the old messages on the returned session; the model's reply does not show.
+    ///     Red: <c>BrainstormEffects.AdvanceAsync</c> dispatches the returned session with the held messages; the model's
+    ///     reply does not show.
     ///     Red: the Advance bar shows for any loaded session; the button stays.
     /// </summary>
     [Test]

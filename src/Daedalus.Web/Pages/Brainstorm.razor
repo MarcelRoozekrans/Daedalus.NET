@@ -1,10 +1,13 @@
 @page "/brainstorm/{SessionId:guid}"
 @attribute [Authorize]
 @using BrainstormPhase = Daedalus.Domain.Entities.BrainstormPhase
-@inject ApiClient Api
+@inherits FluxComponent
+@implements IAsyncDisposable
+@inject IStore<BrainstormState> BrainstormStore
+@inject IDispatcher Dispatcher
+@inject BrainstormEffects BrainstormEffects
 @inject NavigationManager Navigation
 @inject NotificationService NotificationService
-@implements IAsyncDisposable
 
 <RadzenStack Gap="0" Style="height: calc(100vh - 80px); display: flex; flex-direction: column;">
 
@@ -13,8 +16,8 @@
                  Gap="0.25rem" class="rz-p-2 rz-border-bottom" Style="flex-shrink: 0;">
         @foreach (var phase in _phases)
         {
-            var isCurrent = _session?.Phase == phase.Value;
-            var isCompleted = _session is not null && (int)_session.Phase > (int)phase.Value;
+            var isCurrent = Session?.Phase == phase.Value;
+            var isCompleted = Session is not null && (int)Session.Phase > (int)phase.Value;
             var style = GetPhaseStyle(isCurrent, isCompleted);
             var badgeStyle = GetPhaseBadgeStyle(isCurrent, isCompleted);
             <RadzenBadge Text="@phase.Label" IsPill="true"
@@ -25,9 +28,9 @@
 
     @* Message history *@
     <RadzenStack Gap="0.5rem" class="rz-p-4" Style="flex: 1; overflow-y: auto;">
-        @if (_session is not null)
+        @if (Session is not null)
         {
-            @foreach (var message in _session.Messages)
+            @foreach (var message in Session.Messages)
             {
                 var isUser = message.Role == "User";
                 <RadzenCard Style="@(isUser
@@ -52,7 +55,7 @@
     </RadzenStack>
 
     @* Advance button *@
-    @if (_session?.PhaseCompleteSignaled == true)
+    @if (Session?.PhaseCompleteSignaled == true)
     {
         <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center"
                      class="rz-p-2 rz-border-top" Style="flex-shrink: 0;">
@@ -63,7 +66,7 @@
     }
 
     @* Input area *@
-    @if (_session?.Phase is not BrainstormPhase.Completed and not BrainstormPhase.Abandoned
+    @if (Session?.Phase is not BrainstormPhase.Completed and not BrainstormPhase.Abandoned
          and not BrainstormPhase.TaskCreation)
     {
         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
@@ -79,7 +82,7 @@
     }
 
     @* Task creation phase *@
-    @if (_session?.Phase == BrainstormPhase.TaskCreation)
+    @if (Session?.Phase == BrainstormPhase.TaskCreation)
     {
         <RadzenStack class="rz-p-4" Style="flex-shrink: 0;">
             <RadzenButton Text="Generate Tasks from Plan" Icon="playlist_add"
@@ -92,12 +95,20 @@
 @code {
     [Parameter] public Guid SessionId { get; set; }
 
-    private BrainstormSessionDto? _session;
+    private readonly CancellationTokenSource _cts = new();
+    private CancellationToken _token;
     private string _userInput = "";
+
+    /// <summary>Whether a send this page asked for, with its reload, is in flight: "Thinking..." and the busy Send.</summary>
     private bool _loading;
+
+    /// <summary>Whether the advance this page asked for is in flight.</summary>
     private bool _advancing;
+
+    /// <summary>Whether the task generation this page asked for is in flight.</summary>
     private bool _generatingTasks;
-    private CancellationTokenSource? _cts;
+
+    private BrainstormSessionDto? Session => BrainstormStore.Value.Session;
 
     private static readonly (string Label, BrainstormPhase Value)[] _phases =
     [
@@ -109,24 +120,15 @@
         ("Tasks", BrainstormPhase.TaskCreation)
     ];
 
+    protected override void SubscribeStores() => Subscribe(BrainstormStore);
+
     protected override async Task OnInitializedAsync()
     {
-        _cts = new CancellationTokenSource();
+        _token = _cts.Token;
         await LoadSession();
     }
 
-    private async Task LoadSession()
-    {
-        var result = await Api.GetBrainstormSessionAsync(SessionId, _cts?.Token ?? CancellationToken.None);
-        if (result.IsSuccess)
-        {
-            _session = result.Value;
-        }
-        else
-        {
-            NotificationService.NotifyFailure("Error", result.Error);
-        }
-    }
+    private async Task LoadSession() => NotifyRefusal(await BrainstormEffects.LoadAsync(SessionId, _token));
 
     private async Task SendMessage()
     {
@@ -138,14 +140,7 @@
 
         try
         {
-            var result = await Api.SendBrainstormMessageAsync(
-                SessionId, new SendBrainstormMessageDto(message), _cts?.Token ?? CancellationToken.None);
-
-            if (result.IsFailure)
-            {
-                NotificationService.NotifyFailure("Error", result.Error);
-            }
-
+            NotifyRefusal(await BrainstormEffects.SendAsync(SessionId, message, _token));
             await LoadSession();
         }
         finally
@@ -159,17 +154,7 @@
         _advancing = true;
         try
         {
-            var result = await Api.AdvanceBrainstormPhaseAsync(
-                SessionId, _cts?.Token ?? CancellationToken.None);
-
-            if (result.IsSuccess)
-            {
-                _session = result.Value;
-            }
-            else
-            {
-                NotificationService.NotifyFailure("Error", result.Error);
-            }
+            NotifyRefusal(await BrainstormEffects.AdvanceAsync(SessionId, _token));
         }
         finally
         {
@@ -182,23 +167,30 @@
         _generatingTasks = true;
         try
         {
-            var result = await Api.GenerateBrainstormTasksAsync(
-                SessionId, _cts?.Token ?? CancellationToken.None);
-
-            if (result.IsSuccess)
+            var outcome = await BrainstormEffects.GenerateTasksAsync(SessionId, _token);
+            if (outcome is { Succeeded: true, TasksCreated: var created })
             {
                 NotificationService.Notify(NotificationSeverity.Success,
-                    "Tasks Created", $"{result.Value.Count} tasks generated");
+                    "Tasks Created", $"{created} tasks generated");
                 Navigation.NavigateTo("/tasks");
             }
             else
             {
-                NotificationService.NotifyFailure("Error", result.Error);
+                NotifyRefusal(outcome);
             }
         }
         finally
         {
             _generatingTasks = false;
+        }
+    }
+
+    /// <summary>Shows a refused request's reason; an accepted one, or no outcome, shows nothing.</summary>
+    private void NotifyRefusal(BrainstormOutcome? outcome)
+    {
+        if (outcome is { Refusal: { } refusal })
+        {
+            NotificationService.NotifyFailure("Error", refusal);
         }
     }
 
@@ -224,7 +216,7 @@
         return BadgeStyle.Light;
     }
 
-    private string GetNextPhaseName() => _session?.Phase switch
+    private string GetNextPhaseName() => Session?.Phase switch
     {
         BrainstormPhase.ContextGathering => "Clarification",
         BrainstormPhase.Clarification => "Proposals",
@@ -237,10 +229,9 @@
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        if (_cts is not null)
-        {
-            await _cts.CancelAsync();
-            _cts.Dispose();
-        }
+        Dispose();
+        await _cts.CancelAsync();
+        _cts.Dispose();
+        await Dispatcher.DispatchAsync(new BrainstormClosed());
     }
 }
