@@ -8,6 +8,8 @@
 @inject IStore<TasksState> TaskStore
 @inject IDispatcher Dispatcher
 @inject TasksEffects Effects
+@inject IStore<ProjectsState> ProjectStore
+@inject ProjectsEffects ProjectsEffects
 @using Microsoft.JSInterop
 @inject IJSRuntime Js
 @implements IAsyncDisposable
@@ -33,12 +35,13 @@
     </RadzenAlert>
 }
 
-@if (TaskStore.Value.ProjectsError is { } projectsError && !SessionExpiry.IsSigningIn(projectsError))
+@* ProjectsEffects stores no SigningInAgain failure, so this alert needs no sign-in check. *@
+@if (ProjectStore.Value.Error is { } projectsError)
 {
     <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" class="rz-mb-4" data-testid="tasks-projects-error">
         The projects could not be loaded: @projectsError
         <RadzenButton Text="Retry" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
-                      Click="@(() => Effects.LoadProjectsAsync(_cts.Token))"/>
+                      Click="@(() => ProjectsEffects.LoadAsync(_cts.Token))"/>
     </RadzenAlert>
 }
 
@@ -219,9 +222,13 @@
     private static string Px(int width) => string.Create(CultureInfo.InvariantCulture, $"{width}px");
 
     private string ProjectName(TaskDto task) =>
-        TaskStore.Value.ProjectNames.TryGetValue(task.ProjectId, out var name) ? name : "—";
+        ProjectStore.Value.Names.TryGetValue(task.ProjectId, out var name) ? name : "—";
 
-    protected override void SubscribeStores() => Subscribe(TaskStore);
+    protected override void SubscribeStores()
+    {
+        Subscribe(TaskStore);
+        Subscribe(ProjectStore);
+    }
 
     /// <summary>
     ///     The media queries report only after the first render, which would draw the grid for the wrong width for a
@@ -255,7 +262,8 @@
     protected override async Task OnInitializedAsync()
     {
         await Effects.LoadAsync(_cts.Token);
-        await Effects.LoadProjectsAsync(_cts.Token);
+        // The projects are shared and never cleared, so the board re-reads them on every open.
+        await ProjectsEffects.LoadAsync(_cts.Token);
     }
 
     protected override async Task OnParametersSetAsync()

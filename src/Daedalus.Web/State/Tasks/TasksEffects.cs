@@ -13,9 +13,6 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
     /// <summary>The board reads one page of this many tasks, as the Tasks page always has.</summary>
     private const int BoardPage = 200;
 
-    /// <summary>The Project column reads one page of this many projects.</summary>
-    private const int ProjectPage = 200;
-
     /// <summary>Fetches the board.</summary>
     public async Task LoadAsync(CancellationToken ct)
     {
@@ -28,24 +25,6 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
         else
         {
             await dispatcher.DispatchAsync(new TasksLoadFailed(result.Error));
-        }
-    }
-
-    /// <summary>
-    ///     Fetches the projects, the one fetch the board's Project column and the task dialogs' picker share. A failure is
-    ///     <see cref="TasksState.ProjectsError"/>. It does not load the board, so Home can call it for the create dialog.
-    /// </summary>
-    public async Task LoadProjectsAsync(CancellationToken ct)
-    {
-        await dispatcher.DispatchAsync(new TaskProjectsLoadStarted());
-        var result = await api.GetProjectsAsync(1, ProjectPage, ct);
-        if (result.IsSuccess)
-        {
-            await dispatcher.DispatchAsync(new TaskProjectsLoaded(result.Value.Items));
-        }
-        else
-        {
-            await dispatcher.DispatchAsync(new TaskProjectsLoadFailed(result.Error));
         }
     }
 
@@ -73,15 +52,14 @@ public sealed class TasksEffects(ApiClient api, IDispatcher dispatcher, IStore<T
 
     /// <summary>
     ///     Re-fetches the board after a reconnect, when a load was ever asked for, because any task may have gained or
-    ///     moved a run meanwhile, and the projects with it. An empty board and a board whose load failed are re-fetched
-    ///     too; a board never asked for is left alone.
+    ///     moved a run meanwhile. An empty board and a board whose load failed are re-fetched too; a board never asked
+    ///     for is left alone. The projects are re-fetched by <see cref="Projects.ProjectsEffects.RefreshAsync"/>.
     /// </summary>
     public async Task RefreshAsync(CancellationToken ct)
     {
         if (tasks.Value.LoadRequested)
         {
             await LoadAsync(ct);
-            await LoadProjectsAsync(ct);
         }
     }
 

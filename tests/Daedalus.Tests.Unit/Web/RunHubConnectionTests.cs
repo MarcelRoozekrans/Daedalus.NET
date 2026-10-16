@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Claims;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Auth;
 using Daedalus.Web.State;
+using Daedalus.Web.State.Projects;
 using Daedalus.Web.State.Runs;
 using Daedalus.Web.State.Tasks;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -268,6 +270,46 @@ public sealed class RunHubConnectionTests : IDisposable
     }
 
     /// <summary>
+    ///     A start that recovers from a failure re-fetches the projects once a reader has loaded them, because a project
+    ///     may have been added or renamed while no connection was open.
+    ///     Red: drop the projects refresh from RunHubConnection.RefreshAsync; the projects are not requested again.
+    /// </summary>
+    [Fact]
+    public async Task A_start_that_recovers_re_fetches_the_projects_once_they_were_asked_for()
+    {
+        const string projectsPath = "/api/projects?page=1&pageSize=200";
+        using var hubServer = new HandshakingHub();
+        var tries = 0;
+        var hub = Hub(
+            User("developer"),
+            options => options.WebSocketFactory = (_, ct) => Interlocked.Increment(ref tries) == 1
+                ? ValueTask.FromException<WebSocket>(new TimeoutException("The first start failed."))
+                : hubServer.AcceptAsync(ct),
+            new FixedDelay(TimeSpan.FromMilliseconds(10)));
+        _handler.OnJson(CountPath, RunViews.Json(new WorkflowRunList([], null)))
+            .OnJson(projectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([], 0, 1, 200)));
+        await new ProjectsEffects(_handler.Client(), _provider.GetRequiredService<IDispatcher>(), _provider.GetRequiredService<IStore<ProjectsState>>())
+            .LoadAsync(CancellationToken.None);
+        _handler.Requests.Clear();
+
+        try
+        {
+            await hub.EnsureStartedAsync(CancellationToken.None);
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!_handler.Paths.Contains(projectsPath, StringComparer.Ordinal) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(10);
+            }
+        }
+        finally
+        {
+            await hub.DisposeAsync();
+        }
+
+        _handler.Paths.Should().Contain(projectsPath, "the recovered start re-fetches the projects a reader loaded");
+    }
+
+    /// <summary>
     ///     The retry schedule: at once, then 2, 5 and 10 seconds, then 30 seconds for every try after, never giving up.
     ///     Red: return null after the fourth try: the later delays are null. Red: keep doubling past 10 seconds: the
     ///     later delays exceed the cap. Red: give up after a thousand tries: the 10,000th delay is null.
@@ -305,6 +347,7 @@ public sealed class RunHubConnectionTests : IDisposable
             _dispatcher,
             new RunsEffects(api, dispatcher, _provider.GetRequiredService<IStore<RunsState>>()),
             new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()),
+            new ProjectsEffects(api, dispatcher, _provider.GetRequiredService<IStore<ProjectsState>>()),
             _logger)
         {
             ConfigureTransport = transport,

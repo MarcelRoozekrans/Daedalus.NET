@@ -181,6 +181,45 @@ public class TaskCreateBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     The projects are one shared list that no page clears when it closes, so Home's New task, then the board's
+    ///     Project column, then Home's New task again all show them, navigating in the app. Blazor disposes the page being
+    ///     left after it initialises the next, so a clear on close would land after the next page asked for the projects.
+    ///     Red: Home's New task does not load the projects; the first picker has no Test Project option.
+    ///     Red: NeedsMePanel's dispose dispatches a clear that empties the list and drops the answer in flight; the
+    ///     board's Project column reads "—".
+    /// </summary>
+    [Test]
+    [Description("The projects survive Home, then Tasks, then Home")]
+    public async Task Projects_survive_home_tasks_home()
+    {
+        var home = new HomePage(Page, BaseUrl);
+        var menu = new MainPage(Page, BaseUrl);
+        await home.NavigateAsync().ConfigureAwait(false);
+        await PickTestProjectFromHomeAsync(home).ConfigureAwait(false);
+
+        await menu.TasksMenuItem.ClickAsync().ConfigureAwait(false);
+        await Expect(_tasks.GetRowByText("Fix bug B")).ToContainTextAsync(TestProject).ConfigureAwait(false);
+
+        await menu.HomeMenuItem.ClickAsync().ConfigureAwait(false);
+        await PickTestProjectFromHomeAsync(home).ConfigureAwait(false);
+    }
+
+    /// <summary>Opens Home's New task, picks Test Project from its picker, and cancels the dialog.</summary>
+    private async Task PickTestProjectFromHomeAsync(HomePage home)
+    {
+        await home.NewTaskButton.ClickAsync().ConfigureAwait(false);
+        await Expect(_tasks.ProjectPicker).ToBeVisibleAsync().ConfigureAwait(false);
+        await Page.WaitForFunctionAsync(
+                "() => { const d = document.querySelector('.rz-dialog'); return d !== null && d.getAnimations({ subtree: true }).length === 0; }")
+            .ConfigureAwait(false);
+        await _tasks.ProjectPicker.ClickAsync().ConfigureAwait(false);
+        await Expect(_tasks.ProjectOption(TestProject)).ToBeVisibleAsync().ConfigureAwait(false);
+        await _tasks.ProjectOption(TestProject).ClickAsync().ConfigureAwait(false);
+        await _tasks.DialogCancelButton.ClickAsync().ConfigureAwait(false);
+        await Expect(_tasks.Dialog).ToBeHiddenAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     Manufacture shows its text beside its icon, and its accessible name is exactly "Manufacture".
     ///     Red: the button keeps its icon only; the text label is missing.
     ///     Red: the aria-label removed, so the name is the icon ligature and the text; the exact-name lookup finds nothing.

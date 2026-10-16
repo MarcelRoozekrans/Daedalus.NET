@@ -3,7 +3,7 @@
 @implements IAsyncDisposable
 @inject ApiClient Api
 @inject TasksEffects Effects
-@inject IStore<TasksState> TaskStore
+@inject IStore<ProjectsState> ProjectStore
 @inject DialogService DialogService
 @inject NotificationService NotificationService
 @inject IJSRuntime Js
@@ -17,7 +17,7 @@
             </RadzenAlert>
         }
 
-        <TaskFields @ref="_fields" Model="@_model" Projects="@TaskStore.Value.Projects" ProjectError="@TaskStore.Value.ProjectsError"/>
+        <TaskFields @ref="_fields" Model="@_model" Projects="@ProjectStore.Value.Projects" ProjectError="@ProjectStore.Value.Error"/>
 
         <TaskDialogActions>
             <RadzenButton Text="Cancel" ButtonStyle="ButtonStyle.Light" Disabled="@_submitting"
@@ -48,7 +48,7 @@
     /// <summary>The signed-in user, for whether Create and manufacture shows.</summary>
     [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
 
-    protected override void SubscribeStores() => Subscribe(TaskStore);
+    protected override void SubscribeStores() => Subscribe(ProjectStore);
 
     protected override void OnInitialized()
     {
@@ -63,7 +63,7 @@
     }
 
     /// <summary>
-    ///     Focuses Project once, and preselects the only project once the board's projects have arrived, which may be after
+    ///     Focuses Project once, and preselects the only project once the shared projects have arrived, which may be after
     ///     the dialog opened.
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -77,7 +77,7 @@
             }
         }
 
-        if (!_preselected && TaskStore.Value.Projects is { } projects)
+        if (!_preselected && ProjectStore.Value.Projects is { } projects)
         {
             _preselected = true;
             if (_model.ProjectId is null && TaskForm.Preselect(projects) is { } only)

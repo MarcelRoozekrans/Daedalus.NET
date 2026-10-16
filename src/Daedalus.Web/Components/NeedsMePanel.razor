@@ -4,7 +4,7 @@
    gets one line in place of the cards, and no read at all. *@
 @inject ApiClient Api
 @inject DialogService DialogService
-@inject TasksEffects Effects
+@inject ProjectsEffects ProjectsEffects
 @inject NavigationManager Nav
 @implements IAsyncDisposable
 
@@ -179,14 +179,15 @@
     }
 
     /// <summary>
-    ///     Opens the create dialog as Tasks does. The dialog's project picker reads the projects Home loads here, since Home
-    ///     has no board. Create closes the dialog and stays on Home, with the dialog's "Task created"; the task is at the top
-    ///     of Tasks. Create and manufacture opens the run it started, or, when the start was refused, says why here.
+    ///     Opens the create dialog as Tasks does. The dialog's project picker reads the shared projects, which Home
+    ///     re-reads here on every press. Create closes the dialog and stays on Home, with the dialog's "Task created"; the
+    ///     task is at the top of Tasks. Create and manufacture opens the run it started, or, when the start was refused,
+    ///     says why here.
     /// </summary>
     private async Task OpenCreateDialogAsync()
     {
         _manufactureRefused = null;
-        var projects = Effects.LoadProjectsAsync(_cts.Token);
+        var projects = ProjectsEffects.LoadAsync(_cts.Token);
         var result = await DialogService.OpenAsync<TaskCreateDialog>("Create New Task",
             options: new DialogOptions { Width = "700px", AutoFocusFirstElement = false });
         await projects;

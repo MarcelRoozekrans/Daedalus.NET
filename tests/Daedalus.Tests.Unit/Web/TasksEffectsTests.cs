@@ -9,11 +9,13 @@ using ZeroAlloc.Flux.Generated;
 
 namespace Daedalus.Tests.Unit.Web;
 
-/// <summary>The tasks effects: the board load, the per-task re-fetch on a run change, and the start guard.</summary>
+/// <summary>
+///     The tasks effects: the board load, the per-task re-fetch on a run change, and the start guard. The projects
+///     cases moved to <see cref="ProjectsEffectsTests"/> and <see cref="ProjectsReducersTests"/>.
+/// </summary>
 public sealed class TasksEffectsTests : IDisposable
 {
     private const string ListPath = "/api/tasks?page=1&pageSize=200";
-    private const string ProjectsPath = "/api/projects?page=1&pageSize=200";
 
     private readonly RecordingHandler _handler = new();
     private readonly ServiceProvider _provider = new ServiceCollection().AddZeroAllocFlux().BuildServiceProvider();
@@ -90,9 +92,11 @@ public sealed class TasksEffectsTests : IDisposable
     }
 
     /// <summary>
-    ///     A reconnect leaves a board never asked for alone, and re-fetches one that was, even when its load failed.
+    ///     A reconnect leaves a board never asked for alone, and re-fetches one that was, even when its load failed. The
+    ///     projects are no longer the board's: ProjectsEffects re-fetches them on its own.
     ///     Red: reload whatever the state. Red: gate on Items.Count instead of LoadRequested.
     ///     Red: drop the reload from RefreshAsync.
+    ///     Red: re-fetch the projects from TasksEffects.RefreshAsync, as before; the paths hold the projects too.
     /// </summary>
     [Fact]
     public async Task Reconnect_re_fetches_only_a_board_that_was_asked_for()
@@ -106,7 +110,7 @@ public sealed class TasksEffectsTests : IDisposable
         await _effects.LoadAsync(CancellationToken.None);
         _handler.Requests.Clear();
         await _effects.RefreshAsync(CancellationToken.None);
-        _handler.Paths.Should().Equal(ListPath, ProjectsPath);
+        _handler.Paths.Should().Equal(ListPath);
     }
 
     /// <summary>
@@ -216,98 +220,6 @@ public sealed class TasksEffectsTests : IDisposable
         failure.Error.Should().Be("A run is already live.");
         _store.Value.Starting.Should().BeEmpty();
     }
-
-    /// <summary>
-    ///     Loading the projects names each one by its id, for the board's Project column.
-    ///     Red: key every name by Guid.Empty instead of the project's id; the id lookup misses.
-    ///     Red: drop the TaskProjectsLoaded dispatch; the names stay empty.
-    /// </summary>
-    [Fact]
-    public async Task Loading_the_projects_names_each_by_its_id()
-    {
-        var id = Guid.NewGuid();
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)))
-            .OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([new ProjectDto(id, "Widgets", "", "1.0", "", "main", DateTime.UnixEpoch, null, [])], 1, 1, 200)));
-        await _effects.LoadAsync(CancellationToken.None);
-
-        await _effects.LoadProjectsAsync(CancellationToken.None);
-
-        _store.Value.ProjectNames.Should().ContainKey(id).WhoseValue.Should().Be("Widgets");
-    }
-
-    /// <summary>
-    ///     A failed projects load is the projects' error, and the board's own error stays clear.
-    ///     Red: dispatch nothing on a failure; the projects error stays null.
-    ///     Red: also dispatch TasksLoadFailed, as before; the board error is set.
-    /// </summary>
-    [Fact]
-    public async Task A_failed_projects_load_is_the_projects_error()
-    {
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)));
-        await _effects.LoadAsync(CancellationToken.None);
-
-        await _effects.LoadProjectsAsync(CancellationToken.None);
-
-        _store.Value.ProjectsError.Should().NotBeNull();
-        _store.Value.Error.Should().BeNull("the board itself loaded");
-    }
-
-    /// <summary>
-    ///     A refresh re-fetches the projects with the board.
-    ///     Red: drop LoadProjectsAsync from RefreshAsync; the projects path is not requested.
-    /// </summary>
-    [Fact]
-    public async Task A_refresh_re_fetches_the_projects()
-    {
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)));
-        await _effects.LoadAsync(CancellationToken.None);
-        _handler.Requests.Clear();
-
-        await _effects.RefreshAsync(CancellationToken.None);
-
-        _handler.Paths.Should().Contain(ProjectsPath);
-    }
-
-    /// <summary>
-    ///     Leaving the page drops the projects with the board, and projects that land afterwards are ignored.
-    ///     Red: leave Projects out of the TasksClosed reducer; they are still there.
-    ///     Red: drop the ProjectsRequested guard from TaskProjectsLoaded; the late projects land.
-    /// </summary>
-    [Fact]
-    public async Task Leaving_the_page_drops_the_projects()
-    {
-        _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)))
-            .OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project()], 1, 1, 200)));
-        await _effects.LoadAsync(CancellationToken.None);
-        await _effects.LoadProjectsAsync(CancellationToken.None);
-        var dispatcher = _provider.GetRequiredService<IDispatcher>();
-
-        await dispatcher.DispatchAsync(new TasksClosed());
-        _store.Value.Projects.Should().BeNull();
-        _store.Value.ProjectNames.Should().BeEmpty();
-
-        await dispatcher.DispatchAsync(new TaskProjectsLoaded([Project()]));
-        _store.Value.Projects.Should().BeNull("projects landing after the page closed are ignored");
-    }
-
-    /// <summary>
-    ///     Home opens the create dialog with no board loaded, so the projects load on their own, without marking a board
-    ///     load that a reconnect would then re-fetch.
-    ///     Red: guard TaskProjectsLoaded on LoadRequested again; the projects stay null.
-    ///     Red: LoadProjectsAsync dispatches TasksLoadStarted to get past the guard; LoadRequested is set.
-    /// </summary>
-    [Fact]
-    public async Task The_projects_load_without_the_board()
-    {
-        _handler.OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project()], 1, 1, 200)));
-
-        await _effects.LoadProjectsAsync(CancellationToken.None);
-
-        _store.Value.Projects.Should().HaveCount(1);
-        _store.Value.LoadRequested.Should().BeFalse("loading the projects is not a board load");
-    }
-
-    private static ProjectDto Project() => new(Guid.NewGuid(), "Widgets", "", "1.0", "", "main", DateTime.UnixEpoch, null, []);
 
     private static TaskDto Board(Guid id, Guid? runId, string title) =>
         new(id, "T-1", Guid.NewGuid(), title, "", 1, "build", 0, [], [], 1, "", "", 1, 0, null, null, 0,
