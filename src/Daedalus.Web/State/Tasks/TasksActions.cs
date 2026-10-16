@@ -15,6 +15,12 @@ public readonly record struct TasksClosed;
 /// <summary>The board could not be fetched.</summary>
 public readonly record struct TasksLoadFailed(string Error);
 
+/// <summary>
+///     The board got no answer because the session is being renewed: the load ends and no error is stored, because the
+///     layout already says "Signing in again".
+/// </summary>
+public readonly record struct TasksLoadAbandoned;
+
 /// <summary>The person closed the board's error alert.</summary>
 public readonly record struct TasksErrorDismissed;
 

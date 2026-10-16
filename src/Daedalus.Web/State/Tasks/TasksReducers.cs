@@ -6,7 +6,8 @@ namespace Daedalus.Web.State.Tasks;
 public static class TasksReducers
 {
     [Reducer]
-    public static TasksState On(TasksState s, TasksLoadStarted _) => s with { Loading = true, Error = null, LoadRequested = true };
+    public static TasksState On(TasksState s, TasksLoadStarted _) =>
+        s with { Loading = true, Error = null, LoadRequested = true, Abandoned = false };
 
     /// <summary>A board that lands after the page closed, with no load asked for since, is ignored.</summary>
     [Reducer]
@@ -16,6 +17,11 @@ public static class TasksReducers
     [Reducer]
     public static TasksState On(TasksState s, TasksLoadFailed a) =>
         !s.LoadRequested ? s : s with { Error = a.Error, Loading = false };
+
+    /// <summary>Ends the load and stores no error; ignored after the page closed, as a failure is.</summary>
+    [Reducer]
+    public static TasksState On(TasksState s, TasksLoadAbandoned _) =>
+        !s.LoadRequested ? s : s with { Loading = false, Abandoned = true };
 
     [Reducer]
     public static TasksState On(TasksState s, TasksErrorDismissed _) => s with { Error = null };

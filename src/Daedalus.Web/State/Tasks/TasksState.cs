@@ -10,17 +10,26 @@ namespace Daedalus.Web.State.Tasks;
 /// <param name="Items">The tasks on the board.</param>
 /// <param name="Total">How many tasks the server holds.</param>
 /// <param name="Loading">Whether the board is being fetched.</param>
-/// <param name="Error">Why the last fetch failed, or <see langword="null"/>.</param>
+/// <param name="Error">
+///     Why the last fetch failed, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>, and
+///     never a failure that came back after its caller went away.
+/// </param>
 /// <param name="Starting">The ids of the tasks whose Manufacture call is in flight.</param>
 /// <param name="LoadRequested">
 ///     Whether a board load was ever asked for, whatever came of it. Set by <see cref="TasksLoadStarted"/> rather
 ///     than on success, so a reconnect also re-fetches a board that came back empty or failed to load.
 /// </param>
+/// <param name="Abandoned">
+///     Whether the newest load ended with no answer because the session is being renewed. The board then claims
+///     nothing: it is not known to be empty, only unread. Cleared by the next <see cref="TasksLoadStarted"/>; see
+///     <see cref="TasksView.ShowEmpty"/>.
+/// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct TasksState(
-    IReadOnlyList<TaskDto> Items, int Total, bool Loading, string? Error, IReadOnlySet<Guid> Starting, bool LoadRequested)
+    IReadOnlyList<TaskDto> Items, int Total, bool Loading, string? Error, IReadOnlySet<Guid> Starting, bool LoadRequested,
+    bool Abandoned)
 {
     /// <summary>The state before the board has loaded.</summary>
     public static TasksState Initial(IServiceProvider services) =>
-        new([], 0, false, null, new HashSet<Guid>(), false);
+        new([], 0, false, null, new HashSet<Guid>(), false, false);
 }

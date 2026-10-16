@@ -495,7 +495,7 @@ public sealed class RunHubConnectionTests : IDisposable
             services ?? _provider,
             _dispatcher,
             new RunsEffects(api, dispatcher, _provider.GetRequiredService<IStore<RunsState>>(), new RecordingLogger<RunsEffects>()),
-            new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()),
+            new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>(), new RecordingLogger<TasksEffects>()),
             new ProjectsEffects(api, _handler.ProjectClient(), dispatcher, _provider.GetRequiredService<IStore<ProjectsState>>(), new RecordingLogger<ProjectsEffects>()),
             _home,
             _logger)
