@@ -129,6 +129,7 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddScoped<ApiClient>();
 builder.Services.AddScoped<AgentApiClient>();
 builder.Services.AddScoped<IProjectApiClient, ProjectApiClient>();
+builder.Services.AddScoped<RepositoriesApiClient>();
 builder.Services.AddRadzenComponents();
 
 // The console's state: the Flux stores and dispatcher, the effects that fill them, and the one live connection

@@ -330,6 +330,19 @@ public sealed class ApiClient(HttpClient httpClient)
         Guid sessionId, CancellationToken ct = default) =>
         await PostAsync<List<TaskDto>>($"/api/brainstorm/sessions/{sessionId}/generate-tasks", new { }, ct);
 
+    // PRD generator
+    /// <summary>
+    ///     Generates a PRD from the user's requirements. The API answers in camelCase, read with the web defaults; a
+    ///     refusal carries the controller's <c>error</c>.
+    /// </summary>
+    public Task<Result<PrdResponseDto>> GeneratePrdAsync(PrdRequestDto request, CancellationToken ct = default) =>
+        PostAsync<PrdResponseDto>("/api/prd/generate", request, ct);
+
+    /// <summary>Turns the selected PRD items into tasks; a refusal carries the controller's <c>error</c>.</summary>
+    public Task<Result<List<TaskDto>>> ConvertPrdToTasksAsync(
+        PrdConversionRequestDto request, CancellationToken ct = default) =>
+        PostAsync<List<TaskDto>>("/api/prd/convert-to-tasks", request, ct);
+
     // Schedules — resend
     /// <summary>
     ///     Requeues an undelivered run's message for redelivery.
