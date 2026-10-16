@@ -328,10 +328,18 @@
             return;
         }
 
-        var result = await Effects.ManufactureAsync(task.Id, _cts.Token);
+        // Read before the await: once the page is gone its token source is disposed.
+        var ct = _cts.Token;
+        var result = await Effects.ManufactureAsync(task.Id, ct);
         if (result.IsSuccess)
         {
             Navigation.NavigateTo($"runs/{result.Value.RunId}");
+            return;
+        }
+
+        // A page already left reports nothing: the failure is only that it went away.
+        if (ct.IsCancellationRequested)
+        {
             return;
         }
 
