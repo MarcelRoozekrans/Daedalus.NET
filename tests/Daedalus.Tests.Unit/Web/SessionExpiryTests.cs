@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Daedalus.Application.DTOs;
 using Daedalus.Web.Auth;
 using Daedalus.Web.Services;
 using Microsoft.Extensions.Time.Testing;

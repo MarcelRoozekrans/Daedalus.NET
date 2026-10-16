@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Daedalus.Application.DTOs;
 using Daedalus.Web.Services;
 
 namespace Daedalus.Tests.Unit.Web;

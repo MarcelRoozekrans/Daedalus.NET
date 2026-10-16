@@ -3,7 +3,11 @@ using ZeroAlloc.Validation;
 
 namespace Daedalus.Application.DTOs;
 
-/// <summary>DTO for creating a task via the API.</summary>
+/// <summary>
+///     DTO for creating a task via the API. Only the project, title and description are required: a null prompt makes the
+///     API use the description, and a null task id, phase, parallel group, dependency list or file list takes the API's
+///     default.
+/// </summary>
 [Validate]
 public record CreateTaskDto(
     [property: NotEmpty(Message = "Project ID is required.")]

@@ -1,6 +1,7 @@
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Application.DTOs;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;

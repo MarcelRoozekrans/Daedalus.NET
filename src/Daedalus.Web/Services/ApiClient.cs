@@ -5,15 +5,8 @@ using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Auth;
 using Daedalus.Web.State.Runs;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
-using BrainstormMessageDto = Daedalus.Application.DTOs.BrainstormMessageDto;
-using BrainstormSessionDto = Daedalus.Application.DTOs.BrainstormSessionDto;
-using BrainstormSessionSummaryDto = Daedalus.Application.DTOs.BrainstormSessionSummaryDto;
-using CreateBrainstormSessionDto = Daedalus.Application.DTOs.CreateBrainstormSessionDto;
-using SendBrainstormMessageDto = Daedalus.Application.DTOs.SendBrainstormMessageDto;
 
 namespace Daedalus.Web.Services;
-
-// DTOs (copied from API for client-side use)
 
 /// <summary>
 ///     HTTP client service for communicating with the API. A request whose token cannot be refreshed has already sent

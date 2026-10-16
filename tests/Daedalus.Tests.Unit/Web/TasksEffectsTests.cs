@@ -1,4 +1,5 @@
 using System.Net;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Services;
 using Daedalus.Web.State.Tasks;
@@ -226,7 +227,7 @@ public sealed class TasksEffectsTests : IDisposable
     {
         var id = Guid.NewGuid();
         _handler.OnJson(ListPath, RunViews.Json(new PagedResultDto<TaskDto>([], 0, 1, 200)))
-            .OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([new ProjectDto(id, "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, [])], 1, 1, 200)));
+            .OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([new ProjectDto(id, "Widgets", "", "1.0", "", "main", DateTime.UnixEpoch, null, [])], 1, 1, 200)));
         await _effects.LoadAsync(CancellationToken.None);
 
         await _effects.LoadProjectsAsync(CancellationToken.None);
@@ -306,7 +307,7 @@ public sealed class TasksEffectsTests : IDisposable
         _store.Value.LoadRequested.Should().BeFalse("loading the projects is not a board load");
     }
 
-    private static ProjectDto Project() => new(Guid.NewGuid(), "Widgets", "", "1.0", null, DateTime.UnixEpoch, null, []);
+    private static ProjectDto Project() => new(Guid.NewGuid(), "Widgets", "", "1.0", "", "main", DateTime.UnixEpoch, null, []);
 
     private static TaskDto Board(Guid id, Guid? runId, string title) =>
         new(id, "T-1", Guid.NewGuid(), title, "", 1, "build", 0, [], [], 1, "", "", 1, 0, null, null, 0,

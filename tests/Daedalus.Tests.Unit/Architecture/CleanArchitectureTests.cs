@@ -454,6 +454,56 @@ public sealed class CleanArchitectureTests
         rule.Check(Architecture);
     }
 
+    /// <summary>
+    ///     The Web binds the Application DTOs; it keeps no copy of its own (#372). A copy drifts from the type the API
+    ///     writes, as 15 had by phase 2.14, so no Web type may carry an Application DTO's name.
+    ///     Red: restore the Web <c>ProjectDto</c> copy, in namespace <c>Daedalus.Web.Copies</c> so the Web still compiles;
+    ///     the list holds <c>Daedalus.Web.Copies.ProjectDto</c>.
+    /// </summary>
+    [Fact]
+    public void WebLayer_KeepsNoCopyOf_AnApplicationDto()
+    {
+        var dtoNames = ApplicationDtoNames();
+
+        var copies = WebAssembly.GetTypes()
+            .Where(t => dtoNames.Contains(t.Name))
+            .Select(t => t.FullName)
+            .Order(StringComparer.Ordinal);
+
+        copies.Should().BeEmpty("the Web binds Daedalus.Application.DTOs instead of copying them (#372)");
+    }
+
+    /// <summary>
+    ///     Known positive for <see cref="WebLayer_KeepsNoCopyOf_AnApplicationDto"/>: the name set holds DTOs from the root
+    ///     namespace and from a sub-namespace, and the Web types it is checked against are loaded, so the rule cannot pass
+    ///     vacuously.
+    ///     Red: make <c>ApplicationDtoNames</c> match only the exact <c>Daedalus.Application.DTOs</c> namespace;
+    ///     <c>StartWorkflowRunResponse</c> is missing.
+    ///     Red: make <c>ApplicationDtoNames</c> return an empty set; <c>ProjectDto</c> is missing.
+    ///     Red: check <c>DomainAssembly</c> in place of <c>WebAssembly</c>; <c>ApiClient</c> is missing.
+    /// </summary>
+    [Fact]
+    public void ApplicationDtoNames_CoverEveryDtoNamespace_TheNoCopyRuleIsLoadBearing()
+    {
+        var dtoNames = ApplicationDtoNames();
+
+        dtoNames.Should().Contain(["ProjectDto", "TaskDto", "PagedResultDto`1", "StartWorkflowRunResponse"]);
+        WebAssembly.GetTypes().Should().Contain(t => string.Equals(t.Name, "ApiClient", StringComparison.Ordinal), "the Web assembly's types are loaded");
+    }
+
+    /// <summary>
+    ///     The names of every type in <c>Daedalus.Application.DTOs</c> and its sub-namespaces, without the compiler's own
+    ///     closure types, such as <c>&lt;&gt;c</c>, which every assembly has.
+    /// </summary>
+    private static HashSet<string> ApplicationDtoNames() =>
+        ApplicationAssembly.GetTypes()
+            .Where(t => !t.Name.Contains('<', StringComparison.Ordinal)
+                && t.Namespace is { } ns
+                && (string.Equals(ns, "Daedalus.Application.DTOs", StringComparison.Ordinal)
+                    || ns.StartsWith("Daedalus.Application.DTOs.", StringComparison.Ordinal)))
+            .Select(t => t.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
     [Fact]
     public void AgentsProject_DoesDependOn_Thalos_RulesAreLoadBearing()
     {
