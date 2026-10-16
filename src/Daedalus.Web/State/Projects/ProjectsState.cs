@@ -31,11 +31,12 @@ public readonly partial record struct ProjectsState(
     bool LoadRequested)
 {
     /// <summary>
-    ///     The projects once the newest load has finished, or <see langword="null"/> while one is in flight or before any
-    ///     succeeded. A decision made once, such as the create dialog's one-project preselect, waits for this, so it is
-    ///     never made on a list a closed page left behind.
+    ///     The projects once the newest load has finished without an error, or <see langword="null"/> while one is in
+    ///     flight, after it failed, or before any succeeded. A decision made once, such as the create dialog's
+    ///     one-project preselect, waits for this, so it is never made on a list a closed page left behind, nor on one a
+    ///     failed refresh could not confirm.
     /// </summary>
-    public IReadOnlyList<ProjectDto>? Settled => Loading ? null : Projects;
+    public IReadOnlyList<ProjectDto>? Settled => Loading || Error is not null ? null : Projects;
 
     /// <summary>The state before any load.</summary>
     public static ProjectsState Initial(IServiceProvider services) =>

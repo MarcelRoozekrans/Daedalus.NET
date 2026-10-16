@@ -263,9 +263,8 @@
     {
         // The projects are shared and never cleared, so the board re-reads them on every open. Started first, alongside
         // the board, so the load is marked before anything renders and the create dialog waits for its answer.
-        var projects = ProjectsEffects.LoadAsync(_cts.Token);
-        await Effects.LoadAsync(_cts.Token);
-        await projects;
+        // Awaited together, so a fault in either load is observed.
+        await Task.WhenAll(ProjectsEffects.LoadAsync(_cts.Token), Effects.LoadAsync(_cts.Token));
     }
 
     protected override async Task OnParametersSetAsync()

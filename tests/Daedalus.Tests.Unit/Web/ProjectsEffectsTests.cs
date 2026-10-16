@@ -244,6 +244,26 @@ public sealed class ProjectsEffectsTests : IDisposable
         Preselected().Should().BeNull("two projects preselect none");
     }
 
+    /// <summary>
+    ///     A refresh that fails leaves the held one-project list in the picker but not settled, so the create dialog does
+    ///     not preselect from a list the newest load could not confirm.
+    ///     Red: drop the Error condition from ProjectsState.Settled; the held project is preselected after the failure.
+    /// </summary>
+    [Fact]
+    public async Task No_preselect_from_a_held_list_after_a_failed_refresh()
+    {
+        var held = Guid.NewGuid();
+        _handler.OnJson(ProjectsPath, RunViews.Json(new PagedResultDto<ProjectDto>([Project(held, "Held")], 1, 1, 200)));
+        await _effects.LoadAsync(CancellationToken.None);
+        Preselected().Should().Be(held, "a confirmed one-project list is preselected");
+        _handler.OnJson(ProjectsPath, "{}", HttpStatusCode.InternalServerError);
+
+        await _effects.LoadAsync(CancellationToken.None);
+
+        _store.Value.Projects.Should().ContainSingle("the held list stays in the picker");
+        Preselected().Should().BeNull("a failed refresh does not confirm the held list");
+    }
+
     private Guid? Preselected() => _store.Value.Settled is { } projects ? TaskForm.Preselect(projects) : null;
 
     private static ProjectDto Project(Guid id, string name) => new(id, name, "", "1.0", "", "main", DateTime.UnixEpoch, null, []);
