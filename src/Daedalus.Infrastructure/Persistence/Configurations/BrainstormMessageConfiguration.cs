@@ -14,6 +14,10 @@ internal sealed class BrainstormMessageConfiguration : IEntityTypeConfiguration<
         builder.ToTable("BrainstormMessages");
         builder.HasKey(m => m.Id);
 
+        // The domain sets the key in BrainstormMessage.Create. A store-generated Guid key would make EF read a new
+        // message found through the session as an existing row, and update it instead of inserting it.
+        builder.Property(m => m.Id).ValueGeneratedNever();
+
         builder.Property(m => m.BrainstormSessionId).IsRequired();
 
         builder.Property(m => m.Role)

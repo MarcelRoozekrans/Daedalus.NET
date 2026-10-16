@@ -1,7 +1,5 @@
 using System.Text.RegularExpressions;
-using Daedalus.Application.DTOs;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
-using BrainstormPhase = Daedalus.Domain.Entities.BrainstormPhase;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 
@@ -54,53 +52,21 @@ public class BrainstormPageBrowserTests : BrowserTestBase
     }
 
     /// <summary>
-    ///     Sending a message posts it, reloads the session and shows it as the person's, and clears the input. The session
-    ///     is answered here: on this host the API does not keep a sent message, so a reload from it would not hold one
-    ///     (see the task 1 report). Once a message is posted, the answer is the session the API returned with the message
-    ///     and the reply added.
-    ///     Red: <c>SendMessage</c> posts <c>_userInput</c> after clearing it; the posted content is empty.
+    ///     Sending a message posts it, reloads the session and shows it as the person's with the model's reply, and clears
+    ///     the input. The API keeps the message, so the reload shows it.
+    ///     Red: <c>SendMessage</c> posts <c>_userInput</c> after clearing it; the API refuses the empty message and
+    ///     nothing new shows.
     ///     Red: <c>SendMessage</c> does not reload the session; the sent message never shows.
     ///     Red: the person's caption reads "Me"; the sent message is not captioned You.
+    ///     Red: the message loop skips assistant messages after the first; the model's reply does not show.
+    ///     Red: remove <c>ValueGeneratedNever</c> from <c>BrainstormMessageConfiguration</c>; the API does not keep the message.
     ///     Red: <c>_userInput</c> is not cleared; the input still holds the message.
     /// </summary>
     [Test]
-    [Description("Sending a message shows it and clears the input")]
-    public async Task Sending_a_message_shows_it_and_clears_the_input()
+    [Description("Sending a message shows it and the reply, and clears the input")]
+    public async Task Sending_a_message_shows_it_and_the_reply_and_clears_the_input()
     {
-        var sessionId = await E2EServerFixture.Brainstorms.StartAsync(CancellationToken.None).ConfigureAwait(false);
-        var posted = new List<string>();
-        await Page.RouteAsync($"**/api/brainstorm/sessions/{sessionId}**", async route =>
-        {
-            if (string.Equals(route.Request.Method, "POST", StringComparison.Ordinal))
-            {
-                posted.Add(JsonDocument.Parse(route.Request.PostData!).RootElement.GetProperty("content").GetString()!);
-                await route.FulfillAsync(new RouteFulfillOptions
-                {
-                    Status = 200,
-                    ContentType = "application/json",
-                    Body = JsonSerializer.Serialize(Dto("Assistant", BrainstormSeeds.StubReply), JsonSerializerOptions.Web),
-                }).ConfigureAwait(false);
-                return;
-            }
-
-            var fetched = await route.FetchAsync().ConfigureAwait(false);
-            var session = System.Text.Json.Nodes.JsonNode.Parse(await fetched.TextAsync().ConfigureAwait(false))!;
-            if (posted.Count > 0)
-            {
-                var messages = session["messages"]!.AsArray();
-                messages.Add(JsonSerializer.SerializeToNode(Dto("User", UserMessage), JsonSerializerOptions.Web));
-                messages.Add(JsonSerializer.SerializeToNode(Dto("Assistant", BrainstormSeeds.StubReply), JsonSerializerOptions.Web));
-            }
-
-            await route.FulfillAsync(new RouteFulfillOptions
-            {
-                Status = 200,
-                ContentType = "application/json",
-                Body = session.ToJsonString(),
-            }).ConfigureAwait(false);
-        }).ConfigureAwait(false);
-        await Page.GotoAsync(new Uri(BaseUrl, $"/brainstorm/{sessionId}").ToString()).ConfigureAwait(false);
-        await Expect(Message("Assistant", BrainstormSeeds.OpeningMessage)).ToBeVisibleAsync().ConfigureAwait(false);
+        await OpenNewSessionAsync().ConfigureAwait(false);
 
         var input = Page.GetByTestId("brainstorm-input");
         await input.FillAsync(UserMessage).ConfigureAwait(false);
@@ -108,12 +74,9 @@ public class BrainstormPageBrowserTests : BrowserTestBase
         await Page.GetByTestId("btn-send-message").ClickAsync().ConfigureAwait(false);
 
         await Expect(Message("You", UserMessage)).ToBeVisibleAsync().ConfigureAwait(false);
-        posted.Should().Equal(UserMessage);
+        await Expect(Message("Assistant", BrainstormSeeds.StubReply)).ToBeVisibleAsync().ConfigureAwait(false);
         await Expect(input).ToHaveValueAsync(string.Empty).ConfigureAwait(false);
     }
-
-    private static BrainstormMessageDto Dto(string role, string content) =>
-        new(Guid.NewGuid(), role, content, BrainstormPhase.ContextGathering, DateTime.UtcNow);
 
     /// <summary>
     ///     Advance moves the session to the next phase, marks the last one done, shows the model's opening of the new
