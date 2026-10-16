@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Daedalus.Application.DTOs;
 using Daedalus.Web.Services;
 
@@ -28,6 +29,13 @@ public sealed class RepositoriesApiClientTests
         DefaultBranch = "main",
         IsActive = true,
     };
+
+    /// <summary>A server that never answers, until the request is cancelled.</summary>
+    private static async Task<HttpResponseMessage> Hang(HttpRequestMessage request, CancellationToken ct)
+    {
+        await Task.Delay(Timeout.Infinite, ct);
+        return new HttpResponseMessage(HttpStatusCode.OK);
+    }
 
     private static RepositoriesApiClient Client(
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond, TimeSpan? timeout = null)
@@ -113,12 +121,6 @@ public sealed class RepositoriesApiClientTests
     [Fact]
     public async Task A_timeout_is_reported_and_a_cancel_is_not()
     {
-        static async Task<HttpResponseMessage> Hang(HttpRequestMessage _, CancellationToken ct)
-        {
-            await Task.Delay(Timeout.Infinite, ct);
-            return new HttpResponseMessage(HttpStatusCode.OK);
-        }
-
         var timedOut = await Client(Hang, TimeSpan.FromMilliseconds(50)).GetAllAsync(CancellationToken.None);
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
@@ -183,6 +185,50 @@ public sealed class RepositoriesApiClientTests
         var result = await Write(client, write);
 
         result.Error.Should().Be(RepositoriesApiClient.NoAnswer);
+    }
+
+    /// <summary>
+    ///     A write that runs into the client's own timeout, with no cancel from its caller, is
+    ///     <see cref="RepositoriesApiClient.NoAnswer"/>, as the page's catch-all once made it "Failed to … repository.".
+    ///     Red: drop <c>or OperationCanceledException</c> from the write helper's filter; the timed-out write throws.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Writes))]
+    public async Task A_timed_out_write_is_NoAnswer(string write)
+    {
+        var result = await Write(Client(Hang, TimeSpan.FromMilliseconds(50)), write);
+
+        result.Error.Should().Be(RepositoriesApiClient.NoAnswer);
+    }
+
+    /// <summary>
+    ///     A write whose body cannot be written is <see cref="RepositoriesApiClient.NoAnswer"/>, not an exception. JSON
+    ///     content is serialized as the handler reads it, so the handler throws what the serializer would.
+    ///     Red: drop <c>or JsonException</c> from the write helper's filter; the JsonException cases throw.
+    ///     Red: drop <c>or NotSupportedException</c> from the write helper's filter; the NotSupportedException cases throw.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(BadBodies))]
+    public async Task A_write_whose_body_cannot_be_written_is_NoAnswer(string write, string exception)
+    {
+        Exception thrown = string.Equals(exception, nameof(JsonException), StringComparison.Ordinal) ? new JsonException("bad body") : new NotSupportedException("bad body");
+        var client = Client((_, _) => throw thrown);
+
+        var result = await Write(client, write);
+
+        result.Error.Should().Be(RepositoriesApiClient.NoAnswer);
+    }
+
+    public static TheoryData<string, string> BadBodies()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var write in new[] { "Create", "Update", "Delete", "TestConnection" })
+        {
+            data.Add(write, nameof(JsonException));
+            data.Add(write, nameof(NotSupportedException));
+        }
+
+        return data;
     }
 
     /// <summary>

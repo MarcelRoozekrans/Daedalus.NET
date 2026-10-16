@@ -108,8 +108,9 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
             ct);
 
     /// <summary>
-    ///     Sends a write whose success body is not read. A refusal reads "The server answered {status}.", a request that
-    ///     got no answer is <see cref="NoAnswer"/>, and a caller that went away is <see cref="Cancelled"/>.
+    ///     Sends a write whose success body is not read. A refusal reads "The server answered {status}.", and a caller that
+    ///     went away is <see cref="Cancelled"/>. A request that failed, timed out or whose body could not be written is
+    ///     <see cref="NoAnswer"/>, as the page's catch-all once made it "Failed to … repository.".
     /// </summary>
     private static async Task<Result> SendAsync(Func<CancellationToken, Task<HttpResponseMessage>> send, CancellationToken ct)
     {
@@ -128,7 +129,7 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
         {
             return Result.Failure(Cancelled);
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or NotSupportedException)
         {
             return Result.Failure(NoAnswer);
         }
