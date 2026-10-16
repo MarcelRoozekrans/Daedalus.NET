@@ -98,6 +98,21 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
         await Expect(_prdPage.GenerateButton).ToBeVisibleAsync().ConfigureAwait(false);
     }
 
+    /// <summary>
+    ///     A projects load that fails shows no projects, as the step always showed it, rather than a spinner forever.
+    ///     Red: show ProjectsState.Settled alone; a failed load keeps the spinner and "No projects found" never shows.
+    /// </summary>
+    [Test]
+    [Description("Step 1 shows no projects when the projects cannot be loaded")]
+    public async Task PrdGenerator_Step1_FailedLoad_ShowsNoProjects()
+    {
+        await Page.RouteAsync("**/api/projects?*", route => route.FulfillAsync(new RouteFulfillOptions { Status = 500 })).ConfigureAwait(false);
+        await _prdPage.NavigateAsync().ConfigureAwait(false);
+
+        await Expect(_prdPage.NoProjectsAlert).ToBeVisibleAsync(
+            new LocatorAssertionsToBeVisibleOptions { Timeout = 10000 }).ConfigureAwait(false);
+    }
+
     // ── Step 2: Requirements Input ───────────────────────────────────────────
 
     [Test]

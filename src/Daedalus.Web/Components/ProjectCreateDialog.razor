@@ -1,4 +1,5 @@
-@inject IProjectApiClient ProjectApiClient
+@inject ProjectsEffects ProjectsEffects
+@inject IStore<ProjectsState> ProjectStore
 @inject DialogService DialogService
 @inject NotificationService NotificationService
 
@@ -40,15 +41,16 @@
         try
         {
             var dto = new CreateProjectDto(_projectName.Trim(), _description.Trim(), _version.Trim());
-            var result = await ProjectApiClient.CreateProjectAsync(dto);
-            if (result.IsSuccess)
+            await ProjectsEffects.CreateAsync(dto, CancellationToken.None);
+            // No outcome is a session being renewed: the layout says so, and the dialog stays open, as it did.
+            if (ProjectStore.Value.LastSave is { Succeeded: true })
             {
                 NotificationService.Notify(NotificationSeverity.Success, "Success", "Project created");
                 DialogService.Close(true);
             }
-            else
+            else if (ProjectStore.Value.LastSave is { Refusal: { } refusal })
             {
-                NotificationService.NotifyFailure("Error", result.Error ?? "Failed to create");
+                NotificationService.NotifyFailure("Error", refusal);
             }
         }
         finally

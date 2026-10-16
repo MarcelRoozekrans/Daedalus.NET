@@ -1,5 +1,7 @@
-@inject HttpClient Http
-@inject ILogger<ProjectSelectionStep> Logger
+@inherits FluxComponent
+@implements IAsyncDisposable
+@inject IStore<ProjectsState> ProjectStore
+@inject ProjectsEffects ProjectsEffects
 
 <RadzenCard>
     <RadzenStack Gap="0.75rem">
@@ -11,12 +13,12 @@
             Choose a project to associate with your PRD generation.
         </RadzenText>
 
-        @if (_projects == null)
+        @if (Shown is not { } projects)
         {
             <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate"
                                        Style="display: block; margin: 1rem auto;"/>
         }
-        else if (_projects.Count == 0)
+        else if (projects.Count == 0)
         {
             <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="true" Variant="Variant.Flat">
                 No projects found. Please create a project first.
@@ -25,7 +27,7 @@
         else
         {
             <RadzenRow Gap="1rem">
-                @foreach (var project in _projects)
+                @foreach (var project in projects)
                 {
                     <RadzenColumn Size="12" SizeMD="6" SizeLG="4">
                         <RadzenCard Style="cursor: pointer;" @onclick="() => OnProjectSelected.InvokeAsync(project.Id)">
@@ -44,31 +46,27 @@
 </RadzenCard>
 
 @code {
+    private readonly CancellationTokenSource _cts = new();
+
     [Parameter] public EventCallback<Guid> OnProjectSelected { get; set; }
 
-    private List<ProjectDto>? _projects;
+    /// <summary>
+    ///     The projects the step shows, or <see langword="null"/> while they load. A failed load shows as no projects,
+    ///     as the step always showed it, and a session being renewed keeps the spinner: the layout says so and the
+    ///     browser is on its way to sign in.
+    /// </summary>
+    private IReadOnlyList<ProjectDto>? Shown =>
+        ProjectStore.Value.Settled ?? (ProjectStore.Value.Error is not null ? [] : null);
 
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadProjects();
-    }
+    protected override void SubscribeStores() => Subscribe(ProjectStore);
 
-    private async Task LoadProjects()
+    /// <summary>The projects are shared and never cleared, so the step re-reads them on every open.</summary>
+    protected override Task OnInitializedAsync() => ProjectsEffects.LoadAsync(_cts.Token);
+
+    public async ValueTask DisposeAsync()
     {
-        try
-        {
-            // The API returns a paged envelope, not a bare list (regression found by the PRD generator browser tests).
-            var page = await Http.GetFromJsonAsync<PagedResultDto<ProjectDto>>("api/projects?page=1&pageSize=100");
-            _projects = page?.Items.ToList() ?? [];
-        }
-        catch (Exception ex) when (SessionExpiry.IsSigningIn(ex))
-        {
-            // The session ended: the layout says so and the browser is on its way to sign in.
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading projects");
-            _projects = [];
-        }
+        Dispose();
+        await _cts.CancelAsync();
+        _cts.Dispose();
     }
 }
