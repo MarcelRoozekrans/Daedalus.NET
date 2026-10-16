@@ -7,8 +7,9 @@
          1.7.8 → 2.1.0, Validation and Testing: floor set by Thalos.NET.Abstractions 0.14.2. 2.0 bundles its source
          generator, so the separate ZeroAlloc.Validation.Generator reference is gone: with both, ZV9001 fails the build.
          2.1.0 → 2.2.0, Validation and Testing: floor set by Thalos.NET.Channels 0.15.0.
-         2.2.0 → 2.3.1, Validation and Testing: floor set by Thalos.NET.Abstractions 0.16.0. -->
-    <ZeroAllocValidationVersion>2.3.1</ZeroAllocValidationVersion>
+         2.2.0 → 2.3.1, Validation and Testing: floor set by Thalos.NET.Abstractions 0.16.0.
+         2.3.1 → 2.3.2, Validation and Testing: floor set by Minos.NET 1.1.0. -->
+    <ZeroAllocValidationVersion>2.3.2</ZeroAllocValidationVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +18,10 @@
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.4.6-preview.1.26319.6" />
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="13.4.1-beta.706" />
+    <!-- MessagePack 2.5.302 → 2.5.307 for GHSA-qhrr-8q5h-9q3h (nested arrays can pass buffer length limits; patched in
+         2.5.303). It is transitive: Aspire.Hosting → StreamJsonRpc 2.25.29, which still asks for 2.5.302, so the pin
+         lifts it under CentralPackageTransitivePinningEnabled. Drop it once StreamJsonRpc depends on a fixed version. -->
+    <PackageVersion Include="MessagePack" Version="2.5.307" />
 
     <!-- OpenTelemetry 1.15.0 → 1.17.0 -->
     <PackageVersion Include="OpenTelemetry" Version="1.17.0" />
@@ -99,10 +104,11 @@
     <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.17.0" />
     <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.17.0" />
 
-    <!-- Minos.NET 1.0.1: per-node model and tool selection, phase 2.10. Daedalus.Agents references Minos.NET and
-         Minos.NET.SystemOne, the OpenRouter decision client. -->
-    <PackageVersion Include="Minos.NET" Version="1.0.1" />
-    <PackageVersion Include="Minos.NET.SystemOne" Version="1.0.1" />
+    <!-- Minos.NET 1.1.0: per-node model and tool selection, phase 2.10. Daedalus.Agents references Minos.NET and
+         Minos.NET.SystemOne, the OpenRouter decision client. 1.0.1 → 1.1.0: OpenRouter's per-request zero data
+         retention and data-collection deny, Minos.NET#202. -->
+    <PackageVersion Include="Minos.NET" Version="1.1.0" />
+    <PackageVersion Include="Minos.NET.SystemOne" Version="1.1.0" />
 
     <!-- 1.1.11: Flux.Blazor references Microsoft.AspNetCore.Components; 1.1.10 could not build for browser-wasm. -->
     <PackageVersion Include="ZeroAlloc.Flux" Version="1.1.11" />
@@ -124,12 +130,14 @@
     <!-- 1.5.0 → 1.5.2: floor set by Thalos.NET.Workflow.Orm 0.16.0 -->
     <PackageVersion Include="AdoNet.Async.Adapters" Version="1.5.2" />
     <!-- 1.2.3 → 1.2.4: floor set by Thalos.NET.Abstractions 0.11.1. 1.2.4 → 1.4.0: floor set by ZeroAlloc.Rest 3.3.2.
-         1.4.0 → 1.4.1: floor set by Thalos.NET.Abstractions 0.16.0. -->
-    <PackageVersion Include="ZeroAlloc.Results" Version="1.4.1" />
+         1.4.0 → 1.4.1: floor set by Thalos.NET.Abstractions 0.16.0.
+         1.4.1 → 1.4.2: floor set by Minos.NET 1.1.0. -->
+    <PackageVersion Include="ZeroAlloc.Results" Version="1.4.2" />
     <!-- Phase 2.11: the generated GitHub and Azure DevOps clients. The source generator ships inside ZeroAlloc.Rest;
-         the standalone ZeroAlloc.Rest.Generator package exists only for old direct references, so it is not used. -->
-    <PackageVersion Include="ZeroAlloc.Rest" Version="3.3.2" />
-    <PackageVersion Include="ZeroAlloc.Rest.SystemTextJson" Version="3.3.2" />
+         the standalone ZeroAlloc.Rest.Generator package exists only for old direct references, so it is not used.
+         3.3.2 → 3.3.3: floor set by Minos.NET.SystemOne 1.1.0. -->
+    <PackageVersion Include="ZeroAlloc.Rest" Version="3.3.3" />
+    <PackageVersion Include="ZeroAlloc.Rest.SystemTextJson" Version="3.3.3" />
     <!-- 1.1.11, transitive until now → 1.2.0: floor set by ZeroAlloc.Rest 3.3.2.
          1.2.0 → 1.2.1: floor set by AI.Sentinel 2.3.2, via Thalos.NET.Sentinel 0.16.0. -->
     <PackageVersion Include="ZeroAlloc.Collections" Version="1.2.1" />

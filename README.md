@@ -190,7 +190,8 @@ turn is offered. It never widens either, and Thalos refuses anything outside the
   [phase 2.10 rulings](docs/plans/2026-10-15-phase-2.10-rulings.md).
 - **Turning it on.** Set the AppHost secret `Parameters:openrouter-key` (`OPENROUTER_API_KEY`). Turn on zero data
   retention at openrouter.ai/settings/privacy and only then set `Thalos:Decisions:ZeroDataRetentionAccount` to `true`,
-  because a decision sends the task's text. The API's start-up log says whether decisions are on, and why not. See
+  because a decision sends the task's text. Each call also asks OpenRouter for zero data retention and no data
+  collection. The API's start-up log says whether decisions are on, and why not. See
   [Thalos agents](#thalos-agents) for `AllowedModels` and the `Thalos:Decisions:*` settings.
 
 **History and frozen data.** `TaskExecutions` and `ExecutionSessions` are kept as read-only history, and the Web "Task
@@ -771,8 +772,9 @@ that is slow, fails or is unsure falls back to the default model and full tool l
 decision that cannot be recorded fails the node, since a redelivery could not run on it again. Each
 decision is recorded, with Minos's answers when it answered, as a `node-selection` run record and listed under `nodeSelections` on
 `GET /api/workflow-runs/{id}`, with `nodeSelectionsError` naming any record that could not be read. The spans and
-metrics are under "Observability". Task text is sent to OpenRouter, and Minos cannot request zero data retention per
-call, so that stays an account setting: see [the development guide](docs/development-guide.md#node-selection).
+metrics are under "Observability". Task text is sent to OpenRouter. Every decision call asks OpenRouter for zero data
+retention and no data collection, and decisions still need the account confirmation as well: see
+[the development guide](docs/development-guide.md#node-selection).
 
 To compare reviewer setups on the same code, `POST /api/workflow-runs` with `workIntent`, `repository` (an allow-listed
 name), `process` `review-replay` and `baseBranch` `manufacture/<run-id>` reviews an existing manufacture branch and ends, with no pull request.

@@ -26,11 +26,13 @@ images instead of NuGet packages.
 
 ## One-time setup
 
+release-please opens the release PR with a token from the release bot GitHub App, so the PR's
+pushes trigger CI like anyone else's (a `GITHUB_TOKEN` push triggers no workflows). The workflow
+needs the App's client ID and private key on this repository:
+
 ```bash
-# GitHub Actions must be allowed to open the release PR (Settings → Actions → General →
-# "Allow GitHub Actions to create and approve pull requests"), or via the API:
-gh api -X PUT repos/MarcelRoozekrans/Daedalus.NET/actions/permissions/workflow \
-  -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true
+gh variable set RELEASE_BOT_CLIENT_ID -R MarcelRoozekrans/Daedalus.NET -b "<client id>"
+gh secret set RELEASE_BOT_PRIVATE_KEY -R MarcelRoozekrans/Daedalus.NET < release-bot.private-key.pem
 ```
 
 The container packages appear under https://github.com/MarcelRoozekrans?tab=packages after the first push;
