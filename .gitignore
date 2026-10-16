@@ -92,3 +92,6 @@ temp/
 
 # Agent worktrees — transient checkouts, never committed
 .claude/worktrees/
+
+# Screenshots and page snapshots the Playwright MCP server writes into the working directory.
+.playwright-mcp/
