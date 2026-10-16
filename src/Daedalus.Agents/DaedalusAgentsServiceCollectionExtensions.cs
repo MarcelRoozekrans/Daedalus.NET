@@ -284,6 +284,12 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 o.ApiKey = openRouterKey;
                 o.Model = options.Decisions.Model;
                 o.MaxRetries = 1;
+
+                // Minos.NET#202: every call also asks OpenRouter itself to route only to zero-data-retention endpoints
+                // that do not collect data. That is on top of the account confirmation above, not instead of it: the
+                // account setting is the owner's promise, the request preference is enforced per call. With no
+                // qualifying endpoint OpenRouter refuses the call, and the decision falls back as any failure does.
+                o.ProviderPreferences = new OpenRouterProviderPreferences { ZeroDataRetention = true, DenyDataCollection = true };
             });
         }
 

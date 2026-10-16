@@ -22,7 +22,8 @@ public sealed class DecisionWiringTests
     /// <summary>A distinctive key for the leak checks: a recognisable fragment, and a length of 18.</summary>
     private const string SecretKey = "sk-or-zqx-7f3a91c2";
 
-    private static ServiceProvider Compose(bool zeroRetention, string? key, ILoggerFactory? loggerFactory = null, bool pinned = false)
+    private static ServiceProvider Compose(
+        bool zeroRetention, string? key, ILoggerFactory? loggerFactory = null, bool pinned = false, HttpMessageHandler? handler = null)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(AppContext.BaseDirectory);
@@ -55,6 +56,12 @@ public sealed class DecisionWiringTests
 
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddDaedalusAgents(options, configuration, environment);
+        if (handler is not null)
+        {
+            services.ConfigureAll<Microsoft.Extensions.Http.HttpClientFactoryOptions>(o =>
+                o.HttpMessageHandlerBuilderActions.Add(b => b.PrimaryHandler = handler));
+        }
+
         return services.BuildServiceProvider();
     }
 
@@ -274,6 +281,41 @@ public sealed class DecisionWiringTests
         minosSources.Should().OnlyContain(n => traced.Contains(n, StringComparer.Ordinal));
         minosMeters.Should().NotBeEmpty("Minos publishes its instruments");
         minosMeters.Should().OnlyContain(n => metered.Contains(n, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    ///     Minos.NET#202: the decision client Daedalus registers asks OpenRouter, on the request itself, for zero data
+    ///     retention and no data collection, so the account confirmation is not the only guard.
+    ///     Red: drop <c>ProviderPreferences</c> from the registration; the body carries no <c>provider</c> object.
+    ///     Red: set <c>DenyDataCollection = false</c>; <c>data_collection</c> is not <c>deny</c>.
+    ///     Red: set <c>ZeroDataRetention = false</c>; <c>zdr</c> is not true.
+    /// </summary>
+    [Fact]
+    public async Task Every_decision_call_asks_openrouter_for_zero_retention_and_no_data_collection()
+    {
+        var capture = new CaptureHandler();
+        await using var provider = Compose(zeroRetention: true, key: Key, handler: capture);
+        var decider = provider.GetRequiredService<NodeSelectionDecider>();
+        var menu = new RoleMenu("default-model", ["cheap", "strong"], []);
+
+        await decider.DecideAsync(new NodeSelectionContext("developer", "implement", "do the thing", 1, menu, NarrowTools: true), CancellationToken.None);
+
+        capture.Bodies.Should().NotBeEmpty("the decider called OpenRouter");
+        using var body = System.Text.Json.JsonDocument.Parse(capture.Bodies[0]);
+        body.RootElement.TryGetProperty("provider", out var preferences).Should().BeTrue("the request carries OpenRouter's provider object");
+        preferences.GetProperty("zdr").GetBoolean().Should().BeTrue();
+        preferences.GetProperty("data_collection").GetString().Should().Be("deny");
+    }
+
+    private sealed class CaptureHandler : HttpMessageHandler
+    {
+        public List<string> Bodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Bodies.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+            return new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError);
+        }
     }
 
     private static string[] Subscribed(string field) => (string[])typeof(Daedalus.ServiceDefaults.AspireExtensions)
