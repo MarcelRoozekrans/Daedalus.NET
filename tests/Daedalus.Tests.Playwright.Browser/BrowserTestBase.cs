@@ -1,4 +1,5 @@
 using System.Text;
+using NUnit.Framework.Interfaces;
 
 namespace Daedalus.Tests.Playwright.Browser;
 
@@ -149,14 +150,24 @@ public abstract class BrowserTestBase : PageTest
         {
             try
             {
-                var tracingDir = Path.Combine(TestContext.CurrentContext.WorkDirectory, "traces");
-                Directory.CreateDirectory(tracingDir);
-
-                await Context.Tracing.StopAsync(new TracingStopOptions
+                // A trace is a few hundred MB, so keep it only for a test that did not pass.
+                if (TestContext.CurrentContext.Result.Outcome.Status == TestStatus.Passed)
                 {
-                    Path = Path.Combine(tracingDir,
-                        $"{TestContext.CurrentContext.Test.Name}-{DateTime.Now:yyyyMMdd-HHmmss}.zip")
-                }).ConfigureAwait(false);
+                    await Context.Tracing.StopAsync().ConfigureAwait(false);
+                }
+                else
+                {
+                    var tracingDir = Path.Combine(TestContext.CurrentContext.WorkDirectory, "traces");
+                    Directory.CreateDirectory(tracingDir);
+
+                    // A test case's name carries its arguments, which can hold a '/', as in ("/executions").
+                    var fileName = string.Join('_',
+                        TestContext.CurrentContext.Test.Name.Split(Path.GetInvalidFileNameChars()));
+                    await Context.Tracing.StopAsync(new TracingStopOptions
+                    {
+                        Path = Path.Combine(tracingDir, $"{fileName}-{DateTime.Now:yyyyMMdd-HHmmss}.zip")
+                    }).ConfigureAwait(false);
+                }
             }
             catch
             {
