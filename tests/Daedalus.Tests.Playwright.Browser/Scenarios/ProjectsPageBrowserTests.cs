@@ -240,4 +240,48 @@ public class ProjectsPageBrowserTests : BrowserTestBase
         await Expect(_projectsPage.Notification).ToContainTextAsync("Failed to create project: Name taken").ConfigureAwait(false);
         await Expect(_projectsPage.Dialog).ToBeVisibleAsync().ConfigureAwait(false);
     }
+
+    /// <summary>
+    ///     Every field in the Create and the Edit project dialog is named for a screen reader by its visible label, so a
+    ///     role query by that label finds exactly one field.
+    ///     Red: <c>Component</c> dropped from Project Name's form field; the label points at nothing and no textbox is
+    ///     named "Project Name *".
+    ///     Red: <c>Name</c> dropped from the Project Name textbox; its id is Radzen's random one and the label's for misses.
+    ///     Red: <c>Component</c> dropped from Description's form field; no textbox is named Description.
+    ///     Red: <c>Component</c> dropped from Version's form field; no textbox is named Version.
+    ///     Each is red in the dialog it is dropped from: the two dialogs have their own markup.
+    /// </summary>
+    [TestCase("create")]
+    [TestCase("edit")]
+    [Description("Every project dialog field is named by its label")]
+    public async Task Every_project_dialog_field_is_named_by_its_label(string dialog)
+    {
+        await _projectsPage.NavigateAsync().ConfigureAwait(false);
+        if (string.Equals(dialog, "create", StringComparison.Ordinal))
+        {
+            await _projectsPage.CreateProjectButton.ClickAsync().ConfigureAwait(false);
+        }
+        else
+        {
+            await Expect(_projectsPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
+            await _projectsPage.GetEditButton("Test Project").ClickAsync().ConfigureAwait(false);
+        }
+
+        await Expect(_projectsPage.Dialog.Locator("input").First).ToBeVisibleAsync().ConfigureAwait(false);
+
+        var unnamed = new List<string>();
+        foreach (var label in new[] { "Project Name *", "Description", "Version" })
+        {
+            var count = await _projectsPage.Dialog
+                .GetByRole(AriaRole.Textbox, new LocatorGetByRoleOptions { Name = label, Exact = true })
+                .CountAsync().ConfigureAwait(false);
+            if (count != 1)
+            {
+                unnamed.Add($"{label} ({count} found)");
+            }
+        }
+
+        string.Join("; ", unnamed).Should().BeEmpty($"every field in the {dialog} project dialog is named by its label:\n"
+            + await _projectsPage.Dialog.AriaSnapshotAsync().ConfigureAwait(false));
+    }
 }

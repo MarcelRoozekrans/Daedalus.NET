@@ -2,17 +2,18 @@
 @inject DialogService DialogService
 @inject NotificationService NotificationService
 
+@* Each field is named by its label: the form field's Component is the label's for, and the input's Name its id. *@
 <RadzenStack Gap="1rem">
-    <RadzenFormField Text="Project Name *" Style="width: 100%;">
-        <RadzenTextBox @bind-Value="@_projectName" MaxLength="255"/>
+    <RadzenFormField Text="Project Name *" Component="ProjectName" Style="width: 100%;">
+        <RadzenTextBox Name="ProjectName" @bind-Value="@_projectName" MaxLength="255"/>
     </RadzenFormField>
 
-    <RadzenFormField Text="Description" Style="width: 100%;">
-        <RadzenTextArea @bind-Value="@_description" Rows="3" MaxLength="1000"/>
+    <RadzenFormField Text="Description" Component="Description" Style="width: 100%;">
+        <RadzenTextArea Name="Description" @bind-Value="@_description" Rows="3" MaxLength="1000"/>
     </RadzenFormField>
 
-    <RadzenFormField Text="Version" Style="width: 100%;">
-        <RadzenTextBox @bind-Value="@_version"/>
+    <RadzenFormField Text="Version" Component="Version" Style="width: 100%;">
+        <RadzenTextBox Name="Version" @bind-Value="@_version"/>
     </RadzenFormField>
 
     <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem" class="rz-mt-4">
