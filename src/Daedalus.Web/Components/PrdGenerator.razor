@@ -59,6 +59,9 @@
 
 @code {
 
+    /// <summary>The API answers in camelCase; read it with the web defaults, as <c>ApiClient</c> does.</summary>
+    private static readonly JsonSerializerOptions ApiJson = new(JsonSerializerDefaults.Web);
+
     private enum PrdGeneratorStep
     {
         ProjectSelection,
@@ -101,7 +104,7 @@
             if (response.IsSuccessStatusCode)
             {
                 var jsonContent = await response.Content.ReadAsStringAsync();
-                _generatedPrd = JsonSerializer.Deserialize<PrdResponseDto>(jsonContent);
+                _generatedPrd = JsonSerializer.Deserialize<PrdResponseDto>(jsonContent, ApiJson);
                 _currentStep = PrdGeneratorStep.PrdReview;
                 _stepIndex = 2;
                 Logger.LogInformation("PRD generated successfully");
@@ -155,7 +158,7 @@
             if (response.IsSuccessStatusCode)
             {
                 var jsonContent = await response.Content.ReadAsStringAsync();
-                _createdTasks = JsonSerializer.Deserialize<List<TaskDto>>(jsonContent) ?? [];
+                _createdTasks = JsonSerializer.Deserialize<List<TaskDto>>(jsonContent, ApiJson) ?? [];
                 _currentStep = PrdGeneratorStep.TasksCreated;
                 _stepIndex = 3;
                 Logger.LogInformation("Tasks created successfully");
