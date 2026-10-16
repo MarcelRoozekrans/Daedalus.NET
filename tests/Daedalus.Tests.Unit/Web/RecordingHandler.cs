@@ -43,6 +43,9 @@ internal sealed class RecordingHandler : HttpMessageHandler
     /// <summary>The project client, whose writes go through this handler as its reads do.</summary>
     public ProjectApiClient ProjectClient() => new(Http());
 
+    /// <summary>The Git Repositories client, whose reads and writes go through this handler.</summary>
+    public RepositoriesApiClient RepositoriesClient() => new(Http());
+
     private HttpClient Http() => new(this, disposeHandler: false) { BaseAddress = new Uri("http://localhost") };
 
     public static HttpResponseMessage Json(HttpStatusCode code, string json) =>
