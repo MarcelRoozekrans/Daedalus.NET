@@ -1,5 +1,4 @@
 using Daedalus.Application.DTOs.WorkflowRuns;
-using Daedalus.Web.Auth;
 using Daedalus.Web.Services;
 
 namespace Daedalus.Tests.Unit.Web;
@@ -100,18 +99,6 @@ public sealed class NeedsMeTests
         var id = Guid.NewGuid();
         NeedsMe.Name(RunViews.Item(id) with { TaskTitle = "Ship the widget" }).Should().Be("Ship the widget");
         NeedsMe.Name(RunViews.Item(id)).Should().Be($"manufacture run {id.ToString()[..8]}");
-    }
-
-    /// <summary>
-    ///     A card shows a failure's reason, but not the failure of a request whose session ended: sign-in is under way.
-    ///     Red: return the error as is; the signing-in failure is shown.
-    ///     Red: return null for every error; the reason is lost.
-    /// </summary>
-    [Fact]
-    public void A_cards_error_is_its_reason_unless_signing_in()
-    {
-        NeedsMe.ShownError("The run store is down.").Should().Be("The run store is down.");
-        NeedsMe.ShownError(SessionExpiry.SigningInAgain).Should().BeNull();
     }
 
     /// <summary>

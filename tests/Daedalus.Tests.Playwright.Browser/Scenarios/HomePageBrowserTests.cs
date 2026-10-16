@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
 using Daedalus.Tests.Playwright.Browser.PageObjects;
 using Daedalus.Tests.Playwright.Browser.Utilities;
+using Thalos.Workflow;
 
 namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 
@@ -19,6 +20,9 @@ namespace Daedalus.Tests.Playwright.Browser.Scenarios;
 public class HomePageBrowserTests : BrowserTestBase
 {
     private const string EmptyList = """{"runs":[],"next":null}""";
+
+    /// <summary>How long a live change may take to reach the page.</summary>
+    private static readonly TimeSpan LiveTimeout = TimeSpan.FromSeconds(10);
 
     private HomePage _home = null!;
 
@@ -62,6 +66,72 @@ public class HomePageBrowserTests : BrowserTestBase
 
     private static Task EmptyAsync(IRoute route) =>
         route.FulfillAsync(new RouteFulfillOptions { Status = 200, ContentType = "application/json", Body = EmptyList });
+
+    /// <summary>
+    ///     Phase 2.14, owner-approved on 2026-10-16: Home's cards follow the runs live. A running run that reaches the
+    ///     human gate moves from Running to Awaiting approval without a reload. The change is a real commit through the
+    ///     store, which the broadcaster sends over the hub; the test waits for the hub's handshake before making it, so
+    ///     the change cannot be sent before the browser listens.
+    ///     Red: drop the HomeEffects.OnRunChangedAsync call from RunHubConnection.OnChangedAsync; the gate never shows.
+    ///     Red: HomeState.Live without Running; the run stays under Running after it parked.
+    ///     Red: the change re-fetches as a foreground read; the awaiting card turns into its skeleton, so its row count
+    ///     drops to zero while the re-fetch is in flight, which the row-count watch sees.
+    ///     Red: reload the page on a change; the no-reload marker is gone.
+    /// </summary>
+    [Test]
+    [Description("Home updates when a run changes")]
+    public async Task Home_updates_when_a_run_changes()
+    {
+        var live = await Runs.StartAsync($"e2e-home-live-{Guid.NewGuid():N}", CancellationToken.None).ConfigureAwait(false);
+        var handshaken = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Page.WebSocket += (_, socket) =>
+        {
+            if (socket.Url.Contains("/hubs/workflow-runs", StringComparison.Ordinal))
+            {
+                socket.FrameReceived += (_, _) => handshaken.TrySetResult();
+            }
+        };
+
+        try
+        {
+            await _home.NavigateAsync().ConfigureAwait(false);
+            var name = live.ToString()[..8];
+            await Expect(_home.Row(HomePage.Running, name)).ToBeVisibleAsync().ConfigureAwait(false);
+            await Expect(_home.Row(HomePage.Awaiting, RunSeeds.AwaitingTaskTitle)).ToBeVisibleAsync().ConfigureAwait(false);
+            await handshaken.Task.WaitAsync(LiveTimeout).ConfigureAwait(false);
+            await Page.EvaluateAsync(
+                """
+                () => {
+                    window.__noReload = true;
+                    window.__awaitingEmptied = false;
+                    const card = document.querySelector("[data-testid='needs-me-awaiting']");
+                    new MutationObserver(() => {
+                        if (card.querySelectorAll("[data-testid='needs-me-row']").length === 0) window.__awaitingEmptied = true;
+                    }).observe(card, { childList: true, subtree: true });
+                }
+                """).ConfigureAwait(false);
+
+            await Runs.CompleteAsync(
+                    live, new WorkflowTransition("gate", WorkflowStatus.Awaiting, RunSeeds.HumanApproval, WorkflowEventKind.Awaiting),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+
+            var within = new LocatorAssertionsToBeVisibleOptions { Timeout = (float)LiveTimeout.TotalMilliseconds };
+            await Expect(_home.Row(HomePage.Awaiting, name)).ToBeVisibleAsync(within).ConfigureAwait(false);
+            await Expect(_home.Row(HomePage.Running, name)).ToHaveCountAsync(0, new LocatorAssertionsToHaveCountOptions
+            {
+                Timeout = (float)LiveTimeout.TotalMilliseconds,
+            }).ConfigureAwait(false);
+            (await Page.EvaluateAsync<bool>("() => window.__noReload === true").ConfigureAwait(false))
+                .Should().BeTrue("the change arrived without a reload");
+            (await Page.EvaluateAsync<bool>("() => window.__awaitingEmptied").ConfigureAwait(false))
+                .Should().BeFalse("a live re-fetch keeps the rows on show, never the skeleton");
+        }
+        finally
+        {
+            await Runs.Store.CancelAsync(live, "The live Home scenario is done with it.", CancellationToken.None).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>
     ///     The run parked at the human gate is listed under Awaiting approval with its task's title, how long it has

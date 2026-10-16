@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Auth;
+using Daedalus.Web.State.Home;
 using Daedalus.Web.State.Projects;
 using Daedalus.Web.State.Runs;
 using Daedalus.Web.State.Tasks;
@@ -29,6 +30,7 @@ public sealed partial class RunHubConnection(
     RunsEffects runs,
     TasksEffects tasks,
     ProjectsEffects projects,
+    HomeEffects home,
     ILogger<RunHubConnection> logger) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -239,6 +241,7 @@ public sealed partial class RunHubConnection(
     {
         await runs.OnRunChangedAsync(change, CancellationToken.None);
         await tasks.OnRunChangedAsync(change, CancellationToken.None);
+        await home.OnRunChangedAsync(change, CancellationToken.None);
     }
 
     [LoggerMessage(EventId = 3100, Level = LogLevel.Warning, Message = "The run hub failed to start: {ExceptionType}")]
@@ -257,5 +260,6 @@ public sealed partial class RunHubConnection(
         await runs.RefreshAllAsync(CancellationToken.None);
         await tasks.RefreshAsync(CancellationToken.None);
         await projects.RefreshAsync(CancellationToken.None);
+        await home.RefreshAsync(CancellationToken.None);
     }
 }

@@ -4,7 +4,7 @@
 <RadzenCard Style="height: 100%;" data-testid="@TestId">
     <RadzenStack Gap="0.75rem">
         <RadzenText TextStyle="TextStyle.H6" Style="margin: 0;">@Heading</RadzenText>
-        @if (NeedsMe.ShownError(Error) is { } error)
+        @if (Error is { } error)
         {
             <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false" data-testid="needs-me-error">
                 @Title could not be loaded: @error
@@ -45,7 +45,7 @@
     /// <summary>The rows, or null while the card loads or after its read failed.</summary>
     [Parameter] public IReadOnlyList<WorkflowRunListItem>? Rows { get; set; }
 
-    /// <summary>Why the card's read failed, or null.</summary>
+    /// <summary>Why the card's read failed, or null. Never a session being renewed: the effect stores none.</summary>
     [Parameter] public string? Error { get; set; }
 
     /// <summary>Whether the list has runs past the page the card read, so the count is a lower bound.</summary>

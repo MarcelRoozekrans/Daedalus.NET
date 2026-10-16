@@ -1,6 +1,5 @@
 using System.Globalization;
 using Daedalus.Application.DTOs.WorkflowRuns;
-using Daedalus.Web.Auth;
 using Daedalus.Web.State.Runs;
 
 namespace Daedalus.Web.Services;
@@ -82,10 +81,4 @@ public static class NeedsMe
 
     /// <summary>A row's name: the run's task, or, for a run with no task, its process and short id.</summary>
     public static string Name(WorkflowRunListItem run) => run.TaskTitle ?? $"{run.Process} run {run.Id.ToString()[..8]}";
-
-    /// <summary>
-    ///     The reason a card shows for a failed read, or null for a request that failed because its session ended: sign-in
-    ///     is under way and the layout already says so.
-    /// </summary>
-    public static string? ShownError(string? error) => SessionExpiry.IsSigningIn(error) ? null : error;
 }

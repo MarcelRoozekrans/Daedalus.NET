@@ -5,7 +5,9 @@ using System.Security.Claims;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Auth;
+using Daedalus.Web.Services;
 using Daedalus.Web.State;
+using Daedalus.Web.State.Home;
 using Daedalus.Web.State.Projects;
 using Daedalus.Web.State.Runs;
 using Daedalus.Web.State.Tasks;
@@ -28,10 +30,21 @@ public sealed class RunHubConnectionTests : IDisposable
     /// <summary>The awaiting-approval count's request, which every refresh makes.</summary>
     private const string CountPath = "/api/workflow-runs?take=100&status=Awaiting";
 
+    /// <summary>Home's awaiting card's request.</summary>
+    private static readonly string AwaitingPath = NeedsMe.AwaitingQuery.ToPath();
+
     private readonly RecordingHandler _handler = new();
     private readonly ServiceProvider _provider = new ServiceCollection().AddZeroAllocFlux().BuildServiceProvider();
     private readonly RecordingDispatcher _dispatcher = new();
     private readonly RecordingLogger _logger = new();
+
+    /// <summary>The Home effects every connection here calls, so a test can open Home on the same instance first.</summary>
+    private readonly HomeEffects _home;
+
+    public RunHubConnectionTests() =>
+        _home = new HomeEffects(
+            _handler.Client(), _provider.GetRequiredService<IDispatcher>(), _provider.GetRequiredService<IStore<HomeState>>(),
+            TimeProvider.System, new RecordingLogger<HomeEffects>());
 
     public void Dispose()
     {
@@ -310,6 +323,81 @@ public sealed class RunHubConnectionTests : IDisposable
     }
 
     /// <summary>
+    ///     A RunChanged from the hub re-fetches Home's live cards once Home is open: the awaiting list is read again
+    ///     without a reload.
+    ///     Red: drop the HomeEffects.OnRunChangedAsync call from RunHubConnection.OnChangedAsync; the awaiting list is
+    ///     not requested again.
+    /// </summary>
+    [Fact]
+    public async Task A_run_change_re_fetches_homes_cards()
+    {
+        using var hubServer = new HandshakingHub();
+        var hub = Hub(User("developer"), options => options.WebSocketFactory = (_, ct) => hubServer.AcceptAsync(ct));
+        _handler.OnJson(AwaitingPath, RunViews.Json(new WorkflowRunList([], null)))
+            .OnJson(CountPath, RunViews.Json(new WorkflowRunList([], null)));
+        await _home.LoadAsync(canView: true, CancellationToken.None);
+        _handler.Requests.Clear();
+
+        try
+        {
+            await hub.EnsureStartedAsync(CancellationToken.None);
+            await hubServer.SendRunChangedAsync(new WorkflowRunChanged(Guid.NewGuid(), "Awaiting", "gate", RunSignals.HumanApproval));
+            await WaitForAsync(AwaitingPath);
+        }
+        finally
+        {
+            await hub.DisposeAsync();
+        }
+
+        _handler.Paths.Should().Contain(AwaitingPath, "the change re-fetches Home's awaiting card");
+    }
+
+    /// <summary>
+    ///     A start that recovers from a failure re-fetches Home's live cards once Home is open, because changes sent while
+    ///     no connection was open are lost.
+    ///     Red: drop the HomeEffects.RefreshAsync call from RunHubConnection.RefreshAsync; the awaiting list is not
+    ///     requested again.
+    /// </summary>
+    [Fact]
+    public async Task A_start_that_recovers_re_fetches_homes_cards()
+    {
+        using var hubServer = new HandshakingHub();
+        var tries = 0;
+        var hub = Hub(
+            User("developer"),
+            options => options.WebSocketFactory = (_, ct) => Interlocked.Increment(ref tries) == 1
+                ? ValueTask.FromException<WebSocket>(new TimeoutException("The first start failed."))
+                : hubServer.AcceptAsync(ct),
+            new FixedDelay(TimeSpan.FromMilliseconds(10)));
+        _handler.OnJson(AwaitingPath, RunViews.Json(new WorkflowRunList([], null)))
+            .OnJson(CountPath, RunViews.Json(new WorkflowRunList([], null)));
+        await _home.LoadAsync(canView: true, CancellationToken.None);
+        _handler.Requests.Clear();
+
+        try
+        {
+            await hub.EnsureStartedAsync(CancellationToken.None);
+            await WaitForAsync(AwaitingPath);
+        }
+        finally
+        {
+            await hub.DisposeAsync();
+        }
+
+        _handler.Paths.Should().Contain(AwaitingPath, "the recovered start re-fetches Home's cards");
+    }
+
+    /// <summary>Waits up to ten seconds for <paramref name="path"/> to be requested.</summary>
+    private async Task WaitForAsync(string path)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!_handler.Paths.Contains(path, StringComparer.Ordinal) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+    }
+
+    /// <summary>
     ///     The retry schedule: at once, then 2, 5 and 10 seconds, then 30 seconds for every try after, never giving up.
     ///     Red: return null after the fourth try: the later delays are null. Red: keep doubling past 10 seconds: the
     ///     later delays exceed the cap. Red: give up after a thousand tries: the 10,000th delay is null.
@@ -348,6 +436,7 @@ public sealed class RunHubConnectionTests : IDisposable
             new RunsEffects(api, dispatcher, _provider.GetRequiredService<IStore<RunsState>>()),
             new TasksEffects(api, dispatcher, _provider.GetRequiredService<IStore<TasksState>>()),
             new ProjectsEffects(api, _handler.ProjectClient(), dispatcher, _provider.GetRequiredService<IStore<ProjectsState>>(), new RecordingLogger<ProjectsEffects>()),
+            _home,
             _logger)
         {
             ConfigureTransport = transport,
@@ -373,6 +462,7 @@ public sealed class RunHubConnectionTests : IDisposable
 
         private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
         private readonly List<IDisposable> _owned = [];
+        private readonly TaskCompletionSource<WebSocket> _handshaken = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public HandshakingHub() => _listener.Start();
 
@@ -386,8 +476,25 @@ public sealed class RunHubConnectionTests : IDisposable
             _owned.Add(server);
             var serverSocket = WebSocket.CreateFromStream(server.GetStream(), isServer: true, subProtocol: null, Timeout.InfiniteTimeSpan);
             _owned.Add(serverSocket);
-            _ = ServeAsync(serverSocket);
+            _ = ServeAsync(serverSocket, _handshaken);
             return WebSocket.CreateFromStream(client.GetStream(), isServer: false, subProtocol: null, Timeout.InfiniteTimeSpan);
+        }
+
+        /// <summary>
+        ///     Sends <paramref name="change"/> as the hub's RunChanged invocation, once the latest connection's handshake
+        ///     is answered.
+        /// </summary>
+        public async Task SendRunChangedAsync(WorkflowRunChanged change)
+        {
+            var server = await _handshaken.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var invocation = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                type = 1,
+                target = WorkflowRunsHubContract.RunChangedMethod,
+                arguments = new object[] { change },
+            }, System.Text.Json.JsonSerializerOptions.Web);
+            byte[] message = [.. System.Text.Encoding.UTF8.GetBytes(invocation), RecordSeparator];
+            await server.SendAsync(message, WebSocketMessageType.Text, true, CancellationToken.None);
         }
 
         public void Dispose()
@@ -401,7 +508,7 @@ public sealed class RunHubConnectionTests : IDisposable
             _listener.Dispose();
         }
 
-        private static async Task ServeAsync(WebSocket server)
+        private static async Task ServeAsync(WebSocket server, TaskCompletionSource<WebSocket> handshaken)
         {
             var buffer = new byte[4096];
             try
@@ -415,6 +522,7 @@ public sealed class RunHubConnectionTests : IDisposable
                 while (received.Count == 0 || buffer[received.Count - 1] != RecordSeparator);
 
                 await server.SendAsync(HandshakeResponse, WebSocketMessageType.Text, true, CancellationToken.None);
+                handshaken.TrySetResult(server);
                 while (received.MessageType != WebSocketMessageType.Close)
                 {
                     received = await server.ReceiveAsync(buffer, CancellationToken.None);
