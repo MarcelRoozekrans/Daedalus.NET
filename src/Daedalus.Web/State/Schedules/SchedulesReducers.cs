@@ -15,7 +15,7 @@ public static class SchedulesReducers
     /// </summary>
     [Reducer]
     public static SchedulesState On(SchedulesState s, SchedulesLoadStarted a) =>
-        s with { Sequence = Math.Max(s.Sequence, a.Sequence), OverviewSequence = a.Sequence, Overview = null, Error = null };
+        s with { Sequence = Math.Max(s.Sequence, a.Sequence), OverviewSequence = Math.Max(s.OverviewSequence, a.Sequence), Overview = null, Error = null };
 
     [Reducer]
     public static SchedulesState On(SchedulesState s, SchedulesLoaded a) =>

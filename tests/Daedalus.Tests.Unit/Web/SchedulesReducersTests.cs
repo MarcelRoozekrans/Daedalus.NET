@@ -38,6 +38,21 @@ public sealed class SchedulesReducersTests
     }
 
     /// <summary>
+    ///     An overview start seen out of order never moves the overview's number back, so the newest read's answer still
+    ///     lands.
+    ///     Red: set OverviewSequence to the action's in the SchedulesLoadStarted reducer; the answer to read 4 is dropped.
+    /// </summary>
+    [Fact]
+    public void An_out_of_order_overview_start_keeps_the_newest_read()
+    {
+        var newest = SchedulesReducers.On(Initial, new SchedulesLoadStarted(4));
+        var late = SchedulesReducers.On(newest, new SchedulesLoadStarted(2));
+
+        late.OverviewSequence.Should().Be(4);
+        SchedulesReducers.On(late, new SchedulesLoaded(4, [Run])).Overview.Should().Equal(Run);
+    }
+
+    /// <summary>
     ///     The overview lands, and a failure is the error.
     ///     Red: drop Overview in the SchedulesLoaded reducer; the overview stays null.
     ///     Red: drop Error in the SchedulesLoadFailed reducer; the error stays null.
@@ -71,19 +86,23 @@ public sealed class SchedulesReducersTests
     ///     Red: drop the entry in the ScheduleHistoryStarted reducer; the schedule has no history.
     ///     Red: keep the old entry's Selected in the ScheduleHistoryStarted reducer; the run stays selected.
     ///     Red: leave Sequence unset in the ScheduleHistoryStarted reducer; the sequence stays 0.
+    ///     Red: clear Histories in the ScheduleHistoryStarted reducer; the other schedule's history goes.
     /// </summary>
     [Fact]
     public void A_history_start_shows_the_schedule_loading()
     {
+        var other = SchedulesReducers.On(
+            SchedulesReducers.On(Initial, new ScheduleHistoryStarted(OtherId, 1)), new ScheduleHistoryLoaded(OtherId, 1, [Run]));
+        var expanded = SchedulesReducers.On(other, new ScheduleHistoryStarted(ScheduleId, 1));
         var selected = SchedulesReducers.On(
-            SchedulesReducers.On(Expanded(), new ScheduleHistoryLoaded(ScheduleId, 1, [Run])), new ScheduleRunSelected(ScheduleId, Run));
+            SchedulesReducers.On(expanded, new ScheduleHistoryLoaded(ScheduleId, 1, [Run])), new ScheduleRunSelected(ScheduleId, Run));
 
         var restarted = SchedulesReducers.On(selected, new ScheduleHistoryStarted(ScheduleId, 2));
 
         restarted.Histories[ScheduleId].Loading.Should().BeTrue();
         restarted.Histories[ScheduleId].Selected.Should().BeNull();
         restarted.Sequence.Should().Be(2);
-        restarted.Histories.Should().NotContainKey(OtherId);
+        restarted.Histories[OtherId].Should().Be(other.Histories[OtherId]);
     }
 
     /// <summary>
