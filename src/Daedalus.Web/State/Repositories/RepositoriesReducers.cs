@@ -25,18 +25,6 @@ public static class RepositoriesReducers
     public static RepositoriesState On(RepositoriesState s, RepositoriesLoadFailed a) =>
         a.Sequence < s.Sequence ? s : s with { Error = a.Error };
 
-    /// <summary>Clears the last outcome, so one that ends with no outcome is never read as the one before.</summary>
-    [Reducer]
-    public static RepositoriesState On(RepositoriesState s, RepositorySaveStarted a) => s with { LastSave = null };
-
-    [Reducer]
-    public static RepositoriesState On(RepositoriesState s, RepositorySaved a) =>
-        s with { LastSave = new RepositorySave(a.Write, null) };
-
-    [Reducer]
-    public static RepositoriesState On(RepositoriesState s, RepositorySaveRefused a) =>
-        s with { LastSave = new RepositorySave(a.Write, a.Reason) };
-
     /// <summary>Clears the page's fields and keeps the sequence; see <see cref="RepositoriesState"/>.</summary>
     [Reducer]
     public static RepositoriesState On(RepositoriesState s, RepositoriesClosed a) =>

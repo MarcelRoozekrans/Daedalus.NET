@@ -64,22 +64,16 @@ public sealed partial class RepositoriesEffects(
         SaveAsync(RepositoryWrite.Tested, token => api.TestConnectionAsync(id, token), ct);
 
     /// <summary>
-    ///     Runs a write and dispatches its outcome: saved, or refused with the client's text. A
+    ///     Runs a write and returns its outcome: saved, or refused with the client's text. A
     ///     <see cref="SessionExpiry.SigningInAgain"/> failure, or one after <paramref name="ct"/> was cancelled, is no
-    ///     outcome: the session is being renewed, or the caller is gone.
-    ///     <para>
-    ///         Returns the outcome it dispatched, or <see langword="null"/> for none. The caller shows that, never the
-    ///         store's <see cref="RepositoriesState.LastSave"/>: another write of the same kind may have left its own
-    ///         outcome there meanwhile.
-    ///     </para>
+    ///     outcome, <see langword="null"/>: the session is being renewed, or the caller is gone. The outcome is not
+    ///     stored: the caller shows what its own write returned, so it never shows another write's outcome.
     /// </summary>
     private async Task<RepositorySave?> SaveAsync(RepositoryWrite write, Func<CancellationToken, Task<Result>> send, CancellationToken ct)
     {
-        await dispatcher.DispatchAsync(new RepositorySaveStarted(write));
         var result = await send(ct);
         if (result.IsSuccess)
         {
-            await dispatcher.DispatchAsync(new RepositorySaved(write));
             return new RepositorySave(write, null);
         }
 
@@ -89,7 +83,6 @@ public sealed partial class RepositoriesEffects(
         }
 
         LogWriteRefused(logger, write, result.Error);
-        await dispatcher.DispatchAsync(new RepositorySaveRefused(write, result.Error));
         return new RepositorySave(write, result.Error);
     }
 

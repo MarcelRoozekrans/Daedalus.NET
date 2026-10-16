@@ -4,7 +4,7 @@ using Daedalus.Web.State.Repositories;
 
 namespace Daedalus.Tests.Unit.Web;
 
-/// <summary>The repositories reducers: what a read clears and keeps, the sequence guard, the outcomes and the close.</summary>
+/// <summary>The repositories reducers: what a read clears and keeps, the sequence guard and the close.</summary>
 public sealed class RepositoriesReducersTests
 {
     private static readonly RepositoryConfigurationDto Atlas = new() { Id = Guid.NewGuid(), Name = "atlas" };
@@ -103,28 +103,7 @@ public sealed class RepositoriesReducersTests
     }
 
     /// <summary>
-    ///     A write's start clears the last outcome, so one that ends with no outcome is never read as the one before; a
-    ///     save and a refusal are each the outcome of their write.
-    ///     Red: keep LastSave in the RepositorySaveStarted reducer; the earlier refusal is still the outcome.
-    ///     Red: drop the outcome in the RepositorySaved reducer; LastSave stays null.
-    ///     Red: drop the reason in the RepositorySaveRefused reducer; the refusal reads as a save.
-    ///     Red: record Created for every write in the RepositorySaveRefused reducer; the write is wrong.
-    /// </summary>
-    [Fact]
-    public void Each_write_has_its_own_outcome()
-    {
-        var refused = RepositoriesReducers.On(Initial, new RepositorySaveRefused(RepositoryWrite.Deleted, "The server answered 500."));
-        refused.LastSave.Should().Be(new RepositorySave(RepositoryWrite.Deleted, "The server answered 500."));
-
-        var started = RepositoriesReducers.On(refused, new RepositorySaveStarted(RepositoryWrite.Updated));
-        started.LastSave.Should().BeNull();
-
-        RepositoriesReducers.On(started, new RepositorySaved(RepositoryWrite.Updated)).LastSave
-            .Should().Be(new RepositorySave(RepositoryWrite.Updated, null));
-    }
-
-    /// <summary>
-    ///     Closing the page clears its list, its refusal, its error and its last outcome, and keeps the sequence, so an
+    ///     Closing the page clears its list, its refusal and its error, and keeps the sequence, so an
     ///     answer to a read made before the close never lands after it.
     ///     Red: Closed returns s; the list is still there.
     ///     Red: Closed resets to Initial with Sequence 0; the sequence is gone, and the late answer lands.
@@ -138,7 +117,6 @@ public sealed class RepositoriesReducersTests
             Forbidden = true,
             Error = "boom",
             Sequence = 7,
-            LastSave = new RepositorySave(RepositoryWrite.Created, null),
         };
 
         var closed = RepositoriesReducers.On(open, new RepositoriesClosed());

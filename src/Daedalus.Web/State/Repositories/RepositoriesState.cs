@@ -3,7 +3,8 @@ using ZeroAlloc.Flux;
 namespace Daedalus.Web.State.Repositories;
 
 /// <summary>
-///     The Git Repositories page's list and the outcome of its last write.
+///     The Git Repositories page's list. A write's outcome is not state: each write returns it to the component that
+///     asked, which shows it.
 ///     <para>
 ///         Lifetime: page-only, cleared by <see cref="RepositoriesClosed"/> when the page is disposed. Only that page
 ///         reads or loads it, so its clear races no other reader. <paramref name="Sequence"/> survives the clear, so an
@@ -20,19 +21,12 @@ namespace Daedalus.Web.State.Repositories;
 ///     never a cancellation: neither is stored.
 /// </param>
 /// <param name="Sequence">The number of the newest read started, never reset; an answer to an older one is dropped.</param>
-/// <param name="LastSave">
-///     The outcome of the last create, update, delete or connection test, or <see langword="null"/> while one is in
-///     flight, before any, and after one that ended with the session being renewed or its caller gone. A write is not
-///     cancelled by the page closing, so its outcome can land after <see cref="RepositoriesClosed"/>. It is read only by
-///     the component that awaited that write, at once and by its <see cref="RepositorySave.Write"/>.
-/// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct RepositoriesState(
-    IReadOnlyList<RepositoryConfigurationDto>? Repositories, bool Forbidden, string? Error, long Sequence,
-    RepositorySave? LastSave)
+    IReadOnlyList<RepositoryConfigurationDto>? Repositories, bool Forbidden, string? Error, long Sequence)
 {
-    /// <summary>The page with nothing read and no outcome, numbered from the start.</summary>
-    public static RepositoriesState Empty { get; } = new(null, false, null, 0, null);
+    /// <summary>The page with nothing read, numbered from the start.</summary>
+    public static RepositoriesState Empty { get; } = new(null, false, null, 0);
 
     /// <summary>The state before any read.</summary>
     public static RepositoriesState Initial(IServiceProvider services) => Empty;

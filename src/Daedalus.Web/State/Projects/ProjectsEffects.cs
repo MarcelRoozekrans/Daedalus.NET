@@ -95,7 +95,6 @@ public sealed partial class ProjectsEffects(
     /// <summary>Creates a project; returns the outcome; see <see cref="SettleAsync{T}"/>.</summary>
     public async Task<ProjectSave?> CreateAsync(CreateProjectDto project, CancellationToken ct)
     {
-        await dispatcher.DispatchAsync(new ProjectSaveStarted(ProjectWrite.Created));
         var result = await writes.CreateProjectAsync(project, ct);
         return await SettleAsync(ProjectWrite.Created, result, created => created.Id, ct);
     }
@@ -103,7 +102,6 @@ public sealed partial class ProjectsEffects(
     /// <summary>Updates project <paramref name="id"/>; returns the outcome; see <see cref="SettleAsync{T}"/>.</summary>
     public async Task<ProjectSave?> UpdateAsync(Guid id, UpdateProjectDto project, CancellationToken ct)
     {
-        await dispatcher.DispatchAsync(new ProjectSaveStarted(ProjectWrite.Updated));
         var result = await writes.UpdateProjectAsync(id, project, ct);
         return await SettleAsync(ProjectWrite.Updated, result, _ => id, ct);
     }
@@ -114,20 +112,16 @@ public sealed partial class ProjectsEffects(
     /// </summary>
     public async Task<ProjectSave?> DeleteAsync(Guid id, CancellationToken ct)
     {
-        await dispatcher.DispatchAsync(new ProjectSaveStarted(ProjectWrite.Deleted));
         var result = await writes.DeleteProjectAsync(id, ct);
         return await SettleAsync(ProjectWrite.Deleted, result, _ => id, ct);
     }
 
     /// <summary>
-    ///     Dispatches a write's outcome: saved, with the project's id, or refused with the reason. A
-    ///     <see cref="SessionExpiry.SigningInAgain"/> failure, or one after <paramref name="ct"/> was cancelled, is no
-    ///     outcome: the session is being renewed, or the page that asked is gone.
-    ///     <para>
-    ///         Returns the outcome it dispatched, or <see langword="null"/> for none. The caller shows that, never the
-    ///         store's <see cref="ProjectsState.LastSave"/>: another write of the same kind may have left its own outcome
-    ///         there meanwhile.
-    ///     </para>
+    ///     Returns a write's outcome: saved, or refused with the reason. A save is dispatched with the project's id, so a
+    ///     deleted project the page shows is shown no longer. A <see cref="SessionExpiry.SigningInAgain"/> failure, or one
+    ///     after <paramref name="ct"/> was cancelled, is no outcome, <see langword="null"/>: the session is being renewed,
+    ///     or the page that asked is gone. The outcome is not stored: the caller shows what its own write returned, so it
+    ///     never shows another write's outcome.
     /// </summary>
     private async Task<ProjectSave?> SettleAsync<T>(ProjectWrite write, Result<T> result, Func<T, Guid> id, CancellationToken ct)
     {
@@ -144,7 +138,6 @@ public sealed partial class ProjectsEffects(
 
         var reason = result.Error ?? $"Failed to {Verb(write)}";
         LogWriteRefused(logger, write, reason);
-        await dispatcher.DispatchAsync(new ProjectSaveRefused(write, reason));
         return new ProjectSave(write, reason);
     }
 

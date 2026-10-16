@@ -5,7 +5,7 @@ namespace Daedalus.Web.State.Projects;
 /// <summary>
 ///     The projects, the one list the Projects page, the Tasks page's Project column, the task create dialog's picker,
 ///     Home's New task and the PRD generator's project step read; and, for the Projects page alone, the project it shows
-///     with its tasks and the outcome of its last save.
+///     with its tasks. A write's outcome is not state: each write returns it to the component that asked, which shows it.
 ///     <para>
 ///         Lifetime: never cleared when a page closes. The feature is shared, so a clear from the page being left would
 ///         race the next one: Blazor disposes the page being left after it initialises the next, and a clear would land
@@ -15,8 +15,8 @@ namespace Daedalus.Web.State.Projects;
 ///         never replaces a later one.
 ///     </para>
 ///     <para>
-///         <paramref name="Selected"/>, <paramref name="SelectedId"/>, <paramref name="SelectError"/> and
-///         <paramref name="LastSave"/> are the Projects page's own, and page-only: cleared by
+///         <paramref name="Selected"/>, <paramref name="SelectedId"/> and <paramref name="SelectError"/> are the
+///         Projects page's own, and page-only: cleared by
 ///         <see cref="ProjectsPageClosed"/>, which leaves the list alone. No other reader reads them, so their clear
 ///         cannot race another page's open the way a clear of the list would.
 ///     </para>
@@ -41,17 +41,10 @@ namespace Daedalus.Web.State.Projects;
 ///     Why loading <paramref name="SelectedId"/> failed, or <see langword="null"/>. Never
 ///     <see cref="Auth.SessionExpiry.SigningInAgain"/>.
 /// </param>
-/// <param name="LastSave">
-///     The outcome of the last create, update or delete, or <see langword="null"/> while one is in flight, before any,
-///     and after one that ended with the session being renewed or its reader gone: neither is an outcome to show. A
-///     dialog's write is not cancelled by the page closing, so its outcome can land after
-///     <see cref="ProjectsPageClosed"/> and stay until the next write starts. It is read only by the component that
-///     awaited that write, at once and by its <see cref="ProjectSave.Write"/>, so a left-over outcome is never shown.
-/// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct ProjectsState(
     IReadOnlyList<ProjectDto>? Projects, IReadOnlyDictionary<Guid, string> Names, string? Error, bool Loading, long Sequence,
-    bool LoadRequested, ProjectDto? Selected, Guid? SelectedId, string? SelectError, ProjectSave? LastSave)
+    bool LoadRequested, ProjectDto? Selected, Guid? SelectedId, string? SelectError)
 {
     /// <summary>
     ///     The projects once the newest load has finished without an error, or <see langword="null"/> while one is in
@@ -71,5 +64,5 @@ public readonly partial record struct ProjectsState(
 
     /// <summary>The state before any load.</summary>
     public static ProjectsState Initial(IServiceProvider services) =>
-        new(null, new Dictionary<Guid, string>(), null, false, 0, false, null, null, null, null);
+        new(null, new Dictionary<Guid, string>(), null, false, 0, false, null, null, null);
 }

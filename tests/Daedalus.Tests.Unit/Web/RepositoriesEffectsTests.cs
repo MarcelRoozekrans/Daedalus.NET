@@ -225,12 +225,11 @@ public sealed class RepositoriesEffectsTests : IDisposable
     };
 
     /// <summary>
-    ///     A write the server accepts is saved, as the outcome of that write, sent to its own endpoint.
-    ///     Red: dispatch nothing on a success in SaveAsync; LastSave stays null.
+    ///     A write the server accepts returns a save of that write, sent to its own endpoint.
+    ///     Red: SaveAsync returns null on a save; the returned outcome is missing.
     ///     Red: send UpdateAsync through api.CreateAsync; the PUT is a POST to the list.
     ///     Red: send TestConnectionAsync through api.DeleteAsync; the test is a DELETE.
-    ///     Red: dispatch Created for every write; the outcome's write is wrong.
-    ///     Red: SaveAsync returns null on a save; the returned outcome is missing.
+    ///     Red: return a save of Created for every write; the outcome's write is wrong.
     /// </summary>
     [Theory]
     [MemberData(nameof(Writes))]
@@ -243,7 +242,6 @@ public sealed class RepositoriesEffectsTests : IDisposable
         outcome.Should().Be(new RepositorySave(write, null));
         _handler.Requests.Should().ContainSingle().Which.Should().Match<RecordedRequest>(r =>
             r.Method.Method == method && r.PathAndQuery == path);
-        _store.Value.LastSave.Should().Be(new RepositorySave(write, null));
     }
 
     /// <summary>
@@ -261,10 +259,10 @@ public sealed class RepositoriesEffectsTests : IDisposable
     }
 
     /// <summary>
-    ///     A write the server refuses is refused with the status it answered, and is logged as a warning.
-    ///     Red: dispatch nothing on a refusal in SaveAsync; LastSave stays null.
-    ///     Red: drop the LogWriteRefused call; no warning is written.
+    ///     A write the server refuses returns the refusal with the status it answered, and is logged as a warning.
     ///     Red: SaveAsync returns null on a refusal; the returned outcome is missing.
+    ///     Red: return a fixed "Refused." instead of the client's text; the status is lost.
+    ///     Red: drop the LogWriteRefused call; no warning is written.
     /// </summary>
     [Theory]
     [MemberData(nameof(Writes))]
@@ -276,44 +274,38 @@ public sealed class RepositoriesEffectsTests : IDisposable
         var outcome = await WriteAsync(write);
 
         outcome.Should().Be(new RepositorySave(write, ServerError));
-        _store.Value.LastSave.Should().Be(new RepositorySave(write, ServerError));
         _logger.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Warning);
     }
 
     /// <summary>
-    ///     A write that gets no answer is refused with <see cref="RepositoriesApiClient.NoAnswer"/>, which the page
-    ///     words itself.
-    ///     Red: drop a NoAnswer failure in SaveAsync as if the session were renewed; LastSave stays null.
+    ///     A write that gets no answer returns a refusal with <see cref="RepositoriesApiClient.NoAnswer"/>, which the
+    ///     page words itself.
+    ///     Red: drop a NoAnswer failure in SaveAsync as if the session were renewed; the outcome is null.
     /// </summary>
     [Fact]
     public async Task A_write_with_no_answer_is_refused()
     {
         _handler.On($"{Path}/{Id}", HttpResponseMessage () => throw new HttpRequestException("unreachable"));
 
-        await WriteAsync(RepositoryWrite.Deleted);
+        var outcome = await WriteAsync(RepositoryWrite.Deleted);
 
-        _store.Value.LastSave.Should().Be(new RepositorySave(RepositoryWrite.Deleted, RepositoriesApiClient.NoAnswer));
+        outcome.Should().Be(new RepositorySave(RepositoryWrite.Deleted, RepositoriesApiClient.NoAnswer));
     }
 
     /// <summary>
-    ///     A write whose token cannot be refreshed is no outcome, and clears the one before, so the page shows nothing:
-    ///     the layout says the session ended. It is not logged.
-    ///     Red: dispatch RepositorySaveRefused for SigningInAgain too; the outcome is the signing-in text.
-    ///     Red: drop the RepositorySaveStarted dispatch; the earlier refusal is still the outcome.
+    ///     A write whose token cannot be refreshed returns no outcome, so the page shows nothing: the layout says the
+    ///     session ended. It is not logged.
+    ///     Red: drop the SigningInAgain check in SaveAsync; the outcome is the signing-in text.
     ///     Red: log the refusal before the SigningInAgain check in SaveAsync; the renewal writes a warning.
     /// </summary>
     [Fact]
     public async Task Signing_in_again_during_a_write_is_no_outcome()
     {
-        _handler.On($"{Path}/{Id}", () => new HttpResponseMessage(HttpStatusCode.InternalServerError));
-        await WriteAsync(RepositoryWrite.Deleted);
-        _logger.Entries.Clear();
         _handler.On($"{Path}/{Id}", SigningIn);
 
         var outcome = await WriteAsync(RepositoryWrite.Updated);
 
         outcome.Should().BeNull();
-        _store.Value.LastSave.Should().BeNull();
         _logger.Entries.Should().BeEmpty("a session being renewed is not a failure");
     }
 
@@ -331,9 +323,9 @@ public sealed class RepositoriesEffectsTests : IDisposable
             throw new OperationCanceledException(closing.Token);
         });
 
-        await WriteAsync(RepositoryWrite.Deleted, closing.Token);
+        var outcome = await WriteAsync(RepositoryWrite.Deleted, closing.Token);
 
-        _store.Value.LastSave.Should().BeNull();
+        outcome.Should().BeNull();
         _logger.Entries.Should().BeEmpty("a caller going away is not a failure");
     }
 
@@ -351,31 +343,5 @@ public sealed class RepositoriesEffectsTests : IDisposable
         await WriteAsync(RepositoryWrite.Deleted);
 
         _store.Value.Repositories.Should().ContainSingle();
-    }
-
-    /// <summary>
-    ///     A write that ends with no outcome returns none, even when another write of the same kind left its outcome in
-    ///     the store meanwhile: the page shows only what its own write returned, so it never shows another's toast.
-    ///     Red: SaveAsync returns repositories.Value.LastSave instead of the outcome it dispatched; the renewed delete
-    ///     returns the other delete's refusal.
-    /// </summary>
-    [Fact]
-    public async Task A_write_with_no_outcome_returns_none_whatever_another_left()
-    {
-        var other = Guid.NewGuid();
-        var release = new TaskCompletionSource();
-        _handler.On($"{Path}/{Id}", async () =>
-        {
-            await release.Task;
-            return SigningIn();
-        });
-        _handler.On($"{Path}/{other}", () => new HttpResponseMessage(HttpStatusCode.InternalServerError));
-
-        var renewed = WriteAsync(RepositoryWrite.Deleted, Id);
-        var refused = await WriteAsync(RepositoryWrite.Deleted, other);
-        release.SetResult();
-
-        refused.Should().Be(new RepositorySave(RepositoryWrite.Deleted, ServerError));
-        (await renewed).Should().BeNull("the renewed delete has no outcome of its own");
     }
 }

@@ -27,14 +27,8 @@ public readonly record struct ProjectSelectFailed(Guid Id, string Error);
 /// <summary>Loading project <paramref name="Id"/> ended with the session being renewed: nothing to show.</summary>
 public readonly record struct ProjectSelectAbandoned(Guid Id);
 
-/// <summary>A <paramref name="Write"/> was started.</summary>
-public readonly record struct ProjectSaveStarted(ProjectWrite Write);
-
 /// <summary>The <paramref name="Write"/> of project <paramref name="Id"/> was saved.</summary>
 public readonly record struct ProjectSaved(ProjectWrite Write, Guid Id);
 
-/// <summary>The <paramref name="Write"/> was refused for <paramref name="Reason"/>.</summary>
-public readonly record struct ProjectSaveRefused(ProjectWrite Write, string Reason);
-
-/// <summary>The Projects page closed: its selection and last save go; the shared list stays.</summary>
+/// <summary>The Projects page closed: its selection goes; the shared list stays.</summary>
 public readonly record struct ProjectsPageClosed;

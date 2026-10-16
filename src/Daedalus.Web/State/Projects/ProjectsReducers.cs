@@ -61,23 +61,13 @@ public static class ProjectsReducers
     public static ProjectsState On(ProjectsState s, ProjectSelectAbandoned a) =>
         a.Id == s.SelectedId ? s with { Selected = null } : s;
 
-    /// <summary>Clears the last outcome, so one that ends with no outcome is never read as the one before.</summary>
-    [Reducer]
-    public static ProjectsState On(ProjectsState s, ProjectSaveStarted a) => s with { LastSave = null };
-
     /// <summary>A deleted project that the page shows is shown no longer.</summary>
     [Reducer]
     public static ProjectsState On(ProjectsState s, ProjectSaved a) =>
-        a.Write == ProjectWrite.Deleted && a.Id == s.SelectedId
-            ? s with { LastSave = new ProjectSave(a.Write, null), Selected = null, SelectedId = null }
-            : s with { LastSave = new ProjectSave(a.Write, null) };
-
-    [Reducer]
-    public static ProjectsState On(ProjectsState s, ProjectSaveRefused a) =>
-        s with { LastSave = new ProjectSave(a.Write, a.Reason) };
+        a.Write == ProjectWrite.Deleted && a.Id == s.SelectedId ? s with { Selected = null, SelectedId = null } : s;
 
     /// <summary>Clears the Projects page's own fields and leaves the shared list; see <see cref="ProjectsState"/>.</summary>
     [Reducer]
     public static ProjectsState On(ProjectsState s, ProjectsPageClosed a) =>
-        s with { Selected = null, SelectedId = null, SelectError = null, LastSave = null };
+        s with { Selected = null, SelectedId = null, SelectError = null };
 }
