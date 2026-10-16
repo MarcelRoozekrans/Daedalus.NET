@@ -101,8 +101,8 @@ public class BrainstormServiceSaveFailureTests
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
         for (var i = 0; i < 5; i++)
         {
-            session.AddMessage(MessageRole.Assistant, "Done. [PHASE_COMPLETE]");
-            session.AdvancePhase();
+            session.AddMessage(MessageRole.Assistant, "Done. [PHASE_COMPLETE]").IsSuccess.Should().BeTrue();
+            session.AdvancePhase().IsSuccess.Should().BeTrue();
         }
 
         session.SetImplementationPlan("### Task 1: Create entity");

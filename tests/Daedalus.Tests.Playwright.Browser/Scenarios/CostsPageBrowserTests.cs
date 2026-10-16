@@ -194,7 +194,11 @@ public class CostsPageBrowserTests : BrowserTestBase
         var estimator = Card("cost-estimator");
         await Expect(estimator).ToContainTextAsync("$0.30 — $1.00").ConfigureAwait(false);
         await Expect(estimator).ToContainTextAsync("Based on 1234 average output tokens per turn").ConfigureAwait(false);
-        _requests.Should().Contain($"/api/cost-analytics/estimate?modelId={FirstModelId}&maxIterations=10&estimatedPromptTokens=4000");
+        var estimate = System.Web.HttpUtility.ParseQueryString(
+            new Uri(BaseUrl, _requests.First(r => r.StartsWith("/api/cost-analytics/estimate?", StringComparison.Ordinal))).Query);
+        estimate["modelId"].Should().Be(FirstModelId);
+        estimate["maxIterations"].Should().Be("10");
+        estimate["estimatedPromptTokens"].Should().Be("4000");
 
         var turns = estimator.Locator("input[name='Turns']");
         await turns.FillAsync("20").ConfigureAwait(false);
