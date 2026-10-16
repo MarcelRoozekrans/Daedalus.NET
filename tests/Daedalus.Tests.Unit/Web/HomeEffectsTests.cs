@@ -87,7 +87,7 @@ public sealed class HomeEffectsTests : IDisposable
         RouteAll();
 
         await _effects.LoadAsync(canView: false, CancellationToken.None);
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
+        await ChangeAsync();
 
         _handler.Requests.Should().BeEmpty();
         _store.Value.Open.Should().BeFalse();
@@ -105,7 +105,7 @@ public sealed class HomeEffectsTests : IDisposable
         _handler.Requests.Clear();
 
         await _effects.LoadAsync(canView: false, CancellationToken.None);
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
+        await ChangeAsync();
 
         _store.Value.Awaiting.Rows.Should().BeNull();
         _handler.Requests.Should().BeEmpty();
@@ -173,7 +173,7 @@ public sealed class HomeEffectsTests : IDisposable
     /// <summary>
     ///     A run change re-fetches the awaiting, running and failed cards, not the pull requests card, and the new rows
     ///     land; while the re-fetch is in flight the old rows stay on show, so the card never turns into its skeleton.
-    ///     Red: OnRunChangedAsync fetches nothing; no request is made.
+    ///     Red: OnRunChanged fetches nothing; no request is made.
     ///     Red: re-fetch every card, HomeState.Live with PullRequests; the pull requests list is requested.
     ///     Red: re-fetch as a foreground read; the awaiting rows are null while the re-fetch is in flight.
     ///     Red: drop the HomeCardLoaded dispatch for a background read; the new gate never shows.
@@ -192,7 +192,7 @@ public sealed class HomeEffectsTests : IDisposable
             return Task.FromResult(RecordingHandler.Json(HttpStatusCode.OK, RunViews.Json(new WorkflowRunList([gate], null))));
         });
 
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
+        await ChangeAsync();
 
         _handler.Paths.Should().BeEquivalentTo([AwaitingPath, RunningPath, FailedPath]);
         inFlight.Should().NotBeNull("a background re-fetch keeps the rows on show");
@@ -202,7 +202,7 @@ public sealed class HomeEffectsTests : IDisposable
     /// <summary>
     ///     A card in error keeps its alert until Retry: a run change re-fetches only cards that loaded.
     ///     Red: re-fetch every live card whatever it holds; the failed list is requested again and its alert goes.
-    ///     Red: OnRunChangedAsync fetches nothing; the awaiting list is not requested.
+    ///     Red: OnRunChanged fetches nothing; the awaiting list is not requested.
     /// </summary>
     [Fact]
     public async Task A_card_in_error_is_not_refetched_by_a_run_change()
@@ -213,7 +213,7 @@ public sealed class HomeEffectsTests : IDisposable
         _handler.OnJson(FailedPath, RunViews.Json(new WorkflowRunList([], null)));
         _handler.Requests.Clear();
 
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
+        await ChangeAsync();
 
         _handler.Paths.Should().NotContain(FailedPath);
         _handler.Paths.Should().Contain(AwaitingPath, "the cards that loaded are re-fetched");
@@ -260,18 +260,21 @@ public sealed class HomeEffectsTests : IDisposable
         await _dispatcher.DispatchAsync(new HomeClosed());
         _handler.Requests.Clear();
 
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
-        await _effects.RefreshAsync(CancellationToken.None);
+        await ChangeAsync();
+        await RefreshAsync();
 
         _handler.Requests.Should().BeEmpty();
     }
 
     /// <summary>
-    ///     Changes that arrive while a re-fetch is in flight are coalesced into one more re-fetch after it, not one each:
-    ///     three changes during the first make two re-fetches in all, and the second still runs, since a change may have
-    ///     landed after the first one's read.
-    ///     Red: drop the coalescing; each change re-fetches, four awaiting reads in all.
-    ///     Red: drop changes during a re-fetch instead of re-fetching once after it; one awaiting read in all.
+    ///     Asks that arrive while a re-fetch is in flight are coalesced into one more re-fetch after it, not one each.
+    ///     This models concurrent callers, such as a reconnect's refresh landing beside changes; the hub's own changes,
+    ///     which it delivers one at a time, are pinned by
+    ///     RunHubConnectionTests.Changes_sent_while_homes_re_fetch_is_in_flight_make_one_more. Three asks during the
+    ///     first make two re-fetches in all, and the second still runs, since a change may have landed after the first
+    ///     one's read.
+    ///     Red: drop the coalescing; each ask re-fetches, five awaiting reads in all.
+    ///     Red: drop asks during a re-fetch instead of re-fetching once after it; one awaiting read in all.
     /// </summary>
     [Fact]
     public async Task Changes_during_a_refetch_are_coalesced_into_one_more()
@@ -291,12 +294,14 @@ public sealed class HomeEffectsTests : IDisposable
             return RecordingHandler.Json(HttpStatusCode.OK, RunViews.Json(new WorkflowRunList([], null)));
         });
 
-        var first = _effects.OnRunChangedAsync(Change, CancellationToken.None);
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
+        _effects.OnRunChanged(Change);
+        var first = _effects.Refetching;
+        _effects.Refresh();
+        _effects.OnRunChanged(Change);
+        _effects.OnRunChanged(Change);
         release.SetResult();
         await first;
+        await _effects.Refetching;
 
         Volatile.Read(ref reads).Should().Be(2);
     }
@@ -304,7 +309,7 @@ public sealed class HomeEffectsTests : IDisposable
     /// <summary>
     ///     A reconnect re-fetches the live cards that loaded, as a change does, since changes sent while disconnected are
     ///     lost.
-    ///     Red: RefreshAsync fetches nothing; no request is made.
+    ///     Red: Refresh fetches nothing; no request is made.
     /// </summary>
     [Fact]
     public async Task A_reconnect_re_fetches_the_live_cards()
@@ -313,27 +318,73 @@ public sealed class HomeEffectsTests : IDisposable
         await _effects.LoadAsync(canView: true, CancellationToken.None);
         _handler.Requests.Clear();
 
-        await _effects.RefreshAsync(CancellationToken.None);
+        await RefreshAsync();
 
         _handler.Paths.Should().BeEquivalentTo([AwaitingPath, RunningPath, FailedPath]);
     }
 
     /// <summary>
-    ///     A background re-fetch that fails says why on that card, as a failed read always has, and logs a warning.
-    ///     Red: drop the failure dispatch for a background read; the running card keeps its stale rows silently.
+    ///     A background re-fetch that fails keeps the card's last rows and shows nothing, as a background refresh shows
+    ///     nothing elsewhere; it logs a warning, and the card stays loaded, so the next change re-fetches it and heals it.
+    ///     Red: a background failure dispatches HomeCardLoadFailed; the running card's error is "Gone." and its rows go.
     ///     Red: log only a foreground read's failure; no warning is written.
+    ///     Red: end the loop with the count left at 1, not reset to 0; the next change starts no re-fetch, and the healed
+    ///     rows never land.
     /// </summary>
     [Fact]
-    public async Task A_failed_refetch_says_why()
+    public async Task A_failed_refetch_keeps_the_rows_and_logs_a_warning()
     {
         RouteAll();
+        _handler.OnJson(RunningPath, RunViews.Json(new WorkflowRunList([RunViews.Item(Guid.NewGuid())], null)));
         await _effects.LoadAsync(canView: true, CancellationToken.None);
         _handler.OnJson(RunningPath, """{"detail":"Gone."}""", HttpStatusCode.InternalServerError);
 
-        await _effects.OnRunChangedAsync(Change, CancellationToken.None);
+        await ChangeAsync();
 
-        _store.Value.Running.Error.Should().Be("Gone.");
+        _store.Value.Running.Error.Should().BeNull("a background refresh shows no alert");
+        _store.Value.Running.Rows.Should().ContainSingle("the card keeps its last rows");
         _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning);
+
+        var healed = RunViews.Item(Guid.NewGuid());
+        _handler.OnJson(RunningPath, RunViews.Json(new WorkflowRunList([healed], null)));
+        await ChangeAsync();
+        _store.Value.Running.Rows.Should().ContainSingle().Which.Id.Should().Be(healed.Id, "the next change heals the card");
+    }
+
+    /// <summary>
+    ///     A re-fetch that faults, here a handler that throws what ApiClient does not catch, ends with a logged warning,
+    ///     and the next change still re-fetches: the loop's count is reset, so live Home does not stop for good.
+    ///     Red: drop the reset in RefetchLoopAsync's finally; the next change finds the count above 0 and reads nothing.
+    ///     Red: drop the LogRefetchFaulted call; no warning names the fault.
+    /// </summary>
+    [Fact]
+    public async Task A_faulted_refetch_does_not_stop_live_home()
+    {
+        RouteAll();
+        await _effects.LoadAsync(canView: true, CancellationToken.None);
+        _handler.On(AwaitingPath, HttpResponseMessage () => throw new InvalidOperationException("Not caught by ApiClient."));
+
+        await ChangeAsync();
+        _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning && e.Message.Contains(nameof(InvalidOperationException), StringComparison.Ordinal));
+
+        RouteAll();
+        _handler.Requests.Clear();
+        await ChangeAsync();
+        _handler.Paths.Should().Contain(AwaitingPath, "the next change still re-fetches");
+    }
+
+    /// <summary>Sends one change and waits for the re-fetch it asked for.</summary>
+    private Task ChangeAsync()
+    {
+        _effects.OnRunChanged(Change);
+        return _effects.Refetching;
+    }
+
+    /// <summary>Sends one reconnect refresh and waits for the re-fetch it asked for.</summary>
+    private Task RefreshAsync()
+    {
+        _effects.Refresh();
+        return _effects.Refetching;
     }
 
     /// <summary>Answers each of the four lists with an empty page.</summary>

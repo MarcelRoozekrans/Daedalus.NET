@@ -241,7 +241,9 @@ public sealed partial class RunHubConnection(
     {
         await runs.OnRunChangedAsync(change, CancellationToken.None);
         await tasks.OnRunChangedAsync(change, CancellationToken.None);
-        await home.OnRunChangedAsync(change, CancellationToken.None);
+        // Returns at once: the hub waits for this handler before it delivers the next change, so Home's re-fetch runs
+        // on its own and coalesces the changes that arrive meanwhile.
+        home.OnRunChanged(change);
     }
 
     [LoggerMessage(EventId = 3100, Level = LogLevel.Warning, Message = "The run hub failed to start: {ExceptionType}")]
@@ -260,6 +262,6 @@ public sealed partial class RunHubConnection(
         await runs.RefreshAllAsync(CancellationToken.None);
         await tasks.RefreshAsync(CancellationToken.None);
         await projects.RefreshAsync(CancellationToken.None);
-        await home.RefreshAsync(CancellationToken.None);
+        home.Refresh();
     }
 }

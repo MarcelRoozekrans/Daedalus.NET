@@ -11,7 +11,8 @@ namespace Daedalus.Web.State.Home;
 ///     what each reads. A run change or a reconnect re-fetches the cards in <see cref="HomeState.Live"/> that have loaded,
 ///     in the background, while Home is open; changes that arrive while a re-fetch is in flight are coalesced into one
 ///     more after it. An expected failure is an action, never an exception. A session being renewed and a read whose
-///     page went away store no error. A failure that is stored is logged as a warning, with the error text only.
+///     page went away store no error. A failed background re-fetch stores none either: the card keeps its rows. Every
+///     other failure, and every failed background re-fetch, is logged as a warning, with the error text only.
 /// </summary>
 public sealed partial class HomeEffects(
     ApiClient api, IDispatcher dispatcher, IStore<HomeState> home, TimeProvider time, ILogger<HomeEffects> logger)
@@ -46,40 +47,86 @@ public sealed partial class HomeEffects(
     public Task RetryAsync(HomeCardKind card, CancellationToken ct) => LoadCardAsync(card, false, ct);
 
     /// <summary>
-    ///     Re-fetches the live cards that have loaded, since any run may have entered or left one of them. The change
-    ///     itself is only a signal: it carries no row.
+    ///     Asks for a re-fetch of the live cards that have loaded, since any run may have entered or left one of them, and
+    ///     returns at once. The change itself is only a signal: it carries no row. The hub runs its handlers one at a
+    ///     time and waits for each, so a handler that waited for the re-fetch would hold back every change behind it, and
+    ///     none could ever be coalesced; see <see cref="Refetching"/>.
     /// </summary>
-    public Task OnRunChangedAsync(WorkflowRunChanged change, CancellationToken ct) => RefetchAsync(ct);
-
-    /// <summary>Re-fetches the live cards that have loaded after a reconnect, because changes sent while disconnected are lost.</summary>
-    public Task RefreshAsync(CancellationToken ct) => RefetchAsync(ct);
+    public void OnRunChanged(WorkflowRunChanged change) => AskForRefetch();
 
     /// <summary>
-    ///     Re-fetches the live cards that have loaded, unless one is in flight: then it asks that one to run once more
-    ///     when it ends, since a change may have landed after its reads. However many changes arrive meanwhile, they make
-    ///     one more re-fetch, not one each.
+    ///     Asks for a re-fetch of the live cards that have loaded after a reconnect, because changes sent while
+    ///     disconnected are lost, and returns at once.
     /// </summary>
-    private async Task RefetchAsync(CancellationToken ct)
-    {
-        if (Interlocked.Increment(ref _refetchesAsked) > 1)
-        {
-            return;
-        }
+    public void Refresh() => AskForRefetch();
 
-        do
+    /// <summary>
+    ///     The re-fetch loop in flight, or the last one, which has ended. It never faults: a fault is logged and ends the
+    ///     loop. A test seam, reached through <c>InternalsVisibleTo</c> from <c>Daedalus.Tests.Unit</c>.
+    /// </summary>
+    internal Task Refetching { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    ///     How many re-fetches were asked for since the loop in flight began, 0 when none is in flight. A test seam, as
+    ///     <see cref="Refetching"/> is.
+    /// </summary>
+    internal int RefetchesAsked => Volatile.Read(ref _refetchesAsked);
+
+    /// <summary>
+    ///     Starts the re-fetch loop unless one is in flight: then it asks that one to run once more when it ends, since a
+    ///     change may have landed after its reads. However many asks arrive meanwhile, they make one more round, not one
+    ///     each.
+    /// </summary>
+    private void AskForRefetch()
+    {
+        if (Interlocked.Increment(ref _refetchesAsked) == 1)
         {
-            // Everything asked for so far is served by this round.
-            Interlocked.Exchange(ref _refetchesAsked, 1);
-            // A closed Home has no card loaded, so nothing is re-fetched after HomeClosed.
-            var state = home.Value;
-            await Task.WhenAll(HomeState.Live.Where(kind => state.Card(kind).Loaded).Select(kind => LoadCardAsync(kind, true, ct)));
+            Refetching = RefetchLoopAsync();
         }
-        while (Interlocked.CompareExchange(ref _refetchesAsked, 0, 1) != 1);
     }
 
     /// <summary>
-    ///     Reads one card. A failure is the card's error; a <see cref="SessionExpiry.SigningInAgain"/> failure, or one after
-    ///     <paramref name="ct"/> was cancelled, stores nothing.
+    ///     Re-fetches the live cards that have loaded, round after round, until no ask arrived during a round. A fault
+    ///     ends the loop with the count reset, so the next ask starts a new one instead of waiting forever on this one.
+    /// </summary>
+    private async Task RefetchLoopAsync()
+    {
+        var ended = false;
+        try
+        {
+            do
+            {
+                // Everything asked for so far is served by this round.
+                Interlocked.Exchange(ref _refetchesAsked, 1);
+                // A closed Home has no card loaded, so nothing is re-fetched after HomeClosed.
+                var state = home.Value;
+                await Task.WhenAll(HomeState.Live.Where(kind => state.Card(kind).Loaded)
+                    .Select(kind => LoadCardAsync(kind, true, CancellationToken.None)));
+            }
+            while (Interlocked.CompareExchange(ref _refetchesAsked, 0, 1) != 1);
+
+            ended = true;
+        }
+        catch (Exception exception)
+        {
+            // Every fault, not a list of the expected ones: nothing awaits this loop, so an escaped one would be lost.
+            LogRefetchFaulted(logger, exception.GetType().Name);
+        }
+        finally
+        {
+            if (!ended)
+            {
+                Interlocked.Exchange(ref _refetchesAsked, 0);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Reads one card. A failure of a read that shows the skeleton, on open or Retry, is the card's error. A
+    ///     <paramref name="background"/> read's failure is logged and stores nothing: the card keeps its last rows and stays
+    ///     loaded, so the next change heals it, and a refresh no one asked for never turns into an alert. A
+    ///     <see cref="SessionExpiry.SigningInAgain"/> failure, or one after <paramref name="ct"/> was cancelled, stores
+    ///     nothing and logs nothing.
     /// </summary>
     private async Task LoadCardAsync(HomeCardKind card, bool background, CancellationToken ct)
     {
@@ -96,7 +143,10 @@ public sealed partial class HomeEffects(
         else if (!SessionExpiry.IsSigningIn(result.Error) && !ct.IsCancellationRequested)
         {
             LogLoadFailed(logger, card, result.Error);
-            await dispatcher.DispatchAsync(new HomeCardLoadFailed(card, sequence, result.Error));
+            if (!background)
+            {
+                await dispatcher.DispatchAsync(new HomeCardLoadFailed(card, sequence, result.Error));
+            }
         }
     }
 
@@ -111,4 +161,7 @@ public sealed partial class HomeEffects(
 
     [LoggerMessage(EventId = 3300, Level = LogLevel.Warning, Message = "Home's {Card} card could not be loaded: {Error}")]
     private static partial void LogLoadFailed(ILogger logger, HomeCardKind card, string error);
+
+    [LoggerMessage(EventId = 3301, Level = LogLevel.Warning, Message = "Home's live re-fetch faulted: {ExceptionType}")]
+    private static partial void LogRefetchFaulted(ILogger logger, string exceptionType);
 }

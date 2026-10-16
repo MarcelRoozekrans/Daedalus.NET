@@ -353,6 +353,67 @@ public sealed class RunHubConnectionTests : IDisposable
     }
 
     /// <summary>
+    ///     Changes the hub sends while Home's re-fetch is in flight make one more re-fetch, not one each. The hub runs its
+    ///     handlers one at a time and waits for each, so this holds only because the handler returns without waiting for
+    ///     the re-fetch: four changes, the first one's awaiting read held until the other three have arrived, make exactly
+    ///     two awaiting reads.
+    ///     Red: await HomeEffects.Refetching in RunHubConnection.OnChangedAsync; each change waits for the one before,
+    ///     and the four make four awaiting reads.
+    /// </summary>
+    [Fact]
+    public async Task Changes_sent_while_homes_re_fetch_is_in_flight_make_one_more()
+    {
+        using var hubServer = new HandshakingHub();
+        var hub = Hub(User("developer"), options => options.WebSocketFactory = (_, ct) => hubServer.AcceptAsync(ct));
+        _handler.OnJson(AwaitingPath, RunViews.Json(new WorkflowRunList([], null)))
+            .OnJson(CountPath, RunViews.Json(new WorkflowRunList([], null)));
+        await _home.LoadAsync(canView: true, CancellationToken.None);
+        var release = new TaskCompletionSource();
+        var reads = 0;
+        _handler.On(AwaitingPath, async () =>
+        {
+            if (Interlocked.Increment(ref reads) == 1)
+            {
+                await release.Task;
+            }
+
+            return RecordingHandler.Json(HttpStatusCode.OK, RunViews.Json(new WorkflowRunList([], null)));
+        });
+
+        try
+        {
+            await hub.EnsureStartedAsync(CancellationToken.None);
+            for (var i = 0; i < 4; i++)
+            {
+                await hubServer.SendRunChangedAsync(new WorkflowRunChanged(Guid.NewGuid(), "Running", "implement", null));
+            }
+
+            // The first change started the loop and the other three asked for more: 1 + 3 while the read is held.
+            await WaitUntilAsync(() => _home.RefetchesAsked >= 4, TimeSpan.FromSeconds(3));
+            release.SetResult();
+            await WaitUntilAsync(
+                () => _handler.Paths.Where(p => string.Equals(p, CountPath, StringComparison.Ordinal)).Skip(3).Any() && _home.RefetchesAsked == 0, TimeSpan.FromSeconds(10));
+            await _home.Refetching;
+        }
+        finally
+        {
+            await hub.DisposeAsync();
+        }
+
+        Volatile.Read(ref reads).Should().Be(2, "the changes that arrived during the first re-fetch make one more");
+    }
+
+    /// <summary>Waits up to <paramref name="limit"/> for <paramref name="condition"/>.</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan limit)
+    {
+        var deadline = DateTime.UtcNow + limit;
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+    }
+
+    /// <summary>
     ///     A start that recovers from a failure re-fetches Home's live cards once Home is open, because changes sent while
     ///     no connection was open are lost.
     ///     Red: drop the HomeEffects.RefreshAsync call from RunHubConnection.RefreshAsync; the awaiting list is not
