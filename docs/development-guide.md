@@ -763,13 +763,17 @@ decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-ruling
 - **Actions** are `readonly record struct`s in the feature's `…Actions.cs`.
 - **Reducers** are pure static `On` methods marked `[Reducer]`. A reducer for an answer compares it with the request it
   answers and ignores a stale one.
-- **Effects** are scoped services, registered in `Program.cs` beside the first component that injects them. They inject
-  a typed client, `IDispatcher`, the stores they read and a logger, and nothing else: no `NotificationService`,
-  `DialogService` or `NavigationManager`, so every effect can be unit-tested without a renderer. They dispatch every
-  outcome of a read as an action and never throw for an expected failure.
-- **Components** inherit `FluxComponent`, override `SubscribeStores()` and call `Subscribe`, and never override
-  `OnInitialized`. A page dispatches its `…Closed` action from `DisposeAsync`, after it unsubscribes, so a live change
-  does not re-fetch what is off screen.
+- **Effects** are scoped services, registered together in one block in `Program.cs`. They inject their typed clients,
+  `IDispatcher`, the stores they read and a logger: `ProjectsEffects` takes two clients, `ApiClient` for reads and
+  `IProjectApiClient` for writes, and `HomeEffects` also takes a `TimeProvider` for the cards' read time. They take no
+  `NotificationService`, `DialogService` or `NavigationManager`, so every effect can be unit-tested without a renderer.
+  Most dispatch every outcome of a read as an action. Brainstorm and Agent store a read's answer but not its failure:
+  they return the failure as an outcome, `BrainstormOutcome` or `AgentOutcome`, for the page to toast. No effect throws
+  for an expected failure.
+- **Components** inherit `FluxComponent`, override `SubscribeStores()` and call `Subscribe`. One that also overrides
+  `OnInitialized`, such as Tasks, `TaskCreateDialog` and `PrdGenerator`, calls `base.OnInitialized()` first. A page
+  dispatches its `…Closed` action from `DisposeAsync`, after it unsubscribes, so a live change does not re-fetch what
+  is off screen.
 - **View helpers** are pure static classes beside the state, such as `ProjectsView`, `RepositoriesView`,
   `SchedulesView`, `AgentView` and `TasksView`. A decision a component would otherwise make in markup, such as whether
   to show the spinner or which notification a write gets, goes there, so it is unit-tested without a renderer.
@@ -779,15 +783,24 @@ decisions behind the rules below are in `docs/plans/2026-10-16-phase-2.14-ruling
 - **Typed clients only.** No component injects `HttpClient`. Pages and effects call `ApiClient`, `AgentApiClient`,
   `IProjectApiClient` or `RepositoriesApiClient`, and the Web binds the Application DTOs directly; it keeps no copies.
   `WebLayer_KeepsNoCopyOf_AnApplicationDto` in `Daedalus.Tests.Unit`'s `CleanArchitectureTests` guards the second.
-- **The clients catch Polly's rejections.** The resilience handler throws `ExecutionRejectedException` when its circuit
-  is open or its timeout fires. `ApiClient`, `AgentApiClient`, `RepositoriesApiClient` and `ProjectApiClient` catch it
-  beside `HttpRequestException` and return a failed `Result`. `ProjectApiClient` also catches a cancellation and a body
-  it cannot write or read, and lets any other exception through as a defect. No page needs a catch-all. The Agent
-  stream still reports a rejection with the old catch-all text (issue #383).
+- **The clients turn Polly's rejections into a failed `Result`.** The resilience handler throws
+  `ExecutionRejectedException` when its circuit is open or its timeout fires. `AgentApiClient`, `RepositoriesApiClient`,
+  `ProjectApiClient` and `ApiClient`'s writes catch it by name beside `HttpRequestException`. `ApiClient`'s reads, all
+  through its `GetAsync`, still end in a catch-all: a rejection, or a body it cannot read such as a `JsonException`,
+  returns a failed `Result` that reads "Unexpected error: …". Narrowing it changes failure text that tests pin, so it
+  is tracked on issue #383, as is the Agent stream, which reports a rejection with the same old catch-all text.
+  `ProjectApiClient` also catches a cancellation and a body it cannot write or read, and lets any other exception
+  through as a defect. No page needs a catch-all.
 - **A cancelled caller dispatches nothing.** An effect checks its token before its first dispatch. A page already gone
   would otherwise clear what a page opened since shows, or move the request sequence past its answer. A failure that
-  comes back after the token was cancelled stores no error. It ends the load in the 2.14 features; Runs and Tasks
-  dispatch nothing for it, because the page's `RunListClosed`, `RunClosed` or `TasksClosed` already ended it.
+  comes back after the token was cancelled stores no error. Only Projects ends the load for it, with
+  `ProjectsLoadAbandoned`, because `ProjectsState` has no `…Closed` to end it. Every other feature returns without a
+  dispatch and relies on its page's `…Closed`, which already ended the load: `RunListClosed`, `RunClosed` and
+  `TasksClosed` for Runs and Tasks, and each 2.14 page's own. Git Repositories, Costs, Schedules, PRD, Brainstorm and
+  Agent drop a success that comes back after the cancellation the same way. Home dispatches it, and its reducers drop
+  it: `HomeClosed` has marked Home closed, or a newer read has taken the card's number. `AgentApiClient`'s reads let a
+  cancellation through as an `OperationCanceledException` instead of a failed `Result`; Blazor ignores a cancelled
+  lifecycle or event task.
 - **A request sequence drops stale answers.** A read's start takes the next sequence number and dispatches it, with no
   await between the read of the number and the dispatch. An answer with an older number is ignored, so an earlier
   reader's late answer never replaces a later one. A feature's `…Closed` keeps the number, and `PrdClosed` and
