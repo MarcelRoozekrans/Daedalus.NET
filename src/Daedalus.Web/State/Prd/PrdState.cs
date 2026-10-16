@@ -25,7 +25,8 @@ public enum PrdStep
 ///     <para>
 ///         Lifetime: page-only, cleared by <see cref="PrdClosed"/> when the page is disposed and by <see cref="PrdReset"/>
 ///         when the wizard starts over. Only that page reads or writes it, so a clear races no other reader.
-///         <paramref name="Sequence"/> survives both, so an answer to a request made before them never lands after them.
+///         Both advance <paramref name="Sequence"/> past every request made before them, so an answer to one of those
+///         never lands after them.
 ///     </para>
 /// </summary>
 /// <param name="Step">The step the wizard shows.</param>
@@ -36,7 +37,10 @@ public enum PrdStep
 ///     Why the last generate or convert failed, or <see langword="null"/>. Never <see cref="Auth.SessionExpiry.SigningInAgain"/>,
 ///     and never a cancellation: neither is stored.
 /// </param>
-/// <param name="Sequence">The number of the newest request started, never reset; an answer to any other is dropped.</param>
+/// <param name="Sequence">
+///     The number of the newest request started, advanced by a reset or a close and never set back; an answer to any
+///     other request is dropped.
+/// </param>
 [Feature(InitialState = nameof(Initial))]
 public readonly partial record struct PrdState(
     PrdStep Step,

@@ -36,11 +36,14 @@ public static class PrdReducers
     [Reducer]
     public static PrdState On(PrdState s, PrdErrorDismissed a) => s with { Error = null };
 
-    /// <summary>Back to the first step with nothing held; the sequence is kept. See <see cref="PrdState"/>.</summary>
+    /// <summary>
+    ///     Back to the first step with nothing held. The sequence moves past every request in flight, so none of their
+    ///     answers lands on the new wizard; see <see cref="PrdState"/>.
+    /// </summary>
     [Reducer]
-    public static PrdState On(PrdState s, PrdReset a) => PrdState.Empty with { Sequence = s.Sequence };
+    public static PrdState On(PrdState s, PrdReset a) => PrdState.Empty with { Sequence = s.Sequence + 1 };
 
-    /// <summary>Clears the page's fields and keeps the sequence; see <see cref="PrdState"/>.</summary>
+    /// <summary>Clears the page's fields and moves the sequence past every request in flight; see <see cref="PrdState"/>.</summary>
     [Reducer]
-    public static PrdState On(PrdState s, PrdClosed a) => PrdState.Empty with { Sequence = s.Sequence };
+    public static PrdState On(PrdState s, PrdClosed a) => PrdState.Empty with { Sequence = s.Sequence + 1 };
 }

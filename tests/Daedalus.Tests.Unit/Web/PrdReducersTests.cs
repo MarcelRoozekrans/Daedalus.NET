@@ -135,18 +135,36 @@ public sealed class PrdReducersTests
     }
 
     /// <summary>
-    ///     Starting over, and closing the page, clear everything the wizard held and keep the sequence.
+    ///     Starting over, and closing the page, clear everything the wizard held and move the sequence on.
     ///     Red: return the state unchanged in the PrdReset reducer; the PRD is still held.
     ///     Red: return PrdState.Empty in the PrdReset reducer; the sequence goes back to 0.
     ///     Red: return the state unchanged in the PrdClosed reducer; the PRD is still held.
     ///     Red: return PrdState.Empty in the PrdClosed reducer; the sequence goes back to 0.
     /// </summary>
     [Fact]
-    public void Starting_over_and_closing_clear_the_wizard_and_keep_the_sequence()
+    public void Starting_over_and_closing_clear_the_wizard_and_move_the_sequence_on()
     {
         var held = PrdReducers.On(Asked(3), new PrdGenerated(3, Prd)) with { Error = "boom" };
 
-        PrdReducers.On(held, new PrdReset()).Should().Be(PrdState.Empty with { Sequence = 3 });
-        PrdReducers.On(held, new PrdClosed()).Should().Be(PrdState.Empty with { Sequence = 3 });
+        PrdReducers.On(held, new PrdReset()).Should().Be(PrdState.Empty with { Sequence = 4 });
+        PrdReducers.On(held, new PrdClosed()).Should().Be(PrdState.Empty with { Sequence = 4 });
+    }
+
+    /// <summary>
+    ///     An answer to a request made before a reset, or before the page closed, does not land: the wizard stays on
+    ///     project selection with nothing held.
+    ///     Red: keep Sequence unchanged in the PrdReset reducer; the PRD lands on the reset wizard.
+    ///     Red: keep Sequence unchanged in the PrdClosed reducer; the PRD lands on the closed page's state.
+    /// </summary>
+    [Fact]
+    public void An_answer_to_a_request_made_before_a_reset_does_not_land()
+    {
+        var asked = Asked(3);
+
+        var afterReset = PrdReducers.On(PrdReducers.On(asked, new PrdReset()), new PrdGenerated(3, Prd));
+        var afterClose = PrdReducers.On(PrdReducers.On(asked, new PrdClosed()), new PrdGenerated(3, Prd));
+
+        afterReset.Should().Be(PrdState.Empty with { Sequence = 4 });
+        afterClose.Should().Be(PrdState.Empty with { Sequence = 4 });
     }
 }
