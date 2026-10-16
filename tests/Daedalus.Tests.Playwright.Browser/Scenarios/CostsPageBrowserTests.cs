@@ -159,7 +159,7 @@ public class CostsPageBrowserTests : BrowserTestBase
     ///     Red: <c>OnRowExpand</c> returns before the call; no task row shows.
     ///     Red: <c>GetTaskCosts</c> always returns an empty list; the task row never shows.
     ///     Red: the task Cost column formats with "{0:C2}"; the row reads $0.99, not $0.9876.
-    ///     Red: <c>OnRowExpand</c> asks twice; the project's path is requested two times.
+    ///     Red: <c>OnRowExpand</c> starts <c>CostsEffects.LoadTaskCostsAsync</c> twice at once; the project's path is requested two times.
     /// </summary>
     [Test]
     [Description("Expanding a project lists its tasks")]
@@ -179,10 +179,10 @@ public class CostsPageBrowserTests : BrowserTestBase
     /// <summary>
     ///     The estimator starts on the first priced model at 10 turns and 4,000 prompt tokens, shows the estimate's range,
     ///     and asks again when the turns change.
-    ///     Red: <c>LoadDataAsync</c> does not select the first priced model; the request names the page's default model.
+    ///     Red: the <c>CostsLoaded</c> reducer keeps the estimator's model; the request names the page's default model.
     ///     Red: the range shows <c>EstimatedMaxCost</c> twice; it reads "$1.00 — $1.00".
     ///     Red: the caption leaves out <c>EstimatedResponseTokens</c>; "Based on 1234" does not show.
-    ///     Red: <c>OnEstimateParamsChanged</c> does not reload; the range stays at 10 turns' "$0.30 — $1.00".
+    ///     Red: the Turns input's <c>ValueChanged</c> does not call <c>EstimateAsync</c>; the range stays at 10 turns' "$0.30 — $1.00".
     /// </summary>
     [Test]
     [Description("The estimator shows the range and asks again when the turns change")]
@@ -210,8 +210,8 @@ public class CostsPageBrowserTests : BrowserTestBase
     /// <summary>
     ///     A summary that fails to load says so in an alert, and the rest of the page still loads. The page has no Retry;
     ///     a reload is the way back.
-    ///     Red: the failure branch leaves <c>_errorMessage</c> empty; no alert shows.
-    ///     Red: a failed summary returns from <c>LoadDataAsync</c> before the pricing is applied; the pricing table is empty.
+    ///     Red: <c>CostsEffects.LoadAsync</c> passes a null error in <c>CostsLoaded</c>; no alert shows.
+    ///     Red: <c>CostsEffects.LoadAsync</c> returns before <c>CostsLoaded</c> when the summary fails; the pricing table is empty.
     /// </summary>
     [Test]
     [Description("A failed summary says so")]
