@@ -22,7 +22,7 @@ separate session, and this document is its input.
   2. array parameters and array columns;
   3. jsonb parameters.
 - **Three further gaps** that block or complicate 3.5 (section 4.4 to 4.6):
-  1. unsigned integers, which `xmin` needs;
+  1. unsigned integers, which `xmin` needs, read and bound as `xid` through 4.3's data-type name;
   2. `ZeroAlloc.Outbox.Orm` has no `IOutboxDashboardStore` and a fixed table name;
   3. a migration file named with a 14-digit version is skipped silently.
 - **Everything else is supported** or supported-with-work: raw SQL already covers `FOR UPDATE`, `ILIKE`, tuple keyset
@@ -107,7 +107,7 @@ Also in scope:
 | Owned types, table-split into columns | `CodeAnalysisRequestConfiguration.cs:26-78`: `RepositoryReference` to 4 columns, `CodeLocation` to 3, `AnalysisOutcome` to 4; queried through the owner at `CodeAnalysisRepository.cs:94` | supported-with-work | composites unpack into columns, ORM `docs/README.md:102`; `tests/…Integration.Tests/CompositeTests.cs`. Daedalus' value objects have private constructors and `Result` factories, so the composite convention cannot construct them | read the flat columns into an Infrastructure row record and rebuild the value objects through their `Create` factories; filter on the column `"RepositoryUrl"` directly |
 | jsonb, read and write as a whole document | 7 columns, every one a C# `string`: `AgentMessageConfiguration.cs:24-26`, `AnalysisIterationConfiguration.cs:28-29`, `CodeAnalysisRequestConfiguration.cs:72-74,101-108`, `WorkflowRunRecordConfiguration.cs:39-41` | **gap** for parameters; supported for reads | section 4.3 | reads: `GetString` works today. Writes need `@p::jsonb` until the gap closes |
 | `text[]` | 6 columns, every one a private `List<string>` backing field: `AgentMemoryConfiguration.cs:34-38`, `SkillConfiguration.cs:35-39`, `SkillVersionConfiguration.cs:38-42`, `RoleCharterVersionConfiguration.cs:41-45`, `TaskConfiguration.cs:73-79` (two) | **gap** | section 4.2 | none clean. A read can go through `array_to_json("Tags")::text` and a write through `string_to_array`/`json` casts, but that is a workaround, not the port |
-| `xmin` as a `uint` concurrency token | `TaskConfiguration.cs:67-70` (mapped `RowVersion`), `ScheduledRunConfiguration.cs:57`, `ScheduledRunExecutionConfiguration.cs:55` (shadow `xmin`) | **gap** for reading `uint`; supported-with-work for the guard | section 4.4 | read `xmin::text::bigint` as `long`; guard with `AND xmin::text::bigint = @expected`; zero rows affected is the conflict |
+| `xmin` as a `uint` concurrency token | `TaskConfiguration.cs:67-70` (mapped `RowVersion`), `ScheduledRunConfiguration.cs:57`, `ScheduledRunExecutionConfiguration.cs:55` (shadow `xmin`) | **gap** for reading a `uint` and for binding one as `xid`, which also needs 4.3; supported-with-work through the stopgap | section 4.4 | read `xmin::text::bigint` as `long`; guard with `AND xmin::text::bigint = @expected`; zero rows affected is the conflict |
 | `bytea` `IsRowVersion()` | `AgentSessionConfiguration.cs:33-34`, `BrainstormSessionConfiguration.cs:36-37`, `CodeAnalysisRequestConfiguration.cs:111-112`, `ExecutionSessionConfiguration.cs:27-28`, `ProjectConfiguration.cs:39-40`, `RepositoryConfigurationEntityConfiguration.cs:42-43` | supported (`byte[]`), but see 3.4 | ORM `PrimitiveCatalog.cs:40` | the token is never generated; see 3.4 |
 | Store-side defaults | `AnalysisIterationConfiguration.cs:31-35`, `BrainstormSessionConfiguration.cs:29-31`, `ProjectConfiguration.cs:28-36`, `TaskExecutionConfiguration.cs:27-31` | supported | schema-side; nothing in the ORM | `INSERT` lists every column, as EF does, or leaves the column out to take the default |
 | Check constraint, unique and filtered indexes | `TaskConfiguration.cs:48`; `ChannelConversationConfiguration.cs:33-35`; `WorkflowRunRecordConfiguration.cs:53-63` | supported | schema-side | they live in the baseline SQL; the stores rely on them for upserts and races |
@@ -167,18 +167,25 @@ Also in scope:
 **A defect found on the way: the `bytea` row versions enforce nothing.** EF's Npgsql provider does not generate a
 `bytea` row version, and nothing else writes the column. So the six tokens above stay `NULL`, and EF's
 `WHERE "RowVersion" IS NULL` always matches. `20261010080350_MakeTaskRowVersionXmin.cs:13-14` says so for `Task`,
-which moved to `xmin`. `PostgresAgentSessionStore.cs:175-176` works around it with in-database increments. The other
-five aggregates still believe they are guarded:
+which moved to `xmin`. The six, one by one:
 
-- `BrainstormRepository.cs:83`;
-- `RepositoryConfigurationRepository.cs:107`;
-- `PostgresAgentSessionStore.cs:206`;
-- `ProjectRepository.cs:54`;
-- `CodeAnalysisRepository.cs:143-165`.
+- **AgentSession.** `PostgresAgentSessionStore.cs:175-176` knows, and uses in-database increments for the counters.
+  Its state change at `:195-209` still relies on the token: the catch at `:206` returns `SessionBusy`, but it can
+  only fire when the row was deleted, so a deleted session is reported as busy, not as not found.
+- **BrainstormSession:** `BrainstormRepository.cs:83`.
+- **RepositoryConfiguration:** `RepositoryConfigurationRepository.cs:107`.
+- **Project:** `ProjectRepository.cs:54`, with no catch at all.
+- **CodeAnalysisRequest:** `CodeAnalysisRepository.cs:143-165` and the six other load-mutate-save methods, with no
+  catch.
+- **ExecutionSession** has a `DbSet` and a configuration but no reader or writer anywhere under `src/`. Its domain
+  type is "kept for the historical rows" (`src/Daedalus.Domain/Entities/ExecutionSession.cs:10`), and no foreign key
+  points at the table. 3.5 can drop the mapping and port nothing; the table stays in the baseline. Dropping the
+  table is a separate decision.
 
-Their `DbUpdateConcurrencyException` fires only when the row was deleted, because then zero rows match. A straight
-port must keep that behaviour, treating zero rows as a conflict or as not found. The decision for 3.5 is whether to
-add a real `xmin` guard to these aggregates, as `Task` has, or to drop the dead columns. This audit only records it.
+Where a `DbUpdateConcurrencyException` is caught, it fires only when the row was deleted, because then zero rows
+match. A straight port must keep that behaviour, treating zero rows as the conflict or not-found result each caller
+returns today. The decision for 3.5 is whether to add a real `xmin` guard to these aggregates, as `Task` has, or to
+drop the dead columns. This audit only records it.
 
 ## 4. The gaps in detail
 
@@ -203,6 +210,18 @@ add a real `xmin` guard to these aggregates, as `Task` has, or to drop the dead 
   nothing recreates the EF schema at all.
 - Versions are `int` (ORM `src/ZeroAlloc.ORM/Migrations/Migration.cs:32`), so EF's 14-digit migration ids cannot
   become ORM versions (see 4.6).
+
+**A stopgap exists, so 3.5 can start before the ORM fix ships.** `IMigrationSource` and `IMigrationDialect` are public
+(ORM `src/ZeroAlloc.ORM/Migrations/IMigrationSource.cs:11`, `IMigrationDialect.cs:21`), and the `MigrationRunner`
+constructor takes any implementation (`MigrationRunner.cs:83`). Either of these adopts the EF schema today:
+
+- a Daedalus-side source or dialect wrapper that, before the first run, records the baseline version as applied when
+  the EF history holds the last EF migration;
+- a baseline script whose body is guarded in PL/pgSQL, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM
+  "__EFMigrationsHistory" …) THEN … END IF; END $$`, so on an EF-built database it runs, does nothing and is recorded.
+
+Both put adoption logic in Daedalus that belongs in the runner. The gap stands; the stopgap is named so 3.5 is not
+blocked on it.
 
 **The smallest feature that closes it.** A baseline on a migration source, applied by the runner:
 
@@ -317,10 +336,21 @@ has no `UInt32`. Npgsql reads `xid` only as `uint`, so the column cannot be mate
 
 **The smallest feature that closes it.**
 
-- Add `uint`, `ulong` and `ushort` to `PrimitiveCatalog`, read with `GetFieldValue<T>`, with matching scalar casts and
-  `DbType.UInt32`/`UInt64`/`UInt16` names.
-- A Saga-style row-version guard can then be `WHERE … AND xmin = @expected` with a `uint` parameter.
-- Until then, `xmin::text::bigint` read as `long` works and is a stopgap.
+- Add `uint`, `ulong` and `ushort` to `PrimitiveCatalog`, read with `GetFieldValue<T>`, with matching scalar casts.
+  That closes the **read** side only.
+- The **guard** also needs 4.3's provider data-type name, `[Param(DataTypeName = "xid")] uint expected`, so this gap
+  depends on 4.3. A plain `uint` parameter cannot bind as `xid`:
+  - in Npgsql 10.0.3, which Daedalus pins, every `uint` mapping is registered with `MatchRequirement.DataTypeName`
+    for `oid`, `xid`, `cid`, `regtype` and `regconfig`
+    (`src/Npgsql/Internal/ResolverFactories/AdoTypeInfoResolverFactory.cs:282-288`), and no other resolver maps
+    `uint`, so a parameter with no data-type name has no mapping;
+  - `DbType.UInt32` maps to no `NpgsqlDbType` (`src/Npgsql/NpgsqlTypes/NpgsqlDbType.cs:611`), so setting it does not
+    help;
+  - older Npgsql versions inferred `oid` for a `uint`, and `xid = oid` has no operator, so that never worked either.
+
+  EF Core's provider avoids all of this by setting `NpgsqlDbType.Xid` on the parameter explicitly.
+- Until both land, `xmin::text::bigint` read as `long`, with `AND xmin::text::bigint = @expected`, works and is a
+  stopgap.
 
 ### 4.5 Further gap, in `ZeroAlloc.Outbox.Orm`: no dashboard store, and a fixed table name
 
@@ -565,7 +595,7 @@ The handover is left unchanged. This audit is the corrected record.
    `:239-252`, are "a two-way join Executions ⋈ Tasks ⋈ Projects".
    - Only the first is.
    - The second, `GetCostsByProjectIdAsync`, is one join onto a filtered `Tasks` (`:235-249`).
-   - The tail lines of both ranges (`:213-229`, `:251-266`) are in-memory LINQ, not SQL.
+   - The last lines of both ranges (`:214-215`, `:251-252`) are already in-memory LINQ, not SQL.
 3. **"Array parameters, which the README lists as not supported."** The 2.3.4 root `README.md` no longer says so.
    The reference `docs/README.md:199` and the design `docs/design/2026-05-30-v1.0-design.md:250` do. The claim
    stands; its source moved.
@@ -583,9 +613,10 @@ The handover is left unchanged. This audit is the corrected record.
    - conditional composition (5.1);
    - `Include` on a paged query (`TaskQueryService.cs:19`, `ProjectQueryService.cs:23`);
    - the two raw upserts (5.1).
-6. **Not mentioned at all:**
-   - the inert `bytea` row versions (3.4);
-   - the `uint`/`xmin` read gap (4.4);
+6. **Missed or not mentioned:**
+   - the handover does name `IsRowVersion()` byte tokens and the `xmin` guard (handover `:67-68`). What it misses is
+     that the `bytea` tokens enforce nothing (3.4), and that the ORM can neither read a `uint` nor bind one as `xid`
+     (4.4);
    - the `ZeroAlloc.Outbox.Orm` dashboard and table-name gap (4.5);
    - the silently skipped 14-digit migration version (4.6).
 
