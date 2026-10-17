@@ -2,6 +2,7 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Api.Controllers;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.WorkflowRuns;
+using Daedalus.Domain.Entities;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -69,6 +70,41 @@ public sealed class FailedNodeCostTests(PostgresFixture fixture)
             .Which.Error.Should().Be(ScriptedManufactureRuntime.BudgetStop.ToString());
     }
 
+    /// <summary>
+    ///     Through the real <see cref="WorkflowNodeDispatcherFactory"/> chain and the real <see cref="ReviewLensRunner"/>: a
+    ///     review whose first two lens passes completed and whose third its ceiling stopped records one node-usage record at
+    ///     review, whose totals include the two passes before the failed one.
+    ///     <para>Red: move <c>FailedNodeUsageRunner</c> inside <c>ReviewLensRunner</c>, around <c>BudgetedSubagentRunner</c>, in
+    ///     <c>WorkflowNodeDispatcherFactory</c>; it then sees only the failed pass, and the totals read the failed pass alone.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_review_whose_third_lens_pass_failed_records_the_passes_before_it()
+    {
+        var pass = new TurnUsage(10_000, 1_000, "claude-sonnet-5");
+        var failed = new TurnUsage(40_000, 4_000, "claude-sonnet-5");
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture,
+            new ScriptedManufactureRuntime(failUsage: failed, reviewUsage: pass, failLensPass: 3),
+            seed: [("README.md", "costs")],
+            configureServices: services =>
+            {
+                services.RemoveAll<WorkflowOutboxDispatchOptions>();
+                services.AddSingleton(new WorkflowOutboxDispatchOptions { PollingInterval = TimeSpan.FromMilliseconds(250) });
+            });
+        using var client = host.Client("a-developer", "developer");
+
+        var response = await client.PostAsJsonAsync(
+            "/api/workflow-runs", new StartWorkflowRunRequest("add a health check endpoint", ScratchWorkflowHost.Repository));
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var runId = (await response.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
+        await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Failed, "failed at review");
+
+        var review = await ReviewRecordAsync(host, runId);
+
+        var usage = NodeUsage.FromPayloadJson(review.PayloadJson).Value;
+        (usage.InputTokens, usage.OutputTokens).Should().Be((60_000L, 6_000L), "two completed passes and the failed one");
+    }
+
     /// <summary>The cost summary once its manufacture slice exists, or the last one read after ten seconds.</summary>
     private static async Task<CostSummaryDto> SummaryWithManufactureAsync(HttpClient client)
     {
@@ -87,5 +123,26 @@ public sealed class FailedNodeCostTests(PostgresFixture fixture)
         while (DateTime.UtcNow < deadline);
 
         return summary;
+    }
+
+    /// <summary>The run's one node-usage record at review, polled for up to ten seconds.</summary>
+    private static async Task<WorkflowRunRecord> ReviewRecordAsync(ScratchWorkflowHost host, Guid runId)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        IReadOnlyList<WorkflowRunRecord> review;
+        do
+        {
+            review = [.. (await host.RecordsAsync(runId, WorkflowRunRecord.NodeUsageKind))
+                .Where(r => string.Equals(r.Node, "review", StringComparison.Ordinal))];
+            if (review.Count > 0)
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+        }
+        while (DateTime.UtcNow < deadline);
+
+        return review.Should().ContainSingle("one review node failed, and it is one record").Subject;
     }
 }

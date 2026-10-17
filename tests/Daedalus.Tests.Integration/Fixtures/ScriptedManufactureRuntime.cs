@@ -27,11 +27,13 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     replaces, it publishes each turn's <see cref="TurnCompletedNotification"/> or <see cref="TurnFailedNotification"/>,
 ///     with the turn's usage, through <see cref="Notifications"/> before it returns the turn's result.
 ///     <see cref="ApiWebApplicationFactory"/> points that at the host's own <see cref="IAgentNotificationPublisher"/>.
+///     With <c>failLensPass</c> set to n, only the nth review lens pass of a run fails that way, after spending
+///     <c>failUsage</c>, and each review lens pass before it reports <c>reviewUsage</c>.
 ///     </para>
 /// </summary>
 internal sealed class ScriptedManufactureRuntime(
     TurnUsage implementUsage = default, bool rejectReview = false, bool respondToReview = false, string? failNode = null,
-    TurnUsage failUsage = default)
+    TurnUsage failUsage = default, TurnUsage reviewUsage = default, int failLensPass = 0)
     : IAgentRuntime
 {
     /// <summary>The error a <c>failNode</c> turn fails with: its token ceiling stopped it.</summary>
@@ -57,6 +59,7 @@ internal sealed class ScriptedManufactureRuntime(
     private readonly ConcurrentDictionary<string, int?> _maxTotalTokens = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Guid, int> _lensPasses = new();
     private readonly ConcurrentDictionary<Guid, int> _implementVisits = new();
+    private readonly ConcurrentDictionary<Guid, int> _reviewTurns = new();
 
     /// <summary>The one <c>review_response</c> entry implement reports on its <paramref name="visit"/>th visit, from the second.</summary>
     public static string ResponseFor(int visit) =>
@@ -111,7 +114,10 @@ internal sealed class ScriptedManufactureRuntime(
         }
 
         var turnId = TurnId.New();
-        if (string.Equals(node, failNode, StringComparison.Ordinal))
+        var isReview = string.Equals(node, "review", StringComparison.Ordinal);
+        var failsHere = string.Equals(node, failNode, StringComparison.Ordinal)
+            || (isReview && failLensPass > 0 && _reviewTurns.AddOrUpdate(run.Id, 1, (_, n) => n + 1) == failLensPass);
+        if (failsHere)
         {
             await Notifications.PublishAsync(
                 new TurnFailedNotification(request.SessionId, turnId, BudgetStop, DateTimeOffset.UtcNow, failUsage), CancellationToken.None);
@@ -131,8 +137,14 @@ internal sealed class ScriptedManufactureRuntime(
             _ => [],
         };
 
-        // Only implement reports usage; every other turn reports none, as the seam suite scripted them before.
-        var usage = string.Equals(node, "implement", StringComparison.Ordinal) ? implementUsage : default;
+        // Only implement and a review lens pass report usage; every other turn reports none, as the seam suite scripted them
+        // before. reviewUsage is none unless a test sets it.
+        var usage = node switch
+        {
+            "implement" => implementUsage,
+            "review" => reviewUsage,
+            _ => default,
+        };
         var elapsed = TimeSpan.FromMilliseconds(5);
         await Notifications.PublishAsync(
             new TurnCompletedNotification(request.SessionId, turnId, usage, elapsed, DateTimeOffset.UtcNow), CancellationToken.None);
