@@ -18,16 +18,15 @@ checks and findings: `docs/plans/2026-10-17-phase-2.15-rulings.md`. Closes #280.
 - **Live proof:** run `facc1bc5` on shipped settings, Succeeded, daedalus-sandbox#25; run `376c1492` stopped at 875,000
   with 990,493 tokens counted. Spend $13.41. Anthropic credits are used up.
 - **Filed:** #394 (the run page omits a failed node's usage), #395 (a completed turn whose outcome the dispatcher
-  rejects is uncounted).
+  rejects is uncounted), Thalos.NET#363 (the README says the token budget is evaluated only after the turn returns).
 - **Tests:** the controller runs the full suites after the final review.
 
 ## Needs the owner
 
 1. **Merge the 2.15 PR.** Then read the rulings; each says what it costs if wrong.
 2. **Re-run `audit-milestone`** for milestone 2, to close gap 1.
-3. **Thalos.NET README:** `README.md:493-495` says "The token budget is evaluated only after the turn returns". That
-   is wrong: it has been in-turn since 0.11.0, and a turn past its ceiling is stopped with `SubagentBudgetExceeded`.
-   Thalos.NET is outside this session's GitHub scope.
+3. **Merge or fix Thalos.NET#363**, the README sentence that says the token budget is evaluated only after the turn
+   returns.
 4. **Release** still on hold; when dispatched, check it proposes 0.2.0 and counts #388 and #391.
 5. **Decide #383** (resilience rejection text), **#373** (Updated on Tasks) and **#374** (token contrast).
 6. **Dev data** from the sweeps, as listed below.
