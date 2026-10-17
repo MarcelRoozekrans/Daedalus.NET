@@ -23,13 +23,15 @@ public sealed class CostsReducersTests
     private static CostsState Initial => CostsState.Initial(null!);
 
     /// <summary>
-    ///     The page starts on the estimator's defaults: Sonnet 4, 10 turns, 4,000 prompt tokens, as it always did.
+    ///     The page starts on the estimator's defaults: no model until the pricing names one, 10 turns, 4,000 prompt tokens.
+    ///     #385: it started on a retired model ID it named itself.
     ///     Red: start CostEstimator.Default on 5 turns; the turns read 5.
+    ///     Red: start CostEstimator.Default on a model ID; the model is that ID.
     /// </summary>
     [Fact]
     public void The_estimator_starts_on_its_defaults()
     {
-        Initial.Estimator.Should().Be(new CostEstimator("claude-sonnet-4-20250514", 10, 4000));
+        Initial.Estimator.Should().Be(new CostEstimator("", 10, 4000));
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
+using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -39,7 +40,7 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
             [ModelA] = new() { DisplayName = "Model A", InputTokenPricePerMillion = 3.0m, OutputTokenPricePerMillion = 15.0m },
             [ModelB] = new() { DisplayName = "Model B", InputTokenPricePerMillion = 1.0m, OutputTokenPricePerMillion = 5.0m },
         },
-    }));
+    }), Options.Create(new ClaudeConfiguration { Model = ModelA }));
 
     private void History(string? model, int input, int output, DateTime at) =>
         _db.TaskExecutions.Add(new TaskExecution

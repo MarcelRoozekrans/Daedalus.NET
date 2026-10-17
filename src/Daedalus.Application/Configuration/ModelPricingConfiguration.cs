@@ -10,7 +10,7 @@ public sealed class ModelPricingConfiguration
     public const string SectionName = "ModelPricing";
 
     /// <summary>
-    ///     Per-model pricing keyed by model ID (e.g., "claude-sonnet-4-20250514").
+    ///     Per-model pricing keyed by model ID (e.g., "claude-sonnet-5").
     /// </summary>
 #pragma warning disable CA2227 // Collection properties should be read only - required for IOptions binding
     public IDictionary<string, ModelPricing> Models { get; set; } = new Dictionary<string, ModelPricing>(StringComparer.OrdinalIgnoreCase);

@@ -107,14 +107,16 @@ public sealed class CostsEffectsTests : IDisposable
 
     /// <summary>
     ///     The projects or the pricing failing shows no error, as the page always did: the table is empty. Each is logged.
+    ///     With no pricing there is no model to estimate for, so nothing is estimated (#385).
     ///     Red: pass the projects' error as the page's error in LoadAsync; the error is set.
     ///     Red: drop the LogLoadFailed calls for the projects and the pricing; fewer than two warnings are written.
+    ///     Red: estimate whatever the estimator's model in LoadAsync; an estimate is asked for with no model.
     /// </summary>
     [Fact]
     public async Task A_failed_table_is_empty_and_logged()
     {
         RouteAll();
-        _handler.On(ProjectsPath, ServerError).On(PricingPath, ServerError).OnJson(EstimatePath(CostEstimator.Default.ModelId), Json(Estimate("x", 10)));
+        _handler.On(ProjectsPath, ServerError).On(PricingPath, ServerError);
 
         await _effects.LoadAsync(CancellationToken.None);
 
@@ -122,6 +124,7 @@ public sealed class CostsEffectsTests : IDisposable
         _store.Value.Projects.Should().BeEmpty();
         _store.Value.Pricing.Should().BeEmpty();
         _logger.Entries.Should().HaveCount(2).And.OnlyContain(e => e.Level == LogLevel.Warning);
+        _handler.Paths.Should().Equal(SummaryPath, ProjectsPath, PricingPath);
     }
 
     /// <summary>

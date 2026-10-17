@@ -1,5 +1,6 @@
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
+using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -36,7 +37,7 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
             [Sonnet] = sonnet ?? new() { DisplayName = "Two ten", InputTokenPricePerMillion = 2.0m, OutputTokenPricePerMillion = 10.0m },
             [Other] = new() { DisplayName = "Three fifteen", InputTokenPricePerMillion = 3.0m, OutputTokenPricePerMillion = 15.0m },
         },
-    }));
+    }), Options.Create(new ClaudeConfiguration { Model = Sonnet }));
 
     private void Manufacture(NodeUsage usage) =>
         _db.WorkflowRunRecords.Add(WorkflowRunRecord.Create(

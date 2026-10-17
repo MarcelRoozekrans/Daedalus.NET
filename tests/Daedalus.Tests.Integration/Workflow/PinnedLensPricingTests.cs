@@ -2,6 +2,7 @@ using System.Text.Json;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Application.Configuration;
+using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Integration.Fixtures;
@@ -64,7 +65,7 @@ public sealed class PinnedLensPricingTests(PostgresFixture fixture) : IAsyncLife
             .Should().BeTrue();
 
         await using var db = fixture.CreateDbContext();
-        var summary = await new CostAnalyticsService(db, Pricing()).GetSummaryAsync();
+        var summary = await new CostAnalyticsService(db, Pricing(), Options.Create(new ClaudeConfiguration { Model = Decided })).GetSummaryAsync();
 
         var byModel = summary.ByModel.ToDictionary(m => m.Key, StringComparer.Ordinal);
         byModel[Decided].Cost.Should().Be(0.003m);    // 2000 × 1/1M + 200 × 5/1M

@@ -80,9 +80,23 @@ public static class InfrastructureServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // The Anthropic settings AgentFactory reads.
+        // The Anthropic settings AgentFactory reads. With no model of its own it calls Thalos' default model, and with
+        // neither it refuses to start rather than call a model nobody chose (#385).
 #pragma warning disable IL2026 // Configuration binding uses reflection; accepted risk for configuration scenarios
-        services.Configure<ClaudeConfiguration>(configuration.GetSection(ClaudeConfiguration.SectionName));
+        services.AddOptions<ClaudeConfiguration>()
+            .Bind(configuration.GetSection(ClaudeConfiguration.SectionName))
+            .PostConfigure(claude =>
+            {
+                if (string.IsNullOrWhiteSpace(claude.Model))
+                {
+                    claude.Model = configuration[ClaudeConfiguration.FallbackModelKey];
+                }
+            })
+            .Validate(
+                claude => !string.IsNullOrWhiteSpace(claude.Model),
+                $"No Anthropic model is configured. Set {ClaudeConfiguration.FallbackModelKey}, " +
+                $"or {ClaudeConfiguration.SectionName}:Model for this client alone.")
+            .ValidateOnStart();
 #pragma warning restore IL2026
 
         // McpToolBuilder converts McpServerConfig entries into AITool instances

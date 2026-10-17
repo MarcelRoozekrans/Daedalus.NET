@@ -41,7 +41,8 @@ public sealed partial class AgentFactory : IAgentFactory
         _apiKey = !string.IsNullOrEmpty(options.ApiKey)
             ? options.ApiKey
             : Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty;
-        _defaultModel = string.IsNullOrWhiteSpace(options.Model) ? ClaudeConfiguration.DefaultModel : options.Model;
+        // Validated non-blank when the options are read; see AddAgentFrameworkServices.
+        _defaultModel = options.Model!;
         _maxTokens = options.MaxTokens;
 
         if (string.IsNullOrWhiteSpace(_apiKey))
