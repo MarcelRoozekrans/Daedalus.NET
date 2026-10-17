@@ -287,6 +287,20 @@ it later is a separate migration.
 - Gate it on `[Dialect(SqlDialect.PostgreSql)]`, with a diagnostic elsewhere, since only PostgreSQL has array types.
 - Value-object elements, such as `IReadOnlyList<SessionId>`, can come later. Daedalus unwraps to `Guid` itself.
 
+**Stopgaps until it lands:**
+
+- **Array columns.** The `array_to_json` and `string_to_array` casts in 3.1 cover reading and writing `text[]`
+  columns, nothing else.
+- **`Contains` filters.** One stopgap binds today: join the list into one `string` parameter, which binds as a
+  primitive (ORM `PrimitiveCatalog.cs:28`), and split it in SQL, `"Id" = ANY(string_to_array(@ids, ',')::uuid[])`.
+  - It is safe for the three `uuid` lists: `TaskQueryService.cs:55`, `PostgresMemoryStore.cs:181` and
+    `ScheduleDiagnostics.cs:116`.
+  - It is not safe for the five string lists: `PostgresSkillStore.cs:168,213`, `PostgresRoleCharterStore.cs:106`
+    and `PostgresMemoryStore.cs:242,254`. Nothing stops a skill name, role, owner id or kind from containing the
+    separator.
+
+  This audit counts neither as a port.
+
 ### 4.3 jsonb parameters
 
 **What Daedalus does today.**
@@ -332,6 +346,8 @@ Until it lands, `@payload::jsonb` in the SQL works and is a plain cast. Name it 
 - EF adds `AND xmin = @original` to each update and delete, and raises `DbUpdateConcurrencyException` on zero rows.
   The stores turn that into a lost race: `TaskRepository.cs:62-66,87-91`, `ScheduledRunStore.cs:131-135`,
   `ScheduledRunExecutionStore.cs:316-322,409-416`.
+- `ScheduleReconciler.cs:159-211` change-tracks the config-origin `ScheduledRun` rows and saves them at `:211`, so its
+  updates carry the same shadow `xmin` guard. It has no catch: a lost race propagates out of `ReconcileAsync`.
 
 **What the ORM lacks at 2.3.4.** The primitive catalogue has no unsigned type. Its comment says "Unsigned / sbyte /
 char are deferred to v0.2" (ORM `src/ZeroAlloc.TypeConversions/PrimitiveCatalog.cs:11`), and the switch at `:18-41`
@@ -592,8 +608,12 @@ are the same work either way.
   - the `Task` reads and writes in `TaskRepository`, `TaskQueryService` and `ProjectQueryService`;
   - `ScheduleDiagnostics`.
 
-  Its only workaround is the `array_to_json` and `string_to_array` casting in 3.1, which this audit does not count
-  as a port. The other stores can move without it.
+  The stopgaps are described in 4.2, and this audit counts none of them as a port:
+  - for the columns, the casts in 3.1;
+  - for the `Contains` filters, a joined string split in SQL, which is safe for the three `uuid` lists only;
+  - for the five string-list filters, nothing.
+
+  The other stores can move without it.
 - **4.3, jsonb, blocks nothing.** The `@p::jsonb` cast is a stopgap for `PostgresAgentSessionStore`,
   `WorkflowRunRecordStore` and `CodeAnalysisRepository`, to be removed once the gap closes.
 - **4.4, unsigned integers, blocks nothing.** The `xmin::text::bigint` stopgap covers `TaskRepository`,
