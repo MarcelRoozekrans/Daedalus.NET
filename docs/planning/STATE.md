@@ -2,7 +2,26 @@
 
 **Last session:** 2026-10-17, with the owner present
 
-## Current Position - phase 2.15 complete, PR to open to `main`; milestone 2 awaits its re-audit
+## Current Position - milestone 2 re-audited PASS (2026-10-17); next is `complete-milestone`
+
+**Milestone 2 audit, second run:** `docs/superpowers/reviews/2026-10-17-milestone-2-audit-2.md`, on `main` `cd466736`.
+Every definition-of-done criterion is met, including the two the first run failed: spend is bounded by per-role
+ceilings sized from measured turns (phase 2.15, #396), and phase 2.1 has its rulings record (#392). All seven suites
+pass: unit 2005, Unit.Domain 356, Unit.Application 281, Unit.Infrastructure 258, integration 745, Playwright.Api 115,
+Playwright.Browser 219.
+
+## Needs the owner
+
+1. **Merge the audit PR, then `complete-milestone`** for milestone 2. Releases belong to release-please, so it creates
+   no tag.
+2. **Release:** dispatch release-please. It should propose 0.2.0 and count #388, #391 and #396.
+3. **Anthropic credits** are used up. PRD generation and brainstorm are still unconfirmed live since #391.
+4. **Thalos.NET#363:** fix the README sentence on the token budget.
+5. **Decide #383, #373 and #374**, carried from 2.14.
+
+---
+
+## Previous position (2026-10-17) - phase 2.15 complete, PR to open to `main`; milestone 2 awaits its re-audit
 
 **Milestone 2, phase 2.15, size and document the token budget.** Built subagent-driven on `phase/2.15-token-budget`
 from `main`, five tasks each reviewed, with Task 3's live steps run by the controller. Rulings, measurements, live
