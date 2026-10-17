@@ -19,14 +19,15 @@ public sealed class TurnBudgetDriftTests
     private const string CliAppSettingsFileName = "Daedalus.Cli.appsettings.json";
 
     /// <summary>
-    ///     The largest total-token turn measured per squad role, sampled from the run records on 2026-10-17. A ceiling below
-    ///     its role's measured maximum would fail a turn the system has already been seen to need. How the sample is taken and
+    ///     The largest total-token turn measured per squad role, over the turns of 2026-10-14/15 and 2026-10-17: 75 turns on
+    ///     <c>daedalus-sandbox</c> on 2026-10-14/15, and 13 completed turns on <c>MarcelRoozekrans/Daedalus.NET</c> on
+    ///     2026-10-17. A ceiling below its role's measured maximum would fail a turn the system has already been seen to need. How the sample is taken and
     ///     when to retake it: <c>docs/development-guide.md</c>, "Token budget". Raise these when a new sample measures more.
     /// </summary>
     private static readonly IReadOnlyDictionary<string, int> MeasuredMaximum = new Dictionary<string, int>(StringComparer.Ordinal)
     {
-        ["implementer"] = 501_172,
-        ["reviewer"] = 392_852,
+        ["implementer"] = 1_918_692,
+        ["reviewer"] = 1_917_540,
     };
 
     private static IConfiguration Load(string fileName) =>
@@ -74,7 +75,7 @@ public sealed class TurnBudgetDriftTests
 
     /// <summary>
     ///     No shipped ceiling sits below the largest turn its role has been measured to spend.
-    ///     <para>Red: set the reviewer to 300000 in <c>Daedalus.Api/appsettings.json</c>.</para>
+    ///     <para>Red: set the reviewer to 1800000 in <c>Daedalus.Api/appsettings.json</c>.</para>
     /// </summary>
     [Fact]
     public void No_ceiling_sits_below_its_measured_maximum()
