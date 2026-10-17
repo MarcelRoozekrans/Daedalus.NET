@@ -174,9 +174,12 @@ which moved to `xmin`. The six, one by one:
   only fire when the row was deleted, so a deleted session is reported as busy, not as not found.
 - **BrainstormSession:** `BrainstormRepository.cs:83`.
 - **RepositoryConfiguration:** `RepositoryConfigurationRepository.cs:107`.
-- **Project:** `ProjectRepository.cs:54`, with no catch at all.
-- **CodeAnalysisRequest:** `CodeAnalysisRepository.cs:143-165` and the six other load-mutate-save methods, with no
-  catch.
+- **Project:** `ProjectRepository.cs:54`.
+- **CodeAnalysisRequest:** eight load-mutate-save methods, which load at `CodeAnalysisRepository.cs:144`, `:194`,
+  `:253`, `:296`, `:338`, `:373`, `:412` and `:455`.
+
+  These two repositories have no `DbUpdateConcurrencyException` catch. Their `catch (Exception)` blocks log the
+  exception and return a generic failure, and a concurrency exception falls into them.
 - **ExecutionSession** has a `DbSet` and a configuration but no reader or writer anywhere under `src/`. Its domain
   type is "kept for the historical rows" (`src/Daedalus.Domain/Entities/ExecutionSession.cs:10`), and no foreign key
   points at the table. 3.5 can drop the mapping and port nothing; the table stays in the baseline. Dropping the
@@ -579,7 +582,25 @@ where they are unique.
 - fixture rework under a 745-test parity bar.
 
 ZeroAlloc.Linq keeps most of the 117 close to today's LINQ. The roughly five raw statements and the explicit writes
-are the same work either way. Without gaps 4.1, 4.2 and 4.3 closed and released, 3.5 cannot start.
+are the same work either way.
+
+**What blocks which part of 3.5:**
+
+- **4.1, schema adoption, blocks nothing.** The stopgap in 4.1 lets 3.5 start before the ORM fix ships.
+- **4.2, arrays, blocks every store that reads or writes a `text[]` column or filters with `Contains`:**
+  - `PostgresMemoryStore`, `PostgresSkillStore` and `PostgresRoleCharterStore`;
+  - the `Task` reads and writes in `TaskRepository`, `TaskQueryService` and `ProjectQueryService`;
+  - `ScheduleDiagnostics`.
+
+  Its only workaround is the `array_to_json` and `string_to_array` casting in 3.1, which this audit does not count
+  as a port. The other stores can move without it.
+- **4.3, jsonb, blocks nothing.** The `@p::jsonb` cast is a stopgap for `PostgresAgentSessionStore`,
+  `WorkflowRunRecordStore` and `CodeAnalysisRepository`, to be removed once the gap closes.
+- **4.4, unsigned integers, blocks nothing.** The `xmin::text::bigint` stopgap covers `TaskRepository`,
+  `ScheduledRunStore`, `ScheduleReconciler` and `ScheduledRunExecutionStore`.
+- **4.5, `Outbox.Orm`, blocks the outbox move and `ScheduleDeliveryActions`' resend** until the dashboard and
+  table-name questions are answered.
+- **4.6 blocks nothing,** as long as the baseline numbers from 1.
 
 ## 6. Where the handover is wrong or incomplete
 
