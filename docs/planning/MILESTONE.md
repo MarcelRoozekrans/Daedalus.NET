@@ -1,7 +1,8 @@
 # Milestone 2: Software Manufacturing
 
-**Status:** active
+**Status:** complete
 **Started:** 2026-09-21
+**Completed:** 2026-10-17
 
 > Written 2026-09-24, after phase 2.4 closed. Milestone 2 had a goal in `ROADMAP.md` but no
 > definition of done; the criteria below were reconstructed from that goal and the phase list and

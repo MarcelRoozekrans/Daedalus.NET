@@ -2,7 +2,7 @@
 
 **Last session:** 2026-10-17, with the owner present
 
-## Current Position - milestone 2 re-audited PASS (2026-10-17); next is `complete-milestone`
+## Current Position - milestone 2 complete (2026-10-17): re-audited PASS; next is milestone 3 via `new-milestone`
 
 **Milestone 2 audit, second run:** `docs/superpowers/reviews/2026-10-17-milestone-2-audit-2.md`, on `main` `cd466736`.
 Every definition-of-done criterion is met, including the two the first run failed: spend is bounded by per-role
@@ -12,8 +12,8 @@ Playwright.Browser 219.
 
 ## Needs the owner
 
-1. **Merge the audit PR, then `complete-milestone`** for milestone 2. Releases belong to release-please, so it creates
-   no tag.
+1. **Merge the PR** that carries the re-audit and completes milestone 2 in ROADMAP and MILESTONE. Releases belong to
+   release-please, so no tag was created. Milestone 3 starts with `new-milestone`, which brainstorms its scope.
 2. **Release:** dispatch release-please. It should propose 0.2.0 and count #388, #391 and #396.
 3. **Anthropic credits** are used up. PRD generation and brainstorm are still unconfirmed live since #391.
 4. **Thalos.NET#363:** fix the README sentence on the token budget.
