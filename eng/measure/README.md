@@ -16,6 +16,8 @@ Each prints progress on stderr and one JSON line on stdout:
  "startup_ms_p90":2400.0,"rss_idle_mb":191.2,"rss_peak_mb":203.2,"image_mb":463.7,"app_mb":104.5}
 ```
 
+The scripts export `LC_ALL=C` so the numbers do not depend on the locale; the measured CLI inherits it.
+
 A field that does not apply is `null`: `image_mb` for the CLI, nothing else today.
 
 ## Definitions

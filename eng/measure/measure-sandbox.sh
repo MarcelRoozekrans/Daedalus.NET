@@ -22,8 +22,8 @@ for (( run=1; run<=RUNS; run++ )); do
   token="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
   run_id="$(cat /proc/sys/kernel/random/uuid)"
   t0="$(now_ms)"
-  export THALOS_SANDBOX_TOKEN="$token"   # `-e NAME` with no value copies it from the environment, so it is never on argv
-  docker run -d --name "$CONTAINER" --cpus "$CPUS" -p 127.0.0.1::8080 \
+  # The token is set for this one command only; `-e NAME` with no value copies it, so it is never on argv.
+  THALOS_SANDBOX_TOKEN="$token" docker run -d --name "$CONTAINER" --cpus "$CPUS" -p 127.0.0.1::8080 \
     -e THALOS_SANDBOX_RUN_ID="$run_id" \
     -e THALOS_SANDBOX_TOKEN \
     -e THALOS_SANDBOX_WRITE_EXTENSIONS='.cs;.md' \
@@ -50,7 +50,7 @@ for (( run=1; run<=RUNS; run++ )); do
   log "run $run/$RUNS: ready after ${ms} ms, idle ${idles[-1]} MiB, peak ${peaks[-1]} MiB"
   docker rm -f -v "$CONTAINER" >/dev/null
 done
-unset token THALOS_SANDBOX_TOKEN
+unset token
 
 emit_json sandbox "$(commit_short)" "$(image_digest "$IMAGE")" "$RUNS" \
   "$(printf '%s\n' "${starts[@]}" | median)" "$(printf '%s\n' "${starts[@]}" | p90)" \

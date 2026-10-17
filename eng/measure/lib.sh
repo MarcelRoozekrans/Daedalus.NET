@@ -86,7 +86,9 @@ image_app_mb() {
     awk -v k="$kb" 'BEGIN{printf "%.1f\n", k/1024}'; return 0
   fi
   tmp="$(mktemp -d)"
-  cid="$(docker create "$1")" || { rm -rf "$tmp"; die "cannot create a container from $1"; }
+  on_exit "rm -rf '$tmp'"
+  cid="$(docker create "$1")" || die "cannot create a container from $1"
+  on_exit "docker rm -f -v $cid"
   if docker cp "$cid:/app" "$tmp/app" >/dev/null 2>&1; then kb="$(du -sk "$tmp/app" | awk '{print $1}')"; else kb=""; fi
   docker rm -f -v "$cid" >/dev/null 2>&1 || true
   rm -rf "$tmp"
@@ -153,6 +155,7 @@ stack_up() {
   log "applying migrations"
   local mlog
   mlog="$(mktemp)"
+  on_exit "rm -f '$mlog'"
   ConnectionStrings__daedalus="$PG_CONN" dotnet run --project "$REPO_ROOT/src/Daedalus.Migrations" -c Release >"$mlog" 2>&1 \
     || { tail -n 40 "$mlog" >&2; rm -f "$mlog"; die "migrations failed"; }
   rm -f "$mlog"
