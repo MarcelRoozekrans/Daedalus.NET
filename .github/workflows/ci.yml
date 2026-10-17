@@ -95,6 +95,10 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
+      # The AOT warning counter's own test: canned logs through a fake SDK, so it needs no publish.
+      - name: Test the AOT warning counter
+        run: eng/aot/tests/test-count-warnings.sh
+
       - name: Restore
         run: dotnet restore Daedalus.sln
 
@@ -203,6 +207,63 @@ jobs:
           name: Test Results
           path: ./TestResults/**/*.trx
           reporter: dotnet-trx
+
+  # Native AOT analysis: publishes each target natively and counts its distinct trim and AOT warnings
+  # (IL2xxx/IL3xxx), then ratchets the count against eng/aot/baseline.json in both directions. A rise
+  # fails, and so does a fall the change did not record by lowering the baseline. A publish that fails
+  # for any reason other than warnings fails the job; it is never counted as 0. Reproduce a number
+  # locally with the same command; how to lower a baseline is in the script's header.
+  aot-analysis:
+    name: AOT analysis (${{ matrix.target }})
+    needs: version
+    runs-on: ubuntu-latest
+    # The Api publish compiles the whole program natively: about 25 minutes, with ILC peaking near 12 GB
+    # resident, on the 12-core agent VM. The hosted runner has fewer cores.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [Api, Cli, Migrations, Sandbox, Web]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install the wasm-tools workload
+        if: matrix.target == 'Web'
+        run: dotnet workload install wasm-tools
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-aot-${{ runner.os }}-
+
+      - name: Count and ratchet the AOT warnings
+        env:
+          AOT_LOG_DIR: ${{ runner.temp }}/aot
+        run: eng/aot/count-warnings.sh --target ${{ matrix.target }} --check
+
+      - name: Upload the publish log and warning keys
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aot-analysis-${{ matrix.target }}
+          path: ${{ runner.temp }}/aot/
+          retention-days: 14
+          if-no-files-found: ignore
 
   # Conventional commits, enforced mechanically — release-please derives release versions from
   # commit messages, so a malformed type is a commit the release tooling cannot read. Lints only the

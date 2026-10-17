@@ -56,6 +56,8 @@ appsettings.local.*.json
 # Logs
 logs/
 *.log
+# The AOT warning counter's hand-written test fixture is a log on purpose.
+!eng/aot/tests/*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
