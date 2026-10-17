@@ -73,6 +73,10 @@ public sealed class BudgetedSubagentRunnerTests
         (await BudgetFor(CapitalisedReviewerId)).Should().Be(new SubagentBudget(600_000, Deadline));
     }
 
+    /// <summary>
+    ///     A request that already carries a budget keeps it; the configured ceiling stamps only a request without one.
+    ///     <para>Red: stamp unconditionally; the budget reads the agent's ceiling.</para>
+    /// </summary>
     [Fact]
     public async Task A_request_that_already_names_a_budget_is_passed_through_unchanged()
     {
