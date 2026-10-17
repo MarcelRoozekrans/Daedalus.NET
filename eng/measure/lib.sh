@@ -78,12 +78,14 @@ emit_json() {
 
 image_digest() { docker image inspect --format '{{.Id}}' "$1"; }
 image_mb()     { docker image inspect --format '{{.Size}}' "$1" | awk '{printf "%.1f\n", $1/1048576}'; }
-# /app size inside an image, MiB (du -sk). Runs du in the image; an image without du (a chiseled one) falls back to
-# copying /app out of a created container and measuring it on the host.
+# /app size inside an image, MiB (du -sk), left in the global APP_MB. It sets a global instead of printing, so the
+# caller runs it in its own shell and the on_exit registrations below survive a Ctrl-C. Runs du in the image; an image
+# without du (a chiseled one) falls back to copying /app out of a created container and measuring it on the host.
 image_app_mb() {
   local kb tmp cid
+  APP_MB=""
   if kb="$(docker run --rm --entrypoint du "$1" -sk /app 2>/dev/null | awk '{print $1}')" && [ -n "$kb" ]; then
-    awk -v k="$kb" 'BEGIN{printf "%.1f\n", k/1024}'; return 0
+    APP_MB="$(awk -v k="$kb" 'BEGIN{printf "%.1f\n", k/1024}')"; return 0
   fi
   tmp="$(mktemp -d)"
   on_exit "rm -rf '$tmp'"
@@ -93,7 +95,8 @@ image_app_mb() {
   docker rm -f -v "$cid" >/dev/null 2>&1 || true
   rm -rf "$tmp"
   [ -n "$kb" ] || die "cannot measure /app in $1"
-  awk -v k="$kb" 'BEGIN{printf "%.1f\n", k/1024}'
+  # shellcheck disable=SC2034 # read by the measure scripts that source this file
+  APP_MB="$(awk -v k="$kb" 'BEGIN{printf "%.1f\n", k/1024}')"
 }
 
 # Waits for a URL to answer 200, polling every 50 ms. Prints elapsed ms since $2 (a now_ms value).

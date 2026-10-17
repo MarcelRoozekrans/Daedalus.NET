@@ -14,7 +14,7 @@ BASE="http://127.0.0.1:${API_PORT}"
 docker image inspect "$IMAGE" >/dev/null 2>&1 || die "image $IMAGE not found"
 stack_up
 on_exit "docker rm -f -v $CONTAINER"
-APP_MB="$(image_app_mb "$IMAGE")"
+image_app_mb "$IMAGE"   # sets APP_MB, in this shell
 
 starts=(); idles=(); peaks=()
 for (( run=1; run<=RUNS; run++ )); do

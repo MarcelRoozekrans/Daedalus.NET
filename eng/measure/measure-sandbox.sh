@@ -13,7 +13,7 @@ command -v docker >/dev/null || die "docker is required"
 command -v jq >/dev/null || die "jq is required"
 docker image inspect "$IMAGE" >/dev/null 2>&1 || die "image $IMAGE not found"
 on_exit "docker rm -f -v $CONTAINER"
-APP_MB="$(image_app_mb "$IMAGE")"
+image_app_mb "$IMAGE"   # sets APP_MB, in this shell
 
 starts=(); idles=(); peaks=()
 for (( run=1; run<=RUNS; run++ )); do
