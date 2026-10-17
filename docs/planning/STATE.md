@@ -19,7 +19,8 @@ checks and findings: `docs/plans/2026-10-17-phase-2.15-rulings.md`. Closes #280.
   with 990,493 tokens counted. Spend $13.41. Anthropic credits are used up.
 - **Filed:** #394 (the run page omits a failed node's usage), #395 (a completed turn whose outcome the dispatcher
   rejects is uncounted), Thalos.NET#363 (the README says the token budget is evaluated only after the turn returns).
-- **Tests:** the controller runs the full suites after the final review.
+- **Tests at `ff73824b`:** unit 2005, Unit.Domain 356, Unit.Application 281, Unit.Infrastructure 258; integration 745;
+  Playwright.Api 115; Playwright.Browser 219. Release build 0 warnings; `dotnet format` clean.
 
 ## Needs the owner
 
