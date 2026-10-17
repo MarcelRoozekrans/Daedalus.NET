@@ -14,7 +14,10 @@ namespace Daedalus.Tests.Unit.Workflow;
 ///     completion records. The turns' usage reaches it through <see cref="TurnUsageNotificationPublisher"/>, as Thalos'
 ///     runtime publishes each turn's <see cref="TurnCompletedNotification"/> or <see cref="TurnFailedNotification"/> inside
 ///     the turn's own async flow. Each inner runner here publishes through the real publisher before it returns, as the
-///     runtime does.
+///     runtime does. The decorator only holds the usage; <see cref="NodeUsageRecorder"/> appends it once the store has
+///     committed the run's failure. <see cref="MirroredStore"/> plays the dispatcher's <c>FailAsync</c> the way Thalos 0.17.0's
+///     <c>OrmWorkflowStore</c> does: it throws under a cancelled token before anything commits, and otherwise commits and then
+///     notifies its observers.
 /// </summary>
 public sealed class FailedNodeUsageRunnerTests
 {
@@ -36,7 +39,7 @@ public sealed class FailedNodeUsageRunnerTests
         var run = RunAt("implement", seq: 3, startedBy: "a-developer");
         var turn = new TurnUsage(150_000, 5_138, "claude-sonnet-5") { CacheReadTokens = 90_000 };
 
-        var result = await Runner(records, new PublishingRunner(Fail(turn))).RunAsync(RequestFor(run), CancellationToken.None);
+        var result = await Dispatch.For(records, new PublishingRunner(Fail(turn))).RunAsync(run);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(BudgetStop, "the decorator hands the failure back as it came");
@@ -65,7 +68,7 @@ public sealed class FailedNodeUsageRunnerTests
             Completed(new TurnUsage(2_000, 200, "pinned")),
             Fail(new TurnUsage(300, 30, "decided")));
 
-        await Runner(records, inner).RunAsync(RequestFor(run), CancellationToken.None);
+        await Dispatch.For(records, inner).RunAsync(run);
 
         var usage = NodeUsage.FromPayloadJson(records.Appended.Should().ContainSingle().Subject.PayloadJson).Value;
         usage.InputTokens.Should().Be(3_300);
@@ -85,7 +88,7 @@ public sealed class FailedNodeUsageRunnerTests
     {
         var records = new CapturingRecordStore();
 
-        var result = await Runner(records, new PublishingRunner(Fail(null))).RunAsync(RequestFor(RunAt("implement")), CancellationToken.None);
+        var result = await Dispatch.For(records, new PublishingRunner(Fail(null))).RunAsync(RunAt("implement"));
 
         result.IsFailure.Should().BeTrue();
         records.Appended.Should().BeEmpty();
@@ -101,8 +104,7 @@ public sealed class FailedNodeUsageRunnerTests
     {
         var records = new CapturingRecordStore();
 
-        var result = await Runner(records, new PublishingRunner(Completed(new TurnUsage(1_000, 100, "m"))))
-            .RunAsync(RequestFor(RunAt("implement")), CancellationToken.None);
+        var result = await Dispatch.For(records, new PublishingRunner(Completed(new TurnUsage(1_000, 100, "m")))).RunAsync(RunAt("implement"));
 
         result.IsSuccess.Should().BeTrue();
         records.Appended.Should().BeEmpty();
@@ -120,7 +122,7 @@ public sealed class FailedNodeUsageRunnerTests
         var records = new CapturingRecordStore();
         var first = RunAt("implement");
         var second = RunAt("implement");
-        var runner = Runner(records, new GatedRunner(new CountdownGate(2), new CountdownGate(2), new Dictionary<Guid, TurnUsage>
+        var dispatch = Dispatch.For(records, new GatedRunner(new CountdownGate(2), new CountdownGate(2), new Dictionary<Guid, TurnUsage>
         {
             [first.Id] = new(1_000, 10, "m"),
             [second.Id] = new(2_000, 20, "m"),
@@ -128,7 +130,7 @@ public sealed class FailedNodeUsageRunnerTests
 
         await Task.WhenAll(DispatchAsync(first), DispatchAsync(second));
 
-        async Task DispatchAsync(WorkflowRun run) => await runner.RunAsync(RequestFor(run), CancellationToken.None);
+        async Task DispatchAsync(WorkflowRun run) => await dispatch.RunAsync(run);
 
         var byRun = records.Appended.ToDictionary(r => r.RunId, r => NodeUsage.FromPayloadJson(r.PayloadJson).Value.InputTokens);
         byRun.Should().BeEquivalentTo(new Dictionary<Guid, long> { [first.Id] = 1_000, [second.Id] = 2_000 });
@@ -152,15 +154,86 @@ public sealed class FailedNodeUsageRunnerTests
             Caller = new DetachedPrincipal("schedule:daedalus", ["reader"]),
         };
 
-        var result = await Runner(records, inner).RunAsync(request, CancellationToken.None);
+        var result = await new FailedNodeUsageRunner(inner, TestNodeUsage.Recorder(records)).RunAsync(request, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
         seen.Should().BeNull("only a workflow node's turns are collected");
         records.Appended.Should().BeEmpty();
     }
 
-    private static FailedNodeUsageRunner Runner(CapturingRecordStore records, ISubagentRunner inner) =>
-        new(inner, TestNodeUsage.Recorder(records));
+    /// <summary>
+    ///     The final review's case: a graceful stop cancels the dispatch, the turn fails as cancelled after spending, and the
+    ///     dispatcher's <c>FailAsync</c> throws under the cancelled token, so the failure never commits. The message is
+    ///     redelivered, the node runs again at the same seq and completes, and a later node then fails the run. Only the
+    ///     rerun's completion is recorded at that seq.
+    ///     Red: append the failure from the decorator, before the dispatcher fails the run, as before this fix; the cancelled
+    ///     attempt is appended too, and the no-record assertion fails.
+    ///     Red: drop the decorator's <c>DropFailure</c> call; the cancelled attempt's hold survives the redelivery, the later
+    ///     failure appends it, and the single-record assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_cancelled_dispatch_whose_failure_does_not_commit_records_nothing()
+    {
+        var records = new CapturingRecordStore();
+        var recorder = TestNodeUsage.Recorder(records);
+        var store = new MirroredStore(recorder);
+        var run = RunAt("implement", seq: 3);
+        using var stopping = new CancellationTokenSource();
+        await stopping.CancelAsync();
+
+        await new Dispatch(recorder, store, new PublishingRunner(Fail(new TurnUsage(40_000, 400, "m"))))
+            .Invoking(d => d.RunAsync(run, stopping.Token)).Should().ThrowAsync<OperationCanceledException>();
+        records.Appended.Should().BeEmpty("the run's failure never committed");
+
+        var rerun = new TurnUsage(150_000, 5_138, "m");
+        (await new Dispatch(recorder, store, new PublishingRunner(Completed(rerun))).RunAsync(run)).IsSuccess.Should().BeTrue();
+        await recorder.RecordCompletionAsync(run.Id, 3, "implement", null, rerun, CancellationToken.None);
+        await store.FailAsync(RunAt("review", seq: 4) with { Id = run.Id }, CancellationToken.None);
+
+        records.Appended.Should().ContainSingle("only the rerun's completion is recorded at seq 3");
+    }
+
+    /// <summary>
+    ///     A failure that commits is recorded once, at the seq it was held for, and the hold is released.
+    ///     Red: append nothing from <c>OnChangedAsync</c> on <c>Failed</c>; no record is written.
+    ///     Red: append at <c>key.Seq + 1</c>; the seq assertion fails.
+    ///     Red: read the hold with <c>TryGetValue</c> instead of taking it with <c>TryRemove</c>; the hold count stays 1.
+    /// </summary>
+    [Fact]
+    public async Task A_failure_that_commits_is_recorded_once_at_its_seq()
+    {
+        var records = new CapturingRecordStore();
+        var recorder = TestNodeUsage.Recorder(records);
+        var run = RunAt("implement", seq: 7);
+
+        await new Dispatch(recorder, new MirroredStore(recorder), new PublishingRunner(Fail(new TurnUsage(12_000, 340, "m")))).RunAsync(run);
+
+        records.Appended.Should().ContainSingle().Which.Seq.Should().Be(7);
+        recorder.HeldFailureCount.Should().Be(0, "the committed failure took what was held");
+    }
+
+    /// <summary>
+    ///     A run whose turn failed but which the store then cancels, rather than fails, records nothing: the cancellation
+    ///     releases the hold.
+    ///     Red: append on <c>Cancelled</c> as on <c>Failed</c>; a record is written.
+    ///     Red: drop nothing on <c>Cancelled</c>; the hold count stays 1.
+    /// </summary>
+    [Fact]
+    public async Task A_committed_cancellation_releases_a_held_failure()
+    {
+        var records = new CapturingRecordStore();
+        var recorder = TestNodeUsage.Recorder(records);
+        var run = RunAt("implement", seq: 2);
+        (await new FailedNodeUsageRunner(new PublishingRunner(Fail(new TurnUsage(9_000, 90, "m"))), recorder)
+            .RunAsync(RequestFor(run), CancellationToken.None)).IsFailure.Should().BeTrue();
+        recorder.HeldFailureCount.Should().Be(1, "otherwise the release below is not what empties it");
+
+        await recorder.OnChangedAsync(
+            new WorkflowRunChange(run.Id, WorkflowRunChangeKind.Cancelled, WorkflowStatus.Cancelled, "implement", null), CancellationToken.None);
+
+        records.Appended.Should().BeEmpty();
+        recorder.HeldFailureCount.Should().Be(0);
+    }
 
     private static WorkflowRun RunAt(string node, long seq = 3, string? startedBy = null) => new()
     {
@@ -255,6 +328,47 @@ public sealed class FailedNodeUsageRunnerTests
             }
 
             return _open.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    /// <summary>
+    ///     One dispatch the way Thalos' <c>WorkflowNodeDispatcher</c> runs it: the decorated runner, then, on a failure, the
+    ///     store's <c>FailAsync</c> under the same token.
+    /// </summary>
+    private sealed class Dispatch(NodeUsageRecorder recorder, MirroredStore store, ISubagentRunner inner)
+    {
+        private readonly FailedNodeUsageRunner _runner = new(inner, recorder);
+
+        public async Task<Result<AgentTurnResult, AgentError>> RunAsync(WorkflowRun run, CancellationToken ct = default)
+        {
+            var result = await _runner.RunAsync(RequestFor(run), ct);
+            if (result.IsFailure)
+            {
+                await store.FailAsync(run, ct);
+            }
+
+            return result;
+        }
+
+        /// <summary>A dispatch whose recorder appends to <paramref name="records"/> and whose store notifies that recorder.</summary>
+        public static Dispatch For(CapturingRecordStore records, ISubagentRunner inner)
+        {
+            var recorder = TestNodeUsage.Recorder(records);
+            return new Dispatch(recorder, new MirroredStore(recorder), inner);
+        }
+    }
+
+    /// <summary>
+    ///     <c>FailAsync</c> as Thalos 0.17.0's <c>OrmWorkflowStore</c> runs it: opening the connection under a cancelled token
+    ///     throws before anything commits; otherwise the failure commits and each observer is told after the commit.
+    /// </summary>
+    private sealed class MirroredStore(IWorkflowRunObserver observer)
+    {
+        public async ValueTask FailAsync(WorkflowRun run, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            await observer.OnChangedAsync(
+                new WorkflowRunChange(run.Id, WorkflowRunChangeKind.Failed, WorkflowStatus.Failed, run.CurrentNode, null), ct);
         }
     }
 

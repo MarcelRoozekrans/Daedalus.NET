@@ -14,8 +14,9 @@ namespace Daedalus.Agents.Workflow;
 ///     reads a manufacture run's usage from Daedalus's own table. <see cref="ReviewHandoffWorkflowStore"/> calls
 ///     <see cref="RecordCompletionAsync"/> on every completion, which also counts the tokens.
 ///     <see cref="NodeUsageBackfill"/> calls <see cref="RecordAsync"/> for completions that have no record yet, which counts
-///     nothing: those tokens were spent in the past. Since phase 2.15 <see cref="FailedNodeUsageRunner"/> calls
-///     <see cref="RecordFailureAsync"/> for a node whose turn failed, which no completion records.
+///     nothing: those tokens were spent in the past. Since phase 2.15 <see cref="FailedNodeUsageRunner"/> hands the turns of a
+///     node whose turn failed, which no completion records, to <see cref="HoldFailure"/>, and the record is appended once the
+///     store has committed the run's failure.
 /// </summary>
 /// <remarks>
 ///     A second append for a (run, seq) that already has a record violates the unique index
@@ -33,8 +34,18 @@ namespace Daedalus.Agents.Workflow;
 ///     <see cref="RecordCompletionAsync"/> takes it back: the record carries <see cref="NodeUsage.ByModel"/> and the token
 ///     counter counts each model's own tokens. What is held is in memory and released whenever no completion will take it:
 ///     when the dispatcher's store fails the run or its completion throws, and, as an <see cref="IWorkflowRunObserver"/>,
-///     whenever the store commits a cancellation or a failure of the run by any path. A host restart loses it. The backfill reads only the completion's single usage, so a review it records is priced at its first model, as
-///     before this existed.
+///     whenever the store commits a cancellation or a failure of the run by any path. A host restart loses it. The backfill
+///     reads only the completion's single usage, so a review it records is priced at its first model, as before this existed.
+///     </para>
+///     <para>
+///     <b>A failed node is recorded only once its run's failure has committed.</b> <see cref="HoldFailure"/> keeps the summed
+///     usage per (run, seq) apart from the passes above, and <see cref="OnChangedAsync"/> appends it when the store commits
+///     the run's failure, which Thalos' <c>OrmWorkflowStore</c> notifies only after <c>FailAsync</c> or
+///     <c>FailStrandedAsync</c> has committed. A failure that never commits, such as a graceful stop's
+///     <c>FailAsync</c> under the cancelled dispatch token or a transient database error inside it, is redelivered: the node
+///     runs again at the same seq, <see cref="DropFailure"/> releases the hold before it does, and that run's own completion
+///     or failure is what is recorded. The cancelled attempt's partial spend is then not recorded, which keeps every seq
+///     counted once. A committed cancellation releases the hold too. A host restart loses it, as it loses the passes.
 ///     </para>
 /// </remarks>
 internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, TimeProvider clock, ILogger<NodeUsageRecorder> logger)
@@ -49,11 +60,17 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     /// <summary>The per-model usage of a node that ran on more than one model, until its completion is recorded.</summary>
     private readonly ConcurrentDictionary<(Guid RunId, long Seq), IReadOnlyList<NodeUsage>> _held = new();
 
+    /// <summary>The usage of a node whose turn failed, until the store commits the run's failure.</summary>
+    private readonly ConcurrentDictionary<(Guid RunId, long Seq), FailedNode> _failed = new();
+
     /// <summary>Now, on the host clock, as a UTC <see cref="DateTime"/>.</summary>
     public DateTime UtcNow => clock.GetUtcNow().UtcDateTime;
 
     /// <summary>How many nodes' per-model usage is held, for tests.</summary>
     internal int HeldCount => _held.Count;
+
+    /// <summary>How many failed nodes' usage is held, for tests.</summary>
+    internal int HeldFailureCount => _failed.Count;
 
     /// <summary>
     ///     Holds the usage of each turn a node at (<paramref name="runId"/>, <paramref name="seq"/>) ran, summed per model in
@@ -75,19 +92,38 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     }
 
     /// <inheritdoc />
-    /// <remarks>A cancelled or failed run completes no node, so whatever it held is dropped. Changes no run.</remarks>
-    public ValueTask OnChangedAsync(WorkflowRunChange change, CancellationToken ct)
+    /// <remarks>
+    ///     A cancelled or failed run completes no node, so the passes it held are dropped. A committed failure appends the
+    ///     record of each failed node held for the run, through <see cref="RecordFailureAsync"/>; a committed cancellation
+    ///     drops them. Changes no run, and throws nothing: the append logs its own failure.
+    /// </remarks>
+    public async ValueTask OnChangedAsync(WorkflowRunChange change, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(change);
-        if (change.Kind is WorkflowRunChangeKind.Cancelled or WorkflowRunChangeKind.Failed)
+        if (change.Kind is not (WorkflowRunChangeKind.Cancelled or WorkflowRunChangeKind.Failed))
         {
-            Forget(change.RunId);
+            return;
         }
 
-        return ValueTask.CompletedTask;
+        Forget(change.RunId);
+        foreach (var key in _failed.Keys)
+        {
+            if (key.RunId != change.RunId || !_failed.TryRemove(key, out var failed))
+            {
+                continue;
+            }
+
+            if (change.Kind == WorkflowRunChangeKind.Failed)
+            {
+                await RecordFailureAsync(key.RunId, key.Seq, failed).ConfigureAwait(false);
+            }
+        }
     }
 
-    /// <summary>Drops whatever is held for <paramref name="runId"/>: no completion will take it.</summary>
+    /// <summary>
+    ///     Drops the passes held for <paramref name="runId"/>: no completion will take them. A failed node's held usage is
+    ///     not dropped here; it waits for the store's verdict on the failure, in <see cref="OnChangedAsync"/>.
+    /// </summary>
     public void Forget(Guid runId)
     {
         foreach (var key in _held.Keys)
@@ -134,16 +170,14 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     }
 
     /// <summary>
-    ///     Phase 2.15, for a node whose turn failed, which no completion records: sums <paramref name="turns"/>, every turn
-    ///     the node ran up to and including the failed one, counts the tokens on <c>daedalus.manufacture.tokens</c> per
-    ///     model, and appends the node's record as <see cref="RecordCompletionAsync"/> does, stamped now. Turns on two or more
-    ///     models are recorded with the per-model split <see cref="HoldPasses"/> builds. <see cref="FailedNodeUsageRunner"/>
-    ///     calls it before the dispatcher fails the run, at the seq the node ran at; a failed agent node fails its run, so no
-    ///     completion ever claims that seq. A redelivery reads as "already recorded" through the same unique index. Returns
-    ///     whether the record was written, and false without counting anything when the turns spent no tokens.
+    ///     Phase 2.15, for a node whose turn failed, which no completion records: holds the sum of <paramref name="turns"/>,
+    ///     every turn the node ran up to and including the failed one, for (<paramref name="runId"/>, <paramref name="seq"/>)
+    ///     until the store commits the run's failure, when <see cref="OnChangedAsync"/> records it. Turns on two or more models
+    ///     are held with the per-model split <see cref="HoldPasses"/> builds. <see cref="FailedNodeUsageRunner"/> calls it before
+    ///     the dispatcher fails the run, at the seq the node ran at. Returns whether anything is held: false, holding nothing
+    ///     and releasing an earlier hold of that seq, when the turns spent no tokens.
     /// </summary>
-    public ValueTask<bool> RecordFailureAsync(
-        Guid runId, long seq, string node, string? startedById, IReadOnlyList<TurnUsage> turns, CancellationToken ct)
+    public bool HoldFailure(Guid runId, long seq, string node, string? startedById, IReadOnlyList<TurnUsage> turns)
     {
         ArgumentNullException.ThrowIfNull(turns);
         var parts = PerModel(turns);
@@ -153,7 +187,8 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
             parts.Sum(p => p.CacheReadTokens), parts.Sum(p => p.CacheWriteTokens));
         if (total is { InputTokens: 0, OutputTokens: 0, CacheReadTokens: 0, CacheWriteTokens: 0 })
         {
-            return ValueTask.FromResult(false);
+            DropFailure(runId, seq);
+            return false;
         }
 
         if (parts.Count >= 2)
@@ -162,13 +197,32 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
             total = total.WithSplit(parts).Value;
         }
 
-        foreach (var part in total.Parts)
+        _failed[(runId, seq)] = new FailedNode(node, startedById, total);
+        return true;
+    }
+
+    /// <summary>
+    ///     Releases the failed node held for (<paramref name="runId"/>, <paramref name="seq"/>). <see cref="FailedNodeUsageRunner"/>
+    ///     calls it whenever a node is dispatched: a dispatch of a seq that still holds a failure is a redelivery, so the
+    ///     earlier failure never committed and the node is about to run again.
+    /// </summary>
+    public void DropFailure(Guid runId, long seq) => _failed.TryRemove((runId, seq), out _);
+
+    /// <summary>
+    ///     Records a held failed node once its run's failure has committed: counts the tokens on
+    ///     <c>daedalus.manufacture.tokens</c> per model and appends the node's record as <see cref="RecordCompletionAsync"/>
+    ///     does, stamped now. No completion claims that seq, because the run has failed; a second record for it reads as
+    ///     "already recorded" through the unique index. Returns whether the record was written.
+    /// </summary>
+    private ValueTask<bool> RecordFailureAsync(Guid runId, long seq, FailedNode failed)
+    {
+        foreach (var part in failed.Usage.Parts)
         {
-            ManufactureTelemetry.RecordTokens(node, part);
+            ManufactureTelemetry.RecordTokens(failed.Node, part);
         }
 
-        LogFailedNodeRecorded(logger, runId, node, total.InputTokens, total.OutputTokens);
-        return AppendAsync(runId, seq, node, startedById, total, UtcNow, repairedByBackfill: false);
+        LogFailedNodeRecorded(logger, runId, failed.Node, failed.Usage.InputTokens, failed.Usage.OutputTokens);
+        return AppendAsync(runId, seq, failed.Node, failed.StartedById, failed.Usage, UtcNow, repairedByBackfill: false);
     }
 
     /// <summary>Appends the record. Returns whether it was written: false when the record already existed or the append failed. The caller's token is deliberately not passed to the append.</summary>
@@ -258,4 +312,7 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Recording the spend of failed node {Node} of run {RunId}: {InputTokens} input and {OutputTokens} output tokens")]
     private static partial void LogFailedNodeRecorded(ILogger logger, Guid runId, string node, long inputTokens, long outputTokens);
+
+    /// <summary>A failed node's record, held until its run's failure commits.</summary>
+    private sealed record FailedNode(string Node, string? StartedById, NodeUsage Usage);
 }

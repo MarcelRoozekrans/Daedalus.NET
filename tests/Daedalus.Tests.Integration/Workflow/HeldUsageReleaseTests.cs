@@ -1,4 +1,5 @@
 using Daedalus.Agents.Workflow;
+using Daedalus.Domain.Entities;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
 using Thalos;
@@ -46,5 +47,50 @@ public sealed class HeldUsageReleaseTests(PostgresFixture fixture)
         await host.Store.CancelAsync(runId, "cancelled mid-review", CancellationToken.None);
 
         recorder.HeldCount.Should().Be(0);
+    }
+
+    /// <summary>
+    ///     Phase 2.15 final review: against the real store, a failed node's held usage is appended only when the run's failure
+    ///     commits. <c>FailAsync</c> under a cancelled token, a graceful stop's dispatch token, throws before it commits and
+    ///     appends nothing; the same call under a live token commits, and the store's observer appends the one record.
+    ///     Red: append in <c>HoldFailure</c> instead of waiting for <c>OnChangedAsync</c>; the record exists after the
+    ///     cancelled call, and the first empty assertion fails.
+    ///     Red: drop the recorder's <c>IWorkflowRunObserver</c> registration in <c>AddDaedalusAgents</c>; nobody appends, and
+    ///     the single-record assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_held_failure_is_recorded_only_once_the_store_commits_the_failure()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture,
+            runtime: null,
+            settings: new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Enabled"] = "false" });
+        var runId = Guid.NewGuid();
+        var started = await host.Store.StartAsync(
+            new WorkflowStartRequest
+            {
+                Process = "manufacture",
+                Version = 1,
+                CorrelationKey = $"held-failure:{runId:N}",
+                StartNode = "gate",
+                InitialVariables = new Dictionary<string, object?>(StringComparer.Ordinal),
+                StartedBy = new RunPrincipal("seed", []),
+                RunId = runId,
+            },
+            CancellationToken.None);
+        started.IsSuccess.Should().BeTrue();
+        var run = (await host.Store.FindAsync(runId, CancellationToken.None))!;
+        var recorder = host.Factory.Services.GetRequiredService<NodeUsageRecorder>();
+        recorder.HoldFailure(runId, run.CurrentSeq, run.CurrentNode, "seed", [new TurnUsage(150_000, 5_138, "m")]);
+        using var stopping = new CancellationTokenSource();
+        await stopping.CancelAsync();
+
+        await host.Store.Invoking(s => s.FailAsync(runId, "stopped", stopping.Token).AsTask())
+            .Should().ThrowAsync<OperationCanceledException>();
+        (await host.RecordsAsync(runId, WorkflowRunRecord.NodeUsageKind)).Should().BeEmpty("the failure did not commit");
+
+        await host.Store.FailAsync(runId, "stopped", CancellationToken.None);
+
+        (await host.RecordsAsync(runId, WorkflowRunRecord.NodeUsageKind)).Should().ContainSingle();
     }
 }

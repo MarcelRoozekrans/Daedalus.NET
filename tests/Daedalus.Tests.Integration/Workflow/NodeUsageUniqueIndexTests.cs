@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Thalos;
+using Thalos.Workflow;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
@@ -50,8 +51,9 @@ public sealed class NodeUsageUniqueIndexTests(PostgresFixture fixture) : IAsyncL
     }
 
     /// <summary>
-    ///     Phase 2.15: a failed node's record goes through the same append, so a second <c>RecordFailureAsync</c> for one (run,
-    ///     seq), a redelivered failure, returns false, leaves the first record alone, and logs no warning or error.
+    ///     Phase 2.15: a failed node's record goes through the same append, so a second committed failure at one (run, seq),
+    ///     a failure held again after a redelivery whose own failure also committed, writes nothing, leaves the first record
+    ///     alone, and logs no warning or error.
     ///     Red: catch nothing on the unique violation, by removing the <c>IsAlreadyRecorded</c> catch; the violation then
     ///     logs at Error, and the no-warning assertion fails.
     /// </summary>
@@ -59,13 +61,13 @@ public sealed class NodeUsageUniqueIndexTests(PostgresFixture fixture) : IAsyncL
     public async Task A_redelivered_failure_is_recorded_once()
     {
         var (recorder, store, log) = NewRecorder();
-        IReadOnlyList<TurnUsage> turns = [new TurnUsage(150_000, 5_138, "m")];
+        var failed = new WorkflowRunChange(_runId, WorkflowRunChangeKind.Failed, WorkflowStatus.Failed, "implement", null);
 
-        var first = await recorder.RecordFailureAsync(_runId, 6, "implement", "starter", turns, CancellationToken.None);
-        var second = await recorder.RecordFailureAsync(_runId, 6, "implement", "starter", [new TurnUsage(1, 1, "m")], CancellationToken.None);
+        recorder.HoldFailure(_runId, 6, "implement", "starter", [new TurnUsage(150_000, 5_138, "m")]);
+        await recorder.OnChangedAsync(failed, CancellationToken.None);
+        recorder.HoldFailure(_runId, 6, "implement", "starter", [new TurnUsage(1, 1, "m")]);
+        await recorder.OnChangedAsync(failed, CancellationToken.None);
 
-        first.Should().BeTrue();
-        second.Should().BeFalse("the failure is already recorded");
         var records = await store.ListAsync(_runId, WorkflowRunRecord.NodeUsageKind, CancellationToken.None);
         records.Should().ContainSingle().Which.PayloadJson.Should().Contain("150000", "the first record stands");
         log.Levels.Should().NotContain(l => l >= LogLevel.Warning, "a redelivery is expected, not a fault");
