@@ -54,8 +54,9 @@
         <!-- ZeroAlloc.TestHelpers ships GeneratorSnapshot.cs (source-generator snapshot testing,
              needs Microsoft.CodeAnalysis) unconditionally alongside AllocationGate.cs. This repo
              does not test generator output directly, so exclude the file we don't use rather than
-             add an unused Roslyn dependency. -->
-        <Compile Remove="$(NuGetPackageRoot)zeroalloc.testhelpers/**/GeneratorSnapshot.cs"/>
+             add an unused Roslyn dependency. EnsureTrailingSlash because the run sandbox sets
+             NUGET_PACKAGES=/work/nuget, which leaves NuGetPackageRoot without one. -->
+        <Compile Remove="$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))zeroalloc.testhelpers/**/GeneratorSnapshot.cs"/>
     </ItemGroup>
 
     <ItemGroup>
