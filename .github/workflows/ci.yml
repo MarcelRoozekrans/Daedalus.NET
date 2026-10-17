@@ -74,6 +74,7 @@ jobs:
       contents: read
       # dorny/test-reporter publishes a check run
       checks: write
+      id-token: write   # Codecov upload via OIDC, no token secret
     env:
       APP_VERSION: ${{ needs.version.outputs.version }}
 
@@ -134,6 +135,16 @@ jobs:
             --logger "console;verbosity=normal" \
             --logger "trx;LogFileName=integration-tests.trx" \
             -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+
+      # The raw Cobertura files of both test steps; Codecov merges them.
+      - name: Upload coverage to Codecov
+        if: '!cancelled()'
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: "TestResults/**/coverage.cobertura.xml"
+          disable_search: true   # only the files above, not every *.xml the search finds
+          fail_ci_if_error: false
 
       - name: Install ReportGenerator
         run: dotnet tool install --global dotnet-reportgenerator-globaltool
