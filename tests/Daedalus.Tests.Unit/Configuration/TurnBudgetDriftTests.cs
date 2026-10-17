@@ -90,7 +90,8 @@ public sealed class TurnBudgetDriftTests
         budgets.Agents.Keys.Should().BeEquivalentTo(MeasuredMaximum.Keys, "every ceiling is sized from its own measured turns");
         foreach (var (role, measured) in MeasuredMaximum)
         {
-            budgets.Agents[role].Should().Be(Sized(measured), $"the {role}'s ceiling is 1.5 x its measured maximum of {measured}, rounded up");
+            budgets.Agents[role].Should().Be(
+                Sized(measured), $"the {role}'s ceiling is 1.5 x its measured maximum of {measured}, rounded up");
         }
 
         budgets.Default.Should().Be(MeasuredMaximum.Values.Max(Sized), "the default is the largest role ceiling");

@@ -83,13 +83,14 @@ internal static class WorkflowNodeDispatcherFactory
         // It sits outside ReviewFindingsRunner too, so on an implement revisit the intent comes before the rejection's
         // findings: each decorator appends, and an outer one's text comes first. The block is the same on every visit,
         // so it leaves a run's cached prompt prefix intact.
-        // FailedNodeUsageRunner (phase 2.15) sits DIRECTLY outside ReviewLensRunner and inside every task-text decorator. It
-        // collects the usage of each turn the node runs, as Thalos publishes it, and holds it when the node fails, which no
-        // completion records; the recorder appends it once the store commits the run's failure. Outside the lens runner it sees every lens pass, including the passes before a failed one, which
-        // ReviewLensRunner drops when it returns the failure; inside it, around BudgetedSubagentRunner, it would record each
-        // pass on its own at one seq, and only the failed pass would be held. No decorator between it and the
-        // dispatcher turns a success into a failure or back, so the failure it records is the one the dispatcher fails the
-        // run with.
+        // FailedNodeUsageRunner (phase 2.15) sits DIRECTLY outside ReviewLensRunner and inside every task-text
+        // decorator. It collects the usage of each turn the node runs, as Thalos publishes it, and holds it when the
+        // node fails, which no completion records; the recorder appends it once the store commits the run's failure.
+        // Outside the lens runner it sees every lens pass, including the passes before a failed one, which
+        // ReviewLensRunner drops when it returns the failure; inside it, around BudgetedSubagentRunner, it would record
+        // each pass on its own at one seq, and only the failed pass would be held. No decorator between it and the
+        // dispatcher turns a success into a failure or back, so the failure it records is the one the dispatcher fails
+        // the run with.
         new RunModeRunner(
             new WorkIntentRunner(
                 new ReviewFindingsRunner(
