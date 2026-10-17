@@ -100,3 +100,4 @@ Full phase text, including what each completed phase actually proved and carried
 
 | Date | Verdict | Gaps |
 |---|---|---|
+| 2026-10-17 | FAIL | Spend not bounded: the token ceiling is unsized, #280; phase 2.1 has no rulings record. Report: `docs/superpowers/reviews/2026-10-17-milestone-2-audit.md` |
