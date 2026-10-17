@@ -93,4 +93,79 @@ public sealed class HeldUsageReleaseTests(PostgresFixture fixture)
 
         (await host.RecordsAsync(runId, WorkflowRunRecord.NodeUsageKind)).Should().ContainSingle();
     }
+    /// <summary>
+    ///     Fix round 2, against the real store: the stranded sweep fails the run while its node's turn runs, the turn then
+    ///     fails and holds its usage, and the dispatcher's <c>FailAsync</c> through <see cref="ReviewHandoffWorkflowStore"/>
+    ///     reaches a run that is already terminal. The real store commits nothing and notifies nobody, so the wrapper reads
+    ///     the run back as Failed and appends the one record.
+    ///     Red: drop the settle call from <c>ReviewHandoffWorkflowStore.FailAsync</c>; no record is written.
+    /// </summary>
+    [Fact]
+    public async Task A_failure_held_after_the_sweep_failed_the_run_is_appended_when_the_dispatcher_fails_it()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture,
+            runtime: null,
+            settings: new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Enabled"] = "false" });
+        var run = await StartRunAsync(host);
+        (await host.Store.FailStrandedAsync(run.Id, run.CurrentSeq, "stranded", CancellationToken.None)).Should().BeTrue();
+        var recorder = host.Factory.Services.GetRequiredService<NodeUsageRecorder>();
+        recorder.HoldFailure(run.Id, run.CurrentSeq, run.CurrentNode, "seed", [new TurnUsage(150_000, 5_138, "m")]);
+
+        await DispatcherStore(host).FailAsync(run.Id, "the turn failed", CancellationToken.None);
+
+        (await host.RecordsAsync(run.Id, WorkflowRunRecord.NodeUsageKind)).Should().ContainSingle();
+    }
+
+    /// <summary>
+    ///     Fix round 2, against the real store: a run cancelled while its node's turn runs. The dispatcher's
+    ///     <c>FailAsync</c> through <see cref="ReviewHandoffWorkflowStore"/> reads the run back as Cancelled and releases the
+    ///     hold without a record.
+    ///     Red: drop the settle call from <c>ReviewHandoffWorkflowStore.FailAsync</c>; the hold count stays 1.
+    ///     Red: settle a Cancelled run as a Failed one; a record is written, and the empty assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_failure_held_after_the_run_was_cancelled_is_released_when_the_dispatcher_fails_it()
+    {
+        await using var host = await ScratchWorkflowHost.StartAsync(
+            fixture,
+            runtime: null,
+            settings: new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Enabled"] = "false" });
+        var run = await StartRunAsync(host);
+        await host.Store.CancelAsync(run.Id, "cancelled mid-turn", CancellationToken.None);
+        var recorder = host.Factory.Services.GetRequiredService<NodeUsageRecorder>();
+        recorder.HoldFailure(run.Id, run.CurrentSeq, run.CurrentNode, "seed", [new TurnUsage(150_000, 5_138, "m")]);
+
+        await DispatcherStore(host).FailAsync(run.Id, "the turn failed", CancellationToken.None);
+
+        recorder.HeldFailureCount.Should().Be(0);
+        (await host.RecordsAsync(run.Id, WorkflowRunRecord.NodeUsageKind)).Should().BeEmpty();
+    }
+
+    /// <summary>The store wrapper the dispatcher fails runs through, over the host's real store.</summary>
+    private static ReviewHandoffWorkflowStore DispatcherStore(ScratchWorkflowHost host) => new(
+        host.Store,
+        host.Factory.Services.GetRequiredService<IProcessDefinitionStore>(),
+        host.Factory.Services.GetRequiredService<NodeUsageRecorder>(),
+        host.Factory.Services.GetRequiredService<ReviewResponseRecorder>());
+
+    /// <summary>Starts a manufacture run parked nowhere, at its start node, and reads it back.</summary>
+    private static async Task<WorkflowRun> StartRunAsync(ScratchWorkflowHost host)
+    {
+        var runId = Guid.NewGuid();
+        var started = await host.Store.StartAsync(
+            new WorkflowStartRequest
+            {
+                Process = "manufacture",
+                Version = 1,
+                CorrelationKey = $"settle:{runId:N}",
+                StartNode = "gate",
+                InitialVariables = new Dictionary<string, object?>(StringComparer.Ordinal),
+                StartedBy = new RunPrincipal("seed", []),
+                RunId = runId,
+            },
+            CancellationToken.None);
+        started.IsSuccess.Should().BeTrue();
+        return (await host.Store.FindAsync(runId, CancellationToken.None))!;
+    }
 }

@@ -45,7 +45,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <c>FailAsync</c> under the cancelled dispatch token or a transient database error inside it, is redelivered: the node
 ///     runs again at the same seq, <see cref="DropFailure"/> releases the hold before it does, and that run's own completion
 ///     or failure is what is recorded. The cancelled attempt's partial spend is then not recorded, which keeps every seq
-///     counted once. A committed cancellation releases the hold too. A host restart loses it, as it loses the passes.
+///     counted once. A committed cancellation releases the hold too. A run that became terminal while the node's turn ran
+///     commits nothing on the dispatcher's <c>FailAsync</c>, so <see cref="ReviewHandoffWorkflowStore"/> settles the hold
+///     by the run's status through <see cref="SettleFailuresAsync"/>. A host restart loses it, as it loses the passes.
 ///     </para>
 /// </remarks>
 internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, TimeProvider clock, ILogger<NodeUsageRecorder> logger)
@@ -93,9 +95,9 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
 
     /// <inheritdoc />
     /// <remarks>
-    ///     A cancelled or failed run completes no node, so the passes it held are dropped. A committed failure appends the
-    ///     record of each failed node held for the run, through <see cref="RecordFailureAsync"/>; a committed cancellation
-    ///     drops them. Changes no run, and throws nothing: the append logs its own failure.
+    ///     A cancelled or failed run completes no node, so the passes it held are dropped, and each failed node held for it
+    ///     is settled by <see cref="SettleFailuresAsync"/>: appended on a committed failure, dropped on a committed
+    ///     cancellation. Changes no run, and throws nothing: the append logs its own failure.
     /// </remarks>
     public async ValueTask OnChangedAsync(WorkflowRunChange change, CancellationToken ct)
     {
@@ -106,14 +108,39 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
         }
 
         Forget(change.RunId);
+        await SettleFailuresAsync(change.RunId, change.Status).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Settles each failed node held for <paramref name="runId"/>, whose run has reached the terminal
+    ///     <paramref name="status"/>: appends its record through <see cref="RecordFailureAsync"/> when the run is
+    ///     <see cref="WorkflowStatus.Failed"/>, and drops it when the run is <see cref="WorkflowStatus.Cancelled"/> or
+    ///     <see cref="WorkflowStatus.Succeeded"/>. A run that is not terminal settles nothing: a rerun may still claim the
+    ///     seq. Each hold is taken with <c>TryRemove</c>, so a second settle of the same run, such as
+    ///     <see cref="ReviewHandoffWorkflowStore"/> settling after the observer already did, is a no-op.
+    /// </summary>
+    /// <remarks>
+    ///     Called by <see cref="OnChangedAsync"/> when the store commits a failure or a cancellation, and by
+    ///     <see cref="ReviewHandoffWorkflowStore.FailAsync"/> after the dispatcher's failure returned. The second covers a run
+    ///     that became terminal while its node's turn ran, cancelled or failed by the stranded sweep: that commit found
+    ///     nothing held yet, and the dispatcher's later <c>FailAsync</c> commits nothing and notifies nobody, because
+    ///     the run is already terminal. No redelivery follows either, because the run is no longer running.
+    /// </remarks>
+    public async ValueTask SettleFailuresAsync(Guid runId, WorkflowStatus status)
+    {
+        if (status is not (WorkflowStatus.Failed or WorkflowStatus.Cancelled or WorkflowStatus.Succeeded))
+        {
+            return;
+        }
+
         foreach (var key in _failed.Keys)
         {
-            if (key.RunId != change.RunId || !_failed.TryRemove(key, out var failed))
+            if (key.RunId != runId || !_failed.TryRemove(key, out var failed))
             {
                 continue;
             }
 
-            if (change.Kind == WorkflowRunChangeKind.Failed)
+            if (status == WorkflowStatus.Failed)
             {
                 await RecordFailureAsync(key.RunId, key.Seq, failed).ConfigureAwait(false);
             }

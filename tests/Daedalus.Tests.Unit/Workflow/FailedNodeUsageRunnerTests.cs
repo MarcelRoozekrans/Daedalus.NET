@@ -235,6 +235,80 @@ public sealed class FailedNodeUsageRunnerTests
         recorder.HeldFailureCount.Should().Be(0);
     }
 
+    /// <summary>
+    ///     Fix round 2: the stranded sweep failed the run while its node's turn ran, so that commit found nothing held. The
+    ///     turn then fails, and the dispatcher's <c>FailAsync</c> reaches a run that is already terminal, which commits nothing
+    ///     and notifies nobody. <see cref="ReviewHandoffWorkflowStore"/> reads the run back as Failed and appends the held
+    ///     record, once.
+    ///     Red: drop the settle call from <c>ReviewHandoffWorkflowStore.FailAsync</c>; no record is written, and the hold
+    ///     stays.
+    /// </summary>
+    [Fact]
+    public async Task A_failure_held_for_a_run_already_failed_is_appended_when_the_dispatcher_fails_it()
+    {
+        var records = new CapturingRecordStore();
+        var recorder = TestNodeUsage.Recorder(records);
+        var run = RunAt("implement", seq: 4) with { Status = WorkflowStatus.Failed };
+        var store = new ReviewHandoffWorkflowStore(
+            new RecordingWorkflowStore(run), HostWrittenKeyTests.Definitions(), recorder, TestNodeUsage.Responses());
+
+        await FailThroughAsync(store, recorder, run);
+
+        records.Appended.Should().ContainSingle().Which.Seq.Should().Be(4);
+        recorder.HeldFailureCount.Should().Be(0);
+    }
+
+    /// <summary>
+    ///     Fix round 2: a run cancelled while its node's turn ran. The dispatcher's <c>FailAsync</c> reaches a run already
+    ///     cancelled, and <see cref="ReviewHandoffWorkflowStore"/> reads it back as Cancelled and releases the hold without
+    ///     a record.
+    ///     Red: settle a Cancelled run as a Failed one; a record is written.
+    ///     Red: drop the settle call from <c>ReviewHandoffWorkflowStore.FailAsync</c>; the hold count stays 1.
+    /// </summary>
+    [Fact]
+    public async Task A_failure_held_for_a_run_already_cancelled_is_released_when_the_dispatcher_fails_it()
+    {
+        var records = new CapturingRecordStore();
+        var recorder = TestNodeUsage.Recorder(records);
+        var run = RunAt("implement", seq: 4) with { Status = WorkflowStatus.Cancelled };
+        var store = new ReviewHandoffWorkflowStore(
+            new RecordingWorkflowStore(run), HostWrittenKeyTests.Definitions(), recorder, TestNodeUsage.Responses());
+
+        await FailThroughAsync(store, recorder, run);
+
+        records.Appended.Should().BeEmpty();
+        recorder.HeldFailureCount.Should().Be(0);
+    }
+
+    /// <summary>
+    ///     Fix round 2, the ordinary path: the store commits the failure and its observer appends the record, then
+    ///     <see cref="ReviewHandoffWorkflowStore"/> reads the run back as Failed and settles again, which finds nothing.
+    ///     Red: read the hold with <c>TryGetValue</c> instead of taking it with <c>TryRemove</c> in
+    ///     <c>SettleFailuresAsync</c>; the record is appended twice.
+    /// </summary>
+    [Fact]
+    public async Task The_observer_and_the_store_settling_the_same_failure_append_it_once()
+    {
+        var records = new CapturingRecordStore();
+        var recorder = TestNodeUsage.Recorder(records);
+        var run = RunAt("implement", seq: 4);
+        var inner = new CommittingStore(new RecordingWorkflowStore(run with { Status = WorkflowStatus.Failed }), recorder, run);
+        var store = new ReviewHandoffWorkflowStore(inner, HostWrittenKeyTests.Definitions(), recorder, TestNodeUsage.Responses());
+
+        await FailThroughAsync(store, recorder, run);
+
+        records.Appended.Should().ContainSingle();
+    }
+
+    /// <summary>The node's turn fails after spending, then the dispatcher fails the run through <paramref name="store"/>.</summary>
+    private static async Task FailThroughAsync(ReviewHandoffWorkflowStore store, NodeUsageRecorder recorder, WorkflowRun run)
+    {
+        var result = await new FailedNodeUsageRunner(new PublishingRunner(Fail(new TurnUsage(30_000, 300, "m"))), recorder)
+            .RunAsync(RequestFor(run), CancellationToken.None);
+        result.IsFailure.Should().BeTrue();
+        await store.FailAsync(run.Id, result.Error.ToString(), CancellationToken.None);
+    }
+
     private static WorkflowRun RunAt(string node, long seq = 3, string? startedBy = null) => new()
     {
         Id = Guid.NewGuid(),
@@ -367,6 +441,21 @@ public sealed class FailedNodeUsageRunnerTests
         public async ValueTask FailAsync(WorkflowRun run, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
+            await observer.OnChangedAsync(
+                new WorkflowRunChange(run.Id, WorkflowRunChangeKind.Failed, WorkflowStatus.Failed, run.CurrentNode, null), ct);
+        }
+    }
+
+    /// <summary>
+    ///     A store whose <c>FailAsync</c> commits the failure and tells the recorder, as <c>OrmWorkflowStore</c> does on a run
+    ///     that was still running; its <c>FindAsync</c> then reads the run as Failed.
+    /// </summary>
+    private sealed class CommittingStore(IWorkflowStore inner, IWorkflowRunObserver observer, WorkflowRun run)
+        : DelegatingWorkflowStore(inner)
+    {
+        public override async ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct)
+        {
+            await Inner.FailAsync(runId, errorMessage, ct);
             await observer.OnChangedAsync(
                 new WorkflowRunChange(run.Id, WorkflowRunChangeKind.Failed, WorkflowStatus.Failed, run.CurrentNode, null), ct);
         }
