@@ -2,6 +2,8 @@
 # Shared helpers for the measure-*.sh scripts. Sourced, never run. See README.md.
 # shellcheck shell=bash
 
+export LC_ALL=C   # sort -n and awk printf %.1f must not depend on the caller's locale
+
 MEASURE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$MEASURE_DIR/../.." && pwd)"
 
@@ -52,9 +54,13 @@ parse_runs() {
 median() { sort -n | awk '{a[NR]=$1} END{ if(!NR){print "null"; exit} i=int((NR+1)/2); v=(NR%2)?a[i]:(a[NR/2]+a[NR/2+1])/2; printf "%.1f\n", v }'; }
 p90()    { sort -n | awk '{a[NR]=$1} END{ if(!NR){print "null"; exit} i=int(0.9*NR); if(i<0.9*NR)i++; if(i<1)i=1; printf "%.1f\n", a[i] }'; }
 
-# VmRSS / VmHWM of a pid, in MiB, one decimal.
+# VmRSS / VmHWM of a pid, in MiB, one decimal. Fails, with a message, when the value cannot be read, so a caller
+# that writes `v="$(proc_mb ...)" || exit` never records an empty number.
 proc_mb() { # <pid> <VmRSS|VmHWM>
-  awk -v k="$2:" '$1==k {printf "%.1f\n", $2/1024}' "/proc/$1/status" 2>/dev/null
+  local v
+  v="$(awk -v k="$2:" '$1==k {printf "%.1f\n", $2/1024}' "/proc/$1/status" 2>/dev/null)"
+  if [ -z "$v" ]; then echo "error: cannot read $2 of pid $1; the process has exited" >&2; return 1; fi
+  echo "$v"
 }
 
 commit_short() { git -C "$REPO_ROOT" rev-parse --short=8 HEAD 2>/dev/null || echo null; }
@@ -72,12 +78,25 @@ emit_json() {
 
 image_digest() { docker image inspect --format '{{.Id}}' "$1"; }
 image_mb()     { docker image inspect --format '{{.Size}}' "$1" | awk '{printf "%.1f\n", $1/1048576}'; }
-# /app size inside an image, MiB (du -sk, so apparent block usage of the layer content).
-image_app_mb() { docker run --rm --entrypoint du "$1" -sk /app | awk '{printf "%.1f\n", $1/1024}'; }
+# /app size inside an image, MiB (du -sk). Runs du in the image; an image without du (a chiseled one) falls back to
+# copying /app out of a created container and measuring it on the host.
+image_app_mb() {
+  local kb tmp cid
+  if kb="$(docker run --rm --entrypoint du "$1" -sk /app 2>/dev/null | awk '{print $1}')" && [ -n "$kb" ]; then
+    awk -v k="$kb" 'BEGIN{printf "%.1f\n", k/1024}'; return 0
+  fi
+  tmp="$(mktemp -d)"
+  cid="$(docker create "$1")" || { rm -rf "$tmp"; die "cannot create a container from $1"; }
+  if docker cp "$cid:/app" "$tmp/app" >/dev/null 2>&1; then kb="$(du -sk "$tmp/app" | awk '{print $1}')"; else kb=""; fi
+  docker rm -f -v "$cid" >/dev/null 2>&1 || true
+  rm -rf "$tmp"
+  [ -n "$kb" ] || die "cannot measure /app in $1"
+  awk -v k="$kb" 'BEGIN{printf "%.1f\n", k/1024}'
+}
 
 # Waits for a URL to answer 200, polling every 50 ms. Prints elapsed ms since $2 (a now_ms value).
 # Returns 1 on timeout (seconds, $3) or when container $4 (optional) has exited.
-poll_200() { # <url> <t0_ms> <timeout_s> [container] [header-config-fn]
+poll_200() { # <url> <t0_ms> <timeout_s> [container]
   local url="$1" t0="$2" limit=$(( $(date +%s) + $3 )) code
   while [ "$(date +%s)" -lt "$limit" ]; do
     code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 1 "$url" 2>/dev/null || true)"
@@ -110,6 +129,12 @@ stack_up() {
     log "reusing the running measure stack"
     return 0
   fi
+  # Half a stack, or a stopped one, is left over from an interrupted run. Both names are this harness's own, so
+  # clear them rather than collide on the name or later delete a survivor we did not start.
+  if docker inspect "$PG_NAME" >/dev/null 2>&1 || docker inspect "$KC_NAME" >/dev/null 2>&1; then
+    log "removing a leftover, incomplete measure stack"
+    docker rm -f -v "$PG_NAME" "$KC_NAME" >/dev/null 2>&1 || true
+  fi
   STACK_STARTED=1
   on_exit stack_down
   docker network inspect "$NET_NAME" >/dev/null 2>&1 || docker network create "$NET_NAME" >/dev/null
@@ -121,13 +146,16 @@ stack_up() {
     -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=changeme \
     "$KC_IMAGE" start-dev --import-realm >/dev/null
   local limit=$(( $(date +%s) + 90 ))
-  until docker exec "$PG_NAME" pg_isready -U daedalus -d daedalus >/dev/null 2>&1; do
+  until docker exec "$PG_NAME" pg_isready -h 127.0.0.1 -U daedalus -d daedalus >/dev/null 2>&1; do
     [ "$(date +%s)" -lt "$limit" ] || die "postgres did not become ready"
     sleep 1
   done
   log "applying migrations"
-  ConnectionStrings__daedalus="$PG_CONN" dotnet run --project "$REPO_ROOT/src/Daedalus.Migrations" -c Release >"${TMPDIR:-/tmp}/daedalus-measure-migrations.log" 2>&1 \
-    || { tail -n 40 "${TMPDIR:-/tmp}/daedalus-measure-migrations.log" >&2; die "migrations failed"; }
+  local mlog
+  mlog="$(mktemp)"
+  ConnectionStrings__daedalus="$PG_CONN" dotnet run --project "$REPO_ROOT/src/Daedalus.Migrations" -c Release >"$mlog" 2>&1 \
+    || { tail -n 40 "$mlog" >&2; rm -f "$mlog"; die "migrations failed"; }
+  rm -f "$mlog"
   wait_for_url "http://localhost:${KC_PORT}/realms/daedalus" 180 keycloak
 }
 

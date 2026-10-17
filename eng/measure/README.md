@@ -23,7 +23,7 @@ A field that does not apply is `null`: `image_mb` for the CLI, nothing else toda
 - **commit** is `git rev-parse --short=8 HEAD` of the checkout that holds the script, not of the image. Run the scripts
   from a worktree at the commit the image was built from.
 - **digest** is the image ID, or for the CLI the sha256 of the file given.
-- **cpus** is 2. Containers run with `--cpus 2`; the CLI runs under `taskset -c 0,1`.
+- **cpus** is 2. Containers run with `--cpus 2`; the CLI runs under `taskset` on the first two allowed cores.
 - **startup_ms** is the time from just before `docker run` (or the process spawn) to the ready signal. Median and p90
   by nearest rank, over `runs` cold starts. Every start is a new container, removed between runs.
 - **rss_idle_mb** and **rss_peak_mb** are `VmRSS` and `VmHWM` of the container's main process, in MiB, read from

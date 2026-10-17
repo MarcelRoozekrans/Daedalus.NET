@@ -13,6 +13,7 @@ command -v docker >/dev/null || die "docker is required"
 command -v jq >/dev/null || die "jq is required"
 docker image inspect "$IMAGE" >/dev/null 2>&1 || die "image $IMAGE not found"
 on_exit "docker rm -f -v $CONTAINER"
+APP_MB="$(image_app_mb "$IMAGE")"
 
 starts=(); idles=(); peaks=()
 for (( run=1; run<=RUNS; run++ )); do
@@ -21,9 +22,10 @@ for (( run=1; run<=RUNS; run++ )); do
   token="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
   run_id="$(cat /proc/sys/kernel/random/uuid)"
   t0="$(now_ms)"
+  export THALOS_SANDBOX_TOKEN="$token"   # `-e NAME` with no value copies it from the environment, so it is never on argv
   docker run -d --name "$CONTAINER" --cpus "$CPUS" -p 127.0.0.1::8080 \
     -e THALOS_SANDBOX_RUN_ID="$run_id" \
-    -e THALOS_SANDBOX_TOKEN="$token" \
+    -e THALOS_SANDBOX_TOKEN \
     -e THALOS_SANDBOX_WRITE_EXTENSIONS='.cs;.md' \
     -e THALOS_SANDBOX_PROTECTED_PATHS='.git/;.github/' \
     "$IMAGE" >/dev/null
@@ -41,14 +43,16 @@ for (( run=1; run<=RUNS; run++ )); do
   starts+=("$ms")
   pid="$(docker inspect -f '{{.State.Pid}}' "$CONTAINER")"
   sleep "$IDLE_SECONDS"
-  idles+=("$(proc_mb "$pid" VmRSS)")
-  peaks+=("$(proc_mb "$pid" VmHWM)")
+  v="$(proc_mb "$pid" VmRSS)" || die "run $run: sandbox container exited during the idle wait"
+  idles+=("$v")
+  v="$(proc_mb "$pid" VmHWM)" || die "run $run: sandbox container exited during the idle wait"
+  peaks+=("$v")
   log "run $run/$RUNS: ready after ${ms} ms, idle ${idles[-1]} MiB, peak ${peaks[-1]} MiB"
   docker rm -f -v "$CONTAINER" >/dev/null
 done
-unset token
+unset token THALOS_SANDBOX_TOKEN
 
 emit_json sandbox "$(commit_short)" "$(image_digest "$IMAGE")" "$RUNS" \
   "$(printf '%s\n' "${starts[@]}" | median)" "$(printf '%s\n' "${starts[@]}" | p90)" \
   "$(printf '%s\n' "${idles[@]}" | median)" "$(printf '%s\n' "${peaks[@]}" | median)" \
-  "$(image_mb "$IMAGE")" "$(image_app_mb "$IMAGE")"
+  "$(image_mb "$IMAGE")" "$APP_MB"

@@ -18,7 +18,15 @@ stack_up
 # service has started. Every other category is set to None, so no warning from a hosted service can come first.
 if [[ "$BIN" == *.dll ]]; then CMD=(dotnet "$BIN"); else CMD=("$BIN"); fi
 # The containers run with --cpus 2; a host process gets the same two cores through taskset.
-command -v taskset >/dev/null && CMD=(taskset -c "0,1" "${CMD[@]}")
+# Cores 0 and 1 may be outside the cores this shell may use, so pin to the first two allowed ones.
+if command -v taskset >/dev/null; then
+  allowed="$(taskset -pc $$ | sed 's/.*: //')"
+  cores="$(tr ',' '\n' <<<"$allowed" \
+    | awk -F- '{ e = ($2 == "" ? $1 : $2); for (i = $1; i <= e; i++) { print i; if (++n == 2) exit } }' | paste -sd, -)"
+  [ -n "$cores" ] || die "cannot read the allowed cores from taskset"
+  [[ "$cores" == *,* ]] || log "only one core is allowed ($cores); the CLI gets less than the 2 CPUs of the containers"
+  CMD=(taskset -c "$cores" "${CMD[@]}")
+fi
 cd "$(dirname "$BIN")"
 
 starts=(); idles=(); peaks=()
@@ -30,10 +38,11 @@ for (( run=1; run<=RUNS; run++ )); do
     "Logging__LogLevel__Microsoft.Hosting.Lifetime=Information" \
     "${CMD[@]}" <&4 >"$WORK/out" 2>"$WORK/err" &
   pid=$!
+  on_exit "kill $pid"
   ms=""
   limit=$(( $(date +%s) + 120 ))
   while [ "$(date +%s)" -lt "$limit" ]; do
-    if [ -s "$WORK/out" ] && grep -q $'\n' "$WORK/out"; then ms=$(( $(now_ms) - t0 )); break; fi
+    if [ "$(wc -l <"$WORK/out")" -ge 1 ]; then ms=$(( $(now_ms) - t0 )); break; fi
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.02
   done
@@ -46,8 +55,10 @@ for (( run=1; run<=RUNS; run++ )); do
     || { echo "first stdout line: $(head -n1 "$WORK/out")" >&2; kill "$pid" 2>/dev/null || true; exec 4>&-; die "run $run: first stdout line is not the host's Application started"; }
   starts+=("$ms")
   sleep "$IDLE_SECONDS"
-  idles+=("$(proc_mb "$pid" VmRSS)")
-  peaks+=("$(proc_mb "$pid" VmHWM)")
+  v="$(proc_mb "$pid" VmRSS)" || die "run $run: the CLI exited during the idle wait"
+  idles+=("$v")
+  v="$(proc_mb "$pid" VmHWM)" || die "run $run: the CLI exited during the idle wait"
+  peaks+=("$v")
   log "run $run/$RUNS: ready after ${ms} ms, rss ${idles[-1]} MiB, hwm ${peaks[-1]} MiB"
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true

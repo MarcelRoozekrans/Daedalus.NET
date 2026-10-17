@@ -39,10 +39,11 @@ export TOKEN_A TOKEN_B BASE
 
 # The script passed to bash -c is single-quoted on purpose: its variables expand in the child shell.
 # shellcheck disable=SC2016
+# A curl transport failure makes xargs exit 123; tolerate it here, so the status counts below are still reported.
 codes="$(seq "$REQUESTS" | xargs -P "$CONCURRENCY" -I{} bash -c '
   if [ $(( {} % 2 )) -eq 0 ]; then t="$TOKEN_A"; else t="$TOKEN_B"; fi
   printf "header = \"Authorization: Bearer %s\"\n" "$t" \
-    | curl -s -o /dev/null -w "%{http_code}\n" --max-time 30 -K - "$BASE/api/projects"')"
+    | curl -s -o /dev/null -w "%{http_code}\n" --max-time 30 -K - "$BASE/api/projects"' || true)"
 unset TOKEN_A TOKEN_B
 bad="$(grep -vc '^2' <<<"$codes" || true)"
 total="$(grep -c . <<<"$codes")"
