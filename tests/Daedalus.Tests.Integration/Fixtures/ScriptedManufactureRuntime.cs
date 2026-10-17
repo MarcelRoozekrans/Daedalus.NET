@@ -14,7 +14,7 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     outcome tool the engine offered: implement reports <c>changed</c> with a <c>learnings</c> entry, each
 ///     review lens pass reports evidence and <c>approved</c>, and retrospect proposes the pinned text plus one
 ///     learned line. It edits no file. Publish has no arm: in v6 it is a host action, and no agent turn runs
-///     there. It records each node's task text and agent. The implement turn reports <c>implementUsage</c> as its token
+///     there. It records each node's task text, agent and token ceiling. The implement turn reports <c>implementUsage</c> as its token
 ///     usage, the way a provider reports it, and every other turn reports none. With <c>rejectReview</c> every review
 ///     visit rejects, its first lens pass reporting one finding and the outcome <c>rejected</c>, so the loop runs to review's cap. With
 ///     <c>respondToReview</c> every implement visit after the first also reports a <c>review_response</c>, a one-entry array
@@ -41,6 +41,7 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
     private readonly ConcurrentDictionary<SessionId, AgentId> _sessions = new();
     private readonly ConcurrentDictionary<string, string> _tasks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, AgentId> _agents = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, int?> _maxTotalTokens = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Guid, int> _lensPasses = new();
     private readonly ConcurrentDictionary<Guid, int> _implementVisits = new();
 
@@ -51,6 +52,12 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
     public IReadOnlyDictionary<string, AgentId> AgentsByNode => _agents;
 
     public IReadOnlyCollection<string> Nodes => [.. _tasks.Keys];
+
+    /// <summary>
+    ///     Phase 2.15: the token ceiling each node's latest turn carried, as Thalos' <c>SubagentRunner</c> forwards the
+    ///     stamped budget in <see cref="AgentTurnRequest.MaxTotalTokens"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, int?> MaxTotalTokensByNode => _maxTotalTokens;
 
     public string TaskFor(string node) => _tasks.TryGetValue(node, out var task) ? task : "";
 
@@ -81,6 +88,7 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
         var run = caller.Run;
         var node = run.CurrentNode;
         _tasks[node] = request.Text;
+        _maxTotalTokens[node] = request.MaxTotalTokens;
         if (_sessions.TryGetValue(request.SessionId, out var agent))
         {
             _agents[node] = agent;

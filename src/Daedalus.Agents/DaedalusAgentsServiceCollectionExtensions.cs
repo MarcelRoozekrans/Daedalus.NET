@@ -305,6 +305,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // grant that only fails validation once someone flips Enabled is a grant nobody reviewed.
         ValidateWorkflowWriteConfig(options.Workflow, configuration.GetSection(WorkflowConfig.SectionName + ":WriteGrants"));
 
+        // Phase 2.15: checked in either engine mode for the same reason. A ceiling that only fails once someone turns the
+        // engine on is a ceiling nobody reviewed.
+        ValidateTurnBudgets(options.Workflow);
+
         // Phase 2.5, task B9: csharp-write lets a granted workflow turn apply Roslyn code actions. That is only safe
         // when the MCP source it is bound to is run-scoped, so the turn is served by its own run's server over its own
         // worktree; bound to a host-scoped source it would change this host's own solution. Checked at boot whenever
@@ -1025,6 +1029,46 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             throw new InvalidOperationException(
                 $"{ContentConfig.SectionName}:ResyncInterval must be greater than zero when set, but was " +
                 $"{interval.ToString(null, CultureInfo.InvariantCulture)}.");
+        }
+    }
+
+    /// <summary>
+    ///     Phase 2.15: every workflow turn's token ceiling comes from <c>Thalos:Workflow:TurnBudgets</c>, so a missing or
+    ///     non-positive value would fail every turn it applies to on its first token. The default must also cover every
+    ///     entry: with the squad off the fallback agent plays every role under the default, and that run must never be
+    ///     tighter than the squad-on run of the same task.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     <c>Default</c> is not positive, an <c>Agents</c> key is blank, an <c>Agents</c> value is not positive, or
+    ///     <c>Default</c> is below an <c>Agents</c> value.
+    /// </exception>
+    private static void ValidateTurnBudgets(WorkflowConfig workflow)
+    {
+        const string section = TurnBudgetsConfig.SectionName;
+        var budgets = workflow.TurnBudgets;
+        if (budgets.Default <= 0)
+        {
+            throw new InvalidOperationException(
+                $"{section}:Default must be greater than zero, got {budgets.Default}. It is the token ceiling of every workflow turn whose agent {section}:Agents does not list.");
+        }
+
+        foreach (var (name, ceiling) in budgets.Agents)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new InvalidOperationException($"{section}:Agents must not contain a blank agent name: it matches no agent.");
+            }
+
+            if (ceiling <= 0)
+            {
+                throw new InvalidOperationException($"{section}:Agents:{name} must be greater than zero, got {ceiling}.");
+            }
+
+            if (budgets.Default < ceiling)
+            {
+                throw new InvalidOperationException(
+                    $"{section}:Default ({budgets.Default}) must be at least {section}:Agents:{name} ({ceiling}): with the squad off, the fallback agent runs every role under the default.");
+            }
         }
     }
 

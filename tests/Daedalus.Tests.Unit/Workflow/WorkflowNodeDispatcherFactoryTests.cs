@@ -87,9 +87,13 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         {
             PrincipalId = "workflow-test",
             Roles = ["workflow"],
-            MaxTotalTokens = 42_000,
+            // The scout's ceiling, deliberately different from the turn budget below: a workflow turn no longer carries it.
+            MaxTotalTokens = 150_000,
             DeadlineSeconds = 180,
         });
+        // The agent catalog below is an empty substitute, so the worker is unnamed and runs under the default ceiling.
+        var workflow = new WorkflowConfig();
+        workflow.TurnBudgets.Default = 42_000;
 
         var services = new ServiceCollection();
         services.AddSingleton(store);
@@ -103,8 +107,8 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         services.AddSingleton<WorkflowRecallTierLog>();
         services.AddSingleton(TestNodeUsage.Recorder());
         services.AddSingleton(TestNodeUsage.Responses());
-        // The caller resolver reads the write grants from it; none are needed for a budget.
-        services.AddSingleton(new WorkflowConfig());
+        // The caller resolver reads the write grants from it; the budgeted runner reads the turn budgets.
+        services.AddSingleton(workflow);
         // ReviewLensRunner timestamps and logs the review evidence it records; this node declares no lenses.
         services.AddSingleton(TimeProvider.System);
         services.AddLogging();
@@ -122,7 +126,8 @@ public sealed class WorkflowNodeDispatcherFactoryTests
         await dispatcher.DispatchAsync(new WorkflowDispatchMessage(runId, run.CurrentSeq, "start"), CancellationToken.None);
 
         // Falsifiable: reverting WorkflowNodeDispatcherFactory.Create to pass innerRunner straight through
-        // (no BudgetedSubagentRunner wrapper) leaves captured.Budget null here.
+        // (no BudgetedSubagentRunner wrapper) leaves captured.Budget null here; stamping DetachedRuns' ceiling
+        // reads 150000.
         captured.Should().NotBeNull("the dispatcher built by the factory must have reached the substituted runner");
         captured!.Budget.Should().NotBeNull();
         captured.Budget.Should().Be(new SubagentBudget(42_000, TimeSpan.FromSeconds(180)));

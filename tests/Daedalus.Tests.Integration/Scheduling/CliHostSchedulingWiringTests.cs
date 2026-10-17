@@ -222,6 +222,9 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
             ["DetachedRuns:Roles:0"] = "reader",
             ["DetachedRuns:MaxTotalTokens"] = "50000",
             ["DetachedRuns:DeadlineSeconds"] = "300",
+            // Required since phase 2.15: AddDaedalusAgents refuses to start without a default workflow turn budget, in
+            // either engine mode.
+            ["Thalos:Workflow:TurnBudgets:Default"] = "875000",
         }).AddInMemoryCollection(overrides ?? []).Build();
 
     /// <summary>No skills roots are configured above, so <c>ContentRootPath</c> is never actually read.</summary>

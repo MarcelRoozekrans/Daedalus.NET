@@ -32,8 +32,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <see cref="ISubagentRunner"/> here would leave every workflow-run turn on Thalos's global default budget
 ///     instead of Daedalus's configured one — see <see cref="BudgetedSubagentRunner"/>'s own remarks for the
 ///     full reasoning. This is what makes the exception on the single-seam rule true rather than a loophole:
-///     the workflow path now applies the same budget policy <see cref="Daedalus.Agents.Scheduling.SubagentRunExecutor"/>
-///     applies to detached runs, from the same configuration, rather than skipping it.
+///     the workflow path applies a configured budget to every turn, as <see cref="Daedalus.Agents.Scheduling.SubagentRunExecutor"/>
+///     does to detached runs, rather than skipping it. Since phase 2.15 the token ceiling is per agent, from
+///     <c>Thalos:Workflow:TurnBudgets</c>, and the deadline is the detached runs' own.
 ///     </para>
 /// </remarks>
 internal static class WorkflowNodeDispatcherFactory
@@ -88,7 +89,11 @@ internal static class WorkflowNodeDispatcherFactory
                     new NodeSelectionRunner(
                         new StandingInstructionsRunner(
                             new ReviewLensRunner(
-                                new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
+                                new BudgetedSubagentRunner(
+                                    sp.GetRequiredService<ISubagentRunner>(),
+                                    sp.GetRequiredService<IOptions<DetachedRunOptions>>(),
+                                    sp.GetRequiredService<WorkflowConfig>(),
+                                    sp.GetRequiredService<IAgentCatalog>()),
                                 sp.GetRequiredService<IProcessDefinitionStore>(),
                                 // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
                                 // dependency.

@@ -1073,8 +1073,13 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton(squad);
         services.AddSingleton(squadAgentResolver);
         services.AddSingleton<WorkflowRecallTierLog>();
-        // The caller resolver reads the write grants from it; these tests assert handoff, not write grants.
-        services.AddSingleton(new WorkflowConfig());
+        // The caller resolver reads the write grants from it, and the budgeted runner the turn budgets; these tests
+        // assert handoff, not write grants or budgets, so the budgets are the shipped values.
+        var workflow = new WorkflowConfig();
+        workflow.TurnBudgets.Default = 875_000;
+        workflow.TurnBudgets.Agents["implementer"] = 875_000;
+        workflow.TurnBudgets.Agents["reviewer"] = 600_000;
+        services.AddSingleton(workflow);
         services.AddSingleton<IWorkflowReferenceResolver>(references);
         services.AddSingleton(runner);
         services.AddSingleton(skills);
