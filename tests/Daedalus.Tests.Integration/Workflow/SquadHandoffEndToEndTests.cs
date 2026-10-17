@@ -1074,7 +1074,8 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         services.AddSingleton(squadAgentResolver);
         services.AddSingleton<WorkflowRecallTierLog>();
         // The caller resolver reads the write grants from it, and the budgeted runner the turn budgets; these tests
-        // assert handoff, not write grants or budgets, so the budgets are arbitrary and not the shipped values.
+        // assert handoff, not write grants or budgets. The budgets equal today's shipped ceilings, but nothing here depends
+        // on that, and TurnBudgetDriftTests, not this file, pins the shipped values.
         var workflow = new WorkflowConfig();
         workflow.TurnBudgets.Default = 2_900_000;
         workflow.TurnBudgets.Agents["implementer"] = 2_900_000;
