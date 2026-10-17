@@ -81,8 +81,8 @@ internal static class WorkflowDispatchTiming
     ///     a crashed host's lease running out (<see cref="WorkflowOutboxDispatchOptions.LeaseDuration"/>), then the
     ///     next dispatch's gate wait and turn, then the retry backoff before the attempt that finally advances it
     ///     (<see cref="WorkflowOutboxDispatchOptions.RetryBackoffWindow"/>), plus <see cref="StrandedMargin"/>.
-    ///     With a 20-minute lease, a 10-minute gate wait and a 5-minute turn that is just over 44 minutes; with no
-    ///     gate it is just over 34.
+    ///     With a 25-minute lease, a 10-minute gate wait and a 10-minute turn that is just over 54 minutes; with no
+    ///     gate it is just over 44.
     /// </summary>
     /// <param name="options">The dispatch options whose lease and backoff are two of the terms.</param>
     /// <param name="turnDeadline">The agent turn's wall-clock deadline, <c>DetachedRuns:DeadlineSeconds</c>.</param>
