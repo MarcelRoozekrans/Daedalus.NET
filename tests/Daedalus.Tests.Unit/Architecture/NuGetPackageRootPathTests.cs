@@ -14,15 +14,19 @@ public sealed partial class NuGetPackageRootPathTests
 
     private static readonly string[] ScannedRoots = ["src", "tests"];
 
-    /// <summary><c>$(NuGetPackageRoot)</c> immediately followed by a letter or a slash.</summary>
-    [GeneratedRegex(@"\$\(NuGetPackageRoot\)[A-Za-z/\\]", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
+    /// <summary>
+    ///     <c>$(NuGetPackageRoot)</c> not wrapped in <c>EnsureTrailingSlash('...')</c>, that is not followed by the
+    ///     <c>')</c> that closes the wrapper's argument. MSBuild property names are case-insensitive, so the match is too.
+    /// </summary>
+    [GeneratedRegex(@"\$\(NuGetPackageRoot\)(?!'\))", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex BareConcatenation();
 
     /// <summary>
-    ///     Every project, props and targets file under <c>src/</c> and <c>tests/</c> that appends a path segment to
-    ///     <c>$(NuGetPackageRoot)</c> wraps it in <c>EnsureTrailingSlash</c>. Red: change one test project's
-    ///     <c>Compile Remove</c> back to the bare <c>$(NuGetPackageRoot)zeroalloc.testhelpers/...</c> form; the
-    ///     failure names that file and line. Red: change MinimumTestProjects to 8; the coverage assertion fails.
+    ///     Every project, props and targets file under <c>src/</c> and <c>tests/</c> that uses
+    ///     <c>$(NuGetPackageRoot)</c>, in any letter case, wraps it in <c>EnsureTrailingSlash</c>. Red: change one test
+    ///     project's <c>Compile Remove</c> back to the bare <c>$(NuGetPackageRoot)zeroalloc.testhelpers/...</c> form; the
+    ///     failure names that file and line. Red: write that bare use in lower case, <c>$(nugetpackageroot)</c>; it is
+    ///     flagged the same way. Red: change MinimumTestProjects to 8; the coverage assertion fails.
     /// </summary>
     [Fact]
     public void Every_path_built_on_NuGetPackageRoot_ensures_its_trailing_slash()
