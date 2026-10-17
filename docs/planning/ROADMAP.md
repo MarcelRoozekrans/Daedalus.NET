@@ -148,7 +148,9 @@ they are not lost among nine phase rows.
    are unaffected because GitVersion wins in CI; local dev feeds carry wrong version numbers today. —
    Thalos.NET#167
 
-## Milestone 2: Software Manufacturing [status: active]
+## Milestone 2: Software Manufacturing [status: complete]
+
+**Completed:** 2026-10-17. Audit: `docs/superpowers/reviews/2026-10-17-milestone-2-audit-2.md` (PASS).
 
 **Goal:** Turn Daedalus from an agent that answers into a system that *builds* — a durable,
 resumable pipeline that takes a unit of work from intent to reviewed pull request, staffed by a

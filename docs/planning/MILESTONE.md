@@ -1,7 +1,8 @@
 # Milestone 2: Software Manufacturing
 
-**Status:** active
+**Status:** complete
 **Started:** 2026-09-21
+**Completed:** 2026-10-17
 
 > Written 2026-09-24, after phase 2.4 closed. Milestone 2 had a goal in `ROADMAP.md` but no
 > definition of done; the criteria below were reconstructed from that goal and the phase list and
@@ -20,7 +21,9 @@ only once something demonstrably better runs in its place.
 
 ## Definition of Done
 
-- [ ] **All planned phases complete.** Phases 2.1 through 2.15 are merged.
+- [x] **All planned phases complete.** Phases 2.1 through 2.15 are merged.
+
+      **Met 2026-10-17:** 2.15 merged as #396, the last of the fifteen. See `docs/superpowers/reviews/2026-10-17-milestone-2-audit-2.md`.
 - [x] **One manufacture run proven live from intent to reviewed pull request.** It is started
       through `POST /api/workflow-runs`, against a repository the owner chooses. Every step is
       recorded in the run's event log, not asserted:
@@ -65,14 +68,25 @@ only once something demonstrably better runs in its place.
       with Error status and `error.type`, and a refused start names its failure kind; both are test-proven
       (Thalos `DispatchTelemetryTests`, Daedalus `ManufactureTelemetryTests`), not observed in a live failure.
       See `docs/plans/2026-10-11-phase-2.9-rulings.md`.
-- [ ] **Spend is visible and bounded.** Agent-turn token usage is aggregated into cost analytics.
+- [x] **Spend is visible and bounded.** Agent-turn token usage is aggregated into cost analytics.
       The token budget either caps spend during a turn or is documented as the post-turn check it
       is, sized from measurements rather than picked.
-- [ ] **All tests passing.** Unit, Unit.Application, Unit.Domain, Unit.Infrastructure and
+
+      **Met 2026-10-17, phase 2.15 (#396).** The cap stops a turn before the model round trip that would start at or
+      above its ceiling (Thalos since 0.11.0). Per-role ceilings of 2,900,000 were sized from 87 measured turns by a
+      stated rule and documented in the README and the development guide. A failed node's spend, a stopped turn's
+      included, now reaches `/costs`. Known limits: #394, #395. See `docs/superpowers/reviews/2026-10-17-milestone-2-audit-2.md`.
+- [x] **All tests passing.** Unit, Unit.Application, Unit.Domain, Unit.Infrastructure and
       Integration all pass. Playwright.Api and Playwright.Browser pass for any phase that touches
       UI, including 2.12's manufacturing console.
-- [ ] **Documentation complete.** Every phase has a design doc, a plan and a rulings record in
+
+      **Met 2026-10-17** on `main` `cd466736`: unit 2005, Unit.Domain 356, Unit.Application 281,
+      Unit.Infrastructure 258, integration 745, Playwright.Api 115, Playwright.Browser 219.
+- [x] **Documentation complete.** Every phase has a design doc, a plan and a rulings record in
       `docs/plans/`.
+
+      **Met 2026-10-17.** 2.1 gained its rulings record in #392 and 2.15 shipped all three. From 2.6 on, designs and
+      some plans live under `docs/superpowers/`, which the audit records as a location change, not a gap.
 
 ## Phases
 
@@ -102,3 +116,4 @@ Full phase text, including what each completed phase actually proved and carried
 | Date | Verdict | Gaps |
 |---|---|---|
 | 2026-10-17 | FAIL | Spend not bounded: the token ceiling is unsized, #280; phase 2.1 has no rulings record. Report: `docs/superpowers/reviews/2026-10-17-milestone-2-audit.md` |
+| 2026-10-17 | PASS | None. Second run, on `main` `cd466736`. Report: `docs/superpowers/reviews/2026-10-17-milestone-2-audit-2.md` |
