@@ -2,22 +2,26 @@
 
 **Last session:** 2026-10-17, with the owner present
 
-## Current Position - milestone 2 complete (2026-10-17): re-audited PASS; next is milestone 3 via `new-milestone`
+## Current Position - milestone 3, Native AOT, started (2026-10-17); next is phase 3.1
 
-**Milestone 2 audit, second run:** `docs/superpowers/reviews/2026-10-17-milestone-2-audit-2.md`, on `main` `cd466736`.
-Every definition-of-done criterion is met, including the two the first run failed: spend is bounded by per-role
-ceilings sized from measured turns (phase 2.15, #396), and phase 2.1 has its rulings record (#392). All seven suites
-pass: unit 2005, Unit.Domain 356, Unit.Application 281, Unit.Infrastructure 258, integration 745, Playwright.Api 115,
-Playwright.Browser 219.
+**Milestone 2 is complete** (2026-10-17; re-audit PASS, #397). **Milestone 3, Native AOT**, was brainstormed with the
+owner via `new-milestone`:
+- Design: `docs/superpowers/specs/2026-10-17-milestone-3-design.md`.
+- Evidence: an AOT compile survey of every target, `docs/plans/2026-10-17-native-aot-survey.md`.
+- Plan: seven phases, 3.1 to 3.7, in `MILESTONE.md` and `ROADMAP.md`.
+
+The survey's biggest blockers are the Anthropic SDK (about 15,000 of the API's 16,725 warnings), EF Core, the MVC
+controllers and the Aspire hosting packages in ServiceDefaults.
 
 ## Needs the owner
 
-1. **Merge the PR** that carries the re-audit and completes milestone 2 in ROADMAP and MILESTONE. Releases belong to
-   release-please, so no tag was created. Milestone 3 starts with `new-milestone`, which brainstorms its scope.
-2. **Release:** dispatch release-please. It should propose 0.2.0 and count #388, #391 and #396.
-3. **Anthropic credits** are used up. PRD generation and brainstorm are still unconfirmed live since #391.
-4. **Thalos.NET#363:** fix the README sentence on the token budget.
-5. **Decide #383, #373 and #374**, carried from 2.14.
+1. **Merge the milestone 3 PR.** Then phase 3.1 starts with its own design, via `start-next-phase`.
+2. **Native toolchain:** 3.1 needs clang and zlib headers on the agent VM, and the `wasm-tools` workload. The VM's
+   owner may need to install them.
+3. **Release:** dispatch release-please. It should propose 0.2.0 and count #379, #388, #391 and #396.
+4. **Anthropic credits** are used up. PRD generation and brainstorm are unconfirmed live since #391, and 3.3 and 3.6
+   need credits for their live proofs.
+5. **Thalos.NET#363**, the README sentence on the token budget; and decide #383, #373 and #374.
 
 ---
 
