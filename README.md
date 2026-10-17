@@ -762,6 +762,15 @@ persisted in PostgreSQL (`AgentSessions`, `AgentMessages`, `AgentMemories`, `Ski
 | `Thalos:Decisions:{Model,Timeout}`             | The OpenRouter model that decides (default `jev-latest`) and how long a decision may take (default 5 seconds) before the node falls back to its default model and full tool list. |
 | `Thalos:Decisions:{ModelConfidence,ToolFamilyProbability}` | Minimum confidence (default 0.6) for a model choice to be taken, and minimum probability (default 0.5) for a tool family to be kept. Both between 0 and 1. |
 | `Thalos:Decisions:PinnedLensModels`            | Review lens (`correctness`, `falsifiability`, `mechanism`) → model its pass runs on whatever the node's decision. Applies only while decisions are on; with them off every lens runs on the review's default model, and the start-up line counts the inactive pins. Each must be in `AllowedModels` of the agent that runs the review under the current `Thalos:Squad:Enabled`, or that agent's default model when known; start-up refuses it otherwise, on or off. |
+| `Thalos:Workflow:TurnBudgets`                  | Per-turn token ceiling of each workflow agent: `Default` for any agent not listed, and `Agents:<name>` entries for `implementer` and `reviewer`. Shipped at 2,900,000 each, sized from measured turns: `docs/development-guide.md`, "Token budget". Both hosts ship the same values. |
+
+**Turn token ceilings (phase 2.15).** Each workflow turn is stopped before the model call that would start with the
+turn already at or above its agent's ceiling in `Thalos:Workflow:TurnBudgets`. The count is input plus output tokens,
+with cache reads at full weight though they are billed at a tenth, so a turn can end above the ceiling by its last
+call. A stopped turn fails its node with `SubagentBudgetExceeded`, and its spend still shows on `/costs`.
+`DetachedRuns:MaxTotalTokens` is not a workflow ceiling: it bounds the scout and other detached runs only, and only
+`DetachedRuns:DeadlineSeconds` still applies to workflow turns. How the numbers were sized and how to resize them:
+`docs/development-guide.md`, "Token budget".
 
 **Per-node model and tool selection (phase 2.10).** Before an implement or review node runs, a cheap
 [Minos.NET](https://github.com/MarcelRoozekrans/Minos.NET) decision, made through OpenRouter, picks the node's model
