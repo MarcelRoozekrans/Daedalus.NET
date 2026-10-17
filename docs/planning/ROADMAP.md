@@ -190,7 +190,33 @@ via `new-milestone`.
 | 2.14 | Flux across the Web app: move the remaining pages (Home, Projects, Schedules, Costs, Agent, Git Repositories, PRD Generator; 2.13 removed Executions) from component fields onto `ZeroAlloc.Flux` features, on the foundation 2.12 lays. Added 2026-10-12, split out of 2.12 by owner decision; renumbered from 2.13 on 2026-10-13, after the navigation review, so it moves only the pages that 2.13 keeps. The 2.12 spec and plan still call it 2.13 | Refactor | **complete (2026-10-16)**: built subagent-driven, ten tasks each reviewed, then a whole-branch review and a live sweep with no regressions. Every page keeps its state in a Flux feature and calls the API through a typed client; Home updates live; the Web's 15 DTO copies are gone (#372); found and fixed on the way: PRD reading, the Schedules first expand, brainstorm messages not being saved. Rulings: `docs/plans/2026-10-16-phase-2.14-rulings.md`; filed #377, #383 to #387 | 2.12, 2.13 |
 | 2.15 | Size and document the token budget: the milestone 2 audit of 2026-10-17 found spend visible but not bounded. `Thalos:DetachedRuns:MaxTotalTokens` is 150,000 and is stamped onto every workflow turn, yet one measured `implement` turn used 358,703 input tokens and another 737,634. Measure real manufacture turns per node, set the ceiling from those measurements rather than one observation, and document it as the post-turn check it is, or cap during the turn if Thalos.NET#173 lands. Closes #280. Audit: `docs/superpowers/reviews/2026-10-17-milestone-2-audit.md` | Backend | **complete (2026-10-17)**: built subagent-driven, five tasks each reviewed, with the live steps run by the controller. The cap was already in-turn since Thalos 0.11.0, so the gap was its sizing and documentation, not its timing. Ceilings are now per role, sized from the measured turns: implementer, reviewer and Default 2,900,000, with a 600 s turn deadline and a 25 minute dispatch lease. A turn stopped by its ceiling now writes a failed-node usage record, so its spend reaches /costs. Found and fixed on the way: the sandbox build failing on every Daedalus.NET run, because `NuGetPackageRoot` had no trailing slash. **Live proof:** run `facc1bc5` on the shipped settings, implement 276,941, review 307,556, retrospect 52,461, gate approved, daedalus-sandbox#25; run `376c1492` stopped at 875,000 and its 990,493 tokens were counted. Live spend $13.41. Closes #280; filed #394 and #395. Rulings, measurements and deferred minors: `docs/plans/2026-10-17-phase-2.15-rulings.md` | 2.14 |
 
-## Milestone 3: Native AOT [status: planned]
+## Milestone 3: Native AOT [status: active]
+
+**Started:** 2026-10-17. Design: `docs/superpowers/specs/2026-10-17-milestone-3-design.md`. Survey:
+`docs/plans/2026-10-17-native-aot-survey.md`. Brainstormed with the owner via `new-milestone`, which took these
+decisions:
+- EF Core has no roadmap to AOT, so the move is made now.
+- The existing schema and data are kept.
+- The Migrations runner, the sandbox host and the Web app (WebAssembly AOT) are also in scope.
+- Blockers are fixed at the source and tracked.
+- Thalos gets its own Anthropic client.
+- The controllers keep an identical HTTP contract.
+- System.Text.Json source-generated contexts are used now. The `ZeroAlloc.Serialisation` swap moves out of this
+  milestone.
+
+### Phases
+
+| # | Phase | Surface | Status | Depends on |
+|---|---|---|---|---|
+| 3.1 | AOT toolchain, CI warning gates, JIT baseline measurements and the ZeroAlloc.ORM gap audit; the sandbox host published native | Infra | pending | M2 |
+| 3.2 | Our own reflection out: System.Text.Json source-generated contexts, configuration-binding generator, DI annotations, a source-generated tool registry, YamlDotNet static generator; Aspire hosting packages out of ServiceDefaults; `ZeroAlloc.Inject` and `ZeroAlloc.Resilience` | Refactor | pending | 3.1 |
+| 3.3 | Thalos' own source-generated Anthropic and Ollama clients behind `IChatClient` and `IEmbeddingGenerator`; the Anthropic SDK and OllamaSharp leave the tree | Backend | pending | 3.2 |
+| 3.4 | The 18 MVC controllers become minimal API endpoints with an identical contract | Refactor | pending | 3.2 |
+| 3.5 | EF Core to ZeroAlloc.ORM over the existing schema and data, with the outbox, scheduling and diagnostics stores and `ZeroAlloc.Specification`; EF Core removed | Data | pending | 3.2 |
+| 3.6 | The API, CLI and Migrations published native in CI with zero warnings; suites run against the native API; a live run; before and after measurements | Infra | pending | 3.2-3.5 |
+| 3.7 | `Daedalus.Web` published with WebAssembly AOT; the browser suite passes against it | Infra | pending | 3.1, 3.2 |
+
+### Background
 
 **Goal:** Publish Thalos.NET and the Daedalus api/console binaries with `PublishAot`.
 
