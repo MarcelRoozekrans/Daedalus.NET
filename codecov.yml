@@ -1,0 +1,25 @@
+# Codecov: coverage per PR. Rolled out 2026-10-17; both statuses are informational, so nothing
+# blocks a merge yet. Make patch a real check once the numbers settle.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        target: 80%
+        informational: true
+
+comment:
+  layout: "condensed_header, diff, files"
+  require_changes: true
+
+# Mirrors the ReportGenerator assembly filters in ci.yml.
+ignore:
+  - "tests/**"
+  - "benchmarks/**"
+  - "src/Daedalus.AppHost/**"
+  - "src/Daedalus.Migrations/**"
+  - "src/Daedalus.ServiceDefaults/**"
+  - "**/obj/**"
+  - "**/*.g.cs"
