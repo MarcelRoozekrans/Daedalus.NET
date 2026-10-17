@@ -14,7 +14,9 @@ namespace Daedalus.Agents.Workflow;
 ///     reads a manufacture run's usage from Daedalus's own table. <see cref="ReviewHandoffWorkflowStore"/> calls
 ///     <see cref="RecordCompletionAsync"/> on every completion, which also counts the tokens.
 ///     <see cref="NodeUsageBackfill"/> calls <see cref="RecordAsync"/> for completions that have no record yet, which counts
-///     nothing: those tokens were spent in the past.
+///     nothing: those tokens were spent in the past. Since phase 2.15 <see cref="FailedNodeUsageRunner"/> hands the turns of a
+///     node whose turn failed, which no completion records, to <see cref="HoldFailure"/>, and the record is appended once the
+///     store has committed the run's failure.
 /// </summary>
 /// <remarks>
 ///     A second append for a (run, seq) that already has a record violates the unique index
@@ -22,7 +24,8 @@ namespace Daedalus.Agents.Workflow;
 ///     backfill, so it reads as "already recorded": it returns false and logs at Debug.
 ///     A failure is logged, not thrown, and so is a cancelled caller: the append runs under a token of its own, which only
 ///     <c>AppendTimeout</c> cancels, never the dispatch's. The completion it describes is already persisted, so throwing would only
-///     dead-letter a dispatch whose work is done. The next boot's backfill writes the missing record.
+///     dead-letter a dispatch whose work is done. The next boot's backfill writes the missing record of a completion; a failed
+///     node's record has no completion to be rebuilt from, so its failed append is logged as lost spend.
 ///     <para>
 ///     <b>A node that ran on several models is recorded per model.</b> Thalos hands the store one <see cref="TurnUsage"/> per
 ///     completion, and its <c>+</c> keeps the first operand's model, so a review whose pinned lens ran on another model would be
@@ -31,8 +34,20 @@ namespace Daedalus.Agents.Workflow;
 ///     <see cref="RecordCompletionAsync"/> takes it back: the record carries <see cref="NodeUsage.ByModel"/> and the token
 ///     counter counts each model's own tokens. What is held is in memory and released whenever no completion will take it:
 ///     when the dispatcher's store fails the run or its completion throws, and, as an <see cref="IWorkflowRunObserver"/>,
-///     whenever the store commits a cancellation or a failure of the run by any path. A host restart loses it. The backfill reads only the completion's single usage, so a review it records is priced at its first model, as
-///     before this existed.
+///     whenever the store commits a cancellation or a failure of the run by any path. A host restart loses it. The backfill
+///     reads only the completion's single usage, so a review it records is priced at its first model, as before this existed.
+///     </para>
+///     <para>
+///     <b>A failed node is recorded only once its run's failure has committed.</b> <see cref="HoldFailure"/> keeps the summed
+///     usage per (run, seq) apart from the passes above, and <see cref="OnChangedAsync"/> appends it when the store commits
+///     the run's failure, which Thalos' <c>OrmWorkflowStore</c> notifies only after <c>FailAsync</c> or
+///     <c>FailStrandedAsync</c> has committed. A failure that never commits, such as a graceful stop's
+///     <c>FailAsync</c> under the cancelled dispatch token or a transient database error inside it, is redelivered: the node
+///     runs again at the same seq, <see cref="DropFailure"/> releases the hold before it does, and that run's own completion
+///     or failure is what is recorded. The cancelled attempt's partial spend is then not recorded, which keeps every seq
+///     counted once. A committed cancellation releases the hold too. A run that became terminal while the node's turn ran
+///     commits nothing on the dispatcher's <c>FailAsync</c>, so <see cref="ReviewHandoffWorkflowStore"/> settles the hold
+///     by the run's status through <see cref="SettleFailuresAsync"/>. A host restart loses it, as it loses the passes.
 ///     </para>
 /// </remarks>
 internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, TimeProvider clock, ILogger<NodeUsageRecorder> logger)
@@ -47,11 +62,17 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     /// <summary>The per-model usage of a node that ran on more than one model, until its completion is recorded.</summary>
     private readonly ConcurrentDictionary<(Guid RunId, long Seq), IReadOnlyList<NodeUsage>> _held = new();
 
+    /// <summary>The usage of a node whose turn failed, until the store commits the run's failure.</summary>
+    private readonly ConcurrentDictionary<(Guid RunId, long Seq), FailedNode> _failed = new();
+
     /// <summary>Now, on the host clock, as a UTC <see cref="DateTime"/>.</summary>
     public DateTime UtcNow => clock.GetUtcNow().UtcDateTime;
 
     /// <summary>How many nodes' per-model usage is held, for tests.</summary>
     internal int HeldCount => _held.Count;
+
+    /// <summary>How many failed nodes' usage is held, for tests.</summary>
+    internal int HeldFailureCount => _failed.Count;
 
     /// <summary>
     ///     Holds the usage of each turn a node at (<paramref name="runId"/>, <paramref name="seq"/>) ran, summed per model in
@@ -62,12 +83,7 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     public void HoldPasses(Guid runId, long seq, IReadOnlyList<TurnUsage> passes)
     {
         ArgumentNullException.ThrowIfNull(passes);
-        var parts = passes
-            .GroupBy(p => string.IsNullOrEmpty(p.ModelId) ? null : p.ModelId, StringComparer.Ordinal)
-            .Select(g => new NodeUsage(
-                g.Key, g.Sum(p => (long)p.InputTokens), g.Sum(p => (long)p.OutputTokens),
-                g.Sum(p => (long)p.CacheReadTokens), g.Sum(p => (long)p.CacheWriteTokens)))
-            .ToList();
+        var parts = PerModel(passes);
         if (parts.Count < 2)
         {
             _held.TryRemove((runId, seq), out _);
@@ -78,19 +94,88 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     }
 
     /// <inheritdoc />
-    /// <remarks>A cancelled or failed run completes no node, so whatever it held is dropped. Changes no run.</remarks>
-    public ValueTask OnChangedAsync(WorkflowRunChange change, CancellationToken ct)
+    /// <remarks>
+    ///     A cancelled or failed run completes no node, so the passes it held are dropped, and each failed node held for it
+    ///     is settled by <see cref="SettleFailuresAsync"/>: appended on a committed failure, dropped on a committed
+    ///     cancellation. Changes no run, and throws nothing: the append logs its own failure.
+    /// </remarks>
+    public async ValueTask OnChangedAsync(WorkflowRunChange change, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(change);
-        if (change.Kind is WorkflowRunChangeKind.Cancelled or WorkflowRunChangeKind.Failed)
+        if (change.Kind is not (WorkflowRunChangeKind.Cancelled or WorkflowRunChangeKind.Failed))
         {
-            Forget(change.RunId);
+            return;
         }
 
-        return ValueTask.CompletedTask;
+        Forget(change.RunId);
+        await SettleFailuresAsync(change.RunId, change.Status).ConfigureAwait(false);
     }
 
-    /// <summary>Drops whatever is held for <paramref name="runId"/>: no completion will take it.</summary>
+    /// <summary>
+    ///     For <see cref="ReviewHandoffWorkflowStore.FailAsync"/>, once the store's <c>FailAsync</c> has returned: reads the
+    ///     run back from <paramref name="store"/> and settles each failed node held for it by the run's status, through
+    ///     <see cref="SettleFailuresAsync"/>. The read uses no caller token, because a cancelled token would leave the hold
+    ///     unsettled with no redelivery to come. Throws nothing: the failure has already returned, so an exception from the
+    ///     read or the settle, such as a transient database error, is logged with the run id and its type and message, the
+    ///     way Thalos' store swallows an observer's failure. On the ordinary path the observer has already settled the hold;
+    ///     after a run the sweep failed, the hold then stays until the host restarts.
+    /// </summary>
+    public async ValueTask SettleAfterFailAsync(IWorkflowStore store, Guid runId)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        try
+        {
+            if (await store.FindAsync(runId, CancellationToken.None).ConfigureAwait(false) is { } run)
+            {
+                await SettleFailuresAsync(runId, run.Status).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogSettleFailed(logger, runId, ex.GetType().FullName ?? ex.GetType().Name, ex.Message);
+        }
+    }
+
+    /// <summary>
+    ///     Settles each failed node held for <paramref name="runId"/>, whose run has reached the terminal
+    ///     <paramref name="status"/>: appends its record through <see cref="RecordFailureAsync"/> when the run is
+    ///     <see cref="WorkflowStatus.Failed"/>, and drops it when the run is <see cref="WorkflowStatus.Cancelled"/> or
+    ///     <see cref="WorkflowStatus.Succeeded"/>. A run that is not terminal settles nothing: a rerun may still claim the
+    ///     seq. Each hold is taken with <c>TryRemove</c>, so a second settle of the same run, such as
+    ///     <see cref="ReviewHandoffWorkflowStore"/> settling after the observer already did, is a no-op.
+    /// </summary>
+    /// <remarks>
+    ///     Called by <see cref="OnChangedAsync"/> when the store commits a failure or a cancellation, and by
+    ///     <see cref="ReviewHandoffWorkflowStore.FailAsync"/> after the dispatcher's failure returned. The second covers a run
+    ///     that became terminal while its node's turn ran, cancelled or failed by the stranded sweep: that commit found
+    ///     nothing held yet, and the dispatcher's later <c>FailAsync</c> commits nothing and notifies nobody, because
+    ///     the run is already terminal. No redelivery follows either, because the run is no longer running.
+    /// </remarks>
+    public async ValueTask SettleFailuresAsync(Guid runId, WorkflowStatus status)
+    {
+        if (status is not (WorkflowStatus.Failed or WorkflowStatus.Cancelled or WorkflowStatus.Succeeded))
+        {
+            return;
+        }
+
+        foreach (var key in _failed.Keys)
+        {
+            if (key.RunId != runId || !_failed.TryRemove(key, out var failed))
+            {
+                continue;
+            }
+
+            if (status == WorkflowStatus.Failed)
+            {
+                await RecordFailureAsync(key.RunId, key.Seq, failed).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Drops the passes held for <paramref name="runId"/>: no completion will take them. A failed node's held usage is
+    ///     not dropped here; it waits for the store's verdict on the failure, in <see cref="OnChangedAsync"/>.
+    /// </summary>
     public void Forget(Guid runId)
     {
         foreach (var key in _held.Keys)
@@ -133,19 +218,92 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
             ManufactureTelemetry.RecordTokens(node, part);
         }
 
-        return AppendAsync(runId, seq, node, startedById, total, UtcNow);
+        return AppendAsync(runId, seq, node, startedById, total, UtcNow, repairedByBackfill: true);
+    }
+
+    /// <summary>
+    ///     Phase 2.15, for a node whose turn failed, which no completion records: holds the sum of <paramref name="turns"/>,
+    ///     every turn the node ran up to and including the failed one, for (<paramref name="runId"/>, <paramref name="seq"/>)
+    ///     until the store commits the run's failure, when <see cref="OnChangedAsync"/> records it. Turns on two or more models
+    ///     are held with the per-model split <see cref="HoldPasses"/> builds. <see cref="FailedNodeUsageRunner"/> calls it before
+    ///     the dispatcher fails the run, at the seq the node ran at. Returns whether anything is held: false, holding nothing
+    ///     and releasing an earlier hold of that seq, when the turns spent no tokens.
+    /// </summary>
+    public bool HoldFailure(Guid runId, long seq, string node, string? startedById, IReadOnlyList<TurnUsage> turns)
+    {
+        ArgumentNullException.ThrowIfNull(turns);
+        var parts = PerModel(turns);
+        var total = new NodeUsage(
+            parts.Count == 0 ? null : parts[0].Model,
+            parts.Sum(p => p.InputTokens), parts.Sum(p => p.OutputTokens),
+            parts.Sum(p => p.CacheReadTokens), parts.Sum(p => p.CacheWriteTokens));
+        if (total is { InputTokens: 0, OutputTokens: 0, CacheReadTokens: 0, CacheWriteTokens: 0 })
+        {
+            DropFailure(runId, seq);
+            return false;
+        }
+
+        if (parts.Count >= 2)
+        {
+            // Sums of the same parts, so the split always holds.
+            total = total.WithSplit(parts).Value;
+        }
+
+        _failed[(runId, seq)] = new FailedNode(node, startedById, total);
+        return true;
+    }
+
+    /// <summary>
+    ///     Releases the failed node held for (<paramref name="runId"/>, <paramref name="seq"/>). <see cref="FailedNodeUsageRunner"/>
+    ///     calls it whenever a node is dispatched: a dispatch of a seq that still holds a failure is a redelivery, so the
+    ///     earlier failure never committed and the node is about to run again.
+    /// </summary>
+    public void DropFailure(Guid runId, long seq) => _failed.TryRemove((runId, seq), out _);
+
+    /// <summary>
+    ///     Records a held failed node once its run's failure has committed: counts the tokens on
+    ///     <c>daedalus.manufacture.tokens</c> per model and appends the node's record as <see cref="RecordCompletionAsync"/>
+    ///     does, stamped now. No completion claims that seq, because the run has failed; a second record for it reads as
+    ///     "already recorded" through the unique index. Returns whether the record was written.
+    /// </summary>
+    private ValueTask<bool> RecordFailureAsync(Guid runId, long seq, FailedNode failed)
+    {
+        foreach (var part in failed.Usage.Parts)
+        {
+            ManufactureTelemetry.RecordTokens(failed.Node, part);
+        }
+
+        LogFailedNodeRecorded(logger, runId, failed.Node, failed.Usage.InputTokens, failed.Usage.OutputTokens);
+        return AppendAsync(runId, seq, failed.Node, failed.StartedById, failed.Usage, UtcNow, repairedByBackfill: false);
     }
 
     /// <summary>Appends the record. Returns whether it was written: false when the record already existed or the append failed. The caller's token is deliberately not passed to the append.</summary>
     public ValueTask<bool> RecordAsync(
         Guid runId, long seq, string node, string? startedById, TurnUsage usage, DateTime createdAtUtc, CancellationToken ct) =>
-        AppendAsync(runId, seq, node, startedById, UsageOf(usage), createdAtUtc);
+        AppendAsync(runId, seq, node, startedById, UsageOf(usage), createdAtUtc, repairedByBackfill: true);
+
+    /// <summary>
+    ///     The turns summed per model, in the order the models first ran. A turn with no model is grouped under
+    ///     <see langword="null"/>.
+    /// </summary>
+    private static List<NodeUsage> PerModel(IReadOnlyList<TurnUsage> turns) => turns
+        .GroupBy(p => string.IsNullOrEmpty(p.ModelId) ? null : p.ModelId, StringComparer.Ordinal)
+        .Select(g => new NodeUsage(
+            g.Key, g.Sum(p => (long)p.InputTokens), g.Sum(p => (long)p.OutputTokens),
+            g.Sum(p => (long)p.CacheReadTokens), g.Sum(p => (long)p.CacheWriteTokens)))
+        .ToList();
 
     private static NodeUsage UsageOf(TurnUsage usage) => new(
         string.IsNullOrEmpty(usage.ModelId) ? null : usage.ModelId,
         usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheWriteTokens);
 
-    private async ValueTask<bool> AppendAsync(Guid runId, long seq, string node, string? startedById, NodeUsage usage, DateTime createdAtUtc)
+    /// <summary>
+    ///     Appends <paramref name="usage"/> as the node-usage record of (<paramref name="runId"/>, <paramref name="seq"/>).
+    ///     <paramref name="repairedByBackfill"/> says whether the next boot's backfill writes the record when this append
+    ///     fails: it does for a completion, never for a failed node, which has no completion to read back.
+    /// </summary>
+    private async ValueTask<bool> AppendAsync(
+        Guid runId, long seq, string node, string? startedById, NodeUsage usage, DateTime createdAtUtc, bool repairedByBackfill)
     {
         var payload = usage.ToPayloadJson();
         var record = WorkflowRunRecord.Create(
@@ -171,7 +329,15 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
         }
         catch (Exception ex)
         {
-            LogAppendFailed(logger, ex, runId, seq);
+            if (repairedByBackfill)
+            {
+                LogAppendFailed(logger, ex, runId, seq);
+            }
+            else
+            {
+                LogFailedNodeAppendFailed(logger, ex, runId, seq);
+            }
+
             return false;
         }
     }
@@ -192,4 +358,16 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The node-usage record for run {RunId} at seq {Seq} could not be written; the next boot's backfill writes it")]
     private static partial void LogAppendFailed(ILogger logger, Exception exception, Guid runId, long seq);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The node-usage record of the failed node of run {RunId} at seq {Seq} could not be written; its spend is not in cost analytics")]
+    private static partial void LogFailedNodeAppendFailed(ILogger logger, Exception exception, Guid runId, long seq);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Recording the spend of failed node {Node} of run {RunId}: {InputTokens} input and {OutputTokens} output tokens")]
+    private static partial void LogFailedNodeRecorded(ILogger logger, Guid runId, string node, long inputTokens, long outputTokens);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The failed node held for run {RunId} could not be settled after the run failed: {ExceptionType}: {ExceptionMessage}")]
+    private static partial void LogSettleFailed(ILogger logger, Guid runId, string exceptionType, string exceptionMessage);
+
+    /// <summary>A failed node's record, held until its run's failure commits.</summary>
+    private sealed record FailedNode(string Node, string? StartedById, NodeUsage Usage);
 }

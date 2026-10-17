@@ -34,7 +34,10 @@ public sealed class DaedalusAgentsRegistrationTests
 {
     private const string Ulid = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
-    private static IConfiguration Config(params (string Key, string Value)[] extra)
+    private static IConfiguration Config(params (string Key, string Value)[] extra) => ConfigWithout(null, extra);
+
+    /// <summary><see cref="Config"/> with <paramref name="removed"/> taken back out, for a case about a missing key.</summary>
+    private static IConfiguration ConfigWithout(string? removed, params (string Key, string Value)[] extra)
     {
         var values = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
@@ -48,10 +51,17 @@ public sealed class DaedalusAgentsRegistrationTests
             // own reference resolver. Set to the one agent this configuration declares so every other case in
             // this class exercises what it is actually about.
             ["Thalos:Squad:FallbackAgentName"] = "Daedalus Assistant",
+            // Required by ValidateTurnBudgets in either engine mode.
+            ["Thalos:Workflow:TurnBudgets:Default"] = "875000",
         };
         foreach (var (key, value) in extra)
         {
             values[key] = value;
+        }
+
+        if (removed is not null)
+        {
+            values.Remove(removed);
         }
 
         return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
@@ -721,7 +731,68 @@ public sealed class DaedalusAgentsRegistrationTests
         ["Thalos:Agents:0:Name"] = "Daedalus Assistant",
         ["Thalos:Agents:0:Description"] = "Knows the codebase",
         ["Thalos:Agents:0:Instructions"] = "You are helpful.",
+        ["Thalos:Workflow:TurnBudgets:Default"] = "875000",
     };
+
+    /// <summary>
+    ///     Phase 2.15: a host with no default turn budget would stamp a zero-token ceiling on every workflow turn, so it
+    ///     refuses to start, with the engine on and with it off: the Cli ships the same section with the engine off.
+    ///     <para>Red: drop the Default check; registration completes.</para>
+    ///     <para>Red: call ValidateTurnBudgets only when the engine is enabled; the "false" case completes.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    public void A_missing_default_turn_budget_refuses_start(string engineEnabled)
+    {
+        var configuration = ConfigWithout(TurnBudgetsConfig.SectionName + ":Default", ("Thalos:Workflow:Enabled", engineEnabled));
+
+        var act = () => new ServiceCollection().AddDaedalusAgents(configuration, Environment());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Workflow:TurnBudgets:Default*");
+    }
+
+    /// <summary>
+    ///     An agent entry of zero tokens would fail every turn of that agent on its first token, so it refuses to start, naming
+    ///     the entry's own key.
+    ///     <para>Red: check only Default; registration completes.</para>
+    /// </summary>
+    [Fact]
+    public void A_non_positive_agent_turn_budget_refuses_start()
+    {
+        var act = () => new ServiceCollection().AddDaedalusAgents(
+            Config((TurnBudgetsConfig.SectionName + ":Agents:reviewer", "0")), Environment());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Workflow:TurnBudgets:Agents:reviewer*");
+    }
+
+    /// <summary>
+    ///     An entry keyed by a blank name matches no agent, so its ceiling would silently never apply.
+    ///     <para>Red: skip the name check; registration completes.</para>
+    /// </summary>
+    [Fact]
+    public void A_blank_agent_name_refuses_start()
+    {
+        var act = () => new ServiceCollection().AddDaedalusAgents(
+            Config((TurnBudgetsConfig.SectionName + ":Agents: ", "600000")), Environment());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Thalos:Workflow:TurnBudgets:Agents*blank*");
+    }
+
+    /// <summary>
+    ///     With the squad off the fallback agent plays every role under the default ceiling, so a default below any entry would
+    ///     make the squad-off run tighter than the squad-on run of the same task.
+    ///     <para>Red: drop the comparison; registration completes.</para>
+    /// </summary>
+    [Fact]
+    public void The_default_must_cover_every_agent_entry()
+    {
+        var act = () => new ServiceCollection().AddDaedalusAgents(
+            Config((TurnBudgetsConfig.SectionName + ":Agents:implementer", "900000")), Environment());
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Thalos:Workflow:TurnBudgets:Default*Thalos:Workflow:TurnBudgets:Agents:implementer*");
+    }
 
     [Fact]
     public void Unknown_sentinel_action_or_detector_fails_fast()

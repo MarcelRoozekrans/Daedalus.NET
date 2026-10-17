@@ -444,6 +444,93 @@ NuGet packages through the egress proxy. The suite skips when Docker is missing 
 (`SandboxEngineProbeTests` pins that). Each host in the suite gets its own network, named `daedalus-b8-*`, so a developer's
 own `daedalus-sandboxes` network is left alone.
 
+## Token budget
+
+Phase 2.15. Every workflow turn runs under a token ceiling of its own agent's, from `Thalos:Workflow:TurnBudgets`:
+`Default` for an agent not listed, and an `Agents` entry per role. `BudgetedSubagentRunner` stamps the ceiling and the
+deadline on each turn's request. Both hosts ship the same section, and `TurnBudgetDriftTests` pins that, that each
+squad role has an entry, and that no ceiling sits below its role's measured maximum.
+
+### The counting rule
+
+A turn is stopped before the model call that would start with the turn's total at or above the ceiling. The total is
+every token, input plus output. Cache reads count at full weight, though they are billed at a tenth; on implement they
+are about 85-90% of input. A turn can therefore end above the ceiling by its last call. A stopped turn fails its node,
+and its spend still shows on `/costs`, because the failed node's usage is recorded.
+
+`DetachedRuns:MaxTotalTokens` is the scout's ceiling and nothing else. It bounds the scout and detached runs only.
+`DetachedRuns:DeadlineSeconds` still applies to workflow turns.
+
+### The sizing rule
+
+Ceiling = the larger of 1.5 x the measured maximum and 2 x p90, over all completed turns of the agent, rounded up to
+the next 25,000. The rule leaves room for a heavier task than the sample, without being so loose that a runaway turn
+spends a run's worth before it stops. A turn that a ceiling stopped is a lower bound and is left out of the maxima.
+
+### The query
+
+Run against the dev database. Owner `workflow:manufacture:%` is every manufacture run. A turn that failed leaves its
+session's totals at 0, so the last condition keeps only turns that ran; without it, a failed turn counts as a turn and
+pulls the p90 down.
+
+```sql
+select case "AgentId" when 'd689abd7-72dd-4cd7-8a17-611bf5530213' then 'implementer'
+                      when '6221a3bd-4f5c-483b-b2ff-36a2aba07aef' then 'reviewer' else "AgentId"::text end agent,
+       count(*) turns,
+       percentile_cont(0.9) within group (order by "TotalInputTokens" + "TotalOutputTokens")::bigint p90,
+       max("TotalInputTokens" + "TotalOutputTokens") max,
+       max(extract(epoch from "LastActivityAt" - "CreatedAt"))::int max_seconds
+from "AgentSessions"
+where "OwnerId" like 'workflow:manufacture:%' and "TotalInputTokens" + "TotalOutputTokens" > 0
+group by 1;
+```
+
+### The sample
+
+| Sample | Turns | Implementer | Reviewer |
+|---|---|---|---|
+| `daedalus-sandbox`, runs of 2026-10-14/15 | 74 completed | 18 turns, p90 437,682, max 501,172 | 56 turns, p90 270,197, max 392,852 |
+| `MarcelRoozekrans/Daedalus.NET`, 2026-10-17, branch `phase/2.15-token-budget` | 13 completed | 325,872, 254,227, 1,918,692, 296,052, and 609,040 and 1,122,644 from runs whose sandbox build was broken | Lens passes 58,192, 936,414, 1,390,204, 1,249,792, 1,917,540, 527,145 and 589,686 |
+
+That is 87 completed turns, 74 + 6 + 7. The sandbox runs also left one implementer session at 0 tokens, a failed turn
+the query above leaves out. Four more turns were stopped by a ceiling and give only lower bounds: 990,493
+at 875,000, and 2,107,208, 2,122,253 and 2,107,995 at a temporary 2,000,000. All four were in runs whose sandbox build
+was broken, which the phase's build fix corrected. A small sandbox repository understated what a real one costs by
+four to five times, 3.8 times for the implementer's maximum and 4.9 times for the reviewer's, which is why the second
+sample exists.
+
+### The numbers
+
+| Agent | Measured maximum | 1.5 x max | 2 x p90 | Ceiling |
+|---|---|---|---|---|
+| implementer | 1,918,692 | 2,878,038 | 1,153,360 | **2,900,000** |
+| reviewer | 1,917,540 | 2,876,310 | 753,658 | **2,900,000** |
+| `Default` | | | | **2,900,000** |
+
+The p90 is over the union of both samples: 24 implementer turns, p90 576,680, and 63 reviewer turns, p90 376,829, as
+`percentile_cont(0.9)` computes it, rounded to whole tokens. 2 x p90 is well below 1.5 x max for both, so the maximum
+decides both ceilings.
+
+A turn stopped at 2,900,000 costs roughly $2.50-3.00 at current Opus 5.5 rates with typical caching. The whole
+measurement cost $13.00 on `/costs`, failed nodes included.
+
+### The deadline
+
+`DetachedRuns:DeadlineSeconds` is 600, up from 300. The slowest measured implement turn took 313 s of session time, and
+others 274 s and 240 s; reviewer passes took up to 244 s. A turn that outlives its deadline is a stranded run unless the
+dispatch lease outlasts it, so `Thalos:Workflow:Dispatch:LeaseDuration` is 25 minutes: it must exceed the deadline plus
+the 10 minute Roslyn readiness wait. The channel and scheduling outbox lease of 20 minutes must exceed the deadline too.
+
+### How to resize
+
+After a change of process, prompts or model, or when a turn is stopped that the work needed:
+
+1. Rerun the query above on runs of the new setup, and merge its maxima and p90 with the samples that still apply.
+2. Apply the sizing rule per agent.
+3. Set the new values in `Daedalus.Api/appsettings.json` and `Daedalus.Cli/appsettings.json`, identical in both.
+4. Update `MeasuredMaximum` in `TurnBudgetDriftTests` to the new maxima, and its comment to name the samples and dates.
+5. Check the deadline against the slowest turn's `max_seconds`, with the lease above it.
+
 ## Deferred review findings and the issues tools
 
 Phase 2.7. A manufacture review can approve a change and still see defects it should not fix in that change. Those are

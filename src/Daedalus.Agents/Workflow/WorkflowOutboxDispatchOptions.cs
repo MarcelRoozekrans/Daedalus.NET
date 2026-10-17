@@ -63,13 +63,13 @@ internal sealed class WorkflowOutboxDispatchOptions
     ///     How long a claim on a workflow dispatch lasts, and how far the renewal right before its dispatch
     ///     extends it. Once it runs out another replica may claim the same message and run the same agent turn
     ///     again, so it must outlast one whole dispatch: the longest dispatch-gate wait plus the turn deadline
-    ///     (<c>DetachedRuns:DeadlineSeconds</c>, 300 s today). <see cref="WorkflowDispatchTiming.Validate"/>
-    ///     enforces that at registration, and caps it at <see cref="MaxLeaseDuration"/>. Twenty minutes covers a
-    ///     five-minute turn behind a ten-minute readiness wait with room to spare. It is also one term of the
+    ///     (<c>DetachedRuns:DeadlineSeconds</c>, 600 s today). <see cref="WorkflowDispatchTiming.Validate"/>
+    ///     enforces that at registration, and caps it at <see cref="MaxLeaseDuration"/>. Twenty-five minutes covers
+    ///     a ten-minute turn behind a ten-minute readiness wait with room to spare. It is also one term of the
     ///     stranded-run threshold: a host that crashes mid-dispatch leaves the message leased, and the run's
     ///     <c>updated_at</c> frozen, until the lease runs out.
     /// </summary>
-    public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(20);
+    public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(25);
 
     /// <summary>
     ///     Identifies this process as the holder of the leases it claims, stored in the <c>LockedBy</c> column.

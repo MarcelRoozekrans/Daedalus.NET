@@ -331,6 +331,41 @@ public sealed class WorkflowConfig
     ///     today's local mode: a git worktree on the host and the <c>workspace__*</c> tools served in-process.
     /// </summary>
     public SandboxConfig Sandbox { get; } = new();
+
+    /// <summary>
+    ///     Phase 2.15: the token ceiling each workflow agent turn runs under (<c>Thalos:Workflow:TurnBudgets</c>).
+    ///     <see cref="Daedalus.Agents.Workflow.BudgetedSubagentRunner"/> stamps it on every workflow turn that names no
+    ///     budget of its own; the scout's <c>DetachedRuns:MaxTotalTokens</c> no longer applies to workflow turns.
+    /// </summary>
+    public TurnBudgetsConfig TurnBudgets { get; } = new();
+}
+
+/// <summary>
+///     <c>Thalos:Workflow:TurnBudgets</c>: the per-turn token ceiling of each workflow agent, by agent name, and the ceiling
+///     every agent the map does not list runs under. The sizes and how they were measured are in the development guide's
+///     "Token budget" section.
+/// </summary>
+public sealed class TurnBudgetsConfig
+{
+    /// <summary>Configuration section name: <c>Thalos:Workflow:TurnBudgets</c>.</summary>
+    public const string SectionName = "Thalos:Workflow:TurnBudgets";
+
+    /// <summary>
+    ///     The ceiling of an agent <see cref="Agents"/> does not list, and of an agent the catalog cannot name. It must be
+    ///     positive and at least every <see cref="Agents"/> entry, so a run with the squad off, where the fallback agent
+    ///     plays every role, is never tighter than the same run with it on.
+    /// </summary>
+    public int Default { get; set; }
+
+    /// <summary>
+    ///     The ceiling per agent name, matched case-insensitively. Get-only, so the binder fills this instance, comparer
+    ///     and all, rather than replacing it with one that compares ordinally.
+    /// </summary>
+    public IDictionary<string, int> Agents { get; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The ceiling for <paramref name="agentName"/>: its <see cref="Agents"/> entry when present, else <see cref="Default"/>.</summary>
+    public int For(string? agentName) =>
+        agentName is not null && Agents.TryGetValue(agentName, out var ceiling) ? ceiling : Default;
 }
 
 /// <summary>

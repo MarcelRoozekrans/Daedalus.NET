@@ -32,8 +32,9 @@ namespace Daedalus.Agents.Workflow;
 ///     <see cref="ISubagentRunner"/> here would leave every workflow-run turn on Thalos's global default budget
 ///     instead of Daedalus's configured one — see <see cref="BudgetedSubagentRunner"/>'s own remarks for the
 ///     full reasoning. This is what makes the exception on the single-seam rule true rather than a loophole:
-///     the workflow path now applies the same budget policy <see cref="Daedalus.Agents.Scheduling.SubagentRunExecutor"/>
-///     applies to detached runs, from the same configuration, rather than skipping it.
+///     the workflow path applies a configured budget to every turn, as <see cref="Daedalus.Agents.Scheduling.SubagentRunExecutor"/>
+///     does to detached runs, rather than skipping it. Since phase 2.15 the token ceiling is per agent, from
+///     <c>Thalos:Workflow:TurnBudgets</c>, and the deadline is the detached runs' own.
 ///     </para>
 /// </remarks>
 internal static class WorkflowNodeDispatcherFactory
@@ -82,24 +83,39 @@ internal static class WorkflowNodeDispatcherFactory
         // It sits outside ReviewFindingsRunner too, so on an implement revisit the intent comes before the rejection's
         // findings: each decorator appends, and an outer one's text comes first. The block is the same on every visit,
         // so it leaves a run's cached prompt prefix intact.
+        // FailedNodeUsageRunner (phase 2.15) sits DIRECTLY outside ReviewLensRunner and inside every task-text
+        // decorator. It collects the usage of each turn the node runs, as Thalos publishes it, and holds it when the
+        // node fails, which no completion records; the recorder appends it once the store commits the run's failure.
+        // Outside the lens runner it sees every lens pass, including the passes before a failed one, which
+        // ReviewLensRunner drops when it returns the failure; inside it, around BudgetedSubagentRunner, it would record
+        // each pass on its own at one seq, and only the failed pass would be held. No decorator between it and the
+        // dispatcher turns a success into a failure or back, so the failure it records is the one the dispatcher fails
+        // the run with.
         new RunModeRunner(
             new WorkIntentRunner(
                 new ReviewFindingsRunner(
                     new NodeSelectionRunner(
                         new StandingInstructionsRunner(
-                            new ReviewLensRunner(
-                                new BudgetedSubagentRunner(sp.GetRequiredService<ISubagentRunner>(), sp.GetRequiredService<IOptions<DetachedRunOptions>>()),
-                                sp.GetRequiredService<IProcessDefinitionStore>(),
-                                // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
-                                // dependency.
-                                sp.GetRequiredService<IServiceScopeFactory>(),
-                                sp.GetRequiredService<TimeProvider>(),
-                                // Empty while decisions are off: a pin is part of the decided setup, not of today's.
-                                sp.GetRequiredService<ActiveLensPins>().Models,
-                                // The same recorder the store below records completions through, so it takes back what a review
-                                // held for its per-model split.
-                                sp.GetRequiredService<NodeUsageRecorder>(),
-                                sp.GetRequiredService<ILogger<ReviewLensRunner>>())),
+                            new FailedNodeUsageRunner(
+                                new ReviewLensRunner(
+                                    new BudgetedSubagentRunner(
+                                        sp.GetRequiredService<ISubagentRunner>(),
+                                        sp.GetRequiredService<IOptions<DetachedRunOptions>>(),
+                                        sp.GetRequiredService<WorkflowConfig>(),
+                                        sp.GetRequiredService<IAgentCatalog>()),
+                                    sp.GetRequiredService<IProcessDefinitionStore>(),
+                                    // Each accepted lens pass is recorded through a fresh scope, so this singleton captures no scoped
+                                    // dependency.
+                                    sp.GetRequiredService<IServiceScopeFactory>(),
+                                    sp.GetRequiredService<TimeProvider>(),
+                                    // Empty while decisions are off: a pin is part of the decided setup, not of today's.
+                                    sp.GetRequiredService<ActiveLensPins>().Models,
+                                    // The same recorder the store below records completions through, so it takes back what a review
+                                    // held for its per-model split.
+                                    sp.GetRequiredService<NodeUsageRecorder>(),
+                                    sp.GetRequiredService<ILogger<ReviewLensRunner>>()),
+                            // The same recorder again: a failed node's record goes through the same append and dedupe.
+                            sp.GetRequiredService<NodeUsageRecorder>())),
                         sp.GetRequiredService<NodeSelectionDecider>(),
                         // Each decision reads and records through a fresh scope, as ReviewLensRunner does.
                         sp.GetRequiredService<IServiceScopeFactory>(),

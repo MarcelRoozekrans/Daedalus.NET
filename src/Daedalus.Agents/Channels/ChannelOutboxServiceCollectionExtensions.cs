@@ -61,10 +61,10 @@ public static class ChannelOutboxServiceCollectionExtensions
     ///         <item><description>
     ///             <see cref="OutboxOptions.LeaseDuration"/> = <see cref="LeaseDuration"/>, 20 minutes (default 5):
     ///             <see cref="RunScoutStep"/> and <see cref="RunWriterStep"/> each dispatch a detached agent turn
-    ///             bounded by <c>DetachedRuns:DeadlineSeconds</c> (300 s today), and every host that calls
+    ///             bounded by <c>DetachedRuns:DeadlineSeconds</c> (600 s today), and every host that calls
     ///             <c>AddDaedalusAgents</c> — the Api and the Cli — runs this worker against the same table. The
     ///             lease is renewed once per message, right before its dispatch, so it must outlast one whole turn;
-    ///             the default equals the deadline, and a turn that ran to it would let the other host claim the
+    ///             the 5-minute default is shorter than the deadline, and a turn that ran to it would let the other host claim the
     ///             step and pay for the same turn again. <c>AddDaedalusAgents</c> rejects a deadline that is not
     ///             shorter than this lease.
     ///             The lease is shared by every message type on this pipeline, so it has a cost for chat: a host

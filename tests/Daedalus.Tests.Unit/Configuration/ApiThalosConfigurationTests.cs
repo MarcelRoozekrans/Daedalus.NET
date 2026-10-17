@@ -60,9 +60,9 @@ public sealed class ApiThalosConfigurationTests
 
     /// <summary>
     ///     Final review M6: the workflow dispatch lease is bound from <c>Thalos:Workflow:Dispatch</c>, so a turn deadline
-    ///     raised past what the default twenty-minute lease holds behind the ten-minute readiness wait can take a longer
+    ///     raised past what the default twenty-five-minute lease holds behind the ten-minute readiness wait can take a longer
     ///     lease with it, and the host boots. Red: registering <c>new WorkflowOutboxDispatchOptions()</c> again, as before,
-    ///     ignores the configured lease, and the timing validation then refuses the fifteen-minute deadline at boot.
+    ///     ignores the configured lease, and the timing validation then refuses the fifteen-minute deadline at boot, since 25 minutes does not exceed it plus the wait.
     /// </summary>
     [Fact]
     public async Task A_configured_dispatch_lease_is_honoured_and_lets_a_longer_turn_deadline_boot()

@@ -2,7 +2,44 @@
 
 **Last session:** 2026-10-17, with the owner present
 
-## Current Position - milestone 2 audited FAIL (2026-10-17); phase 2.15 added to close the spend gap
+## Current Position - phase 2.15 complete, PR to open to `main`; milestone 2 awaits its re-audit
+
+**Milestone 2, phase 2.15, size and document the token budget.** Built subagent-driven on `phase/2.15-token-budget`
+from `main`, five tasks each reviewed, with Task 3's live steps run by the controller. Rulings, measurements, live
+checks and findings: `docs/plans/2026-10-17-phase-2.15-rulings.md`. Closes #280.
+
+- **What shipped:**
+  - The cap was already in-turn since Thalos 0.11.0. The gap the audit found was its sizing and documentation.
+  - Per-role ceilings sized from the measured turns: implementer, reviewer and Default 2,900,000; a 600 s turn
+    deadline; a 25 minute dispatch lease. The development guide says how they were sized.
+  - A turn stopped by its ceiling writes a failed-node usage record, so its spend reaches /costs.
+  - The sandbox build fix (27833004): `NuGetPackageRoot` had no trailing slash under `NUGET_PACKAGES`, so every
+    Daedalus.NET run failed to build.
+- **Live proof:** run `facc1bc5` on shipped settings, Succeeded, daedalus-sandbox#25; run `376c1492` stopped at 875,000
+  with 990,493 tokens counted. Spend $13.41. Anthropic credits are used up.
+- **Filed:** #394 (the run page omits a failed node's usage), #395 (a completed turn whose outcome the dispatcher
+  rejects is uncounted), Thalos.NET#363 (the README says the token budget is evaluated only after the turn returns).
+- **Tests at `ff73824b`:** unit 2005, Unit.Domain 356, Unit.Application 281, Unit.Infrastructure 258; integration 745;
+  Playwright.Api 115; Playwright.Browser 219. Release build 0 warnings; `dotnet format` clean.
+
+## Needs the owner
+
+1. **Merge the 2.15 PR.** Then read the rulings; each says what it costs if wrong.
+2. **Re-run `audit-milestone`** for milestone 2, to close gap 1.
+3. **Merge or fix Thalos.NET#363**, the README sentence that says the token budget is evaluated only after the turn
+   returns.
+4. **Release** still on hold; when dispatched, check it proposes 0.2.0 and counts #388 and #391.
+5. **Decide #383** (resilience rejection text), **#373** (Updated on Tasks) and **#374** (token contrast).
+6. **Dev data** from the sweeps, as listed below.
+
+## Recommended Next Step
+
+1. Merge the 2.15 PR, then `audit-milestone`.
+2. A live PRD generation and brainstorm on the dev stack, to confirm #391 against Anthropic.
+
+---
+
+## Previous position (2026-10-17) - milestone 2 audited FAIL; phase 2.15 added to close the spend gap
 
 **Milestone 2 audit:** `docs/superpowers/reviews/2026-10-17-milestone-2-audit.md`, on `main` `15ab22e5`. All 14
 phases are complete, and every suite passes: unit 1984, Unit.Domain 356, Unit.Application 276, Unit.Infrastructure

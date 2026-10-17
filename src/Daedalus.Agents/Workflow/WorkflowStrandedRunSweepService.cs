@@ -18,7 +18,7 @@ namespace Daedalus.Agents.Workflow;
 ///     the same options the dispatch loop runs on: a crashed host's lease running out, the next dispatch's gate
 ///     wait and turn deadline, and the retry backoff, plus a margin. The composition root computes it once and
 ///     passes it in, so a change to the lease, the turn deadline or the retry budget moves this threshold with
-///     it. The fixed 30 minutes this used to be was sized before leases existed; with a 20-minute lease it would
+///     it. The fixed 30 minutes this used to be was sized before leases existed; with a 25-minute lease it would
 ///     terminate runs a healthy replica was about to pick up.
 ///     <para>
 ///     A run queued behind others in one poll batch would add a queueing term, but

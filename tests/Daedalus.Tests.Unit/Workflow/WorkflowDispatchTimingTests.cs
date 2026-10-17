@@ -1,5 +1,7 @@
 using AwesomeAssertions.Execution;
+using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
+using Microsoft.Extensions.Configuration;
 
 namespace Daedalus.Tests.Unit.Workflow;
 
@@ -10,16 +12,45 @@ namespace Daedalus.Tests.Unit.Workflow;
 /// </summary>
 public sealed class WorkflowDispatchTimingTests
 {
-    private static readonly TimeSpan TurnDeadline = TimeSpan.FromSeconds(300);
+    private static readonly TimeSpan TurnDeadline = TimeSpan.FromSeconds(600);
 
     // The readiness timeout the dispatch gate is planned with. No gate exists yet, so the host passes zero.
     private static readonly TimeSpan PlannedGateWait = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    ///     Red: set <see cref="TurnDeadline"/> to 900 seconds; the 25-minute default lease no longer exceeds
+    ///     the turn plus the gate wait.
+    /// </summary>
     [Fact]
-    public void The_shipped_defaults_hold_a_five_minute_turn_behind_a_ten_minute_gate()
+    public void The_shipped_defaults_hold_a_ten_minute_turn_behind_a_ten_minute_gate()
     {
         var act = () => WorkflowDispatchTiming.Validate(new WorkflowOutboxDispatchOptions(), TurnDeadline, PlannedGateWait);
 
+        act.Should().NotThrow();
+    }
+
+    /// <summary>
+    ///     The real <c>Daedalus.Api/appsettings.json</c>, linked into this project, passes the same check
+    ///     <c>AddDaedalusAgents</c> makes at startup with the deadline it ships. Red: set
+    ///     <c>Thalos:Workflow:Dispatch:LeaseDuration</c> to <c>00:20:00</c> in that file; 20 minutes does not exceed
+    ///     600 s plus the 10-minute readiness wait.
+    /// </summary>
+    [Fact]
+    public void The_shipped_Api_configuration_passes_the_dispatch_timing_check_with_its_own_deadline()
+    {
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("Daedalus.Api.appsettings.json", optional: false)
+            .Build();
+        var agents = new DaedalusAgentsOptions();
+        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(agents);
+        var deadline = TimeSpan.FromSeconds(configuration.GetValue<int>("DetachedRuns:DeadlineSeconds"));
+        var dispatch = WorkflowOutboxDispatchOptions.Bind(configuration.GetSection(WorkflowOutboxDispatchOptions.SectionName));
+
+        using var scope = new AssertionScope();
+        deadline.Should().Be(TimeSpan.FromSeconds(600), "the deadline this file ships is what the lease is checked against");
+        dispatch.LeaseDuration.Should().Be(TimeSpan.FromMinutes(25));
+        var act = () => WorkflowDispatchTiming.Validate(dispatch, deadline, agents.Workflow.RoslynReadyTimeout);
         act.Should().NotThrow();
     }
 
@@ -108,13 +139,13 @@ public sealed class WorkflowDispatchTimingTests
         var options = new WorkflowOutboxDispatchOptions();
         using var scope = new AssertionScope();
 
-        // 20 min lease + 10 min gate + 5 min turn + 254 s backoff + 5 min margin.
+        // 25 min lease + 10 min gate + 10 min turn + 254 s backoff + 5 min margin.
         WorkflowDispatchTiming.StrandedAfter(options, TurnDeadline, PlannedGateWait)
-            .Should().Be(new TimeSpan(0, 44, 14));
+            .Should().Be(new TimeSpan(0, 54, 14));
 
         // With no gate, today's host: the gate term drops out and nothing else does.
         WorkflowDispatchTiming.StrandedAfter(options, TurnDeadline, TimeSpan.Zero)
-            .Should().Be(new TimeSpan(0, 34, 14));
+            .Should().Be(new TimeSpan(0, 44, 14));
     }
 
     [Fact]
