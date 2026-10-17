@@ -112,6 +112,31 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     }
 
     /// <summary>
+    ///     For <see cref="ReviewHandoffWorkflowStore.FailAsync"/>, once the store's <c>FailAsync</c> has returned: reads the
+    ///     run back from <paramref name="store"/> and settles each failed node held for it by the run's status, through
+    ///     <see cref="SettleFailuresAsync"/>. The read uses no caller token, because a cancelled token would leave the hold
+    ///     unsettled with no redelivery to come. Throws nothing: the failure has already returned, so an exception from the
+    ///     read or the settle, such as a transient database error, is logged with the run id and its type and message, the
+    ///     way Thalos' store swallows an observer's failure. On the ordinary path the observer has already settled the hold;
+    ///     after a run the sweep failed, the hold then stays until the host restarts.
+    /// </summary>
+    public async ValueTask SettleAfterFailAsync(IWorkflowStore store, Guid runId)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        try
+        {
+            if (await store.FindAsync(runId, CancellationToken.None).ConfigureAwait(false) is { } run)
+            {
+                await SettleFailuresAsync(runId, run.Status).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogSettleFailed(logger, runId, ex.GetType().FullName ?? ex.GetType().Name, ex.Message);
+        }
+    }
+
+    /// <summary>
     ///     Settles each failed node held for <paramref name="runId"/>, whose run has reached the terminal
     ///     <paramref name="status"/>: appends its record through <see cref="RecordFailureAsync"/> when the run is
     ///     <see cref="WorkflowStatus.Failed"/>, and drops it when the run is <see cref="WorkflowStatus.Cancelled"/> or
@@ -339,6 +364,9 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Recording the spend of failed node {Node} of run {RunId}: {InputTokens} input and {OutputTokens} output tokens")]
     private static partial void LogFailedNodeRecorded(ILogger logger, Guid runId, string node, long inputTokens, long outputTokens);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The failed node held for run {RunId} could not be settled after the run failed: {ExceptionType}: {ExceptionMessage}")]
+    private static partial void LogSettleFailed(ILogger logger, Guid runId, string exceptionType, string exceptionMessage);
 
     /// <summary>A failed node's record, held until its run's failure commits.</summary>
     private sealed record FailedNode(string Node, string? StartedById, NodeUsage Usage);

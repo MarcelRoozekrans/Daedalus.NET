@@ -93,6 +93,7 @@ public sealed class HeldUsageReleaseTests(PostgresFixture fixture)
 
         (await host.RecordsAsync(runId, WorkflowRunRecord.NodeUsageKind)).Should().ContainSingle();
     }
+
     /// <summary>
     ///     Fix round 2, against the real store: the stranded sweep fails the run while its node's turn runs, the turn then
     ///     fails and holds its usage, and the dispatcher's <c>FailAsync</c> through <see cref="ReviewHandoffWorkflowStore"/>

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
+using Microsoft.Extensions.Logging;
 using Thalos;
 using Thalos.Workflow;
 using ZeroAlloc.Results;
@@ -300,6 +301,30 @@ public sealed class FailedNodeUsageRunnerTests
         records.Appended.Should().ContainSingle();
     }
 
+    /// <summary>
+    ///     Fix round 3: the failure has committed, but reading the run back throws, as on a transient database error.
+    ///     <c>FailAsync</c> still returns without throwing, since the failure is done, and the read's failure is logged as a
+    ///     warning naming the run and the exception type.
+    ///     Red: remove the catch in <c>NodeUsageRecorder.SettleAfterFailAsync</c>; the exception escapes <c>FailAsync</c>.
+    ///     Red: drop the <c>LogSettleFailed</c> call from the catch; no warning is logged.
+    ///     Red: log <c>Guid.Empty</c> and a fixed type name instead of the run's id and the exception's type; the message
+    ///     assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_read_back_that_throws_after_the_failure_committed_is_logged_not_thrown()
+    {
+        var log = new Daedalus.Tests.Unit.Web.RecordingLogger<NodeUsageRecorder>();
+        var recorder = new NodeUsageRecorder(RecordStoreScopes.For(new CapturingRecordStore()), TimeProvider.System, log);
+        var run = RunAt("implement", seq: 4);
+        var store = new ReviewHandoffWorkflowStore(
+            new UnreadableStore(new RecordingWorkflowStore(run)), HostWrittenKeyTests.Definitions(), recorder, TestNodeUsage.Responses());
+
+        await store.Invoking(s => s.FailAsync(run.Id, "the turn failed", CancellationToken.None).AsTask()).Should().NotThrowAsync();
+
+        log.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning)
+            .Which.Message.Should().Contain(run.Id.ToString()).And.Contain(typeof(TimeoutException).FullName!);
+    }
+
     /// <summary>The node's turn fails after spending, then the dispatcher fails the run through <paramref name="store"/>.</summary>
     private static async Task FailThroughAsync(ReviewHandoffWorkflowStore store, NodeUsageRecorder recorder, WorkflowRun run)
     {
@@ -459,6 +484,13 @@ public sealed class FailedNodeUsageRunnerTests
             await observer.OnChangedAsync(
                 new WorkflowRunChange(run.Id, WorkflowRunChangeKind.Failed, WorkflowStatus.Failed, run.CurrentNode, null), ct);
         }
+    }
+
+    /// <summary>A store whose <c>FailAsync</c> succeeds and whose <c>FindAsync</c> then throws, as on a transient database error.</summary>
+    private sealed class UnreadableStore(IWorkflowStore inner) : DelegatingWorkflowStore(inner)
+    {
+        public override ValueTask<WorkflowRun?> FindAsync(Guid runId, CancellationToken ct) =>
+            throw new TimeoutException("the read timed out");
     }
 
     /// <summary>Accepts every append and keeps it.</summary>

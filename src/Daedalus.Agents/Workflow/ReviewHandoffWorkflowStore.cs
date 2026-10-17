@@ -271,18 +271,15 @@ internal sealed class ReviewHandoffWorkflowStore(
     ///     appended when it is Failed, dropped when it is Cancelled. On the ordinary path the store's observer has already
     ///     settled it, and this settles nothing. It matters when the run became terminal while the node's turn ran, by
     ///     a cancellation or the stranded sweep: the inner <c>FailAsync</c> then commits nothing and notifies nobody. The
-    ///     read uses no caller token: the failure has returned, and a cancelled token here would leave the hold unsettled
-    ///     with no redelivery to come.
+    ///     read and the settle run in <see cref="NodeUsageRecorder.SettleAfterFailAsync"/>, which throws nothing: the failure
+    ///     has already returned, so a read that fails is logged there rather than reported as a failed dispatch.
     ///     </para>
     /// </remarks>
     public override async ValueTask FailAsync(Guid runId, string errorMessage, CancellationToken ct)
     {
         _usage.Forget(runId);
         await Inner.FailAsync(runId, errorMessage, ct).ConfigureAwait(false);
-        if (await Inner.FindAsync(runId, CancellationToken.None).ConfigureAwait(false) is { } run)
-        {
-            await _usage.SettleFailuresAsync(runId, run.Status).ConfigureAwait(false);
-        }
+        await _usage.SettleAfterFailAsync(Inner, runId).ConfigureAwait(false);
     }
 
     /// <summary>
