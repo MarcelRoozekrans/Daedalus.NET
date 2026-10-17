@@ -469,7 +469,9 @@ spends a run's worth before it stops. A turn that a ceiling stopped is a lower b
 
 ### The query
 
-Run against the dev database. Owner `workflow:manufacture:%` is every manufacture run.
+Run against the dev database. Owner `workflow:manufacture:%` is every manufacture run. A turn that failed leaves its
+session's totals at 0, so the last condition keeps only turns that ran; without it, a failed turn counts as a turn and
+pulls the p90 down.
 
 ```sql
 select case "AgentId" when 'd689abd7-72dd-4cd7-8a17-611bf5530213' then 'implementer'
@@ -478,28 +480,36 @@ select case "AgentId" when 'd689abd7-72dd-4cd7-8a17-611bf5530213' then 'implemen
        percentile_cont(0.9) within group (order by "TotalInputTokens" + "TotalOutputTokens")::bigint p90,
        max("TotalInputTokens" + "TotalOutputTokens") max,
        max(extract(epoch from "LastActivityAt" - "CreatedAt"))::int max_seconds
-from "AgentSessions" where "OwnerId" like 'workflow:manufacture:%' group by 1;
+from "AgentSessions"
+where "OwnerId" like 'workflow:manufacture:%' and "TotalInputTokens" + "TotalOutputTokens" > 0
+group by 1;
 ```
 
 ### The sample
 
 | Sample | Turns | Implementer | Reviewer |
 |---|---|---|---|
-| `daedalus-sandbox`, runs of 2026-10-14/15 | 75 | 19 turns, p90 435,682, max 501,172 | 56 turns, p90 270,197, max 392,852 |
+| `daedalus-sandbox`, runs of 2026-10-14/15 | 74 completed | 18 turns, p90 437,682, max 501,172 | 56 turns, p90 270,197, max 392,852 |
 | `MarcelRoozekrans/Daedalus.NET`, 2026-10-17, branch `phase/2.15-token-budget` | 13 completed | 325,872, 254,227, 1,918,692, 296,052, and 609,040 and 1,122,644 from runs whose sandbox build was broken | Lens passes 58,192, 936,414, 1,390,204, 1,249,792, 1,917,540, 527,145 and 589,686 |
 
-That is 88 completed turns, 75 + 6 + 7. Four more turns were stopped by a ceiling and give only lower bounds: 990,493
+That is 87 completed turns, 74 + 6 + 7. The sandbox runs also left one implementer session at 0 tokens, a failed turn
+the query above leaves out. Four more turns were stopped by a ceiling and give only lower bounds: 990,493
 at 875,000, and 2,107,208, 2,122,253 and 2,107,995 at a temporary 2,000,000. All four were in runs whose sandbox build
 was broken, which the phase's build fix corrected. A small sandbox repository understated what a real one costs by
-nearly four times, which is why the second sample exists.
+four to five times, 3.8 times for the implementer's maximum and 4.9 times for the reviewer's, which is why the second
+sample exists.
 
 ### The numbers
 
 | Agent | Measured maximum | 1.5 x max | 2 x p90 | Ceiling |
 |---|---|---|---|---|
-| implementer | 1,918,692 | 2,878,038 | lower | **2,900,000** |
-| reviewer | 1,917,540 | 2,876,310 | lower | **2,900,000** |
+| implementer | 1,918,692 | 2,878,038 | 1,153,360 | **2,900,000** |
+| reviewer | 1,917,540 | 2,876,310 | 753,658 | **2,900,000** |
 | `Default` | | | | **2,900,000** |
+
+The p90 is over the union of both samples: 24 implementer turns, p90 576,680, and 63 reviewer turns, p90 376,829, as
+`percentile_cont(0.9)` computes it, rounded to whole tokens. 2 x p90 is well below 1.5 x max for both, so the maximum
+decides both ceilings.
 
 A turn stopped at 2,900,000 costs roughly $2.50-3.00 at current Opus 5.5 rates with typical caching. The whole
 measurement cost $13.00 on `/costs`, failed nodes included.
