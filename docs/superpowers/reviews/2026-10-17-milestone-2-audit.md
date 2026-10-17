@@ -81,3 +81,12 @@ folder moved when the superpowers layout changed.
 |---|---|---|
 | 1. Spend bounded | Either size the ceiling from measurements (#280) and document it as a post-turn check, or have Thalos cap during the turn (Thalos.NET#173) | A phase |
 | 2. 2.1 rulings | A short record stating that 2.1 took no rulings on the owner's behalf, pointing at the design doc's decisions; or the owner waives the criterion for 2.1 | Minutes |
+
+## Owner decisions, 2026-10-17
+
+- **Gap 1:** a new phase, **2.15, size and document the token budget**, added to `ROADMAP.md` and `MILESTONE.md`.
+  Milestone 2 stays open until it ships and closes #280.
+- **Gap 2:** closed in this change by `docs/plans/2026-09-21-phase-2.1-rulings.md`. It records that 2.1 kept its
+  decisions in the design doc and the close-out commit, and does not reconstruct a list after the fact.
+
+Re-run `audit-milestone` after 2.15 merges.
