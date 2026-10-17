@@ -54,6 +54,11 @@ is, sized from measurements rather than picked". Neither holds:
 Visibility is met. Since phase 2.8, cost analytics counts each manufacture node's usage once, per model, with its
 cache split. Chat and scheduled sessions are counted as unattributed tokens and are not priced.
 
+> **Note, 2026-10-17 (phase 2.15):** the second bullet's "post-turn check" is wrong. The cap has been in-turn since
+> Thalos 0.11.0: a turn that passes its ceiling is stopped mid-turn with `SubagentBudgetExceeded`. The gap was its
+> sizing and its documentation, and phase 2.15 closed both. Rulings and measurements:
+> `docs/plans/2026-10-17-phase-2.15-rulings.md`.
+
 ### 2. Phase 2.1 has no rulings record (criterion 8)
 
 Phases 2.2 to 2.14 each have a design, a plan and a rulings record. Phase 2.1 has

@@ -92,7 +92,7 @@ only once something demonstrably better runs in its place.
 | 2.12 | Manufacturing console | complete (2026-10-13; #352) |
 | 2.13 | Navigation and flow review | complete |
 | 2.14 | Flux across the Web app | complete |
-| 2.15 | Size and document the token budget | pending |
+| 2.15 | Size and document the token budget | complete |
 
 Full phase text, including what each completed phase actually proved and carried forward, is in
 `docs/planning/ROADMAP.md`.
