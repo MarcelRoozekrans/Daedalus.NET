@@ -9,8 +9,8 @@ namespace Daedalus.Tests.Unit.Configuration;
 ///     Phase 2.15: guards the shipped <c>Thalos:Workflow:TurnBudgets</c> section of both hosts' <c>appsettings.json</c>.
 ///     Reads the real files, linked as <c>Daedalus.Api.appsettings.json</c> and <c>Daedalus.Cli.appsettings.json</c>, the
 ///     way <see cref="CostAnalyticsPricingDriftTests"/> and <see cref="ScheduledRunsConfigurationDriftTests"/> do, so a
-///     shipped ceiling that loses a role, falls below what that role was measured to spend, or drifts between the hosts
-///     fails the build rather than a run.
+///     shipped ceiling that loses a role, moves away from what that role was measured to spend, or drifts between the
+///     hosts fails the build rather than a run.
 /// </summary>
 public sealed class TurnBudgetDriftTests
 {
@@ -19,10 +19,11 @@ public sealed class TurnBudgetDriftTests
     private const string CliAppSettingsFileName = "Daedalus.Cli.appsettings.json";
 
     /// <summary>
-    ///     The largest total-token turn measured per squad role, over the turns of 2026-10-14/15 and 2026-10-17: 75 turns on
-    ///     <c>daedalus-sandbox</c> on 2026-10-14/15, and 13 completed turns on <c>MarcelRoozekrans/Daedalus.NET</c> on
-    ///     2026-10-17. A ceiling below its role's measured maximum would fail a turn the system has already been seen to need. How the sample is taken and
-    ///     when to retake it: <c>docs/development-guide.md</c>, "Token budget". Raise these when a new sample measures more.
+    ///     The largest total-token turn measured per squad role, over 87 completed turns: 74 on <c>daedalus-sandbox</c> on
+    ///     2026-10-14/15, and 13 on <c>MarcelRoozekrans/Daedalus.NET</c> on 2026-10-17. Every shipped ceiling is the sizing
+    ///     rule applied to these, so a ceiling cannot move without a new sample. How the sample is taken and when to retake
+    ///     it: <c>docs/development-guide.md</c>, "Token budget". Change these, and the ceilings with them, when a new sample
+    ///     measures more.
     /// </summary>
     private static readonly IReadOnlyDictionary<string, int> MeasuredMaximum = new Dictionary<string, int>(StringComparer.Ordinal)
     {
@@ -74,20 +75,33 @@ public sealed class TurnBudgetDriftTests
     }
 
     /// <summary>
-    ///     No shipped ceiling sits below the largest turn its role has been measured to spend.
-    ///     <para>Red: set the reviewer to 1800000 in <c>Daedalus.Api/appsettings.json</c>.</para>
+    ///     Each shipped <c>Agents</c> entry is the sizing rule applied to its role's measured maximum: 1.5 x the maximum,
+    ///     rounded up to the next 25,000. <c>Default</c> is the largest entry. The rule's 2 x p90 term is left out: over
+    ///     the same sample it is well below 1.5 x max for both roles, as the development guide's table shows.
+    ///     <para>Red: set the reviewer to 3000000 in <c>Daedalus.Api/appsettings.json</c>; the reviewer assertion fails.</para>
+    ///     <para>Red: set <c>Default</c> to 3000000; the default assertion fails.</para>
+    ///     <para>Red: add a <c>scout</c> entry; the key assertion fails.</para>
     /// </summary>
     [Fact]
-    public void No_ceiling_sits_below_its_measured_maximum()
+    public void Every_ceiling_is_the_sizing_rule_applied_to_its_measured_maximum()
     {
         var budgets = Bind(ApiAppSettingsFileName).Workflow.TurnBudgets;
 
+        budgets.Agents.Keys.Should().BeEquivalentTo(MeasuredMaximum.Keys, "every ceiling is sized from its own measured turns");
         foreach (var (role, measured) in MeasuredMaximum)
         {
-            budgets.Agents.Should().ContainKey(role);
-            budgets.Agents[role].Should().BeGreaterThanOrEqualTo(measured,
-                $"the {role} has been measured spending {measured} tokens in one turn, so a lower ceiling fails turns it needs");
+            budgets.Agents[role].Should().Be(Sized(measured), $"the {role}'s ceiling is 1.5 x its measured maximum of {measured}, rounded up");
         }
+
+        budgets.Default.Should().Be(MeasuredMaximum.Values.Max(Sized), "the default is the largest role ceiling");
+    }
+
+    /// <summary>1.5 x <paramref name="measured"/>, rounded up to the next 25,000.</summary>
+    private static int Sized(int measured)
+    {
+        const long Step = 25_000;
+        var scaled = (long)Math.Ceiling(measured * 1.5);
+        return (int)((scaled + Step - 1) / Step * Step);
     }
 
     /// <summary>
