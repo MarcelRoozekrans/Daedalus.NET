@@ -24,6 +24,8 @@
 # Environment: AOT_BASELINE (default eng/aot/baseline.json), AOT_LOG_DIR (publish logs and the
 # normalised keys per target; default $TMPDIR/daedalus-aot).
 set -euo pipefail
+# Byte-wise collation, so the sort -u dedup and the .keys files are the same on every machine.
+export LC_ALL=C
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 baseline="${AOT_BASELINE:-$repo/eng/aot/baseline.json}"
@@ -68,12 +70,13 @@ mkdir -p "$log_dir"
 
 # The publish command of the phase 3.1 global constraints. Warnings-as-errors is overridden so every
 # warning is printed and counted instead of failing the publish; TrimmerSingleWarn=false reports per
-# method instead of one line per assembly. Each publish gets a fresh --artifacts-path, so nothing is
+# method instead of one line per assembly. -tl:off keeps the classic console logger, whose one-line
+# warnings the parser reads, whether or not a terminal is attached. Each publish gets a fresh --artifacts-path, so nothing is
 # skipped as up to date: an incremental publish would print no warnings and count 0.
 publish() {
   local target="$1" artifacts="$2"
   local common=(-c Release -r linux-x64 -p:TreatWarningsAsErrors=false -p:WarningsAsErrors=
-    -p:TrimmerSingleWarn=false --artifacts-path "$artifacts")
+    -p:TrimmerSingleWarn=false --artifacts-path "$artifacts" -tl:off)
   if [[ "$target" == Web ]]; then
     # Blazor WebAssembly: no PublishAot. RunAOTCompilation refuses to run without IL trimming, and the
     # project sets PublishTrimmed=false for its normal JIT publish, so the analysis turns it on here.

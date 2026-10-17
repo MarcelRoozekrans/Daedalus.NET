@@ -289,6 +289,10 @@ Phase 2.6. A manufacture run edits, builds and tests code the model wrote, so th
 each run gets its own Docker container, and the host only applies the run's exported patch. The diagram is section 22
 of `docs/architecture-diagrams.md`.
 
+`global.json` pins SDK 10.0.402 with `rollForward: latestFeature`. The sandbox, API and Web images must therefore be
+built from an SDK image at or above that version: an older SDK refuses the repo, and a stale cached
+`mcr.microsoft.com/dotnet/sdk:10.0` can still carry 10.0.401.
+
 ### The two modes
 
 `Thalos:Workflow:Sandbox:Enabled` picks the mode.

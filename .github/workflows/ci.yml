@@ -22,7 +22,6 @@ permissions:
   contents: read
 
 env:
-  DOTNET_VERSION: "10.0.x"
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   REGISTRY: ghcr.io
@@ -49,7 +48,7 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          global-json-file: global.json
 
       - name: Derive the version
         id: derive
@@ -85,7 +84,7 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          global-json-file: global.json
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -217,7 +216,7 @@ jobs:
     name: AOT analysis (${{ matrix.target }})
     needs: version
     runs-on: ubuntu-latest
-    # The Api publish compiles the whole program natively: about 25 minutes, with ILC peaking near 12 GB
+    # The Api publish compiles the whole program natively: about 21 minutes, with ILC peaking near 12 GB
     # resident, on the 12-core agent VM. The hosted runner has fewer cores.
     timeout-minutes: 90
     strategy:

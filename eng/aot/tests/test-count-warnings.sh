@@ -15,7 +15,11 @@ mkdir -p "$work/bin" "$work/logs"
 
 # The sample's paths are written as @REPO@, so the repo-relative normalisation is tested on any machine.
 sample="$work/sample-ilc.log"
-sed "s#@REPO@#$repo#g" "$here/sample-ilc.log" > "$sample"
+# Parameter expansion, not sed: a repo path holding & or # would corrupt a sed replacement. The
+# replacement is quoted, because bash 5.2 otherwise expands & in it to the matched text.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  printf '%s\n' "${line//@REPO@/"$repo"}"
+done < "$here/sample-ilc.log" > "$sample"
 
 # The fake SDK: prints $FAKE_LOG and exits with $FAKE_EXIT, whatever the arguments.
 cat > "$work/bin/dotnet" <<'EOF'
@@ -72,13 +76,15 @@ if [[ "$out" == *"2 Thalos"* && "$out" == *"1 "*"Daedalus.Sandbox"* ]]; then pas
 else fail "root causes are grouped: $out"; fi
 
 # 4. A publish whose log ends in a link error, with a non-zero exit, fails with exit 2 naming the target.
+#    The match is the failure message itself: `publishing Sandbox` is always in the output.
 #    Red: treat an error as a pass -> exit 0.
+#    Red: drop the target from the failure message -> no "AOT publish of Sandbox failed".
 cp "$sample" "$work/link-error.log"
-cat >> "$work/link-error.log" <<'EOF'
+cat >> "$work/link-error.log" <<EOF
 /home/runner/.nuget/packages/microsoft.dotnet.ilcompiler/10.0.0/build/Microsoft.NETCore.Native.Publish.targets(392,5): error MSB3073: The command ""clang" "@obj/native/Daedalus.Sandbox.ilc.rsp"" exited with code 1. [$repo/src/Daedalus.Sandbox/Daedalus.Sandbox.csproj]
 EOF
 run_counter "$work/link-error.log" 1 --target Sandbox
-if [[ $rc -eq 2 && "$out" == *"Sandbox"* ]]; then pass "link error exits 2 naming the target"
+if [[ $rc -eq 2 && "$out" == *"AOT publish of Sandbox failed"* ]]; then pass "link error exits 2 naming the target"
 else fail "link error exits 2 naming the target (rc=$rc): $out"; fi
 
 # 5. An error line fails the target even when the publish exit code is 0.
@@ -101,16 +107,18 @@ else fail "--check passes on an equal count (rc=$rc): $out"; fi
 
 # 8. --check fails when the count is above the baseline, naming target, baseline and actual count.
 #    Red: fail only when the count fell -> exit 0.
+#    Red: drop the target from the message -> no "Sandbox: baseline 2, actual 3".
 echo '{ "Api": 100, "Sandbox": 2 }' > "$work/baseline.json"
 run_counter "$sample" 0 --target Sandbox --check
-if [[ $rc -eq 1 && "$out" == *"Sandbox"*"baseline 2"*"actual 3"* ]]; then pass "--check fails on a rise"
+if [[ $rc -eq 1 && "$out" == *"Sandbox: baseline 2, actual 3. The count rose"* ]]; then pass "--check fails on a rise"
 else fail "--check fails on a rise (rc=$rc): $out"; fi
 
 # 9. --check fails when the count is below the baseline: the baseline must be lowered in the same change.
 #    Red: fail only when the count rose -> exit 0.
+#    Red: drop the target from the message -> no "Sandbox: baseline 4, actual 3".
 echo '{ "Api": 100, "Sandbox": 4 }' > "$work/baseline.json"
 run_counter "$sample" 0 --target Sandbox --check
-if [[ $rc -eq 1 && "$out" == *"Sandbox"*"baseline 4"*"actual 3"* ]]; then pass "--check fails on a fall"
+if [[ $rc -eq 1 && "$out" == *"Sandbox: baseline 4, actual 3. The count fell"* ]]; then pass "--check fails on a fall"
 else fail "--check fails on a fall (rc=$rc): $out"; fi
 
 # 10. --write sets the counted target and keeps the others.
