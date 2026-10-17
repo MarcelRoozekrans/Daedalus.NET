@@ -20,7 +20,7 @@ only once something demonstrably better runs in its place.
 
 ## Definition of Done
 
-- [ ] **All planned phases complete.** Phases 2.1 through 2.14 are merged.
+- [ ] **All planned phases complete.** Phases 2.1 through 2.15 are merged.
 - [x] **One manufacture run proven live from intent to reviewed pull request.** It is started
       through `POST /api/workflow-runs`, against a repository the owner chooses. Every step is
       recorded in the run's event log, not asserted:
@@ -92,6 +92,7 @@ only once something demonstrably better runs in its place.
 | 2.12 | Manufacturing console | complete (2026-10-13; #352) |
 | 2.13 | Navigation and flow review | complete |
 | 2.14 | Flux across the Web app | complete |
+| 2.15 | Size and document the token budget | pending |
 
 Full phase text, including what each completed phase actually proved and carried forward, is in
 `docs/planning/ROADMAP.md`.
@@ -100,3 +101,4 @@ Full phase text, including what each completed phase actually proved and carried
 
 | Date | Verdict | Gaps |
 |---|---|---|
+| 2026-10-17 | FAIL | Spend not bounded: the token ceiling is unsized, #280; phase 2.1 has no rulings record. Report: `docs/superpowers/reviews/2026-10-17-milestone-2-audit.md` |

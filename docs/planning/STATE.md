@@ -1,8 +1,37 @@
 # Session State
 
-**Last session:** 2026-10-16, with the owner present at the start and for the side PRs
+**Last session:** 2026-10-17, with the owner present
 
-## Current Position - phase 2.14 complete, PR open to `main` (2026-10-16); every phase of milestone 2 is done
+## Current Position - milestone 2 audited FAIL (2026-10-17); phase 2.15 added to close the spend gap
+
+**Milestone 2 audit:** `docs/superpowers/reviews/2026-10-17-milestone-2-audit.md`, on `main` `15ab22e5`. All 14
+phases are complete, and every suite passes: unit 1984, Unit.Domain 356, Unit.Application 276, Unit.Infrastructure
+258, integration 738, Playwright.Api 115, Playwright.Browser 219. Two criteria failed:
+
+- **Spend is not bounded.** The 150,000-token ceiling was never sized for a manufacture turn (#280). The owner chose a
+  new phase, **2.15, size and document the token budget** (Backend, pending).
+- **Phase 2.1 had no rulings record.** Closed in the audit PR by `docs/plans/2026-09-21-phase-2.1-rulings.md`.
+
+Since the 2.14 PR, also merged: #389, which keeps a Playwright trace only for a failed test, and #391, which fixes #385:
+PRD generation and brainstorm call `Thalos:Anthropic:DefaultModel`, and the API refuses to start on an unpriced
+model. #391 is test-proven but not yet run against Anthropic.
+
+## Needs the owner
+
+1. **Review and merge the milestone 2 audit PR.**
+2. **Phase 2.15** is next: `start-next-phase` brainstorms it.
+3. **Decide #383** (resilience rejection text), **#373** (Updated on Tasks) and **#374** (token contrast).
+4. **Release** still on hold; when dispatched, check it proposes 0.2.0 and counts #388 and #391.
+5. **Dev data** from the sweeps, as listed below.
+
+## Recommended Next Step
+
+1. Merge the audit PR, then `start-next-phase` for 2.15.
+2. A live PRD generation and brainstorm on the dev stack, to confirm #391 against Anthropic.
+
+---
+
+## Previous position (2026-10-16) - phase 2.14 complete, PR open to `main`; every phase of milestone 2 is done
 
 **Milestone 2, phase 2.14, Flux across the Web app.** Built subagent-driven on `phase/2.14-flux` from `main` `54a4ac6`,
 with `main` merged in at `7a46a15` for #379 and #380. The owner approved the spec with two calls (#372 in scope, Home
