@@ -593,6 +593,12 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // no completion will take it.
         services.AddSingleton<IWorkflowRunObserver>(sp => sp.GetRequiredService<NodeUsageRecorder>());
 
+        // Phase 2.15: Daedalus's notification publisher in place of the NullAgentNotificationPublisher AddThalos registered
+        // with TryAddSingleton. It hands each workflow turn's usage, completed or failed, to the FailedNodeUsageRunner around
+        // it, which records a failed node's spend; every other notification is dropped, as before. Replace, not TryAdd:
+        // AddThalos has already registered the null one by now.
+        services.Replace(ServiceDescriptor.Singleton<IAgentNotificationPublisher, TurnUsageNotificationPublisher>());
+
         // Task B13: the post-gate publish step. The resolver above and WorkflowNodeDispatcherFactory both receive every
         // registered IWorkflowHostAction (ruling R27), so this registration is what makes `action: open-pull-request`
         // validate and dispatch. A singleton: it resolves the scoped PR lookup and publisher from a scope of its own.

@@ -14,7 +14,8 @@ namespace Daedalus.Agents.Workflow;
 ///     reads a manufacture run's usage from Daedalus's own table. <see cref="ReviewHandoffWorkflowStore"/> calls
 ///     <see cref="RecordCompletionAsync"/> on every completion, which also counts the tokens.
 ///     <see cref="NodeUsageBackfill"/> calls <see cref="RecordAsync"/> for completions that have no record yet, which counts
-///     nothing: those tokens were spent in the past.
+///     nothing: those tokens were spent in the past. Since phase 2.15 <see cref="FailedNodeUsageRunner"/> calls
+///     <see cref="RecordFailureAsync"/> for a node whose turn failed, which no completion records.
 /// </summary>
 /// <remarks>
 ///     A second append for a (run, seq) that already has a record violates the unique index
@@ -22,7 +23,8 @@ namespace Daedalus.Agents.Workflow;
 ///     backfill, so it reads as "already recorded": it returns false and logs at Debug.
 ///     A failure is logged, not thrown, and so is a cancelled caller: the append runs under a token of its own, which only
 ///     <c>AppendTimeout</c> cancels, never the dispatch's. The completion it describes is already persisted, so throwing would only
-///     dead-letter a dispatch whose work is done. The next boot's backfill writes the missing record.
+///     dead-letter a dispatch whose work is done. The next boot's backfill writes the missing record of a completion; a failed
+///     node's record has no completion to be rebuilt from, so its failed append is logged as lost spend.
 ///     <para>
 ///     <b>A node that ran on several models is recorded per model.</b> Thalos hands the store one <see cref="TurnUsage"/> per
 ///     completion, and its <c>+</c> keeps the first operand's model, so a review whose pinned lens ran on another model would be
@@ -62,12 +64,7 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     public void HoldPasses(Guid runId, long seq, IReadOnlyList<TurnUsage> passes)
     {
         ArgumentNullException.ThrowIfNull(passes);
-        var parts = passes
-            .GroupBy(p => string.IsNullOrEmpty(p.ModelId) ? null : p.ModelId, StringComparer.Ordinal)
-            .Select(g => new NodeUsage(
-                g.Key, g.Sum(p => (long)p.InputTokens), g.Sum(p => (long)p.OutputTokens),
-                g.Sum(p => (long)p.CacheReadTokens), g.Sum(p => (long)p.CacheWriteTokens)))
-            .ToList();
+        var parts = PerModel(passes);
         if (parts.Count < 2)
         {
             _held.TryRemove((runId, seq), out _);
@@ -133,19 +130,74 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
             ManufactureTelemetry.RecordTokens(node, part);
         }
 
-        return AppendAsync(runId, seq, node, startedById, total, UtcNow);
+        return AppendAsync(runId, seq, node, startedById, total, UtcNow, repairedByBackfill: true);
+    }
+
+    /// <summary>
+    ///     Phase 2.15, for a node whose turn failed, which no completion records: sums <paramref name="turns"/>, every turn
+    ///     the node ran up to and including the failed one, counts the tokens on <c>daedalus.manufacture.tokens</c> per
+    ///     model, and appends the node's record as <see cref="RecordCompletionAsync"/> does, stamped now. Turns on two or more
+    ///     models are recorded with the per-model split <see cref="HoldPasses"/> builds. <see cref="FailedNodeUsageRunner"/>
+    ///     calls it before the dispatcher fails the run, at the seq the node ran at; a failed agent node fails its run, so no
+    ///     completion ever claims that seq. A redelivery reads as "already recorded" through the same unique index. Returns
+    ///     whether the record was written, and false without counting anything when the turns spent no tokens.
+    /// </summary>
+    public ValueTask<bool> RecordFailureAsync(
+        Guid runId, long seq, string node, string? startedById, IReadOnlyList<TurnUsage> turns, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(turns);
+        var parts = PerModel(turns);
+        var total = new NodeUsage(
+            parts.Count == 0 ? null : parts[0].Model,
+            parts.Sum(p => p.InputTokens), parts.Sum(p => p.OutputTokens),
+            parts.Sum(p => p.CacheReadTokens), parts.Sum(p => p.CacheWriteTokens));
+        if (total is { InputTokens: 0, OutputTokens: 0, CacheReadTokens: 0, CacheWriteTokens: 0 })
+        {
+            return ValueTask.FromResult(false);
+        }
+
+        if (parts.Count >= 2)
+        {
+            // Sums of the same parts, so the split always holds.
+            total = total.WithSplit(parts).Value;
+        }
+
+        foreach (var part in total.Parts)
+        {
+            ManufactureTelemetry.RecordTokens(node, part);
+        }
+
+        LogFailedNodeRecorded(logger, runId, node, total.InputTokens, total.OutputTokens);
+        return AppendAsync(runId, seq, node, startedById, total, UtcNow, repairedByBackfill: false);
     }
 
     /// <summary>Appends the record. Returns whether it was written: false when the record already existed or the append failed. The caller's token is deliberately not passed to the append.</summary>
     public ValueTask<bool> RecordAsync(
         Guid runId, long seq, string node, string? startedById, TurnUsage usage, DateTime createdAtUtc, CancellationToken ct) =>
-        AppendAsync(runId, seq, node, startedById, UsageOf(usage), createdAtUtc);
+        AppendAsync(runId, seq, node, startedById, UsageOf(usage), createdAtUtc, repairedByBackfill: true);
+
+    /// <summary>
+    ///     The turns summed per model, in the order the models first ran. A turn with no model is grouped under
+    ///     <see langword="null"/>.
+    /// </summary>
+    private static List<NodeUsage> PerModel(IReadOnlyList<TurnUsage> turns) => turns
+        .GroupBy(p => string.IsNullOrEmpty(p.ModelId) ? null : p.ModelId, StringComparer.Ordinal)
+        .Select(g => new NodeUsage(
+            g.Key, g.Sum(p => (long)p.InputTokens), g.Sum(p => (long)p.OutputTokens),
+            g.Sum(p => (long)p.CacheReadTokens), g.Sum(p => (long)p.CacheWriteTokens)))
+        .ToList();
 
     private static NodeUsage UsageOf(TurnUsage usage) => new(
         string.IsNullOrEmpty(usage.ModelId) ? null : usage.ModelId,
         usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheWriteTokens);
 
-    private async ValueTask<bool> AppendAsync(Guid runId, long seq, string node, string? startedById, NodeUsage usage, DateTime createdAtUtc)
+    /// <summary>
+    ///     Appends <paramref name="usage"/> as the node-usage record of (<paramref name="runId"/>, <paramref name="seq"/>).
+    ///     <paramref name="repairedByBackfill"/> says whether the next boot's backfill writes the record when this append
+    ///     fails: it does for a completion, never for a failed node, which has no completion to read back.
+    /// </summary>
+    private async ValueTask<bool> AppendAsync(
+        Guid runId, long seq, string node, string? startedById, NodeUsage usage, DateTime createdAtUtc, bool repairedByBackfill)
     {
         var payload = usage.ToPayloadJson();
         var record = WorkflowRunRecord.Create(
@@ -171,7 +223,15 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
         }
         catch (Exception ex)
         {
-            LogAppendFailed(logger, ex, runId, seq);
+            if (repairedByBackfill)
+            {
+                LogAppendFailed(logger, ex, runId, seq);
+            }
+            else
+            {
+                LogFailedNodeAppendFailed(logger, ex, runId, seq);
+            }
+
             return false;
         }
     }
@@ -192,4 +252,10 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The node-usage record for run {RunId} at seq {Seq} could not be written; the next boot's backfill writes it")]
     private static partial void LogAppendFailed(ILogger logger, Exception exception, Guid runId, long seq);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The node-usage record of the failed node of run {RunId} at seq {Seq} could not be written; its spend is not in cost analytics")]
+    private static partial void LogFailedNodeAppendFailed(ILogger logger, Exception exception, Guid runId, long seq);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Recording the spend of failed node {Node} of run {RunId}: {InputTokens} input and {OutputTokens} output tokens")]
+    private static partial void LogFailedNodeRecorded(ILogger logger, Guid runId, string node, long inputTokens, long outputTokens);
 }

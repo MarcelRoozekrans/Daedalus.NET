@@ -359,6 +359,9 @@ public sealed class CleanArchitectureTests
         // WorkIntentRunner (phase 2.10 task B11) is the eighth, and the same shape: a decorator that appends the run's
         // pinned work intent to a request's Task before forwarding to the runner it wraps (ReviewFindingsRunner), never
         // dispatching a turn of its own.
+        //
+        // FailedNodeUsageRunner (phase 2.15) is the ninth, and the same shape: a decorator that collects the usage of the turns
+        // the runner it wraps (ReviewLensRunner) runs and records it when the node fails, never dispatching a turn of its own.
         var rule = Types().That().Are(DaedalusOwnTypes).And().DependOnAny(SubagentRunnerType)
             .And().DoNotHaveFullName(typeof(SubagentRunExecutor).FullName!)
             .And().DoNotHaveFullName(typeof(WorkflowNodeDispatcherFactory).FullName!)
@@ -369,10 +372,11 @@ public sealed class CleanArchitectureTests
             .And().DoNotHaveFullName(typeof(ReviewFindingsRunner).FullName!)
             .And().DoNotHaveFullName(typeof(NodeSelectionRunner).FullName!)
             .And().DoNotHaveFullName(typeof(WorkIntentRunner).FullName!)
+            .And().DoNotHaveFullName(typeof(FailedNodeUsageRunner).FullName!)
             .Should().NotExist()
             .Because("SubagentRunExecutor, WorkflowNodeDispatcherFactory, BudgetedSubagentRunner, " +
-                      "ReviewLensRunner, StandingInstructionsRunner, RunModeRunner, ReviewFindingsRunner, NodeSelectionRunner " +
-                      "and WorkIntentRunner are the only " +
+                      "ReviewLensRunner, StandingInstructionsRunner, RunModeRunner, ReviewFindingsRunner, NodeSelectionRunner, " +
+                      "WorkIntentRunner and FailedNodeUsageRunner are the only " +
                       "Daedalus types permitted to " +
                       "depend on Thalos' ISubagentRunner; every other caller must go through " +
                       "ISubagentRunExecutor instead");

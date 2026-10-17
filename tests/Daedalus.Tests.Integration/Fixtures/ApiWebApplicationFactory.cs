@@ -127,7 +127,20 @@ internal sealed class ApiWebApplicationFactory(
             if (runtime is not null)
             {
                 services.RemoveAll<IAgentRuntime>();
-                services.AddSingleton(runtime);
+                if (runtime is ScriptedManufactureRuntime scripted)
+                {
+                    // It stands in for ThalosAgentRuntime, which publishes each turn's notification through the host's
+                    // publisher; the scripted one does the same once the host resolves it.
+                    services.AddSingleton<IAgentRuntime>(sp =>
+                    {
+                        scripted.Notifications = sp.GetRequiredService<IAgentNotificationPublisher>();
+                        return scripted;
+                    });
+                }
+                else
+                {
+                    services.AddSingleton(runtime);
+                }
             }
 
             if (keycloak is null)

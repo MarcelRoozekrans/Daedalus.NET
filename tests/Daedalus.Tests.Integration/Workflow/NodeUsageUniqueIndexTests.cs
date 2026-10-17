@@ -50,6 +50,28 @@ public sealed class NodeUsageUniqueIndexTests(PostgresFixture fixture) : IAsyncL
     }
 
     /// <summary>
+    ///     Phase 2.15: a failed node's record goes through the same append, so a second <c>RecordFailureAsync</c> for one (run,
+    ///     seq), a redelivered failure, returns false, leaves the first record alone, and logs no warning or error.
+    ///     Red: catch nothing on the unique violation, by removing the <c>IsAlreadyRecorded</c> catch; the violation then
+    ///     logs at Error, and the no-warning assertion fails.
+    /// </summary>
+    [Fact]
+    public async Task A_redelivered_failure_is_recorded_once()
+    {
+        var (recorder, store, log) = NewRecorder();
+        IReadOnlyList<TurnUsage> turns = [new TurnUsage(150_000, 5_138, "m")];
+
+        var first = await recorder.RecordFailureAsync(_runId, 6, "implement", "starter", turns, CancellationToken.None);
+        var second = await recorder.RecordFailureAsync(_runId, 6, "implement", "starter", [new TurnUsage(1, 1, "m")], CancellationToken.None);
+
+        first.Should().BeTrue();
+        second.Should().BeFalse("the failure is already recorded");
+        var records = await store.ListAsync(_runId, WorkflowRunRecord.NodeUsageKind, CancellationToken.None);
+        records.Should().ContainSingle().Which.PayloadJson.Should().Contain("150000", "the first record stands");
+        log.Levels.Should().NotContain(l => l >= LogLevel.Warning, "a redelivery is expected, not a fault");
+    }
+
+    /// <summary>
     ///     The index is partial: other kinds may share a (run, seq), and another seq of the same run is free.
     ///     Red: remove <c>HasFilter</c> from the index; the second workspace-write at the same seq violates it and throws.
     /// </summary>

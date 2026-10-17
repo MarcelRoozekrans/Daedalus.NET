@@ -3,6 +3,7 @@ using System.Text.Json;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Thalos;
+using Thalos.Runtime;
 using Thalos.Workflow;
 using ZeroAlloc.Authorization;
 using ZeroAlloc.Results;
@@ -20,10 +21,22 @@ namespace Daedalus.Tests.Integration.Fixtures;
 ///     <c>respondToReview</c> every implement visit after the first also reports a <c>review_response</c>, a one-entry array
 ///     naming the visit, from <see cref="ResponseFor"/>. Moved out of
 ///     <c>ManufactureSeamEndToEndTests</c> by task B15, whose <c>RunViewUsageTests</c> walk the same process.
+///     <para>
+///     Phase 2.15: with <c>failNode</c>, every turn of that node fails with <see cref="BudgetStop"/> after spending
+///     <c>failUsage</c>, as a turn its token ceiling stopped does. Like Thalos' <c>ThalosAgentRuntime</c>, which this
+///     replaces, it publishes each turn's <see cref="TurnCompletedNotification"/> or <see cref="TurnFailedNotification"/>,
+///     with the turn's usage, through <see cref="Notifications"/> before it returns the turn's result.
+///     <see cref="ApiWebApplicationFactory"/> points that at the host's own <see cref="IAgentNotificationPublisher"/>.
+///     </para>
 /// </summary>
-internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = default, bool rejectReview = false, bool respondToReview = false)
+internal sealed class ScriptedManufactureRuntime(
+    TurnUsage implementUsage = default, bool rejectReview = false, bool respondToReview = false, string? failNode = null,
+    TurnUsage failUsage = default)
     : IAgentRuntime
 {
+    /// <summary>The error a <c>failNode</c> turn fails with: its token ceiling stopped it.</summary>
+    public static readonly AgentError BudgetStop = AgentError.SubagentBudgetExceeded(150_000, 4, 155_138);
+
     /// <summary>The line retrospect proposes adding, and the learning implement reports.</summary>
     public const string LearnedLine = "Integration tests need Docker running.";
 
@@ -59,6 +72,9 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
     /// </summary>
     public IReadOnlyDictionary<string, int?> MaxTotalTokensByNode => _maxTotalTokens;
 
+    /// <summary>Where each turn's notification is published: the host's own publisher once the host resolved this runtime.</summary>
+    public IAgentNotificationPublisher Notifications { get; set; } = NullAgentNotificationPublisher.Instance;
+
     public string TaskFor(string node) => _tasks.TryGetValue(node, out var task) ? task : "";
 
     public ValueTask<Result<SessionId, AgentError>> CreateSessionAsync(AgentId agentId, ISecurityContext caller, CancellationToken ct = default)
@@ -77,12 +93,12 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
     public IAsyncEnumerable<AgentEvent> RunTurnStreamingAsync(AgentTurnRequest request, CancellationToken ct = default) =>
         throw new NotSupportedException("The workflow path runs buffered turns only.");
 
-    public ValueTask<Result<AgentTurnResult, AgentError>> RunTurnAsync(AgentTurnRequest request, CancellationToken ct = default)
+    public async ValueTask<Result<AgentTurnResult, AgentError>> RunTurnAsync(AgentTurnRequest request, CancellationToken ct = default)
     {
         if (request.Caller is not WorkflowCaller caller || request.RequiredOutcome is null)
         {
-            return ValueTask.FromResult(Result<AgentTurnResult, AgentError>.Failure(
-                AgentError.Validation("ScriptedManufactureRuntime only answers workflow turns that require an outcome.")));
+            return Result<AgentTurnResult, AgentError>.Failure(
+                AgentError.Validation("ScriptedManufactureRuntime only answers workflow turns that require an outcome."));
         }
 
         var run = caller.Run;
@@ -92,6 +108,14 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
         if (_sessions.TryGetValue(request.SessionId, out var agent))
         {
             _agents[node] = agent;
+        }
+
+        var turnId = TurnId.New();
+        if (string.Equals(node, failNode, StringComparison.Ordinal))
+        {
+            await Notifications.PublishAsync(
+                new TurnFailedNotification(request.SessionId, turnId, BudgetStop, DateTimeOffset.UtcNow, failUsage), CancellationToken.None);
+            return Result<AgentTurnResult, AgentError>.Failure(BudgetStop);
         }
 
         var tool = request.RequiredOutcome.ToolName;
@@ -109,8 +133,10 @@ internal sealed class ScriptedManufactureRuntime(TurnUsage implementUsage = defa
 
         // Only implement reports usage; every other turn reports none, as the seam suite scripted them before.
         var usage = string.Equals(node, "implement", StringComparison.Ordinal) ? implementUsage : default;
-        return ValueTask.FromResult(Result<AgentTurnResult, AgentError>.Success(
-            new AgentTurnResult(TurnId.New(), request.SessionId, $"{node} done", usage, calls, TimeSpan.FromMilliseconds(5))));
+        var elapsed = TimeSpan.FromMilliseconds(5);
+        await Notifications.PublishAsync(
+            new TurnCompletedNotification(request.SessionId, turnId, usage, elapsed, DateTimeOffset.UtcNow), CancellationToken.None);
+        return Result<AgentTurnResult, AgentError>.Success(new AgentTurnResult(turnId, request.SessionId, $"{node} done", usage, calls, elapsed));
     }
 
     private Dictionary<string, object?> ImplementVariables(Guid runId)
