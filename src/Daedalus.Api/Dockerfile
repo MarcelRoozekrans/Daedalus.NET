@@ -1,6 +1,6 @@
 # Multi-stage build for Daedalus.Api - Optimized for Kubernetes
 # Stage 1: Build with SDK
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.402-alpine3.24 AS build
 # The version stamped into the assemblies (AssemblyVersion/FileVersion/InformationalVersion), passed
 # by CI from GitVersion. 0.0.0 marks an image built outside CI (docs/release.md).
 ARG APP_VERSION=0.0.0
@@ -15,6 +15,7 @@ COPY ["src/Daedalus.Infrastructure/Daedalus.Infrastructure.csproj", "src/Daedalu
 COPY ["src/Daedalus.Agents/Daedalus.Agents.csproj", "src/Daedalus.Agents/"]
 COPY ["src/Daedalus.ServiceDefaults/Daedalus.ServiceDefaults.csproj", "src/Daedalus.ServiceDefaults/"]
 COPY ["Directory.Build.props", "Directory.Build.props"]
+COPY ["global.json", "global.json"]
 COPY ["Directory.Packages.props", "Directory.Packages.props"]
 COPY ["nuget.config", "nuget.config"]
 

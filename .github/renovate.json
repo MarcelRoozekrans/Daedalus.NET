@@ -11,6 +11,17 @@
   "labels": ["dependencies"],
   "branchPrefix": "renovate/",
   "rangeStrategy": "pin",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The SDK version in global.json, moved together with the sdk Docker tags",
+      "fileMatch": ["(^|/)global\\.json$"],
+      "matchStrings": ["\"version\"\\s*:\\s*\"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\""],
+      "depNameTemplate": "dotnet-sdk",
+      "datasourceTemplate": "dotnet-version",
+      "versioningTemplate": "semver"
+    }
+  ],
   "packageRules": [
     {
       "description": "Group all NuGet minor/patch updates",
@@ -43,9 +54,9 @@
       "minimumReleaseAge": "3 days"
     },
     {
-      "description": "Group .NET SDK updates (global.json, Dockerfiles)",
+      "description": "One PR per .NET SDK bump: global.json and the Docker tags. It re-runs count-warnings.sh --all --write",
       "groupName": ".NET SDK",
-      "matchPackagePatterns": ["^mcr.microsoft.com/dotnet/"],
+      "matchPackagePatterns": ["^mcr.microsoft.com/dotnet/", "^dotnet-sdk$"],
       "automerge": false
     },
     {

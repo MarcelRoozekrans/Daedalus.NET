@@ -2,6 +2,7 @@
 # allow exactly what the build stage copies. Directory.Build.props imports nothing else; .editorconfig is read by the
 # analyzers (EnforceCodeStyleInBuild), so the build stage needs it.
 *
+!global.json
 !Directory.Build.props
 !Directory.Packages.props
 !nuget.config
