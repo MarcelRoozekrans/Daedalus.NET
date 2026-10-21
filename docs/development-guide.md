@@ -289,6 +289,10 @@ Phase 2.6. A manufacture run edits, builds and tests code the model wrote, so th
 each run gets its own Docker container, and the host only applies the run's exported patch. The diagram is section 22
 of `docs/architecture-diagrams.md`.
 
+`global.json` pins SDK 10.0.402 with `rollForward: disable`. The sandbox, API and Web build stages, and the sandbox
+runtime stage, use the exact tag `mcr.microsoft.com/dotnet/sdk:10.0.402` or `10.0.402-alpine3.24`, and each build stage
+copies `global.json`, so an image that drifts from the pin refuses to build.
+
 ### The two modes
 
 `Thalos:Workflow:Sandbox:Enabled` picks the mode.
@@ -443,6 +447,129 @@ Linux containers, plus nuget.org and Docker Hub reachable: the suite builds the 
 NuGet packages through the egress proxy. The suite skips when Docker is missing or runs Windows containers
 (`SandboxEngineProbeTests` pins that). Each host in the suite gets its own network, named `daedalus-b8-*`, so a developer's
 own `daedalus-sandboxes` network is left alone.
+
+## Native AOT
+
+Phase 3.1, the start of milestone 3. Every target's trim and AOT warnings are counted and ratcheted in CI, the
+sandbox host ships as a native binary, and a harness measures start-up, memory and size. Development, the AppHost and
+`dotnet test` stay JIT; native is the CI publish of each target and the images built from it. Rulings and numbers:
+`docs/plans/2026-10-17-phase-3.1-rulings.md`.
+
+### The toolchain
+
+- **clang and the zlib headers** link the native binaries: `sudo apt-get install -y clang zlib1g-dev` on Debian or
+  Ubuntu. The agent VM has had clang 19.1.7, zlib1g-dev and the `wasm-tools` workload since 2026-10-17.
+- **The `wasm-tools` workload** compiles the Web app with WebAssembly AOT: `dotnet workload install wasm-tools`.
+- **The SDK** is pinned exactly: `global.json` says 10.0.402 with `rollForward: disable`, CI installs it with
+  `global-json-file`, and the Dockerfiles use the `sdk:10.0.402` tags. A servicing release can move a warning count,
+  and the two-way ratchet would then turn `aot-analysis` red with no code change, so a bump is deliberate. Renovate
+  sends it as one PR that moves `global.json` and the Docker tags together; that PR re-runs
+  `eng/aot/count-warnings.sh --all --write` and commits any baseline change with its cause in the message.
+- **jq,** which the counter uses to read and write the baseline.
+
+CI installs clang and zlib1g-dev with apt in the `aot-analysis` job, and the workload for the Web leg only.
+
+### Counting the warnings
+
+`eng/aot/count-warnings.sh` is the one implementation, used by CI and locally alike, so the CI number is reproduced
+with one command:
+
+```bash
+eng/aot/count-warnings.sh                        # every target, print the counts
+eng/aot/count-warnings.sh --target Sandbox       # one of Api, Cli, Migrations, Sandbox, Web
+eng/aot/count-warnings.sh --target Cli --check   # what CI runs: exit 1 if the count differs from the baseline
+eng/aot/count-warnings.sh --target Cli --write   # record the count in the baseline, keeping the other targets
+```
+
+- **Output:** `<Target> <count>` per target, then the top five root causes, grouped by source project or namespace.
+  The grouping is approximate; the count is exact.
+- **Exit codes:** 0 when everything matches, 1 for a ratchet failure, 2 for a publish failure, an analysis that did
+  not run, or bad usage.
+  `--check` and `--write` are exclusive.
+- **A publish that fails** for any reason other than warnings, by its exit code or an error line, is exit 2. It is
+  never counted as 0.
+- **An analysis that did not run** is exit 2 too. A native log must hold `Generating native code`; the Web log must
+  hold `Optimizing assemblies` and `AOT'ing`. Every target is published with `SuppressTrimAnalysisWarnings=false` on the
+  command line, so a project setting cannot hide the warnings. A 0 is only a baseline when the analysis ran.
+- **Environment:** `AOT_BASELINE` overrides `eng/aot/baseline.json`, and `AOT_LOG_DIR` the directory that keeps each
+  target's publish log and its normalised `<Target>.keys`, by default `$TMPDIR/daedalus-aot`. Diffing two `.keys`
+  files shows which warnings came or went.
+- **What it publishes:** `dotnet publish <project> -c Release -r linux-x64 -p:PublishAot=true` with warnings-as-errors
+  turned off, `-p:TrimmerSingleWarn=false` so a package reports per method, and `-tl:off`. The Web app publishes with
+  `-p:RunAOTCompilation=true -p:PublishTrimmed=true -p:SuppressTrimAnalysisWarnings=false` instead: WebAssembly AOT
+  refuses to run untrimmed, and the project sets `PublishTrimmed=false` for its normal publish.
+- **Each publish gets a fresh `--artifacts-path`.** An incremental publish skips ILC and prints no warnings, which
+  would count 0.
+- **Distinct** means IL2xxx and IL3xxx deduplicated by `code|file|line|member`. The file is repo-relative and the line
+  drops its column, so ILC's, ILLink's and the Roslyn analyzer's reports of one site are one warning. A warning
+  without a location, as ILC prints package code, keeps `Origin(): message`, because only the member used tells
+  `MapGet` from `MapPost` in the same method.
+- **Time,** on the 12-core agent VM: phase 3.1 Task 1 measured about 28 minutes for `--all`, and 21 min 23 s for
+  the Api publish by its log timestamps, with ILC near 12 GB resident. The native smoke run's Api publish took
+  22 min 3 s, Cli 90 s and Migrations 47 s (`docs/plans/2026-10-17-phase-3.1-native-smoke.md`).
+- **Its own test:** `eng/aot/tests/test-count-warnings.sh` replays `sample-ilc.log` through a fake `dotnet`, so it
+  needs no SDK. CI runs it in `build-and-test`.
+
+### The ratchet
+
+`eng/aot/baseline.json` holds one integer per target. The `aot-analysis` job runs `--check` for each of the five
+targets on every PR and push to `main`, and fails on any difference, **above or below** the baseline:
+
+- **A count that rises** is a new trim or AOT problem. Fix it at its source. Do not raise the baseline to make the job
+  pass; a rise that cannot be avoided, such as a dependency floor another package forces, is recorded in the change's
+  rulings with its cause and the phase that removes it.
+- **A count that falls** is progress, and the change that makes it must record it, so the file always states the
+  truth and no later change can give the gain back unnoticed.
+
+To lower a baseline after fixing warnings:
+
+1. Run `eng/aot/count-warnings.sh --target <Name> --write` for each target the change affects.
+2. Commit `eng/aot/baseline.json` in the same change.
+3. Confirm with `eng/aot/count-warnings.sh --target <Name> --check`, which must exit 0.
+
+A dependency bump can move a count either way, and its PR records the new number the same way. The job needs no
+secrets, so forks and Dependabot run it. The owner makes it a required check once it is green; until then, treat a
+red `aot-analysis` as blocking.
+
+The baseline after phase 3.1: Api 18591, Cli 776, Migrations 789, Sandbox 0, Web 214. Most of the Api's count is
+the Anthropic SDK's reflection-based JSON, which phase 3.3 removes.
+
+### No suppressions
+
+A trim or AOT warning is fixed at its source, or the target does not ship native. Not allowed:
+
+- `UnconditionalSuppressMessage`;
+- `<NoWarn>` for IL2xxx or IL3xxx;
+- `SuppressTrimAnalysisWarnings=true`;
+- a `[RequiresUnreferencedCode]` or `[RequiresDynamicCode]` moved to another member. That moves the warning to the
+  caller and fixes nothing.
+
+A library we own is fixed upstream and released, as Thalos 0.18.0 was for the sandbox host. A third-party library
+gets an upstream issue, and is replaced if an AOT-clean alternative exists. The milestone design allows a
+suppression only where the code is provably safe, with the reason beside it, listed in the phase's rulings.
+
+A clean publish is not proof that a binary works: every native target is proven by running it.
+
+### The native sandbox host
+
+`Daedalus.Sandbox` publishes with `PublishAot=true` and `TrimMode=full`. Its Dockerfile's build stage installs clang
+and zlib1g-dev, restores and publishes for `linux-x64`, and drops the `.dbg` symbols; the runtime stage stays
+`sdk:10.0.402`, because runs build and test inside it, with the native `/app/Daedalus.Sandbox` as its entrypoint. CI's
+`docker` job builds the image on every PR and never pushes it. The integration suite's sandbox tests run against the
+native image, including a build and a Roslyn call through it.
+
+### Measuring start-up, memory and size
+
+`eng/measure/` holds `measure-api.sh`, `measure-sandbox.sh` and `measure-cli.sh`. Each takes an image, or the CLI's
+binary, and `--runs N`, 10 by default, and prints one JSON line: the start-up median and p90 over cold starts, idle and
+peak resident memory, and image and app size. Containers run with `--cpus 2`, and the CLI under `taskset` on two
+cores. The API and CLI scripts start their own Postgres and Keycloak. `eng/measure/README.md` defines every field and
+what "ready" means for each target.
+
+The JIT baseline, from `main` `8173fd55`, is in `docs/plans/2026-10-17-phase-3.1-aot-baseline.md`: run from a scratch
+worktree at the commit the images were built from, two passes of 10, with the variance between them. Phase 3.6
+measures the native build on the same VM the same way. Start-up varies by about 5 % at the median between passes, so
+a smaller difference is noise.
 
 ## Token budget
 

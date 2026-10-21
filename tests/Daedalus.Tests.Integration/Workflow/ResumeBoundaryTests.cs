@@ -91,10 +91,22 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
     [Fact]
     public void No_tool_source_is_named_workflow()
     {
-        var sourceNames = _factory.Services.GetServices<IToolSource>().OfType<LocalToolSource>().Select(s => s.Name).ToList();
+        var sourceNames = InProcessToolSources.Of(_factory.Services.GetServices<IToolSource>()).Select(s => s.Name).ToList();
 
         sourceNames.Should().NotBeEmpty("otherwise this test passes vacuously");
         sourceNames.Should().NotContain("workflow");
+    }
+
+    /// <summary>
+    ///     The sources the tests above enumerate are every in-process source the host registers, so none is skipped.
+    ///     Red: filter with <c>OfType&lt;LocalToolSource&gt;()</c> in <see cref="InProcessToolSources"/>, and memory and
+    ///     skills are missing.
+    /// </summary>
+    [Fact]
+    public void The_boundary_reads_every_in_process_tool_source()
+    {
+        InProcessToolSources.Of(_factory.Services.GetServices<IToolSource>()).Select(s => s.Name)
+            .Should().BeEquivalentTo(InProcessToolSources.ApiHostNames, "a source this list misses is a source the boundary never checks");
     }
 
     /// <summary>
@@ -141,7 +153,7 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
         using var scope = _factory.Services.CreateScope();
         var names = new List<string>();
 
-        foreach (var source in scope.ServiceProvider.GetServices<IToolSource>().OfType<LocalToolSource>())
+        foreach (var source in InProcessToolSources.Of(scope.ServiceProvider.GetServices<IToolSource>()))
         {
             var tools = await source.GetToolsAsync(CancellationToken.None);
             tools.IsSuccess.Should().BeTrue($"the '{source.Name}' tool source must enumerate");

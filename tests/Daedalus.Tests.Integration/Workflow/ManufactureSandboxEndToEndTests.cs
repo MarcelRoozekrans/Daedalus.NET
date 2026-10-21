@@ -600,6 +600,90 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
         anything.Should().BeEmpty("nothing was created for the host's network");
     }
 
+    /// <summary>
+    ///     Phase 3.1, review focus 3: the sandbox host, published as a native binary, still finds the SDK its image carries.
+    ///     The run imports its bundle with <c>git</c>, builds the solution with <c>dotnet</c> through <c>sandbox__build</c>,
+    ///     and asks the run's <c>roslyn-codelens-mcp</c> server for its solutions, each a process the native host spawns.
+    /// </summary>
+    /// <remarks>
+    ///     The two assertions share one scope, so a red reports both. Reds, each applied once (see the phase 3.1 task 5
+    ///     report):
+    ///     <list type="bullet">
+    ///         <item>the whole test: build the image with <c>/usr/bin/dotnet</c> removed from the runtime stage, so no
+    ///         <c>dotnet</c> is on the host's <c>PATH</c>. The run's Roslyn server needs the SDK too, so the run fails at
+    ///         <c>implement</c>, "failed to start Roslyn", before the build is called, and the wait for the gate fails;</item>
+    ///         <item>the build record with exit 0: script an edit of <c>A.cs</c> that does not compile, and the record's
+    ///         exit is 1;</item>
+    ///         <item>the Roslyn answer naming <c>/work/repo/Sandbox.sln</c>: drop the <c>thalos.run_id</c> claim from
+    ///         <c>WorkflowCaller</c>, and the call no longer reaches the run's server; the build record fails with it,
+    ///         because the build no longer reaches the run's sandbox either.</item>
+    ///     </list>
+    /// </remarks>
+    [SkippableFact]
+    public async Task A_native_sandbox_host_builds_and_answers_a_roslyn_call()
+    {
+        Skip.IfNot(docker.Available, docker.SkipReason);
+
+        var chat = new ScriptedChatClient();
+        chat.ThenToolCall("workspace__edit_file", new { path = "src/Lib/A.cs", oldText = AddLine, newText = AddLine + "    public static int Twice(int a) => a * 2;\n" });
+        chat.ThenToolCall("sandbox__build", new { });
+        chat.ThenToolCall("roslyn__list_solutions", new { });
+        ScriptChangedOutcome(chat, "Added A.Twice.", ["src/Lib/A.cs"]);
+        ScriptReviewAndRetrospect(chat);
+        await using var host = await StartHostAsync(chat, new FakePullRequestPublisher());
+        using var admin = Client(host, "a-admin", "admin");
+
+        var runId = await StartRunAsync(admin);
+        await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate", RunGuard);
+
+        var builds = TestResults(await host.RecordsAsync(runId, WorkflowRunRecord.TestResultKind))
+            .Where(t => string.Equals(t.Tool, SandboxCallRecorder.BuildTool, StringComparison.Ordinal)).ToList();
+        using (new AssertionScope("the native host's child processes"))
+        {
+            builds.Select(t => t.Exit).Should().Equal(["0"],
+                $"dotnet build ran inside the sandbox and succeeded; the build result was: {string.Join(" | ", ToolResults(chat, "sandbox__build"))}");
+            ToolResults(chat, "roslyn__list_solutions").Should().ContainSingle()
+                .Which.Should().Contain("/work/repo/Sandbox.sln", "the run's own Roslyn server, started by the host, loaded the run's solution");
+        }
+    }
+
+    /// <summary>
+    ///     Phase 3.1, review focus 4: a native sandbox host that fails to start surfaces as the existing start failure,
+    ///     Thalos's "The run's sandbox did not start" (<c>SandboxRunWorkspaceProvider.WaitAnsweringAsync</c>), which
+    ///     <c>ManufactureRunStarter</c> reports as an unavailable start, a 503 with <c>Retry-After</c>, and does not hang. The
+    ///     image is the suite's own, with <c>THALOS_SANDBOX_WORK_ROOT</c> set to a relative path, which the host refuses before
+    ///     it listens, so its container exits at once.
+    /// </summary>
+    /// <remarks>
+    ///     The assertions share one scope, so a red reports each one it breaks. Reds, each applied once: the 503, its
+    ///     header and the message: start the host over the suite's image unchanged, and the start answers 201 with no
+    ///     header and a run id; the 503 and its header: map a provider error to <c>Failed</c> in
+    ///     <c>ManufactureRunStarter.KindOf</c>, and the start answers 500, still naming the same failure.
+    /// </remarks>
+    [SkippableFact]
+    public async Task A_native_sandbox_host_that_fails_to_start_is_the_existing_start_failure()
+    {
+        Skip.IfNot(docker.Available, docker.SkipReason);
+
+        var broken = await docker.DerivedImageAsync("broken-start", "ENV THALOS_SANDBOX_WORK_ROOT=relative");
+        await using var host = await StartHostAsync(
+            new ScriptedChatClient(),
+            new FakePullRequestPublisher(),
+            new Dictionary<string, string?>(StringComparer.Ordinal) { ["Thalos:Workflow:Sandbox:Image"] = broken });
+        using var developer = Client(host, "u-dev", "developer");
+        developer.Timeout = TimeSpan.FromMinutes(3);
+
+        var start = await developer.PostAsJsonAsync("/api/workflow-runs", new StartWorkflowRunRequest("Tighten a guard.", ScratchWorkflowHost.Repository));
+        var body = await start.Content.ReadAsStringAsync();
+
+        using (new AssertionScope("a host that fails to start"))
+        {
+            start.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, body);
+            (start.Headers.RetryAfter?.Delta).Should().Be(TimeSpan.FromSeconds(30), "an unavailable start says when to retry");
+            body.Should().Contain("The run's sandbox did not start: the run's sandbox stopped (exit", "the failure is Thalos's existing one, naming the container's exit");
+        }
+    }
+
     // ---------- the model's scripts ----------
 
     /// <summary>

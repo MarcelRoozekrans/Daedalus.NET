@@ -70,6 +70,18 @@ public sealed class RepoToolBoundaryTests(PostgresFixture fixture) : IAsyncLifet
 
     public async Task DisposeAsync() => await _factory.DisposeAsync();
 
+    /// <summary>
+    ///     <see cref="ReadToolNamesAsync"/> reads every in-process source the host registers, so none is skipped.
+    ///     Red: filter with <c>OfType&lt;LocalToolSource&gt;()</c> in <see cref="InProcessToolSources"/>, and memory and
+    ///     skills are missing.
+    /// </summary>
+    [Fact]
+    public void The_tool_names_come_from_every_in_process_tool_source()
+    {
+        InProcessToolSources.Of(_factory.Services.GetServices<IToolSource>()).Select(s => s.Name)
+            .Should().BeEquivalentTo(InProcessToolSources.ApiHostNames, "a source this list misses is a source the boundary never checks");
+    }
+
     [Fact]
     public void The_read_tools_are_exposed_under_the_existing_daedalus_source()
     {
@@ -272,7 +284,7 @@ public sealed class RepoToolBoundaryTests(PostgresFixture fixture) : IAsyncLifet
         using var scope = _factory.Services.CreateScope();
         var names = new List<string>();
 
-        foreach (var source in scope.ServiceProvider.GetServices<IToolSource>().OfType<LocalToolSource>())
+        foreach (var source in InProcessToolSources.Of(scope.ServiceProvider.GetServices<IToolSource>()))
         {
             var tools = await source.GetToolsAsync(CancellationToken.None);
             tools.IsSuccess.Should().BeTrue($"the '{source.Name}' tool source must enumerate");

@@ -43,9 +43,9 @@
       "minimumReleaseAge": "3 days"
     },
     {
-      "description": "Group .NET SDK updates (global.json, Dockerfiles)",
+      "description": "One PR per .NET SDK bump: global.json, which the nuget manager reads as dotnet-sdk, and the Docker tags. Re-run count-warnings.sh --all --write in that PR",
       "groupName": ".NET SDK",
-      "matchPackagePatterns": ["^mcr.microsoft.com/dotnet/"],
+      "matchPackagePatterns": ["^mcr.microsoft.com/dotnet/", "^dotnet-sdk$"],
       "automerge": false
     },
     {

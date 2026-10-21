@@ -22,7 +22,6 @@ permissions:
   contents: read
 
 env:
-  DOTNET_VERSION: "10.0.x"
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   REGISTRY: ghcr.io
@@ -49,7 +48,7 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          global-json-file: global.json
 
       - name: Derive the version
         id: derive
@@ -85,7 +84,7 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          global-json-file: global.json
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -94,6 +93,10 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
           restore-keys: |
             nuget-${{ runner.os }}-
+
+      # The AOT warning counter's own test: canned logs through a fake SDK, so it needs no publish.
+      - name: Test the AOT warning counter
+        run: eng/aot/tests/test-count-warnings.sh
 
       - name: Restore
         run: dotnet restore Daedalus.sln
@@ -204,6 +207,63 @@ jobs:
           path: ./TestResults/**/*.trx
           reporter: dotnet-trx
 
+  # Native AOT analysis: publishes each target natively and counts its distinct trim and AOT warnings
+  # (IL2xxx/IL3xxx), then ratchets the count against eng/aot/baseline.json in both directions. A rise
+  # fails, and so does a fall the change did not record by lowering the baseline. A publish that fails
+  # for any reason other than warnings fails the job; it is never counted as 0. Reproduce a number
+  # locally with the same command; how to lower a baseline is in the script's header.
+  aot-analysis:
+    name: AOT analysis (${{ matrix.target }})
+    needs: version
+    runs-on: ubuntu-latest
+    # The Api publish compiles the whole program natively: about 21 minutes, with ILC peaking near 12 GB
+    # resident, on the 12-core agent VM. The hosted runner has fewer cores.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [Api, Cli, Migrations, Sandbox, Web]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install the wasm-tools workload
+        if: matrix.target == 'Web'
+        run: dotnet workload install wasm-tools
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-aot-${{ runner.os }}-
+
+      - name: Count and ratchet the AOT warnings
+        env:
+          AOT_LOG_DIR: ${{ runner.temp }}/aot
+        run: eng/aot/count-warnings.sh --target ${{ matrix.target }} --check
+
+      - name: Upload the publish log and warning keys
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aot-analysis-${{ matrix.target }}
+          path: ${{ runner.temp }}/aot/
+          retention-days: 14
+          if-no-files-found: ignore
+
   # Conventional commits, enforced mechanically — release-please derives release versions from
   # commit messages, so a malformed type is a commit the release tooling cannot read. Lints only the
   # commits a pull request adds, never the existing history. Rules: .commitlintrc.yml.
@@ -229,8 +289,9 @@ jobs:
           npx --yes --package @commitlint/cli@21.2.1 --package @commitlint/config-conventional@21.2.0
           commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
 
-  # Builds the two container images with the derived version stamped in (APP_VERSION build-arg →
-  # -p:Version inside the Dockerfiles). On a push to main the images are pushed as <sha> and `main`
+  # Builds the three container images with the derived version stamped in (APP_VERSION build-arg →
+  # -p:Version inside the Dockerfiles). The sandbox image is only built, never pushed, here or in
+  # publish-release. On a push to main the api and web images are pushed as <sha> and `main`
   # — the moving tip, never `latest`: `latest` is reserved for the newest release (publish-release
   # below). Pull requests only build. This is the rehearsal of the release job: the same Dockerfiles
   # and build args run green on every push, so the release only adds the version tags.
@@ -248,8 +309,15 @@ jobs:
         include:
           - image: daedalus-api
             dockerfile: src/Daedalus.Api/Dockerfile
+            push: true
           - image: daedalus-web
             dockerfile: src/Daedalus.Web/Dockerfile
+            push: true
+          # The per-run sandbox host, published native since phase 3.1. Built here so a Dockerfile or
+          # native-link break fails CI; never pushed, and not part of publish-release.
+          - image: daedalus-sandbox
+            dockerfile: src/Daedalus.Sandbox/Dockerfile
+            push: false
 
     steps:
       - name: Checkout
@@ -259,7 +327,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: matrix.push && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -283,11 +351,12 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           build-args: APP_VERSION=${{ needs.version.outputs.version }}
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          push: ${{ matrix.push && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # One cache scope per image, so the three images never evict each other's layers.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   # THE GATE: a manual workflow_dispatch on main or on a release tag with publish_release=true. Both
   # gating jobs must be green on this exact commit first, and the commit must be the one
@@ -370,5 +439,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # One cache scope per image, so the three images never evict each other's layers.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

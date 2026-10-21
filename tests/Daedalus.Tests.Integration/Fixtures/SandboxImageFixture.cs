@@ -149,6 +149,40 @@ public sealed class SandboxImageFixture : IAsyncLifetime
     }
 
     /// <summary>
+    ///     Builds an image on top of <see cref="ImageTag"/> with <paramref name="instructions"/> appended, such as an
+    ///     <c>ENV</c> line, and returns its tag. It carries <see cref="ImageLabel"/>, so <see cref="DisposeAsync"/> removes it.
+    /// </summary>
+    /// <param name="name">Names the derived image's tag, <c>&lt;ImageTag&gt;-&lt;name&gt;</c>.</param>
+    /// <param name="instructions">Dockerfile lines placed after the <c>FROM</c>.</param>
+    public async Task<string> DerivedImageAsync(string name, params string[] instructions)
+    {
+        var context = Directory.CreateTempSubdirectory("daedalus-sandbox-derived-");
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(context.FullName, "Dockerfile"),
+                $"FROM {ImageTag}\n{string.Join('\n', instructions)}\n");
+            var tag = $"{ImageTag}-{name}";
+            var image = new ImageFromDockerfileBuilder()
+                .WithContextDirectory(context.FullName)
+                .WithDockerfileDirectory(context.FullName)
+                .WithDockerfile("Dockerfile")
+                .WithName(tag)
+                .WithLabel(ImageLabel, Suffix)
+                .WithDeleteIfExists(true)
+                .WithCleanUp(false)
+                .Build();
+            using var guard = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            await image.CreateAsync(guard.Token);
+            return tag;
+        }
+        finally
+        {
+            context.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
     ///     Removes every container, volume and network of the networks this fixture handed out, then the image, its
     ///     intermediate layers included, then stops Postgres. Each step is bounded and isolated, so one failure does not
     ///     leave the rest.

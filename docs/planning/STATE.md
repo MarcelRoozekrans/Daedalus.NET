@@ -1,8 +1,63 @@
 # Session State
 
-**Last session:** 2026-10-17, with the owner present
+**Last session:** 2026-10-21
 
-## Current Position - milestone 3, Native AOT, started (2026-10-17); next is phase 3.1
+## Current Position - phase 3.1 complete (2026-10-21), PR to open to `main`; next is phase 3.2
+
+**Milestone 3, phase 3.1, AOT toolchain, gates, baseline and ORM gap audit; the native sandbox host.** Built
+subagent-driven on `phase/3.1-aot-foundation` from `main` `8173fd55`, seven tasks each reviewed, with Task 2's
+measurement run by the controller and Task 4 in Thalos.NET. Task 7, the native smoke run, was added by the owner on
+2026-10-21. Rulings, numbers and findings: `docs/plans/2026-10-17-phase-3.1-rulings.md`.
+
+- **What shipped:**
+  - `eng/aot/count-warnings.sh` and a CI job, `aot-analysis`, over Api, Cli, Migrations, Sandbox and Web. It ratchets
+    each target's distinct trim and AOT warnings against `eng/aot/baseline.json` in both directions.
+  - The baseline: Api 18591, Cli 776, Migrations 789, Sandbox 0, Web 214. The Api rose from 18238 because
+    Thalos.NET.Anthropic 0.18.0 requires Anthropic >= 12.58.0; phase 3.3 removes the SDK.
+  - The JIT baseline, `docs/plans/2026-10-17-phase-3.1-aot-baseline.md`, and the harness, `eng/measure/`, that 3.6
+    reruns.
+  - The ZeroAlloc.ORM gap audit, `docs/plans/2026-10-17-zeroalloc-orm-gap-audit.md`: six gaps, and 3.5 sized at
+    about 117 statements over 22 files. The ZeroAlloc.Linq handover is corrected from its section 6.
+  - The sandbox host ships native, on Thalos 0.18.0 (Thalos.NET#365, release PR #367): start-up 320 ms against
+    548-574 ms JIT, idle RSS 41 against 79 MiB.
+  - `global.json` pins SDK 10.0.402. The development guide has a "Native AOT" section.
+  - The native smoke run, `docs/plans/2026-10-17-phase-3.1-native-smoke.md`: the API, the CLI and Migrations all
+    link, and none reaches ready. Migrations stops at EF Core model building (3.5); the CLI at Thalos' reflection
+    JSON for `.mcp.json`, then `PostgresConversationMap`'s trimmed constructor (both 3.2); the API at the same
+    `.mcp.json`, then MVC loading `Asp.Versioning.Mvc` (3.4). 3.3 still has no runtime evidence, so the Anthropic
+    issue stays unfiled.
+- **Tests at `9963c835`:** unit 2005, Unit.Domain 356, Unit.Application 281, Unit.Infrastructure 258; integration
+  749; Playwright.Api 115; Playwright.Browser 219. Release build 0 warnings; `dotnet format` clean.
+- **CI on PR #405:** green on every target; the Api leg took 37 minutes. The ratchet went red both ways in CI, a
+  count above and a count below its baseline, and the rulings' "Ratchet red runs" links the runs.
+- **Filed:** #403, `docker-compose.full.yml` cannot start; #404, `Daedalus.Migrations` exits before it logs why it
+  failed, found by the smoke run and owned by no phase. **Not filed, by design:** the ORM gaps, which
+  the owner's ZeroAlloc session files; the Anthropic AOT issue, which waits for a native reproduction in 3.3.
+
+## Needs the owner
+
+1. **Merge PR #405,** phase 3.1. Then read the rulings; each says what it costs if wrong.
+2. **Make `aot-analysis` a required check** on `main` once it is green on the PR. It is a branch-ruleset change only
+   the owner can make.
+3. **The ORM gap work from the audit.** Hand the audit and the corrected handover to the ZeroAlloc session: the six
+   gaps and ZeroAlloc.Linq. Phase 3.5 waits on both being released.
+4. **Anthropic credits** are used up. The live run through the native sandbox is carried to 3.6, and 3.3 and 3.6 need
+   credits for their live proofs.
+5. **Release:** dispatch release-please when ready. It is still at 0.1.0; it should propose 0.2.0 and count #379,
+   #388, #391, #396 and this phase's `feat(sandbox)` commit.
+6. **Decide #404,** the Migrations runner's exit path, which no phase owns. It hides every failure of the native
+   runner, so it matters to 3.5 and 3.6.
+
+Still open from before: Thalos.NET#363, the README sentence on the token budget; and decide #383, #373 and #374.
+
+## Recommended Next Step
+
+1. Merge PR #405.
+2. Start phase 3.2, our own reflection out, via `start-next-phase`.
+
+---
+
+## Previous position (2026-10-17) - milestone 3, Native AOT, started; next is phase 3.1
 
 **Milestone 2 is complete** (2026-10-17; re-audit PASS, #397). **Milestone 3, Native AOT**, was brainstormed with the
 owner via `new-milestone`:

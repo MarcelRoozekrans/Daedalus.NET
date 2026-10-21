@@ -1,0 +1,17 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+@REPO@/src/Daedalus.Sandbox/Program.cs(9,13): warning CS0618: 'Foo.Bar()' is obsolete: 'Use Baz'. [@REPO@/src/Daedalus.Sandbox/Daedalus.Sandbox.csproj]
+@REPO@/src/Daedalus.Sandbox/Program.cs(5,27): warning IL3050: Using member 'Thalos.Sandbox.Host.SandboxHost.CreateBuilder(String[])' which has 'RequiresDynamicCodeAttribute' can break functionality when AOT compiling. Tool parameters and results are serialized via reflection-based JSON. [@REPO@/src/Daedalus.Sandbox/Daedalus.Sandbox.csproj]
+  Daedalus.Sandbox -> @REPO@/artifacts/bin/Daedalus.Sandbox/release_linux-x64/Daedalus.Sandbox.dll
+  Generating native code
+@REPO@/src/Daedalus.Sandbox/Program.cs(5): AOT analysis warning IL3050: Program.<<Main>$>d__0.MoveNext(): Using member 'Thalos.Sandbox.Host.SandboxHost.CreateBuilder(String[])' which has 'RequiresDynamicCodeAttribute' can break functionality when AOT compiling. Tool parameters and results are serialized via reflection-based JSON. [@REPO@/src/Daedalus.Sandbox/Daedalus.Sandbox.csproj]
+ILC : Trim analysis warning IL2026: Thalos.Sandbox.Host.SandboxHost.Map(WebApplication): Using member 'Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(IEndpointRouteBuilder,String,Delegate)' which has 'RequiresUnreferencedCodeAttribute' can break functionality when trimming application code. This API may perform reflection on the supplied delegate and its parameters. These types may be trimmed if not directly referenced. [@REPO@/src/Daedalus.Sandbox/Daedalus.Sandbox.csproj]
+ILC : Trim analysis warning IL2026: Thalos.Sandbox.Host.SandboxHost.Map(WebApplication): Using member 'Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(IEndpointRouteBuilder,String,Delegate)' which has 'RequiresUnreferencedCodeAttribute' can break functionality when trimming application code. This API may perform reflection on the supplied delegate and its parameters. These types may be trimmed if not directly referenced. [@REPO@/src/Daedalus.Sandbox/Daedalus.Sandbox.csproj]
+  Daedalus.Sandbox -> @REPO@/artifacts/publish/Daedalus.Sandbox/release_linux-x64/
+
+Build succeeded.
+
+@REPO@/src/Daedalus.Sandbox/Program.cs(9,13): warning CS0618: 'Foo.Bar()' is obsolete: 'Use Baz'. [@REPO@/src/Daedalus.Sandbox/Daedalus.Sandbox.csproj]
+ILC : Trim analysis warning IL2026: Thalos.Sandbox.Host.SandboxHost.Map(WebApplication): Using member 'Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(IEndpointRouteBuilder,String,Delegate)' which has 'RequiresUnreferencedCodeAttribute' can break functionality when trimming application code. This API may perform reflection on the supplied delegate and its parameters. These types may be trimmed if not directly referenced. [@REPO@/src/Daedalus.Sandbox/Daedalus.Sandbox.csproj]
+    2 Warning(s)
+    0 Error(s)

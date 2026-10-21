@@ -247,8 +247,11 @@ public sealed class DaedalusAgentsRegistrationTests
         // RepoToolBoundaryTests.Every_manufacture_tool_is_bound_to_the_developer_policy; see RepoToolBoundaryTests
         // for the write boundary itself. Task B9: on a workflow host, as this one is, Thalos's workspace__* tools over
         // each run's worktree come first, registered with the workspaces inside the engine block; their writes are
-        // bound to workspace-write in the shipped Thalos:ToolPolicies.
-        sources.OfType<LocalToolSource>().Select(s => s.Name).Should().Equal("workspace", "daedalus", "repoaction", "issues", "manufacture", "git");
+        // bound to workspace-write in the shipped Thalos:ToolPolicies. Every source is listed, Thalos's memory and skills
+        // first: since Thalos 0.18.0 the workspace source is the reflection-free generic form, an internal type, so
+        // filtering on LocalToolSource would silently drop it.
+        // Red: comment out UseRunWorkspaceTools in DaedalusAgentsServiceCollectionExtensions, and "workspace" is missing.
+        sources.Select(s => s.Name).Should().Equal("memory", "skills", "workspace", "daedalus", "repoaction", "issues", "manufacture", "git");
     }
 
     [Fact]
