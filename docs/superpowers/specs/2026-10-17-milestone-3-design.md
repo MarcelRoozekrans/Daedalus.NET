@@ -81,6 +81,12 @@ There is no release-tag line: `CONVENTIONS.md` says release-please owns releases
    - **First native target:** fix `Thalos.NET.Sandbox.Host`'s 8 warnings and publish `Daedalus.Sandbox` native.
    - **First runtime evidence:** a native smoke run of each server target as far as it gets, which turns the
      survey's biggest unknown into evidence.
+   - **As built, 2026-10-21 (owner: done in 3.1, as Task 7):** the API, the CLI and Migrations all link natively,
+     and none reaches ready. Migrations stops at EF Core model building (3.5). The CLI stops at Thalos' reflection
+     JSON for `.mcp.json`, then at `PostgresConversationMap`'s trimmed constructor (both 3.2). The API stops at the
+     same `.mcp.json`, then at MVC loading `Asp.Versioning.Mvc` (3.4). No run reached a model call, so 3.3 has no
+     runtime evidence yet. The Migrations runner's exit path, which hides its error log, is #404. Details:
+     `docs/plans/2026-10-17-phase-3.1-native-smoke.md`.
 2. **Phase 3.2: Our own reflection out.** `Surface: Refactor`
    - **Goal:** Daedalus' and Thalos' own code is AOT-clean, leaving only the third-party blockers that 3.3 to 3.5
      remove.

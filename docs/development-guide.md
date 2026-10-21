@@ -497,8 +497,9 @@ eng/aot/count-warnings.sh --target Cli --write   # record the count in the basel
   drops its column, so ILC's, ILLink's and the Roslyn analyzer's reports of one site are one warning. A warning
   without a location, as ILC prints package code, keeps `Origin(): message`, because only the member used tells
   `MapGet` from `MapPost` in the same method.
-- **Time:** about 28 minutes for every target on the 12-core agent VM. The Api publish alone takes about 21 minutes,
-  with ILC near 12 GB resident.
+- **Time,** on the 12-core agent VM: phase 3.1 Task 1 measured about 28 minutes for `--all`, and 21 min 23 s for
+  the Api publish by its log timestamps, with ILC near 12 GB resident. The native smoke run's Api publish took
+  22 min 3 s, Cli 90 s and Migrations 47 s (`docs/plans/2026-10-17-phase-3.1-native-smoke.md`).
 - **Its own test:** `eng/aot/tests/test-count-warnings.sh` replays `sample-ilc.log` through a fake `dotnet`, so it
   needs no SDK. CI runs it in `build-and-test`.
 

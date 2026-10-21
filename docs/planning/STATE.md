@@ -5,9 +5,9 @@
 ## Current Position - phase 3.1 complete (2026-10-21), PR to open to `main`; next is phase 3.2
 
 **Milestone 3, phase 3.1, AOT toolchain, gates, baseline and ORM gap audit; the native sandbox host.** Built
-subagent-driven on `phase/3.1-aot-foundation` from `main` `8173fd55`, six tasks each reviewed, with Task 2's
-measurement run by the controller and Task 4 in Thalos.NET. Rulings, numbers and findings:
-`docs/plans/2026-10-17-phase-3.1-rulings.md`.
+subagent-driven on `phase/3.1-aot-foundation` from `main` `8173fd55`, seven tasks each reviewed, with Task 2's
+measurement run by the controller and Task 4 in Thalos.NET. Task 7, the native smoke run, was added by the owner on
+2026-10-21. Rulings, numbers and findings: `docs/plans/2026-10-17-phase-3.1-rulings.md`.
 
 - **What shipped:**
   - `eng/aot/count-warnings.sh` and a CI job, `aot-analysis`, over Api, Cli, Migrations, Sandbox and Web. It ratchets
@@ -21,11 +21,17 @@ measurement run by the controller and Task 4 in Thalos.NET. Rulings, numbers and
   - The sandbox host ships native, on Thalos 0.18.0 (Thalos.NET#365, release PR #367): start-up 320 ms against
     548-574 ms JIT, idle RSS 41 against 79 MiB.
   - `global.json` pins SDK 10.0.402. The development guide has a "Native AOT" section.
+  - The native smoke run, `docs/plans/2026-10-17-phase-3.1-native-smoke.md`: the API, the CLI and Migrations all
+    link, and none reaches ready. Migrations stops at EF Core model building (3.5); the CLI at Thalos' reflection
+    JSON for `.mcp.json`, then `PostgresConversationMap`'s trimmed constructor (both 3.2); the API at the same
+    `.mcp.json`, then MVC loading `Asp.Versioning.Mvc` (3.4). 3.3 still has no runtime evidence, so the Anthropic
+    issue stays unfiled.
 - **Tests at `9963c835`:** unit 2005, Unit.Domain 356, Unit.Application 281, Unit.Infrastructure 258; integration
   749; Playwright.Api 115; Playwright.Browser 219. Release build 0 warnings; `dotnet format` clean.
 - **Owed from the PR:** the ratchet's red runs in real CI, which the rulings hold a placeholder for, and the first
-  CI run of the Api leg, about 21 minutes and 12 GB locally.
-- **Filed:** the `docker-compose.full.yml` issue, by the controller. **Not filed, by design:** the ORM gaps, which
+  CI run of the Api leg, whose publish took 21 to 22 minutes on the agent VM, with ILC near 12 GB.
+- **Filed:** #403, `docker-compose.full.yml` cannot start; #404, `Daedalus.Migrations` exits before it logs why it
+  failed, found by the smoke run and owned by no phase. **Not filed, by design:** the ORM gaps, which
   the owner's ZeroAlloc session files; the Anthropic AOT issue, which waits for a native reproduction in 3.3.
 
 ## Needs the owner
@@ -40,6 +46,8 @@ measurement run by the controller and Task 4 in Thalos.NET. Rulings, numbers and
    credits for their live proofs.
 5. **Release:** dispatch release-please when ready. It is still at 0.1.0; it should propose 0.2.0 and count #379,
    #388, #391, #396 and this phase's `feat(sandbox)` commit.
+6. **Decide #404,** the Migrations runner's exit path, which no phase owns. It hides every failure of the native
+   runner, so it matters to 3.5 and 3.6.
 
 Still open from before: Thalos.NET#363, the README sentence on the token budget; and decide #383, #373 and #374.
 
