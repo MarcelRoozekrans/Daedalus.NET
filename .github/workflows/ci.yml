@@ -308,8 +308,15 @@ jobs:
         include:
           - image: daedalus-api
             dockerfile: src/Daedalus.Api/Dockerfile
+            push: true
           - image: daedalus-web
             dockerfile: src/Daedalus.Web/Dockerfile
+            push: true
+          # The per-run sandbox host, published native since phase 3.1. Built here so a Dockerfile or
+          # native-link break fails CI; never pushed, and not part of publish-release.
+          - image: daedalus-sandbox
+            dockerfile: src/Daedalus.Sandbox/Dockerfile
+            push: false
 
     steps:
       - name: Checkout
@@ -319,7 +326,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: matrix.push && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -343,7 +350,7 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           build-args: APP_VERSION=${{ needs.version.outputs.version }}
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          push: ${{ matrix.push && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

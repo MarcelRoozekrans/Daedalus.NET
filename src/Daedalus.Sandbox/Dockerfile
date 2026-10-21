@@ -1,14 +1,21 @@
 # Build context: the repository root. Dockerfile.dockerignore next to this file allow-lists what the build stage needs.
+# The build stage publishes the host as a Native AOT binary, phase 3.1, which links with clang against zlib.
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends clang zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Directory.Build.props Directory.Packages.props nuget.config ./
 COPY .editorconfig ./
 COPY src/Daedalus.Sandbox/Daedalus.Sandbox.csproj src/Daedalus.Sandbox/
-RUN dotnet restore src/Daedalus.Sandbox/Daedalus.Sandbox.csproj
+RUN dotnet restore src/Daedalus.Sandbox/Daedalus.Sandbox.csproj -r linux-x64
 COPY src/Daedalus.Sandbox/ src/Daedalus.Sandbox/
-RUN dotnet publish src/Daedalus.Sandbox/Daedalus.Sandbox.csproj -c Release -o /out --no-restore
+# The separate debug symbols, Daedalus.Sandbox.dbg, stay in this stage; the image ships only the binary.
+RUN dotnet publish src/Daedalus.Sandbox/Daedalus.Sandbox.csproj -c Release -r linux-x64 -p:PublishAot=true -o /out --no-restore \
+ && rm -f /out/*.dbg
 
-# Runtime: the SDK, because a run builds, restores and tests inside it. Nothing here is a secret.
+# Runtime: the SDK, because a run builds, restores and tests inside it; the native host itself needs no .NET runtime.
+# Nothing here is a secret.
 FROM mcr.microsoft.com/dotnet/sdk:10.0
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
@@ -30,4 +37,4 @@ COPY --from=build /out /app
 WORKDIR /app
 USER 10001:10001
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "/app/Daedalus.Sandbox.dll"]
+ENTRYPOINT ["/app/Daedalus.Sandbox"]

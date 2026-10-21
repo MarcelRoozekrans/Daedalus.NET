@@ -5,12 +5,14 @@
         <OutputType>Exe</OutputType>
         <IsPackable>false</IsPackable>
         <RootNamespace>Daedalus.Sandbox</RootNamespace>
-        <!-- Never trimmed or single-file: the image runs `dotnet Daedalus.Sandbox.dll`, and the Thalos host discovers its
-             tool methods by reflection, which a trimmed app could not keep. The trim analyzer is therefore off for this
-             project only, as in Daedalus.Migrations; the repo-wide defaults are AOT-oriented. -->
-        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+        <!-- Published as a Native AOT binary, phase 3.1: the image runs /app/Daedalus.Sandbox. Thalos 0.18.0's host
+             registers its tools without reflection, so the trim and AOT analyzers stay on and report nothing; the AOT
+             warning ratchet, eng/aot/baseline.json, holds this project at 0. Native AOT trims every assembly, so the
+             trim mode is full, and its output is one native file already, so the single-file bundler is off. -->
+        <PublishAot>true</PublishAot>
+        <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
         <EnableSingleFilePublish>false</EnableSingleFilePublish>
-        <TrimMode>none</TrimMode>
+        <TrimMode>full</TrimMode>
     </PropertyGroup>
 
     <ItemGroup>
