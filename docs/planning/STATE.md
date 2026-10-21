@@ -28,16 +28,15 @@ measurement run by the controller and Task 4 in Thalos.NET. Task 7, the native s
     issue stays unfiled.
 - **Tests at `9963c835`:** unit 2005, Unit.Domain 356, Unit.Application 281, Unit.Infrastructure 258; integration
   749; Playwright.Api 115; Playwright.Browser 219. Release build 0 warnings; `dotnet format` clean.
-- **Owed from the PR:** the ratchet's red runs in real CI, which the rulings hold a placeholder for, and the first
-  CI run of the Api leg, whose publish took 21 to 22 minutes on the agent VM, with ILC near 12 GB.
+- **CI on PR #405:** green on every target; the Api leg took 37 minutes. The ratchet went red both ways in CI, a
+  count above and a count below its baseline, and the rulings' "Ratchet red runs" links the runs.
 - **Filed:** #403, `docker-compose.full.yml` cannot start; #404, `Daedalus.Migrations` exits before it logs why it
   failed, found by the smoke run and owned by no phase. **Not filed, by design:** the ORM gaps, which
   the owner's ZeroAlloc session files; the Anthropic AOT issue, which waits for a native reproduction in 3.3.
 
 ## Needs the owner
 
-1. **Merge the 3.1 PR** once its CI is green, after the ratchet's red runs are recorded in the rulings. Then read
-   the rulings; each says what it costs if wrong.
+1. **Merge PR #405,** phase 3.1. Then read the rulings; each says what it costs if wrong.
 2. **Make `aot-analysis` a required check** on `main` once it is green on the PR. It is a branch-ruleset change only
    the owner can make.
 3. **The ORM gap work from the audit.** Hand the audit and the corrected handover to the ZeroAlloc session: the six
@@ -53,7 +52,7 @@ Still open from before: Thalos.NET#363, the README sentence on the token budget;
 
 ## Recommended Next Step
 
-1. Open the 3.1 PR, record the ratchet's red runs from its CI, then merge.
+1. Merge PR #405.
 2. Start phase 3.2, our own reflection out, via `start-next-phase`.
 
 ---
