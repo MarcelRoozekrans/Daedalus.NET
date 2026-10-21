@@ -12,7 +12,13 @@ namespace Daedalus.Tests.Integration.Fixtures;
 /// </summary>
 internal static class InProcessToolSources
 {
-    /// <summary>The sources of <paramref name="sources"/> that are not MCP sources, in registration order.</summary>
+    /// <summary>
+    ///     The in-process sources the API test host registers. A boundary test asserts its enumeration against this set,
+    ///     so a source the filter drops turns it red.
+    /// </summary>
+    public static readonly string[] ApiHostNames = ["memory", "skills", "daedalus", "repoaction", "issues", "manufacture", "git"];
+
+    /// <summary>The sources of <paramref name="sources"/> that are not MCP sources.</summary>
     public static IEnumerable<IToolSource> Of(IEnumerable<IToolSource> sources) =>
         sources.Where(s => s is not (McpToolSource or RunScopedMcpToolSource or RemoteRunToolSource));
 }

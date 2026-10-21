@@ -106,7 +106,7 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
     public void The_boundary_reads_every_in_process_tool_source()
     {
         InProcessToolSources.Of(_factory.Services.GetServices<IToolSource>()).Select(s => s.Name)
-            .Should().Equal(["memory", "skills", "daedalus", "repoaction", "issues", "manufacture", "git"], "a source this list misses is a source the boundary never checks");
+            .Should().BeEquivalentTo(InProcessToolSources.ApiHostNames, "a source this list misses is a source the boundary never checks");
     }
 
     /// <summary>
