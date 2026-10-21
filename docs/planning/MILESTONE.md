@@ -51,16 +51,26 @@ stay exactly as they are.
 
 | # | Phase | Surface | Status |
 |---|---|---|---|
-| 3.1 | AOT toolchain, gates, baseline and ORM gap audit; the native sandbox host | Infra | pending |
+| 3.1 | AOT toolchain, gates, baseline and ORM gap audit; the native sandbox host | Infra | complete (2026-10-21), PR to merge |
 | 3.2 | Our own reflection out: STJ source-gen, config binding, DI annotations, tool registry, YAML static generator | Refactor | pending |
-| 3.3 | Thalos' own Anthropic and Ollama clients | Backend | pending |
+| 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter | Backend | pending |
 | 3.4 | Controllers to minimal APIs, identical contract | Refactor | pending |
-| 3.5 | EF Core to ZeroAlloc.ORM, schema and data kept | Data | pending |
+| 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files | Data | pending |
 | 3.6 | Native API, CLI and Migrations; native test runs, live proof, measurements | Infra | pending |
 | 3.7 | Blazor WebAssembly AOT | Infra | pending |
 
 Order: 3.1 comes first, then 3.2. 3.3, 3.4 and 3.5 are independent of each other. 3.6 needs 3.2 to 3.5. 3.7 needs only
 3.1 and 3.2.
+
+Owner decisions of 2026-10-17, in the milestone design's dated notes:
+- **3.3:** the Anthropic client is `ZeroAlloc.Rest.Anthropic`, a ZeroAlloc-Net package with no Microsoft.Extensions.AI
+  dependency, and Ollama's is `ZeroAlloc.Rest.Ollama`. `Thalos.NET.Anthropic` keeps only the `IChatClient` adapter
+  and the cache translator. The Anthropic issue is filed only after checking the latest SDK and reproducing the
+  failure in a native run.
+- **3.5:** ZeroAlloc.ORM gains the gaps the phase 3.1 audit confirmed, six in all, and ZeroAlloc.Linq, compile-time
+  LINQ to SQL. Both are built by the owner's separate ZeroAlloc session, and Daedalus' queries stay LINQ. 3.5 waits
+  on both being released.
+- **CI:** the `aot-analysis` job becomes a required check once it is green.
 
 ## Policies
 

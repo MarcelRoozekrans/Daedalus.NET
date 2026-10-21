@@ -68,7 +68,8 @@ the migrations with `dotnet run --project src/Daedalus.Migrations` of the checko
 `daedalus-measure-pg` and `daedalus-measure-kc`, on `daedalus-measure-net`, with Postgres on 127.0.0.1:55432
 (`MEASURE_PG_PORT`) and Keycloak on 127.0.0.1:8082 (`MEASURE_KC_PORT`).
 `docker-compose.full.yml` is not used, because its `migrations` service builds `src/Daedalus.Migrations/Dockerfile`,
-which does not exist, and it sets `ConnectionStrings__DefaultConnection` where the hosts read `ConnectionStrings:daedalus`.
+which does not exist, and it sets `ConnectionStrings__ApplicationDb` for the migrations and
+`ConnectionStrings__DefaultConnection` for the API, where both hosts read `ConnectionStrings:daedalus`.
 
 A script that starts the stack removes it, with its volumes, when it exits. A stack that is already running is reused
 and left alone, and `MEASURE_KEEP_STACK=1` leaves one the script started, so the three targets can share one.

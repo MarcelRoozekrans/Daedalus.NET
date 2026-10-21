@@ -72,6 +72,12 @@ There is no release-tag line: `CONVENTIONS.md` says release-please owns releases
      taking over the EF migration history, typed-id conversion, and the outbox, scheduling and diagnostics stores.
      **(my call)**
    - **CI gate:** an AOT-analysis job per target that records today's warning counts, and fails when a count rises.
+   - **Note, 2026-10-17 (owner):** the `aot-analysis` job becomes a required status check on `main` once it is green
+     on 3.1's PR. That is a branch-ruleset change only the owner can make. Until then, every milestone 3 PR treats a
+     red `aot-analysis` as blocking.
+   - **As built, 2026-10-21:** the ratchet fails on a count that rises **or** falls, so `eng/aot/baseline.json`
+     always states the truth. The CLI's baseline measures time to ready, not time to answer, which needs model
+     credits. Rulings: `docs/plans/2026-10-17-phase-3.1-rulings.md`.
    - **First native target:** fix `Thalos.NET.Sandbox.Host`'s 8 warnings and publish `Daedalus.Sandbox` native.
    - **First runtime evidence:** a native smoke run of each server target as far as it gets, which turns the
      survey's biggest unknown into evidence.
@@ -111,6 +117,17 @@ There is no release-tag line: `CONVENTIONS.md` says release-please owns releases
      credits are back.
    - **Upstream:** file the issue with Anthropic.
    - **OllamaSharp,** used for embeddings, is replaced the same way **(my call)**.
+   - **Note, 2026-10-17 (owner): where the clients live.**
+     - The Anthropic client is `ZeroAlloc.Rest.Anthropic`, a ZeroAlloc-Net package with no Microsoft.Extensions.AI
+       dependency.
+     - `Thalos.NET.Anthropic` keeps only the `IChatClient` adapter and the cache translator, over that client.
+     - Ollama follows the same pattern, as `ZeroAlloc.Rest.Ollama`.
+
+     This supersedes "source-generated clients in Thalos" in the goal above.
+   - **Note, 2026-10-17 (owner): the Anthropic issue is filed only once it is proven.** That means checking against
+     the latest SDK release first, and a native run that reproduces the failure at run time; warnings alone are not
+     enough. Phase 3.1 found that Thalos.NET.Anthropic 0.18.0 requires Anthropic >= 12.58.0, which raised the API's
+     count from 18238 to 18591; the fix is here, in 3.3.
 4. **Phase 3.4: Controllers to minimal APIs.** `Surface: Refactor`
    - **Goal:** The 18 MVC controllers become minimal API endpoints with an identical contract (owner).
    - **What "identical" covers:** routes, verbs, status codes, `ProblemDetails` bodies, authorization policies, rate
@@ -122,8 +139,28 @@ There is no release-tag line: `CONVENTIONS.md` says release-please owns releases
      removed.
    - **Migrations:** ZeroAlloc.ORM's `MigrationRunner` takes over from EF's migration history, so existing databases
      upgrade in place.
-   - **Order:** repositories and query services move store by store, with `ZeroAlloc.Specification` for query
-     composition.
+   - **Order:** repositories and query services move store by store, with `ZeroAlloc.Linq` for query composition.
+     *(Corrected 2026-10-21: this said `ZeroAlloc.Specification`, which CLAUDE.md rules out; the owner's decision
+     below replaces it.)*
+   - **Note, 2026-10-17 (owner): ZeroAlloc.Linq and the ORM gaps.**
+     - ZeroAlloc.ORM gains the gaps the phase 3.1 audit confirmed, and **ZeroAlloc.Linq**, compile-time LINQ to SQL.
+     - Both are built by the owner's separate ZeroAlloc session, from
+       `docs/plans/2026-10-17-zeroalloc-linq-handover.md`, not as a Daedalus phase.
+     - Daedalus' queries stay LINQ, translated to SQL at build time.
+     - **3.5 depends on both being released.**
+   - **Size, from the phase 3.1 audit (2026-10-17):** the largest phase of the milestone. About 117 statements over
+     the 22 files that run queries; about 30 change-tracked writes that become explicit; about 20 rehydration
+     factories; one baseline migration in place of 26 EF ones; the outbox move with its pending rows and leases; and
+     fixture rework off `EnsureCreatedAsync` under the integration suite's parity bar. About 5 statements stay raw
+     SQL: `FOR UPDATE` and the upserts. Audit: `docs/plans/2026-10-17-zeroalloc-orm-gap-audit.md`, section 5.2.
+   - **What the audit changed:**
+     - the gaps are six, not three: schema adoption, arrays, jsonb parameters, unsigned integers for `xmin`,
+       `ZeroAlloc.Outbox.Orm`'s missing dashboard store and fixed table name, and a silently skipped 14-digit
+       migration version. Arrays block every store that touches `text[]` or `Contains`, and the `Outbox.Orm` gap
+       blocks the outbox move; the others have stopgaps;
+     - pgvector needs no ORM support: no Daedalus table has a `vector` column, and Rag.NET creates the extension;
+     - no Daedalus column is a typed id, so the typed-id converter below has nothing to convert;
+     - six `bytea` row versions enforce nothing (#290), which 3.5 settles.
    - **Outbox and companion stores:** the outbox, scheduling and diagnostics stores move from their `.EfCore` packages
      to their ORM counterparts, with in-flight outbox messages and leases carried over. Typed-id persistence gets an
      ORM-side converter; if ZeroAlloc-Net lacks one, it is fixed upstream **(my call)**.
@@ -152,7 +189,7 @@ There is no release-tag line: `CONVENTIONS.md` says release-please owns releases
 
 Order: 3.1 first. 3.2 before 3.3 to 3.5, because it clears the ground they build on. 3.3, 3.4 and 3.5 are
 independent of each other. 3.6 needs 3.2 to 3.5. 3.7 needs only 3.1 and 3.2, so it can run any time after them.
-**(my call)**
+**(my call)** 3.5 also waits on ZeroAlloc.Linq and the ORM gaps being released (owner, 2026-10-17).
 
 ## Policies that bind every phase
 
@@ -185,10 +222,11 @@ independent of each other. 3.6 needs 3.2 to 3.5. 3.7 needs only 3.1 and 3.2, so 
   3.3's usage counts must keep feeding.
 - **Thalos.NET:** most of 3.1 to 3.3 lands in Thalos and ships as Thalos releases that Daedalus consumes, as in
   milestone 2.
-- **ZeroAlloc.ORM:** must cover what EF Core does for Daedalus today on PostgreSQL. That includes pgvector, jsonb,
-  the cost-analytics aggregations, optimistic concurrency, and taking over an EF migration history. Gaps are fixed
-  upstream, per the policy. Thalos' `Workflow.Orm`, `Saga.Orm` and `Outbox.Orm` already run on it, which is the
-  evidence it can.
+- **ZeroAlloc.ORM:** must cover what EF Core does for Daedalus today on PostgreSQL. That includes jsonb, the
+  cost-analytics aggregations, optimistic concurrency, and taking over an EF migration history. pgvector turned out
+  not to be needed (phase 3.1 audit). ZeroAlloc.Linq and the audited gaps must be released before 3.5 starts. Gaps
+  are fixed upstream, per the policy. Thalos' `Workflow.Orm`, `Saga.Orm` and `Outbox.Orm` already run on it, which is
+  the evidence it can.
 
 ## External Constraints
 

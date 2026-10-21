@@ -625,7 +625,8 @@ are the same work either way.
 
 ## 6. Where the handover is wrong or incomplete
 
-The handover is left unchanged. This audit is the corrected record.
+The handover was left unchanged while this audit ran. Phase 3.1's close-out, on 2026-10-21, corrected it from this
+section; this audit stays the full record.
 
 1. **jsonb does not hold owned objects.** The handover says the jsonb columns hold "owned objects and payload
    documents".

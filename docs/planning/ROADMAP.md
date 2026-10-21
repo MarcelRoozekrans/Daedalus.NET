@@ -208,11 +208,11 @@ decisions:
 
 | # | Phase | Surface | Status | Depends on |
 |---|---|---|---|---|
-| 3.1 | AOT toolchain, CI warning gates, JIT baseline measurements and the ZeroAlloc.ORM gap audit; the sandbox host published native | Infra | pending | M2 |
+| 3.1 | AOT toolchain, CI warning gates, JIT baseline measurements and the ZeroAlloc.ORM gap audit; the sandbox host published native | Infra | **complete (2026-10-21)**, PR to merge: a two-way warning ratchet in CI over five targets, `eng/aot/baseline.json` Api 18591, Cli 776, Migrations 789, Sandbox 0, Web 214; the JIT baseline in `docs/plans/2026-10-17-phase-3.1-aot-baseline.md`; the ORM gap audit, six gaps; the sandbox host native on Thalos 0.18.0, start-up 320 ms against 548-574 ms JIT. Rulings: `docs/plans/2026-10-17-phase-3.1-rulings.md` | M2 |
 | 3.2 | Our own reflection out: System.Text.Json source-generated contexts, configuration-binding generator, DI annotations, a source-generated tool registry, YamlDotNet static generator; Aspire hosting packages out of ServiceDefaults; `ZeroAlloc.Inject` and `ZeroAlloc.Resilience` | Refactor | pending | 3.1 |
-| 3.3 | Thalos' own source-generated Anthropic and Ollama clients behind `IChatClient` and `IEmbeddingGenerator`; the Anthropic SDK and OllamaSharp leave the tree | Backend | pending | 3.2 |
+| 3.3 | Own source-generated Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `ZeroAlloc.Rest.Ollama` in ZeroAlloc-Net, with no Microsoft.Extensions.AI dependency; `Thalos.NET.Anthropic` keeps only the `IChatClient` adapter and the cache translator; the Anthropic SDK and OllamaSharp leave the tree; the Anthropic issue is filed only once a native run reproduces it | Backend | pending | 3.2 |
 | 3.4 | The 18 MVC controllers become minimal API endpoints with an identical contract | Refactor | pending | 3.2 |
-| 3.5 | EF Core to ZeroAlloc.ORM over the existing schema and data, with the outbox, scheduling and diagnostics stores and `ZeroAlloc.Specification`; EF Core removed | Data | pending | 3.2 |
+| 3.5 | EF Core to ZeroAlloc.ORM over the existing schema and data, with the outbox, scheduling and diagnostics stores; queries stay LINQ through ZeroAlloc.Linq, compile-time LINQ to SQL; about 117 statements over 22 files, the milestone's largest phase; EF Core removed | Data | pending | 3.2; ZeroAlloc.Linq and the ORM gaps released |
 | 3.6 | The API, CLI and Migrations published native in CI with zero warnings; suites run against the native API; a live run; before and after measurements | Infra | pending | 3.2-3.5 |
 | 3.7 | `Daedalus.Web` published with WebAssembly AOT; the browser suite passes against it | Infra | pending | 3.1, 3.2 |
 
@@ -230,7 +230,8 @@ Software Manufacturing took that slot. The analysis is unchanged; only the order
 sites, `ZeroAlloc.Serialisation` as a deliberate `System.Text.Json` swap rather than the transitive
 arrival phase 1.7 gives it, `ZeroAlloc.Collections` once AOT work supplies the benchmarks that
 justify pooled collections, and `ZeroAlloc.Specification` alongside the ORM migration that finally
-gives query composition a surface.
+gives query composition a surface. *(Superseded 2026-10-17 by the owner: 3.5 composes queries with
+ZeroAlloc.Linq, and `ZeroAlloc.Specification` stays out, as CLAUDE.md says.)*
 
 **Adoption programme.** 23 of the org's 27 libraries now have a named phase. The four that do not:
 `Saga` and `Scheduling` are excluded, and as of 2026-09-22 the reason for `Saga` is **architectural,
