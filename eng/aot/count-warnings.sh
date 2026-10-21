@@ -7,7 +7,7 @@
 #   --check          exit 1 when any count differs from the baseline, above or below it.
 #   --write          write the counts into the baseline, keeping the targets not counted.
 #
-# Exit codes: 0 ok, 1 ratchet failure, 2 publish failure or bad usage.
+# Exit codes: 0 ok, 1 ratchet failure, 2 publish failure, analysis that did not run, or bad usage.
 # Lowering a baseline after fixing warnings: run with --target <Name> --write and commit
 # eng/aot/baseline.json in the same change; --check fails on a fall that is not recorded.
 #
@@ -77,12 +77,13 @@ mkdir -p "$log_dir"
 publish() {
   local target="$1" artifacts="$2"
   local common=(-c Release -r linux-x64 -p:TreatWarningsAsErrors=false -p:WarningsAsErrors=
-    -p:TrimmerSingleWarn=false --artifacts-path "$artifacts" -tl:off)
+    -p:TrimmerSingleWarn=false -p:SuppressTrimAnalysisWarnings=false --artifacts-path "$artifacts" -tl:off)
   if [[ "$target" == Web ]]; then
     # Blazor WebAssembly: no PublishAot. RunAOTCompilation refuses to run without IL trimming, and the
     # project sets PublishTrimmed=false for its normal JIT publish, so the analysis turns it on here.
+    # SuppressTrimAnalysisWarnings=false is in `common`: a command-line property beats a project's setting.
     dotnet publish "$repo/src/Daedalus.Web" "${common[@]}" \
-      -p:RunAOTCompilation=true -p:PublishTrimmed=true -p:SuppressTrimAnalysisWarnings=false
+      -p:RunAOTCompilation=true -p:PublishTrimmed=true
   else
     dotnet publish "$repo/src/Daedalus.$target" "${common[@]}" -p:PublishAot=true
   fi
@@ -150,6 +151,15 @@ error_lines() {
        END { exit !found }' "$1"
 }
 
+# analysis_markers <target>: prints the log lines that prove the analysis ran. A native publish prints
+# `Generating native code` when ILC compiles, which is where its warnings come from; the Web publish prints
+# `Optimizing assemblies` when ILLink trims, and `AOT'ing N assemblies` when the WASM compiler runs. Without
+# them a count of 0 could be a publish that analysed nothing, and the ratchet would hold it as a clean baseline.
+analysis_markers() {
+  if [[ "$1" == Web ]]; then printf '%s\n' "Optimizing assemblies" "AOT'ing"
+  else printf '%s\n' "Generating native code"; fi
+}
+
 declare -A counts
 summaries=""
 for t in "${targets[@]}"; do
@@ -167,6 +177,13 @@ for t in "${targets[@]}"; do
     [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error::AOT publish of $t failed (exit $status); see the step log."
     exit 2
   fi
+  while IFS= read -r marker; do
+    if ! grep -qF -- "$marker" "$log"; then
+      echo "The analysis of $t did not run: '$marker' is not in $log, so a count of 0 would prove nothing." >&2
+      [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::error::The analysis of $t did not run: '$marker' is not in the log."
+      exit 2
+    fi
+  done < <(analysis_markers "$t")
   pairs="$(normalise "$log" "$repo" | sort -u)"
   if [[ -n "$pairs" ]]; then
     printf '%s\n' "$pairs" | cut -f2- | sort -u > "$log_dir/$t.keys"

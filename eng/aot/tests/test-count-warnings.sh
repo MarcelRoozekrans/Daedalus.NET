@@ -24,6 +24,7 @@ done < "$here/sample-ilc.log" > "$sample"
 # The fake SDK: prints $FAKE_LOG and exits with $FAKE_EXIT, whatever the arguments.
 cat > "$work/bin/dotnet" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "${FAKE_ARGS:-/dev/null}"
 cat "$FAKE_LOG"
 exit "${FAKE_EXIT:-0}"
 EOF
@@ -38,7 +39,7 @@ run_counter() {
   local log="$1" code="$2"
   shift 2
   set +e
-  out="$(PATH="$work/bin:$PATH" FAKE_LOG="$log" FAKE_EXIT="$code" \
+  out="$(PATH="$work/bin:$PATH" FAKE_LOG="$log" FAKE_EXIT="$code" FAKE_ARGS="$work/args.txt" \
     AOT_BASELINE="$work/baseline.json" AOT_LOG_DIR="$work/logs" \
     "$counter" "$@" 2>&1)"
   rc=$?
@@ -132,6 +133,44 @@ else fail "--write updates one target (rc=$rc): $(cat "$work/baseline.json") $ou
 run_counter "$sample" 0 --target Nope
 if [[ $rc -ne 0 && "$out" == *"Nope"* ]]; then pass "unknown target is refused"
 else fail "unknown target is refused (rc=$rc): $out"; fi
+
+# 12. A native log without `Generating native code` exits 2 naming the target, even with exit code 0 and no errors.
+#     Red: drop the marker check -> exit 0 and a count of 3.
+grep -v 'Generating native code' "$sample" > "$work/no-ilc.log"
+run_counter "$work/no-ilc.log" 0 --target Sandbox
+if [[ $rc -eq 2 && "$out" == *"The analysis of Sandbox did not run"* ]]; then
+  pass "a native log without the ILC marker exits 2"
+else fail "a native log without the ILC marker exits 2 (rc=$rc): $out"; fi
+
+# 13. The Web target needs both its markers: the trim step and the WASM compiler.
+#     Red: drop the marker check -> exit 0 for the first two logs.
+#     Red: check only one of the two markers -> exit 0 for the log missing the other.
+web_log="$work/web.log"
+printf '%s\n' '  Optimizing assemblies for size. This process might take a while.' \
+  "  AOT'ing 119 assemblies" "  Daedalus.Web -> $repo/artifacts/publish/" > "$web_log"
+grep -v "AOT'ing" "$web_log" > "$work/web-no-aot.log"
+grep -v 'Optimizing assemblies' "$web_log" > "$work/web-no-trim.log"
+run_counter "$web_log" 0 --target Web
+if [[ $rc -eq 0 && "$out" == *"Web 0"* ]]; then pass "a Web log with both markers is counted"
+else fail "a Web log with both markers is counted (rc=$rc): $out"; fi
+run_counter "$work/web-no-aot.log" 0 --target Web
+if [[ $rc -eq 2 && "$out" == *"The analysis of Web did not run: 'AOT'ing'"* ]]; then
+  pass "a Web log without the AOT marker exits 2"
+else fail "a Web log without the AOT marker exits 2 (rc=$rc): $out"; fi
+run_counter "$work/web-no-trim.log" 0 --target Web
+if [[ $rc -eq 2 && "$out" == *"The analysis of Web did not run: 'Optimizing assemblies'"* ]]; then
+  pass "a Web log without the trim marker exits 2"
+else fail "a Web log without the trim marker exits 2 (rc=$rc): $out"; fi
+
+# 14. Every target is published with trim analysis switched on, from the command line: a project's own
+#     SuppressTrimAnalysisWarnings=true would otherwise hide the warnings and count 0.
+#     Red: drop the property from the publish command -> the Sandbox and Web lines lack it.
+rm -f "$work/args.txt"
+run_counter "$sample" 0 --target Sandbox
+run_counter "$web_log" 0 --target Web
+if [[ "$(grep -c -- '-p:SuppressTrimAnalysisWarnings=false' "$work/args.txt")" == 2 ]]; then
+  pass "native and Web publishes both pass SuppressTrimAnalysisWarnings=false"
+else fail "native and Web publishes both pass SuppressTrimAnalysisWarnings=false: $(cat "$work/args.txt")"; fi
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures check(s) failed"
