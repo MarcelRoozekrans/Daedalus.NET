@@ -289,8 +289,9 @@ jobs:
           npx --yes --package @commitlint/cli@21.2.1 --package @commitlint/config-conventional@21.2.0
           commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
 
-  # Builds the two container images with the derived version stamped in (APP_VERSION build-arg →
-  # -p:Version inside the Dockerfiles). On a push to main the images are pushed as <sha> and `main`
+  # Builds the three container images with the derived version stamped in (APP_VERSION build-arg →
+  # -p:Version inside the Dockerfiles). The sandbox image is only built, never pushed, here or in
+  # publish-release. On a push to main the api and web images are pushed as <sha> and `main`
   # — the moving tip, never `latest`: `latest` is reserved for the newest release (publish-release
   # below). Pull requests only build. This is the rehearsal of the release job: the same Dockerfiles
   # and build args run green on every push, so the release only adds the version tags.
@@ -353,8 +354,9 @@ jobs:
           push: ${{ matrix.push && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # One cache scope per image, so the three images never evict each other's layers.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   # THE GATE: a manual workflow_dispatch on main or on a release tag with publish_release=true. Both
   # gating jobs must be green on this exact commit first, and the commit must be the one
@@ -437,5 +439,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # One cache scope per image, so the three images never evict each other's layers.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
