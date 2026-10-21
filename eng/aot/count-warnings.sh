@@ -71,8 +71,9 @@ mkdir -p "$log_dir"
 # The publish command of the phase 3.1 global constraints. Warnings-as-errors is overridden so every
 # warning is printed and counted instead of failing the publish; TrimmerSingleWarn=false reports per
 # method instead of one line per assembly. -tl:off keeps the classic console logger, whose one-line
-# warnings the parser reads, whether or not a terminal is attached. Each publish gets a fresh --artifacts-path, so nothing is
-# skipped as up to date: an incremental publish would print no warnings and count 0.
+# warnings the parser reads, whether or not a terminal is attached. Each publish gets a fresh
+# --artifacts-path, so nothing is skipped as up to date: an incremental publish would print no
+# warnings and count 0.
 publish() {
   local target="$1" artifacts="$2"
   local common=(-c Release -r linux-x64 -p:TreatWarningsAsErrors=false -p:WarningsAsErrors=
@@ -200,9 +201,11 @@ if $check; then
     if [[ -z "$expected" ]]; then
       msg="$t: no baseline entry, actual $actual. Add it with: eng/aot/count-warnings.sh --target $t --write"
     elif [[ "$actual" -gt "$expected" ]]; then
-      msg="$t: baseline $expected, actual $actual. The count rose: fix the new warnings; compare $log_dir/$t.keys with a run on the base branch."
+      msg="$t: baseline $expected, actual $actual. The count rose: fix the new warnings;"
+      msg+=" compare $log_dir/$t.keys with a run on the base branch."
     elif [[ "$actual" -lt "$expected" ]]; then
-      msg="$t: baseline $expected, actual $actual. The count fell: lower the baseline in this change with: eng/aot/count-warnings.sh --target $t --write"
+      msg="$t: baseline $expected, actual $actual. The count fell: lower the baseline in this change"
+      msg+=" with: eng/aot/count-warnings.sh --target $t --write"
     else
       continue
     fi
