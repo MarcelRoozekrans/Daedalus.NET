@@ -483,10 +483,14 @@ eng/aot/count-warnings.sh --target Cli --write   # record the count in the basel
 
 - **Output:** `<Target> <count>` per target, then the top five root causes, grouped by source project or namespace.
   The grouping is approximate; the count is exact.
-- **Exit codes:** 0 when everything matches, 1 for a ratchet failure, 2 for a publish failure or bad usage.
+- **Exit codes:** 0 when everything matches, 1 for a ratchet failure, 2 for a publish failure, an analysis that did
+  not run, or bad usage.
   `--check` and `--write` are exclusive.
 - **A publish that fails** for any reason other than warnings, by its exit code or an error line, is exit 2. It is
   never counted as 0.
+- **An analysis that did not run** is exit 2 too. A native log must hold `Generating native code`; the Web log must
+  hold `Optimizing assemblies` and `AOT'ing`. Every target is published with `SuppressTrimAnalysisWarnings=false` on the
+  command line, so a project setting cannot hide the warnings. A 0 is only a baseline when the analysis ran.
 - **Environment:** `AOT_BASELINE` overrides `eng/aot/baseline.json`, and `AOT_LOG_DIR` the directory that keeps each
   target's publish log and its normalised `<Target>.keys`, by default `$TMPDIR/daedalus-aot`. Diffing two `.keys`
   files shows which warnings came or went.
