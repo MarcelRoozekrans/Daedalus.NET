@@ -38,6 +38,13 @@ public static class ReviewResponseRecord
     ///     JSON-shaped contract Thalos keeps for workflow variables, so it needs no reflection; a value outside it, such as
     ///     a <see cref="Guid"/>, throws <see cref="ArgumentException"/> naming its type.
     /// </summary>
+    /// <exception cref="ArgumentException">
+    ///     <paramref name="value"/> is not JSON-shaped, or nests deeper than the contract's 64 levels.
+    /// </exception>
+    /// <exception cref="JsonException">
+    ///     <paramref name="value"/> nests exactly 64 levels deep: the contract accepts it, but the payload's
+    ///     <c>{ "response": … }</c> wrapper adds a level the serializer refuses.
+    /// </exception>
     public static string ToPayloadJson(object? value) =>
         JsonSerializer.Serialize(
             new Dictionary<string, JsonElement>(StringComparer.Ordinal) { [ResponseProperty] = PlainJson.ToElement(value) },
