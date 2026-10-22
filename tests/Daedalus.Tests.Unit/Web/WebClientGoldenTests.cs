@@ -42,14 +42,11 @@ public sealed class WebClientGoldenTests
     }
 
     /// <summary>
-    ///     Red, requests: pass <c>JsonSerializerOptions.Default</c> to <c>PostAsJsonAsync</c> in <c>ApiClient.PostAsync&lt;T&gt;</c>;
-    ///     every body written through it turns PascalCase. Red, reads: pass <c>JsonSerializerOptions.Default</c> to
-    ///     <c>ReadFromJsonAsync</c> in <c>ApiClient.TryReadJsonAsync</c>; the camelCase bodies no longer match and every
-    ///     read through it, writes, runs and refusals, comes back empty. Red, the agent client: build its <c>Json</c>
-    ///     options from <c>JsonSerializerDefaults.General</c>; its reads come back empty and the streamed turn's body
-    ///     turns PascalCase. Red, the project client: pass <c>JsonSerializerOptions.Default</c> to its
-    ///     <c>PostAsJsonAsync</c>; <c>project.create</c>'s body turns PascalCase. Red, the repositories client: pass it to
-    ///     <c>GetAllAsync</c>'s <c>ReadFromJsonAsync</c>; <c>repos.list</c> reads empty entries.
+    ///     Characterization test: it passed on today's reflective calls and still passes on <c>WebJsonContext</c>. Red,
+    ///     the context: change <c>JsonSerializerDefaults.Web</c> in <c>WebJsonContext</c>'s options attribute to
+    ///     <c>JsonSerializerDefaults.General</c>; every request body turns PascalCase and every camelCase response reads
+    ///     empty, so every row with a body or a read fails. Red, a dropped property: mark one DTO property of a response
+    ///     <c>[JsonIgnore]</c>; the rows that read it fail, because what was read is written back and compared.
     /// </summary>
     [Theory]
     [MemberData(nameof(Calls))]

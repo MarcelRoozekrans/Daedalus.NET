@@ -1,5 +1,6 @@
 global using ZeroAlloc.Results;
 using System.Net;
+using System.Text.Json.Serialization.Metadata;
 using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Web.Auth;
@@ -22,12 +23,13 @@ public sealed class ApiClient(HttpClient httpClient)
     ///     Executes an HTTP GET request with Result of T error handling and cancellation support.
     /// </summary>
     private async Task<Result<T>> GetAsync<T>(
+        JsonTypeInfo<T> info,
         string url,
         CancellationToken ct = default) where T : class
     {
         try
         {
-            var result = await httpClient.GetFromJsonAsync<T>(url, ct);
+            var result = await httpClient.GetFromJsonAsync(url, info, ct);
             return result is not null
                 ? Result<T>.Success(result)
                 : Result<T>.Failure("No data returned from server");
@@ -56,51 +58,54 @@ public sealed class ApiClient(HttpClient httpClient)
         int page = 1,
         int pageSize = 10,
         CancellationToken ct = default) =>
-        await GetAsync<PagedResultDto<TaskDto>>(
+        await GetAsync(WebJsonContext.Default.PagedResultDtoTaskDto,
             $"/api/tasks?page={page}&pageSize={pageSize}",
             ct);
 
     public async Task<Result<TaskDto>> GetTaskAsync(
         Guid id,
         CancellationToken ct = default) =>
-        await GetAsync<TaskDto>($"/api/tasks/{id}", ct);
+        await GetAsync(WebJsonContext.Default.TaskDto, $"/api/tasks/{id}", ct);
 
     // Projects
     public async Task<Result<PagedResultDto<ProjectDto>>> GetProjectsAsync(
         int page = 1,
         int pageSize = 10,
         CancellationToken ct = default) =>
-        await GetAsync<PagedResultDto<ProjectDto>>(
+        await GetAsync(WebJsonContext.Default.PagedResultDtoProjectDto,
             $"/api/projects?page={page}&pageSize={pageSize}",
             ct);
 
     public async Task<Result<ProjectDto>> GetProjectAsync(Guid id, CancellationToken ct = default) =>
-        await GetAsync<ProjectDto>($"/api/projects/{id}", ct);
+        await GetAsync(WebJsonContext.Default.ProjectDto, $"/api/projects/{id}", ct);
 
     public async Task<Result<ProjectDto>> GetProjectWithTasksAsync(Guid id, CancellationToken ct = default) =>
-        await GetAsync<ProjectDto>($"/api/projects/{id}/with-tasks", ct);
+        await GetAsync(WebJsonContext.Default.ProjectDto, $"/api/projects/{id}/with-tasks", ct);
 
     // Schedules
     public async Task<Result<List<RunDiagnosis>>> GetScheduleOverviewAsync(CancellationToken ct = default) =>
-        await GetAsync<List<RunDiagnosis>>("/api/schedules", ct);
+        await GetAsync(WebJsonContext.Default.ListRunDiagnosis, "/api/schedules", ct);
 
     public async Task<Result<List<RunDiagnosis>>> GetScheduleRunHistoryAsync(
         Guid scheduleId,
         int take = 20,
         CancellationToken ct = default) =>
-        await GetAsync<List<RunDiagnosis>>($"/api/schedules/{scheduleId}/runs?take={take}", ct);
+        await GetAsync(WebJsonContext.Default.ListRunDiagnosis, $"/api/schedules/{scheduleId}/runs?take={take}", ct);
 
     // Write helpers
-    private Task<Result<T>> PostAsync<T>(string url, object body, CancellationToken ct = default)
+    private Task<Result<T>> PostAsync<TBody, T>(
+        JsonTypeInfo<T> info, string url, TBody body, JsonTypeInfo<TBody> bodyInfo, CancellationToken ct = default)
         where T : class =>
-        SendAsync<T>(token => httpClient.PostAsJsonAsync(url, body, token), ct);
+        SendAsync(info, token => httpClient.PostAsJsonAsync(url, body, bodyInfo, token), ct);
 
-    private Task<Result> PostAsync(string url, object body, CancellationToken ct = default) =>
-        SendAsync(token => httpClient.PostAsJsonAsync(url, body, token), ct);
+    private Task<Result> PostAsync<TBody>(
+        string url, TBody body, JsonTypeInfo<TBody> bodyInfo, CancellationToken ct = default) =>
+        SendAsync(token => httpClient.PostAsJsonAsync(url, body, bodyInfo, token), ct);
 
-    private Task<Result<T>> PutAsync<T>(string url, object body, CancellationToken ct = default)
+    private Task<Result<T>> PutAsync<TBody, T>(
+        JsonTypeInfo<T> info, string url, TBody body, JsonTypeInfo<TBody> bodyInfo, CancellationToken ct = default)
         where T : class =>
-        SendAsync<T>(token => httpClient.PutAsJsonAsync(url, body, token), ct);
+        SendAsync(info, token => httpClient.PutAsJsonAsync(url, body, bodyInfo, token), ct);
 
     private Task<Result> DeleteAsync(string url, CancellationToken ct = default) =>
         SendAsync(token => httpClient.DeleteAsync(new Uri(url, UriKind.Relative), token), ct);
@@ -111,6 +116,7 @@ public sealed class ApiClient(HttpClient httpClient)
     ///     cancelled request.
     /// </summary>
     private static async Task<Result<T>> SendAsync<T>(
+        JsonTypeInfo<T> info,
         Func<CancellationToken, Task<HttpResponseMessage>> send,
         CancellationToken ct) where T : class
     {
@@ -122,7 +128,7 @@ public sealed class ApiClient(HttpClient httpClient)
                 return Result<T>.Failure(await ReadFailureReasonAsync(response, ct));
             }
 
-            var value = await TryReadJsonAsync<T>(response, ct);
+            var value = await TryReadJsonAsync(info, response, ct);
             return value is not null
                 ? Result<T>.Success(value)
                 : Result<T>.Failure("No data returned from server");
@@ -173,14 +179,14 @@ public sealed class ApiClient(HttpClient httpClient)
     ///     is not allow-listed, so the page can show why.
     /// </summary>
     public Task<Result<StartWorkflowRunResponse>> ManufactureTaskAsync(Guid id, CancellationToken ct = default) =>
-        SendAsync<StartWorkflowRunResponse>(
+        SendAsync(WebJsonContext.Default.StartWorkflowRunResponse,
             token => httpClient.PostAsync(new Uri($"/api/tasks/{id}/manufacture", UriKind.Relative), content: null, token),
             ct);
 
     // Workflow runs
     /// <summary>One page of runs, as <paramref name="query"/> asks for it.</summary>
     public Task<Result<WorkflowRunList>> GetRunsAsync(RunListQuery query, CancellationToken ct = default) =>
-        SendAsync<WorkflowRunList>(token => httpClient.GetAsync(new Uri(query.ToPath(), UriKind.Relative), token), ct);
+        SendAsync(WebJsonContext.Default.WorkflowRunList, token => httpClient.GetAsync(new Uri(query.ToPath(), UriKind.Relative), token), ct);
 
     /// <summary>
     ///     One run's view. A run that does not exist and a run this user may not see are successes the page states
@@ -206,7 +212,7 @@ public sealed class ApiClient(HttpClient httpClient)
                 return Result<RunLookup>.Failure(await ReadFailureReasonAsync(response, ct));
             }
 
-            return await TryReadJsonAsync<WorkflowRunView>(response, ct) is { } view
+            return await TryReadJsonAsync(WebJsonContext.Default.WorkflowRunView, response, ct) is { } view
                 ? Result<RunLookup>.Success(RunLookup.Found(view))
                 : Result<RunLookup>.Failure("No data returned from server");
         }
@@ -230,6 +236,7 @@ public sealed class ApiClient(HttpClient httpClient)
         PostAsync(
             $"/api/workflow-runs/{id}/resume",
             new ResumeWorkflowRunRequest(RunSignals.HumanApproval, Payload: null, applyStandingInstructions, [.. dropFindings]),
+            WebJsonContext.Default.ResumeWorkflowRunRequest,
             ct);
 
     /// <summary>Cancels the run; a blank reason is sent as none, so the server records its default.</summary>
@@ -237,6 +244,7 @@ public sealed class ApiClient(HttpClient httpClient)
         PostAsync(
             $"/api/workflow-runs/{id}/cancel",
             new CancelWorkflowRunRequest(string.IsNullOrWhiteSpace(reason) ? null : reason),
+            WebJsonContext.Default.CancelWorkflowRunRequest,
             ct);
 
     /// <summary>Retries the run's failed node.</summary>
@@ -245,11 +253,12 @@ public sealed class ApiClient(HttpClient httpClient)
             token => httpClient.PostAsync(new Uri($"/api/workflow-runs/{id}/retry", UriKind.Relative), content: null, token),
             ct);
 
-    private static async Task<T?> TryReadJsonAsync<T>(HttpResponseMessage response, CancellationToken ct) where T : class
+    private static async Task<T?> TryReadJsonAsync<T>(JsonTypeInfo<T> info, HttpResponseMessage response, CancellationToken ct)
+        where T : class
     {
         try
         {
-            return await response.Content.ReadFromJsonAsync<T>(ct);
+            return await response.Content.ReadFromJsonAsync(info, ct);
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or NotSupportedException or InvalidOperationException)
         {
@@ -263,7 +272,7 @@ public sealed class ApiClient(HttpClient httpClient)
     /// </summary>
     private static async Task<string> ReadFailureReasonAsync(HttpResponseMessage response, CancellationToken ct)
     {
-        var body = await TryReadJsonAsync<FailureBody>(response, ct);
+        var body = await TryReadJsonAsync(WebJsonContext.Default.FailureBody, response, ct);
         if (!string.IsNullOrWhiteSpace(body?.Detail))
         {
             return body.Detail;
@@ -274,65 +283,63 @@ public sealed class ApiClient(HttpClient httpClient)
             : $"API error: {HttpStatusText.Of(response)}";
     }
 
-    private sealed record FailureBody(string? Detail, string? Error);
-
     public async Task<Result<TaskDto>> CreateTaskAsync(CreateTaskDto dto, CancellationToken ct = default) =>
-        await PostAsync<TaskDto>("/api/tasks", dto, ct);
+        await PostAsync(WebJsonContext.Default.TaskDto, "/api/tasks", dto, WebJsonContext.Default.CreateTaskDto, ct);
 
     public async Task<Result<TaskDto>> UpdateTaskAsync(Guid id, UpdateTaskDto dto, CancellationToken ct = default) =>
-        await PutAsync<TaskDto>($"/api/tasks/{id}", dto, ct);
+        await PutAsync(WebJsonContext.Default.TaskDto, $"/api/tasks/{id}", dto, WebJsonContext.Default.UpdateTaskDto, ct);
 
     public async Task<Result> DeleteTaskAsync(Guid id, CancellationToken ct = default) =>
         await DeleteAsync($"/api/tasks/{id}", ct);
 
     // Cost Analytics
     public async Task<Result<CostSummaryDto>> GetCostSummaryAsync(CancellationToken ct = default) =>
-        await GetAsync<CostSummaryDto>("/api/cost-analytics/summary", ct);
+        await GetAsync(WebJsonContext.Default.CostSummaryDto, "/api/cost-analytics/summary", ct);
 
     public async Task<Result<List<ProjectCostDto>>> GetCostsByProjectAsync(CancellationToken ct = default) =>
-        await GetAsync<List<ProjectCostDto>>("/api/cost-analytics/by-project", ct);
+        await GetAsync(WebJsonContext.Default.ListProjectCostDto, "/api/cost-analytics/by-project", ct);
 
     public async Task<Result<List<TaskCostDto>>> GetCostsByProjectIdAsync(Guid projectId, CancellationToken ct = default) =>
-        await GetAsync<List<TaskCostDto>>($"/api/cost-analytics/by-project/{projectId}", ct);
+        await GetAsync(WebJsonContext.Default.ListTaskCostDto, $"/api/cost-analytics/by-project/{projectId}", ct);
 
     public async Task<Result<CostEstimateDto>> EstimateCostAsync(
         string modelId, int maxIterations = 10, int estimatedPromptTokens = 4000,
         CancellationToken ct = default) =>
-        await GetAsync<CostEstimateDto>(
+        await GetAsync(WebJsonContext.Default.CostEstimateDto,
             $"/api/cost-analytics/estimate?modelId={Uri.EscapeDataString(modelId)}&maxIterations={maxIterations}&estimatedPromptTokens={estimatedPromptTokens}",
             ct);
 
     public async Task<Result<List<ModelPricingDto>>> GetModelPricingAsync(CancellationToken ct = default) =>
-        await GetAsync<List<ModelPricingDto>>("/api/cost-analytics/pricing", ct);
+        await GetAsync(WebJsonContext.Default.ListModelPricingDto, "/api/cost-analytics/pricing", ct);
 
     // Brainstorm Sessions
     public async Task<Result<BrainstormSessionDto>> CreateBrainstormSessionAsync(
         CreateBrainstormSessionDto dto, CancellationToken ct = default) =>
-        await PostAsync<BrainstormSessionDto>("/api/brainstorm/sessions", dto, ct);
+        await PostAsync(WebJsonContext.Default.BrainstormSessionDto, "/api/brainstorm/sessions", dto, WebJsonContext.Default.CreateBrainstormSessionDto, ct);
 
     public async Task<Result<BrainstormSessionDto>> GetBrainstormSessionAsync(
         Guid sessionId, CancellationToken ct = default) =>
-        await GetAsync<BrainstormSessionDto>($"/api/brainstorm/sessions/{sessionId}", ct);
+        await GetAsync(WebJsonContext.Default.BrainstormSessionDto, $"/api/brainstorm/sessions/{sessionId}", ct);
 
     public async Task<Result<List<BrainstormSessionSummaryDto>>> GetBrainstormSessionsAsync(
         Guid projectId, CancellationToken ct = default) =>
-        await GetAsync<List<BrainstormSessionSummaryDto>>($"/api/brainstorm/sessions?projectId={projectId}", ct);
+        await GetAsync(WebJsonContext.Default.ListBrainstormSessionSummaryDto, $"/api/brainstorm/sessions?projectId={projectId}", ct);
 
     public async Task<Result<BrainstormMessageDto>> SendBrainstormMessageAsync(
         Guid sessionId, SendBrainstormMessageDto dto, CancellationToken ct = default) =>
-        await PostAsync<BrainstormMessageDto>($"/api/brainstorm/sessions/{sessionId}/messages", dto, ct);
+        await PostAsync(WebJsonContext.Default.BrainstormMessageDto, $"/api/brainstorm/sessions/{sessionId}/messages", dto, WebJsonContext.Default.SendBrainstormMessageDto, ct);
 
     public async Task<Result<BrainstormSessionDto>> AdvanceBrainstormPhaseAsync(
         Guid sessionId, CancellationToken ct = default) =>
-        await PostAsync<BrainstormSessionDto>($"/api/brainstorm/sessions/{sessionId}/advance", new { }, ct);
+        await PostAsync(WebJsonContext.Default.BrainstormSessionDto, $"/api/brainstorm/sessions/{sessionId}/advance", EmptyBody.Instance, WebJsonContext.Default.EmptyBody, ct);
 
     public async Task<Result> AbandonBrainstormSessionAsync(
         Guid sessionId, CancellationToken ct = default) =>
-        await PostAsync($"/api/brainstorm/sessions/{sessionId}/abandon", new { }, ct);
+        await PostAsync($"/api/brainstorm/sessions/{sessionId}/abandon", EmptyBody.Instance, WebJsonContext.Default.EmptyBody, ct);
 
     public async Task<Result<List<TaskDto>>> GenerateBrainstormTasksAsync(
         Guid sessionId, CancellationToken ct = default) =>
-        await PostAsync<List<TaskDto>>($"/api/brainstorm/sessions/{sessionId}/generate-tasks", new { }, ct);
+        await PostAsync(WebJsonContext.Default.ListTaskDto, $"/api/brainstorm/sessions/{sessionId}/generate-tasks", EmptyBody.Instance, WebJsonContext.Default.EmptyBody, ct);
 
     // PRD generator
     /// <summary>
@@ -340,12 +347,12 @@ public sealed class ApiClient(HttpClient httpClient)
     ///     refusal carries the controller's <c>error</c>.
     /// </summary>
     public Task<Result<PrdResponseDto>> GeneratePrdAsync(PrdRequestDto request, CancellationToken ct = default) =>
-        PostAsync<PrdResponseDto>("/api/prd/generate", request, ct);
+        PostAsync(WebJsonContext.Default.PrdResponseDto, "/api/prd/generate", request, WebJsonContext.Default.PrdRequestDto, ct);
 
     /// <summary>Turns the selected PRD items into tasks; a refusal carries the controller's <c>error</c>.</summary>
     public Task<Result<List<TaskDto>>> ConvertPrdToTasksAsync(
         PrdConversionRequestDto request, CancellationToken ct = default) =>
-        PostAsync<List<TaskDto>>("/api/prd/convert-to-tasks", request, ct);
+        PostAsync(WebJsonContext.Default.ListTaskDto, "/api/prd/convert-to-tasks", request, WebJsonContext.Default.PrdConversionRequestDto, ct);
 
     // Schedules — resend
     /// <summary>
@@ -353,5 +360,5 @@ public sealed class ApiClient(HttpClient httpClient)
     /// </summary>
     public async Task<Result> ResendScheduleRunAsync(
         Guid scheduleId, Guid executionId, CancellationToken ct = default) =>
-        await PostAsync($"/api/schedules/{scheduleId}/runs/{executionId}/resend", new { }, ct);
+        await PostAsync($"/api/schedules/{scheduleId}/runs/{executionId}/resend", EmptyBody.Instance, WebJsonContext.Default.EmptyBody, ct);
 }

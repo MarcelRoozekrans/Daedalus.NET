@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Daedalus.Application.DTOs.Agents;
 using Daedalus.Web.Auth;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
@@ -18,11 +19,9 @@ public sealed class AgentApiClient(HttpClient http)
 {
     private const string ErrorEventKind = "error";
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
     /// <summary>All registered agents.</summary>
     public Task<Result<IReadOnlyList<AgentSummaryDto>>> GetAgentsAsync(CancellationToken ct = default) =>
-        GetAsync<IReadOnlyList<AgentSummaryDto>>("/api/agents", ct);
+        GetAsync(WebJsonContext.Default.IReadOnlyListAgentSummaryDto, "/api/agents", ct);
 
     /// <summary>Creates a session for <paramref name="agentId"/> and returns the new session id.</summary>
     public async Task<Result<string>> CreateSessionAsync(string agentId, CancellationToken ct = default)
@@ -35,7 +34,7 @@ public sealed class AgentApiClient(HttpClient http)
                 return Result<string>.Failure(await ReadProblemMessageAsync(response, ct));
             }
 
-            var created = await response.Content.ReadFromJsonAsync<CreateAgentSessionResponseDto>(Json, ct);
+            var created = await response.Content.ReadFromJsonAsync(WebJsonContext.Default.CreateAgentSessionResponseDto, ct);
             return created is null
                 ? Result<string>.Failure("No data returned from server")
                 : Result<string>.Success(created.SessionId);
@@ -52,11 +51,11 @@ public sealed class AgentApiClient(HttpClient http)
 
     /// <summary>The caller's sessions, newest first.</summary>
     public Task<Result<IReadOnlyList<AgentSessionDto>>> ListSessionsAsync(int skip = 0, int take = 20, CancellationToken ct = default) =>
-        GetAsync<IReadOnlyList<AgentSessionDto>>($"/api/agents/sessions?skip={skip}&take={take}", ct);
+        GetAsync(WebJsonContext.Default.IReadOnlyListAgentSessionDto, $"/api/agents/sessions?skip={skip}&take={take}", ct);
 
     /// <summary>Session header plus transcript.</summary>
     public Task<Result<AgentSessionDetailDto>> GetSessionAsync(string sessionId, CancellationToken ct = default) =>
-        GetAsync<AgentSessionDetailDto>($"/api/agents/sessions/{Uri.EscapeDataString(sessionId)}", ct);
+        GetAsync(WebJsonContext.Default.AgentSessionDetailDto, $"/api/agents/sessions/{Uri.EscapeDataString(sessionId)}", ct);
 
     /// <summary>Closes (terminates) a session.</summary>
     public async Task<Result> CloseSessionAsync(string sessionId, CancellationToken ct = default)
@@ -101,14 +100,15 @@ public sealed class AgentApiClient(HttpClient http)
             query.Add($"agentId={Uri.EscapeDataString(agentId)}");
         }
 
-        return GetAsync<PagedResultDto<MemoryDto>>($"/api/agent-memories?{string.Join('&', query)}", ct);
+        return GetAsync(WebJsonContext.Default.PagedResultDtoMemoryDto, $"/api/agent-memories?{string.Join('&', query)}", ct);
     }
 
     /// <summary>One memory visible to the caller in the <paramref name="agentId"/> context (see <see cref="ListMemoriesAsync"/>).</summary>
     public Task<Result<MemoryDto>> GetMemoryAsync(string id, string? agentId = null, CancellationToken ct = default)
     {
         var url = $"/api/agent-memories/{Uri.EscapeDataString(id)}";
-        return GetAsync<MemoryDto>(
+        return GetAsync(
+            WebJsonContext.Default.MemoryDto,
             string.IsNullOrEmpty(agentId) ? url : $"{url}?agentId={Uri.EscapeDataString(agentId)}",
             ct);
     }
@@ -145,7 +145,7 @@ public sealed class AgentApiClient(HttpClient http)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, Relative($"/api/agents/sessions/{Uri.EscapeDataString(sessionId)}/turns/stream"))
         {
-            Content = JsonContent.Create(new SendTurnRequestDto(text), options: Json),
+            Content = JsonContent.Create(new SendTurnRequestDto(text), WebJsonContext.Default.SendTurnRequestDto),
         };
         request.SetBrowserResponseStreamingEnabled(true); // Blazor WASM: hand out the body as it arrives instead of buffering it
 
@@ -163,7 +163,7 @@ public sealed class AgentApiClient(HttpClient http)
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         await foreach (var (_, data) in SseReader.ReadAsync(stream, ct))
         {
-            var dto = JsonSerializer.Deserialize<AgentEventDto>(data, Json);
+            var dto = JsonSerializer.Deserialize(data, WebJsonContext.Default.AgentEventDto);
             if (dto is not null)
             {
                 yield return dto;
@@ -171,7 +171,7 @@ public sealed class AgentApiClient(HttpClient http)
         }
     }
 
-    private async Task<Result<T>> GetAsync<T>(string url, CancellationToken ct) where T : class
+    private async Task<Result<T>> GetAsync<T>(JsonTypeInfo<T> info, string url, CancellationToken ct) where T : class
     {
         try
         {
@@ -181,7 +181,7 @@ public sealed class AgentApiClient(HttpClient http)
                 return Result<T>.Failure(await ReadProblemMessageAsync(response, ct));
             }
 
-            var result = await response.Content.ReadFromJsonAsync<T>(Json, ct);
+            var result = await response.Content.ReadFromJsonAsync(info, ct);
             return result is not null
                 ? Result<T>.Success(result)
                 : Result<T>.Failure("No data returned from server");
