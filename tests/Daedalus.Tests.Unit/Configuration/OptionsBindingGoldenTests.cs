@@ -3,6 +3,8 @@ using System.Text.Json;
 using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
+using Daedalus.Api;
+using Daedalus.Application.Configuration;
 using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Services.GitHub;
@@ -11,6 +13,8 @@ using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Thalos.Memory;
+using Thalos.Skills;
 
 namespace Daedalus.Tests.Unit.Configuration;
 
@@ -325,6 +329,259 @@ public sealed class OptionsBindingGoldenTests
             }
             RoleClaim=http://schemas.microsoft.com/ws/2008/06/identity/claims/role
             """);
+    }
+
+    /// <summary>
+    ///     The shipped price table, decimals included, as the Api host registers it. Red: bind
+    ///     <c>ApiHostConfiguration.AddModelPricing</c>'s options from <c>"ModelPrice"</c>; the table is empty.
+    /// </summary>
+    [Fact]
+    public void Model_pricing_binds_as_captured()
+    {
+        var services = new ServiceCollection();
+        services.AddModelPricing(Shipped());
+        using var provider = services.BuildServiceProvider();
+
+        var dump = Dump(provider.GetRequiredService<IOptions<ModelPricingConfiguration>>().Value);
+
+        dump.Should().Be("""
+            {
+              "Models": {
+                "claude-haiku-4-5-20251001": {
+                  "DisplayName": "Claude Haiku 4.5",
+                  "InputTokenPricePerMillion": 1.00,
+                  "OutputTokenPricePerMillion": 5.00,
+                  "CacheReadTokenPricePerMillion": null,
+                  "CacheWriteTokenPricePerMillion": null,
+                  "EffectiveCacheReadTokenPricePerMillion": 0.100,
+                  "EffectiveCacheWriteTokenPricePerMillion": 1.2500
+                },
+                "claude-haiku-5-5": {
+                  "DisplayName": "Claude Haiku 5.5",
+                  "InputTokenPricePerMillion": 0.10,
+                  "OutputTokenPricePerMillion": 0.50,
+                  "CacheReadTokenPricePerMillion": null,
+                  "CacheWriteTokenPricePerMillion": null,
+                  "EffectiveCacheReadTokenPricePerMillion": 0.010,
+                  "EffectiveCacheWriteTokenPricePerMillion": 0.1250
+                },
+                "claude-opus-4-20250514": {
+                  "DisplayName": "Claude Opus 4",
+                  "InputTokenPricePerMillion": 15.00,
+                  "OutputTokenPricePerMillion": 75.00,
+                  "CacheReadTokenPricePerMillion": null,
+                  "CacheWriteTokenPricePerMillion": null,
+                  "EffectiveCacheReadTokenPricePerMillion": 1.500,
+                  "EffectiveCacheWriteTokenPricePerMillion": 18.7500
+                },
+                "claude-opus-5": {
+                  "DisplayName": "Claude Opus 5",
+                  "InputTokenPricePerMillion": 5.00,
+                  "OutputTokenPricePerMillion": 25.00,
+                  "CacheReadTokenPricePerMillion": null,
+                  "CacheWriteTokenPricePerMillion": null,
+                  "EffectiveCacheReadTokenPricePerMillion": 0.500,
+                  "EffectiveCacheWriteTokenPricePerMillion": 6.2500
+                },
+                "claude-opus-5-5": {
+                  "DisplayName": "Claude Opus 5.5",
+                  "InputTokenPricePerMillion": 4.00,
+                  "OutputTokenPricePerMillion": 20.00,
+                  "CacheReadTokenPricePerMillion": null,
+                  "CacheWriteTokenPricePerMillion": null,
+                  "EffectiveCacheReadTokenPricePerMillion": 0.400,
+                  "EffectiveCacheWriteTokenPricePerMillion": 5.0000
+                },
+                "claude-sonnet-4-20250514": {
+                  "DisplayName": "Claude Sonnet 4",
+                  "InputTokenPricePerMillion": 3.00,
+                  "OutputTokenPricePerMillion": 15.00,
+                  "CacheReadTokenPricePerMillion": null,
+                  "CacheWriteTokenPricePerMillion": null,
+                  "EffectiveCacheReadTokenPricePerMillion": 0.300,
+                  "EffectiveCacheWriteTokenPricePerMillion": 3.7500
+                },
+                "claude-sonnet-5": {
+                  "DisplayName": "Claude Sonnet 5",
+                  "InputTokenPricePerMillion": 2.00,
+                  "OutputTokenPricePerMillion": 10.00,
+                  "CacheReadTokenPricePerMillion": null,
+                  "CacheWriteTokenPricePerMillion": null,
+                  "EffectiveCacheReadTokenPricePerMillion": 0.200,
+                  "EffectiveCacheWriteTokenPricePerMillion": 2.5000
+                },
+                "claude-sonnet-5-5": {
+                  "DisplayName": "Claude Sonnet 5.5",
+                  "InputTokenPricePerMillion": 2.00,
+                  "OutputTokenPricePerMillion": 10.00,
+                  "CacheReadTokenPricePerMillion": null,
+                  "CacheWriteTokenPricePerMillion": null,
+                  "EffectiveCacheReadTokenPricePerMillion": 0.200,
+                  "EffectiveCacheWriteTokenPricePerMillion": 2.5000
+                }
+              }
+            }
+            """);
+    }
+
+    /// <summary>Red: read <c>ApiHostConfiguration.CorsOriginsKey</c> as <c>"Cors:AllowedOrigin"</c>; no origin is read.</summary>
+    [Fact]
+    public void Cors_origins_bind_as_captured()
+    {
+        var dump = Dump(ApiHostConfiguration.ReadCorsOrigins(Shipped()));
+
+        dump.Should().Be("""
+            [
+              "http://localhost:8082",
+              "http://keycloak:8082",
+              "http://localhost:8081",
+              "http://daedalus-web:8080"
+            ]
+            """);
+    }
+
+    /// <summary>
+    ///     <see cref="DetachedRunOptions"/>, whose members are <c>required</c> and <c>init</c>-only, and
+    ///     <see cref="ScheduleDiagnosticsOptions"/>' <see cref="TimeSpan"/>s, through <c>AddDaedalusScheduling</c>. Red: bind
+    ///     <c>DetachedRunOptions</c> from <c>"DetachedRun"</c> in <c>AddDaedalusScheduling</c>; the principal and roles are
+    ///     null. Red: bind <c>ScheduleDiagnosticsOptions</c> from <c>"ScheduleDiagnostic"</c>; the diagnostics keep their
+    ///     defaults.
+    /// </summary>
+    [Fact]
+    public void Scheduling_options_bind_as_captured()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddConfiguration(Shipped())
+            .AddInMemoryCollection(new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["ScheduleDiagnostics:StrandedAfter"] = "00:20:00",
+                ["ScheduleDiagnostics:DeadLetterLookback"] = "7.00:00:00",
+                ["ScheduleDiagnostics:DeadLetterScanLimit"] = "50",
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddDaedalusScheduling(configuration);
+        using var provider = services.BuildServiceProvider();
+
+        var detached = Dump(provider.GetRequiredService<IOptions<DetachedRunOptions>>().Value);
+        var diagnostics = Dump(provider.GetRequiredService<IOptions<ScheduleDiagnosticsOptions>>().Value);
+
+        detached.Should().Be("""
+            {
+              "PrincipalId": "schedule:daedalus",
+              "Roles": [
+                "reader"
+              ],
+              "MaxTotalTokens": 150000,
+              "DeadlineSeconds": 600
+            }
+            """);
+        diagnostics.Should().Be("""
+            {
+              "StrandedAfter": "00:20:00",
+              "DeadLetterLookback": "7.00:00:00",
+              "DeadLetterScanLimit": 50,
+              "MaxRunHistory": 200
+            }
+            """);
+    }
+
+    /// <summary>
+    ///     Red: drop <c>section.Bind(o)</c> from <c>ApplySkillOptions</c>; the catalogue and search keep their defaults,
+    ///     and only the Daedalus values, enabled and the resolved roots, remain.
+    /// </summary>
+    [Fact]
+    public void Thalos_skill_options_bind_as_captured()
+    {
+        var configuration = Settings(new(StringComparer.Ordinal)
+        {
+            ["Thalos:Skills:Enabled"] = "false",
+            ["Thalos:Skills:Roots:0"] = "configured",
+            ["Thalos:Skills:Catalogue:MaxChars"] = "1234",
+            ["Thalos:Skills:Search:TopK"] = "9",
+            ["Thalos:Skills:Search:MinScore"] = "0.25",
+        });
+        var options = new SkillOptions();
+
+        DaedalusAgentsServiceCollectionExtensions.ApplySkillOptions(
+            options, configuration.GetSection(SkillsConfig.SectionName), new SkillsConfig { Enabled = true }, ["/abs/skills"]);
+
+        var dump = Dump(options);
+        dump.Should().Be("""
+            {
+              "Enabled": true,
+              "Roots": [
+                "/abs/skills"
+              ],
+              "Catalogue": {
+                "MaxChars": 1234
+              },
+              "Search": {
+                "TopK": 9,
+                "MinScore": 0.25
+              },
+              "ExposeTools": true,
+              "SyncOnStartup": true
+            }
+            """);
+    }
+
+    /// <summary>
+    ///     Red: drop <c>section.Bind(o)</c> from <c>ApplyMemoryOptions</c>; recall, dedupe and the exposed tools keep their
+    ///     defaults.
+    /// </summary>
+    [Fact]
+    public void Thalos_memory_options_bind_as_captured()
+    {
+        var configuration = Settings(new(StringComparer.Ordinal)
+        {
+            ["Thalos:Memory:Enabled"] = "false",
+            ["Thalos:Memory:Recall:TopK"] = "7",
+            ["Thalos:Memory:Recall:MinScore"] = "0.45",
+            ["Thalos:Memory:Recall:MaxChars"] = "999",
+            ["Thalos:Memory:Dedupe:Enabled"] = "false",
+            ["Thalos:Memory:Dedupe:Threshold"] = "0.9",
+            ["Thalos:Memory:ExposeTools"] = "false",
+        });
+        var options = new MemoryOptions();
+
+        DaedalusAgentsServiceCollectionExtensions.ApplyMemoryOptions(
+            options, configuration.GetSection(MemoryConfig.SectionName), new MemoryConfig { Enabled = true, SharedOwnerId = "fallback-owner" });
+
+        var dump = Dump(options);
+        dump.Should().Be("""
+            {
+              "Enabled": true,
+              "SharedOwnerId": "fallback-owner",
+              "Recall": {
+                "TopK": 7,
+                "MinScore": 0.45,
+                "MaxChars": 999
+              },
+              "Dedupe": {
+                "Enabled": false,
+                "Threshold": 0.9
+              },
+              "ExposeTools": false
+            }
+            """);
+    }
+
+    /// <summary>
+    ///     The turn deadline read with <c>GetValue&lt;int&gt;</c>: the shipped value, none, and a value that is not a number,
+    ///     which fails naming the key. Red: read <c>"DeadlineSecond"</c> in <c>ReadTurnDeadline</c>; the shipped deadline
+    ///     reads zero.
+    /// </summary>
+    [Fact]
+    public void The_turn_deadline_reads_as_captured()
+    {
+        var shipped = DaedalusAgentsServiceCollectionExtensions.ReadTurnDeadline(Shipped());
+        var absent = DaedalusAgentsServiceCollectionExtensions.ReadTurnDeadline(Settings(new(StringComparer.Ordinal)));
+        var malformed = () => DaedalusAgentsServiceCollectionExtensions.ReadTurnDeadline(Settings(new(StringComparer.Ordinal) { ["DetachedRuns:DeadlineSeconds"] = "ten" }));
+
+        shipped.Should().Be(TimeSpan.FromSeconds(600));
+        absent.Should().Be(TimeSpan.Zero);
+        malformed.Should().Throw<InvalidOperationException>().WithMessage("Failed to convert configuration value 'ten' at 'DetachedRuns:DeadlineSeconds' to type 'System.Int32'.");
     }
 
     private static ServiceProvider Services(IConfiguration configuration)
