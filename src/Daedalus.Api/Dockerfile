@@ -36,7 +36,7 @@ FROM build AS publish
 RUN dotnet publish "Daedalus.Api.csproj"     -c Release     --no-restore     -p:Version=$APP_VERSION     -o /app/publish
 
 # Stage 3: Final image - ASP.NET Core runtime on Alpine, minimal footprint for Kubernetes
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
+FROM mcr.microsoft.com/dotnet/aspnet:11.0-alpine AS final
 WORKDIR /app
 
 # Copy published application
