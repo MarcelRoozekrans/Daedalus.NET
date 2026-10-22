@@ -80,7 +80,13 @@ public sealed class McpToolRegistryGuardTests
 
         // Red: give McpToolBuilder's tool options Encoder = JavaScriptEncoder.Default instead of M.E.AI's; the raw
         // characters of the unavailable answer are escaped.
-        (await LearningsResultsAsync(built)).Should().Equal(await LearningsResultsAsync(oracle));
+        (await ResultAsync(built, "search_learnings", "query", "down"))
+            .Should().Be(await ResultAsync(oracle, "search_learnings", "query", "down"));
+
+        // Red: make McpToolBuilder's learnings lambda pass the constant query "down" instead of query; the awkward
+        // recall is not made, and the unavailable answer comes back instead.
+        (await ResultAsync(built, "search_learnings", "query", Awkward))
+            .Should().Be(await ResultAsync(oracle, "search_learnings", "query", Awkward));
 
         // Red: pass maxResults + 1 to SearchFailurePatterns in McpToolBuilder's failure-patterns entry; the search
         // finds nothing, and the answer differs.
@@ -160,13 +166,6 @@ public sealed class McpToolRegistryGuardTests
                         m.GetCustomAttribute<DescriptionAttribute>()?.Description));
             })
             .ToList();
-
-    /// <summary>The learnings tool's unavailable answer, then its serialised result for the awkward recall.</summary>
-    private static async Task<string[]> LearningsResultsAsync(IReadOnlyList<AITool> tools) =>
-    [
-        await ResultAsync(tools, "search_learnings", "query", "down"),
-        await ResultAsync(tools, "search_learnings", "query", Awkward),
-    ];
 
     private static async Task<string> ResultAsync(IReadOnlyList<AITool> tools, string name, string parameter, string value)
     {
