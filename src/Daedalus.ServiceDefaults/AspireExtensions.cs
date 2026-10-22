@@ -1,4 +1,3 @@
-using Aspire.Hosting;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -50,16 +49,6 @@ public static class AspireExtensions
         var path = context.Request.Path;
         return !path.StartsWithSegments(HealthPath, StringComparison.OrdinalIgnoreCase)
             && !path.StartsWithSegments(AlivePath, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    ///     Adds Aspire service defaults to the distributed application builder.
-    /// </summary>
-    public static IDistributedApplicationBuilder AddServiceDefaults(
-        this IDistributedApplicationBuilder builder)
-    {
-        builder.Services.AddServiceDefaults(builder.Configuration);
-        return builder;
     }
 
     /// <summary>
