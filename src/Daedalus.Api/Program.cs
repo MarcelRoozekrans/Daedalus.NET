@@ -5,6 +5,7 @@ using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Security;
+using Daedalus.Api;
 using Daedalus.Api.Hubs;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
@@ -45,10 +46,7 @@ builder.Services.AddCoreInfrastructureServices();
 builder.Services.AddApplicationDatabase(builder.Configuration, "daedalus");
 
 // Register model pricing configuration
-builder.Services.Configure<ModelPricingConfiguration>(options =>
-    builder.Configuration.GetSection(ModelPricingConfiguration.SectionName).Bind(options));
-builder.Services.AddSingleton<IValidateOptions<ModelPricingConfiguration>, ModelPricingConfigurationValidator>();
-builder.Services.AddOptions<ModelPricingConfiguration>().ValidateOnStart();
+builder.Services.AddModelPricing(builder.Configuration);
 
 // Add application layer services (command/query handlers, prompt builders)
 builder.Services.AddApplicationServices(builder.Configuration);
@@ -183,9 +181,7 @@ builder.Services.Configure<GzipCompressionProviderOptions>(options =>
 // Add CORS with restricted origins per environment
 builder.Services.AddCors(options =>
 {
-    var allowedOrigins = builder.Configuration
-        .GetSection("Cors:AllowedOrigins")
-        .Get<string[]>() ?? Array.Empty<string>();
+    var allowedOrigins = ApiHostConfiguration.ReadCorsOrigins(builder.Configuration);
 
     options.AddPolicy("RestrictedCors", policy =>
     {

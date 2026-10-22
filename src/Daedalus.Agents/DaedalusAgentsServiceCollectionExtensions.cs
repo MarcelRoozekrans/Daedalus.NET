@@ -218,8 +218,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // steps this outbox dispatches, and BudgetedSubagentRunner to every workflow turn. Read from
         // configuration here rather than from IOptions<DetachedRunOptions> so both lease checks fail at
         // registration, like every other configuration check in this method, instead of at first resolution.
-        var turnDeadline = TimeSpan.FromSeconds(
-            configuration.GetSection("DetachedRuns").GetValue<int>(nameof(DetachedRunOptions.DeadlineSeconds)));
+        var turnDeadline = ReadTurnDeadline(configuration);
 
         AddGitHub(services, configuration);
 
@@ -1659,16 +1658,19 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         SkillsConfig config,
         IReadOnlyList<string> resolvedRoots)
     {
-        thalos.UseSkills(o =>
-            {
-                section.Bind(o); // Enabled, Catalogue:MaxChars, Search:TopK/MinScore straight from Thalos:Skills
-                o.Enabled = config.Enabled;
-
-                // Absolute, resolved against the content root: no CWD surprises in tests or containers. Assigned
-                // rather than cleared-and-filled because SkillOptions.Roots is settable and Bind appends to it.
-                o.Roots = [.. resolvedRoots];
-            })
+        thalos.UseSkills(o => ApplySkillOptions(o, section, config, resolvedRoots))
             .UseSkillStore<PostgresSkillStore>();
+    }
+
+    /// <summary>The <c>SkillOptions</c> <see cref="ConfigureSkills"/> registers: the section, then the Daedalus values over it.</summary>
+    internal static void ApplySkillOptions(SkillOptions o, IConfigurationSection section, SkillsConfig config, IReadOnlyList<string> resolvedRoots)
+    {
+        section.Bind(o); // Enabled, Catalogue:MaxChars, Search:TopK/MinScore straight from Thalos:Skills
+        o.Enabled = config.Enabled;
+
+        // Absolute, resolved against the content root: no CWD surprises in tests or containers. Assigned
+        // rather than cleared-and-filled because SkillOptions.Roots is settable and Bind appends to it.
+        o.Roots = [.. resolvedRoots];
     }
 
     /// <summary>
@@ -1676,18 +1678,28 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     and the Rag.NET index on the application database. Every host that calls <c>AddDaedalusAgents</c> creates the
     ///     Rag.NET schema on start.
     /// </summary>
+    /// <summary>The <c>MemoryOptions</c> <see cref="ConfigureMemory"/> registers: the section, then the Daedalus values over it.</summary>
+    internal static void ApplyMemoryOptions(MemoryOptions o, IConfigurationSection section, MemoryConfig config)
+    {
+        section.Bind(o); // Enabled, SharedOwnerId, Recall, Dedupe, ExposeTools straight from Thalos:Memory
+        o.Enabled = config.Enabled;
+        o.SharedOwnerId ??= config.SharedOwnerId;
+    }
+
+    /// <summary>
+    ///     The deadline every detached agent turn runs under, <c>DetachedRuns:DeadlineSeconds</c>; zero when it is absent.
+    /// </summary>
+    internal static TimeSpan ReadTurnDeadline(IConfiguration configuration) =>
+        TimeSpan.FromSeconds(
+            configuration.GetSection("DetachedRuns").GetValue<int>(nameof(DetachedRunOptions.DeadlineSeconds)));
+
     private static void ConfigureMemory(
         ThalosBuilder thalos,
         IConfigurationSection section,
         MemoryConfig config,
         string connectionString)
     {
-        thalos.UseMemory(o =>
-            {
-                section.Bind(o); // Enabled, SharedOwnerId, Recall, Dedupe, ExposeTools straight from Thalos:Memory
-                o.Enabled = config.Enabled;
-                o.SharedOwnerId ??= config.SharedOwnerId;
-            })
+        thalos.UseMemory(o => ApplyMemoryOptions(o, section, config))
             .UseMemoryStore<PostgresMemoryStore>()
             .UseRagNetMemory(o =>
             {
