@@ -62,4 +62,7 @@
         <ProjectReference Include="..\..\src\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <EmbeddedResource Include="Persistence/ApplicationDbContextModel.golden.txt" LogicalName="ApplicationDbContextModel.golden.txt"/>
+    </ItemGroup>
 </Project>

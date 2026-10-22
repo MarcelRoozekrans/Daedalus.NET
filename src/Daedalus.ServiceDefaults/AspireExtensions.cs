@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -117,6 +118,7 @@ public static class AspireExtensions
     /// <summary>
     ///     Adds database context with connection string resolution.
     /// </summary>
+    [RequiresUnreferencedCode("EF Core model building; removed with EF Core in milestone 3 phase 3.5")]
     public static IServiceCollection AddApplicationDatabase(
         this IServiceCollection services,
         IConfiguration configuration,
