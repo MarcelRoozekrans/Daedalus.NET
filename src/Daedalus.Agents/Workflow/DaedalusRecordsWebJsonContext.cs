@@ -8,6 +8,11 @@ namespace Daedalus.Agents.Workflow;
 ///     reflection-based reads used (Review Focus 1): keys in any casing, and numbers sent as strings, so a finding's
 ///     <c>"line":"12"</c> still reads as 12. <c>LenientReadGoldenTests</c> pins both.
 /// </summary>
+/// <remarks>
+///     <c>PropertyNameCaseInsensitive</c> and <c>NumberHandling</c> repeat what <see cref="JsonSerializerDefaults.Web"/>
+///     already sets. They stay on purpose: they are the two behaviours model output depends on, so they are stated where a
+///     reader looks rather than left implied by the preset, and the golden tests' Red mutations name them.
+/// </remarks>
 [JsonSourceGenerationOptions(
     JsonSerializerDefaults.Web,
     PropertyNameCaseInsensitive = true,

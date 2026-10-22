@@ -79,6 +79,9 @@ public sealed class ReviewResponsePayloadContractTests
             .Which.Message.Should().StartWith($"Workflow variable '$' has type '{typeof(Dictionary<int, string>).FullName}', which is not JSON-shaped.");
     }
 
+    // Each number and leaf case is written through its own arm of PlainJson's TryWriteNumber or TryWriteLeaf, and the
+    // typed dictionary through the non-generic IDictionary arm of Walk. Red, for any case: delete that type's arm, and
+    // the case is refused as not JSON-shaped. Seen failing for sbyte, ushort, uint, float, double and the IDictionary arm.
     public static TheoryData<string, object> Leaves() => new()
     {
         { "byte", (byte)7 },
@@ -94,7 +97,6 @@ public sealed class ReviewResponsePayloadContractTests
         { "bytes", new byte[] { 1, 2, 3 } },
         { "json node", JsonNode.Parse("""{"b":[1,"<"],"a":null}""")! },
         { "typed dictionary", new Dictionary<string, int>(StringComparer.Ordinal) { ["b"] = 2, ["a"] = 1 } },
-        { "sorted map", new SortedList<string, object?>(StringComparer.Ordinal) { ["z"] = "last", ["a"] = 1L } },
     };
 
     // Red: in PlainJson, write every number through WriteNumberValue(double); the decimal loses its trailing zero and
@@ -107,6 +109,19 @@ public sealed class ReviewResponsePayloadContractTests
         var payload = ReviewResponseRecord.ToPayloadJson(value);
 
         payload.Should().Be(ExpectedLeaves[shape], shape);
+    }
+
+    // A map that is only an IReadOnlyDictionary, as a custom bag type would be, is written as an object in its own
+    // entry order. Red: delete the IReadOnlyDictionary arm in PlainJson's Walk; the map then enumerates as key-value
+    // pairs and is refused, naming the map's type.
+    [Fact]
+    public void A_read_only_dictionary_is_written_as_an_object_in_entry_order()
+    {
+        var map = new ReadOnlyMap([new("z", "last"), new("a", 1L)]);
+
+        var payload = ReviewResponseRecord.ToPayloadJson(map);
+
+        payload.Should().Be("""{"response":{"z":"last","a":1}}""");
     }
 
     // Captured from today's reflection-based Serialize of the same Dictionary<string, object?> wrapper.
@@ -125,6 +140,30 @@ public sealed class ReviewResponsePayloadContractTests
         ["bytes"] = """{"response":"AQID"}""",
         ["json node"] = """{"response":{"b":[1,"\u003C"],"a":null}}""",
         ["typed dictionary"] = """{"response":{"b":2,"a":1}}""",
-        ["sorted map"] = """{"response":{"a":1,"z":"last"}}""",
     };
+
+    /// <summary>A map that implements <see cref="IReadOnlyDictionary{TKey,TValue}"/> and nothing more dictionary-like.</summary>
+    private sealed class ReadOnlyMap(IReadOnlyList<KeyValuePair<string, object?>> entries) : IReadOnlyDictionary<string, object?>
+    {
+        public object? this[string key] => entries.First(e => string.Equals(e.Key, key, StringComparison.Ordinal)).Value;
+
+        public IEnumerable<string> Keys => entries.Select(e => e.Key);
+
+        public IEnumerable<object?> Values => entries.Select(e => e.Value);
+
+        public int Count => entries.Count;
+
+        public bool ContainsKey(string key) => entries.Any(e => string.Equals(e.Key, key, StringComparison.Ordinal));
+
+        public bool TryGetValue(string key, out object? value)
+        {
+            var at = entries.ToList().FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
+            value = at >= 0 ? entries[at].Value : null;
+            return at >= 0;
+        }
+
+        public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => entries.GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 }

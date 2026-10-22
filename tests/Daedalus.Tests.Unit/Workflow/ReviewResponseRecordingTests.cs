@@ -172,4 +172,80 @@ public sealed class ReviewResponseRecordingTests
         inner.Completed.Should().BeNull("a visit whose answer is lost must not read as answered");
         inner.FailureMessage.Should().Contain("review_response").And.Contain("database down");
     }
+
+    private static (ReviewResponseRecorder Recorder, List<WorkflowRunRecord> Appended) Recorder()
+    {
+        var appended = new List<WorkflowRunRecord>();
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            appended.Add(call.Arg<WorkflowRunRecord>());
+            return ValueTask.CompletedTask;
+        });
+        return (TestNodeUsage.Responses(records), appended);
+    }
+
+    private static object Nested(int levels)
+    {
+        object value = "leaf";
+        for (var i = 0; i < levels; i++)
+            value = new List<object?> { value };
+        return value;
+    }
+
+    /// <summary>
+    ///     A response outside the JSON-shaped contract is returned as a failure naming its type, never thrown, and nothing is
+    ///     appended.
+    ///     Red: remove the catch around ToPayloadJson in RecordAsync, and the ArgumentException escapes the call.
+    /// </summary>
+    [Fact]
+    public async Task A_response_that_is_not_JSON_shaped_is_a_failure_not_a_throw()
+    {
+        var (recorder, appended) = Recorder();
+
+        var result = await recorder.RecordAsync(Guid.NewGuid(), ImplementSeq, "implement", "starter-1", Guid.Empty, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("System.Guid");
+        appended.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     64 nested lists pass the contract's depth guard, but the payload's own wrapper object makes the 65th level, which
+    ///     the serializer refuses. That too is a failure, not a throw.
+    ///     Red: narrow the catch in RecordAsync to ArgumentException alone, and the serializer's exception escapes the call.
+    /// </summary>
+    [Fact]
+    public async Task A_response_nested_one_level_too_deep_for_the_payload_is_a_failure()
+    {
+        var (recorder, appended) = Recorder();
+
+        var result = await recorder.RecordAsync(Guid.NewGuid(), ImplementSeq, "implement", "starter-1", Nested(64), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Contain("review_response");
+        appended.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Through the store, the refused response fails the run with the recorder's message instead of throwing out of the
+    ///     completion.
+    ///     Red: remove the catch around ToPayloadJson in RecordAsync, and CompleteNodeAsync throws before FailAsync runs.
+    /// </summary>
+    [Fact]
+    public async Task A_response_that_is_not_JSON_shaped_fails_the_run()
+    {
+        var run = RunAt("implement");
+        var (inner, store, appended) = Build(run);
+
+        await CompleteAsync(store, run, new(StringComparer.Ordinal)
+        {
+            [ReviewHandoff.SummaryKey] = "fixed it",
+            [ReviewHandoff.ReviewResponseKey] = Guid.Empty,
+        });
+
+        appended.Should().BeEmpty();
+        inner.Completed.Should().BeNull();
+        inner.FailureMessage.Should().Contain("review_response").And.Contain("System.Guid");
+    }
 }
