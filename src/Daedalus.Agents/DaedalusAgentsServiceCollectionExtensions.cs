@@ -1678,21 +1678,6 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     and the Rag.NET index on the application database. Every host that calls <c>AddDaedalusAgents</c> creates the
     ///     Rag.NET schema on start.
     /// </summary>
-    /// <summary>The <c>MemoryOptions</c> <see cref="ConfigureMemory"/> registers: the section, then the Daedalus values over it.</summary>
-    internal static void ApplyMemoryOptions(MemoryOptions o, IConfigurationSection section, MemoryConfig config)
-    {
-        section.Bind(o); // Enabled, SharedOwnerId, Recall, Dedupe, ExposeTools straight from Thalos:Memory
-        o.Enabled = config.Enabled;
-        o.SharedOwnerId ??= config.SharedOwnerId;
-    }
-
-    /// <summary>
-    ///     The deadline every detached agent turn runs under, <c>DetachedRuns:DeadlineSeconds</c>; zero when it is absent.
-    /// </summary>
-    internal static TimeSpan ReadTurnDeadline(IConfiguration configuration) =>
-        TimeSpan.FromSeconds(
-            configuration.GetSection("DetachedRuns").GetValue<int>(nameof(DetachedRunOptions.DeadlineSeconds)));
-
     private static void ConfigureMemory(
         ThalosBuilder thalos,
         IConfigurationSection section,
@@ -1708,6 +1693,21 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 o.EnsureSchemaOnStartup = true;
             });
     }
+
+    /// <summary>The <c>MemoryOptions</c> <see cref="ConfigureMemory"/> registers: the section, then the Daedalus values over it.</summary>
+    internal static void ApplyMemoryOptions(MemoryOptions o, IConfigurationSection section, MemoryConfig config)
+    {
+        section.Bind(o); // Enabled, SharedOwnerId, Recall, Dedupe, ExposeTools straight from Thalos:Memory
+        o.Enabled = config.Enabled;
+        o.SharedOwnerId ??= config.SharedOwnerId;
+    }
+
+    /// <summary>
+    ///     The deadline every detached agent turn runs under, <c>DetachedRuns:DeadlineSeconds</c>; zero when it is absent.
+    /// </summary>
+    internal static TimeSpan ReadTurnDeadline(IConfiguration configuration) =>
+        TimeSpan.FromSeconds(
+            configuration.GetSection("DetachedRuns").GetValue<int>(nameof(DetachedRunOptions.DeadlineSeconds)));
 
     /// <summary>
     ///     Fails fast on the Daedalus-only <c>Thalos:Skills</c> keys (Thalos validates its own <c>SkillOptions</c> on
