@@ -20,9 +20,11 @@ public sealed class BrainstormLenientReadTests
     private readonly IPrdService _prdService = Substitute.For<IPrdService>();
 
     /// <summary>
-    ///     Red: drop <c>new JsonStringEnumConverter()</c> from <c>BrainstormService</c>'s parse options; the two names
-    ///     fail to parse and the number still reads. Red: construct it as
-    ///     <c>new JsonStringEnumConverter(allowIntegerValues: false)</c>; the number fails.
+    ///     Characterization test of the read the brainstorm context took over: it passed before and after the move. Red,
+    ///     the names: drop <c>UseStringEnumConverter</c> from <c>BrainstormJsonContext</c>; <c>"High"</c> and
+    ///     <c>"high"</c> fail to parse and the number still reads. Red, the integer: register an enum converter that
+    ///     refuses integers, <c>JsonStringEnumConverter&lt;Priority&gt;</c> built with <c>allowIntegerValues: false</c>,
+    ///     in its place; the <c>2</c> row fails and the two name rows still read.
     /// </summary>
     [Theory]
     [InlineData("\"High\"", "\"Medium\"")]
@@ -39,7 +41,7 @@ public sealed class BrainstormLenientReadTests
         items[0].Should().BeEquivalentTo(new PrdItemForConversionDto("T", "D", "A", Priority.High, Complexity.Medium, ["X"], "P", 3));
     }
 
-    /// <summary>Red: drop <c>PropertyNameCaseInsensitive = true</c> from the parse options; no key matches and the item reads empty.</summary>
+    /// <summary>Red: drop <c>PropertyNameCaseInsensitive = true</c> from <c>BrainstormJsonContext</c>; no key matches and the item reads empty.</summary>
     [Fact]
     public async Task Keys_read_in_any_case()
     {
