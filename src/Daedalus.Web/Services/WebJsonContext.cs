@@ -24,7 +24,7 @@ internal sealed record EmptyBody
 internal sealed record FailureBody(string? Detail, string? Error);
 
 /// <summary>
-///     Source-generated JSON for the four console clients, so the Web reads and writes without reflection. It keeps the web
+///     Source-generated JSON for the four Web API clients, so the Web reads and writes without reflection. It keeps the web
 ///     defaults that <c>System.Net.Http.Json</c> used: camelCase, case-insensitive reads and numbers in strings.
 /// </summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]

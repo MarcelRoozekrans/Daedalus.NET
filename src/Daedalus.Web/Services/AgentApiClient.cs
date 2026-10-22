@@ -11,7 +11,7 @@ using Polly;
 namespace Daedalus.Web.Services;
 
 /// <summary>
-///     Client for <c>/api/agents</c>. Non-streaming calls follow the <see cref="ApiClient"/> convention (CSFE <see cref="Result"/>,
+///     Client for <c>/api/agents</c>. Non-streaming calls follow the <see cref="ApiClient"/> convention (ZeroAlloc.Results <see cref="Result"/>,
 ///     ProblemDetails <c>detail</c> as the error text). Streaming turns use fetch + a hand-rolled SSE parser
 ///     (<see cref="SseReader"/>) because the browser <c>EventSource</c> can neither POST nor send bearer tokens.
 /// </summary>

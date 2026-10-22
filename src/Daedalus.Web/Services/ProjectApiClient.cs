@@ -23,7 +23,7 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
                 return Result<ProjectDto>.Failure($"Failed to create project: {error}");
             }
 
-            // The API answers in camelCase. ReadFromJsonAsync reads with the web defaults, as ApiClient does.
+            // The API answers in camelCase. The read goes through WebJsonContext, which has the web defaults, as ApiClient does.
             var result = await response.Content.ReadFromJsonAsync(WebJsonContext.Default.ProjectDto, ct).ConfigureAwait(false);
             return result is not null
                 ? Result<ProjectDto>.Success(result)
@@ -52,7 +52,7 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
                 return Result<ProjectDto>.Failure($"Failed to update project: {error}");
             }
 
-            // The API answers in camelCase. ReadFromJsonAsync reads with the web defaults, as ApiClient does.
+            // The API answers in camelCase. The read goes through WebJsonContext, which has the web defaults, as ApiClient does.
             var result = await response.Content.ReadFromJsonAsync(WebJsonContext.Default.ProjectDto, ct).ConfigureAwait(false);
             return result is not null
                 ? Result<ProjectDto>.Success(result)

@@ -12,8 +12,8 @@ public sealed class WebJsonContextTests
     /// <summary>
     ///     Characterization test: it has no earlier failing form, because <c>EmptyBody</c> is new, and it passes on first
     ///     run. It pins the bytes the anonymous <c>new { }</c> posted before. Red: give <c>EmptyBody</c> one property,
-    ///     say <c>public int Flag { get; init; }</c>; it writes <c>{"flag":0}</c> and this fails, as do the three
-    ///     brainstorm and schedule rows of the golden that post it.
+    ///     say <c>public int Flag { get; init; }</c>; it writes <c>{"flag":0}</c> and this fails, as do the four
+    ///     golden rows that post it: brainstorm.advance, brainstorm.abandon, brainstorm.generate and schedules.resend.
     /// </summary>
     [Fact]
     public void An_empty_body_still_posts_braces()
