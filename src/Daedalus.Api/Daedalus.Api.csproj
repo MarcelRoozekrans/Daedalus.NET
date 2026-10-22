@@ -17,6 +17,7 @@
         <!-- Lets `dotnet user-secrets set Thalos:Channels:Telegram:BotToken ...` (etc.) reach this host in
              Development, the same mechanism Daedalus.Cli uses for its own secrets. -->
         <UserSecretsId>0c04d16b-eee6-4e74-85c9-fcbe77850b42</UserSecretsId>
+        <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
     </PropertyGroup>
 
     <ItemGroup>
