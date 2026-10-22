@@ -49,6 +49,21 @@ Telemetry goes over OTLP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (Aspire 
 Sources: `thalos`, `thalos.workflow`, `ZeroAlloc.Mediator`, `daedalus.*`. Never tag content; see README,
 Observability.
 
+## Native AOT publishes: CI only on the agents VM
+
+Sessions run on the shared agents VM: 24 GB of RAM for about nine Claude sessions. A Native AOT
+publish of `Daedalus.Api` or another full program runs ILC at 10–16 GB resident; CI measured about 12 GB
+for the Api. On 2026-10-22 local publishes from a worktree were OOM-killed three times in one morning,
+at 08:00, 08:35 and 09:03, and filled swap. An OOM kill on a shared VM can hit another session's process
+just as well.
+
+- Do not run a Native AOT publish (`dotnet publish -r linux-x64` of a `PublishAot` project, or the
+  `eng/aot` warning count) on the agents VM. Push and let the `aot-analysis` CI job publish and count;
+  read its log for the IL2xxx/IL3xxx numbers.
+- `dotnet build`, `dotnet test` and non-AOT publishes are fine, one at a time.
+- If a local AOT check is unavoidable: one target, never in parallel with another build, only when
+  `free -g` shows at least 16 GB available, and stop after one OOM instead of retrying.
+
 ## Pattern library: ZeroAlloc.Results (not CSharpFunctionalExtensions)
 
 `using ZeroAlloc.Results.Extensions;` for combinators.
