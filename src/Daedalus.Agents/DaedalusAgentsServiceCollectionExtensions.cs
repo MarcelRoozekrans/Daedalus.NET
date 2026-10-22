@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -987,8 +988,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     and replaces it with a factory that forwards to the concrete singleton, so both paths resolve the one
     ///     instance. Idempotent — a second call for the same <typeparamref name="T"/> finds no matching descriptor
     ///     left to remove and leaves the singleton registration as-is.
+    ///     <para>
+    ///     <typeparamref name="T"/> carries <c>PublicConstructors</c> because <c>TryAddSingleton&lt;T&gt;</c> builds
+    ///     it through the container's activator. Without the annotation the trimmer cannot see that the constructor
+    ///     is needed, and the <c>TryAddSingleton</c> call raises IL2091 inside this method.
+    ///     </para>
     /// </remarks>
-    private static void ForwardHostedServiceToConcreteSingleton<T>(IServiceCollection services)
+    private static void ForwardHostedServiceToConcreteSingleton<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(IServiceCollection services)
         where T : class, IHostedService
     {
         services.TryAddSingleton<T>();
