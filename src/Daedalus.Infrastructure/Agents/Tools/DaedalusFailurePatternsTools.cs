@@ -1,8 +1,7 @@
-#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute
-
 using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Daedalus.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
@@ -18,19 +17,32 @@ public sealed partial class DaedalusFailurePatternsTools(
     IFailurePatternDatabase failurePatternDatabase,
     ILogger<DaedalusFailurePatternsTools> logger)
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
+    /// <summary>The tool's name, as the model sees it.</summary>
+    internal const string ToolName = "search_failure_patterns";
 
-    [McpServerTool(
-        Name = "search_failure_patterns",
-        ReadOnly = true,
-        Idempotent = true)]
-    [Description(
+    /// <summary>The tool's description.</summary>
+    internal const string ToolDescription =
         "Search known failure patterns and their solutions. Use this when you encounter " +
         "a build error, test failure, or runtime exception to find previously discovered fixes. " +
-        FrozenHistory.Notice)]
+        FrozenHistory.Notice;
+
+    /// <summary>The <c>errorMessage</c> parameter's description.</summary>
+    internal const string ErrorMessageDescription = "The error message or pattern to search for";
+
+    /// <summary>The <c>maxResults</c> parameter's description.</summary>
+    internal const string MaxResultsDescription = "Maximum number of results (default: 3)";
+
+    /// <summary>The <c>maxResults</c> parameter's default.</summary>
+    internal const int DefaultMaxResults = 3;
+
+    [McpServerTool(
+        Name = ToolName,
+        ReadOnly = true,
+        Idempotent = true)]
+    [Description(ToolDescription)]
     public async Task<string> SearchFailurePatterns(
-        [Description("The error message or pattern to search for")] string errorMessage,
-        [Description("Maximum number of results (default: 3)")] int maxResults = 3,
+        [Description(ErrorMessageDescription)] string errorMessage,
+        [Description(MaxResultsDescription)] int maxResults = DefaultMaxResults,
         CancellationToken cancellationToken = default)
     {
         try
@@ -55,18 +67,25 @@ public sealed partial class DaedalusFailurePatternsTools(
 
     private static string FormatResults(IReadOnlyList<FailurePatternRecord> patterns)
     {
-        var results = patterns.Select(p => new
-        {
-            error = p.ErrorText.Length > 300 ? p.ErrorText[..300] + "..." : p.ErrorText,
-            solution = p.Resolution,
-            sourceTaskId = p.SourceTaskId,
-            errorIteration = p.ErrorIteration,
-            resolutionIteration = p.ResolutionIteration,
-            observedAt = p.ObservedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
-        });
+        var results = patterns.Select(p => new FailurePatternResult(
+            p.ErrorText.Length > 300 ? p.ErrorText[..300] + "..." : p.ErrorText,
+            p.Resolution,
+            p.SourceTaskId,
+            p.ErrorIteration,
+            p.ResolutionIteration,
+            p.ObservedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))).ToArray();
 
-        return JsonSerializer.Serialize(results, SerializerOptions);
+        return JsonSerializer.Serialize(results, McpToolsJsonContext.Default.FailurePatternResultArray);
     }
+
+    /// <summary>One failure pattern as the tool returns it; the JSON names are the ones the tool has always used.</summary>
+    internal sealed record FailurePatternResult(
+        [property: JsonPropertyName("error")] string Error,
+        [property: JsonPropertyName("solution")] string Solution,
+        [property: JsonPropertyName("sourceTaskId")] Guid SourceTaskId,
+        [property: JsonPropertyName("errorIteration")] int ErrorIteration,
+        [property: JsonPropertyName("resolutionIteration")] int? ResolutionIteration,
+        [property: JsonPropertyName("observedAt")] string ObservedAt);
 
     [LoggerMessage(EventId = 410, Level = LogLevel.Debug,
         Message = "Found {Count} failure patterns for error '{ErrorMessage}'")]

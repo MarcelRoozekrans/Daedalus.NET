@@ -9,9 +9,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Daedalus.Tests.Unit.Infrastructure.Agents;
 
 /// <summary>
-///     The oracle for the in-process MCP tools, captured from today's reflective registration in
-///     <see cref="McpToolBuilder"/> before phase 3.2 builds them from an explicit list. Names, descriptions, schemas,
-///     order and result bytes are literals; Task 18's guard holds the explicit list to the same text.
+///     The oracle for the in-process MCP tools, captured from the reflective registration in
+///     <see cref="McpToolBuilder"/> before phase 3.2 built them from an explicit list. Names, descriptions, schemas,
+///     order and result bytes are literals; <see cref="McpToolRegistryGuardTests"/> also holds the explicit list to
+///     the reflective registration, kept there as test code.
 /// </summary>
 public sealed class McpToolOracleTests
 {
@@ -42,9 +43,8 @@ public sealed class McpToolOracleTests
     private readonly IFailurePatternDatabase _failures = Substitute.For<IFailurePatternDatabase>();
 
     /// <summary>
-    ///     Red: swap the order of the two <c>[McpServerToolType]</c> classes the scan finds, by sorting the types by
-    ///     name descending in <c>BuildLocalTools</c>; the first line is then <c>search_learnings</c>, not
-    ///     <c>search_failure_patterns</c>.
+    ///     Red: swap the two entries of <c>McpToolBuilder.LocalTools</c>; the first line is then
+    ///     <c>search_learnings</c>, not <c>search_failure_patterns</c>.
     /// </summary>
     [Fact]
     public async Task The_local_tools_dump_as_captured()
@@ -58,7 +58,7 @@ public sealed class McpToolOracleTests
     }
 
     /// <summary>
-    ///     Red: drop <c>WriteIndented = true</c> from <c>DaedalusLearningsTools</c>' serializer options; the result
+    ///     Red: drop <c>WriteIndented = true</c> from <c>McpToolsJsonContext</c>'s generation options; the result
     ///     loses its line breaks and indentation.
     /// </summary>
     [Fact]
@@ -73,9 +73,9 @@ public sealed class McpToolOracleTests
     }
 
     /// <summary>
-    ///     Red: give <c>DaedalusFailurePatternsTools</c>' serializer options
-    ///     <c>Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping</c>; the escaped <c>&lt;</c>, <c>&amp;</c>,
-    ///     <c>'</c> and <c>é</c> turn into the raw characters.
+    ///     Red: serialise <c>DaedalusFailurePatternsTools</c>' results with a copy of
+    ///     <c>McpToolsJsonContext.Default.Options</c> given <c>Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping</c>;
+    ///     the escaped <c>&lt;</c>, <c>&amp;</c>, <c>'</c> and <c>é</c> turn into the raw characters.
     /// </summary>
     [Fact]
     public async Task Search_failure_patterns_returns_the_captured_bytes()
@@ -99,8 +99,8 @@ public sealed class McpToolOracleTests
     /// <summary>
     ///     The unavailable answer carries the memory's error as it is, so the awkward characters reach the tool result raw
     ///     and the bytes show the encoder the function marshals its result with.
-    ///     Red: return the answer from <c>ScopedLocalTool.InvokeCoreAsync</c> as
-    ///     <c>JsonSerializer.SerializeToElement(answer, JsonSerializerOptions.Default)</c>; the raw characters are escaped.
+    ///     Red: give <c>McpToolBuilder</c>'s tool serializer options <c>Encoder = JavaScriptEncoder.Default</c> instead
+    ///     of M.E.AI's; the raw characters are escaped.
     /// </summary>
     [Fact]
     public async Task An_unavailable_answer_carries_raw_characters_in_the_captured_bytes()

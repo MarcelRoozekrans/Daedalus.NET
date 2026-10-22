@@ -1,12 +1,13 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Daedalus.Application.Services;
+using Daedalus.Infrastructure.Agents.Tools;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
-using ModelContextProtocol.Server;
 
 namespace Daedalus.Infrastructure.Agents;
 
@@ -20,9 +21,8 @@ namespace Daedalus.Infrastructure.Agents;
 ///     so MCP tools can be used directly anywhere <c>AITool</c> is accepted
 ///     (e.g., <c>ChatClientAgent</c> constructor, <c>ChatOptions.Tools</c>).
 ///     <para>
-///         Local (in-process) tools are wrapped in <see cref="ScopedLocalTool" /> so that each
-///         invocation creates a fresh DI scope, preventing stale <c>DbContext</c> references
-///         that would otherwise accumulate in a singleton's lifetime.
+///         Local (in-process) tools create a fresh DI scope on each invocation, preventing stale
+///         <c>DbContext</c> references that would otherwise accumulate in a singleton's lifetime.
 ///     </para>
 /// </remarks>
 [SuppressMessage("Design", "CA1031:Do not catch general exception types",
@@ -171,56 +171,36 @@ public sealed partial class McpToolBuilder(
     }
 
     /// <summary>
-    ///     Builds tools from in-process <see cref="McpServerToolTypeAttribute" /> classes resolved via DI.
-    ///     Discovers classes annotated with [McpServerToolType] in the Infrastructure assembly,
-    ///     then creates <see cref="ScopedLocalTool" /> wrappers for each [McpServerTool]-annotated method.
-    ///     Each tool invocation creates a fresh DI scope so that scoped services (DbContext, repositories)
-    ///     are never stale.
+    ///     M.E.AI's default options with <see cref="McpToolsJsonContext" /> in front of M.E.AI's own resolver, so the
+    ///     tools' parameter and return types come from generated metadata while the encoder and naming stay M.E.AI's.
     /// </summary>
-#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute
-#pragma warning disable IL2072 // Target parameter of ActivatorUtilities.CreateInstance
-#pragma warning disable IL2075 // Target parameter of Type.GetMethods
+    private static readonly JsonSerializerOptions ToolSerializerOptions = CreateToolSerializerOptions();
+
+    /// <summary>
+    ///     The in-process tool classes, in the order the assembly scan found them before phase 3.2. Each entry builds its
+    ///     class's tools for a root provider; <c>McpToolRegistryGuardTests</c> keeps the list complete and holds it to the
+    ///     reflective registration it replaced.
+    /// </summary>
+    internal static readonly IReadOnlyList<(Type ToolType, Func<IServiceProvider, IEnumerable<AIFunction>> Create)> LocalTools =
+    [
+        (typeof(DaedalusFailurePatternsTools), CreateFailurePatternsTools),
+        (typeof(DaedalusLearningsTools), CreateLearningsTools),
+    ];
+
+    /// <summary>
+    ///     Builds the in-process tools from <see cref="LocalTools" />. A class whose dependencies cannot be resolved is
+    ///     logged and left out, as before. Each tool invocation creates a fresh DI scope so that scoped services
+    ///     (DbContext, repositories) are never stale.
+    /// </summary>
     private List<AITool> BuildLocalTools(string serverName)
     {
         var tools = new List<AITool>();
 
-        // Temporary scope used only to create probe instances for metadata extraction
-        // (parameter names, descriptions, JSON schema). Disposed immediately after discovery.
-        using var probeScope = serviceProvider.CreateScope();
-
-        // Discover tool classes from the Infrastructure assembly
-        var toolTypes = GetType().Assembly
-            .GetTypes()
-            .Where(t => Attribute.IsDefined(t, typeof(McpServerToolTypeAttribute))
-                         && !t.IsAbstract);
-
-        foreach (var toolType in toolTypes)
+        foreach (var (toolType, create) in LocalTools)
         {
             try
             {
-                // Create a throw-away probe instance to extract method metadata
-                var probeInstance = ActivatorUtilities.CreateInstance(probeScope.ServiceProvider, toolType);
-
-                // Discover public methods annotated with [McpServerTool]
-                var allMethods = toolType.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public);
-
-                foreach (var method in allMethods)
-                {
-                    if (!Attribute.IsDefined(method, typeof(McpServerToolAttribute)))
-                    {
-                        continue;
-                    }
-
-                    var toolAttr = method.GetCustomAttribute<McpServerToolAttribute>()!;
-                    var name = toolAttr.Name ?? method.Name;
-                    var description = method.GetCustomAttribute<DescriptionAttribute>()?.Description;
-
-                    // Create probe AIFunction to capture full metadata (parameter schema, etc.)
-                    var probeFunction = AIFunctionFactory.Create(method, probeInstance, name, description);
-
-                    // Wrap with ScopedLocalTool: each invocation creates a fresh DI scope
-                    tools.Add(new ScopedLocalTool(serviceProvider, toolType, method, probeFunction));
-                }
+                tools.AddRange(create(serviceProvider));
             }
             catch (Exception ex)
             {
@@ -231,32 +211,75 @@ public sealed partial class McpToolBuilder(
 
         return tools;
     }
-#pragma warning restore IL2075
-#pragma warning restore IL2072
-#pragma warning restore IL2026
+
+    private static AIFunction[] CreateFailurePatternsTools(IServiceProvider rootProvider)
+    {
+        Probe<DaedalusFailurePatternsTools>(rootProvider);
+        return
+        [
+            AIFunctionFactory.Create(
+                async (
+                    [Description(DaedalusFailurePatternsTools.ErrorMessageDescription)] string errorMessage,
+                    [Description(DaedalusFailurePatternsTools.MaxResultsDescription)]
+                    int maxResults = DaedalusFailurePatternsTools.DefaultMaxResults,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    await using var scope = rootProvider.CreateAsyncScope();
+                    var tools = ActivatorUtilities.CreateInstance<DaedalusFailurePatternsTools>(scope.ServiceProvider);
+                    return await tools.SearchFailurePatterns(errorMessage, maxResults, cancellationToken)
+                        .ConfigureAwait(false);
+                },
+                Options(DaedalusFailurePatternsTools.ToolName, DaedalusFailurePatternsTools.ToolDescription)),
+        ];
+    }
+
+    private static AIFunction[] CreateLearningsTools(IServiceProvider rootProvider)
+    {
+        Probe<DaedalusLearningsTools>(rootProvider);
+        return
+        [
+            AIFunctionFactory.Create(
+                async (
+                    [Description(DaedalusLearningsTools.QueryDescription)] string query,
+                    [Description(DaedalusLearningsTools.MaxResultsDescription)]
+                    int maxResults = DaedalusLearningsTools.DefaultMaxResults,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    await using var scope = rootProvider.CreateAsyncScope();
+                    var tools = ActivatorUtilities.CreateInstance<DaedalusLearningsTools>(scope.ServiceProvider);
+                    return await tools.SearchLearnings(query, maxResults, cancellationToken).ConfigureAwait(false);
+                },
+                Options(DaedalusLearningsTools.ToolName, DaedalusLearningsTools.ToolDescription)),
+        ];
+    }
 
     /// <summary>
-    ///     An <see cref="AIFunction" /> wrapper that delegates metadata (name, description, schema)
-    ///     to a probe function but creates a fresh DI scope on every invocation.
-    ///     This prevents singleton-scoped McpToolBuilder from holding stale DbContext references.
+    ///     Constructs a throw-away instance in a throw-away scope, so a class whose dependencies are missing fails when
+    ///     the tools are built, not when a model calls one.
     /// </summary>
-    private sealed class ScopedLocalTool(
-        IServiceProvider rootProvider,
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type toolType,
-        MethodInfo method,
-        AIFunction probeFunction) : DelegatingAIFunction(probeFunction)
+    private static void Probe<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(
+        IServiceProvider rootProvider)
     {
-        protected override async ValueTask<object?> InvokeCoreAsync(
-            AIFunctionArguments arguments, CancellationToken cancellationToken)
-        {
-            // Each invocation gets a dedicated scope with fresh scoped services
-            await using var scope = rootProvider.CreateAsyncScope();
-            var instance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, toolType);
+        using var probeScope = rootProvider.CreateScope();
+        _ = ActivatorUtilities.CreateInstance<T>(probeScope.ServiceProvider);
+    }
 
-            // Create a scoped AIFunction bound to the fresh instance, then invoke it
-            var scopedFunction = AIFunctionFactory.Create(method, instance);
-            return await scopedFunction.InvokeAsync(arguments, cancellationToken).ConfigureAwait(false);
-        }
+    private static AIFunctionFactoryOptions Options(string name, string description) => new()
+    {
+        Name = name,
+        Description = description,
+        SerializerOptions = ToolSerializerOptions,
+    };
+
+    private static JsonSerializerOptions CreateToolSerializerOptions()
+    {
+        var options = new JsonSerializerOptions(AIJsonUtilities.DefaultOptions)
+        {
+            TypeInfoResolver = JsonTypeInfoResolver.Combine(
+                McpToolsJsonContext.Default, AIJsonUtilities.DefaultOptions.TypeInfoResolver),
+        };
+        options.MakeReadOnly();
+        return options;
     }
 
     public async ValueTask DisposeAsync()

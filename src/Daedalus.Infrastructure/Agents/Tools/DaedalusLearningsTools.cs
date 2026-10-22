@@ -1,8 +1,7 @@
-#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute
-
 using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Logging;
@@ -19,24 +18,37 @@ namespace Daedalus.Infrastructure.Agents.Tools;
 [McpServerToolType]
 public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILogger<DaedalusLearningsTools> logger)
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
+    /// <summary>The tool's name, as the model sees it.</summary>
+    internal const string ToolName = "search_learnings";
+
+    /// <summary>The tool's description.</summary>
+    internal const string ToolDescription =
+        "Search past learnings from previous task executions using semantic similarity. " +
+        "Use this when you encounter errors, need context about the codebase, or want to " +
+        "learn from previous approaches that worked or failed. " +
+        FrozenHistory.Notice;
+
+    /// <summary>The <c>query</c> parameter's description.</summary>
+    internal const string QueryDescription = "Natural language description of what you're looking for";
+
+    /// <summary>The <c>maxResults</c> parameter's description.</summary>
+    internal const string MaxResultsDescription = "Maximum number of results (default: 5)";
+
+    /// <summary>The <c>maxResults</c> parameter's default.</summary>
+    internal const int DefaultMaxResults = 5;
 
     /// <summary>Recalls learnings relevant to <paramref name="query"/> as a JSON array; never throws at the model.</summary>
     /// <param name="query">Natural-language description of what to look for.</param>
     /// <param name="maxResults">Maximum number of results (clamped to the learnings recall range).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [McpServerTool(
-        Name = "search_learnings",
+        Name = ToolName,
         ReadOnly = true,
         Idempotent = true)]
-    [Description(
-        "Search past learnings from previous task executions using semantic similarity. " +
-        "Use this when you encounter errors, need context about the codebase, or want to " +
-        "learn from previous approaches that worked or failed. " +
-        FrozenHistory.Notice)]
+    [Description(ToolDescription)]
     public async Task<string> SearchLearnings(
-        [Description("Natural language description of what you're looking for")] string query,
-        [Description("Maximum number of results (default: 5)")] int maxResults = 5,
+        [Description(QueryDescription)] string query,
+        [Description(MaxResultsDescription)] int maxResults = DefaultMaxResults,
         CancellationToken cancellationToken = default)
     {
         var recalled = await memory.RecallAsync(
@@ -55,17 +67,23 @@ public sealed partial class DaedalusLearningsTools(ILearningsMemory memory, ILog
         }
 
         LogRecalled(logger, query, recalled.Value.Count);
-        var results = recalled.Value.Select(l => new
-        {
-            id = l.Id,
-            text = l.Text,
-            tags = l.Tags,
-            score = Math.Round(l.Score, 3),
-            createdAt = l.CreatedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        });
+        var results = recalled.Value.Select(l => new LearningResult(
+            l.Id,
+            l.Text,
+            l.Tags,
+            Math.Round(l.Score, 3),
+            l.CreatedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))).ToArray();
 
-        return JsonSerializer.Serialize(results, SerializerOptions);
+        return JsonSerializer.Serialize(results, McpToolsJsonContext.Default.LearningResultArray);
     }
+
+    /// <summary>One recalled learning as the tool returns it; the JSON names are the ones the tool has always used.</summary>
+    internal sealed record LearningResult(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("text")] string Text,
+        [property: JsonPropertyName("tags")] IReadOnlyList<string> Tags,
+        [property: JsonPropertyName("score")] double Score,
+        [property: JsonPropertyName("createdAt")] string CreatedAt);
 
     [LoggerMessage(EventId = 400, Level = LogLevel.Debug,
         Message = "Recalled {Count} learnings for query '{Query}'")]
