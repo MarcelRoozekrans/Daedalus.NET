@@ -45,8 +45,6 @@ public sealed record ReviewVisit(
 /// </summary>
 public static class ApprovingReview
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     /// <summary>
     ///     The latest visit, <see langword="null"/> when the run records no review evidence at all, or a failure: one naming the first
     ///     record that cannot be read, or one for a store that answered with no list at all, which has no record to name. Records of other kinds are ignored, so a caller may pass a full listing.
@@ -112,7 +110,7 @@ public static class ApprovingReview
                 {
                     // The host wrote validated evidence, so a deferred list of any other shape is a corrupt record, not none.
                     var entries = d.ValueKind == JsonValueKind.Array
-                        ? JsonSerializer.Deserialize<DeferredFinding?[]>(d.GetRawText(), JsonOptions)
+                        ? JsonSerializer.Deserialize(d, DaedalusRecordsWebJsonContext.Default.DeferredFindingArray)
                         : null;
                     if (entries is null || !entries.All(IsComplete))
                         wellFormed = false;
@@ -124,7 +122,7 @@ public static class ApprovingReview
                 {
                     // The same rule as deferred: the host wrote validated evidence, so any other shape is corrupt.
                     var entries = f.ValueKind == JsonValueKind.Array
-                        ? JsonSerializer.Deserialize<ReviewFinding?[]>(f.GetRawText(), JsonOptions)
+                        ? JsonSerializer.Deserialize(f, DaedalusRecordsWebJsonContext.Default.ReviewFindingArray)
                         : null;
                     if (entries is null || !entries.All(IsComplete))
                         wellFormed = false;

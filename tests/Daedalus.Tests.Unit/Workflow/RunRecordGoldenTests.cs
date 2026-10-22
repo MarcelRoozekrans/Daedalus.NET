@@ -16,8 +16,9 @@ public sealed class RunRecordGoldenTests
     private static readonly Guid RunId = new Guid(0x6a1f2e3d, 0x4c5b, 0x4a69, 0x8e, 0x7f, 0xd, 0x1c, 0x2b, 0x3a, 0x4e, 0x5f) /* 6a1f2e3d-4c5b-4a69-8e7f-0d1c2b3a4e5f */;
 
     /// <summary>
-    ///     Red: pass <c>new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }</c> in
-    ///     <c>RunRecordJson.TestResultPayload</c>; the escaped characters turn raw.
+    ///     Red: serialise through <c>new DaedalusRecordsJsonContext(new JsonSerializerOptions { Encoder =
+    ///     JavaScriptEncoder.UnsafeRelaxedJsonEscaping })</c> in <c>RunRecordJson.TestResultPayload</c>; the escaped
+    ///     characters turn raw.
     /// </summary>
     [Fact]
     public void A_test_result_payload_is_written_as_captured()
@@ -30,7 +31,8 @@ public sealed class RunRecordGoldenTests
     /// <summary>
     ///     The exit code and summary <see cref="SandboxCallRecorder"/> parses from a sandbox result, written as it writes
     ///     them: <c>exit</c> stays a string, which <c>OpenPullRequestAction</c> reads, and the output after the marker
-    ///     is left out. Red: write <c>elapsedMs</c> as <c>elapsed</c> in <c>TestResultPayload</c>; the name differs.
+    ///     is left out. Red: rename <c>TestResult</c>'s <c>[JsonPropertyName("elapsedMs")]</c> to
+    ///     <c>"elapsed"</c>; the name differs.
     /// </summary>
     [Fact]
     public void A_parsed_sandbox_result_is_written_as_captured()
@@ -41,7 +43,7 @@ public sealed class RunRecordGoldenTests
         payload.Should().Be("""{"tool":"build","exit":"1","summary":"\u003Ca \u0026 \u0027\u00E9\u0027 \uD83D\uDE80\u003E","elapsedMs":0}""");
     }
 
-    /// <summary>Red: add <c>DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull</c> in <c>SandboxRestorePayload</c>; <c>"detail":null</c> goes.</summary>
+    /// <summary>Red: add <c>DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull</c> to <c>DaedalusRecordsJsonContext</c>'s options; <c>"detail":null</c> goes.</summary>
     [Fact]
     public void A_sandbox_restore_payload_is_written_as_captured()
     {
@@ -65,8 +67,8 @@ public sealed class RunRecordGoldenTests
 
     /// <summary>
     ///     The evidence a lens pass records: findings and deferred findings with and without an existing issue.
-    ///     Red: rename the anonymous member <c>@checked</c> to <c>examined</c> in <c>ReviewEvidencePayload</c>; the
-    ///     property is written as <c>examined</c>.
+    ///     Red: rename <c>RunRecordJson.LensEvidence</c>'s <c>[JsonPropertyName("checked")]</c> to <c>"examined"</c>;
+    ///     the property is written as <c>examined</c>.
     /// </summary>
     [Fact]
     public void A_review_evidence_payload_is_written_as_captured()
@@ -86,9 +88,8 @@ public sealed class RunRecordGoldenTests
 
     /// <summary>
     ///     <see cref="ApprovingReview.ReadLens"/> reads back the bytes <see cref="A_review_evidence_payload_is_written_as_captured"/>
-    ///     pins, every field. Red: read deferred findings with <c>JsonSerializerOptions.Default</c> in
-    ///     <c>ApprovingReview</c>; the camelCase names no longer match, every field reads empty, and the record is
-    ///     refused as incomplete.
+    ///     pins, every field. Red: look up <c>"Deferred"</c> instead of <c>"deferred"</c> in
+    ///     <c>ApprovingReview.ReadLens</c>; the deferred findings read as none.
     /// </summary>
     [Fact]
     public void The_captured_evidence_payload_reads_back_field_for_field()
@@ -143,8 +144,8 @@ public sealed class RunRecordGoldenTests
     }
 
     /// <summary>
-    ///     Red: pass <c>new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }</c> in
-    ///     <c>FindingRecords.DroppedPayload</c>; <c>"by":null</c> goes from the second payload.
+    ///     Red: add <c>DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull</c> to
+    ///     <c>DaedalusRecordsJsonContext</c>'s options; <c>"by":null</c> goes from the second payload.
     /// </summary>
     [Fact]
     public void The_findings_dropped_payload_is_written_as_captured()

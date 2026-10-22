@@ -11,10 +11,10 @@ namespace Daedalus.Tests.Unit.Workflow;
 public sealed class LenientReadGoldenTests
 {
     /// <summary>
-    ///     A finding with its line as a string, and keys in upper case and in lower case. Red: replace
-    ///     <c>new(JsonSerializerDefaults.Web)</c> in <c>ReviewEvidence</c> with
-    ///     <c>new() { PropertyNameCaseInsensitive = true }</c>; <c>"12"</c> no longer reads as a number and the two
-    ///     string-line cases are refused. Red: use <c>JsonSerializerDefaults.General</c> instead; all three are refused.
+    ///     A finding with its line as a string, and keys in upper case and in lower case. Red: set
+    ///     <c>NumberHandling = JsonNumberHandling.Strict</c> on <c>DaedalusRecordsWebJsonContext</c>; <c>"12"</c> no
+    ///     longer reads as a number and the two string-line cases are refused. Red: set
+    ///     <c>PropertyNameCaseInsensitive = false</c> there instead; the two cases with capitalised keys are refused.
     /// </summary>
     [Theory]
     [InlineData("""[{"file":"src/A.cs","line":"12","scenario":"it throws"}]""")]
@@ -29,9 +29,10 @@ public sealed class LenientReadGoldenTests
     }
 
     /// <summary>
-    ///     The same for a deferred finding, whose <c>existingIssue</c> is a nullable number. Red: replace
-    ///     <c>JsonSerializerDefaults.Web</c> in <c>ReviewEvidence</c> with <c>JsonSerializerDefaults.General</c>; the
-    ///     keys are then matched case-sensitively and <c>"FILE"</c> reads as no file.
+    ///     The same for a deferred finding, whose <c>existingIssue</c> is a nullable number. Red: set
+    ///     <c>PropertyNameCaseInsensitive = false</c> on <c>DaedalusRecordsWebJsonContext</c>; the keys are then
+    ///     matched case-sensitively and <c>"FILE"</c> reads as no file. Red: set <c>NumberHandling =
+    ///     JsonNumberHandling.Strict</c> there; the string line <c>"3"</c> is refused.
     /// </summary>
     [Theory]
     [InlineData("""[{"file":"src/B.cs","line":"3","title":"T","scenario":"s","reason":"blocked","existingIssue":"77"}]""")]
@@ -46,8 +47,8 @@ public sealed class LenientReadGoldenTests
 
     /// <summary>
     ///     A stored evidence record whose findings and deferred findings carry string lines and upper-case keys reads as
-    ///     the same evidence. Red: replace <c>new(JsonSerializerDefaults.Web)</c> in <c>ApprovingReview</c> with
-    ///     <c>new()</c>; the entries are incomplete and the record is refused.
+    ///     the same evidence. Red: set <c>NumberHandling = JsonNumberHandling.Strict</c> on
+    ///     <c>DaedalusRecordsWebJsonContext</c>; the string lines are refused and so is the record.
     /// </summary>
     [Fact]
     public void Approving_review_reads_stored_entries_leniently()

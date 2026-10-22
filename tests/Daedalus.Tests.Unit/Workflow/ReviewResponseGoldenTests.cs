@@ -38,10 +38,10 @@ public sealed class ReviewResponseGoldenTests
     };
 
     /// <summary>
-    ///     Red: serialise with <c>new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }</c>
-    ///     in <c>ToPayloadJson</c>; the string, nested-map and JSON-element shapes turn their escapes raw. Red: serialise
-    ///     with <c>NumberHandling = JsonNumberHandling.WriteAsString</c>; the long, double and nested-map shapes write their
-    ///     numbers as strings.
+    ///     Red: serialise through <c>new DaedalusRecordsJsonContext(new JsonSerializerOptions { Encoder =
+    ///     JavaScriptEncoder.UnsafeRelaxedJsonEscaping })</c> in <c>ToPayloadJson</c>; the string, nested-map and
+    ///     JSON-element shapes turn their escapes raw. Red: write a <see cref="long"/> through <c>WriteStringValue</c> in
+    ///     <c>PlainJson</c>; the long and nested-map shapes write their numbers as strings.
     /// </summary>
     [Theory]
     [MemberData(nameof(Shapes))]
