@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
@@ -26,10 +25,6 @@ using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using Thalos.Workflow;
-
-[assembly:
-    UnconditionalSuppressMessage("Trimming", "IL2026",
-        Justification = "ASP.NET Core MVC does not support trimming; IL2026 warnings are expected")]
 
 var builder = WebApplication.CreateBuilder(args);
 
