@@ -8,7 +8,7 @@ namespace Daedalus.Tests.Unit.Application.Extensions;
 
 /// <summary>
 ///     The Mediator handlers <see cref="ApplicationServiceExtensions.AddApplicationServices"/> registers, against the
-///     reflective scan of today's <c>RegisterHandlersAot</c>. Phase 3.2 replaces the scan with the generated
+///     reflective scan of the retired <c>RegisterHandlersAot</c>. Phase 3.2 replaced the scan with the generated
 ///     <c>AddMediator(ServiceLifetime.Scoped)</c>; <see cref="OldScan"/> stays here as the oracle, so the generated
 ///     registration must give the same handlers by the same service type, implementation and lifetime.
 /// </summary>
@@ -76,7 +76,7 @@ public sealed class MediatorHandlerSetTests
 
     /// <summary>
     ///     Every registration of a handler type, by service type, implementation and lifetime, equals the scan's. Red:
-    ///     register the handlers with <c>services.AddTransient(handler)</c> in <c>RegisterHandlersAot</c>; every lifetime
+    ///     call <c>services.AddMediator(ServiceLifetime.Transient)</c> in <c>AddApplicationServices</c>; every lifetime
     ///     differs.
     /// </summary>
     [Fact]
