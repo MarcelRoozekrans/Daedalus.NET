@@ -21,6 +21,10 @@ public sealed class ScheduledRunOptions
     /// <summary>The configuration section this type's containing array binds from (<c>ScheduledRuns</c>).</summary>
     public const string SectionName = "ScheduledRuns";
 
+    /// <summary>Every entry of the <c>ScheduledRuns</c> array in <paramref name="configuration"/>, in order; none when it is absent.</summary>
+    internal static List<ScheduledRunOptions> ReadAll(IConfiguration configuration) =>
+        configuration.GetSection(SectionName).Get<List<ScheduledRunOptions>>() ?? [];
+
     /// <summary>The unique, human-assigned name of this schedule (e.g. "daily-digest").</summary>
     public string Name { get; set; } = string.Empty;
 
@@ -105,6 +109,10 @@ public sealed partial class ScheduleReconciler(
     /// </summary>
     public const string DetachedRunsSectionName = "DetachedRuns";
 
+    /// <summary>The roles every configured schedule runs with, <c>DetachedRuns:Roles</c>; none when it is absent.</summary>
+    internal static string[] ReadDetachedRunRoles(IConfiguration configuration) =>
+        configuration.GetSection($"{DetachedRunsSectionName}:Roles").Get<string[]>() ?? [];
+
     /// <summary>
     ///     The complete set of workflow identifiers a schedule's <c>Trigger</c> may name. There are no sagas in
     ///     this phase (<c>ZeroAlloc.Saga</c> was dropped as undriveable) — a trigger is validated against this
@@ -135,14 +143,13 @@ public sealed partial class ScheduleReconciler(
     /// </exception>
     public async ValueTask ReconcileAsync(CancellationToken ct)
     {
-        var entries = _configuration.GetSection(ScheduledRunOptions.SectionName).Get<List<ScheduledRunOptions>>()
-            ?? [];
+        var entries = ScheduledRunOptions.ReadAll(_configuration);
 
         var now = _time.GetUtcNow().UtcDateTime;
         var validated = ValidateAndComputeNextRun(entries, now);
 
         var principalId = _configuration[$"{DetachedRunsSectionName}:PrincipalId"] ?? string.Empty;
-        var roles = _configuration.GetSection($"{DetachedRunsSectionName}:Roles").Get<string[]>() ?? [];
+        var roles = ReadDetachedRunRoles(_configuration);
 
         var existingConfigRuns = await _db.ScheduledRuns
             .Where(r => r.Origin == ScheduleOrigin.Config)
@@ -318,8 +325,7 @@ public sealed class ScheduleReconcilerHostedService(IServiceScopeFactory scopeFa
 
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
 
-        var scheduleEntries = configuration.GetSection(ScheduledRunOptions.SectionName).Get<List<ScheduledRunOptions>>()
-            ?? [];
+        var scheduleEntries = ScheduledRunOptions.ReadAll(configuration);
         RepoDigestRepositoryValidator.Validate(scheduleEntries);
 
         var defaultAgent = configuration[DefaultAgentConfigurationKey];

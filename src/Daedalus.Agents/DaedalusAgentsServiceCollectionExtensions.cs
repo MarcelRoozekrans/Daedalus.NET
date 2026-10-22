@@ -163,8 +163,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(environment);
 
-        var options = new DaedalusAgentsOptions();
-        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+        var options = DaedalusAgentsOptions.Read(configuration);
         return services.AddDaedalusAgents(options, configuration, environment, embeddingGenerator);
     }
 

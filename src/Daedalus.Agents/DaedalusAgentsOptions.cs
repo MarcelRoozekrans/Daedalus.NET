@@ -1,5 +1,6 @@
 using Daedalus.Agents.Workflow;
 using Daedalus.Application.Configuration;
+using Microsoft.Extensions.Configuration;
 
 namespace Daedalus.Agents;
 
@@ -12,6 +13,26 @@ public sealed class DaedalusAgentsOptions
 {
     /// <summary>Configuration section name: <c>Thalos</c>.</summary>
     public const string SectionName = "Thalos";
+
+    /// <summary>
+    ///     The options the <c>Thalos</c> section of <paramref name="configuration"/> sets, over the defaults. One reader for
+    ///     <c>AddDaedalusAgents</c> and the Api host's own check of <see cref="WorkflowConfig.Enabled"/>, so both read the
+    ///     section the same way.
+    /// </summary>
+    public static DaedalusAgentsOptions Read(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var options = new DaedalusAgentsOptions();
+        Bind(configuration, options);
+        return options;
+    }
+
+    /// <summary>
+    ///     Binds the <c>Thalos</c> section of <paramref name="configuration"/> onto <paramref name="options"/>. A get-only list
+    ///     is appended to, not replaced: see <see cref="CharterRoots"/>.
+    /// </summary>
+    internal static void Bind(IConfiguration configuration, DaedalusAgentsOptions options) =>
+        configuration.GetSection(SectionName).Bind(options);
 
     /// <summary>Claude Code-style MCP config file. Relative paths resolve against the host content root. Missing file → no MCP tool sources.</summary>
     public string McpConfigPath { get; set; } = ".mcp.json";

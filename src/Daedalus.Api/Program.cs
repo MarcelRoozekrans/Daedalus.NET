@@ -155,8 +155,7 @@ builder.Services.AddSignalR().AddJsonProtocol(options =>
 
 // Read exactly as AddDaedalusAgents reads it, so the hub and the engine are on or off together: a disabled host maps
 // no hub and registers no broadcaster, and the console's connection fails and shows Offline, which is true.
-var agentsOptions = new DaedalusAgentsOptions();
-builder.Configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(agentsOptions);
+var agentsOptions = DaedalusAgentsOptions.Read(builder.Configuration);
 var workflowEngineEnabled = agentsOptions.Workflow.Enabled;
 if (workflowEngineEnabled)
 {

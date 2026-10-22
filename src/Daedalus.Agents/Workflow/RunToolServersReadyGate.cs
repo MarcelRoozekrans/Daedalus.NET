@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -193,7 +192,7 @@ internal sealed partial class RunToolServersReadyGate(
 
         // jsonb refuses a NUL even escaped, and the tail is the sandbox's own process output.
         var detail = state.Value.RestoreDetail?.Replace("\0", "", StringComparison.Ordinal);
-        var payload = JsonSerializer.Serialize(new { restore = RestoreFailed, detail });
+        var payload = RunRecordJson.SandboxRestorePayload(RestoreFailed, detail);
         var record = WorkflowRunRecord.Create(
             run.Id, run.CurrentSeq, node, WorkflowRunRecord.SandboxRestoreKind, SandboxPrincipalId, run.StartedBy?.Id, payload,
             _clock.GetUtcNow().UtcDateTime);
