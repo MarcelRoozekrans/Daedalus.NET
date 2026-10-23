@@ -1,4 +1,6 @@
 using System.Data.Async.Adapters;
+using System.Text;
+using System.Text.Json;
 using AwesomeAssertions.Execution;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Integration.Fixtures;
@@ -132,6 +134,26 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
             NpgsqlConnection.ClearAllPools();
             await ExecuteOnServerAsync($"DROP DATABASE IF EXISTS \"{dbName}\" WITH (FORCE)");
         }
+    }
+
+    /// <summary>The literal of Thalos' <c>OrmWorkflowJsonGoldenTests.The_dispatch_payload_bytes_are_as_before</c>.</summary>
+    private const string GoldenPayload = """{"RunId":"0f8fad5b-d9cb-469f-a165-70867728950e","Seq":7,"Node":"review"}""";
+
+    private static readonly WorkflowDispatchMessage GoldenMessage = new(
+        new Guid(0x0f8fad5b, 0xd9cb, 0x469f, 0xa1, 0x65, 0x70, 0x86, 0x77, 0x28, 0x95, 0x0e), 7, "review");
+
+    // Red: change one byte of GoldenPayload, for example RunId to 0f8fad5b-d9cb-469f-a165-70867728950f; the
+    // bytes assertion fails.
+    // Red: make WorkflowDispatchOutboxDispatcher.Read deserialize with JsonSerializerOptions that set
+    // PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower and PropertyNameCaseInsensitive = false; the
+    // PascalCase names no longer bind and the read throws or returns a default message.
+    [Fact]
+    public void Outbox_payload_bytes_match_on_both_sides()
+    {
+        var written = JsonSerializer.SerializeToUtf8Bytes(GoldenMessage, WorkflowDispatchMessage.JsonTypeInfo);
+
+        written.Should().Equal(Encoding.UTF8.GetBytes(GoldenPayload));
+        WorkflowDispatchOutboxDispatcher.Read(Encoding.UTF8.GetBytes(GoldenPayload)).Should().Be(GoldenMessage);
     }
 
     private static async Task<long> CountRowsAsync(NpgsqlDataSource dataSource, string where)
