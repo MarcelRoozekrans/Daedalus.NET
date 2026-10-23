@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
@@ -1996,20 +1995,11 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             : throw new InvalidOperationException(
                 $"Thalos:Sentinel:{key} '{value}' is not a Sentinel action ({string.Join(", ", Enum.GetNames<SentinelAction>())}).");
 
-    // Sentinel's per-detector configuration is generic over the detector type (Configure<TDetector>), while configuration can only
-    // name detectors; resolve the type from AI.Sentinel's assembly and close the generic once at startup.
     private static void DisableDetector(SentinelOptions sentinel, string detectorName)
     {
-        var detectorType = typeof(SentinelOptions).Assembly.GetExportedTypes()
-            .FirstOrDefault(t => typeof(IDetector).IsAssignableFrom(t)
-                                 && t is { IsAbstract: false, IsInterface: false }
-                                 && string.Equals(t.Name, detectorName, StringComparison.Ordinal))
-            ?? throw new InvalidOperationException($"Thalos:Sentinel:DisabledDetectors: '{detectorName}' is not an AI.Sentinel detector type name.");
-
-        var configure = typeof(SentinelOptionsConfigureExtensions)
-            .GetMethod(nameof(SentinelOptionsConfigureExtensions.Configure), BindingFlags.Public | BindingFlags.Static)
-            ?? throw new InvalidOperationException("AI.Sentinel's SentinelOptionsConfigureExtensions.Configure<T> was not found.");
-
-        configure.MakeGenericMethod(detectorType).Invoke(null, [sentinel, (Action<DetectorConfiguration>)(c => c.Enabled = false)]);
+        if (!sentinel.TryDisableDetector(detectorName))
+        {
+            throw new InvalidOperationException($"Thalos:Sentinel:DisabledDetectors: '{detectorName}' is not an AI.Sentinel detector type name or id.");
+        }
     }
 }

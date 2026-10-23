@@ -227,7 +227,7 @@ public sealed class SentinelConfig
     /// <summary>Action for low findings.</summary>
     public string OnLow { get; set; } = "Log";
 
-    /// <summary>Simple type names of AI.Sentinel detectors to switch off (for example <c>PromptInjectionDetector</c>). Unknown names fail at startup.</summary>
+    /// <summary>Type names or ids of AI.Sentinel detectors to switch off (for example <c>PromptInjectionDetector</c> or <c>SEC-01</c>). Unknown names fail at startup.</summary>
     public IList<string> DisabledDetectors { get; } = [];
 }
 

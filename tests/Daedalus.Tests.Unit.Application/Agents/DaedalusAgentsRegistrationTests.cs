@@ -448,6 +448,23 @@ public sealed class DaedalusAgentsRegistrationTests
         seen.Should().BeTrue();
     }
 
+    // Red: in DisableDetector, call sentinel.TryDisableDetector with an empty string instead of detectorName; "SEC-01"
+    // is then never disabled and the registration throws for the unknown name.
+    [Fact]
+    public void A_detector_disabled_by_id_is_off()
+    {
+        using var sp = Build(Config(("Thalos:Sentinel:DisabledDetectors:0", "SEC-01")));
+
+        var seen = false;
+        sp.GetRequiredService<SentinelOptions>().Configure<PromptInjectionDetector>(c =>
+        {
+            seen = true;
+            c.Enabled.Should().BeFalse();
+        });
+
+        seen.Should().BeTrue();
+    }
+
     /// <summary>
     ///     Spec decision 9: the provider-neutral cache hints are placed on every agent's chat client. Falsifiable:
     ///     removing <c>.UsePromptCaching()</c> from <c>AddDaedalusAgents</c> leaves no such decorator registered.
@@ -808,7 +825,9 @@ public sealed class DaedalusAgentsRegistrationTests
         badAction.Should().Throw<InvalidOperationException>().WithMessage("*OnCritical*Explode*");
 
         var badDetector = () => new ServiceCollection().AddDaedalusAgents(Config(("Thalos:Sentinel:DisabledDetectors:0", "NoSuchDetector")), Environment());
-        badDetector.Should().Throw<InvalidOperationException>().WithMessage("*NoSuchDetector*");
+        // Red: change the message text in DisableDetector, for example "type name" to "type id"; the exact match fails.
+        badDetector.Should().Throw<InvalidOperationException>().WithMessage(
+            "Thalos:Sentinel:DisabledDetectors: 'NoSuchDetector' is not an AI.Sentinel detector type name or id.");
     }
 
     [Theory]
