@@ -14,9 +14,11 @@ internal static class InProcessToolSources
 {
     /// <summary>
     ///     The in-process sources the API test host registers. A boundary test asserts its enumeration against this set,
-    ///     so a source the filter drops turns it red.
+    ///     so a source the filter drops turns it red. One entry per registration: since phase 3.2 the four daedalus
+    ///     classes are four typed registrations of that one name.
     /// </summary>
-    public static readonly string[] ApiHostNames = ["memory", "skills", "daedalus", "repoaction", "issues", "manufacture", "git"];
+    public static readonly string[] ApiHostNames =
+        ["memory", "skills", "daedalus", "daedalus", "daedalus", "daedalus", "repoaction", "issues", "manufacture", "git"];
 
     /// <summary>The sources of <paramref name="sources"/> that are not MCP sources.</summary>
     public static IEnumerable<IToolSource> Of(IEnumerable<IToolSource> sources) =>

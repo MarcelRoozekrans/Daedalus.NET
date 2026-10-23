@@ -11,7 +11,7 @@ namespace Daedalus.Agents.Tools;
 /// </summary>
 /// <remarks>
 ///     A thin wrapper over the existing MCP tool class (<see cref="DaedalusFailurePatternsTools"/>) so the MCP server and the Thalos
-///     agents share one implementation. Thalos's <c>LocalToolSource</c> creates a fresh DI scope per invocation, so the
+///     agents share one implementation. Thalos's typed local tool source creates a fresh DI scope per invocation, so the
 ///     scoped Infrastructure services behind these tools are never stale.
 /// </remarks>
 /// <param name="failures">The failure-patterns MCP tool class.</param>

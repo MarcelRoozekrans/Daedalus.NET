@@ -20,7 +20,7 @@ namespace Daedalus.Tests.Integration.Agents;
 ///     class proves both against a real Thalos runtime — <c>AddThalos</c> exactly as production wires it,
 ///     only the chat client swapped for a <see cref="ScriptedChatClient"/> — matching
 ///     <c>WorkflowCallerMemoryScopingTests</c>' harness shape, never a hand-rolled stand-in for
-///     <c>LocalToolSource</c>'s binding.
+///     the typed tool source's binding.
 /// </summary>
 public sealed class ManufactureStartToolTests
 {
@@ -85,7 +85,7 @@ public sealed class ManufactureStartToolTests
     {
         await using var harness = BuildHarness(new ScriptedChatClient(), new RecordingManufactureRunStarter());
 
-        var source = harness.Services.GetServices<IToolSource>().OfType<LocalToolSource>()
+        var source = harness.Services.GetServices<IToolSource>()
             .Single(s => string.Equals(s.Name, DaedalusAgentsServiceCollectionExtensions.ManufactureToolSourceName, StringComparison.Ordinal));
         var tools = await source.GetToolsAsync(CancellationToken.None);
         tools.IsSuccess.Should().BeTrue();
@@ -114,8 +114,8 @@ public sealed class ManufactureStartToolTests
         new(new ClaimsIdentity(claims, authenticationType: "Bearer", nameType: ClaimTypes.Name, roleType: ClaimTypes.Role));
 
     /// <summary>
-    ///     A real Thalos agent runtime (session store, agent factory, the real <c>manufacture</c>
-    ///     <see cref="LocalToolSource"/> — all wired by <c>AddThalos</c> exactly as production does) with only the
+    ///     A real Thalos agent runtime (session store, agent factory, the real <c>manufacture</c> tool source, registered
+    ///     by the shipped <c>AddManufactureTools</c> — all wired by <c>AddThalos</c> exactly as production does) with only the
     ///     chat client swapped for <paramref name="scripted"/> and <see cref="IManufactureRunStarter"/> replaced by
     ///     <paramref name="starter"/>, matching <c>WorkflowCallerMemoryScopingTests.BuildHarness</c>'s pattern.
     /// </summary>
@@ -128,7 +128,7 @@ public sealed class ManufactureStartToolTests
         {
             thalos.UseChatClientProvider(new ScriptedChatClientProvider(scripted));
             thalos.UseInMemorySessionStore();
-            thalos.AddLocalTools(DaedalusAgentsServiceCollectionExtensions.ManufactureToolSourceName, typeof(DaedalusManufactureTools));
+            thalos.AddManufactureTools();
             thalos.AddAgent(new AgentDefinition { Id = ArchitectId, Name = "architect", Instructions = "You architect." });
         });
 

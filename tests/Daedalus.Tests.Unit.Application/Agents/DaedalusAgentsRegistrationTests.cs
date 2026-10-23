@@ -251,7 +251,9 @@ public sealed class DaedalusAgentsRegistrationTests
         // first: since Thalos 0.18.0 the workspace source is the reflection-free generic form, an internal type, so
         // filtering on LocalToolSource would silently drop it.
         // Red: comment out UseRunWorkspaceTools in DaedalusAgentsServiceCollectionExtensions, and "workspace" is missing.
-        sources.Select(s => s.Name).Should().Equal("memory", "skills", "workspace", "daedalus", "repoaction", "issues", "manufacture", "git");
+        // Phase 3.2: the four daedalus classes are four typed registrations of that one name, in this order.
+        sources.Select(s => s.Name).Should().Equal(
+            "memory", "skills", "workspace", "daedalus", "daedalus", "daedalus", "daedalus", "repoaction", "issues", "manufacture", "git");
     }
 
     [Fact]

@@ -45,6 +45,7 @@ using Thalos.Sandbox.Docker;
 using Thalos.Sentinel;
 using Thalos.Skills;
 using Thalos.Skills.Charters;
+using Thalos.Tools;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 using Thalos.Workspaces;
@@ -420,20 +421,34 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 // DaedalusReviewTools joins this source rather than getting its own: report_review_outcome is a
                 // pure validator with no side effect on anything outside its own turn, so it needs no separate
                 // write boundary, and the reviewer's daedalus__* grant already names it.
-                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools), typeof(DaedalusReviewTools))
-                .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
-                .AddLocalTools(IssuesToolSourceName, typeof(DaedalusIssueTools))
+                //
+                // Phase 3.2: typed registrations, one binder per [ThalosTool] method in declaration order, so nothing
+                // reflects over the classes. The four daedalus sources are four registrations of one name: the catalog
+                // reads them in this order, and a duplicate qualified name would be dropped first-wins.
+                // ThalosToolRegistryGuardTests holds the catalog to the reflective registration's tools.
+                .AddLocalTools<DaedalusKnowledgeTools>(KnowledgeToolSourceName, DaedalusToolOptions,
+                    static t => t.SearchFailurePatterns)
+                .AddLocalTools<DaedalusScheduleTools>(KnowledgeToolSourceName, DaedalusToolOptions,
+                    static t => t.ListSchedules, static t => t.WhyDidARunFail)
+                .AddLocalTools<DaedalusRepoTools>(KnowledgeToolSourceName, DaedalusToolOptions,
+                    static t => t.RepoActivity, static t => t.RepoDefaultBranch)
+                .AddLocalTools<DaedalusReviewTools>(KnowledgeToolSourceName, DaedalusToolOptions,
+                    static t => t.ReportReviewOutcome)
+                .AddLocalTools<DaedalusRepoActionTools>(RepoActionToolSourceName, DaedalusToolOptions,
+                    static t => t.CommentOnIssue, static t => t.AddLabel, static t => t.CloseIssue, static t => t.CreateIssue)
+                .AddLocalTools<DaedalusIssueTools>(IssuesToolSourceName, DaedalusToolOptions,
+                    static t => t.Get, static t => t.Search)
                 // Registered unconditionally, like the two sources above: IManufactureRunStarter always resolves
                 // (the disabled default when Workflow.Enabled is false), so this source is always present for
                 // Every_manufacture_tool_is_bound_to_the_developer_policy to check against real, shipped config
                 // rather than passing vacuously on a host that never registers it.
-                .AddLocalTools(ManufactureToolSourceName, typeof(DaedalusManufactureTools))
+                .AddManufactureTools()
                 // Thalos's own local-git write capability (branch, commit, push, open pull request). UseLibGit2SharpGit
                 // registers the IGitWriteService implementation GitActionTools needs alongside IPullRequestPublisher
                 // (registered above, in AddDaedalusAgents proper). Same write boundary as repoaction__*, just owned by
                 // Thalos: see GitToolSourceName for why the git__* -> developer binding is what actually holds it.
                 .UseLibGit2SharpGit()
-                .AddLocalTools(GitToolSourceName, typeof(GitActionTools))
+                .AddGitActionTools(GitToolSourceName)
                 // One .mcp.json serves both modes: in sandbox mode the loader makes every run-scoped entry remote, so
                 // a run's Roslyn server is the one inside its sandbox. See McpServersLoader.
                 .AddMcpServers(McpServersLoader.Load(mcpConfigPath, options.Workflow.Sandbox.Enabled))
@@ -820,6 +835,24 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 }
             });
     }
+
+    /// <summary>
+    ///     The options every typed Daedalus tool registration takes: <see cref="DaedalusToolsJsonContext"/>'s metadata under
+    ///     M.E.AI's settings, which a reflected tool's arguments and results went through. The context's own
+    ///     <see cref="System.Text.Json.Serialization.JsonSerializerContext.Options"/> has the serializer's default encoder
+    ///     instead, which would escape a result's <c>&lt;</c>, <c>&amp;</c>, apostrophe and non-ASCII text.
+    /// </summary>
+    internal static readonly System.Text.Json.JsonSerializerOptions DaedalusToolOptions =
+        LocalToolSources.CreateOptions(DaedalusToolsJsonContext.Default);
+
+    /// <summary>
+    ///     Registers <see cref="DaedalusManufactureTools"/> as the <see cref="ManufactureToolSourceName"/> source, typed:
+    ///     <c>manufacture__start</c>. Its own method so <c>ManufactureStartToolTests</c>' harness registers the tool exactly
+    ///     as the shipped host does.
+    /// </summary>
+    internal static ThalosBuilder AddManufactureTools(this ThalosBuilder thalos) =>
+        thalos.AddLocalTools<DaedalusManufactureTools>(ManufactureToolSourceName, DaedalusToolOptions,
+            static t => t.Start);
 
     /// <summary>
     ///     Sandbox mode, phase 2.6: every run gets its own Docker container. <c>UseSandboxRunWorkspaces</c> registers the

@@ -18,16 +18,17 @@ namespace Daedalus.Tests.Integration.Agents;
 ///     The oracle for the Thalos tools Daedalus registers, captured from the real Api host's reflective
 ///     <c>AddLocalTools(name, typeof(...))</c> registration before phase 3.2 moves them to typed binders. Every source
 ///     Daedalus registers is dumped in registration order, and every tool is invoked once with the characters Review
-///     Focus 3 names. Task 21's guard holds the typed registration to the same literals.
+///     Focus 3 names. Since Task 21 the host registers them typed, and these literals are unchanged;
+///     <see cref="ThalosToolRegistryGuardTests"/> holds the tool catalog to them too.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class ThalosToolOracleTests(PostgresFixture fixture) : IAsyncLifetime
 {
     /// <summary>HTML-sensitive characters, an apostrophe, a non-ASCII letter and an emoji.</summary>
-    private const string Awkward = "<a & 'é' 🚀>";
+    internal const string Awkward = "<a & 'é' 🚀>";
 
     /// <summary>The sources Daedalus itself registers, in the order <c>AddDaedalusAgents</c> adds them.</summary>
-    private static readonly string[] DaedalusSources =
+    internal static readonly string[] DaedalusSources =
     [
         DaedalusAgentsServiceCollectionExtensions.KnowledgeToolSourceName,
         DaedalusAgentsServiceCollectionExtensions.RepoActionToolSourceName,
@@ -36,7 +37,8 @@ public sealed class ThalosToolOracleTests(PostgresFixture fixture) : IAsyncLifet
         DaedalusAgentsServiceCollectionExtensions.GitToolSourceName,
     ];
 
-    private const string ExpectedDump = """
+    /// <summary>One <c>[source]</c> header per source name, then that name's tools, as <see cref="ToolDump"/> writes them.</summary>
+    internal const string ExpectedDump = """
         [daedalus]
         search_failure_patterns | Search known failure patterns and their solutions. Use this when you encounter a build error, test failure, or runtime exception to find previously discovered fixes. This data was written only by the autonomous task loop that Daedalus retired in phase 2.8 (October 2026), and nothing adds to it any more: an empty answer does not mean that no such pattern or learning exists. | {"type":"object","properties":{"errorMessage":{"description":"The error message or pattern to search for","type":"string"},"maxResults":{"description":"Maximum number of results (default: 3)","type":"integer","default":3}},"required":["errorMessage"]} | {"type":"string"}
         list_schedules | List every schedule Daedalus knows about, with its current state: delivered, running, not yet due, overdue, stranded, delivery unknown, failed, undelivered, or disabled — the same verdict the schedules page shows. Use this first to find a schedule's id, then pass it to why_did_a_run_fail for the detail behind an alarming verdict. | {"type":"object","properties":{}} | {"type":"string"}
@@ -62,7 +64,8 @@ public sealed class ThalosToolOracleTests(PostgresFixture fixture) : IAsyncLifet
         
         """;
 
-    private const string ExpectedResults = """
+    /// <summary>Each tool's qualified name and what <see cref="InvokeAsync"/> made of it, in catalog order.</summary>
+    internal const string ExpectedResults = """
         daedalus__search_failure_patterns => "No matching failure patterns found. This data was written only by the autonomous task loop that Daedalus retired in phase 2.8 (October 2026), and nothing adds to it any more: an empty answer does not mean that no such pattern or learning exists."
         daedalus__list_schedules => "No schedules are configured."
         daedalus__why_did_a_run_fail => "Schedule 3f2c1d0e-8b7a-4c6d-9e5f-0a1b2c3d4e5f has no recorded runs, or no such schedule exists."
@@ -88,27 +91,14 @@ public sealed class ThalosToolOracleTests(PostgresFixture fixture) : IAsyncLifet
     public async Task InitializeAsync()
     {
         await fixture.DatabaseResetter.ResetAsync();
-        // The shipped diagnostics read schedule rows whose ids and next-run times change with every reset and every day,
-        // so list_schedules answers from a fixed, empty overview instead.
-        var diagnostics = Substitute.For<IScheduleDiagnostics>();
-        diagnostics.GetOverviewAsync(Arg.Any<CancellationToken>()).Returns(new ValueTask<IReadOnlyList<RunDiagnosis>>([]));
-        diagnostics.GetRunHistoryAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(new ValueTask<IReadOnlyList<RunDiagnosis>>([]));
-        _factory = new ApiWebApplicationFactory(
-            fixture.ConnectionString,
-            Substitute.For<IAgentRuntime>(),
-            configureServices: services =>
-            {
-                services.RemoveAll<IScheduleDiagnostics>();
-                services.AddSingleton(diagnostics);
-            });
+        _factory = CreateFactory(fixture.ConnectionString);
     }
 
     public async Task DisposeAsync() => await _factory.DisposeAsync();
 
     /// <summary>
-    ///     Red: register <c>typeof(DaedalusReviewTools)</c> before <c>typeof(DaedalusKnowledgeTools)</c> on the
-    ///     <c>daedalus</c> source; the first <c>[daedalus]</c> line is then <c>report_review_outcome</c>.
+    ///     Red: register <c>DaedalusReviewTools</c> before <c>DaedalusKnowledgeTools</c> on the <c>daedalus</c> source;
+    ///     the first <c>[daedalus]</c> line is then <c>report_review_outcome</c>.
     /// </summary>
     [Fact]
     public async Task The_registered_tools_dump_as_captured()
@@ -143,6 +133,26 @@ public sealed class ThalosToolOracleTests(PostgresFixture fixture) : IAsyncLifet
         results.ToString().Should().Be(ExpectedResults);
     }
 
+    /// <summary>
+    ///     The real Api host, with the schedule diagnostics fixed. The shipped diagnostics read schedule rows whose ids and
+    ///     next-run times change with every reset and every day, so list_schedules answers from a fixed, empty overview.
+    /// </summary>
+    internal static ApiWebApplicationFactory CreateFactory(string connectionString)
+    {
+        var diagnostics = Substitute.For<IScheduleDiagnostics>();
+        diagnostics.GetOverviewAsync(Arg.Any<CancellationToken>()).Returns(new ValueTask<IReadOnlyList<RunDiagnosis>>([]));
+        diagnostics.GetRunHistoryAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<RunDiagnosis>>([]));
+        return new ApiWebApplicationFactory(
+            connectionString,
+            Substitute.For<IAgentRuntime>(),
+            configureServices: services =>
+            {
+                services.RemoveAll<IScheduleDiagnostics>();
+                services.AddSingleton(diagnostics);
+            });
+    }
+
     private async Task<List<(string Source, IReadOnlyList<AITool> Tools)>> ToolsAsync()
     {
         using var scope = _factory.Services.CreateScope();
@@ -150,20 +160,34 @@ public sealed class ThalosToolOracleTests(PostgresFixture fixture) : IAsyncLifet
             .Where(s => DaedalusSources.Contains(s.Name, StringComparer.Ordinal))
             .ToList();
 
-        sources.Select(s => s.Name).Should().Equal(DaedalusSources, "every Daedalus source is dumped, in registration order");
+        // Since Task 21 the daedalus name is four typed registrations, one per class, so a name's sources are merged in
+        // registration order, as the catalog reads them.
+        sources.Select(s => s.Name).Distinct(StringComparer.Ordinal)
+            .Should().Equal(DaedalusSources, "every Daedalus source is dumped, in registration order");
 
-        var dumped = new List<(string, IReadOnlyList<AITool>)>();
+        var dumped = new List<(string Source, IReadOnlyList<AITool> Tools)>();
         foreach (var source in sources)
         {
             var tools = await source.GetToolsAsync(CancellationToken.None);
             tools.IsSuccess.Should().BeTrue($"the '{source.Name}' tool source must enumerate");
-            dumped.Add((source.Name, tools.Value));
+            if (dumped.Count > 0 && string.Equals(dumped[^1].Source, source.Name, StringComparison.Ordinal))
+            {
+                dumped[^1] = (source.Name, [.. dumped[^1].Tools, .. tools.Value]);
+            }
+            else
+            {
+                dumped.Add((source.Name, tools.Value));
+            }
         }
 
         return dumped;
     }
 
-    private static async Task<string> InvokeAsync(AIFunction tool)
+    /// <summary>
+    ///     Invokes <paramref name="tool"/> once: every string argument is <see cref="Awkward"/>, an integer is 1, a boolean
+    ///     false and an id a fixed GUID. The result as <see cref="ToolDump.Result"/> writes it, or the exception it threw.
+    /// </summary>
+    internal static async Task<string> InvokeAsync(AIFunction tool)
     {
         var arguments = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (tool.JsonSchema.TryGetProperty("properties", out var properties))
