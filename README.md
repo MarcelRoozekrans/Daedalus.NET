@@ -223,7 +223,7 @@ The old technique is described in [Ralph Wiggum Technique](docs/ralph-wiggum-tec
 | Agent skills         | `Thalos.NET.Skills` 0.4.0 (markdown procedures from git, in-process cosine search, no Rag.NET dependency) |
 | Agent channels       | `Thalos.NET.Channels` 0.4.0 (console channel, pump, commands) + `Thalos.NET.Channels.Telegram` 0.4.0 (Bot API, long-poll) |
 | Embeddings           | Ollama `nomic-embed-text` (768 dims) via OllamaSharp 5.4.12                          |
-| LLM security         | AI.Sentinel 2.0.1 (via `Thalos.NET.Sentinel`)                                       |
+| LLM security         | AI.Sentinel 3.2.1 (via `Thalos.NET.Sentinel` 0.19.0)                                |
 | LLM Providers        | Anthropic SDK 12.53.0 (agent factory for brainstorm and PRD generation; Thalos via `Thalos.NET.Anthropic`) |
 | MCP                  | ModelContextProtocol 2.2.0 (`Thalos.NET.Mcp` reads `.mcp.json`)                     |
 | Frontend             | Blazor WebAssembly + Radzen.Blazor 8.7.5                                            |
@@ -800,6 +800,24 @@ The `repository` must be the one the original run worked on, or the start is ref
 **Sentinel embedding generator:** the semantic detectors (prompt injection, jailbreak, exfiltration, …) need an
 `IEmbeddingGenerator`. The API passes the Ollama client (`nomic-embed-text`) when Aspire provides `ConnectionStrings:ollama`;
 without Ollama only the lexical/operational detectors run and Sentinel logs a warning per agent pipeline.
+
+**Sentinel and personal data:** Daedalus sets AI.Sentinel's `RedactByDefault` to `false`, keeping its 2.x behaviour. Since
+3.0 the PII and credential detectors otherwise swap a match for a placeholder such as `[EMAIL_1_<tag>]` before the prompt
+reaches the model. With the option off, their findings take the severity action: an email address is a Medium finding and
+reaches the model as written (`Log`), a credential is Critical and quarantines the turn. A coding agent given a secret
+placeholder could never write the real value back, because AI.Sentinel never restores secrets into tool arguments. The
+3.x patterns are wider than 2.x and no option narrows them: every email address is now a Medium finding, not only one next
+to a name, and quoted and JSON credentials such as `"ApiKey": "..."` are Critical, so a prompt, or agent instructions,
+which Sentinel scans since 3.0, that contains one is quarantined. The wider credential patterns are accepted as 3.x
+behaviour by the owner's decision. Tool results are not matched by these detectors while redaction is off, as in 2.x. A
+severity key refuses `Redact`, which AI.Sentinel accepts only per detector.
+
+Three other 3.x changes have no option and are tracked in
+[#411](https://github.com/MarcelRoozekrans/Daedalus.NET/issues/411). Since 3.0 Sentinel scans `ChatOptions.Instructions`,
+so agent instructions, charters and the skill catalogue pass every detector. Since 3.2.0 the semantic detectors score each
+new message on its own instead of the joined conversation, and they also score the content of every tool result. Sentinel
+sits innermost in the Thalos chat chain, so with an embedding generator each tool result is checked for injection and
+jailbreak and costs an embedding call; 2.x scored only message text.
 
 ### Memory
 

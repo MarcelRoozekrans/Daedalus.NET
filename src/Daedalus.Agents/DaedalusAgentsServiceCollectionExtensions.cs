@@ -1977,6 +1977,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         sentinel.OnMedium = ParseAction(config.OnMedium, nameof(config.OnMedium));
         sentinel.OnLow = ParseAction(config.OnLow, nameof(config.OnLow));
 
+        // Undoes AI.Sentinel 3.0's "PiiLeakageDetector and CredentialExposureDetector now redact by default instead of
+        // applying the severity action". Daedalus keeps 2.x: their findings take the severity action above, so a prompt
+        // with an email address reaches the model as written (Medium, Log) and a credential quarantines the turn
+        // (Critical). Redaction would also hand a coding agent a secret placeholder it can never write back, since
+        // AI.Sentinel never restores secrets into tool arguments. The 3.0 patterns themselves stay widened: no option
+        // restores 2.x detection, see README, "Sentinel and personal data".
+        sentinel.RedactByDefault = false;
+
         // Null keeps Sentinel lexical-only (it warns per pipeline); the API host passes the Ollama generator when configured.
         if (embeddingGenerator is not null)
         {
@@ -1989,11 +1997,22 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         }
     }
 
-    private static SentinelAction ParseAction(string value, string key) =>
-        Enum.TryParse<SentinelAction>(value, ignoreCase: true, out var action)
-            ? action
-            : throw new InvalidOperationException(
-                $"Thalos:Sentinel:{key} '{value}' is not a Sentinel action ({string.Join(", ", Enum.GetNames<SentinelAction>())}).");
+    /// <summary>The actions a severity can map to. AI.Sentinel 3.0 added <see cref="SentinelAction.Redact"/>, which is valid
+    /// only as a per-detector action, so it is refused here as it was in 2.x, where it did not exist.</summary>
+    private static readonly SentinelAction[] SeverityActions =
+        [SentinelAction.PassThrough, SentinelAction.Log, SentinelAction.Alert, SentinelAction.Quarantine];
+
+    private static readonly string SeverityActionNames = string.Join(", ", SeverityActions.Select(a => a.ToString()));
+
+    /// <summary>Matches <paramref name="value"/> against the action names, ignoring case. Not <c>Enum.TryParse</c>, which also
+    /// takes a number such as <c>"1"</c> and a flags list such as <c>"Log, Alert"</c>, whose values combine to Quarantine.</summary>
+    private static SentinelAction ParseAction(string value, string key)
+    {
+        var index = Array.FindIndex(SeverityActions, a => string.Equals(a.ToString(), value, StringComparison.OrdinalIgnoreCase));
+        return index >= 0
+            ? SeverityActions[index]
+            : throw new InvalidOperationException($"Thalos:Sentinel:{key} '{value}' is not a Sentinel action ({SeverityActionNames}).");
+    }
 
     private static void DisableDetector(SentinelOptions sentinel, string detectorName)
     {

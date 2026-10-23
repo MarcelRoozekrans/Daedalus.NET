@@ -466,6 +466,97 @@ public sealed class DaedalusAgentsRegistrationTests
     }
 
     /// <summary>
+    ///     Phase 3.2: AI.Sentinel 3.0 redacts PII by default, so a prompt with an email address reached the model as
+    ///     <c>[EMAIL_1_&lt;tag&gt;]</c>. Daedalus keeps 2.x, where the prompt reaches the model as written. Runs the chat
+    ///     chain Daedalus registers, Sentinel included, around a fake provider.
+    /// </summary>
+    [Fact]
+    public async Task A_prompt_with_an_email_reaches_the_model_unredacted()
+    {
+        using var sp = Build(Config());
+        var provider = new CapturingChatClient();
+
+        await ComposeChatChain(sp, provider).GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "Mail jane.doe@example.com that the release is out.")],
+            cancellationToken: CancellationToken.None);
+
+        // Red: remove `sentinel.RedactByDefault = false` from ConfigureSentinel; the model gets "[EMAIL_1_...]".
+        provider.Messages.Should().ContainSingle().Which.Text.Should().Be("Mail jane.doe@example.com that the release is out.");
+    }
+
+    /// <summary>
+    ///     Phase 3.2: AI.Sentinel 3.0 redacts credentials by default too, and the turn succeeds with a placeholder. In 2.x a
+    ///     credential is a Critical finding, and Daedalus maps Critical to Quarantine, so the turn is blocked before the
+    ///     model sees it.
+    /// </summary>
+    [Fact]
+    public async Task A_prompt_with_a_credential_is_quarantined_before_the_model()
+    {
+        using var sp = Build(Config());
+        var provider = new CapturingChatClient();
+
+        var act = () => ComposeChatChain(sp, provider).GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "Use api_key=abcd1234efgh5678 for the deploy.")],
+            cancellationToken: CancellationToken.None);
+
+        // Red: remove `sentinel.RedactByDefault = false` from ConfigureSentinel; the key is redacted and nothing throws.
+        (await act.Should().ThrowAsync<AgentTurnException>()).Which.Error.Detail.Should().Be("Critical: SEC-02");
+        // Red: the same removal; the provider then receives the redacted prompt.
+        provider.Messages.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Phase 3.2: Thalos.NET.Sentinel 0.19.0's memory scanner quarantines on any detection whose effective action is
+    ///     Quarantine. With Daedalus' actions that is the 2.x outcome: a recalled memory with an email address, now a
+    ///     Medium finding, is still injected, and one with a credential, Critical, is still dropped.
+    /// </summary>
+    [Fact]
+    public async Task Recalled_memories_keep_the_2x_verdicts_under_the_configured_actions()
+    {
+        using var sp = Build(Config());
+        var scanner = sp.GetRequiredService<IUntrustedContentScanner>();
+
+        // Red: change SentinelConfig.OnMedium's default to "Quarantine"; the memory is quarantined as "Medium: SEC-23".
+        (await scanner.ScanAsync("The release contact is jane.doe@example.com.", CancellationToken.None)).Allowed.Should().BeTrue();
+        // Red: change SentinelConfig.OnCritical's default to "Alert"; the memory is allowed.
+        (await scanner.ScanAsync("Deploy with api_key=abcd1234efgh5678.", CancellationToken.None)).Detail.Should().Be("Critical: SEC-02");
+    }
+
+    /// <summary>
+    ///     AI.Sentinel 3.0 adds <see cref="SentinelAction.Redact"/>, valid only per detector. A severity key refuses it, as
+    ///     in 2.x, with Daedalus' message. It refuses any value that is not an action's name too: a number, and a flags
+    ///     list, whose values <c>Enum.TryParse</c> would combine, Log and Alert into Quarantine.
+    /// </summary>
+    [Theory]
+    [InlineData("Redact")]
+    [InlineData("7")]
+    [InlineData("1")]
+    [InlineData("Log, Alert")]
+    public void A_severity_key_refuses_an_action_that_is_not_a_severity_action(string value)
+    {
+        var act = () => new ServiceCollection().AddDaedalusAgents(Config(("Thalos:Sentinel:OnMedium", value)), Environment());
+
+        // Red: parse with `Enum.TryParse<SentinelAction>(value, ignoreCase: true, out var action)` alone; "Redact" then
+        // fails inside AI.Sentinel with an ArgumentException, and "7", "1" and "Log, Alert" register without an error.
+        act.Should().Throw<InvalidOperationException>().WithMessage(
+            $"Thalos:Sentinel:OnMedium '{value}' is not a Sentinel action (PassThrough, Log, Alert, Quarantine).");
+    }
+
+    /// <summary>Composes every registered decorator around <paramref name="provider"/> the way Thalos' <c>AgentFactory</c> does.</summary>
+    private static IChatClient ComposeChatChain(ServiceProvider sp, IChatClient provider)
+    {
+        var agent = sp.GetRequiredService<IAgentCatalog>().Agents.Single();
+        var decorators = sp.GetServices<IChatClientDecorator>().OrderBy(d => d.Order).ToList();
+        var client = provider;
+        foreach (var decorator in decorators)
+        {
+            client = decorator.Decorate(client, agent, sp);
+        }
+
+        return client;
+    }
+
+    /// <summary>
     ///     Spec decision 9: the provider-neutral cache hints are placed on every agent's chat client. Falsifiable:
     ///     removing <c>.UsePromptCaching()</c> from <c>AddDaedalusAgents</c> leaves no such decorator registered.
     /// </summary>
