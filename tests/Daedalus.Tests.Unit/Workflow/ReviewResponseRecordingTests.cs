@@ -173,18 +173,6 @@ public sealed class ReviewResponseRecordingTests
         inner.FailureMessage.Should().Contain("review_response").And.Contain("database down");
     }
 
-    private static (ReviewResponseRecorder Recorder, List<WorkflowRunRecord> Appended) Recorder()
-    {
-        var appended = new List<WorkflowRunRecord>();
-        var records = Substitute.For<IWorkflowRunRecordStore>();
-        records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>()).Returns(call =>
-        {
-            appended.Add(call.Arg<WorkflowRunRecord>());
-            return ValueTask.CompletedTask;
-        });
-        return (TestNodeUsage.Responses(records), appended);
-    }
-
     private static object Nested(int levels)
     {
         object value = "leaf";
@@ -194,36 +182,23 @@ public sealed class ReviewResponseRecordingTests
     }
 
     /// <summary>
-    ///     A response outside the JSON-shaped contract is returned as a failure naming its type, never thrown, and nothing is
-    ///     appended.
-    ///     Red: remove the catch around ToPayloadJson in RecordAsync, and the ArgumentException escapes the call.
+    ///     The deepest response a node can report, 63 nested lists below the bag, the most <see cref="NodeResult"/>
+    ///     accepts, is recorded and the node completes: the payload's <c>{ "response": … }</c> wrapper takes it to 64
+    ///     levels, which the payload still serializes.
+    ///     Red: serialize the payload through a <c>DaedalusRecordsJsonContext</c> whose options set <c>MaxDepth = 63</c>,
+    ///     and the completion throws a JsonException instead of recording.
     /// </summary>
     [Fact]
-    public async Task A_response_that_is_not_JSON_shaped_is_a_failure_not_a_throw()
+    public async Task The_deepest_response_a_node_can_report_is_recorded()
     {
-        var (recorder, appended) = Recorder();
+        var run = RunAt("implement");
+        var (inner, store, appended) = Build(run);
 
-        var result = await recorder.RecordAsync(Guid.NewGuid(), ImplementSeq, "implement", "starter-1", Guid.Empty, CancellationToken.None);
+        await CompleteAsync(store, run, new(StringComparer.Ordinal) { [ReviewHandoff.ReviewResponseKey] = Nested(63) });
 
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("System.Guid");
-        appended.Should().BeEmpty();
-    }
-
-    /// <summary>
-    ///     64 nested lists pass the contract's depth guard, but the payload's own wrapper object makes the 65th level, which
-    ///     the serializer refuses. That too is a failure, not a throw.
-    ///     Red: narrow the catch in RecordAsync to ArgumentException alone, and the serializer's exception escapes the call.
-    /// </summary>
-    [Fact]
-    public async Task A_response_nested_one_level_too_deep_for_the_payload_is_a_failure()
-    {
-        var (recorder, appended) = Recorder();
-
-        var result = await recorder.RecordAsync(Guid.NewGuid(), ImplementSeq, "implement", "starter-1", Nested(64), CancellationToken.None);
-
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("review_response");
-        appended.Should().BeEmpty();
+        var record = appended.Should().ContainSingle().Subject;
+        record.PayloadJson.Should().Be($$"""{"response":{{new string('[', 63)}}"leaf"{{new string(']', 63)}}}""");
+        inner.Completed.Should().NotBeNull();
+        inner.FailureMessage.Should().BeNull();
     }
 }

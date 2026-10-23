@@ -8,7 +8,8 @@ namespace Daedalus.Tests.Unit.Workflow;
 ///     report, captured from today's reflective <c>Serialize(Dictionary&lt;string, object?&gt;)</c> before phase 3.2 moves
 ///     it to a context. The shapes are the ones Thalos hands a node's variables back as: a string, a list, a whole
 ///     number as <see cref="long"/>, a fraction as <see cref="double"/>, a bool, null and a nested map, plus a
-///     <see cref="JsonElement"/>.
+///     <see cref="JsonElement"/>. The value itself is written by Thalos' <c>WorkflowVariableJson</c>, so these goldens also
+///     guard the dependency's bytes across a Thalos bump.
 /// </summary>
 public sealed class ReviewResponseGoldenTests
 {
@@ -40,8 +41,9 @@ public sealed class ReviewResponseGoldenTests
     /// <summary>
     ///     Red: serialise through <c>new DaedalusRecordsJsonContext(new JsonSerializerOptions { Encoder =
     ///     JavaScriptEncoder.UnsafeRelaxedJsonEscaping })</c> in <c>ToPayloadJson</c>; the string, nested-map and
-    ///     JSON-element shapes turn their escapes raw. Red: write a <see cref="long"/> through <c>WriteStringValue</c> in
-    ///     <c>PlainJson</c>; the long and nested-map shapes write their numbers as strings.
+    ///     JSON-element shapes turn their escapes raw. Red: a Thalos release whose <c>WorkflowVariableJson</c> writes a
+    ///     <see cref="long"/> through <c>WriteStringValue</c>; the long and nested-map shapes write their numbers as
+    ///     strings.
     /// </summary>
     [Theory]
     [MemberData(nameof(Shapes))]

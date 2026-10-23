@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -29,22 +28,11 @@ internal sealed partial class ReviewResponseRecorder(IServiceScopeFactory scopes
     public async ValueTask<UnitResult<string>> RecordAsync(
         Guid runId, long seq, string node, string? startedById, object? response, CancellationToken ct)
     {
-        string payload;
-        try
-        {
-            payload = ReviewResponseRecord.ToPayloadJson(response);
-        }
-        catch (Exception ex) when (ex is ArgumentException or JsonException)
-        {
-            // A value outside the JSON-shaped contract, or one nested too deep for the payload, is refused here, so the
-            // completion fails with the reason instead of the store call throwing.
-            LogRejected(logger, runId, seq, ex.Message);
-            return UnitResult<string>.Failure(NotRecorded(node, ex.Message));
-        }
-
+        // The response came out of a NodeResult, whose constructor has already checked it against the JSON-shaped
+        // contract at most 63 levels below the bag, so the payload's wrapper takes it to 64 at most and it serializes.
         var record = WorkflowRunRecord.Create(
             runId, seq, node, WorkflowRunRecord.ReviewResponseKind, HostPrincipalId, startedById,
-            payload, clock.GetUtcNow().UtcDateTime);
+            ReviewResponseRecord.ToPayloadJson(response), clock.GetUtcNow().UtcDateTime);
         if (record.IsFailure)
         {
             LogRejected(logger, runId, seq, record.Error);

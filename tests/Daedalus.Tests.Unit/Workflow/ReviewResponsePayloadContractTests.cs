@@ -9,14 +9,16 @@ namespace Daedalus.Tests.Unit.Workflow;
 ///     writes a reported value through Thalos' JSON-shaped variable contract, <c>WorkflowVariableJson.ToElement</c>, rather
 ///     than through the reflection-based serializer. So a value outside the contract is refused naming its type, on the JIT
 ///     as well as native, and the leaf types the goldens do not cover still write the bytes the serializer wrote. Written
-///     against <c>ToPayloadJson</c>, not the 0.18.0 stand-in, so they keep holding when Task 20 swaps in the Thalos call.
+///     against <c>ToPayloadJson</c>, not the contract itself, so they hold whichever implementation writes the value.
+///     The contract is Thalos' code, so these tests guard the dependency's refusals and bytes across a Thalos bump: a Red
+///     that names the contract names a Thalos release that would break it.
 /// </summary>
 public sealed class ReviewResponsePayloadContractTests
 {
     private const string Allowed = "Allowed: string, number, bool, null, JsonElement, JsonNode, and lists or dictionaries of those.";
 
     // Red: in ToPayloadJson, build the element with JsonSerializer.SerializeToElement instead of through
-    // PlainJson; the Guid is written as a string and nothing throws.
+    // WorkflowVariableJson.ToElement; the Guid is written as a string and nothing throws.
     [Fact]
     public void ToPayloadJson_refuses_a_non_JSON_value_naming_its_type()
     {
@@ -26,7 +28,8 @@ public sealed class ReviewResponsePayloadContractTests
             .Which.Message.Should().StartWith($"Workflow variable '$' has type 'System.Guid', which is not JSON-shaped. {Allowed}");
     }
 
-    // Red: in PlainJson, name every refusal at the root; the message names '$' instead of '[1].meta'.
+    // Red: a Thalos release whose WorkflowVariableJson names every refusal at the root; the message names '$' instead
+    // of '[1].meta'.
     [Fact]
     public void A_nested_refusal_names_the_path_to_the_value()
     {
@@ -38,8 +41,8 @@ public sealed class ReviewResponsePayloadContractTests
             .Which.Message.Should().StartWith($"Workflow variable '[1].meta' has type 'System.Guid', which is not JSON-shaped. {Allowed}");
     }
 
-    // Red: in PlainJson, drop the double.IsFinite and float.IsFinite check; the writer then throws its own
-    // ArgumentException, whose message is not this one.
+    // Red: a Thalos release whose WorkflowVariableJson drops its finite check on float and double; the writer then
+    // throws its own ArgumentException, whose message is not this one.
     [Theory]
     [InlineData(double.NaN, "NaN")]
     [InlineData(double.PositiveInfinity, "Infinity")]
@@ -52,7 +55,8 @@ public sealed class ReviewResponsePayloadContractTests
             .Which.Message.Should().StartWith($"Workflow variable '$' is {written}, which is not a JSON number. A float or double must be finite.");
     }
 
-    // Red: raise PlainJson's depth guard from 64 to 65; JsonDocument then refuses the 65 levels with a JsonException.
+    // Red: a Thalos release whose WorkflowVariableJson allows 65 levels; JsonDocument then refuses them with a
+    // JsonException.
     [Fact]
     public void A_value_nested_deeper_than_64_levels_is_refused()
     {
@@ -66,8 +70,8 @@ public sealed class ReviewResponsePayloadContractTests
             .Which.Message.Should().Contain("nests deeper than 64 levels");
     }
 
-    // Red: in PlainJson, read an IDictionary entry's key with Convert.ToString instead of refusing a non-string key, and
-    // the dictionary is then written as an object keyed "1" instead of being refused.
+    // Red: a Thalos release whose WorkflowVariableJson converts a non-string IDictionary key to a string instead of
+    // refusing it; the dictionary is then written as an object keyed "1".
     [Fact]
     public void A_dictionary_with_non_string_keys_is_refused_naming_the_dictionary()
     {
@@ -79,9 +83,10 @@ public sealed class ReviewResponsePayloadContractTests
             .Which.Message.Should().StartWith($"Workflow variable '$' has type '{typeof(Dictionary<int, string>).FullName}', which is not JSON-shaped.");
     }
 
-    // Each number and leaf case is written through its own arm of PlainJson's TryWriteNumber or TryWriteLeaf, and the
-    // typed dictionary through the non-generic IDictionary arm of Walk. Red, for any case: delete that type's arm, and
-    // the case is refused as not JSON-shaped. Seen failing for sbyte, ushort, uint, float, double and the IDictionary arm.
+    // Each number and leaf type, and a typed dictionary, is one the contract accepts. Red, for any case: a Thalos
+    // release whose WorkflowVariableJson no longer accepts that type; the case is refused as not JSON-shaped. Seen
+    // failing for sbyte, ushort, uint, float, double and the IDictionary arm, against the copy Daedalus kept before
+    // Thalos 0.19.0.
     public static TheoryData<string, object> Leaves() => new()
     {
         { "byte", (byte)7 },
@@ -99,9 +104,9 @@ public sealed class ReviewResponsePayloadContractTests
         { "typed dictionary", new Dictionary<string, int>(StringComparer.Ordinal) { ["b"] = 2, ["a"] = 1 } },
     };
 
-    // Red: in PlainJson, write every number through WriteNumberValue(double); the decimal loses its trailing zero and
-    // ulong.MaxValue is written as 1.8446744073709552E+19. Red: write byte[] as a sequence; the bytes are written as
-    // [1,2,3]. Red: drop the JsonNode case; the node is refused as not JSON-shaped.
+    // Red: a Thalos release whose WorkflowVariableJson writes every number as a double; the decimal loses its trailing
+    // zero and ulong.MaxValue is written as 1.8446744073709552E+19. Red: one that writes a byte[] as a sequence; the
+    // bytes are written as [1,2,3]. Red: one that drops JsonNode; the node is refused as not JSON-shaped.
     [Theory]
     [MemberData(nameof(Leaves))]
     public void A_leaf_or_container_the_goldens_skip_is_written_as_the_serializer_wrote_it(string shape, object value)
@@ -112,8 +117,8 @@ public sealed class ReviewResponsePayloadContractTests
     }
 
     // A map that is only an IReadOnlyDictionary, as a custom bag type would be, is written as an object in its own
-    // entry order. Red: delete the IReadOnlyDictionary arm in PlainJson's Walk; the map then enumerates as key-value
-    // pairs and is refused, naming the map's type.
+    // entry order. Red: a Thalos release whose WorkflowVariableJson writes an IReadOnlyDictionary only as a
+    // sequence; the map then enumerates as key-value pairs and is refused, naming the map's type.
     [Fact]
     public void A_read_only_dictionary_is_written_as_an_object_in_entry_order()
     {

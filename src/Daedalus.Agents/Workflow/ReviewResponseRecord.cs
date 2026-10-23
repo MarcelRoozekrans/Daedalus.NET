@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Daedalus.Domain.Entities;
+using Thalos.Workflow;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Workflow;
@@ -35,8 +36,9 @@ public static class ReviewResponseRecord
 
     /// <summary>
     ///     The payload for <paramref name="value"/>, the value as implement reported it. The value is written through the
-    ///     JSON-shaped contract Thalos keeps for workflow variables, so it needs no reflection; a value outside it, such as
-    ///     a <see cref="Guid"/>, throws <see cref="ArgumentException"/> naming its type.
+    ///     JSON-shaped contract Thalos keeps for workflow variables, <see cref="WorkflowVariableJson.ToElement"/>, so it
+    ///     needs no reflection; a value outside it, such as a <see cref="Guid"/>, throws <see cref="ArgumentException"/>
+    ///     naming its type.
     /// </summary>
     /// <exception cref="ArgumentException">
     ///     <paramref name="value"/> is not JSON-shaped, or nests deeper than the contract's 64 levels.
@@ -47,7 +49,7 @@ public static class ReviewResponseRecord
     /// </exception>
     public static string ToPayloadJson(object? value) =>
         JsonSerializer.Serialize(
-            new Dictionary<string, JsonElement>(StringComparer.Ordinal) { [ResponseProperty] = PlainJson.ToElement(value) },
+            new Dictionary<string, JsonElement>(StringComparer.Ordinal) { [ResponseProperty] = WorkflowVariableJson.ToElement(value) },
             DaedalusRecordsJsonContext.Default.DictionaryStringJsonElement);
 
     /// <summary>
