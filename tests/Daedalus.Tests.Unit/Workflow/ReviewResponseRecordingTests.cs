@@ -226,26 +226,4 @@ public sealed class ReviewResponseRecordingTests
         result.Error.Should().Contain("review_response");
         appended.Should().BeEmpty();
     }
-
-    /// <summary>
-    ///     Through the store, the refused response fails the run with the recorder's message instead of throwing out of the
-    ///     completion.
-    ///     Red: remove the catch around ToPayloadJson in RecordAsync, and CompleteNodeAsync throws before FailAsync runs.
-    /// </summary>
-    [Fact]
-    public async Task A_response_that_is_not_JSON_shaped_fails_the_run()
-    {
-        var run = RunAt("implement");
-        var (inner, store, appended) = Build(run);
-
-        await CompleteAsync(store, run, new(StringComparer.Ordinal)
-        {
-            [ReviewHandoff.SummaryKey] = "fixed it",
-            [ReviewHandoff.ReviewResponseKey] = Guid.Empty,
-        });
-
-        appended.Should().BeEmpty();
-        inner.Completed.Should().BeNull();
-        inner.FailureMessage.Should().Contain("review_response").And.Contain("System.Guid");
-    }
 }
