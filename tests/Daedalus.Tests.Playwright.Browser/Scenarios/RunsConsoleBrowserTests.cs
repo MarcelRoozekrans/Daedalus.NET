@@ -226,7 +226,7 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
         await _runPage.NavigateAsync(Runs.Failed).ConfigureAwait(false);
         await Expect(_runPage.Retry).ToBeVisibleAsync().ConfigureAwait(false);
 
-        await using var developer = await Browser.NewContextAsync().ConfigureAwait(false);
+        var developer = await NewTracedContextAsync().ConfigureAwait(false);
         await developer.AddInitScriptAsync("localStorage.setItem('daedalus.test-roles','developer')").ConfigureAwait(false);
         var page = await developer.NewPageAsync().ConfigureAwait(false);
         var developerRun = new RunDetailPage(page, BaseUrl);
@@ -310,7 +310,7 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
     [Description("The Runs item and the Runs page follow a role change without a reload")]
     public async Task Console_FollowsARoleChange_WithoutReload()
     {
-        await using var context = await Browser.NewContextAsync().ConfigureAwait(false);
+        var context = await NewTracedContextAsync().ConfigureAwait(false);
         await TestRoles.WriteAsync(context, BaseUrl, "analyst").ConfigureAwait(false);
         var page = await context.NewPageAsync().ConfigureAwait(false);
         var runs = new RunsPage(page, BaseUrl);
@@ -345,7 +345,7 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
     [Description("The run page loads the run once the user gains the role, without a reload")]
     public async Task RunDetail_FollowsARoleChange_WithoutReload()
     {
-        await using var context = await Browser.NewContextAsync().ConfigureAwait(false);
+        var context = await NewTracedContextAsync().ConfigureAwait(false);
         await TestRoles.WriteAsync(context, BaseUrl, "analyst").ConfigureAwait(false);
         var page = await context.NewPageAsync().ConfigureAwait(false);
         var run = new RunDetailPage(page, BaseUrl);

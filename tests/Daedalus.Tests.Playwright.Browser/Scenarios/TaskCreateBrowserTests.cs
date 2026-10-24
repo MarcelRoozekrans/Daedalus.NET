@@ -627,7 +627,7 @@ public class TaskCreateBrowserTests : BrowserTestBase
         string Local(JsonElement e) => TimeZoneInfo.ConvertTimeFromUtc(e.GetProperty("createdAt").GetDateTime().ToUniversalTime(), auckland)
             .ToString("g", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
 
-        await using var context = await Browser.NewContextAsync(new BrowserNewContextOptions
+        var context = await NewTracedContextAsync(new BrowserNewContextOptions
         {
             TimezoneId = "Pacific/Auckland",
             Locale = "en-US",

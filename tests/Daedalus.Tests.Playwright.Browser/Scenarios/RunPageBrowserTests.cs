@@ -310,7 +310,7 @@ public sealed class RunPageBrowserTests : BrowserTestBase
         string Local(string property) => TimeZoneInfo.ConvertTime(item.GetProperty(property).GetDateTimeOffset(), auckland)
             .ToString("g", CultureInfo.GetCultureInfo("en-US"));
 
-        await using var context = await Browser.NewContextAsync(new BrowserNewContextOptions
+        var context = await NewTracedContextAsync(new BrowserNewContextOptions
         {
             TimezoneId = "Pacific/Auckland",
             Locale = "en-US",

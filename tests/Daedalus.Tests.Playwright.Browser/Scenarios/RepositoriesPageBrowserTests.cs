@@ -171,7 +171,7 @@ public class RepositoriesPageBrowserTests : BrowserTestBase
         var created = new DateTime(2026, 10, 15, 23, 30, 0, DateTimeKind.Utc);
         var auckland = TimeZoneInfo.FindSystemTimeZoneById("Pacific/Auckland");
         var expected = TimeZoneInfo.ConvertTimeFromUtc(created, auckland).ToString("g", CultureInfo.GetCultureInfo("en-US"));
-        await using var context = await Browser.NewContextAsync(new BrowserNewContextOptions
+        var context = await NewTracedContextAsync(new BrowserNewContextOptions
         {
             TimezoneId = "Pacific/Auckland",
             Locale = "en-US",

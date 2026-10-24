@@ -142,7 +142,7 @@ public class NavigationBrowserTests : BrowserTestBase
     [Description("Git Repositories is shown to admins only, and follows a role change")]
     public async Task Sidebar_GitRepositories_IsForAdminsOnly()
     {
-        await using var context = await Browser.NewContextAsync().ConfigureAwait(false);
+        var context = await NewTracedContextAsync().ConfigureAwait(false);
         await TestRoles.WriteAsync(context, BaseUrl, "analyst").ConfigureAwait(false);
         var page = await context.NewPageAsync().ConfigureAwait(false);
         var main = new MainPage(page, BaseUrl);
