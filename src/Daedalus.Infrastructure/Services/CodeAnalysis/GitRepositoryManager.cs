@@ -8,7 +8,7 @@ using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
-#pragma warning disable CA1305, CA1307, MA0011, MA0089, MA0009, S1172, S1481, IL2026
+#pragma warning disable CA1305, CA1307, MA0011, MA0089, MA0009, S1172, S1481
 
 /// <summary>
 ///     Manages git repository operations (clone, branch, commit, push) via Process-based git CLI execution.
@@ -546,4 +546,4 @@ public sealed partial class GitRepositoryManager(ILogger<GitRepositoryManager> l
     private static partial void LogCleaningUp(ILogger logger, string path);
 }
 
-#pragma warning restore CA1305, CA1307, MA0011, MA0089, MA0009, S1172, S1481, IL2026
+#pragma warning restore CA1305, CA1307, MA0011, MA0089, MA0009, S1172, S1481

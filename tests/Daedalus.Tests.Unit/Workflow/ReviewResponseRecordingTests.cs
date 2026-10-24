@@ -172,4 +172,33 @@ public sealed class ReviewResponseRecordingTests
         inner.Completed.Should().BeNull("a visit whose answer is lost must not read as answered");
         inner.FailureMessage.Should().Contain("review_response").And.Contain("database down");
     }
+
+    private static object Nested(int levels)
+    {
+        object value = "leaf";
+        for (var i = 0; i < levels; i++)
+            value = new List<object?> { value };
+        return value;
+    }
+
+    /// <summary>
+    ///     The deepest response a node can report, 63 nested lists below the bag, the most <see cref="NodeResult"/>
+    ///     accepts, is recorded and the node completes: the payload's <c>{ "response": … }</c> wrapper takes it to 64
+    ///     levels, which the payload still serializes.
+    ///     Red: serialize the payload through a <c>DaedalusRecordsJsonContext</c> whose options set <c>MaxDepth = 63</c>,
+    ///     and the completion throws a JsonException instead of recording.
+    /// </summary>
+    [Fact]
+    public async Task The_deepest_response_a_node_can_report_is_recorded()
+    {
+        var run = RunAt("implement");
+        var (inner, store, appended) = Build(run);
+
+        await CompleteAsync(store, run, new(StringComparer.Ordinal) { [ReviewHandoff.ReviewResponseKey] = Nested(63) });
+
+        var record = appended.Should().ContainSingle().Subject;
+        record.PayloadJson.Should().Be($$"""{"response":{{new string('[', 63)}}"leaf"{{new string(']', 63)}}}""");
+        inner.Completed.Should().NotBeNull();
+        inner.FailureMessage.Should().BeNull();
+    }
 }

@@ -264,12 +264,13 @@ public sealed partial class SandboxConfigTests : IDisposable
     {
         await using var sp = BuildShippedApi();
 
-        var sources = sp.GetServices<IToolSource>().ToDictionary(s => s.Name, StringComparer.Ordinal);
+        // A lookup, not a dictionary: since phase 3.2 the daedalus name is four registrations.
+        var sources = sp.GetServices<IToolSource>().ToLookup(s => s.Name, StringComparer.Ordinal);
         using (new AssertionScope())
         {
-            sources.Should().ContainKey("roslyn").WhoseValue.Should().BeOfType<RemoteRunToolSource>();
-            sources.Should().ContainKey("workspace").WhoseValue.Should().BeOfType<RemoteRunToolSource>();
-            sources.Should().ContainKey("sandbox").WhoseValue.Should().BeOfType<RemoteRunToolSource>();
+            sources["roslyn"].Should().ContainSingle().Which.Should().BeOfType<RemoteRunToolSource>();
+            sources["workspace"].Should().ContainSingle().Which.Should().BeOfType<RemoteRunToolSource>();
+            sources["sandbox"].Should().ContainSingle().Which.Should().BeOfType<RemoteRunToolSource>();
             sp.GetService<IRunWorkspaceProvider>().Should().BeOfType<SandboxRunWorkspaceProvider>();
         }
     }
@@ -417,13 +418,14 @@ public sealed partial class SandboxConfigTests : IDisposable
         services.AddDaedalusAgents(options, configuration, environment);
         await using var sp = services.BuildServiceProvider();
 
-        var sources = sp.GetServices<IToolSource>().ToDictionary(s => s.Name, StringComparer.Ordinal);
+        // A lookup, not a dictionary: since phase 3.2 the daedalus name is four registrations.
+        var sources = sp.GetServices<IToolSource>().ToLookup(s => s.Name, StringComparer.Ordinal);
         using (new AssertionScope())
         {
             sp.GetService<IRunWorkspaceProvider>().Should().BeOfType<GitWorktreeWorkspaceProvider>();
-            sources.Should().ContainKey("roslyn").WhoseValue.Should().BeOfType<RunScopedMcpToolSource>();
-            sources.Should().ContainKey("workspace").WhoseValue.Should().NotBeOfType<RemoteRunToolSource>();
-            sources.Should().NotContainKey("sandbox");
+            sources["roslyn"].Should().ContainSingle().Which.Should().BeOfType<RunScopedMcpToolSource>();
+            sources["workspace"].Should().ContainSingle().Which.Should().NotBeOfType<RemoteRunToolSource>();
+            sources.Contains("sandbox").Should().BeFalse();
             sp.GetService<SandboxOptions>().Should().BeNull();
         }
     }

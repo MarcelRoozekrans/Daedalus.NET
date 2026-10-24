@@ -1,5 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
@@ -44,6 +44,7 @@ using Thalos.Sandbox.Docker;
 using Thalos.Sentinel;
 using Thalos.Skills;
 using Thalos.Skills.Charters;
+using Thalos.Tools;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 using Thalos.Workspaces;
@@ -163,8 +164,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(environment);
 
-        var options = new DaedalusAgentsOptions();
-        configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(options);
+        var options = DaedalusAgentsOptions.Read(configuration);
         return services.AddDaedalusAgents(options, configuration, environment, embeddingGenerator);
     }
 
@@ -219,8 +219,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // steps this outbox dispatches, and BudgetedSubagentRunner to every workflow turn. Read from
         // configuration here rather than from IOptions<DetachedRunOptions> so both lease checks fail at
         // registration, like every other configuration check in this method, instead of at first resolution.
-        var turnDeadline = TimeSpan.FromSeconds(
-            configuration.GetSection("DetachedRuns").GetValue<int>(nameof(DetachedRunOptions.DeadlineSeconds)));
+        var turnDeadline = ReadTurnDeadline(configuration);
 
         AddGitHub(services, configuration);
 
@@ -421,20 +420,34 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 // DaedalusReviewTools joins this source rather than getting its own: report_review_outcome is a
                 // pure validator with no side effect on anything outside its own turn, so it needs no separate
                 // write boundary, and the reviewer's daedalus__* grant already names it.
-                .AddLocalTools(KnowledgeToolSourceName, typeof(DaedalusKnowledgeTools), typeof(DaedalusScheduleTools), typeof(DaedalusRepoTools), typeof(DaedalusReviewTools))
-                .AddLocalTools(RepoActionToolSourceName, typeof(DaedalusRepoActionTools))
-                .AddLocalTools(IssuesToolSourceName, typeof(DaedalusIssueTools))
+                //
+                // Phase 3.2: typed registrations, one binder per [ThalosTool] method in declaration order, so nothing
+                // reflects over the classes. The four daedalus sources are four registrations of one name: the catalog
+                // reads them in this order, and a duplicate qualified name would be dropped first-wins.
+                // ThalosToolRegistryGuardTests holds the catalog to the reflective registration's tools.
+                .AddLocalTools<DaedalusKnowledgeTools>(KnowledgeToolSourceName, DaedalusToolOptions,
+                    static t => t.SearchFailurePatterns)
+                .AddLocalTools<DaedalusScheduleTools>(KnowledgeToolSourceName, DaedalusToolOptions,
+                    static t => t.ListSchedules, static t => t.WhyDidARunFail)
+                .AddLocalTools<DaedalusRepoTools>(KnowledgeToolSourceName, DaedalusToolOptions,
+                    static t => t.RepoActivity, static t => t.RepoDefaultBranch)
+                .AddLocalTools<DaedalusReviewTools>(KnowledgeToolSourceName, DaedalusToolOptions,
+                    static t => t.ReportReviewOutcome)
+                .AddLocalTools<DaedalusRepoActionTools>(RepoActionToolSourceName, DaedalusToolOptions,
+                    static t => t.CommentOnIssue, static t => t.AddLabel, static t => t.CloseIssue, static t => t.CreateIssue)
+                .AddLocalTools<DaedalusIssueTools>(IssuesToolSourceName, DaedalusToolOptions,
+                    static t => t.Get, static t => t.Search)
                 // Registered unconditionally, like the two sources above: IManufactureRunStarter always resolves
                 // (the disabled default when Workflow.Enabled is false), so this source is always present for
                 // Every_manufacture_tool_is_bound_to_the_developer_policy to check against real, shipped config
                 // rather than passing vacuously on a host that never registers it.
-                .AddLocalTools(ManufactureToolSourceName, typeof(DaedalusManufactureTools))
+                .AddManufactureTools()
                 // Thalos's own local-git write capability (branch, commit, push, open pull request). UseLibGit2SharpGit
                 // registers the IGitWriteService implementation GitActionTools needs alongside IPullRequestPublisher
                 // (registered above, in AddDaedalusAgents proper). Same write boundary as repoaction__*, just owned by
                 // Thalos: see GitToolSourceName for why the git__* -> developer binding is what actually holds it.
                 .UseLibGit2SharpGit()
-                .AddLocalTools(GitToolSourceName, typeof(GitActionTools))
+                .AddGitActionTools(GitToolSourceName)
                 // One .mcp.json serves both modes: in sandbox mode the loader makes every run-scoped entry remote, so
                 // a run's Roslyn server is the one inside its sandbox. See McpServersLoader.
                 .AddMcpServers(McpServersLoader.Load(mcpConfigPath, options.Workflow.Sandbox.Enabled))
@@ -823,6 +836,24 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     The options every typed Daedalus tool registration takes: <see cref="DaedalusToolsJsonContext"/>'s metadata under
+    ///     M.E.AI's settings, which a reflected tool's arguments and results went through. The context's own
+    ///     <see cref="System.Text.Json.Serialization.JsonSerializerContext.Options"/> has the serializer's default encoder
+    ///     instead, which would escape a result's <c>&lt;</c>, <c>&amp;</c>, apostrophe and non-ASCII text.
+    /// </summary>
+    internal static readonly System.Text.Json.JsonSerializerOptions DaedalusToolOptions =
+        LocalToolSources.CreateOptions(DaedalusToolsJsonContext.Default);
+
+    /// <summary>
+    ///     Registers <see cref="DaedalusManufactureTools"/> as the <see cref="ManufactureToolSourceName"/> source, typed:
+    ///     <c>manufacture__start</c>. Its own method so <c>ManufactureStartToolTests</c>' harness registers the tool exactly
+    ///     as the shipped host does.
+    /// </summary>
+    internal static ThalosBuilder AddManufactureTools(this ThalosBuilder thalos) =>
+        thalos.AddLocalTools<DaedalusManufactureTools>(ManufactureToolSourceName, DaedalusToolOptions,
+            static t => t.Start);
+
+    /// <summary>
     ///     Sandbox mode, phase 2.6: every run gets its own Docker container. <c>UseSandboxRunWorkspaces</c> registers the
     ///     remote <c>workspace</c> and <c>sandbox</c> tool sources and replaces the run workspace provider and its
     ///     companions, so neither <c>UseGitWorktreeWorkspaces</c> nor <c>UseRunWorkspaceTools</c> is called: local
@@ -989,8 +1020,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     and replaces it with a factory that forwards to the concrete singleton, so both paths resolve the one
     ///     instance. Idempotent — a second call for the same <typeparamref name="T"/> finds no matching descriptor
     ///     left to remove and leaves the singleton registration as-is.
+    ///     <para>
+    ///     <typeparamref name="T"/> carries <c>PublicConstructors</c> because <c>TryAddSingleton&lt;T&gt;</c> builds
+    ///     it through the container's activator. Without the annotation the trimmer cannot see that the constructor
+    ///     is needed, and the <c>TryAddSingleton</c> call raises IL2091 inside this method.
+    ///     </para>
     /// </remarks>
-    private static void ForwardHostedServiceToConcreteSingleton<T>(IServiceCollection services)
+    private static void ForwardHostedServiceToConcreteSingleton<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(IServiceCollection services)
         where T : class, IHostedService
     {
         services.TryAddSingleton<T>();
@@ -1660,16 +1697,19 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         SkillsConfig config,
         IReadOnlyList<string> resolvedRoots)
     {
-        thalos.UseSkills(o =>
-            {
-                section.Bind(o); // Enabled, Catalogue:MaxChars, Search:TopK/MinScore straight from Thalos:Skills
-                o.Enabled = config.Enabled;
-
-                // Absolute, resolved against the content root: no CWD surprises in tests or containers. Assigned
-                // rather than cleared-and-filled because SkillOptions.Roots is settable and Bind appends to it.
-                o.Roots = [.. resolvedRoots];
-            })
+        thalos.UseSkills(o => ApplySkillOptions(o, section, config, resolvedRoots))
             .UseSkillStore<PostgresSkillStore>();
+    }
+
+    /// <summary>The <c>SkillOptions</c> <see cref="ConfigureSkills"/> registers: the section, then the Daedalus values over it.</summary>
+    internal static void ApplySkillOptions(SkillOptions o, IConfigurationSection section, SkillsConfig config, IReadOnlyList<string> resolvedRoots)
+    {
+        section.Bind(o); // Enabled, Catalogue:MaxChars, Search:TopK/MinScore straight from Thalos:Skills
+        o.Enabled = config.Enabled;
+
+        // Absolute, resolved against the content root: no CWD surprises in tests or containers. Assigned
+        // rather than cleared-and-filled because SkillOptions.Roots is settable and Bind appends to it.
+        o.Roots = [.. resolvedRoots];
     }
 
     /// <summary>
@@ -1683,12 +1723,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         MemoryConfig config,
         string connectionString)
     {
-        thalos.UseMemory(o =>
-            {
-                section.Bind(o); // Enabled, SharedOwnerId, Recall, Dedupe, ExposeTools straight from Thalos:Memory
-                o.Enabled = config.Enabled;
-                o.SharedOwnerId ??= config.SharedOwnerId;
-            })
+        thalos.UseMemory(o => ApplyMemoryOptions(o, section, config))
             .UseMemoryStore<PostgresMemoryStore>()
             .UseRagNetMemory(o =>
             {
@@ -1697,6 +1732,21 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 o.EnsureSchemaOnStartup = true;
             });
     }
+
+    /// <summary>The <c>MemoryOptions</c> <see cref="ConfigureMemory"/> registers: the section, then the Daedalus values over it.</summary>
+    internal static void ApplyMemoryOptions(MemoryOptions o, IConfigurationSection section, MemoryConfig config)
+    {
+        section.Bind(o); // Enabled, SharedOwnerId, Recall, Dedupe, ExposeTools straight from Thalos:Memory
+        o.Enabled = config.Enabled;
+        o.SharedOwnerId ??= config.SharedOwnerId;
+    }
+
+    /// <summary>
+    ///     The deadline every detached agent turn runs under, <c>DetachedRuns:DeadlineSeconds</c>; zero when it is absent.
+    /// </summary>
+    internal static TimeSpan ReadTurnDeadline(IConfiguration configuration) =>
+        TimeSpan.FromSeconds(
+            configuration.GetSection("DetachedRuns").GetValue<int>(nameof(DetachedRunOptions.DeadlineSeconds)));
 
     /// <summary>
     ///     Fails fast on the Daedalus-only <c>Thalos:Skills</c> keys (Thalos validates its own <c>SkillOptions</c> on
@@ -1927,6 +1977,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         sentinel.OnMedium = ParseAction(config.OnMedium, nameof(config.OnMedium));
         sentinel.OnLow = ParseAction(config.OnLow, nameof(config.OnLow));
 
+        // Undoes AI.Sentinel 3.0's "PiiLeakageDetector and CredentialExposureDetector now redact by default instead of
+        // applying the severity action". Daedalus keeps 2.x: their findings take the severity action above, so a prompt
+        // with an email address reaches the model as written (Medium, Log) and a credential quarantines the turn
+        // (Critical). Redaction would also hand a coding agent a secret placeholder it can never write back, since
+        // AI.Sentinel never restores secrets into tool arguments. The 3.0 patterns themselves stay widened: no option
+        // restores 2.x detection, see README, "Sentinel and personal data".
+        sentinel.RedactByDefault = false;
+
         // Null keeps Sentinel lexical-only (it warns per pipeline); the API host passes the Ollama generator when configured.
         if (embeddingGenerator is not null)
         {
@@ -1939,26 +1997,28 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         }
     }
 
-    private static SentinelAction ParseAction(string value, string key) =>
-        Enum.TryParse<SentinelAction>(value, ignoreCase: true, out var action)
-            ? action
-            : throw new InvalidOperationException(
-                $"Thalos:Sentinel:{key} '{value}' is not a Sentinel action ({string.Join(", ", Enum.GetNames<SentinelAction>())}).");
+    /// <summary>The actions a severity can map to. AI.Sentinel 3.0 added <see cref="SentinelAction.Redact"/>, which is valid
+    /// only as a per-detector action, so it is refused here as it was in 2.x, where it did not exist.</summary>
+    private static readonly SentinelAction[] SeverityActions =
+        [SentinelAction.PassThrough, SentinelAction.Log, SentinelAction.Alert, SentinelAction.Quarantine];
 
-    // Sentinel's per-detector configuration is generic over the detector type (Configure<TDetector>), while configuration can only
-    // name detectors; resolve the type from AI.Sentinel's assembly and close the generic once at startup.
+    private static readonly string SeverityActionNames = string.Join(", ", SeverityActions.Select(a => a.ToString()));
+
+    /// <summary>Matches <paramref name="value"/> against the action names, ignoring case. Not <c>Enum.TryParse</c>, which also
+    /// takes a number such as <c>"1"</c> and a flags list such as <c>"Log, Alert"</c>, whose values combine to Quarantine.</summary>
+    private static SentinelAction ParseAction(string value, string key)
+    {
+        var index = Array.FindIndex(SeverityActions, a => string.Equals(a.ToString(), value, StringComparison.OrdinalIgnoreCase));
+        return index >= 0
+            ? SeverityActions[index]
+            : throw new InvalidOperationException($"Thalos:Sentinel:{key} '{value}' is not a Sentinel action ({SeverityActionNames}).");
+    }
+
     private static void DisableDetector(SentinelOptions sentinel, string detectorName)
     {
-        var detectorType = typeof(SentinelOptions).Assembly.GetExportedTypes()
-            .FirstOrDefault(t => typeof(IDetector).IsAssignableFrom(t)
-                                 && t is { IsAbstract: false, IsInterface: false }
-                                 && string.Equals(t.Name, detectorName, StringComparison.Ordinal))
-            ?? throw new InvalidOperationException($"Thalos:Sentinel:DisabledDetectors: '{detectorName}' is not an AI.Sentinel detector type name.");
-
-        var configure = typeof(SentinelOptionsConfigureExtensions)
-            .GetMethod(nameof(SentinelOptionsConfigureExtensions.Configure), BindingFlags.Public | BindingFlags.Static)
-            ?? throw new InvalidOperationException("AI.Sentinel's SentinelOptionsConfigureExtensions.Configure<T> was not found.");
-
-        configure.MakeGenericMethod(detectorType).Invoke(null, [sentinel, (Action<DetectorConfiguration>)(c => c.Enabled = false)]);
+        if (!sentinel.TryDisableDetector(detectorName))
+        {
+            throw new InvalidOperationException($"Thalos:Sentinel:DisabledDetectors: '{detectorName}' is not an AI.Sentinel detector type name or id.");
+        }
     }
 }

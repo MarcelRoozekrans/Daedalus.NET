@@ -1,10 +1,10 @@
-using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Security;
+using Daedalus.Api;
 using Daedalus.Api.Hubs;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
@@ -26,10 +26,6 @@ using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using Thalos.Workflow;
 
-[assembly:
-    UnconditionalSuppressMessage("Trimming", "IL2026",
-        Justification = "ASP.NET Core MVC does not support trimming; IL2026 warnings are expected")]
-
 var builder = WebApplication.CreateBuilder(args);
 
 // Enable enhanced model metadata support early
@@ -45,10 +41,7 @@ builder.Services.AddCoreInfrastructureServices();
 builder.Services.AddApplicationDatabase(builder.Configuration, "daedalus");
 
 // Register model pricing configuration
-builder.Services.Configure<ModelPricingConfiguration>(options =>
-    builder.Configuration.GetSection(ModelPricingConfiguration.SectionName).Bind(options));
-builder.Services.AddSingleton<IValidateOptions<ModelPricingConfiguration>, ModelPricingConfigurationValidator>();
-builder.Services.AddOptions<ModelPricingConfiguration>().ValidateOnStart();
+builder.Services.AddModelPricing(builder.Configuration);
 
 // Add application layer services (command/query handlers, prompt builders)
 builder.Services.AddApplicationServices(builder.Configuration);
@@ -155,8 +148,7 @@ builder.Services.AddSignalR().AddJsonProtocol(options =>
 
 // Read exactly as AddDaedalusAgents reads it, so the hub and the engine are on or off together: a disabled host maps
 // no hub and registers no broadcaster, and the console's connection fails and shows Offline, which is true.
-var agentsOptions = new DaedalusAgentsOptions();
-builder.Configuration.GetSection(DaedalusAgentsOptions.SectionName).Bind(agentsOptions);
+var agentsOptions = DaedalusAgentsOptions.Read(builder.Configuration);
 var workflowEngineEnabled = agentsOptions.Workflow.Enabled;
 if (workflowEngineEnabled)
 {
@@ -184,9 +176,7 @@ builder.Services.Configure<GzipCompressionProviderOptions>(options =>
 // Add CORS with restricted origins per environment
 builder.Services.AddCors(options =>
 {
-    var allowedOrigins = builder.Configuration
-        .GetSection("Cors:AllowedOrigins")
-        .Get<string[]>() ?? Array.Empty<string>();
+    var allowedOrigins = ApiHostConfiguration.ReadCorsOrigins(builder.Configuration);
 
     options.AddPolicy("RestrictedCors", policy =>
     {

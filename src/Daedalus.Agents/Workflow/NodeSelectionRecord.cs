@@ -19,7 +19,7 @@ public static class NodeSelectionRecord
     public static string Serialize(NodeSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return JsonSerializer.Serialize(Payload.From(selection));
+        return JsonSerializer.Serialize(Payload.From(selection), DaedalusRecordsJsonContext.Default.Payload);
     }
 
     /// <summary>
@@ -32,7 +32,7 @@ public static class NodeSelectionRecord
         Payload? payload;
         try
         {
-            payload = JsonSerializer.Deserialize<Payload>(payloadJson);
+            payload = JsonSerializer.Deserialize(payloadJson, DaedalusRecordsJsonContext.Default.Payload);
         }
         catch (JsonException)
         {
@@ -52,7 +52,8 @@ public static class NodeSelectionRecord
         };
     }
 
-    private sealed record Payload(
+    /// <summary>The payload, serialised through <see cref="DaedalusRecordsJsonContext"/>.</summary>
+    internal sealed record Payload(
         [property: JsonPropertyName("level")] string Level,
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("tool_filter")] IReadOnlyList<string>? ToolFilter,
@@ -66,7 +67,8 @@ public static class NodeSelectionRecord
                 selection.Answers is { } answers ? AnswersPayload.From(answers) : null);
     }
 
-    private sealed record AnswersPayload(
+    /// <summary>The payload's <c>answers</c>.</summary>
+    internal sealed record AnswersPayload(
         [property: JsonPropertyName("question_set")] int QuestionSet,
         [property: JsonPropertyName("demand")] string Demand,
         [property: JsonPropertyName("demand_confidence")] double DemandConfidence,

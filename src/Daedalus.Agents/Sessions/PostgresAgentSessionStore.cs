@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -22,17 +21,6 @@ namespace Daedalus.Agents.Sessions;
 public sealed class PostgresAgentSessionStore(IDbContextFactory<ApplicationDbContext> contextFactory, TimeProvider clock)
     : IAgentSessionStore
 {
-    // jsonb normalises key order on write, so the "$type" discriminator of AIContent is not guaranteed to come first
-    // when read back — allow out-of-order metadata on the M.E.AI defaults (same converters/resolver otherwise).
-    private static readonly JsonSerializerOptions Json = CreateJsonOptions();
-
-    private static JsonSerializerOptions CreateJsonOptions()
-    {
-        var options = new JsonSerializerOptions(AIJsonUtilities.DefaultOptions) { AllowOutOfOrderMetadataProperties = true };
-        options.MakeReadOnly();
-        return options;
-    }
-
     /// <inheritdoc />
     public async ValueTask<Result<AgentSessionRecord, AgentError>> CreateAsync(AgentId agentId, string ownerId, CancellationToken ct)
     {
@@ -96,7 +84,7 @@ public sealed class PostgresAgentSessionStore(IDbContextFactory<ApplicationDbCon
         var messages = new List<ChatMessage>(rows.Count);
         foreach (var json in rows)
         {
-            var message = JsonSerializer.Deserialize<ChatMessage>(json, Json);
+            var message = AgentSessionJson.Deserialize(json);
             if (message is not null)
             {
                 messages.Add(message);
@@ -148,7 +136,7 @@ public sealed class PostgresAgentSessionStore(IDbContextFactory<ApplicationDbCon
                 id.Value,
                 next,
                 message.Role.Value,
-                JsonSerializer.Serialize(message, Json),
+                AgentSessionJson.Serialize(message),
                 (int?)usage?.InputTokenCount,
                 (int?)usage?.OutputTokenCount,
                 modelId: null,

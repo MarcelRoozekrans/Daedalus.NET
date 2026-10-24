@@ -66,7 +66,7 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
                 return Result<RepositoryListing>.Failure(Answered(response));
             }
 
-            var repositories = await response.Content.ReadFromJsonAsync<List<RepositoryConfigurationDto>>(ct) ?? [];
+            var repositories = await response.Content.ReadFromJsonAsync(WebJsonContext.Default.ListRepositoryConfigurationDto, ct) ?? [];
             return Result<RepositoryListing>.Success(RepositoryListing.Loaded(repositories));
         }
         catch (AccessTokenNotAvailableException)
@@ -91,11 +91,11 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
 
     /// <summary>Adds a repository. The created repository in the 201's body is not read: the page reloads the list.</summary>
     public Task<Result> CreateAsync(CreateRepositoryConfigurationDto repository, CancellationToken ct = default) =>
-        SendAsync(token => httpClient.PostAsJsonAsync(Path, repository, token), ct);
+        SendAsync(token => httpClient.PostAsJsonAsync(Path, repository, WebJsonContext.Default.CreateRepositoryConfigurationDto, token), ct);
 
     /// <summary>Updates a repository; the server answers 204.</summary>
     public Task<Result> UpdateAsync(Guid id, UpdateRepositoryConfigurationDto repository, CancellationToken ct = default) =>
-        SendAsync(token => httpClient.PutAsJsonAsync($"{Path}/{id}", repository, token), ct);
+        SendAsync(token => httpClient.PutAsJsonAsync($"{Path}/{id}", repository, WebJsonContext.Default.UpdateRepositoryConfigurationDto, token), ct);
 
     /// <summary>Deletes a repository; the server answers 204.</summary>
     public Task<Result> DeleteAsync(Guid id, CancellationToken ct = default) =>

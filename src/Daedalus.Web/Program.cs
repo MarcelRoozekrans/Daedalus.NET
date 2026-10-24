@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Daedalus.Web;
 using Daedalus.Web.Auth;
 using Daedalus.Web.State;
@@ -181,11 +180,7 @@ else
 {
     // Production: configure OIDC authentication — provider-agnostic, reads from appsettings "Oidc" section
     // Keycloak sends realm roles as one JSON array claim; the factory splits it into role claims so IsInRole works.
-    builder.Services.AddOidcAuthentication(options =>
-        {
-            builder.Configuration.Bind("Oidc", options.ProviderOptions);
-            options.UserOptions.RoleClaim = ClaimTypes.Role;
-        })
+    builder.Services.AddOidcAuthentication(options => OidcConfiguration.Apply(builder.Configuration, options))
         .AddAccountClaimsPrincipalFactory<RolesClaimsPrincipalFactory>();
 }
 

@@ -47,12 +47,9 @@ public static class InfrastructureServiceExtensions
         IConfiguration configuration)
     {
         // Register ExternalServices configuration using options pattern with manual binding
-        // IL2026: Configuration binding requires reflection for unknown types at runtime
         services.Configure<ExternalServicesConfiguration>(options =>
         {
-#pragma warning disable IL2026 // Configuration binding uses reflection; accepted risk for configuration scenarios
             configuration.GetSection(ExternalServicesConfiguration.SectionName).Bind(options);
-#pragma warning restore IL2026
         });
 
         // Register MCP integration options scoped service
@@ -82,7 +79,6 @@ public static class InfrastructureServiceExtensions
     {
         // The Anthropic settings AgentFactory reads. With no model of its own it calls Thalos' default model, and with
         // neither it refuses to start rather than call a model nobody chose (#385).
-#pragma warning disable IL2026 // Configuration binding uses reflection; accepted risk for configuration scenarios
         services.AddOptions<ClaudeConfiguration>()
             .Bind(configuration.GetSection(ClaudeConfiguration.SectionName))
             .PostConfigure(claude =>
@@ -97,7 +93,6 @@ public static class InfrastructureServiceExtensions
                 $"No Anthropic model is configured. Set {ClaudeConfiguration.FallbackModelKey}, " +
                 $"or {ClaudeConfiguration.SectionName}:Model for this client alone.")
             .ValidateOnStart();
-#pragma warning restore IL2026
 
         // McpToolBuilder converts McpServerConfig entries into AITool instances
         services.AddSingleton<McpToolBuilder>();
@@ -186,11 +181,7 @@ public static class InfrastructureServiceExtensions
             return services;
         }
 
-        // IL2026: Configuration binding uses reflection; accepted risk for configuration scenarios (matches the
-        // pattern used for ExternalServicesConfiguration above).
-#pragma warning disable IL2026
         services.Configure<GitHubOptions>(configuration.GetSection(GitHubOptions.SectionName));
-#pragma warning restore IL2026
 
         // Explicit factory rather than type registration: GitHubTokenSource has a second constructor taking the
         // environment lookup as a delegate (so tests need not mutate process state), and nothing should depend on

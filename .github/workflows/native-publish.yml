@@ -1,0 +1,89 @@
+name: Native publish
+
+# Publishes the server targets with Native AOT and uploads the binaries, so a native run can happen
+# without publishing on the shared development VM, where ILC runs out of memory. It runs on a pull
+# request that carries the `native-publish` label: adding the label starts it, and every later push
+# to that pull request publishes again until the label is removed. The warning counts stay with the
+# CI workflow's aot-analysis job; this workflow only produces runnable binaries.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [labeled, opened, reopened, synchronize]
+
+# Adding any other label to the pull request also raises a `labeled` event. That run does nothing, and it gets
+# a group of its own: workflow-level concurrency is applied before any job's `if`, so in the shared group it
+# would cancel a publish already running.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ (github.event.action == 'labeled' && github.event.label.name != 'native-publish')
+    && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  native-publish:
+    name: Native publish (${{ matrix.target }})
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'native-publish')
+      && (github.event.action != 'labeled' || github.event.label.name == 'native-publish')
+    # Pinned, not ubuntu-latest: a native binary needs the glibc it was linked against or newer. ubuntu-latest
+    # moved to 26.04, glibc 2.43, which neither this VM nor the .NET 10 images, Ubuntu 24.04 with 2.39, have.
+    runs-on: ubuntu-24.04
+    # The Api publish compiles the whole program natively, about 21 minutes on the agent VM.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [Api, Cli, Migrations]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-aot-${{ runner.os }}-
+
+      # The aot-analysis job's publish command, with an output directory. Warnings do not fail the
+      # publish here: counting them is the aot-analysis job's work.
+      - name: Publish with Native AOT
+        run: >
+          dotnet publish src/Daedalus.${{ matrix.target }} -c Release -r linux-x64 -p:PublishAot=true
+          -p:TreatWarningsAsErrors=false -p:WarningsAsErrors= -o "${{ runner.temp }}/native/${{ matrix.target }}"
+          -tl:off
+
+      # The .dbg symbol files are several times the binary's size and a run does not need them.
+      - name: Drop the debug symbols
+        run: find "${{ runner.temp }}/native/${{ matrix.target }}" -name '*.dbg' -delete
+
+      - name: Upload the binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/native/${{ matrix.target }}/
+          retention-days: 7
+          if-no-files-found: error
+          # .mcp.json is part of the CLI's and the API's publish output, and upload-artifact skips dotfiles
+          # by default. Without it a run treats the file as absent and never parses it.
+          include-hidden-files: true

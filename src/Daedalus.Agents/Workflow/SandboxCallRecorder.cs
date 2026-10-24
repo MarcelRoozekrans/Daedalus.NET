@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -99,13 +98,7 @@ internal sealed partial class SandboxCallRecorder(
             }
 
             var (exit, summary) = Parse(completed.ResultText);
-            var payload = JsonSerializer.Serialize(new
-            {
-                tool = completed.Tool,
-                exit,
-                summary,
-                elapsedMs = (long)completed.Elapsed.TotalMilliseconds,
-            });
+            var payload = RunRecordJson.TestResultPayload(completed.Tool, exit, summary, (long)completed.Elapsed.TotalMilliseconds);
 
             var record = WorkflowRunRecord.Create(
                 run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.TestResultKind, completed.Caller.Id,

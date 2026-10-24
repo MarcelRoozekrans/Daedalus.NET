@@ -228,14 +228,8 @@ internal sealed partial class ReviewLensRunner(
     private async ValueTask<UnitResult<AgentError>> RecordAsync(
         ISecurityContext caller, WorkflowRun run, ReviewLens lens, ReviewEvidence evidence, CancellationToken ct)
     {
-        var payload = JsonSerializer.Serialize(new
-        {
-            lens = lens.Name,
-            verdict = evidence.Verdict,
-            @checked = evidence.Checked,
-            findings = evidence.Findings,
-            deferred = evidence.Deferred,
-        });
+        var payload = RunRecordJson.ReviewEvidencePayload(
+            lens.Name, evidence.Verdict, evidence.Checked, evidence.Findings, evidence.Deferred);
 
         var record = WorkflowRunRecord.Create(
             run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.ReviewEvidenceKind, caller.Id,

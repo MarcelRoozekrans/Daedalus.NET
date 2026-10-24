@@ -87,7 +87,7 @@ internal sealed partial class AuditingToolAuthorizer(
 
         var record = WorkflowRunRecord.Create(
             run.Id, run.CurrentSeq, run.CurrentNode, WorkflowRunRecord.WorkspaceWriteKind, caller.Id, run.StartedBy?.Id,
-            JsonSerializer.Serialize(new { tool = qualifiedToolName, path }), clock.GetUtcNow().UtcDateTime);
+            RunRecordJson.WorkspaceWritePayload(qualifiedToolName, path), clock.GetUtcNow().UtcDateTime);
         if (record.IsFailure)
         {
             LogAuditRejected(logger, qualifiedToolName, run.Id, record.Error);

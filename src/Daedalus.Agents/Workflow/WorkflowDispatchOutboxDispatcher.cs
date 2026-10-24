@@ -26,9 +26,11 @@ internal sealed class WorkflowDispatchOutboxDispatcher(WorkflowNodeDispatcher di
     /// <inheritdoc />
     public async ValueTask DispatchAsync(ReadOnlyMemory<byte> payload, CancellationToken ct)
     {
-        var message = JsonSerializer.Deserialize<WorkflowDispatchMessage>(payload.Span)
-            ?? throw new InvalidOperationException("Empty workflow dispatch payload.");
-
-        await dispatcher.DispatchAsync(message, ct).ConfigureAwait(false);
+        await dispatcher.DispatchAsync(Read(payload.Span), ct).ConfigureAwait(false);
     }
+
+    /// <summary>Reads an outbox payload with Thalos's own generated metadata, the one that wrote it.</summary>
+    internal static WorkflowDispatchMessage Read(ReadOnlySpan<byte> payload) =>
+        JsonSerializer.Deserialize(payload, WorkflowDispatchMessage.JsonTypeInfo)
+            ?? throw new InvalidOperationException("Empty workflow dispatch payload.");
 }

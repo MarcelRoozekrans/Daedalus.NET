@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Minos;
 
@@ -152,14 +150,8 @@ public sealed partial class NodeSelectionDecider(IDecisionClient? client, Decisi
             intent = intent[..cut];
         }
 
-        return JsonSerializer.Serialize(new DecisionState(context.Role, context.Node, context.Visit, intent));
+        return DecisionStateJson.Serialize(context.Role, context.Node, context.Visit, intent);
     }
-
-    private sealed record DecisionState(
-        [property: JsonPropertyName("role")] string Role,
-        [property: JsonPropertyName("node")] string Node,
-        [property: JsonPropertyName("visit")] int Visit,
-        [property: JsonPropertyName("work_intent")] string WorkIntent);
 
     private static void Record(Activity? activity, NodeSelectionContext context, NodeSelection selection)
     {

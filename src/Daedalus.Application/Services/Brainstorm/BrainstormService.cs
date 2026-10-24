@@ -1,9 +1,6 @@
-#pragma warning disable IL2026 // Members annotated with RequiresUnreferencedCodeAttribute
-
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
@@ -25,12 +22,6 @@ public sealed partial class BrainstormService(
     IPrdService prdService,
     ILogger<BrainstormService> logger) : IBrainstormService
 {
-    private static readonly JsonSerializerOptions TaskParseOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter() }
-    };
-
     /// <inheritdoc />
     public async Task<Result<BrainstormSession>> CreateSessionAsync(Guid projectId, CancellationToken ct)
     {
@@ -202,7 +193,7 @@ public sealed partial class BrainstormService(
         try
         {
             var json = llmResult.Value.Response.Trim();
-            items = JsonSerializer.Deserialize<List<PrdItemForConversionDto>>(json, TaskParseOptions)
+            items = JsonSerializer.Deserialize(json, BrainstormJsonContext.Default.ListPrdItemForConversionDto)
                     ?? [];
 
             if (items.Count == 0)

@@ -100,8 +100,6 @@ public sealed record ReviewEvidence(
     /// </summary>
     public const int MaxEntryLength = 1000;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     /// <summary>Out-of-scope findings an approval recorded; empty on a rejection.</summary>
     public IReadOnlyList<DeferredFinding> Deferred { get; init; } = [];
 
@@ -185,7 +183,7 @@ public sealed record ReviewEvidence(
         ReviewFinding[]? parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<ReviewFinding[]>(json, JsonOptions);
+            parsed = JsonSerializer.Deserialize(json, DaedalusRecordsWebJsonContext.Default.ReviewFindingArray);
         }
         catch (JsonException ex)
         {
@@ -226,7 +224,7 @@ public sealed record ReviewEvidence(
         DeferredFinding?[]? parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<DeferredFinding?[]>(json, JsonOptions);
+            parsed = JsonSerializer.Deserialize(json, DaedalusRecordsWebJsonContext.Default.DeferredFindingArray);
         }
         catch (JsonException ex)
         {
@@ -294,7 +292,7 @@ public sealed record ReviewEvidence(
         string?[]? parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<string?[]>(json, JsonOptions);
+            parsed = JsonSerializer.Deserialize(json, DaedalusRecordsWebJsonContext.Default.StringArray);
         }
         catch (JsonException ex)
         {

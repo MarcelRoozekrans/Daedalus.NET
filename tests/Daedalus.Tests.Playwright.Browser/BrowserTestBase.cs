@@ -9,6 +9,9 @@ namespace Daedalus.Tests.Playwright.Browser;
 /// </summary>
 public abstract class BrowserTestBase : PageTest
 {
+    /// <summary>The contexts <see cref="NewTracedContextAsync"/> opened for the current test.</summary>
+    private readonly List<IBrowserContext> _ownContexts = [];
+
     /// <summary>
     ///     Whether the browser test environment setup completed successfully.
     /// </summary>
@@ -91,12 +94,7 @@ public abstract class BrowserTestBase : PageTest
             .ConfigureAwait(false);
 
         // Enable tracing for debugging
-        await Context.Tracing.StartAsync(new TracingStartOptions
-        {
-            Screenshots = true,
-            Snapshots = true,
-            Sources = true
-        }).ConfigureAwait(false);
+        await Context.Tracing.StartAsync(TraceOptions()).ConfigureAwait(false);
 
         SetUpCompleted = true;
     }
@@ -142,50 +140,110 @@ public abstract class BrowserTestBase : PageTest
             $"Server at {BaseUrl} did not become ready within {maxRetries * delayMs}ms. Ensure the E2E test server is running or use the E2E_BASE_URL environment variable.");
     }
 
+    /// <summary>
+    ///     A browser context of the test's own, for a test that needs other options or roles than the fixture's
+    ///     <c>Context</c>. It is traced like that one, and the tear-down saves its trace when the test did not pass, then
+    ///     closes it. Do not dispose it in the test: disposing it first would lose the trace.
+    /// </summary>
+    protected async Task<IBrowserContext> NewTracedContextAsync(BrowserNewContextOptions? options = null)
+    {
+        var context = await Browser.NewContextAsync(options).ConfigureAwait(false);
+        _ownContexts.Add(context);
+        await context.Tracing.StartAsync(TraceOptions()).ConfigureAwait(false);
+        return context;
+    }
+
+    private static TracingStartOptions TraceOptions() => new()
+    {
+        Screenshots = true,
+        Snapshots = true,
+        Sources = true
+    };
+
     [TearDown]
     public virtual async Task TearDownAsync()
     {
-        // Only stop tracing if setup completed (Context and tracing were initialized)
-        if (SetUpCompleted)
+        // A context that fails to close, after a browser crash for example, must not skip the other contexts or the
+        // container and client below, so each close is caught, and the failures are rethrown once all cleanup ran.
+        var closeFailures = new List<Exception>();
+        try
         {
-            try
+            // Only stop tracing if setup completed (Context and tracing were initialized)
+            if (SetUpCompleted)
             {
-                // A trace is a few hundred MB, so keep it only for a test that did not pass.
-                if (TestContext.CurrentContext.Result.Outcome.Status == TestStatus.Passed)
-                {
-                    await Context.Tracing.StopAsync().ConfigureAwait(false);
-                }
-                else
-                {
-                    var tracingDir = Path.Combine(TestContext.CurrentContext.WorkDirectory, "traces");
-                    Directory.CreateDirectory(tracingDir);
+                await StopTracingAsync(Context, suffix: "").ConfigureAwait(false);
+            }
 
-                    // A test case's name carries its arguments, which can hold a '/', as in ("/executions").
-                    var fileName = string.Join('_',
-                        TestContext.CurrentContext.Test.Name.Split(Path.GetInvalidFileNameChars()));
-                    await Context.Tracing.StopAsync(new TracingStopOptions
-                    {
-                        Path = Path.Combine(tracingDir, $"{fileName}-{DateTime.Now:yyyyMMdd-HHmmss}.zip")
-                    }).ConfigureAwait(false);
+            for (var i = 0; i < _ownContexts.Count; i++)
+            {
+                await StopTracingAsync(_ownContexts[i], suffix: $"-context{i + 1}").ConfigureAwait(false);
+                try
+                {
+                    await _ownContexts[i].CloseAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    await TestContext.Progress.WriteLineAsync($"Closing the test's browser context {i + 1} failed: {ex.Message}")
+                        .ConfigureAwait(false);
+                    closeFailures.Add(ex);
                 }
             }
-            catch
+        }
+        finally
+        {
+            _ownContexts.Clear();
+
+            // Dispose PostgreSQL container and reset the field
+            if (PostgresContainer != null)
             {
-                // Ignore tracing errors
+                await PostgresContainer.DisposeAsync().ConfigureAwait(false);
+                PostgresContainer = null;
+                DbConnectionString = null;
+            }
+
+            // Dispose HttpClient for API requests
+            _apiClient?.Dispose();
+            _apiClient = null;
+        }
+
+        if (closeFailures.Count == 1)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(closeFailures[0]);
+        }
+
+        if (closeFailures.Count > 1)
+        {
+            throw new AggregateException("More than one of the test's browser contexts failed to close.", closeFailures);
+        }
+    }
+
+    private static async Task StopTracingAsync(IBrowserContext context, string suffix)
+    {
+        try
+        {
+            // A trace is a few hundred MB, so keep it only for a test that did not pass.
+            if (TestContext.CurrentContext.Result.Outcome.Status == TestStatus.Passed)
+            {
+                await context.Tracing.StopAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                var tracingDir = Path.Combine(TestContext.CurrentContext.WorkDirectory, "traces");
+                Directory.CreateDirectory(tracingDir);
+
+                // A test case's name carries its arguments, which can hold a '/', as in ("/executions").
+                var fileName = string.Join('_',
+                    TestContext.CurrentContext.Test.Name.Split(Path.GetInvalidFileNameChars()));
+                await context.Tracing.StopAsync(new TracingStopOptions
+                {
+                    Path = Path.Combine(tracingDir, $"{fileName}{suffix}-{DateTime.Now:yyyyMMdd-HHmmss}.zip")
+                }).ConfigureAwait(false);
             }
         }
-
-        // Dispose PostgreSQL container and reset the field
-        if (PostgresContainer != null)
+        catch
         {
-            await PostgresContainer.DisposeAsync().ConfigureAwait(false);
-            PostgresContainer = null;
-            DbConnectionString = null;
+            // Ignore tracing errors
         }
-
-        // Dispose HttpClient for API requests
-        _apiClient?.Dispose();
-        _apiClient = null;
     }
 
     /// <summary>

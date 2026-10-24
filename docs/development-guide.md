@@ -455,6 +455,12 @@ sandbox host ships as a native binary, and a harness measures start-up, memory a
 `dotnet test` stay JIT; native is the CI publish of each target and the images built from it. Rulings and numbers:
 `docs/plans/2026-10-17-phase-3.1-rulings.md`.
 
+Phase 3.2 took the reflection out of Daedalus' own code and, through Thalos 0.19.0, out of Thalos: JSON through
+generated contexts, configuration through the binder generator, Mediator handlers through the generated registration,
+and tools from explicit lists, each swap guarded by a golden captured from the reflective path first. Rulings, ratchet
+moves and the native runs: `docs/plans/2026-10-21-phase-3.2-rulings.md` and
+`docs/plans/2026-10-21-phase-3.2-native-smoke.md`.
+
 ### The toolchain
 
 - **clang and the zlib headers** link the native binaries: `sudo apt-get install -y clang zlib1g-dev` on Debian or
@@ -509,6 +515,14 @@ eng/aot/count-warnings.sh --target Cli --write   # record the count in the basel
   22 min 3 s, Cli 90 s and Migrations 47 s (`docs/plans/2026-10-17-phase-3.1-native-smoke.md`).
 - **Its own test:** `eng/aot/tests/test-count-warnings.sh` replays `sample-ilc.log` through a fake `dotnet`, so it
   needs no SDK. CI runs it in `build-and-test`.
+- **Not on the agents VM.** ILC runs at 10 to 16 GB resident for a full program, and the VM is shared, so no Native
+  AOT publish and no count run there; see CLAUDE.md. Push, and read the IL2xxx and IL3xxx numbers from the
+  `aot-analysis` job's log. To diff two runs, download their `aot-analysis-*` artifacts and compare the `.keys` files.
+- **Native binaries to run** come from the `native-publish` workflow, `.github/workflows/native-publish.yml`. A pull
+  request with the `native-publish` label publishes Api, Cli and Migrations with the counter's command on
+  `ubuntu-24.04`, drops the `.dbg` files and uploads each publish directory, hidden files such as `.mcp.json`
+  included, for seven days. Running the binaries on the VM is fine; publishing them is not. A binary linked on a newer
+  runner image needs a newer glibc than the VM and the .NET 10 images have, which is why the job pins its runner.
 
 ### The ratchet
 
@@ -531,8 +545,10 @@ A dependency bump can move a count either way, and its PR records the new number
 secrets, so forks and Dependabot run it. The owner makes it a required check once it is green; until then, treat a
 red `aot-analysis` as blocking.
 
-The baseline after phase 3.1: Api 18591, Cli 776, Migrations 789, Sandbox 0, Web 214. Most of the Api's count is
-the Anthropic SDK's reflection-based JSON, which phase 3.3 removes.
+The baseline after phase 3.1: Api 18591, Cli 776, Migrations 789, Sandbox 0, Web 214. After phase 3.2: Api 20244,
+Cli 4357, Migrations 798, Sandbox 0, Web 196. Most of the Api's count, and since Thalos 0.19.0 most of the Cli's, is
+the Anthropic SDK's reflection-based JSON: Thalos.NET.Anthropic 0.19.0 sets the SDK's floor at 13.1.0, and phase 3.3
+removes the SDK. Every move and its cause is in the 3.2 rulings, "Ratchet moves".
 
 ### No suppressions
 
@@ -549,6 +565,116 @@ gets an upstream issue, and is replaced if an AOT-clean alternative exists. The 
 suppression only where the code is provably safe, with the reason beside it, listed in the phase's rulings.
 
 A clean publish is not proof that a binary works: every native target is proven by running it.
+
+How phase 3.2 applied the rule:
+
+- **The five pre-existing suppressions came out, each with its fix.** Api's assembly-wide IL2026 was the one bare
+  removal, re-baselined upward by the two warnings it hid. `RegisterHandlersAot`'s three went with the generated
+  Mediator registration, and `ApplicationDbContext`'s with an explicit configuration list. The `#pragma warning
+  disable IL20xx` lines went with their fixes, and the stale IL2026 entries in two multi-code pragma lists were
+  dropped.
+- **One sanctioned `[RequiresUnreferencedCode]`, until 3.5.** EF Core model building is not trim-safe, and 3.5
+  removes EF Core. The `ApplicationDbContext` constructor carries the attribute, and so does ServiceDefaults'
+  `AddApplicationDatabase`, which registers the context; both messages name phase 3.5. It is an honest annotation,
+  not a suppression: ILC still reports every caller. `ApplicationDbContextFactory` moved to `Daedalus.Api`, because
+  `IDesignTimeDbContextFactory.CreateDbContext` cannot carry the attribute without IL2046, and the factory is design
+  time only.
+- **A scan becomes an explicit list with a guard.** `ApplyConfigurationsFromAssembly` became
+  `ApplicationDbContext.Configurations`, alphabetical by entity. `ApplicationDbContextModelTests` compares the model
+  with a golden debug view captured from the old scan and fails naming any configuration class not in the list. The
+  golden holds EF Core's product version, so an EF Core bump refreshes it on purpose.
+- **A trim annotation on a generic is a fix.** `ForwardHostedServiceToConcreteSingleton<T>` carries
+  `[DynamicallyAccessedMembers(PublicConstructors)]`, the same demand as the `TryAddSingleton` it calls.
+- **A blocker outside our code is fixed at its source, or tracked.** YamlDotNet's static generator emits a public
+  context, so Thalos.Workflow.Yaml's is public with `[EditorBrowsable(Never)]` until aaubry/YamlDotNet#1152 ships;
+  Thalos.NET#397 tracks the return to internal. ZeroAlloc.Outbox 4.4.6 has no JSON-context overload for
+  `WithSystemTextJsonSerializer`, so that IL2026 and IL3050 stay visible and the overload is handed over in
+  `docs/plans/2026-10-21-zeroalloc-outbox-serializer-handover.md`.
+
+### Goldens before every swap
+
+Every reflection site that moves to a compile-time path is pinned first, on the reflective code, and the pin must stay
+green across the swap without its data changing.
+
+- **Literal goldens.** The test holds the captured output as a literal string: serializer bytes, a tool dump, a handler
+  set, the bound option values. A golden computed at test time from the reflective path can drift with it.
+- **A golden calls product code.** Where the serializer call or the bind is private, or sits in `Program.cs`'s top
+  level, a `refactor:` commit first moves it unchanged into a product method, an internal static `...Json` class next
+  to it or a method such as `DaedalusAgentsOptions.Read`, and the test calls that. The binder generator only
+  intercepts calls compiled into the product assembly, so a bind written in test code proves nothing about it.
+- **Bytes are compared at the serializer,** never on a `jsonb` row, which Postgres normalises. Stored rows get read
+  tests over existing JSON. The outbox payload is raw bytes and is compared on both sides, the bytes Thalos writes and
+  the message Daedalus reads.
+- **Reflection stays allowed in tests.** The old scan or the reflective registration survives in test code as the
+  oracle, for example `MediatorHandlerSetTests.OldScan`, or the tool oracles' captured dumps.
+- **Every assertion has a `Red:` line** naming the change that turns it red, applied once and seen failing. A
+  characterization test that passes on the old code has its mutation as its Red.
+
+### JSON through generated contexts
+
+- **Every `JsonSerializer` call passes generated metadata,** a `JsonTypeInfo` from a `JsonSerializerContext`, never
+  bare options. Anonymous payloads become internal records with the same JSON names.
+- **One context per option set, matching the reflective call's options exactly.** `DaedalusRecordsJsonContext` keeps
+  the serializer's defaults for run records and the decision state sent to Minos: default encoder, names as declared,
+  nulls written. `DaedalusRecordsWebJsonContext` reads model-written review evidence with the Web defaults, and states
+  `PropertyNameCaseInsensitive` and `AllowReadingFromString` explicitly, because model output depends on them: a
+  finding's `"line":"12"` still reads as 12. Brainstorm, the MCP tools and the Web clients have their own contexts.
+- **Next to M.E.AI's options, the context goes first.** A tool's options copy `AIJsonUtilities.DefaultOptions` and set
+  `JsonTypeInfoResolver.Combine(context, AIJsonUtilities.DefaultOptions.TypeInfoResolver)`, so the tool types come
+  from our metadata while the encoder and naming stay M.E.AI's. A context's own `Options` would use the serializer's
+  default encoder and escape `<`, `&`, apostrophes and non-ASCII text in a tool result.
+- **Thalos' types are read with Thalos' metadata.** The outbox dispatcher reads its payload with
+  `WorkflowDispatchMessage.JsonTypeInfo`, the metadata that wrote it.
+
+### The workflow variable contract
+
+Since Thalos 0.19.0 a run variable is JSON-shaped: a string, a number, a bool, null, a `JsonElement` or `JsonNode`, or
+a list or string-keyed dictionary of those. Any other value, such as a `Guid`, a `DateTime`, an enum or a record,
+throws `ArgumentException` where it enters, naming the variable's path and its type. Reads still return `string`,
+`long`, `double`, `bool`, `Dictionary<string, object?>` and `List<object?>`, so `as string` keeps working. Daedalus
+writes an open value through the same contract: `ReviewResponseRecord.ToPayloadJson` calls
+`WorkflowVariableJson.ToElement`. Convert a `Guid` or an enum to a string before it becomes a variable.
+
+### Configuration binding
+
+`EnableConfigurationBindingGenerator` is on in `Daedalus.Agents`, `Daedalus.Infrastructure`, `Daedalus.Api` and
+`Daedalus.Web`; the Cli binds nothing. The generator intercepts the configuration binding calls compiled into those
+assemblies, fifteen call sites when it was turned on in `6610e5b7`, and `OptionsBindingGoldenTests` pins the bound
+values.
+
+- **A bound property has a `set` accessor.** The reflective binder wrote `init` properties; the generator skips them
+  silently. `DetachedRunOptions` moved from `init` to `set` for that, caught by its golden.
+- **A bind lives in a product method,** not in `Program.cs`'s top-level statements, so a golden can call it.
+
+### Mediator handlers
+
+`AddApplicationServices` calls the generated `AddMediator(ServiceLifetime.Scoped)`, which registers each handler by
+its concrete type. There is no assembly scan. `MediatorHandlerSetTests` compares the registrations, lifetimes
+included, with the old scan kept as a test oracle, so a handler the generator misses fails that test.
+
+### Tool registration
+
+No tool class is discovered by reflection. Each registration lists its methods, and a guard test holds the list
+complete and equal to the reflective output it replaced.
+
+- **Thalos tools:** each `[ThalosToolType]` class registers through Thalos' typed
+  `AddLocalTools<TTools>(sourceName, options, t => t.Method, ...)`, one binder per `[ThalosTool]` method in
+  declaration order. The options are `LocalToolSources.CreateOptions(DaedalusToolsJsonContext.Default)`, the public
+  Thalos factory that mirrors the reflective path's options, held once in `DaedalusToolOptions`. The `daedalus`
+  source is four registrations of one name, Knowledge, Schedule, Repo and Review, in that order; the catalog merges
+  same-named sources in registration order, and a duplicate qualified name is dropped first-wins. Thalos' git tools
+  come from `AddGitActionTools(GitToolSourceName)`.
+- **`McpToolBuilder`'s in-process tools,** for Brainstorm and PRD generation, come from `McpToolBuilder.LocalTools`,
+  an explicit list of `DaedalusFailurePatternsTools` and `DaedalusLearningsTools` in the old scan's order, each built
+  with `AIFunctionFactory.Create` and `McpToolsJsonContext` combined in front of M.E.AI's resolver. Their names stay
+  unprefixed.
+- **The guards:** `ThalosToolRegistryGuardTests` checks that no Daedalus source is the reflective `LocalToolSource`,
+  that every `[ThalosTool]` method is bound, and that names, order, schemas and result bytes match the reflective
+  oracle literal. `McpToolRegistryGuardTests` checks that every `[McpServerTool]` method is listed and holds the built
+  tools to their oracle the same way. Both dump tools through
+  `tests/Shared/ToolDump.cs`, linked into each test project that pins tools, and their result-bytes check uses a
+  string with `<`, `&`, an apostrophe, an accented letter and an emoji.
+- **A new tool method** goes into its registration's binder list, and the guard fails until it does.
 
 ### The native sandbox host
 

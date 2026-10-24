@@ -5,7 +5,7 @@ using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Services.CodeAnalysis;
 
-#pragma warning disable CA1307, CA1308, CA1822, CA1054, S1172, S1481, MA0006, MA0011, MA0089, IL2026
+#pragma warning disable CA1307, CA1308, CA1822, CA1054, S1172, S1481, MA0006, MA0011, MA0089
 
 /// <summary>
 ///     Detects repository platform from URL
@@ -174,4 +174,4 @@ public sealed class RepositoryPlatformDetector(ILogger<RepositoryPlatformDetecto
 #pragma warning restore S1075
 }
 
-#pragma warning restore CA1307, CA1308, CA1822, CA1054, S1172, S1481, MA0006, MA0011, MA0089, IL2026
+#pragma warning restore CA1307, CA1308, CA1822, CA1054, S1172, S1481, MA0006, MA0011, MA0089

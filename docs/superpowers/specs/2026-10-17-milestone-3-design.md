@@ -111,6 +111,10 @@ There is no release-tag line: `CONVENTIONS.md` says release-please owns releases
      Thalos that implement `IChatClient` and `IEmbeddingGenerator` (owner: own client).
    - **Why:** the Anthropic SDK is about 15,000 of the API's 16,725 warnings, from reflection JSON in every model type.
      It is not part of Microsoft.Extensions.AI, which had zero warnings.
+   - **Note, 2026-10-23 (owner): 3.3 takes the native CLI's "Application started".** 3.2's native run reached
+     C3: the Anthropic SDK's reflection JSON throws when Thalos' provider is built at boot
+     (`docs/plans/2026-10-21-phase-3.2-native-smoke.md`). That run is the native reproduction the Anthropic issue
+     needs. 3.3's proof includes a native CLI run that reaches "Application started".
    - **What the client must match:**
      - streaming, tools and the required-outcome tool;
      - prompt-cache breakpoints;

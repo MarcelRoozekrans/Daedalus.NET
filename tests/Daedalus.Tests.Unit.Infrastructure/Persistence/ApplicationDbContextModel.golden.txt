@@ -1,0 +1,910 @@
+Model: 
+  EntityType: AnalysisIteration
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      AiResponse (string) Required
+      BranchName (string)
+      CodeAnalysisRequestId (Guid) Required FK Index
+      CommitSha (string)
+      CompilationSucceeded (bool?)
+      CreatedAt (DateTime) Required Index
+      InputTokens (int) Required ValueGenerated.OnAdd
+        Annotations: 
+          Relational:DefaultValue: 0
+      IterationNumber (int) Required
+      ModelId (string) MaxLength(100)
+        Annotations: 
+          MaxLength: 100
+      OutputTokens (int) Required ValueGenerated.OnAdd
+        Annotations: 
+          Relational:DefaultValue: 0
+      PromptSent (string) Required
+      TestsPassed (bool?)
+      ValidationErrors (string)
+        Annotations: 
+          Relational:ColumnType: jsonb
+    Keys: 
+      Id PK
+    Foreign keys: 
+      AnalysisIteration {'CodeAnalysisRequestId'} -> CodeAnalysisRequest {'Id'} Required Cascade ToDependent: Iterations
+    Indexes: 
+      CodeAnalysisRequestId
+        Annotations: 
+          Relational:Name: IX_AnalysisIteration_RequestId
+      CreatedAt
+        Annotations: 
+          Relational:Name: IX_AnalysisIteration_CreatedAt
+    Annotations: 
+      Relational:TableName: AnalysisIterations
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: AnalysisOutcome Owned
+    Properties: 
+      CodeAnalysisRequestId (no field, Guid) Shadow Required PK FK AfterSave:Throw
+      CommitShaFinal (string)
+        Annotations: 
+          Relational:ColumnName: CommitShaFinal
+      HasFailedValidation (bool) Required
+        Annotations: 
+          Relational:ColumnName: HasFailedValidation
+      PullRequestUrl (string)
+        Annotations: 
+          Relational:ColumnName: PullRequestUrl
+      ValidationResult (string)
+        Annotations: 
+          Relational:ColumnName: ValidationResult
+          Relational:ColumnType: jsonb
+    Keys: 
+      CodeAnalysisRequestId PK
+    Foreign keys: 
+      AnalysisOutcome {'CodeAnalysisRequestId'} -> CodeAnalysisRequest {'Id'} Unique Required RequiredDependent Ownership Cascade ToDependent: Outcome
+    Annotations: 
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: CodeAnalysisRequest
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      AssignedTo (Guid?)
+      CancelledAt (DateTime?)
+      CompletedAt (DateTime?)
+      CompletionPromise (string)
+      CreatedAt (DateTime) Required Index
+      CreatedBy (Guid?)
+      CurrentIteration (int) Required
+      Description (string) Required
+      ExternalReferences (string)
+        Annotations: 
+          Relational:ColumnType: jsonb
+      FailureReason (string)
+      FeatureBranchName (string)
+      LastAiResponse (string)
+      LastPromptSent (string)
+      LocalWorkTreePath (string)
+      MaxIterations (int) Required
+      Priority (int) Required Index
+      ReferencedDocuments (string)
+        Annotations: 
+          Relational:ColumnType: jsonb
+      Requirements (string) Required
+        Annotations: 
+          Relational:ColumnType: jsonb
+      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+      StartedAt (DateTime?)
+      Status (AnalysisStatus) Required Index
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+      Title (string) Required MaxLength(255)
+        Annotations: 
+          MaxLength: 255
+      Type (AnalysisType) Required
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+    Navigations: 
+      Iterations (_iterations, IReadOnlyList<AnalysisIteration>) Collection ToDependent AnalysisIteration
+      Location (CodeLocation) Required ToDependent CodeLocation
+        Annotations: 
+          EagerLoaded: True
+      Outcome (AnalysisOutcome) Required ToDependent AnalysisOutcome
+        Annotations: 
+          EagerLoaded: True
+      Repository (RepositoryReference) Required ToDependent RepositoryReference
+        Annotations: 
+          EagerLoaded: True
+    Keys: 
+      Id PK
+    Indexes: 
+      CreatedAt
+        Annotations: 
+          Relational:Name: IX_CodeAnalysis_CreatedAt
+      Priority
+        Annotations: 
+          Relational:Name: IX_CodeAnalysis_Priority
+      Status
+        Annotations: 
+          Relational:Name: IX_CodeAnalysis_Status
+    Annotations: 
+      Relational:TableName: CodeAnalysisRequests
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: CodeLocation Owned
+    Properties: 
+      CodeAnalysisRequestId (no field, Guid) Shadow Required PK FK AfterSave:Throw
+      EndLine (int?)
+        Annotations: 
+          Relational:ColumnName: EndLine
+      FilePath (string) Required MaxLength(1024)
+        Annotations: 
+          MaxLength: 1024
+          Relational:ColumnName: FilePath
+      StartLine (int?)
+        Annotations: 
+          Relational:ColumnName: StartLine
+    Keys: 
+      CodeAnalysisRequestId PK
+    Foreign keys: 
+      CodeLocation {'CodeAnalysisRequestId'} -> CodeAnalysisRequest {'Id'} Unique Required RequiredDependent Ownership Cascade ToDependent: Location
+    Annotations: 
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: RepositoryReference Owned
+    Properties: 
+      CodeAnalysisRequestId (no field, Guid) Shadow Required PK FK AfterSave:Throw
+      Branch (string)
+        Annotations: 
+          Relational:ColumnName: RepositoryBranch
+      CommitSha (string)
+        Annotations: 
+          Relational:ColumnName: CommitSha
+      Platform (RepositoryPlatform) Required
+        Annotations: 
+          ProviderClrType: System.Int32
+          Relational:ColumnName: Platform
+          ValueConverter: 
+      Url (string) Required Index MaxLength(1024)
+        Annotations: 
+          MaxLength: 1024
+          Relational:ColumnName: RepositoryUrl
+    Keys: 
+      CodeAnalysisRequestId PK
+    Foreign keys: 
+      RepositoryReference {'CodeAnalysisRequestId'} -> CodeAnalysisRequest {'Id'} Unique Required RequiredDependent Ownership Cascade ToDependent: Repository
+    Indexes: 
+      Url
+        Annotations: 
+          Relational:Name: IX_CodeAnalysis_RepositoryUrl
+    Annotations: 
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: AgentMemory
+    Properties: 
+      Id (Guid) Required PK Index AfterSave:Throw ValueGenerated.OnAdd
+      AgentId (Guid?) Index
+      CreatedAt (DateTime) Required Index
+      Importance (double) Required
+      IndexPending (bool) Required Index
+      IsArchived (bool) Required Index
+      Kind (string) Required Index MaxLength(32)
+        Annotations: 
+          MaxLength: 32
+      LastRecalledAt (DateTime?)
+      OwnerId (string) Required Index MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+      RecallCount (int) Required
+      Source (string) Required MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+      Text (string) Required
+        Annotations: 
+          Relational:ColumnType: text
+      UpdatedAt (DateTime) Required
+      _tags (_tags, List<string>) Required Element type: string Required
+        Annotations: 
+          ElementType: Element type: string Required
+          Relational:ColumnName: Tags
+          Relational:ColumnType: text[]
+          ValueConverter: 
+          ValueConverterType: 
+    Keys: 
+      Id PK
+    Indexes: 
+      IndexPending
+        Annotations: 
+          Relational:Name: IX_AgentMemory_IndexPending
+      IsArchived
+        Annotations: 
+          Relational:Name: IX_AgentMemory_IsArchived
+      CreatedAt, Id
+        Annotations: 
+          Relational:Name: IX_AgentMemory_CreatedAt_Id
+      OwnerId, AgentId
+        Annotations: 
+          Relational:Name: IX_AgentMemory_Owner_Agent
+      OwnerId, Kind
+        Annotations: 
+          Relational:Name: IX_AgentMemory_Owner_Kind
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: AgentMemories
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: AgentMessage
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      ContentJson (string) Required
+        Annotations: 
+          Relational:ColumnType: jsonb
+      CreatedAt (DateTime) Required
+      InputTokens (int?)
+      ModelId (string) MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      OutputTokens (int?)
+      Role (string) Required MaxLength(32)
+        Annotations: 
+          MaxLength: 32
+      Sequence (int) Required Index
+      SessionId (Guid) Required FK Index
+    Keys: 
+      Id PK
+    Foreign keys: 
+      AgentMessage {'SessionId'} -> AgentSession {'Id'} Required Cascade
+    Indexes: 
+      SessionId, Sequence Unique
+        Annotations: 
+          Relational:Name: IX_AgentMessage_Session_Sequence
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: AgentMessages
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: AgentSession
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      AgentId (Guid) Required Index
+      CreatedAt (DateTime) Required Index
+      LastActivityAt (DateTime) Required
+      OwnerId (string) Required Index MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+      State (AgentSessionState) Required
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+      TotalInputTokens (long) Required
+      TotalOutputTokens (long) Required
+      TurnCount (int) Required
+    Keys: 
+      Id PK
+    Indexes: 
+      AgentId
+        Annotations: 
+          Relational:Name: IX_AgentSession_AgentId
+      OwnerId, CreatedAt
+        Annotations: 
+          Relational:Name: IX_AgentSession_Owner_CreatedAt
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: AgentSessions
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: BrainstormMessage
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw
+      BrainstormSessionId (Guid) Required FK Index
+      Content (string) Required
+        Annotations: 
+          Relational:ColumnType: text
+      CreatedAt (DateTime) Required
+      Phase (BrainstormPhase) Required
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+      Role (MessageRole) Required
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+    Keys: 
+      Id PK
+    Foreign keys: 
+      BrainstormMessage {'BrainstormSessionId'} -> BrainstormSession {'Id'} Required Cascade ToDependent: Messages
+    Indexes: 
+      BrainstormSessionId
+        Annotations: 
+          Relational:Name: IX_BrainstormMessage_SessionId
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: BrainstormMessages
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: BrainstormSession
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      CompletedAt (DateTime?)
+      CreatedAt (DateTime) Required
+      DesignDocument (string)
+        Annotations: 
+          Relational:ColumnType: text
+      ImplementationPlan (string)
+        Annotations: 
+          Relational:ColumnType: text
+      Phase (BrainstormPhase) Required Index
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+      PhaseCompleteSignaled (bool) Required ValueGenerated.OnAdd
+        Annotations: 
+          Relational:DefaultValue: False
+      ProjectId (Guid) Required Index
+      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+    Navigations: 
+      Messages (_messages, IReadOnlyList<BrainstormMessage>) Collection ToDependent BrainstormMessage
+    Keys: 
+      Id PK
+    Indexes: 
+      Phase
+        Annotations: 
+          Relational:Name: IX_BrainstormSession_Phase
+      ProjectId
+        Annotations: 
+          Relational:Name: IX_BrainstormSession_ProjectId
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: BrainstormSessions
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: ChannelConversation
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      AgentId (Guid) Required
+      ChannelId (string) Required Index MaxLength(32)
+        Annotations: 
+          MaxLength: 32
+      ConversationId (string) Required Index MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      CreatedAt (DateTime) Required
+      LastActivityAt (DateTime) Required
+      SessionId (Guid) Required
+    Keys: 
+      Id PK
+    Indexes: 
+      ChannelId, ConversationId Unique
+        Annotations: 
+          Relational:Name: IX_ChannelConversation_Channel_Conversation
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: ChannelConversations
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: ExecutionSession
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      IsActive (bool) Required Index
+      LastHeartbeat (DateTime) Required Index
+      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+      StartedAt (DateTime) Required
+      TasksCompleted (int) Required
+      WorkerName (string) Required MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+    Keys: 
+      Id PK
+    Indexes: 
+      IsActive
+        Annotations: 
+          Relational:Name: IX_Session_IsActive
+      LastHeartbeat
+        Annotations: 
+          Relational:Name: IX_Session_LastHeartbeat
+    Annotations: 
+      Relational:TableName: ExecutionSessions
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: Project
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      CreatedAt (DateTime) Required Index
+      DefaultBranch (string) Required ValueGenerated.OnAdd MaxLength(100)
+        Annotations: 
+          MaxLength: 100
+          Relational:DefaultValue: main
+      Description (string) Required MaxLength(2000)
+        Annotations: 
+          MaxLength: 2000
+      ModifiedAt (DateTime?)
+      ProjectName (string) Required MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+      RepositoryUrl (string) Required ValueGenerated.OnAdd MaxLength(2000)
+        Annotations: 
+          MaxLength: 2000
+          Relational:DefaultValue: 
+      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+      Version (string) Required MaxLength(50)
+        Annotations: 
+          MaxLength: 50
+    Navigations: 
+      Tasks (_tasks, IReadOnlyList<Task>) Collection ToDependent Task
+    Keys: 
+      Id PK
+    Indexes: 
+      CreatedAt
+        Annotations: 
+          Relational:Name: IX_Project_CreatedAt
+    Annotations: 
+      Relational:TableName: Projects
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: RepositoryConfiguration
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      AuthenticationMethod (string) MaxLength(100)
+        Annotations: 
+          MaxLength: 100
+      CreatedAt (DateTime) Required Index
+      CredentialIdentifier (string) MaxLength(512)
+        Annotations: 
+          MaxLength: 512
+      DefaultBranch (string) Required MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+      Description (string) MaxLength(2000)
+        Annotations: 
+          MaxLength: 2000
+      IsActive (bool) Required Index
+      LastUsedAt (DateTime?)
+      ModifiedAt (DateTime?)
+      Name (string) Required Index MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+      Platform (string) Required MaxLength(50)
+        Annotations: 
+          MaxLength: 50
+      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+      Url (string) Required MaxLength(1024)
+        Annotations: 
+          MaxLength: 1024
+    Keys: 
+      Id PK
+    Indexes: 
+      CreatedAt
+        Annotations: 
+          Relational:Name: IX_RepositoryConfiguration_CreatedAt
+      IsActive
+        Annotations: 
+          Relational:Name: IX_RepositoryConfiguration_IsActive
+      Name
+        Annotations: 
+          Relational:Name: IX_RepositoryConfiguration_Name
+    Annotations: 
+      Relational:TableName: RepositoryConfigurations
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: RoleCharterHead
+    Properties: 
+      Role (string) Required PK AfterSave:Throw MaxLength(64)
+        Annotations: 
+          MaxLength: 64
+      CurrentHash (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      IsActive (bool) Required Index
+      UpdatedAt (DateTime) Required
+    Keys: 
+      Role PK
+    Indexes: 
+      IsActive
+        Annotations: 
+          Relational:Name: IX_RoleCharterHead_IsActive
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: RoleCharters
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: RoleCharterVersion
+    Properties: 
+      Role (string) Required PK AfterSave:Throw MaxLength(64)
+        Annotations: 
+          MaxLength: 64
+      ContentHash (string) Required PK AfterSave:Throw MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      Description (string) Required MaxLength(300)
+        Annotations: 
+          MaxLength: 300
+      Instructions (string) Required
+        Annotations: 
+          Relational:ColumnType: text
+      Model (string) MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      SourcePath (string) Required MaxLength(1024)
+        Annotations: 
+          MaxLength: 1024
+      UpdatedAt (DateTime) Required
+      _skills (_skills, List<string>) Required Element type: string Required
+        Annotations: 
+          ElementType: Element type: string Required
+          Relational:ColumnName: Skills
+          Relational:ColumnType: text[]
+          ValueConverter: 
+          ValueConverterType: 
+    Keys: 
+      Role, ContentHash PK
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: RoleCharterVersions
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: ScheduledRun
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      ChannelId (string) Required MaxLength(32)
+        Annotations: 
+          MaxLength: 32
+      ConversationId (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      Cron (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      Enabled (bool) Required Index
+      LastRunAt (DateTime?)
+      MissedOccurrences (int) Required
+      Name (string) Required Index MaxLength(64)
+        Annotations: 
+          MaxLength: 64
+      NextRunAt (DateTime) Required Index
+      Origin (ScheduleOrigin) Required MaxLength(16)
+        Annotations: 
+          MaxLength: 16
+          ProviderClrType: System.String
+          ValueConverter: 
+      PrincipalId (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      Repository (string) MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+      Roles (IReadOnlyList<string>) Required MaxLength(512)
+        Annotations: 
+          MaxLength: 512
+          ProviderClrType: 
+          ValueComparer: Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer`1[System.Collections.Generic.IReadOnlyList`1[System.String]]
+          ValueConverter: Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter`2[System.Collections.Generic.IReadOnlyList`1[System.String],System.String]
+      Trigger (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      xmin (no field, uint) Shadow Required Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+        Annotations: 
+          Relational:ColumnName: xmin
+    Keys: 
+      Id PK
+    Indexes: 
+      Name Unique
+        Annotations: 
+          Relational:Name: IX_ScheduledRun_Name
+      Enabled, NextRunAt
+        Annotations: 
+          Relational:Name: IX_ScheduledRun_Enabled_NextRunAt
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: ScheduledRuns
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: ScheduledRunExecution
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      Attempts (int) Required
+      ChannelId (string) Required MaxLength(32)
+        Annotations: 
+          MaxLength: 32
+      ConversationId (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      CreatedAt (DateTime) Required
+      Digest (string)
+      FailedAtStep (RunStep?) MaxLength(16)
+        Annotations: 
+          MaxLength: 16
+          ProviderClrType: System.String
+          ValueConverter: 
+      Findings (string)
+      LastError (string)
+      OccurrenceAt (DateTime) Required Index
+      PrincipalId (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      Roles (IReadOnlyList<string>) Required MaxLength(512)
+        Annotations: 
+          MaxLength: 512
+          ProviderClrType: 
+          ValueComparer: Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer`1[System.Collections.Generic.IReadOnlyList`1[System.String]]
+          ValueConverter: Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter`2[System.Collections.Generic.IReadOnlyList`1[System.String],System.String]
+      ScheduleId (Guid) Required Index
+      Step (RunStep) Required MaxLength(16)
+        Annotations: 
+          MaxLength: 16
+          ProviderClrType: System.String
+          ValueConverter: 
+      UpdatedAt (DateTime) Required
+      xmin (no field, uint) Shadow Required Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+        Annotations: 
+          Relational:ColumnName: xmin
+    Keys: 
+      Id PK
+    Indexes: 
+      ScheduleId, OccurrenceAt Unique
+        Annotations: 
+          Relational:Name: IX_ScheduledRunExecution_Schedule_Occurrence
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: ScheduledRunExecutions
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: Skill
+    Properties: 
+      Id (string) Required PK AfterSave:Throw MaxLength(64)
+        Annotations: 
+          MaxLength: 64
+          Relational:ColumnName: Name
+      Body (string) Required
+        Annotations: 
+          Relational:ColumnType: text
+      ContentHash (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      Description (string) Required MaxLength(300)
+        Annotations: 
+          MaxLength: 300
+      IsActive (bool) Required Index
+      SourcePath (string) Required MaxLength(1024)
+        Annotations: 
+          MaxLength: 1024
+      UpdatedAt (DateTime) Required
+      _tags (_tags, List<string>) Required Element type: string Required
+        Annotations: 
+          ElementType: Element type: string Required
+          Relational:ColumnName: Tags
+          Relational:ColumnType: text[]
+          ValueConverter: 
+          ValueConverterType: 
+    Keys: 
+      Id PK
+    Indexes: 
+      IsActive
+        Annotations: 
+          Relational:Name: IX_Skill_IsActive
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: Skills
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: SkillVersion
+    Properties: 
+      Name (string) Required PK AfterSave:Throw MaxLength(64)
+        Annotations: 
+          MaxLength: 64
+      ContentHash (string) Required PK AfterSave:Throw MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      Body (string) Required
+        Annotations: 
+          Relational:ColumnType: text
+      CreatedAt (DateTime) Required
+      Description (string) Required MaxLength(300)
+        Annotations: 
+          MaxLength: 300
+      SourcePath (string) Required MaxLength(1024)
+        Annotations: 
+          MaxLength: 1024
+      _tags (_tags, List<string>) Required Element type: string Required
+        Annotations: 
+          ElementType: Element type: string Required
+          Relational:ColumnName: Tags
+          Relational:ColumnType: text[]
+          ValueConverter: 
+          ValueConverterType: 
+    Keys: 
+      Name, ContentHash PK
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: SkillVersions
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: Task
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      CompletedAt (DateTime?)
+      CompletionPromise (string) Required MaxLength(1000)
+        Annotations: 
+          MaxLength: 1000
+      CreatedAt (DateTime) Required Index
+      CurrentSessionId (Guid?) Index
+      Description (string) Required MaxLength(2000)
+        Annotations: 
+          MaxLength: 2000
+      EstimatedComplexity (Complexity) Required
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+      IterationCount (int) Required
+      Learnings (string) Required MaxLength(10000)
+        Annotations: 
+          MaxLength: 10000
+      LearningsUpdatedAt (DateTime?)
+      MaxIterations (int) Required
+      ParallelGroup (int) Required
+      Phase (string) Required MaxLength(100)
+        Annotations: 
+          MaxLength: 100
+      Priority (Priority) Required
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+      ProjectId (Guid) Required FK Index
+      Prompt (string) Required MaxLength(8000)
+        Annotations: 
+          MaxLength: 8000
+      Result (string) MaxLength(50000)
+        Annotations: 
+          MaxLength: 50000
+      RowVersion (uint) Required Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
+        Annotations: 
+          Relational:ColumnName: xmin
+          Relational:ColumnType: xid
+      Status (TaskStatus) Required Index
+        Annotations: 
+          ProviderClrType: System.Int32
+          ValueConverter: 
+      TaskId (string) Required MaxLength(50)
+        Annotations: 
+          MaxLength: 50
+      Title (string) Required MaxLength(500)
+        Annotations: 
+          MaxLength: 500
+      WorkflowRunId (Guid?) Index
+      _dependencies (_dependencies, List<string>) Required Element type: string Required
+        Annotations: 
+          ElementType: Element type: string Required
+          Relational:ColumnName: Dependencies
+          Relational:ColumnType: text[]
+          ValueConverter: 
+          ValueConverterType: 
+      _filesToModify (_filesToModify, List<string>) Required Element type: string Required
+        Annotations: 
+          ElementType: Element type: string Required
+          Relational:ColumnName: FilesToModify
+          Relational:ColumnType: text[]
+          ValueConverter: 
+          ValueConverterType: 
+    Navigations: 
+      Executions (_executions, IReadOnlyList<TaskExecution>) Collection ToDependent TaskExecution
+    Keys: 
+      Id PK
+    Foreign keys: 
+      Task {'ProjectId'} -> Project {'Id'} Required Cascade ToDependent: Tasks
+    Indexes: 
+      CreatedAt
+        Annotations: 
+          Relational:Name: IX_Task_CreatedAt
+      CurrentSessionId
+        Annotations: 
+          Relational:Name: IX_Task_SessionId
+      ProjectId
+        Annotations: 
+          Relational:Name: IX_Tasks_ProjectId
+      Status
+        Annotations: 
+          Relational:Name: IX_Task_Status
+      WorkflowRunId
+    Annotations: 
+      Relational:CheckConstraints: System.Collections.Generic.SortedDictionary`2[System.String,Microsoft.EntityFrameworkCore.Metadata.ICheckConstraint]
+      Relational:TableName: Tasks
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: TaskExecution
+    Properties: 
+      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
+      CompletionPromiseFound (bool) Required
+      Error (string) MaxLength(2000)
+        Annotations: 
+          MaxLength: 2000
+      ExecutedAt (DateTime) Required Index
+      ExecutionDuration (TimeSpan) Required
+      InputTokens (int) Required ValueGenerated.OnAdd
+        Annotations: 
+          Relational:DefaultValue: 0
+      IterationNumber (int) Required
+      LlmResponse (string) Required MaxLength(50000)
+        Annotations: 
+          MaxLength: 50000
+      ModelId (string) MaxLength(100)
+        Annotations: 
+          MaxLength: 100
+      OutputTokens (int) Required ValueGenerated.OnAdd
+        Annotations: 
+          Relational:DefaultValue: 0
+      Prompt (string) Required MaxLength(8000)
+        Annotations: 
+          MaxLength: 8000
+      SessionId (Guid) Required Index
+      TaskId (Guid) Required FK Index
+    Keys: 
+      Id PK
+    Foreign keys: 
+      TaskExecution {'TaskId'} -> Task {'Id'} Required Cascade ToDependent: Executions
+    Indexes: 
+      ExecutedAt
+        Annotations: 
+          Relational:Name: IX_TaskExecution_ExecutedAt
+      SessionId
+        Annotations: 
+          Relational:Name: IX_TaskExecution_SessionId
+      TaskId
+        Annotations: 
+          Relational:Name: IX_TaskExecution_TaskId
+    Annotations: 
+      Relational:TableName: TaskExecutions
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: WorkflowRunRecord
+    Properties: 
+      Id (long) Required PK AfterSave:Throw ValueGenerated.OnAdd
+        Annotations: 
+          Npgsql:ValueGenerationStrategy: IdentityByDefaultColumn
+      CreatedAt (DateTime) Required
+      Kind (string) Required Index MaxLength(32)
+        Annotations: 
+          MaxLength: 32
+      Node (string) Required MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      PayloadJson (string) Required
+        Annotations: 
+          Relational:ColumnType: jsonb
+      PrincipalId (string) Required MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+      RunId (Guid) Required Index
+      Seq (long) Required Index
+      StartedById (string) MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+    Keys: 
+      Id PK
+    Indexes: 
+      RunId, Kind, Seq
+        Annotations: 
+          Relational:Name: IX_WorkflowRunRecords_RunId_Kind_Seq
+      RunId, Seq UX_WorkflowRunRecords_NodeSelection_RunId_Seq Unique
+        Annotations: 
+          Relational:Filter: "Kind" = 'node-selection'
+          Relational:Name: UX_WorkflowRunRecords_NodeSelection_RunId_Seq
+      RunId, Seq UX_WorkflowRunRecords_NodeUsage_RunId_Seq Unique
+        Annotations: 
+          Relational:Filter: "Kind" = 'node-usage'
+          Relational:Name: UX_WorkflowRunRecords_NodeUsage_RunId_Seq
+    Annotations: 
+      Relational:Schema: 
+      Relational:TableName: WorkflowRunRecords
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+  EntityType: OutboxMessageEntity
+    Properties: 
+      Id (OutboxMessageId) Required PK AfterSave:Throw
+        Annotations: 
+          ProviderClrType: 
+          ValueConverter: ZeroAlloc.ValueObjects.EfCore.TypedIdValueConverter`2[ZeroAlloc.Outbox.OutboxMessageId,System.Guid]
+          ValueConverterType: ZeroAlloc.ValueObjects.EfCore.TypedIdValueConverter`2[ZeroAlloc.Outbox.OutboxMessageId,System.Guid]
+      CreatedAt (DateTimeOffset) Required
+      DeadLetterError (string)
+      LockedBy (string) MaxLength(128)
+        Annotations: 
+          MaxLength: 128
+      LockedUntil (DateTimeOffset?)
+      NextRetryAt (DateTimeOffset) Required Index
+      Payload (byte[]) Required
+      ProcessedAt (DateTimeOffset?)
+      RetryCount (int) Required
+      Status (OutboxMessageStatus) Required Index
+      TypeName (string) Required MaxLength(256)
+        Annotations: 
+          MaxLength: 256
+    Keys: 
+      Id PK
+    Indexes: 
+      Status, NextRetryAt
+        Annotations: 
+          Relational:Name: IX_OutboxMessages_Status_NextRetryAt
+    Annotations: 
+      ComplexPropertyDiscoveryConvention:ComplexCandidates: System.Collections.Generic.Dictionary`2[System.String,System.Reflection.MemberInfo]
+      Relational:TableName: OutboxMessages
+      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
+Annotations: 
+  BaseTypeDiscoveryConvention:DerivedTypes: System.Collections.Generic.Dictionary`2[System.Type,System.Collections.Generic.List`1[Microsoft.EntityFrameworkCore.Metadata.IConventionEntityType]]
+  InversePropertyAttributeConvention:InverseNavigations: System.Collections.Generic.Dictionary`2[System.Type,System.Collections.Generic.SortedSet`1[System.Type]]
+  NonNullableConventionState: System.Reflection.NullabilityInfoContext
+  Npgsql:ValueGenerationStrategy: IdentityByDefaultColumn
+  Relational:MaxIdentifierLength: 63

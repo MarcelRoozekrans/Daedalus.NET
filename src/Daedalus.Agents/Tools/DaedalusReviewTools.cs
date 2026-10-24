@@ -42,14 +42,16 @@ public sealed class DaedalusReviewTools
 
     /// <summary>Reports one lens pass's verdict with its evidence, refusing a report that carries none.</summary>
     /// <remarks>
-    ///     An instance method with no instance state, which CA1822 would rather see static. It stays an instance
-    ///     method because Thalos' <c>AddLocalTools</c> discovers tools by reflecting over a
-    ///     <see cref="ThalosToolTypeAttribute"/> class it constructs, and whether it also picks up static members
-    ///     is not documented. A tool that silently fails to register would leave every review pass reporting no
-    ///     evidence at all — too large a failure to trade for one suppressed style warning.
+    ///     An instance method with no instance state, which CA1822 would rather see static. Thalos' typed registration
+    ///     would bind a static one, but it builds a probe instance of the class on the first enumeration whatever its
+    ///     methods are, so the class needs a public constructor; with only static members that is S1118's utility class,
+    ///     which wants the constructor private. The suppression is a tracked wait on Thalos#410
+    ///     (https://github.com/MarcelRoozekrans/Thalos.NET/issues/410, <c>AddStaticLocalTools</c>): once a static class
+    ///     can be registered without a probe instance, this class becomes static and the suppression goes. Until then
+    ///     the method is an instance method, bound as <c>t =&gt; t.ReportReviewOutcome</c>.
     /// </remarks>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static",
-        Justification = "Thalos discovers local tools by reflecting over an instance of the tool type; see remarks.")]
+        Justification = "Pending Thalos#410: typed tool registration requires an instance method; see remarks.")]
     [ThalosTool(ReportReviewOutcomeToolName)]
     [Description(
         "Report one review lens pass's verdict together with the evidence for it. An 'approved' verdict must " +

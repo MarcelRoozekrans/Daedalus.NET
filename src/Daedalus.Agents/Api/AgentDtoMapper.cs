@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Daedalus.Application.DTOs.Agents;
 using Microsoft.Extensions.AI;
 using Thalos;
@@ -12,8 +13,12 @@ namespace Daedalus.Agents.Api;
 /// </summary>
 public static class AgentDtoMapper
 {
-    // M.E.AI's defaults know how to write JsonElement/AIContent arguments; compact output for the wire.
+    // M.E.AI's defaults know how to write JsonElement/AIContent arguments; compact output for the wire. The metadata
+    // comes from those options' own resolver, M.E.AI's generated context, not from reflection.
     private static readonly JsonSerializerOptions CompactJson = new(AIJsonUtilities.DefaultOptions) { WriteIndented = false };
+
+    private static readonly JsonTypeInfo<IDictionary<string, object?>> Arguments =
+        (JsonTypeInfo<IDictionary<string, object?>>)CompactJson.GetTypeInfo(typeof(IDictionary<string, object?>));
 
     /// <summary>Maps an agent definition to its list DTO.</summary>
     public static AgentSummaryDto ToDto(AgentDefinition definition)
@@ -164,5 +169,5 @@ public static class AgentDtoMapper
     }
 
     private static string? SerializeArguments(IDictionary<string, object?>? arguments) =>
-        arguments is null ? null : JsonSerializer.Serialize(arguments, CompactJson);
+        arguments is null ? null : JsonSerializer.Serialize(arguments, Arguments);
 }

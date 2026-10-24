@@ -10,6 +10,7 @@
         <!-- Thalos/MAF are not trim-safe yet; this project is never AOT-published -->
         <IsTrimmable>false</IsTrimmable>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+        <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
     </PropertyGroup>
 
     <ItemGroup>

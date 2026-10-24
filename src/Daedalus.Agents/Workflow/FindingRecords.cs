@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Daedalus.Domain.Entities;
 using ZeroAlloc.Results;
 
@@ -41,10 +42,11 @@ public static class FindingRecords
 
     /// <summary>The payload of a <see cref="WorkflowRunRecord.FindingsDroppedKind"/> record; <paramref name="attempt"/> is the resume attempt it belongs to.</summary>
     public static string DroppedPayload(IReadOnlyCollection<string> ids, string? by, string attempt) =>
-        JsonSerializer.Serialize(new { attempt, dropped = ids, by });
+        JsonSerializer.Serialize(new Dropped(attempt, ids, by), DaedalusRecordsJsonContext.Default.Dropped);
 
     /// <summary>The payload of a <see cref="WorkflowRunRecord.FindingsDropVoidedKind"/> record naming <paramref name="attempt"/>.</summary>
-    public static string DropVoidedPayload(string attempt) => JsonSerializer.Serialize(new { attempt });
+    public static string DropVoidedPayload(string attempt) =>
+        JsonSerializer.Serialize(new DropVoided(attempt), DaedalusRecordsJsonContext.Default.DropVoided);
 
     /// <summary>
     ///     The latest drop record whose attempt no <see cref="WorkflowRunRecord.FindingsDropVoidedKind"/> record names,
@@ -121,7 +123,8 @@ public static class FindingRecords
     public static string FiledPayload(FiledFinding filed)
     {
         ArgumentNullException.ThrowIfNull(filed);
-        return JsonSerializer.Serialize(new { id = filed.FindingId, mode = filed.Mode, issue = filed.Issue, url = filed.Url.AbsoluteUri });
+        return JsonSerializer.Serialize(
+            new Filed(filed.FindingId, filed.Mode, filed.Issue, filed.Url.AbsoluteUri), DaedalusRecordsJsonContext.Default.Filed);
     }
 
     /// <summary>Every finding already handled, by id; a later record for the same id wins.</summary>
@@ -164,4 +167,20 @@ public static class FindingRecords
 
         return null;
     }
+
+    /// <summary>The <see cref="WorkflowRunRecord.FindingsDroppedKind"/> payload.</summary>
+    internal sealed record Dropped(
+        [property: JsonPropertyName("attempt")] string Attempt,
+        [property: JsonPropertyName("dropped")] IReadOnlyCollection<string> Ids,
+        [property: JsonPropertyName("by")] string? By);
+
+    /// <summary>The <see cref="WorkflowRunRecord.FindingsDropVoidedKind"/> payload.</summary>
+    internal sealed record DropVoided([property: JsonPropertyName("attempt")] string Attempt);
+
+    /// <summary>The <see cref="WorkflowRunRecord.FindingFiledKind"/> payload.</summary>
+    internal sealed record Filed(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("mode")] string Mode,
+        [property: JsonPropertyName("issue")] int Issue,
+        [property: JsonPropertyName("url")] string Url);
 }

@@ -85,4 +85,8 @@
         <None Include="..\Daedalus.Tests.Unit\Configuration\RoslynCodeLens.Mcp.tools.json" Link="RoslynCodeLens.Mcp.tools.json" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- The tool oracle format, shared with the other project that pins tools (phase 3.2, Task 12). -->
+        <Compile Include="..\Shared\ToolDump.cs" Link="Shared\ToolDump.cs"/>
+    </ItemGroup>
 </Project>

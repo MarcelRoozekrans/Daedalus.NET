@@ -9,17 +9,17 @@ namespace Daedalus.Agents.Scheduling;
 public sealed class DetachedRunOptions
 {
     /// <summary>The <see cref="ZeroAlloc.Authorization.ISecurityContext.Id"/> a detached run reports as its caller.</summary>
-    public required string PrincipalId { get; init; }
+    public required string PrincipalId { get; set; }
 
     /// <summary>The roles a detached run's <see cref="DetachedPrincipal"/> carries.</summary>
-    public required IReadOnlyList<string> Roles { get; init; }
+    public required IReadOnlyList<string> Roles { get; set; }
 
     /// <summary>
     ///     The token ceiling checked after the turn completes. A budget settles an overspend into a reported
     ///     failure; it cannot stop a turn mid-flight because the turn is buffered.
     /// </summary>
-    public required int MaxTotalTokens { get; init; }
+    public required int MaxTotalTokens { get; set; }
 
     /// <summary>The wall-clock deadline that stops a run from waiting on a stalled provider forever.</summary>
-    public required int DeadlineSeconds { get; init; }
+    public required int DeadlineSeconds { get; set; }
 }

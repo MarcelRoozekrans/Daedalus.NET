@@ -52,9 +52,17 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- The tool oracle format, shared with the other project that pins tools (phase 3.2, Task 12). -->
+        <Compile Include="..\Shared\ToolDump.cs" Link="Shared\ToolDump.cs"/>
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\..\src\Daedalus.Domain\Daedalus.Domain.csproj" />
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj" />
         <ProjectReference Include="..\..\src\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <EmbeddedResource Include="Persistence/ApplicationDbContextModel.golden.txt" LogicalName="ApplicationDbContextModel.golden.txt"/>
+    </ItemGroup>
 </Project>

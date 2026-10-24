@@ -28,6 +28,8 @@ internal sealed partial class ReviewResponseRecorder(IServiceScopeFactory scopes
     public async ValueTask<UnitResult<string>> RecordAsync(
         Guid runId, long seq, string node, string? startedById, object? response, CancellationToken ct)
     {
+        // The response came out of a NodeResult, whose constructor has already checked it against the JSON-shaped
+        // contract at most 63 levels below the bag, so the payload's wrapper takes it to 64 at most and it serializes.
         var record = WorkflowRunRecord.Create(
             runId, seq, node, WorkflowRunRecord.ReviewResponseKind, HostPrincipalId, startedById,
             ReviewResponseRecord.ToPayloadJson(response), clock.GetUtcNow().UtcDateTime);

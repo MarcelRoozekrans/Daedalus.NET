@@ -16,15 +16,15 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
     {
         try
         {
-            var response = await httpClient.PostAsJsonAsync("/api/projects", request, ct).ConfigureAwait(false);
+            var response = await httpClient.PostAsJsonAsync("/api/projects", request, WebJsonContext.Default.CreateProjectDto, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 return Result<ProjectDto>.Failure($"Failed to create project: {error}");
             }
 
-            // The API answers in camelCase. ReadFromJsonAsync reads with the web defaults, as ApiClient does.
-            var result = await response.Content.ReadFromJsonAsync<ProjectDto>(ct).ConfigureAwait(false);
+            // The API answers in camelCase. The read goes through WebJsonContext, which has the web defaults, as ApiClient does.
+            var result = await response.Content.ReadFromJsonAsync(WebJsonContext.Default.ProjectDto, ct).ConfigureAwait(false);
             return result is not null
                 ? Result<ProjectDto>.Success(result)
                 : Result<ProjectDto>.Failure("Failed to deserialize response");
@@ -45,15 +45,15 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
     {
         try
         {
-            var response = await httpClient.PutAsJsonAsync($"/api/projects/{id}", request, ct).ConfigureAwait(false);
+            var response = await httpClient.PutAsJsonAsync($"/api/projects/{id}", request, WebJsonContext.Default.UpdateProjectDto, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 return Result<ProjectDto>.Failure($"Failed to update project: {error}");
             }
 
-            // The API answers in camelCase. ReadFromJsonAsync reads with the web defaults, as ApiClient does.
-            var result = await response.Content.ReadFromJsonAsync<ProjectDto>(ct).ConfigureAwait(false);
+            // The API answers in camelCase. The read goes through WebJsonContext, which has the web defaults, as ApiClient does.
+            var result = await response.Content.ReadFromJsonAsync(WebJsonContext.Default.ProjectDto, ct).ConfigureAwait(false);
             return result is not null
                 ? Result<ProjectDto>.Success(result)
                 : Result<ProjectDto>.Failure("Failed to deserialize response");
