@@ -163,31 +163,58 @@ public abstract class BrowserTestBase : PageTest
     [TearDown]
     public virtual async Task TearDownAsync()
     {
-        // Only stop tracing if setup completed (Context and tracing were initialized)
-        if (SetUpCompleted)
+        // A context that fails to close, after a browser crash for example, must not skip the other contexts or the
+        // container and client below, so each close is caught, and the failures are rethrown once all cleanup ran.
+        var closeFailures = new List<Exception>();
+        try
         {
-            await StopTracingAsync(Context, suffix: "").ConfigureAwait(false);
+            // Only stop tracing if setup completed (Context and tracing were initialized)
+            if (SetUpCompleted)
+            {
+                await StopTracingAsync(Context, suffix: "").ConfigureAwait(false);
+            }
+
+            for (var i = 0; i < _ownContexts.Count; i++)
+            {
+                await StopTracingAsync(_ownContexts[i], suffix: $"-context{i + 1}").ConfigureAwait(false);
+                try
+                {
+                    await _ownContexts[i].CloseAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    await TestContext.Progress.WriteLineAsync($"Closing the test's browser context {i + 1} failed: {ex.Message}")
+                        .ConfigureAwait(false);
+                    closeFailures.Add(ex);
+                }
+            }
+        }
+        finally
+        {
+            _ownContexts.Clear();
+
+            // Dispose PostgreSQL container and reset the field
+            if (PostgresContainer != null)
+            {
+                await PostgresContainer.DisposeAsync().ConfigureAwait(false);
+                PostgresContainer = null;
+                DbConnectionString = null;
+            }
+
+            // Dispose HttpClient for API requests
+            _apiClient?.Dispose();
+            _apiClient = null;
         }
 
-        for (var i = 0; i < _ownContexts.Count; i++)
+        if (closeFailures.Count == 1)
         {
-            await StopTracingAsync(_ownContexts[i], suffix: $"-context{i + 1}").ConfigureAwait(false);
-            await _ownContexts[i].CloseAsync().ConfigureAwait(false);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(closeFailures[0]);
         }
 
-        _ownContexts.Clear();
-
-        // Dispose PostgreSQL container and reset the field
-        if (PostgresContainer != null)
+        if (closeFailures.Count > 1)
         {
-            await PostgresContainer.DisposeAsync().ConfigureAwait(false);
-            PostgresContainer = null;
-            DbConnectionString = null;
+            throw new AggregateException("More than one of the test's browser contexts failed to close.", closeFailures);
         }
-
-        // Dispose HttpClient for API requests
-        _apiClient?.Dispose();
-        _apiClient = null;
     }
 
     private static async Task StopTracingAsync(IBrowserContext context, string suffix)
