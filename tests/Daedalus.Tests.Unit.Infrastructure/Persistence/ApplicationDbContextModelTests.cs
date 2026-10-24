@@ -28,14 +28,37 @@ public class ApplicationDbContextModelTests
     {
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(GoldenResource)!;
         using var reader = new StreamReader(stream);
-        var golden = reader.ReadToEnd().ReplaceLineEndings("\n");
+        var golden = WithoutProductVersion(reader.ReadToEnd());
 
-        var actual = BuildModel().ToDebugString(MetadataDebugStringOptions.LongDefault).ReplaceLineEndings("\n");
+        var actual = WithoutProductVersion(BuildModel().ToDebugString(MetadataDebugStringOptions.LongDefault));
 
         // Red: change the maximum length of one column in TaskConfiguration, or drop one of its indexes, and this
-        // assertion fails with a diff. After a deliberate model change, refresh the golden from the actual text.
+        // assertion fails with a diff. After a deliberate model change, refresh the golden from the actual text,
+        // without its ProductVersion line.
         actual.Should().Be(golden);
     }
+
+    [Fact]
+    public void Model_comparison_ignores_the_EF_Core_product_version()
+    {
+        const string Dump = "Model: \n  Annotations: \n  ProductVersion: 10.0.12\n  Relational:MaxIdentifierLength: 63";
+        var bumped = Dump.Replace("10.0.12", "10.0.99", StringComparison.Ordinal);
+
+        // Red: return the text unchanged from WithoutProductVersion, and the two versions no longer compare equal.
+        // Renovate automerges EF Core patch bumps, so the golden must not hold the version that built it.
+        WithoutProductVersion(bumped).Should().Be(WithoutProductVersion(Dump));
+
+        // Red: drop every annotation line instead of only ProductVersion, and the next annotation disappears.
+        WithoutProductVersion(Dump).Should().Contain("Relational:MaxIdentifierLength: 63");
+    }
+
+    /// <summary>
+    ///     The model's <c>ProductVersion</c> annotation is the EF Core version that built it. It says nothing about the
+    ///     configurations, and it changes on every EF Core patch, so both sides of the comparison drop it.
+    /// </summary>
+    private static string WithoutProductVersion(string debugView) =>
+        string.Join('\n', debugView.ReplaceLineEndings("\n").Split('\n')
+            .Where(line => !line.TrimStart().StartsWith("ProductVersion: ", StringComparison.Ordinal)));
 
     [Fact]
     public void Model_has_every_entity_type()
