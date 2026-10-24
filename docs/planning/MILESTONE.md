@@ -52,8 +52,8 @@ stay exactly as they are.
 | # | Phase | Surface | Status |
 |---|---|---|---|
 | 3.1 | AOT toolchain, gates, baseline and ORM gap audit; the native sandbox host | Infra | complete (2026-10-21), #405 |
-| 3.2 | Our own reflection out: STJ source-gen, config binding, DI annotations, explicit tool registration, YAML static generator | Refactor | active |
-| 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter | Backend | pending |
+| 3.2 | Our own reflection out: STJ source-gen, config binding, DI annotations, explicit tool registration, YAML static generator | Refactor | complete (2026-10-24), #409 to merge |
+| 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter; the native CLI reaches "Application started", moved from 3.2 | Backend | pending |
 | 3.4 | Controllers to minimal APIs, identical contract | Refactor | pending |
 | 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files | Data | pending |
 | 3.6 | Native API, CLI and Migrations; native test runs, live proof, measurements | Infra | pending |
@@ -72,6 +72,16 @@ Owner decisions of 2026-10-17, in the milestone design's dated notes:
   LINQ to SQL. Both are built by the owner's separate ZeroAlloc session, and Daedalus' queries stay LINQ. 3.5 waits
   on both being released.
 - **CI:** the `aot-analysis` job becomes a required check once it is green.
+
+Owner decisions during 3.2, in its rulings, `docs/plans/2026-10-21-phase-3.2-rulings.md`:
+- **2026-10-21:** AI.Sentinel's fix ships on its 3.x line, as 3.1.0, not on a 2.x line. Daedalus keeps its 2.x
+  behaviour on 3.x through options.
+- **2026-10-22:** no Native AOT publish on the shared agents VM. Warning counts come from the `aot-analysis` job, and
+  native binaries from the `native-publish` workflow on a labelled PR.
+- **2026-10-23:** the native CLI's "Application started" moves from 3.2 to 3.3. The CLI's first stop is the Anthropic
+  SDK's reflection JSON, which 3.3 removes; the milestone design's 3.3 entry records it.
+- **Carried from 3.2:** the ZeroAlloc.Outbox JSON-context overload for `WithSystemTextJsonSerializer`, handed over in
+  `docs/plans/2026-10-21-zeroalloc-outbox-serializer-handover.md`. Daedalus adopts it once released.
 
 ## Policies
 
