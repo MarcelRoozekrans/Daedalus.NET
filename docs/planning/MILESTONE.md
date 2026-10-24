@@ -52,8 +52,8 @@ stay exactly as they are.
 | # | Phase | Surface | Status |
 |---|---|---|---|
 | 3.1 | AOT toolchain, gates, baseline and ORM gap audit; the native sandbox host | Infra | complete (2026-10-21), #405 |
-| 3.2 | Our own reflection out: STJ source-gen, config binding, DI annotations, explicit tool registration, YAML static generator | Refactor | complete (2026-10-24), #409 to merge |
-| 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter; the native CLI reaches "Application started", moved from 3.2 | Backend | pending |
+| 3.2 | Our own reflection out: STJ source-gen, config binding, DI annotations, explicit tool registration, YAML static generator | Refactor | complete (2026-10-24), #409 |
+| 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter; the native CLI reaches "Application started", moved from 3.2 | Backend | active (2026-10-24) |
 | 3.4 | Controllers to minimal APIs, identical contract | Refactor | pending |
 | 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files | Data | pending |
 | 3.6 | Native API, CLI and Migrations; native test runs, live proof, measurements | Infra | pending |
