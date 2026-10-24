@@ -223,7 +223,7 @@
     <!-- ASP.NET Core / Blazor -->
     <!-- Api calls AddNpgSql directly; it used to arrive transitively through Aspire.Hosting.PostgreSQL -->
     <PackageVersion Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
-    <PackageVersion Include="Asp.Versioning.Mvc" Version="8.1.0" />
+    <PackageVersion Include="Asp.Versioning.Mvc" Version="10.2.1" />
     <!-- 10.0.2 → 10.0.12 across the Microsoft.AspNetCore.* family: SignalR.Client, and Components through
          Flux.Blazor, are at 10.0.12, so the rest move with them to one ASP.NET Core patch level.
          10.0.12 → 10.0.13, the whole family with OpenAPI: CVE-2026-70159 in SignalR.Common, which SignalR.Client
