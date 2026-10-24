@@ -11,8 +11,13 @@ on:
     branches: [main]
     types: [labeled, opened, reopened, synchronize]
 
+# Adding any other label to the pull request also raises a `labeled` event. That run does nothing, and it gets
+# a group of its own: workflow-level concurrency is applied before any job's `if`, so in the shared group it
+# would cancel a publish already running.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{ github.workflow }}-${{ (github.event.action == 'labeled' && github.event.label.name != 'native-publish')
+    && github.run_id || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -25,7 +30,9 @@ env:
 jobs:
   native-publish:
     name: Native publish (${{ matrix.target }})
-    if: contains(github.event.pull_request.labels.*.name, 'native-publish')
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'native-publish')
+      && (github.event.action != 'labeled' || github.event.label.name == 'native-publish')
     # Pinned, not ubuntu-latest: a native binary needs the glibc it was linked against or newer. ubuntu-latest
     # moved to 26.04, glibc 2.43, which neither this VM nor the .NET 10 images, Ubuntu 24.04 with 2.39, have.
     runs-on: ubuntu-24.04
