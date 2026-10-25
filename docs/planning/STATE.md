@@ -1,8 +1,36 @@
 # Session State
 
-**Last session:** 2026-10-24
+**Last session:** 2026-10-25
 
-## Current Position - phase 3.2 complete (2026-10-24), PR #409 to merge; next is 3.3, 3.4, 3.5, 3.7 or 3.8
+## Current Position - phase 3.3 active (2026-10-24): design and plan approved, execution not started
+
+**Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Branch `phase/3.3-own-llm-clients` from `main`
+`88cf0433`, pushed; worktree `.claude/worktrees/phase-3.3`. Brainstormed with the owner on 2026-10-24.
+
+- **Design:** `docs/superpowers/specs/2026-10-24-phase-3.3-own-llm-clients-design.md` (`cee71777`), approved.
+- **Plan:** `docs/superpowers/plans/2026-10-24-phase-3.3-own-llm-clients-plan.md` (`62e75627`), approved: 25 tasks
+  over ZeroAlloc.Resilience, ZeroAlloc.Rest, Thalos.NET and Daedalus, with owner gates G1 to G4.
+- **Execution:** the owner chose subagent-driven development in a fresh session. No task has started and no ledger
+  exists yet.
+
+## Open Decisions
+
+None blocking. The plan's "Calls this plan makes" section lists the builder calls for the owner to check, and the
+design's "My call" items are listed in it.
+
+## Blockers
+
+- G1 to G3 are owner merges and releases: ZeroAlloc.Resilience, ZeroAlloc.Rest at 3.4.0, Thalos 0.20.0.
+- G4 needs the owner: the spend for the native turn and the live run, and whether the AppHost token may write to
+  Daedalus.NET; item 2 below.
+
+## Recommended Next Step
+
+In a fresh session, from `.claude/worktrees/phase-3.3`: run superpowers:subagent-driven-development on the plan above,
+starting at Task 1 in a fresh ZeroAlloc.Resilience worktree from `origin/main`. Read the plan's Global Constraints
+first: no local Native AOT publish, outward actions are the controller's, and the owner merges every PR.
+
+## Previous Position - phase 3.2 complete (2026-10-24), merged as #409 (`88cf0433`)
 
 **Milestone 3, phase 3.2, our own reflection out.** Built subagent-driven on `phase/3.2-reflection-out` from `main`
 `4091c648`, across Thalos.NET, AI.Sentinel and Daedalus, every task reviewed. The owner moved AI.Sentinel's fix from a
@@ -45,8 +73,8 @@ releases, the live run and findings: `docs/plans/2026-10-21-phase-3.2-rulings.md
 
 ## Needs the owner
 
-1. **Merge PR #409,** phase 3.2, once its final review is done; it is a draft. Then read the rulings; each says what
-   it costs if wrong.
+1. **Phase 3.2 is merged** as #409. Read its rulings, `docs/plans/2026-10-21-phase-3.2-rulings.md`; each says what
+   it costs if wrong. Start the release-please workflow for its `feat:` commit and check the release PR lists it.
 2. **The AppHost's GitHub token cannot write to Daedalus.NET.** Run `f67aa504`'s publish was refused with 403, so no
    manufacture run on Daedalus.NET can open a pull request. Give the token write access to the repository's contents
    and pull requests, or decide that Daedalus.NET is not a manufacture target. Its commit, `7ab8c5ca`, is kept in the
