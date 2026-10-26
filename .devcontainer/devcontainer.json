@@ -3,7 +3,7 @@
   "image": "mcr.microsoft.com/devcontainers/dotnet:10.0-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/powershell:1": {}
+    "ghcr.io/devcontainers/features/powershell:2": {}
   },
   "hostRequirements": {
     "cpus": 8,
