@@ -1,6 +1,6 @@
 # Multi-stage build for Daedalus.Api - Optimized for Kubernetes
 # Stage 1: Build with SDK
-FROM mcr.microsoft.com/dotnet/sdk:10.0.402-alpine3.24 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403-alpine3.24 AS build
 # The version stamped into the assemblies (AssemblyVersion/FileVersion/InformationalVersion), passed
 # by CI from GitVersion. 0.0.0 marks an image built outside CI (docs/release.md).
 ARG APP_VERSION=0.0.0

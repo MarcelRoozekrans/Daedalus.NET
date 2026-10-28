@@ -1,6 +1,6 @@
 # Multi-stage build for Daedalus.Web - Blazor WASM frontend
 # Stage 1: Build the Blazor WASM project
-FROM mcr.microsoft.com/dotnet/sdk:10.0.402-alpine3.24 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403-alpine3.24 AS build
 # The version stamped into the assemblies, passed by CI from GitVersion. 0.0.0 = built outside CI.
 ARG APP_VERSION=0.0.0
 WORKDIR /src
