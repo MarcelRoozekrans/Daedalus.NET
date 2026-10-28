@@ -192,6 +192,25 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
             .And.Be(TimeSpan.FromMinutes(20));
     }
 
+    /// <summary>
+    ///     <c>Host.CreateDefaultBuilder</c> validates the container on build in Development, and the CLI has a user-secrets id,
+    ///     so Development is a real mode. Every registered descriptor must be constructible there.
+    ///     Red: remove <c>AddAgentFrameworkServices</c> from <c>CliHostServices</c>; Build throws that <c>AgentFactory</c> cannot
+    ///     resolve <c>McpToolBuilder</c>.
+    ///     Red: remove <c>AddCodeAnalysisServices</c> from it; Build throws that <c>ThalosPullRequestPublisher</c> cannot resolve
+    ///     <c>IPullRequestFactory</c>.
+    /// </summary>
+    [Fact]
+    public void The_cli_host_container_validates_on_build_with_scope_validation()
+    {
+        var services = new ServiceCollection();
+        CliHostServices.ConfigureServices(services, BuildConfiguration(null), FakeEnvironment());
+
+        var act = () => services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true }).Dispose();
+
+        act.Should().NotThrow();
+    }
+
     private ServiceProvider BuildProvider(Dictionary<string, string?>? overrides = null)
     {
         var services = new ServiceCollection();

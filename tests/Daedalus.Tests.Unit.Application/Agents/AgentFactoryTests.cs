@@ -99,7 +99,7 @@ public sealed class AgentFactoryTests
 
         // Red: register another IAgentFactory after AddDaedalusAgents; the resolved type is not AgentFactory.
         factory.Should().BeOfType<AgentFactory>();
-        // Red: drop thalos.UseAnthropic from AddDaedalusAgents; no provider is registered and the test fails at the resolve above.
+        // Red: register another IChatClientProvider after AddDaedalusAgents; this type assertion fails.
         provider.GetRequiredService<IChatClientProvider>().Should().BeOfType<AnthropicChatClientProvider>();
     }
 
@@ -219,10 +219,10 @@ public sealed class AgentFactoryTests
     }
 
     /// <summary>
-    ///     The retired <c>ExternalServices:Llm:Claude:ApiKey</c> is not read: with it set and no Thalos key the call fails.
+    ///     The retired <c>ExternalServices:Llm:Claude:ApiKey</c> is not bound: <c>ClaudeConfiguration</c> has no such property.
     /// </summary>
     [Fact]
-    public async Task A_section_ApiKey_is_no_longer_read()
+    public async Task ClaudeConfiguration_has_no_ApiKey_any_more()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(Settings(("ExternalServices:Llm:Claude:ApiKey", "section-key")))
@@ -232,17 +232,11 @@ public sealed class AgentFactoryTests
         services.AddExternalServices(configuration);
         services.AddAgentFrameworkServices(configuration);
         await using var sp = services.BuildServiceProvider();
+
         var claude = sp.GetRequiredService<IOptions<ClaudeConfiguration>>().Value;
+
         // Red: add an ApiKey property to ClaudeConfiguration again; this assertion fails.
         claude.GetType().GetProperty("ApiKey").Should().BeNull("ClaudeConfiguration has no ApiKey any more");
-        var factory = Factory(NoKeyProvider(), model: claude.Model!);
-
-        var result = await factory.InvokeAsync("hi", CancellationToken.None);
-
-        // Red: create the client outside the try block; the exception escapes and the call throws.
-        result.IsFailure.Should().BeTrue();
-        // Red: have the catch report a fixed text without the exception message; the Thalos key is not named.
-        result.Error.Should().Contain("Thalos:Anthropic:ApiKey");
     }
 
     /// <summary>

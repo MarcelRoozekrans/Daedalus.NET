@@ -27,7 +27,6 @@ public sealed partial class AgentFactory(
     // Validated non-blank when the options are read; see AddAgentFrameworkServices.
     private readonly string _defaultModel = claude.Value.Model!;
     private readonly int _maxTokens = claude.Value.MaxTokens;
-    private readonly ILogger<AgentFactory> _logger = logger;
 
     /// <inheritdoc />
     public async Task<Result<LlmInvocationResult>> InvokeAsync(string prompt, CancellationToken ct = default)
@@ -39,7 +38,7 @@ public sealed partial class AgentFactory(
 
         try
         {
-            LogInvocationStarting(_logger, prompt.Length, _defaultModel);
+            LogInvocationStarting(logger, prompt.Length, _defaultModel);
 
             // The provider throws InvalidOperationException here when no API key is set; the catch below turns it
             // into a failure result that names Thalos:Anthropic:ApiKey.
@@ -66,12 +65,12 @@ public sealed partial class AgentFactory(
 
             if (string.IsNullOrEmpty(text))
             {
-                LogEmptyResponse(_logger);
+                LogEmptyResponse(logger);
                 return Result<LlmInvocationResult>.Failure("Claude returned empty response");
             }
 
             var (inputTokens, outputTokens) = ExtractTokenUsage(response);
-            LogInvocationCompleted(_logger, text.Length);
+            LogInvocationCompleted(logger, text.Length);
             return Result<LlmInvocationResult>.Success(new LlmInvocationResult
             {
                 Response = text,
@@ -82,12 +81,12 @@ public sealed partial class AgentFactory(
         }
         catch (OperationCanceledException)
         {
-            LogInvocationCancelled(_logger);
+            LogInvocationCancelled(logger);
             return Result<LlmInvocationResult>.Failure("Operation cancelled");
         }
         catch (Exception ex)
         {
-            LogErrorInvoking(_logger, ex, ex.Message);
+            LogErrorInvoking(logger, ex, ex.Message);
             return Result<LlmInvocationResult>.Failure($"Error invoking Claude: {ex.Message}");
         }
     }

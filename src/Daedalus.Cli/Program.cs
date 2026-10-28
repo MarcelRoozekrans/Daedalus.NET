@@ -57,6 +57,13 @@ namespace Daedalus.Cli
             // which AddDaedalusAgents' DaedalusKnowledgeTools requires).
             services.AddExternalServices(configuration);
 
+            // The registrations the API host makes for what AddDaedalusAgents registers: AgentFactory needs the Claude
+            // options and McpToolBuilder (AddAgentFrameworkServices), and ThalosPullRequestPublisher needs
+            // IPullRequestFactory (AddCodeAnalysisServices). Without them a Development start, which validates the
+            // container on build, fails.
+            services.AddAgentFrameworkServices(configuration);
+            services.AddCodeAnalysisServices(configuration);
+
             // Ollama embedding generator (memory index + Sentinel). Aspire provides ConnectionStrings:ollama when
             // this host runs under the AppHost; without it memories stay index_pending and Sentinel's semantic
             // detectors stay lexical-only, same degradation as the API host.
