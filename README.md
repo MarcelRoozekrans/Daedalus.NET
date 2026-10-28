@@ -222,7 +222,7 @@ The old technique is described in [Ralph Wiggum Technique](docs/ralph-wiggum-tec
 | Agent memory         | `Thalos.NET.Memory` 0.4.0 + `Thalos.NET.Memory.RagNet` 0.4.0 (→ Rag.NET 0.1.x pgvector store, `rag_chunks`) |
 | Agent skills         | `Thalos.NET.Skills` 0.4.0 (markdown procedures from git, in-process cosine search, no Rag.NET dependency) |
 | Agent channels       | `Thalos.NET.Channels` 0.4.0 (console channel, pump, commands) + `Thalos.NET.Channels.Telegram` 0.4.0 (Bot API, long-poll) |
-| Embeddings           | Ollama `nomic-embed-text` (768 dims) via `Thalos.NET.Ollama` 0.20.0                        |
+| Embeddings           | Ollama `nomic-embed-text` (768 dims) via `Thalos.NET.Ollama` 0.20.0                 |
 | LLM security         | AI.Sentinel 3.2.1 (via `Thalos.NET.Sentinel` 0.19.0)                                |
 | LLM Providers        | Anthropic SDK 12.53.0 (agent factory for brainstorm and PRD generation; Thalos via `Thalos.NET.Anthropic`) |
 | MCP                  | ModelContextProtocol 2.2.0 (`Thalos.NET.Mcp` reads `.mcp.json`)                     |
