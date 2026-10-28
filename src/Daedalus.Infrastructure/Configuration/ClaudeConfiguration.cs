@@ -11,11 +11,6 @@ public sealed class ClaudeConfiguration
     public const string FallbackModelKey = "Thalos:Anthropic:DefaultModel";
 
     /// <summary>
-    ///     Anthropic API key. When it is not configured, the <c>ANTHROPIC_API_KEY</c> environment variable is used.
-    /// </summary>
-    public string? ApiKey { get; set; }
-
-    /// <summary>
     ///     The model to invoke. When it is not configured it is <see cref="FallbackModelKey"/>; with neither, the
     ///     options fail validation.
     /// </summary>

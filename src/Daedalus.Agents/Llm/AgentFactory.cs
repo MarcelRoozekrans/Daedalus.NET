@@ -1,56 +1,33 @@
 using System.Diagnostics.CodeAnalysis;
-using Anthropic;
-using Anthropic.Core;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
+using Daedalus.Infrastructure.Agents;
 using Daedalus.Infrastructure.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Thalos;
 using ZeroAlloc.Results;
 
-namespace Daedalus.Infrastructure.Agents;
+namespace Daedalus.Agents.Llm;
 
 /// <summary>
-///     Creates and invokes LLM agents backed by the Microsoft Agent Framework with Anthropic Claude.
+///     Creates and invokes LLM agents backed by the chat client Thalos provides.
 ///     MCP tools are automatically attached to every agent instance via <see cref="McpToolBuilder" />.
 /// </summary>
 [SuppressMessage("Design", "CA1031:Do not catch general exception types",
     Justification = "LLM invocations should return Result failures, not throw")]
-public sealed partial class AgentFactory : IAgentFactory
+public sealed partial class AgentFactory(
+    IChatClientProvider chatClientProvider,
+    IOptions<ClaudeConfiguration> claude,
+    McpToolBuilder mcpToolBuilder,
+    McpIntegrationOptions mcpOptions,
+    ILogger<AgentFactory> logger) : IAgentFactory
 {
-    private readonly string _apiKey;
-    private readonly string _defaultModel;
-    private readonly int _maxTokens;
-    private readonly McpToolBuilder _mcpToolBuilder;
-    private readonly McpIntegrationOptions _mcpOptions;
-    private readonly ILogger<AgentFactory> _logger;
-
-    public AgentFactory(
-        IOptions<ClaudeConfiguration> claude,
-        McpToolBuilder mcpToolBuilder,
-        McpIntegrationOptions mcpOptions,
-        ILoggerFactory loggerFactory)
-    {
-        ArgumentNullException.ThrowIfNull(claude);
-        _mcpToolBuilder = mcpToolBuilder;
-        _mcpOptions = mcpOptions;
-        _logger = loggerFactory.CreateLogger<AgentFactory>();
-
-        var options = claude.Value;
-        _apiKey = !string.IsNullOrEmpty(options.ApiKey)
-            ? options.ApiKey
-            : Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty;
-        // Validated non-blank when the options are read; see AddAgentFrameworkServices.
-        _defaultModel = options.Model!;
-        _maxTokens = options.MaxTokens;
-
-        if (string.IsNullOrWhiteSpace(_apiKey))
-        {
-            _logger.LogWarning(
-                "Anthropic API key not configured. Set {Section}:ApiKey or ANTHROPIC_API_KEY env var", ClaudeConfiguration.SectionName);
-        }
-    }
+    // Validated non-blank when the options are read; see AddAgentFrameworkServices.
+    private readonly string _defaultModel = claude.Value.Model!;
+    private readonly int _maxTokens = claude.Value.MaxTokens;
+    private readonly ILogger<AgentFactory> _logger = logger;
 
     /// <inheritdoc />
     public async Task<Result<LlmInvocationResult>> InvokeAsync(string prompt, CancellationToken ct = default)
@@ -60,17 +37,13 @@ public sealed partial class AgentFactory : IAgentFactory
             return Result<LlmInvocationResult>.Failure("Prompt cannot be empty");
         }
 
-        if (string.IsNullOrWhiteSpace(_apiKey))
-        {
-            return Result<LlmInvocationResult>.Failure("Anthropic API key is not configured");
-        }
-
         try
         {
             LogInvocationStarting(_logger, prompt.Length, _defaultModel);
 
-            // Create IChatClient from Anthropic provider
-            var chatClient = CreateChatClient();
+            // The provider throws InvalidOperationException here when no API key is set; the catch below turns it
+            // into a failure result that names Thalos:Anthropic:ApiKey.
+            using var chatClient = CreateChatClient();
 
             // Build MCP tools if enabled
             var tools = await BuildMcpToolsAsync(ct);
@@ -120,20 +93,21 @@ public sealed partial class AgentFactory : IAgentFactory
     }
 
     /// <summary>
-    ///     Creates an <see cref="IChatClient" /> backed by Anthropic Claude.
-    ///     Uses the <c>Anthropic</c> SDK's <c>AsIChatClient()</c> extension
-    ///     from <c>Microsoft.Extensions.AI</c>.
+    ///     Asks Thalos's <see cref="IChatClientProvider" /> for a chat client and wraps it with function invocation, so
+    ///     MCP tool calls run automatically. The caller owns and disposes the client.
     /// </summary>
     private IChatClient CreateChatClient()
     {
-        var anthropicClient = new AnthropicClient(new ClientOptions { ApiKey = _apiKey });
+        var agent = new AgentDefinition
+        {
+            Id = AgentId.New(),
+            Name = "agent-factory",
+            Instructions = "",
+            Model = _defaultModel,
+            MaxOutputTokens = _maxTokens
+        };
 
-        // AsIChatClient() is an extension method from the Anthropic package
-        // that creates an IChatClient wrapping the Anthropic API
-        var chatClient = anthropicClient.AsIChatClient(_defaultModel, _maxTokens);
-
-        // Wrap with FunctionInvokingChatClient for automatic MCP tool calling
-        return new ChatClientBuilder(chatClient)
+        return new ChatClientBuilder(chatClientProvider.CreateChatClient(agent))
             .UseFunctionInvocation()
             .Build();
     }
@@ -143,12 +117,12 @@ public sealed partial class AgentFactory : IAgentFactory
     /// </summary>
     private async Task<IReadOnlyList<AITool>> BuildMcpToolsAsync(CancellationToken ct)
     {
-        if (!_mcpOptions.Enabled || _mcpOptions.Servers.Count == 0)
+        if (!mcpOptions.Enabled || mcpOptions.Servers.Count == 0)
         {
             return Array.Empty<AITool>();
         }
 
-        return await _mcpToolBuilder.BuildToolsAsync(_mcpOptions.Servers, ct);
+        return await mcpToolBuilder.BuildToolsAsync(mcpOptions.Servers, ct);
     }
 
     /// <summary>

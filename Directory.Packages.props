@@ -43,13 +43,6 @@
     <PackageVersion Include="Testcontainers.Keycloak" Version="4.16.0" />
 
     <!-- AI stack aligned with Thalos.NET -->
-    <!-- 12.50.0 → 12.53.0: floor set by Thalos.NET.Anthropic 0.13.0 -->
-    <!-- 12.53.0 → 12.55.0: floor set by Thalos.NET.Anthropic 0.15.0 -->
-    <!-- 12.55.0 → 12.58.0: floor set by Thalos.NET.Anthropic 0.18.0 -->
-    <!-- 12.58.0 → 13.1.0: floor set by Thalos.NET.Anthropic 0.19.0.
-         Runtime behaviour change: API version 2026-10-21, the key sent as Authorization: Bearer, and AsIChatClient
-         no longer forwards temperature, TopP or TopK. AgentFactory uses none of these. -->
-    <PackageVersion Include="Anthropic" Version="13.1.0" />
     <!-- 10.10.0 → 10.11.0: floor set by Thalos.NET 0.18.0 -->
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.11.0" />
     <!-- 10.10.0 → 10.10.1: floor set by Thalos.NET.Abstractions 0.11.0. Microsoft.Extensions.AI

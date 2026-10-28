@@ -7,6 +7,7 @@ using Daedalus.Agents.Channels;
 using Daedalus.Agents.Charters;
 using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Git;
+using Daedalus.Agents.Llm;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
@@ -274,6 +275,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         // never logged: the start-up line names the reason alone.
         services.TryAddSingleton(options);
         services.TryAddSingleton(options.Decisions);
+
+        // The one-shot LLM port (brainstorm, PRD generation): asks Thalos's IChatClientProvider for its chat client and
+        // reads the model, token limit and MCP servers from options AddAgentFrameworkServices and AddExternalServices bind.
+        services.AddScoped<IAgentFactory, AgentFactory>();
         var openRouterKey = configuration[OpenRouterKeyName];
         if (options.Decisions.IsEnabled(openRouterKey))
         {

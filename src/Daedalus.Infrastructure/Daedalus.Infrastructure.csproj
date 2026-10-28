@@ -37,7 +37,6 @@
         <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="ZeroAlloc.Rest" />
         <PackageReference Include="ZeroAlloc.Rest.SystemTextJson" />
-        <PackageReference Include="Anthropic" />
         <PackageReference Include="ZLinq" />
         <PackageReference Include="LibGit2Sharp" />
         <!-- OutboxMessageEntity + AddOutboxMessages(): ApplicationDbContext.OnModelCreating maps the outbox table here

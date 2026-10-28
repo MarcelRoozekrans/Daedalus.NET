@@ -204,8 +204,7 @@ public class E2EServerFixture
             // handlers run and behave exactly like production - including returning "not found" for a
             // missing id. The commands that do call out to an LLM (GeneratePrd,
             // ConvertPrdToTasks) are safe too: they go through IAgentFactory, which
-            // is stubbed here.
-            RemoveAndReplace<IAgentFactory, StubAgentFactory>(builder.Services);
+            // is stubbed right after AddDaedalusAgents below, because that registers the real one.
             RemoveAndReplace<IPullRequestFactory, StubPullRequestFactory>(builder.Services);
             RemoveAndReplace<IRalphLoopOrchestrator, StubRalphLoopOrchestrator>(builder.Services);
 
@@ -228,6 +227,9 @@ public class E2EServerFixture
                     ["Thalos:Workflow:Enabled"] = "true",
                 });
             builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
+
+            // AddDaedalusAgents registers the real AgentFactory (since phase 3.3); the stub replaces it here, after it.
+            RemoveAndReplace<IAgentFactory, StubAgentFactory>(builder.Services);
             RemoveWorkflowBackgroundWork(builder.Services);
             foreach (var descriptor in builder.Services.Where(d => d.ServiceType == typeof(IAgentRuntime)).ToList())
             {

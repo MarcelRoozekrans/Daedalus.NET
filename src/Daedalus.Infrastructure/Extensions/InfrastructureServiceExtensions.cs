@@ -69,8 +69,9 @@ public static class InfrastructureServiceExtensions
     }
 
     /// <summary>
-    ///     Registers Agent Framework services: <c>IAgentFactory</c> (Claude via Anthropic),
-    ///     <c>McpToolBuilder</c> (MCP → AITool bridge), and supporting infrastructure.
+    ///     Registers Agent Framework services: the <c>ClaudeConfiguration</c> options and
+    ///     <c>McpToolBuilder</c> (MCP → AITool bridge). <c>IAgentFactory</c> itself is registered by
+    ///     <c>AddDaedalusAgents</c>, which asks Thalos for its chat client.
     ///     Call this after AddExternalServices so MCP configuration is available.
     /// </summary>
     public static IServiceCollection AddAgentFrameworkServices(
@@ -96,11 +97,6 @@ public static class InfrastructureServiceExtensions
 
         // McpToolBuilder converts McpServerConfig entries into AITool instances
         services.AddSingleton<McpToolBuilder>();
-
-        // IAgentFactory is the primary interface for LLM invocations:
-        // - Creates ChatClientAgent backed by Anthropic Claude
-        // - Attaches MCP tools automatically
-        services.AddScoped<IAgentFactory, AgentFactory>();
 
         return services;
     }
