@@ -1,34 +1,43 @@
 # Session State
 
-**Last session:** 2026-10-25
+**Last session:** 2026-10-28
 
-## Current Position - phase 3.3 active (2026-10-24): design and plan approved, execution not started
+## Current Position - phase 3.3 executing (2026-10-28): Tasks 1-8 (steps 1-3) and 10 done, Task 8 step 4 next
 
-**Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Branch `phase/3.3-own-llm-clients` from `main`
-`88cf0433`, pushed; worktree `.claude/worktrees/phase-3.3`. Brainstormed with the owner on 2026-10-24.
+**Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Plan
+`docs/superpowers/plans/2026-10-24-phase-3.3-own-llm-clients-plan.md`, run with subagent-driven development. The ledger
+is `.superpowers/sdd/2026-10-24-phase-3.3-own-llm-clients-plan/progress.md` in this worktree; it is git-ignored and
+holds every ruling, R1 to R14, and the deferred minors. Trust it and `git log` over memory.
 
-- **Design:** `docs/superpowers/specs/2026-10-24-phase-3.3-own-llm-clients-design.md` (`cee71777`), approved.
-- **Plan:** `docs/superpowers/plans/2026-10-24-phase-3.3-own-llm-clients-plan.md` (`62e75627`), approved: 25 tasks
-  over ZeroAlloc.Resilience, ZeroAlloc.Rest, Thalos.NET and Daedalus, with owner gates G1 to G4.
-- **Execution:** the owner chose subagent-driven development in a fresh session. No task has started and no ledger
-  exists yet.
+- **Done and released:**
+  - ZeroAlloc.Resilience 3.4.0: stream retry, PR #256, release #257. G1 is closed.
+  - ZeroAlloc.Rest 3.4.0: SSE, PR #492, release #494. The owner released it with SSE only.
+- **Done, not pushed:** ZeroAlloc.Rest.Anthropic and ZeroAlloc.Rest.Ollama, Tasks 6, 7, 8 steps 1-3 and 10. They are
+  on branch `feat/anthropic-client` in worktree `/home/marcel/Projects/Prive/ZeroAlloc/worktrees/rest-anthropic`, head
+  `6d40047`, on main `a5fb126`. Each task was reviewed clean. The clients ship in the next Rest release, expected
+  3.5.0 (ruling R9).
+- **Worktrees:** the Resilience and rest-sse worktrees under `/home/marcel/Projects/Prive/ZeroAlloc/worktrees/` are
+  merged and can be removed.
 
 ## Open Decisions
 
-None blocking. The plan's "Calls this plan makes" section lists the builder calls for the owner to check, and the
-design's "My call" items are listed in it.
+None blocking.
 
 ## Blockers
 
-- G1 to G3 are owner merges and releases: ZeroAlloc.Resilience, ZeroAlloc.Rest at 3.4.0, Thalos 0.20.0.
-- G4 needs the owner: the spend for the native turn and the live run, and whether the AppHost token may write to
-  Daedalus.NET; item 2 below.
+- **Task 8 step 4, the transcript recording:** waits on the owner running
+  `bash scripts/bao-env/setup.sh daedalus ANTHROPIC_API_KEY` from docker-nuc `origin/main`. Ruling R13: the key lives in
+  OpenBao `kv/agents/daedalus` and runs go through `bao-env daedalus -- <cmd>`.
+- G2, G3 and G4 as in the plan.
 
 ## Recommended Next Step
 
-In a fresh session, from `.claude/worktrees/phase-3.3`: run superpowers:subagent-driven-development on the plan above,
-starting at Task 1 in a fresh ZeroAlloc.Resilience worktree from `origin/main`. Read the plan's Global Constraints
-first: no local Native AOT publish, outward actions are the controller's, and the owner merges every PR.
+In a fresh session, from `.claude/worktrees/phase-3.3`, resume superpowers:subagent-driven-development from the ledger:
+1. Once `~/.local/bin/bao-env` and `~/.config/bao-env/daedalus.env` exist, run Task 8 step 4 in the rest-anthropic
+   worktree: `bao-env daedalus -- dotnet run --project tests/ZeroAlloc.Rest.Anthropic.Recorder`.
+2. Scrub and eye-check the files, delete the three-files Skip, then commit.
+3. Do Task 9, which adds the Anthropic calls to the clients AOT smoke that Task 10 created, then Task 11, the clients
+   PR. Stop at G2.
 
 ## Previous Position - phase 3.2 complete (2026-10-24), merged as #409 (`88cf0433`)
 
