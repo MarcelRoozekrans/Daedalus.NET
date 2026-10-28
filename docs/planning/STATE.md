@@ -17,6 +17,12 @@
   4. Build the serializer as `new SystemTextJsonSerializer(AnthropicJson.Context)`. Delta usage is
      `MessageDeltaUsage`, with `int?` fields.
 
+**Side work, owner's ask on 2026-10-28:** a weekly API conformance workflow in ZeroAlloc.Rest that opens an
+`api-drift` issue assigned to the owner. The design is agreed and committed:
+`docs/plans/2026-10-28-api-conformance-design.md` on branch `ci/api-conformance` (`35cf1dc`), in worktree
+`/home/marcel/Projects/Prive/ZeroAlloc/worktrees/rest-conformance`. Next for it: writing-plans, then build. It needs
+the owner's dedicated `ANTHROPIC_API_KEY` repo secret on ZeroAlloc.Rest.
+
 The rest of this section is the earlier pause of the same day, kept for context.
 
 **Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Plan
