@@ -7,6 +7,7 @@ using Daedalus.Agents.Sessions;
 using Daedalus.Agents.Workflow;
 using Daedalus.Cli;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -52,6 +53,23 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
         hosted.Count(h => h is ScheduleReconcilerHostedService).Should().Be(1,
             "AddDaedalusAgents already registers it; AddDaedalusScheduling must not register a second one");
         hosted.Count(h => h is AgentSessionCrashRecovery).Should().Be(1);
+    }
+
+    /// <summary>Red: pass another model to UseOllamaEmbeddings in Program.cs, or stop registering it; the generator or its model is wrong.</summary>
+    [Fact]
+    public void The_cli_host_registers_the_ollama_generator_from_the_apphost_shape()
+    {
+        using var provider = BuildProvider(new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["ConnectionStrings:ollama"] = "Endpoint=http://localhost:11434",
+        });
+
+        var metadata = provider.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>()
+            .GetService<EmbeddingGeneratorMetadata>();
+
+        metadata.Should().NotBeNull();
+        metadata!.ProviderName.Should().Be("ollama");
+        metadata.DefaultModelId.Should().Be("nomic-embed-text");
     }
 
     [Fact]

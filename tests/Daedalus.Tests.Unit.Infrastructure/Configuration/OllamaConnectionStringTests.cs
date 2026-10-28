@@ -26,14 +26,23 @@ public sealed class OllamaConnectionStringTests
         OllamaConnectionString.ParseEndpoint("http://localhost:11434").Should().Be(new Uri("http://localhost:11434"));
     }
 
+    /// <summary>Red: read only the first segment for the Endpoint key; the parse throws.</summary>
+    [Fact]
+    public void The_endpoint_segment_may_follow_the_model()
+    {
+        OllamaConnectionString.ParseEndpoint("Model=nomic-embed-text;Endpoint=http://ollama:11434")
+            .Should().Be(new Uri("http://ollama:11434"));
+    }
+
     /// <summary>Red: return an arbitrary default URI for input without an endpoint instead of throwing; the exception is not thrown.</summary>
     [Theory]
+    [InlineData(null)]
     [InlineData("")]
     [InlineData("not a url")]
     [InlineData("Model=nomic-embed-text")]
     [InlineData("Endpoint=")]
     [InlineData("Endpoint=/relative")]
-    public void Anything_else_throws_FormatException_naming_ConnectionStrings_ollama(string connectionString)
+    public void Anything_else_throws_FormatException_naming_ConnectionStrings_ollama(string? connectionString)
     {
         var act = () => OllamaConnectionString.ParseEndpoint(connectionString);
 
