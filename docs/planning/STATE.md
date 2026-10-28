@@ -2,7 +2,24 @@
 
 **Last session:** 2026-10-28
 
-## Current Position - phase 3.3 executing (2026-10-28, late afternoon): Tasks 1-18 done, G3 closed; Task 19 next
+## Current Position - phase 3.3 executing (2026-10-28, evening): Tasks 1-21 done, G4 closed; Task 22 next
+
+**Update, 2026-10-28 evening.** Tasks 19-21 are done and G4 is answered.
+
+- **Task 19,** `4daf507a` and `e9a1920e`: the Api and Cli hosts build embeddings with `UseOllamaEmbeddings` from
+  `ConnectionStrings:ollama`, parsed by `OllamaConnectionString.ParseEndpoint`.
+- **Task 20,** `916b104a` and `f6ede430`: the AppHost runs Ollama as a plain container with an `ollama-pull` one-shot
+  and passes `Endpoint=`. Fixes #412. A real AppHost run indexed one memory.
+- **Ratchet move 2** is `b543120f`: Api 1530 → 1502 and Cli 649 → 633, from CI on `f6ede430`.
+- **Task 21:** no Anthropic or OllamaSharp in any of the 18 projects or in the props. Release build 0 warnings, format
+  clean, seven suites green. CI is green on `b543120f`.
+- **G4, owner's answer:** spend approved for Task 22's native turn and Task 24's live run. The live run targets
+  `MarcelRoozekrans/daedalus-sandbox`, because the token still cannot write to Daedalus.NET.
+- **Next:** Task 22, native publish via the `native-publish` label plus the smoke doc. Then Task 23, then Task 24.
+- **VM note:** the root disk filled at 17:33Z, so no shell command ran until the owner freed space. Check `df -h /`
+  before heavy runs.
+
+**Earlier, 2026-10-28 late afternoon:**
 
 **Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Plan
 `docs/superpowers/plans/2026-10-24-phase-3.3-own-llm-clients-plan.md`, run with subagent-driven development. The ledger
@@ -27,6 +44,8 @@ memory.
   Global Constraints still demand one; ignore that line. Thalos main `abf47c6` carries 11 such trailers from the
   squash. That is merged history, left as is, and the owner was told. Phase 3.3 commits pushed before `ed61d654` carry
   them too: strip them from the squash message of #424 when it merges.
+- **Note for the squash:** release-please also reads conventional lines in a squash body, so the `refactor:`/`test:`
+  follow-ups stay out of the changelog. Only the PR title and `Fixes #412` matter there.
 
 **Side work, owner's ask on 2026-10-28:** a weekly API conformance workflow in ZeroAlloc.Rest that opens an
 `api-drift` issue assigned to the owner. The design is agreed and committed:
