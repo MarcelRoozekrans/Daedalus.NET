@@ -2,7 +2,22 @@
 
 **Last session:** 2026-10-28
 
-## Current Position - phase 3.3 executing (2026-10-28): Tasks 1-8 (steps 1-3) and 10 done, Task 8 step 4 next
+## Current Position - phase 3.3 executing (2026-10-28, later): Tasks 1-11 done, at G2
+
+**Update, 2026-10-28 09:45:**
+- **Tasks 8 to 11 are done.** The transcripts were recorded through `bao-env daedalus` (`8e868db`). The replay tests,
+  the clients AOT smoke and the docs are in place.
+- **The clients PR is ZeroAlloc-Net/ZeroAlloc.Rest#497.** CI is fully green: `aot-smoke-clients` reports 0 IL warnings.
+  The owner will squash-merge it and then merge the release PR, expected 3.5.0. This is G2.
+- **Next:**
+  1. Check nuget.org for both new packages at the released version.
+  2. Start Task 12 in Thalos.NET, in a fresh worktree from `origin/main` on `feat/own-anthropic-client`, pinning that
+     version (ruling R9).
+  3. Copy the recorded fixtures from the rest-anthropic worktree's `tests/ZeroAlloc.Rest.Anthropic.Tests/Transcripts/`.
+  4. Build the serializer as `new SystemTextJsonSerializer(AnthropicJson.Context)`. Delta usage is
+     `MessageDeltaUsage`, with `int?` fields.
+
+The rest of this section is the earlier pause of the same day, kept for context.
 
 **Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Plan
 `docs/superpowers/plans/2026-10-24-phase-3.3-own-llm-clients-plan.md`, run with subagent-driven development. The ledger
