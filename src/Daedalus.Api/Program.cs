@@ -24,6 +24,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
+using Thalos.Ollama;
 using Thalos.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -60,11 +61,10 @@ builder.Services.AddSingleton<IValidateOptions<ClaudeConfiguration>, ClaudeModel
 // instance is passed to AI.Sentinel's semantic detectors below (Sentinel's configure delegate runs at registration time, so it
 // cannot be resolved from DI).
 var ollamaConnectionString = builder.Configuration.GetConnectionString("ollama");
-OllamaSharp.OllamaApiClient? ollama = null;
+Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>? ollama = null;
 if (!string.IsNullOrEmpty(ollamaConnectionString))
 {
-    ollama = new OllamaSharp.OllamaApiClient(new Uri(ollamaConnectionString), "nomic-embed-text");
-    builder.Services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(ollama);
+    ollama = builder.Services.UseOllamaEmbeddings(OllamaConnectionString.ParseEndpoint(ollamaConnectionString), "nomic-embed-text");
 }
 
 // Thalos-based agents: chat sessions, memory, the manufacture workflow and scheduled runs. Needs the DbContext factory (AddApplicationDatabase),

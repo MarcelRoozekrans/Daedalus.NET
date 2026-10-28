@@ -28,7 +28,7 @@
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
-        <PackageReference Include="OllamaSharp" />
+        <PackageReference Include="Thalos.NET.Ollama" />
         <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="Scalar.AspNetCore" />
         <PackageReference Include="ZeroAlloc.Validation" />
