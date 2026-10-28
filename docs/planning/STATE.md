@@ -2,7 +2,27 @@
 
 **Last session:** 2026-10-28
 
-## Current Position - phase 3.3 executing (2026-10-28, later): Tasks 1-11 done, at G2
+## Current Position - phase 3.3 executing (2026-10-28, evening): Tasks 1-15 and 11b, 14b done; Task 16 next
+
+**Update, 2026-10-28 evening:**
+- **G2 is closed.** ZeroAlloc.Rest 3.5.0 has both clients.
+- **The owner chose to multi-target ZeroAlloc.Rest.** Task 11b, PR #499, shipped net8.0 and net10.0 as ZeroAlloc.Rest **3.6.0**.
+- **Thalos tasks 12 to 15 and 14b are done,** each with a clean review. They are on `feat/own-anthropic-client` in `/home/marcel/Projects/Prive/Thalos.NET-worktrees/own-anthropic`, head `4d9ce0d`, pushed and without a PR. They cover:
+  - the own IChatClient adapter, with the SDK 13.3.0 tool-schema transform (R17);
+  - the provider and cache translator on our own types, with the SDK removed (R21);
+  - Thalos.NET.Ollama;
+  - the architecture tests and the native probe;
+  - ZeroAlloc.Rest 3.6.0, with net8.0 back on both adapters.
+- **Next is Task 16,** in the Thalos worktree:
+  - Write the README and the docs/release.md 0.20.0 section. The family grows from eighteen packages to nineteen.
+  - Make sure the BREAKING CHANGE footer stays only on Task 12's commit, `5b13e47`.
+  - Run `dotnet test Thalos.NET.slnx -c Release` with Docker.
+  - Open the PR. Suggest a squash merge, so the "no longer depends on the Anthropic SDK" footer is true.
+  - Stop at G3.
+- **Rulings:** R15 to R26 are in the ledger.
+- **Filed:** Thalos.NET#429, no CI test leg for net8.0.
+
+The section below is the G2 update from earlier the same day.
 
 **Update, 2026-10-28 09:45:**
 - **Tasks 8 to 11 are done.** The transcripts were recorded through `bao-env daedalus` (`8e868db`). The replay tests,
