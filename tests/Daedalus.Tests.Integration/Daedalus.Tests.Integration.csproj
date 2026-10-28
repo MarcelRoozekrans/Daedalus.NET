@@ -45,6 +45,7 @@
         <PackageReference Include="Spectre.Console.Testing"/>
         <PackageReference Include="Aspire.Hosting"/>
         <PackageReference Include="Aspire.Hosting.PostgreSQL"/>
+        <PackageReference Include="Aspire.Hosting.Testing"/>
         <PackageReference Include="OpenTelemetry.Exporter.InMemory"/>
         <PackageReference Include="Thalos.NET.Testing"/>
         <PackageReference Include="ZeroAlloc.TestHelpers"/>
@@ -64,6 +65,9 @@
         <ProjectReference Include="..\..\src\Daedalus.Cli\Daedalus.Cli.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
+        <!-- AppHostOllamaWiringTests builds the AppHost app model and starts nothing. Aliased because the Api and the
+             AppHost both have a top-level Program in the global namespace. -->
+        <ProjectReference Include="..\..\src\Daedalus.AppHost\Daedalus.AppHost.csproj" Aliases="AppHostAssembly"/>
         <!-- Migrations tests run Daedalus.Migrations' own workflow engine step, WorkflowEngineMigrator, rather than a
              copy of its wiring. -->
         <ProjectReference Include="..\..\src\Daedalus.Migrations\Daedalus.Migrations.csproj"/>

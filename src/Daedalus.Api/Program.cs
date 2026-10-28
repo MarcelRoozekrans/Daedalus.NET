@@ -56,7 +56,7 @@ builder.Services.AddAgentFrameworkServices(builder.Configuration);
 // The model those services call must be priced, or its spend is left out of every cost total (#385).
 builder.Services.AddSingleton<IValidateOptions<ClaudeConfiguration>, ClaudeModelPricedValidator>();
 
-// Register Ollama embedding generator (optional). The Aspire AppHost provides ConnectionStrings:ollama via WithReference(ollama).
+// Register Ollama embedding generator (optional). The Aspire AppHost provides ConnectionStrings:ollama as `Endpoint=<url>` of the ollama container.
 // The DI singleton feeds the Thalos memory index (Rag.NET on the app database; without it memories stay index_pending); the same
 // instance is passed to AI.Sentinel's semantic detectors below (Sentinel's configure delegate runs at registration time, so it
 // cannot be resolved from DI).

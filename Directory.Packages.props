@@ -19,7 +19,11 @@
     <PackageVersion Include="Aspire.Hosting" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.4.6-preview.1.26319.6" />
-    <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="13.4.1-beta.706" />
+    <!-- Aspire.Hosting.Testing 13.4.6 (phase 3.3, Task 20): AppHostOllamaWiringTests builds the AppHost model with
+         DistributedApplicationTestingBuilder and starts nothing. The CommunityToolkit Ollama hosting package is gone:
+         its AddModel wiring named the connection string ollama-nomic-embed-text (#412), so the AppHost runs Ollama as a
+         plain container instead. -->
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.4.6" />
     <!-- MessagePack 2.5.302 → 2.5.307 for GHSA-qhrr-8q5h-9q3h (nested arrays can pass buffer length limits; patched in
          2.5.303). It is transitive: Aspire.Hosting → StreamJsonRpc 2.25.29, which still asks for 2.5.302, so the pin
          lifts it under CentralPackageTransitivePinningEnabled. Drop it once StreamJsonRpc depends on a fixed version. -->
@@ -269,7 +273,8 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.14" />
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.3.0" />
+    <!-- 10.3.0 → 10.6.0: floor set by Aspire.Hosting.Testing 13.4.6 -->
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.6.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.13" />
@@ -279,7 +284,6 @@
     <PackageVersion Include="Cronos" Version="0.13.0" />
     <!-- 0.31.0 → 0.32.0: floor set by Thalos.NET.Git.LibGit2Sharp 0.6.0 -->
     <PackageVersion Include="LibGit2Sharp" Version="0.32.0" />
-    <PackageVersion Include="OllamaSharp" Version="5.4.12" /> <!-- floor set by CommunityToolkit.Aspire.Hosting.Ollama 13.4.1 -->
     <PackageVersion Include="ZLinq" Version="1.5.4" />
 
     <!-- Testing -->

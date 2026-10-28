@@ -42,8 +42,16 @@ var gitHubToken = builder.AddParameter("github-token", new EmptyStringParameterD
 var openRouterKey = builder.AddParameter("openrouter-key", new EmptyStringParameterDefault(), secret: true);
 
 // Resolve project paths relative to solution root (src/) and repo root
-var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
-var repoRoot = Path.GetFullPath(Path.Combine(solutionRoot, ".."));
+// Walk up from the output directory to the checkout, so the paths hold whichever project's bin folder hosts this
+// code: the AppHost itself, or the integration suite that builds the app model without starting it.
+var repoRoot = AppContext.BaseDirectory;
+while (!File.Exists(Path.Combine(repoRoot, "src", "Daedalus.AppHost", "Daedalus.AppHost.csproj")))
+{
+    repoRoot = Path.GetDirectoryName(repoRoot)
+        ?? throw new InvalidOperationException($"No Daedalus checkout above {AppContext.BaseDirectory}.");
+}
+
+var solutionRoot = Path.Combine(repoRoot, "src");
 var migrationsPath = Path.Combine(solutionRoot, "Daedalus.Migrations/Daedalus.Migrations.csproj");
 var apiPath = Path.Combine(solutionRoot, "Daedalus.Api/Daedalus.Api.csproj");
 var webPath = Path.Combine(solutionRoot, "Daedalus.Web/Daedalus.Web.csproj");
@@ -82,10 +90,26 @@ foreach (var hc in managementHealthCheck)
 
 keycloak.WithHttpHealthCheck("/health/ready");
 
-// Configure Ollama for embedding generation (semantic search)
-var ollama = builder.AddOllama("ollama")
-    .WithDataVolume()
-    .AddModel("nomic-embed-text");
+// Ollama for embedding generation (semantic search), as a plain container. The api reads ConnectionStrings:ollama as
+// `Endpoint=<url>` (OllamaConnectionString.ParseEndpoint) and fixes the model to nomic-embed-text itself. The
+// CommunityToolkit AddModel wiring is not used: it named the connection string ollama-nomic-embed-text, so the api saw
+// no ollama connection string and left embeddings off (#412).
+const string OllamaImage = "docker.io/ollama/ollama";
+const string OllamaTag = "0.13.0";
+const string EmbeddingModel = "nomic-embed-text";
+
+var ollama = builder.AddContainer("ollama", OllamaImage, OllamaTag)
+    .WithVolume("ollama-data", "/root/.ollama")
+    .WithHttpEndpoint(targetPort: 11434, name: "http")
+    .WithHttpHealthCheck("/");
+
+// One-shot: pulls the embedding model into the volume and exits; the api waits for it to exit 0. Show-or-pull keeps an
+// offline restart working once the model is already in the volume.
+var ollamaPull = builder.AddContainer("ollama-pull", OllamaImage, OllamaTag)
+    .WithEntrypoint("/bin/sh")
+    .WithArgs("-c", $"ollama show {EmbeddingModel} >/dev/null 2>&1 || ollama pull {EmbeddingModel}")
+    .WithEnvironment("OLLAMA_HOST", ollama.GetEndpoint("http"))
+    .WaitFor(ollama);
 
 // Add database migrations - runs after Keycloak is ready
 var migrations = builder.AddProject("migrations", migrationsPath)
@@ -107,7 +131,6 @@ var api = builder.AddProject("api", apiPath)
     .WithReference(database)
     .WithReference(keycloak)
     .WithReference(migrations)
-    .WithReference(ollama)
     .WithHttpEndpoint(port: 5010, targetPort: 5010, name: "api-http", isProxied: false)
     .WithExternalHttpEndpoints()
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -119,8 +142,10 @@ var api = builder.AddProject("api", apiPath)
     .WithEnvironment("OPENROUTER_API_KEY", openRouterKey)
     .WithEnvironment("Thalos__Workflow__Sandbox__Enabled", "true")
     .WithEnvironment("Thalos__Workflow__Sandbox__Image", "daedalus-sandbox:dev")
+    .WithEnvironment("ConnectionStrings__ollama", ReferenceExpression.Create($"Endpoint={ollama.GetEndpoint("http")}"))
     .WaitForCompletion(sandboxImage)
     .WaitForCompletion(migrations)
+    .WaitForCompletion(ollamaPull)
     .WaitFor(keycloak);
 
 // Add the Blazor WASM frontend with Keycloak reference

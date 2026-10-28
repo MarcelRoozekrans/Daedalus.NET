@@ -16,7 +16,11 @@
         <PackageReference Include="Aspire.Hosting.Keycloak"/>
         <PackageReference Include="Aspire.Hosting.PostgreSQL"/>
         <PackageReference Include="Microsoft.Extensions.Logging"/>
-        <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ollama"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- AppHostOllamaWiringTests builds this app model, which needs the generated Program entry point type. -->
+        <InternalsVisibleTo Include="Daedalus.Tests.Integration"/>
     </ItemGroup>
 
     <ItemGroup>
