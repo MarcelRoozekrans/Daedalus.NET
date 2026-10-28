@@ -2,40 +2,31 @@
 
 **Last session:** 2026-10-28
 
-## Current Position - phase 3.3 executing (2026-10-28, evening): Tasks 1-15 and 11b, 14b done; Task 16 next
+## Current Position - phase 3.3 executing (2026-10-28, late afternoon): Tasks 1-18 done, G3 closed; Task 19 next
 
-**Update, 2026-10-28 evening:**
-- **G2 is closed.** ZeroAlloc.Rest 3.5.0 has both clients.
-- **The owner chose to multi-target ZeroAlloc.Rest.** Task 11b, PR #499, shipped net8.0 and net10.0 as ZeroAlloc.Rest **3.6.0**.
-- **Thalos tasks 12 to 15 and 14b are done,** each with a clean review. They are on `feat/own-anthropic-client` in `/home/marcel/Projects/Prive/Thalos.NET-worktrees/own-anthropic`, head `4d9ce0d`, pushed and without a PR. They cover:
-  - the own IChatClient adapter, with the SDK 13.3.0 tool-schema transform (R17);
-  - the provider and cache translator on our own types, with the SDK removed (R21);
-  - Thalos.NET.Ollama;
-  - the architecture tests and the native probe;
-  - ZeroAlloc.Rest 3.6.0, with net8.0 back on both adapters.
-- **Next is Task 16,** in the Thalos worktree:
-  - Write the README and the docs/release.md 0.20.0 section. The family grows from eighteen packages to nineteen.
-  - Make sure the BREAKING CHANGE footer stays only on Task 12's commit, `5b13e47`.
-  - Run `dotnet test Thalos.NET.slnx -c Release` with Docker.
-  - Open the PR. Suggest a squash merge, so the "no longer depends on the Anthropic SDK" footer is true.
-  - Stop at G3.
-- **Rulings:** R15 to R26 are in the ledger.
-- **Filed:** Thalos.NET#429, no CI test leg for net8.0.
+**Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Plan
+`docs/superpowers/plans/2026-10-24-phase-3.3-own-llm-clients-plan.md`, run with subagent-driven development. The ledger
+is `.superpowers/sdd/2026-10-24-phase-3.3-own-llm-clients-plan/progress.md` in this worktree; it is git-ignored and
+holds every ruling, R1 to R28, the deferred minors, and the inserted tasks 11b and 14b. Trust it and `git log` over
+memory.
 
-The section below is the G2 update from earlier the same day.
-
-**Update, 2026-10-28 09:45:**
-- **Tasks 8 to 11 are done.** The transcripts were recorded through `bao-env daedalus` (`8e868db`). The replay tests,
-  the clients AOT smoke and the docs are in place.
-- **The clients PR is ZeroAlloc-Net/ZeroAlloc.Rest#497.** CI is fully green: `aot-smoke-clients` reports 0 IL warnings.
-  The owner will squash-merge it and then merge the release PR, expected 3.5.0. This is G2.
-- **Next:**
-  1. Check nuget.org for both new packages at the released version.
-  2. Start Task 12 in Thalos.NET, in a fresh worktree from `origin/main` on `feat/own-anthropic-client`, pinning that
-     version (ruling R9).
-  3. Copy the recorded fixtures from the rest-anthropic worktree's `tests/ZeroAlloc.Rest.Anthropic.Tests/Transcripts/`.
-  4. Build the serializer as `new SystemTextJsonSerializer(AnthropicJson.Context)`. Delta usage is
-     `MessageDeltaUsage`, with `int?` fields.
+- **G3 is closed.**
+  - Thalos.NET#431 was squash-merged as `abf47c6`, and release PR #432 was merged.
+  - All nineteen Thalos packages, `Thalos.NET.Ollama` included, are 0.20.0 on nuget.org, checked 14:13Z.
+  - The Thalos own-anthropic worktree is merged and can be removed.
+- **Task 17 is done,** `ed61d654`: Thalos 0.20.0, ZeroAlloc.Rest 3.6.0 and the 0.20.0 nuspec floors.
+- **Task 18 is done,** `71c95a89` and `f9b9db09`.
+  - `AgentFactory` now lives in `Daedalus.Agents/Llm` and runs on `IChatClientProvider`. `Anthropic` is gone from
+    Daedalus.
+  - The Cli host now calls `AddAgentFrameworkServices` and `AddCodeAnalysisServices`, so it builds with
+    `ValidateOnBuild`. This also fixed the older `IPullRequestFactory` failure (R28).
+- **Ratchet move 1** is `7a9dcec7`: Api 20244 → 1530 and Cli 4357 → 649, from CI on `f9b9db09`.
+- **Draft PR:** MarcelRoozekrans/Daedalus.NET#424, branch pushed. Daedalus.NET and Thalos.NET are attached to the remote
+  session, with the owner's OK.
+- **Ruling R27, owner's global rule of 2026-10-25:** no `Co-Authored-By: Claude` trailer on any commit. The plan's
+  Global Constraints still demand one; ignore that line. Thalos main `abf47c6` carries 11 such trailers from the
+  squash. That is merged history, left as is, and the owner was told. Phase 3.3 commits pushed before `ed61d654` carry
+  them too: strip them from the squash message of #424 when it merges.
 
 **Side work, owner's ask on 2026-10-28:** a weekly API conformance workflow in ZeroAlloc.Rest that opens an
 `api-drift` issue assigned to the owner. The design is agreed and committed:
@@ -43,42 +34,25 @@ The section below is the G2 update from earlier the same day.
 `/home/marcel/Projects/Prive/ZeroAlloc/worktrees/rest-conformance`. Next for it: writing-plans, then build. It needs
 the owner's dedicated `ANTHROPIC_API_KEY` repo secret on ZeroAlloc.Rest.
 
-The rest of this section is the earlier pause of the same day, kept for context.
-
-**Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Plan
-`docs/superpowers/plans/2026-10-24-phase-3.3-own-llm-clients-plan.md`, run with subagent-driven development. The ledger
-is `.superpowers/sdd/2026-10-24-phase-3.3-own-llm-clients-plan/progress.md` in this worktree; it is git-ignored and
-holds every ruling, R1 to R14, and the deferred minors. Trust it and `git log` over memory.
-
-- **Done and released:**
-  - ZeroAlloc.Resilience 3.4.0: stream retry, PR #256, release #257. G1 is closed.
-  - ZeroAlloc.Rest 3.4.0: SSE, PR #492, release #494. The owner released it with SSE only.
-- **Done, not pushed:** ZeroAlloc.Rest.Anthropic and ZeroAlloc.Rest.Ollama, Tasks 6, 7, 8 steps 1-3 and 10. They are
-  on branch `feat/anthropic-client` in worktree `/home/marcel/Projects/Prive/ZeroAlloc/worktrees/rest-anthropic`, head
-  `6d40047`, on main `a5fb126`. Each task was reviewed clean. The clients ship in the next Rest release, expected
-  3.5.0 (ruling R9).
-- **Worktrees:** the Resilience and rest-sse worktrees under `/home/marcel/Projects/Prive/ZeroAlloc/worktrees/` are
-  merged and can be removed.
-
 ## Open Decisions
 
 None blocking.
 
 ## Blockers
 
-- **Task 8 step 4, the transcript recording:** waits on the owner running
-  `bash scripts/bao-env/setup.sh daedalus ANTHROPIC_API_KEY` from docker-nuc `origin/main`. Ruling R13: the key lives in
-  OpenBao `kv/agents/daedalus` and runs go through `bao-env daedalus -- <cmd>`.
-- G2, G3 and G4 as in the plan.
+- G4, after Task 21: the owner approves the spend for the native turn and the live run, and says whether the token can
+  write to Daedalus.NET.
 
 ## Recommended Next Step
 
 In a fresh session, from `.claude/worktrees/phase-3.3`, resume superpowers:subagent-driven-development from the ledger:
-1. Once `~/.local/bin/bao-env` and `~/.config/bao-env/daedalus.env` exist, run Task 8 step 4 in the rest-anthropic
-   worktree: `bao-env daedalus -- dotnet run --project tests/ZeroAlloc.Rest.Anthropic.Recorder`.
-2. Scrub and eye-check the files, delete the three-files Skip, then commit.
-3. Do Task 9, which adds the Anthropic calls to the clients AOT smoke that Task 10 created, then Task 11, the clients
-   PR. Stop at G2.
+1. Check CI on #424, head `7a9dcec7`. Build & Test was still running at the pause, and the AOT targets were green with
+   the new baseline.
+2. Do Task 19, embeddings through `UseOllamaEmbeddings`. Then Task 20, the AppHost's plain Ollama container, which
+   fixes #412, and its ratchet move 2 from CI. Then Task 21, the full regression with Anthropic and OllamaSharp gone.
+3. Stop at G4.
+4. The seven suites are Unit, Unit.Domain, Unit.Application, Unit.Infrastructure, Integration with
+   `DOTNET_USE_POLLING_FILE_WATCHER=1`, Playwright.Api and Playwright.Browser.
 
 ## Previous Position - phase 3.2 complete (2026-10-24), merged as #409 (`88cf0433`)
 
