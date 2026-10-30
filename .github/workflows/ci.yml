@@ -54,7 +54,11 @@ jobs:
         id: derive
         shell: bash
         run: |
-          dotnet tool restore
+          # WORKAROUND for dotnet/sdk#53783: on a runner with no tool resolver cache, the first
+          # restore attributes one tool's command to another package and exits partially failed
+          # once the manifest holds a RID-specific tool (Aspire.Cli 13.5 and later). The second
+          # restore runs on the warm cache and succeeds. Drop the retry once the SDK fix ships.
+          dotnet tool restore || dotnet tool restore
           version=$(dotnet dotnet-gitversion /output json | jq -r '.SemVer')
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
             echo "::error::GitVersion produced '$version', which is not a version — failing instead of building a default."
