@@ -1,3 +1,4 @@
+using Daedalus.Api.Endpoints;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 
@@ -6,7 +7,8 @@ namespace Daedalus.Api.Middleware;
 /// <summary>
 ///     Runs source-generated validators on action parameters before the action executes.
 ///     Returns a 400 Bad Request with RFC 7807 ProblemDetails on validation failure,
-///     byte-identical to the response the FluentValidation filter produced.
+///     byte-identical to the response the FluentValidation filter produced. The problem is built by
+///     <see cref="ZeroAllocValidationEndpointFilter.ToProblem"/>, which the endpoints answer with too.
 /// </summary>
 public sealed class ZeroAllocValidationFilter : IAsyncActionFilter
 {
@@ -30,24 +32,7 @@ public sealed class ZeroAllocValidationFilter : IAsyncActionFilter
                 continue;
             }
 
-            var firstMessage = validationResult.Failures[0].ErrorMessage;
-            var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
-            foreach (ref readonly var failure in validationResult.Failures)
-            {
-                errors[failure.PropertyName] = errors.TryGetValue(failure.PropertyName, out var existing)
-                    ? [.. existing, failure.ErrorMessage]
-                    : [failure.ErrorMessage];
-            }
-
-            var problemDetails = new ValidationProblemDetails(errors)
-            {
-                Status = StatusCodes.Status400BadRequest,
-                Title = "One or more validation errors occurred.",
-                Detail = firstMessage,
-                Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1"
-            };
-
-            context.Result = new BadRequestObjectResult(problemDetails);
+            context.Result = new BadRequestObjectResult(ZeroAllocValidationEndpointFilter.ToProblem(validationResult));
             return;
         }
 

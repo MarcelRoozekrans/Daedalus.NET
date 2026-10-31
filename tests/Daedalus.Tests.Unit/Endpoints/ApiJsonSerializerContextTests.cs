@@ -1,9 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Daedalus.Api;
+using Daedalus.Api.Controllers;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Agents;
+using Daedalus.Application.DTOs.WorkflowRuns;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -197,5 +199,35 @@ public sealed class ApiJsonSerializerContextTests
         // Red: PropertyNameCaseInsensitive = false on options.SerializerOptions inside AddDaedalusEndpoints leaves
         // Title null.
         parsed!.Title.Should().Be("upper");
+    }
+
+    /// <summary>The request body types the controllers bind, as Task 2's implicit-required table lists them.</summary>
+    public static TheoryData<Type> RequestBodyTypes => new(
+        typeof(CreateProjectDto), typeof(UpdateProjectDto), typeof(CreateTaskDto), typeof(UpdateTaskDto),
+        typeof(SubmitAnalysisRequest), typeof(IterateAnalysisRequest), typeof(FinalizeAnalysisRequest),
+        typeof(CreateBrainstormSessionDto), typeof(SendBrainstormMessageDto), typeof(PrdRequestDto),
+        typeof(PrdConversionRequestDto), typeof(CreateRepositoryConfigurationDto), typeof(UpdateRepositoryConfigurationDto),
+        typeof(SendTurnRequestDto), typeof(StartWorkflowRunRequest), typeof(ResumeWorkflowRunRequest),
+        typeof(CancelWorkflowRunRequest));
+
+    /// <summary>
+    ///     An empty object binds to the same value through the endpoints' source-generated contract as through MVC's
+    ///     reflection-based one, so omitted members get the same constructor and initializer values on both stacks.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RequestBodyTypes))]
+    public void Endpoint_options_construct_request_bodies_as_mvc_does(Type type)
+    {
+        var options = EndpointOptions(out var provider);
+        using var _ = provider;
+        var mvc = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+        var viaMvc = JsonSerializer.Serialize(JsonSerializer.Deserialize("{}", type, mvc), type, mvc);
+        var viaEndpoint = JsonSerializer.Serialize(JsonSerializer.Deserialize("{}", options.GetTypeInfo(type)), type, mvc);
+
+        // Red: make PrdRequestDto's UserRequirements and MaxItems init-only again. The generator then sets every
+        //      omitted init-only member, so an empty object reads the user requirements and the item limit as null,
+        //      not as the empty string and 10.
+        viaEndpoint.Should().Be(viaMvc);
     }
 }

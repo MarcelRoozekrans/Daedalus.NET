@@ -1,3 +1,4 @@
+using Daedalus.Api.Endpoints;
 using Microsoft.AspNetCore.Mvc;
 using Thalos;
 
@@ -56,6 +57,24 @@ internal static class AgentErrorResults
             title: code,
             detail: error.Detail is null ? error.Message : $"{error.Message} ({error.Detail})",
             statusCode: ToStatusCode(error.Code),
+            extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = code });
+    }
+
+    /// <summary>
+    ///     The minimal API counterpart of <see cref="ToActionResult"/>: the same title, detail, status and <c>code</c>
+    ///     extension, through <see cref="ApiProblem.Of"/>, with the endpoint's problem content type.
+    ///     <see cref="ToActionResult"/> stays until the agent controllers are ported.
+    /// </summary>
+    public static ApiProblemResult ToProblem(this AgentError error, HttpContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var code = error.Code.ToString();
+        return ApiProblem.Of(
+            context,
+            ToStatusCode(error.Code),
+            detail: error.Detail is null ? error.Message : $"{error.Message} ({error.Detail})",
+            title: code,
             extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = code });
     }
 }

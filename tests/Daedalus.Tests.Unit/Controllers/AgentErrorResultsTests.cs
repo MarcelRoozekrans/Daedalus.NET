@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Daedalus.Api.Agents;
+using Daedalus.Api.Endpoints;
+using Daedalus.Tests.Unit.Endpoints;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
@@ -83,6 +85,59 @@ public sealed class AgentErrorResultsTests
         problem.Status.Should().Be(StatusCodes.Status404NotFound);
         problem.Title.Should().Be("SessionNotFound");
         problem.Detail.Should().NotBeNullOrEmpty().And.NotContain("(");
+    }
+
+    [Fact]
+    public async Task ToProblem_builds_problem_with_code_extension()
+    {
+        await using var services = EndpointTestContext.Services();
+        var context = EndpointTestContext.Create(services, ProblemContentType.Json);
+        var error = AgentError.Quarantined("Blocked by Sentinel.", "Critical: PromptInjectionDetector");
+
+        var text = await EndpointTestContext.ExecuteAsync(error.ToProblem(context), context);
+
+        // Red: ToProblem maps through a status other than ToStatusCode's.
+        context.Response.StatusCode.Should().Be(StatusCodes.Status422UnprocessableEntity);
+        // Red: the code extension dropped or renamed; the detail without the parenthesised Detail; the title the
+        //      table's "Unprocessable Entity" rather than the code.
+        EndpointTestContext.AssertProblem(text, "https://tools.ietf.org/html/rfc4918#section-11.2", "Quarantined", 422,
+            detail: "Blocked by Sentinel. (Critical: PromptInjectionDetector)",
+            extra: new Dictionary<string, string>(StringComparer.Ordinal) { ["code"] = "\"Quarantined\"" });
+        // Red: ToProblem ignores the group's ProblemContentType.
+        context.Response.ContentType.Should().Be(EndpointTestContext.Json);
+    }
+
+    [Fact]
+    public async Task ToProblem_without_detail_uses_the_message_alone()
+    {
+        await using var services = EndpointTestContext.Services();
+        var context = EndpointTestContext.Create(services);
+        var error = AgentError.SessionNotFound(SessionId.New());
+
+        var text = await EndpointTestContext.ExecuteAsync(error.ToProblem(context), context);
+
+        // Red: format the detail as "{Message} ()" when Detail is null.
+        EndpointTestContext.AssertProblem(text, EndpointTestContext.NotFoundType, "SessionNotFound", 404, detail: error.Message,
+            extra: new Dictionary<string, string>(StringComparer.Ordinal) { ["code"] = "\"SessionNotFound\"" });
+    }
+
+    public static TheoryData<AgentErrorCode> EveryCode => new(Enum.GetValues<AgentErrorCode>());
+
+    [Theory]
+    [MemberData(nameof(EveryCode))]
+    public void ToProblem_equals_ToActionResult(AgentErrorCode code)
+    {
+        var controller = CreateController();
+        var context = controller.HttpContext;
+        context.TraceIdentifier = "trace-1";
+        var error = new AgentError(code, "message", code == AgentErrorCode.Cancelled ? null : "detail");
+
+        var mvc = (ProblemDetails)((ObjectResult)error.ToActionResult(controller)).Value!;
+        var endpoint = error.ToProblem(context).ProblemDetails;
+
+        // Red: any change to ToProblem's title, detail, status or extensions, or a row of ApiProblem's table that
+        //      differs from MVC's client-error mapping for a status an AgentErrorCode maps to.
+        endpoint.Should().BeEquivalentTo(mvc);
     }
 
     private static TestController CreateController()

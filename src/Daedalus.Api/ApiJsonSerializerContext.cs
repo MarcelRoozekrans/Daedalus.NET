@@ -39,6 +39,8 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(List<TaskDto>))]
 [JsonSerializable(typeof(ProblemDetails))]
 [JsonSerializable(typeof(ValidationProblemDetails))]
+// The endpoints' { "error" } body, which replaces the controllers' anonymous objects (Task 5)
+[JsonSerializable(typeof(Endpoints.ErrorBody))]
 // Thalos agents (AgentsController / AgentSessionsController)
 [JsonSerializable(typeof(AgentSummaryDto))]
 [JsonSerializable(typeof(List<AgentSummaryDto>))]
