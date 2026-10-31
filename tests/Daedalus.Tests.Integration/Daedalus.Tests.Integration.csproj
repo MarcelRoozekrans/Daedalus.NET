@@ -87,6 +87,8 @@
         <!-- The unit suite's snapshot of the pinned RoslynCodeLens server's tools/list, which RunScopedRoslynRoutingTests
              holds against the live server. One file, so the two suites can never check different snapshots. -->
         <None Include="..\Daedalus.Tests.Unit\Configuration\RoslynCodeLens.Mcp.tools.json" Link="RoslynCodeLens.Mcp.tools.json" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- Phase 3.4: EndpointContractSnapshotTests reads the endpoint table snapshot from Api/ beside the test assembly. -->
+        <None Update="Api/endpoint-contract.snapshot.txt" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>
