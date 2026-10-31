@@ -2,7 +2,59 @@
 
 **Last session:** 2026-10-31
 
-## Current Position - phase 3.4 planned and active (2026-10-31); execution not started
+## Current Position - phase 3.4 executing (2026-10-31): Tasks 1-5 done, Task 6 committed but not reviewed
+
+**Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `eb148832` plus this
+pause commit, pushed. Draft PR #427 to `main`, opened with the owner's OK so CI and `aot-analysis` run per push.
+**Paused at the owner's request:** the weekly token budget is at 90%. Release-please stays on hold.
+
+- **Done and reviewed, subagent-driven:** Task 1, the endpoint contract snapshot, 61 lines, stack-neutral renderer.
+  Task 2 and 3, `MvcBehaviourContractTests`, which pins MVC's error, binding, header, `Location` and pipeline-order
+  answers. Task 4, `AddDaedalusEndpoints` and `MapDaedalusEndpoints` beside MVC, the RDG on, every action type in
+  `ApiJsonSerializerContext`, plus `OpenApiDocumentTests`. Task 5, `ApiProblem`, `ApiBody<T>`, `ApiQuery<T>`, the
+  two endpoint filters, `MapApiGroup` and `AgentErrorResults.ToProblem`, all pinned against MVC.
+- **Task 6, port `Agents`,** is committed as `eb148832` and pushed, but **not reviewed**. Its implementer was stopped
+  while waiting on CI's `aot-analysis`, so neither that read nor a baseline move was done.
+- **Owner decisions this session:** API versioning is inert on MVC today, so the wire stays unversioned and Task 20
+  drops the dead code; the plan is amended. Draft PR #427 for CI.
+- **Rulings R1 to R39** are in `docs/plans/2026-10-31-phase-3.4-rulings.md`. The plan's shared-definitions table
+  matches the helpers as built (`8e64b0f4`). Key ones for the ports:
+  - R38: the endpoint pattern.
+  - R39: the snapshot renderer trims a group root's trailing `/`.
+  - R30: `ApiQuery<T>.ValueOr` plus the default re-declared in OpenAPI metadata.
+  - R12: `ProblemContentType.Json` only where the controller had `[Produces]`.
+  - Endpoint JSON is governed by the Http `JsonOptions`, not the context's attributes.
+- **SDD ledger:** `docs/plans/2026-10-31-phase-3.4-sdd/ledger.md`, with the pre-flight scan, every review round and
+  the items carried to later tasks; Task 6's report is beside it. The live workspace under `.superpowers/sdd/` is
+  git-ignored. A new session recreates it with `scripts/sdd-workspace` and copies the ledger in as `progress.md`.
+- **Filed:** #428, `POST /api/codeanalysis` with an empty requirements list answers 500; a Domain fix.
+- **Local test runs** need `DOTNET_USE_POLLING_FILE_WATCHER=1`: other sessions hold the VM's inotify instances.
+  `ManufactureSandboxEndToEndTests` fails locally for environmental reasons; CI is the check.
+- **At merge:** commit `8d9be4ba` is typed `fix(api)` but is test and refactor work. Check the squash message.
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+None.
+
+## Recommended Next Step
+
+In a fresh session, on `phase/3.4-minimal-apis`, resume `superpowers:subagent-driven-development` on
+`docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md`. Restore the ledger from
+`docs/plans/2026-10-31-phase-3.4-sdd/ledger.md`.
+
+1. Review Task 6, BASE `6536e574`, HEAD `eb148832`, against the brief and its report. Read `aot-analysis` on #427
+   and lower `eng/aot/baseline.json` if the Api count fell.
+2. Then Tasks 7 to 22. Carried items in the ledger:
+   - Task 16: the stream endpoint's responses column.
+   - Task 17: Tasks lists three media types.
+   - Task 18: keep #428's 500.
+   - Task 19: `?status=`, empty `?take=` and the gateway after the 503 filter.
+
+## Earlier Position - phase 3.4 planned and active (2026-10-31); execution not started
 
 **Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `aa13f45a`, pushed.
 3.3 is merged as `fe5a4e25`; CI on `main` green. **Release:** release-please stays on hold (owner, 2026-10-31).
@@ -20,15 +72,15 @@
 - **The rulings doc** `docs/plans/2026-10-31-phase-3.4-rulings.md` does not exist yet; Task 1 creates it with R1 to R10.
 - **Plan Global Constraints override the 3.3 plan's commit rule:** no `Co-Authored-By` trailer, no signature.
 
-## Open Decisions
+### Open Decisions, as of the 3.4 planning
 
 None. `list-phase-assumptions` is done and confirmed.
 
-## Blockers
+### Blockers, as of the 3.4 planning
 
 None.
 
-## Recommended Next Step
+### Next step, as of the 3.4 planning
 
 In a fresh session, on `phase/3.4-minimal-apis`: `superpowers:subagent-driven-development` on the plan, starting at
 Task 1, the rulings doc and the endpoint contract snapshot. Each task pushes with
