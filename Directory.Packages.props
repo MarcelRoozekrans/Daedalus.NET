@@ -58,9 +58,9 @@
     <PackageVersion Include="ModelContextProtocol" Version="2.3.0" />
 
     <!-- Analyzers (highest of the former per-project overrides) -->
-    <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.19.0.132793" />
+    <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.35.0.4138" />
     <PackageVersion Include="Meziantou.Analyzer" Version="3.0.317" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.102" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.403" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.3" />
 
