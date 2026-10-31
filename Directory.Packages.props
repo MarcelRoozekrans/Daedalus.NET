@@ -27,7 +27,7 @@
     <!-- MessagePack 2.5.302 → 2.5.307 for GHSA-qhrr-8q5h-9q3h (nested arrays can pass buffer length limits; patched in
          2.5.303). It is transitive: Aspire.Hosting → StreamJsonRpc 2.25.29, which still asks for 2.5.302, so the pin
          lifts it under CentralPackageTransitivePinningEnabled. Drop it once StreamJsonRpc depends on a fixed version. -->
-    <PackageVersion Include="MessagePack" Version="2.5.307" />
+    <PackageVersion Include="MessagePack" Version="3.1.12" />
 
     <!-- OpenTelemetry 1.15.0 → 1.17.0 -->
     <PackageVersion Include="OpenTelemetry" Version="1.17.0" />
@@ -59,7 +59,7 @@
 
     <!-- Analyzers (highest of the former per-project overrides) -->
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.19.0.132793" />
-    <PackageVersion Include="Meziantou.Analyzer" Version="2.0.296" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.317" />
     <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.102" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.3" />
@@ -291,21 +291,21 @@
     <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.0" />
     <PackageVersion Include="Bogus" Version="35.6.5" />
-    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.0" />
     <!-- 10.10.0 → 10.11.0: floor set by Thalos.NET.Testing 0.18.0 -->
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="Microsoft.Playwright" Version="1.58.0" />
     <PackageVersion Include="Microsoft.Playwright.NUnit" Version="1.58.0" />
-    <PackageVersion Include="NSubstitute" Version="5.3.0" />
-    <PackageVersion Include="NUnit" Version="4.6.1" />
+    <PackageVersion Include="NSubstitute" Version="6.2.0" />
+    <PackageVersion Include="NUnit" Version="5.0.0" />
     <PackageVersion Include="NUnit3TestAdapter" Version="6.3.1" />
     <PackageVersion Include="Respawn" Version="7.0.0" />
     <PackageVersion Include="Spectre.Console.Testing" Version="0.54.0" />
     <PackageVersion Include="TngTech.ArchUnitNET.xUnit" Version="0.13.2" />
     <PackageVersion Include="ZeroAlloc.TestHelpers" Version="1.3.2" />
     <PackageVersion Include="xunit" Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
     <!-- Phase 2.6 task B8: the sandbox-mode integration suite skips, rather than fails, without a Linux-container Docker
          engine. Same version Thalos.NET.Tests.Sandbox.Docker uses. -->
     <PackageVersion Include="Xunit.SkippableFact" Version="1.5.85" />
