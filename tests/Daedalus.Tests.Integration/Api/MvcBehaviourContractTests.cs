@@ -520,6 +520,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             "repositories" => ("/api/repositories",
                 "{\"name\":\"r\",\"url\":\"https://example.com/r.git\",\"platform\":\"GitHub\",\"defaultBranch\":\"main\"}",
                 "id", "http://localhost/api/Repositories/{0}"),
+            // ["r"] on purpose: an empty or omitted requirements list answers 500 today, #428.
             "codeanalysis" => ("/api/codeanalysis",
                 "{\"repositoryUrl\":\"https://example.com/r.git\",\"filePath\":\"a.cs\",\"type\":1,\"title\":\"t\","
                 + "\"description\":\"d\",\"requirements\":[\"r\"]}",
@@ -690,9 +691,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.GetAsync(new Uri("/api/cost-analytics/summary", UriKind.Relative));
         var text = await response.Content.ReadAsStringAsync();
 
-        // Red: remove the try/catch in CostAnalyticsController.GetSummary; the developer exception page then answers
-        //      500 as text/plain, so the Content-Type and body lines turn red; the status line, with
-        //      StatusCode(502) in the catch instead.
+        // Red: StatusCode(502) in place of 500 in CostAnalyticsController.GetSummary's catch.
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError, text);
         // Red: CostAnalyticsController's [Produces("application/json")] changed to text/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -871,7 +870,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         {
             if (workflow)
             {
-                return new ApiHost(null, await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>()));
+                return new ApiHost(null, await ScratchWorkflowHost.StartAsync(fixture,
+                    runtime ?? Substitute.For<IAgentRuntime>(), configureServices: configureServices));
             }
 
             await fixture.DatabaseResetter.ResetAsync();
