@@ -2,7 +2,16 @@
 
 **Last session:** 2026-10-31
 
-## Current Position - phase 3.3 complete (2026-10-31), PR #424 ready for the owner to merge
+## Current Position - phase 3.4 brainstormed (2026-10-31); 3.3 merged as `fe5a4e25`
+
+**Update, 2026-10-31, later.** PR #424 was admin squash-merged at the owner's request as `fe5a4e25`, with a clean
+squash message and no Co-Authored-By lines. CI on `main` at `fe5a4e25` is green, run 41196440875, all five
+`aot-analysis` targets included. **Release:** the owner keeps the 2026-10-11 hold; release-please is not dispatched,
+and 3.1 to 3.3's commits wait for the next dispatch. **Phase 3.4** is designed on `phase/3.4-minimal-apis`:
+`docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-design.md`, approach A, incremental with a route-table
+snapshot. Filed #426, the catch-all 500 bodies. Next: refactor-analysis, then writing-plans.
+
+### Phase 3.3 close-out, as recorded before the merge
 
 **Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Built subagent-driven on `phase/3.3-own-llm-clients`
 from `main` `88cf0433`, across ZeroAlloc.Resilience, ZeroAlloc.Rest, Thalos.NET and Daedalus, every task reviewed.
