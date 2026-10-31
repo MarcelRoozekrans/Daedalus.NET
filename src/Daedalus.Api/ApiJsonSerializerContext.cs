@@ -11,17 +11,19 @@ using TaskExecutionDto = Daedalus.Application.DTOs.TaskExecutionDto;
 namespace Daedalus.Api;
 
 /// <summary>
-///     JSON serialization context for the minimal API endpoints, and for the exception handler's problem body.
+///     JSON type metadata for the minimal API endpoints, and the serializer for the exception handler's problem body.
 /// </summary>
 /// <remarks>
 ///     The endpoints take this context as the only entry in their <c>TypeInfoResolverChain</c>
-///     (<see cref="Endpoints.DaedalusEndpoints.AddDaedalusEndpoints"/>), with no reflection fallback, so a response or
-///     request type that is not listed here fails at the first call rather than serializing by reflection. The options
-///     are MVC's: <c>JsonSerializerDefaults.Web</c> (camelCase, case-insensitive read, numbers readable from strings)
-///     and <c>DefaultIgnoreCondition.Never</c>, so a null member is written as MVC writes it. MVC controllers still
-///     serialize through MVC's own options; only the endpoints, <c>GlobalExceptionHandler</c> and code that names the
-///     context use it. <c>ProblemDetails</c> carries its own <c>WhenWritingNull</c> on its members, so its body is
-///     the same under <c>Never</c>. SSE events do not use this context: see <see cref="AgentEventStreamJsonContext"/>.
+///     (<see cref="Endpoints.DaedalusEndpoints.AddDaedalusEndpoints"/>), with no reflection fallback, so a request or
+///     response type that is not listed here fails at the first call rather than serializing by reflection. In that
+///     chain the context only decides which types resolve: a context placed in another options instance's chain takes
+///     that instance's runtime settings, so the endpoints' nulls, naming, case and number handling come from
+///     <c>Microsoft.AspNetCore.Http.Json.JsonOptions</c> (web defaults, <c>DefaultIgnoreCondition</c> at <c>Never</c>,
+///     as MVC's). The options declared below apply only through <c>ApiJsonSerializerContext.Default</c>, which today
+///     means <c>GlobalExceptionHandler</c>. MVC controllers serialize through MVC's own options. <c>ProblemDetails</c>
+///     carries its own <c>WhenWritingNull</c> on its members, so its body is the same under <c>Never</c>. SSE events
+///     do not use this context: see <see cref="AgentEventStreamJsonContext"/>.
 /// </remarks>
 [JsonSourceGenerationOptions(
     JsonSerializerDefaults.Web,

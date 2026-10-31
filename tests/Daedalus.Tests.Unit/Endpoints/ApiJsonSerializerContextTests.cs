@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Daedalus.Api;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs;
@@ -12,8 +13,10 @@ using TaskDto = Daedalus.Application.DTOs.TaskDto;
 namespace Daedalus.Tests.Unit.Endpoints;
 
 /// <summary>
-///     The context is the endpoints' only JSON resolver, so these pin what it writes and reads. MVC's own options
-///     (web defaults, <c>DefaultIgnoreCondition</c> at <c>Never</c>) are the reference: a null member is written.
+///     Two things are pinned. Through <c>ApiJsonSerializerContext.Default</c>, which the exception handler uses, the
+///     context's own options apply. Through the endpoints' Http <c>JsonOptions</c>, where the context is only the
+///     type resolver, the options <c>AddDaedalusEndpoints</c> leaves decide nulls, naming, case and numbers; MVC's
+///     (web defaults, <c>DefaultIgnoreCondition</c> at <c>Never</c>) are the reference.
 /// </summary>
 public sealed class ApiJsonSerializerContextTests
 {
@@ -47,7 +50,7 @@ public sealed class ApiJsonSerializerContextTests
         AwaitingSignal: null);
 
     [Fact]
-    public void Nulls_are_written()
+    public void Default_nulls_are_written()
     {
         var json = JsonSerializer.Serialize(TaskWithNulls(), ApiJsonSerializerContext.Default.TaskDto);
 
@@ -57,7 +60,7 @@ public sealed class ApiJsonSerializerContextTests
     }
 
     [Fact]
-    public void Names_are_camel_case()
+    public void Default_names_are_camel_case()
     {
         var json = JsonSerializer.Serialize(TaskWithNulls(), ApiJsonSerializerContext.Default.TaskDto);
 
@@ -68,7 +71,7 @@ public sealed class ApiJsonSerializerContextTests
     }
 
     [Fact]
-    public void Reading_is_case_insensitive()
+    public void Default_reading_is_case_insensitive()
     {
         var parsed = JsonSerializer.Deserialize(
             "{\"TITLE\":\"upper\",\"Description\":\"mixed\"}",
@@ -81,7 +84,7 @@ public sealed class ApiJsonSerializerContextTests
     }
 
     [Fact]
-    public void Numbers_may_be_read_from_strings()
+    public void Default_numbers_may_be_read_from_strings()
     {
         var parsed = JsonSerializer.Deserialize(
             "{\"Priority\":\"3\"}",
@@ -94,14 +97,23 @@ public sealed class ApiJsonSerializerContextTests
     [Fact]
     public void Problem_details_keep_omitting_null_members()
     {
-        var problem = new ProblemDetails { Status = 500, Title = "Internal Server Error" };
+        // The shape GlobalExceptionHandler.HandleUnexpectedException builds, with a fixed trace id.
+        var problem = new ProblemDetails
+        {
+            Status = 500,
+            Title = "Internal server error",
+            Detail = "An unexpected error occurred. Please try again later.",
+            Type = "https://tools.ietf.org/html/rfc7231#section-6.6.1"
+        };
+        problem.Extensions["traceId"] = "trace-1";
 
         var json = JsonSerializer.Serialize(problem, ApiJsonSerializerContext.Default.ProblemDetails);
 
-        // Red: ProblemDetails carries its own WhenWritingNull on type, detail and instance, so the context's Never
-        // must leave this body alone. WriteIndented = true on the context spreads the text over lines; a context
-        // that wrote the three members as null would add them.
-        json.Should().Be("{\"title\":\"Internal Server Error\",\"status\":500}");
+        // Red: WriteIndented = true on the context spreads the text over lines; a different naming policy or an
+        // ignore condition that wrote "instance":null changes the exact text.
+        json.Should().Be(
+            "{\"type\":\"https://tools.ietf.org/html/rfc7231#section-6.6.1\",\"title\":\"Internal server error\","
+            + "\"status\":500,\"detail\":\"An unexpected error occurred. Please try again later.\",\"traceId\":\"trace-1\"}");
     }
 
     [Fact]
@@ -143,15 +155,47 @@ public sealed class ApiJsonSerializerContextTests
             .Which.Should().BeSameAs(ApiJsonSerializerContext.Default);
     }
 
+    private static JsonSerializerOptions EndpointOptions(out ServiceProvider provider)
+    {
+        provider = new ServiceCollection().AddDaedalusEndpoints().BuildServiceProvider();
+        return provider.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
+    }
+
     [Fact]
     public void Endpoint_options_write_nulls_as_MVC_does()
     {
-        using var provider = new ServiceCollection().AddDaedalusEndpoints().BuildServiceProvider();
-        var options = provider.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
+        var options = EndpointOptions(out var provider);
+        using var _ = provider;
 
         var json = JsonSerializer.Serialize(TaskWithNulls(), options.GetTypeInfo(typeof(TaskDto)));
 
-        // Red: a context that says WhenWritingNull, or Http options that override it, drop "result".
+        // Red: DefaultIgnoreCondition = WhenWritingNull on options.SerializerOptions inside AddDaedalusEndpoints
+        // drops "result". The context's own attribute does not matter here: the chain takes the Http options.
         json.Should().Contain("\"result\":null");
+    }
+
+    [Fact]
+    public void Endpoint_options_write_camel_case_names()
+    {
+        var options = EndpointOptions(out var provider);
+        using var _ = provider;
+
+        var json = JsonSerializer.Serialize(TaskWithNulls(), options.GetTypeInfo(typeof(TaskDto)));
+
+        // Red: PropertyNamingPolicy = null on options.SerializerOptions inside AddDaedalusEndpoints writes "TaskId".
+        json.Should().Contain("\"taskId\":\"T-1\"").And.NotContain("\"TaskId\"");
+    }
+
+    [Fact]
+    public void Endpoint_options_read_names_case_insensitively()
+    {
+        var options = EndpointOptions(out var provider);
+        using var _ = provider;
+
+        var parsed = JsonSerializer.Deserialize("{\"TITLE\":\"upper\"}", (JsonTypeInfo<TaskDto>)options.GetTypeInfo(typeof(TaskDto)));
+
+        // Red: PropertyNameCaseInsensitive = false on options.SerializerOptions inside AddDaedalusEndpoints leaves
+        // Title null.
+        parsed!.Title.Should().Be("upper");
     }
 }

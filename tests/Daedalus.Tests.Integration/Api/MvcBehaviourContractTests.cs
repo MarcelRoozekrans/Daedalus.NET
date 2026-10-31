@@ -468,8 +468,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
     /// <summary>
     ///     MVC's <c>JsonOptions</c> keep their default <c>DefaultIgnoreCondition</c>, <c>Never</c>, so a null member is
-    ///     written. <c>ApiJsonSerializerContext</c> says <c>WhenWritingNull</c>, so a port that puts it first in the
-    ///     resolver chain with its own options would drop the member; ruling R20.
+    ///     written. The endpoints take nulls, naming and case from the Http <c>JsonOptions</c>, whose
+    ///     <c>DefaultIgnoreCondition</c> is <c>Never</c> too; the context in their chain only resolves types. A port
+    ///     that sets <c>WhenWritingNull</c> on those options would drop the member; rulings R20 and R25.
     /// </summary>
     [Fact]
     public async Task Null_properties_are_written()
