@@ -204,7 +204,7 @@ public sealed partial class AgentSessionsController(
     private async Task WriteEventAsync(AgentEventDto dto, CancellationToken ct)
     {
         // JSON never contains a raw newline (they are escaped), so one data line per event is enough.
-        var payload = JsonSerializer.Serialize(dto, ApiJsonSerializerContext.Default.AgentEventDto);
+        var payload = JsonSerializer.Serialize(dto, AgentEventStreamJsonContext.Default.AgentEventDto);
         await Response.WriteAsync($"event: {dto.Kind}\ndata: {payload}\n\n", ct);
         await Response.Body.FlushAsync(ct);
     }

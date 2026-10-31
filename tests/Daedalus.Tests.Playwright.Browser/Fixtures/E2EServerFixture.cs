@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Daedalus.Agents;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
@@ -264,6 +265,9 @@ public class E2EServerFixture
             builder.Services.AddControllers()
                 .AddApplicationPart(typeof(Daedalus.Api.Program).Assembly);
 
+            // Minimal API endpoints beside the controllers, composed as Program.cs does.
+            builder.Services.AddDaedalusEndpoints();
+
             // The console's live channel, as Program.cs wires it on a host with the engine on: the run hub's messages
             // serialize through their source-generated context, and one broadcaster instance is both the store's
             // observer and the hosted loop that sends. Registered after the background work is removed, so it stays.
@@ -386,6 +390,7 @@ public class E2EServerFixture
             app.UseAuthorization();
 
             app.MapControllers();
+            app.MapDaedalusEndpoints();
             app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path, options => options.CloseOnAuthenticationExpiration = true);
             app.MapHealthChecks("/health");
             app.MapFallbackToFile("index.html");

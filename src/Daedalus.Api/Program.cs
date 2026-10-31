@@ -5,6 +5,7 @@ using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Security;
 using Daedalus.Api;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
@@ -141,6 +142,9 @@ builder.Services.AddControllers(options =>
 {
     options.Filters.Add<ZeroAllocValidationFilter>();
 });
+
+// Minimal API endpoints beside the controllers: their JSON goes through ApiJsonSerializerContext alone.
+builder.Services.AddDaedalusEndpoints();
 
 // The console's live channel. The run hub's messages serialize through their source-generated context, first in the
 // chain, so the payload is the four properties of WorkflowRunChanged and nothing a reflection fallback would add.
@@ -318,6 +322,7 @@ app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 app.MapControllers();
+app.MapDaedalusEndpoints();
 if (workflowEngineEnabled)
 {
     // A connection would otherwise outlive the token it opened with; closing it when that token expires stops run
