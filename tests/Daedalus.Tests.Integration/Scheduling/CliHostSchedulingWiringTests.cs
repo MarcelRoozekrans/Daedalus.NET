@@ -7,6 +7,7 @@ using Daedalus.Agents.Sessions;
 using Daedalus.Agents.Workflow;
 using Daedalus.Cli;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -52,6 +53,23 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
         hosted.Count(h => h is ScheduleReconcilerHostedService).Should().Be(1,
             "AddDaedalusAgents already registers it; AddDaedalusScheduling must not register a second one");
         hosted.Count(h => h is AgentSessionCrashRecovery).Should().Be(1);
+    }
+
+    /// <summary>Red: pass another model to UseOllamaEmbeddings in Program.cs, or stop registering it; the generator or its model is wrong.</summary>
+    [Fact]
+    public void The_cli_host_registers_the_ollama_generator_from_the_apphost_shape()
+    {
+        using var provider = BuildProvider(new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["ConnectionStrings:ollama"] = "Endpoint=http://localhost:11434",
+        });
+
+        var metadata = provider.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>()
+            .GetService<EmbeddingGeneratorMetadata>();
+
+        metadata.Should().NotBeNull();
+        metadata!.ProviderName.Should().Be("ollama");
+        metadata.DefaultModelId.Should().Be("nomic-embed-text");
     }
 
     [Fact]
@@ -190,6 +208,25 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
         provider.GetRequiredService<IOptions<OutboxOptions>>().Value.LeaseDuration
             .Should().Be(ChannelOutboxServiceCollectionExtensions.LeaseDuration)
             .And.Be(TimeSpan.FromMinutes(20));
+    }
+
+    /// <summary>
+    ///     <c>Host.CreateDefaultBuilder</c> validates the container on build in Development, and the CLI has a user-secrets id,
+    ///     so Development is a real mode. Every registered descriptor must be constructible there.
+    ///     Red: remove <c>AddAgentFrameworkServices</c> from <c>CliHostServices</c>; Build throws that <c>AgentFactory</c> cannot
+    ///     resolve <c>McpToolBuilder</c>.
+    ///     Red: remove <c>AddCodeAnalysisServices</c> from it; Build throws that <c>ThalosPullRequestPublisher</c> cannot resolve
+    ///     <c>IPullRequestFactory</c>.
+    /// </summary>
+    [Fact]
+    public void The_cli_host_container_validates_on_build_with_scope_validation()
+    {
+        var services = new ServiceCollection();
+        CliHostServices.ConfigureServices(services, BuildConfiguration(null), FakeEnvironment());
+
+        var act = () => services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true }).Dispose();
+
+        act.Should().NotThrow();
     }
 
     private ServiceProvider BuildProvider(Dictionary<string, string?>? overrides = null)

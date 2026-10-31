@@ -461,6 +461,11 @@ and tools from explicit lists, each swap guarded by a golden captured from the r
 moves and the native runs: `docs/plans/2026-10-21-phase-3.2-rulings.md` and
 `docs/plans/2026-10-21-phase-3.2-native-smoke.md`.
 
+Phase 3.3 replaced the Anthropic SDK and OllamaSharp, whose reflection-based JSON was most of the Api's and Cli's
+count, with our own source-generated clients, `ZeroAlloc.Rest.Anthropic` and `ZeroAlloc.Rest.Ollama`, through Thalos
+0.20.0. Neither package is in any dependency graph now; see "LLM providers". Rulings, ratchet moves and the native run:
+`docs/plans/2026-10-24-phase-3.3-rulings.md` and `docs/plans/2026-10-24-phase-3.3-native-smoke.md`.
+
 ### The toolchain
 
 - **clang and the zlib headers** link the native binaries: `sudo apt-get install -y clang zlib1g-dev` on Debian or
@@ -546,9 +551,9 @@ secrets, so forks and Dependabot run it. The owner makes it a required check onc
 red `aot-analysis` as blocking.
 
 The baseline after phase 3.1: Api 18591, Cli 776, Migrations 789, Sandbox 0, Web 214. After phase 3.2: Api 20244,
-Cli 4357, Migrations 798, Sandbox 0, Web 196. Most of the Api's count, and since Thalos 0.19.0 most of the Cli's, is
-the Anthropic SDK's reflection-based JSON: Thalos.NET.Anthropic 0.19.0 sets the SDK's floor at 13.1.0, and phase 3.3
-removes the SDK. Every move and its cause is in the 3.2 rulings, "Ratchet moves".
+Cli 4357, Migrations 798, Sandbox 0, Web 196, most of the Api's and Cli's count being the Anthropic SDK's
+reflection-based JSON. After phase 3.3, with the SDK and OllamaSharp gone: Api 1502, Cli 633, the rest unchanged.
+Every move and its cause is in each phase's rulings, "Ratchet moves".
 
 ### No suppressions
 
@@ -683,6 +688,35 @@ and zlib1g-dev, restores and publishes for `linux-x64`, and drops the `.dbg` sym
 `sdk:10.0.402`, because runs build and test inside it, with the native `/app/Daedalus.Sandbox` as its entrypoint. CI's
 `docker` job builds the image on every PR and never pushes it. The integration suite's sandbox tests run against the
 native image, including a build and a Roslyn call through it.
+
+### LLM providers
+
+Phase 3.3. Agent turns go to Anthropic and embeddings to Ollama, both through Thalos, and Daedalus references no
+provider SDK. The node-selection decisions are the one other model call, to OpenRouter through Minos; see "Node
+selection".
+
+- **Chat:** `Thalos.NET.Anthropic`'s `IChatClientProvider` is the one Anthropic path. The agents, the manufacture
+  workflow and `AgentFactory` (`Daedalus.Agents/Llm`, serving PRD generation and the brainstorm) all ask it for their
+  `IChatClient`, so they share its options, prompt caching and usage. Under it, `ZeroAlloc.Rest.Anthropic` is a
+  source-generated client over System.Text.Json contexts, with streaming as server-sent events and retries from
+  ZeroAlloc.Resilience. It has no reflection, so it adds no trim or AOT warning.
+- **The key:** `Thalos:Anthropic:ApiKey`, or the `ANTHROPIC_API_KEY` environment variable, which the AppHost passes.
+  It is read on first use, not at start-up; without it a call fails, and `AgentFactory` returns a failure result that
+  names `Thalos:Anthropic:ApiKey`.
+- **`ExternalServices:Llm:Claude`** keeps `Model`, which falls back to `Thalos:Anthropic:DefaultModel`, and
+  `MaxTokens`. It no longer has an `ApiKey`; a value left there is ignored.
+- **Prompt caching:** the translator places every `cache_control` breakpoint from Thalos' `PromptCacheHints`, with
+  `Thalos:Anthropic:PromptCaching` on by default. Callers do not set markers themselves; Thalos 0.20.0 removed that
+  seam. Usage carries the cache-read and cache-write split to `/costs`.
+- **Embeddings:** the Api and Cli hosts call `services.UseOllamaEmbeddings(endpoint, "nomic-embed-text")` from
+  `Thalos.NET.Ollama` when `ConnectionStrings:ollama` is set, parsed by `OllamaConnectionString.ParseEndpoint` from
+  `Endpoint=<url>`. The one generator feeds the Thalos memory index and AI.Sentinel's semantic detectors. Without the
+  connection string, embeddings are off and memories stay `index_pending`.
+- **The AppHost's Ollama** is a plain `ollama/ollama` container with an `ollama-data` volume. A one-shot
+  `ollama-pull` container runs `ollama show nomic-embed-text || ollama pull nomic-embed-text` against it, and the Api
+  waits for that to complete. The Api gets `ConnectionStrings__ollama` as `Endpoint=<the container's http endpoint>`.
+  The CommunityToolkit Ollama resource is not used: it depended on OllamaSharp, and its `AddModel` named the
+  connection string after the model, so the Api saw none and embeddings were off (#412).
 
 ### Measuring start-up, memory and size
 

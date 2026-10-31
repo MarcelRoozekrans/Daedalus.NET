@@ -19,7 +19,11 @@
     <PackageVersion Include="Aspire.Hosting" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.4.6-preview.1.26319.6" />
-    <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="13.4.1-beta.706" />
+    <!-- Aspire.Hosting.Testing 13.4.6 (phase 3.3, Task 20): AppHostOllamaWiringTests builds the AppHost model with
+         DistributedApplicationTestingBuilder and starts nothing. The CommunityToolkit Ollama hosting package is gone:
+         its AddModel wiring named the connection string ollama-nomic-embed-text (#412), so the AppHost runs Ollama as a
+         plain container instead. -->
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.4.6" />
     <!-- MessagePack 2.5.302 → 2.5.307 for GHSA-qhrr-8q5h-9q3h (nested arrays can pass buffer length limits; patched in
          2.5.303). It is transitive: Aspire.Hosting → StreamJsonRpc 2.25.29, which still asks for 2.5.302, so the pin
          lifts it under CentralPackageTransitivePinningEnabled. Drop it once StreamJsonRpc depends on a fixed version. -->
@@ -43,13 +47,6 @@
     <PackageVersion Include="Testcontainers.Keycloak" Version="4.16.0" />
 
     <!-- AI stack aligned with Thalos.NET -->
-    <!-- 12.50.0 → 12.53.0: floor set by Thalos.NET.Anthropic 0.13.0 -->
-    <!-- 12.53.0 → 12.55.0: floor set by Thalos.NET.Anthropic 0.15.0 -->
-    <!-- 12.55.0 → 12.58.0: floor set by Thalos.NET.Anthropic 0.18.0 -->
-    <!-- 12.58.0 → 13.1.0: floor set by Thalos.NET.Anthropic 0.19.0.
-         Runtime behaviour change: API version 2026-10-21, the key sent as Authorization: Bearer, and AsIChatClient
-         no longer forwards temperature, TopP or TopK. AgentFactory uses none of these. -->
-    <PackageVersion Include="Anthropic" Version="13.1.0" />
     <!-- 10.10.0 → 10.11.0: floor set by Thalos.NET 0.18.0 -->
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.11.0" />
     <!-- 10.10.0 → 10.10.1: floor set by Thalos.NET.Abstractions 0.11.0. Microsoft.Extensions.AI
@@ -100,27 +97,30 @@
          0.18.0 → 0.19.0 (phase 3.2): every package but Testing is IsAotCompatible. BREAKING: a run variable must
          be JSON-shaped, refused with ArgumentException where it enters, so NodeResult, HostActionResult and the
          start options take no Guid, DateTime, enum or record; Thalos.NET.Sentinel moves to AI.Sentinel 3.2.1,
-         whose PII and credential detectors redact by default. WorkflowVariableJson.ToElement is public. -->
-    <PackageVersion Include="Thalos.NET" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Git" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Testing" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Mcp" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Memory" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Skills" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Channels" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.19.0" />
+         whose PII and credential detectors redact by default. WorkflowVariableJson.ToElement is public.
+         0.19.0 → 0.20.0 (phase 3.3, Thalos PR #431): Thalos.NET.Anthropic is an own client over ZeroAlloc.Rest and no
+         longer depends on the Anthropic SDK; the new Thalos.NET.Ollama takes the family to nineteen packages. -->
+    <PackageVersion Include="Thalos.NET" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Git" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Git.LibGit2Sharp" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Abstractions" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Testing" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Mcp" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Anthropic" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Ollama" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Sentinel" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Memory" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Memory.RagNet" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Skills" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Channels" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Channels.Telegram" Version="0.20.0" />
     <!-- Phase 2.2 Part B: consume the durable workflow engine Part A shipped. -->
-    <PackageVersion Include="Thalos.NET.Workflow" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.19.0" />
+    <PackageVersion Include="Thalos.NET.Workflow" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Workflow.Orm" Version="0.20.0" />
     <!-- Phase 2.6: the per-run Docker sandbox packages, net10.0 only, shipped from 0.14.0. -->
-    <PackageVersion Include="Thalos.NET.Sandbox" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.19.0" />
-    <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.19.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox.Docker" Version="0.20.0" />
+    <PackageVersion Include="Thalos.NET.Sandbox.Host" Version="0.20.0" />
 
     <!-- Minos.NET 1.1.0: per-node model and tool selection, phase 2.10. Daedalus.Agents references Minos.NET and
          Minos.NET.SystemOne, the OpenRouter decision client. 1.0.1 → 1.1.0: OpenRouter's per-request zero data
@@ -141,7 +141,8 @@
     <!-- 2.2.0 → 2.3.1: floor set by Thalos.NET.Workflow.Orm 0.16.0 -->
     <!-- 2.3.1 → 2.4.0: floor set by Thalos.NET.Workflow.Orm 0.18.0 -->
     <!-- 2.4.0 → 2.9.0: floor set by Thalos.NET.Workflow.Orm 0.19.0 -->
-    <PackageVersion Include="ZeroAlloc.ORM" Version="2.9.0" />
+    <!-- 2.9.0 → 2.10.0: floor set by Thalos.NET.Workflow.Orm 0.20.0 -->
+    <PackageVersion Include="ZeroAlloc.ORM" Version="2.10.0" />
     <!-- AdoNet.Async.Adapters: floor set by Thalos.NET.Workflow.Orm 0.7.0's own nuspec (1.4.1) — NOT the
          1.4.0 ZeroAlloc.Outbox.Orm 2.6.0 itself declares; Workflow.Orm's direct pin is the higher one and
          wins under CentralPackageTransitivePinningEnabled, so this must be pinned at 1.4.1 or NU1109 fires
@@ -157,9 +158,11 @@
     <PackageVersion Include="ZeroAlloc.Results" Version="1.4.5" />
     <!-- Phase 2.11: the generated GitHub and Azure DevOps clients. The source generator ships inside ZeroAlloc.Rest;
          the standalone ZeroAlloc.Rest.Generator package exists only for old direct references, so it is not used.
-         3.3.2 → 3.3.3: floor set by Minos.NET.SystemOne 1.1.0. -->
-    <PackageVersion Include="ZeroAlloc.Rest" Version="3.3.3" />
-    <PackageVersion Include="ZeroAlloc.Rest.SystemTextJson" Version="3.3.3" />
+         3.3.2 → 3.3.3: floor set by Minos.NET.SystemOne 1.1.0.
+         3.3.3 → 3.6.0: floor set by ZeroAlloc.Rest.Anthropic and ZeroAlloc.Rest.Ollama 3.6.0, via Thalos.NET.Anthropic
+         and Thalos.NET.Ollama 0.20.0; the G2 release adds SSE support and net8.0 targeting. -->
+    <PackageVersion Include="ZeroAlloc.Rest" Version="3.6.0" />
+    <PackageVersion Include="ZeroAlloc.Rest.SystemTextJson" Version="3.6.0" />
     <!-- 1.1.11, transitive until now → 1.2.0: floor set by ZeroAlloc.Rest 3.3.2.
          1.2.0 → 1.2.1: floor set by AI.Sentinel 2.3.2, via Thalos.NET.Sentinel 0.16.0.
          1.2.1 → 1.2.4: floor set by AI.Sentinel 3.2.1, via Thalos.NET.Sentinel 0.19.0. -->
@@ -255,26 +258,32 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
 
     <!-- Microsoft.Extensions.* (10.0.12: transitive-pinning floor set by Thalos.NET.Abstractions 0.5.0 / Microsoft.Extensions.AI 10.10 / ModelContextProtocol 2.2 / Aspire 13.4.6) -->
-    <!-- 10.0.12 → 10.0.13: floor set by Microsoft.AspNetCore.Components.WebAssembly and SignalR.Client 10.0.13. -->
-    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.13" />
+    <!-- 10.0.12 → 10.0.13: floor set by Microsoft.AspNetCore.Components.WebAssembly and SignalR.Client 10.0.13.
+         10.0.13 → 10.0.14 for Configuration.Binder, DependencyInjection, DependencyInjection.Abstractions,
+         Hosting.Abstractions, Http, Logging.Abstractions and Options: floors set by Thalos.NET 0.20.0 (DI.Abstractions,
+         Logging.Abstractions, Options), Thalos.NET.Anthropic, .Memory, .Skills and .Channels (Configuration.Binder,
+         Options), Thalos.NET.Memory.RagNet, .Skills and .Channels (Hosting.Abstractions), Thalos.NET.Workflow.Orm and
+         .Sandbox (DependencyInjection), Thalos.NET.Sandbox (Http), Thalos.NET.Workflow (Logging.Abstractions).
+         Configuration and Logging also go to 10.0.14: Configuration.Binder and Http 10.0.14 depend on them at >= 10.0.14. -->
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.3.0" />
-    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.14" />
+    <!-- 10.3.0 → 10.6.0: floor set by Aspire.Hosting.Testing 13.4.6 -->
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.6.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.14" />
 
     <!-- Libraries -->
     <PackageVersion Include="Cronos" Version="0.13.0" />
     <!-- 0.31.0 → 0.32.0: floor set by Thalos.NET.Git.LibGit2Sharp 0.6.0 -->
     <PackageVersion Include="LibGit2Sharp" Version="0.32.0" />
-    <PackageVersion Include="OllamaSharp" Version="5.4.12" /> <!-- floor set by CommunityToolkit.Aspire.Hosting.Ollama 13.4.1 -->
     <PackageVersion Include="ZLinq" Version="1.5.4" />
 
     <!-- Testing -->

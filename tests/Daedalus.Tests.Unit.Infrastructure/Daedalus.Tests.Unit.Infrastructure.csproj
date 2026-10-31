@@ -38,7 +38,6 @@
         </PackageReference>
         <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="Bogus" />
-        <PackageReference Include="Anthropic" />
         <PackageReference Include="ZeroAlloc.TestHelpers" />
     </ItemGroup>
 

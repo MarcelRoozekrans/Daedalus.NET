@@ -46,7 +46,6 @@ public sealed class OptionsBindingGoldenTests
     {
         using var provider = Services(Settings(new(StringComparer.Ordinal)
         {
-            ["ExternalServices:Llm:Claude:ApiKey"] = "a-key",
             ["ExternalServices:Llm:Claude:Model"] = "claude-test-model",
             ["ExternalServices:Llm:Claude:MaxTokens"] = "1234",
         }));
@@ -55,7 +54,6 @@ public sealed class OptionsBindingGoldenTests
 
         dump.Should().Be("""
             {
-              "ApiKey": "a-key",
               "Model": "claude-test-model",
               "MaxTokens": 1234
             }

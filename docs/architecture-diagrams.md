@@ -11,8 +11,10 @@ repositories). It is the first consumer of **Thalos.NET**, a separate nuget.org 
 agent runtime, sessions, memory and skills machinery. Thalos.NET in turn integrates two other in-house
 packages: **AI.Sentinel** (security monitoring and approval workflows at the model boundary) and a small
 slice of **Rag.NET** (a ~75-project retrieval-augmented-generation suite) for the agent memory vector
-store. The LLM backend is **Anthropic Claude**, reached through `Thalos.NET.Anthropic` — there is no
-OpenAI or GitHub Copilot integration anywhere in this codebase.
+store. The LLM backend is **Anthropic Claude**, reached through `Thalos.NET.Anthropic` over our own
+source-generated `ZeroAlloc.Rest.Anthropic` client, and embeddings come from Ollama through `Thalos.NET.Ollama` over
+`ZeroAlloc.Rest.Ollama` — no provider SDK is referenced, and there is no OpenAI or GitHub Copilot integration
+anywhere in this codebase.
 
 **What Daedalus actually uses from Rag.NET:** exactly 2 of its ~75 projects — `Rag.NET.Abstractions` and
 `Rag.NET.VectorStores.PgVector` — pulled in transitively through `Thalos.NET.Memory.RagNet`. That is the
@@ -32,7 +34,8 @@ graph TB
 
     subgraph "Thalos.NET (nuget.org package, separate repo)"
         Runtime["Agent runtime<br/>(sessions, skills, memory)"]
-        ThalosAnthropic["Thalos.NET.Anthropic"]
+        ThalosAnthropic["Thalos.NET.Anthropic<br/>(over ZeroAlloc.Rest.Anthropic)"]
+        ThalosOllama["Thalos.NET.Ollama<br/>(over ZeroAlloc.Rest.Ollama)"]
         ThalosSentinel["Thalos.NET.Sentinel"]
         ThalosMemoryRagNet["Thalos.NET.Memory.RagNet"]
         ThalosTelegram["Thalos.NET.Channels.Telegram"]
@@ -48,7 +51,7 @@ graph TB
     AnthropicApi[("Anthropic API<br/>(Claude models)")]
     Postgres[("PostgreSQL<br/>(EF Core)")]
     Keycloak["Keycloak<br/>(OIDC identity provider)"]
-    Ollama["Ollama<br/>(local embedding generation)"]
+    Ollama["Ollama container<br/>(local embedding generation,<br/>nomic-embed-text pulled at start)"]
     GitHub["GitHub<br/>(repositories)"]
     Telegram["Telegram"]
 
@@ -76,7 +79,8 @@ graph TB
     ThalosSentinel --> Sentinel
     ThalosMemoryRagNet --> RagAbstractions
     ThalosMemoryRagNet --> RagPgVector
-    ThalosMemoryRagNet -->|embeddings| Ollama
+    ThalosMemoryRagNet -->|embeddings| ThalosOllama
+    ThalosOllama --> Ollama
     RagPgVector --> Postgres
     ThalosTelegram --> Telegram
 ```
@@ -843,9 +847,9 @@ graph TB
     end
 
     subgraph Ai["AI stack"]
-        THALOS["Thalos.NET family 0.5.1<br/>(Abstractions, Anthropic, Sentinel,<br/>Memory, Memory.RagNet, Skills,<br/>Channels, Channels.Telegram)"]
-        ANTHROPIC["Anthropic SDK 12.49.0<br/>+ Microsoft.Extensions.AI 10.10"]
-        MCP["ModelContextProtocol 2.2.0"]
+        THALOS["Thalos.NET family 0.20.0<br/>(Abstractions, Anthropic, Ollama, Sentinel,<br/>Memory, Memory.RagNet, Skills,<br/>Channels, Channels.Telegram, Workflow, Sandbox)"]
+        ANTHROPIC["ZeroAlloc.Rest.Anthropic + .Ollama 3.6.0<br/>+ Microsoft.Extensions.AI 10.11"]
+        MCP["ModelContextProtocol 2.3.0"]
     end
 
     subgraph Data["Data & Persistence"]

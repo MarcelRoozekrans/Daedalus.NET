@@ -1,8 +1,172 @@
 # Session State
 
-**Last session:** 2026-10-24
+**Last session:** 2026-10-31
 
-## Current Position - phase 3.2 complete (2026-10-24), PR #409 to merge; next is 3.3, 3.4, 3.5, 3.7 or 3.8
+## Current Position - phase 3.3 complete (2026-10-31), PR #424 ready for the owner to merge
+
+**Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Built subagent-driven on `phase/3.3-own-llm-clients`
+from `main` `88cf0433`, across ZeroAlloc.Resilience, ZeroAlloc.Rest, Thalos.NET and Daedalus, every task reviewed.
+Rulings R1 to R29, releases, ratchet moves, the native run, the upstream comment, the live runs and findings:
+`docs/plans/2026-10-24-phase-3.3-rulings.md`.
+
+- **What shipped:**
+  - ZeroAlloc.Resilience 3.4.0, #256: an `IAsyncEnumerable<T>` method retries until its first item. ZeroAlloc.Rest
+    3.4.0, #492: server-sent events as typed streams. 3.5.0, #497: `ZeroAlloc.Rest.Anthropic` and
+    `ZeroAlloc.Rest.Ollama`, with recorded transcripts. 3.6.0, #499: `net8.0` beside `net10.0`.
+  - Thalos v0.20.0, Thalos.NET#431: the Anthropic adapter and prompt-cache translator over our client, the new
+    `Thalos.NET.Ollama`, caller-set cache markers gone; 19 packages.
+  - Daedalus: Thalos 0.20.0; `AgentFactory` in `Daedalus.Agents/Llm` on `IChatClientProvider`, the key from
+    `Thalos:Anthropic:ApiKey` or `ANTHROPIC_API_KEY`; embeddings through `UseOllamaEmbeddings`; the AppHost's Ollama
+    a plain container with an `ollama-pull` one-shot, fixing #412; the Cli host validating on build; Keycloak kept on
+    plain HTTP at 8082, `db5162d9`. The development guide's "LLM providers" has the pattern.
+- **Gone from the graph:** `Anthropic` and `OllamaSharp`, in every Daedalus project, the AppHost included.
+- **Baseline:** Api 1502, Cli 633, Migrations 798, Sandbox 0, Web 196, from Api 20244 and Cli 4357.
+- **Native run,** `docs/plans/2026-10-24-phase-3.3-native-smoke.md`: C3 is gone; the CLI stops at C4, EF Core model
+  building from `PostgresSkillStore` in `StartingAsync`. The owner moved "Application started" and the native turn to
+  3.5 on 2026-10-31. The CLI binary is 60.6 MiB, down from 70.6.
+- **Upstream:** C3 reproduces on Anthropic SDK 13.3.0, commented on anthropics/anthropic-sdk-csharp#79.
+- **Live runs** on daedalus-sandbox: `41e70b92` correctly reported its issue already fixed, $0.0062; `e811c21c`
+  succeeded through review and the gate and opened daedalus-sandbox#26, $1.4510, the cache split on `/costs`.
+- **Tests at `e9ff8905`:** unit 2125, Unit.Domain 356, Unit.Application 304, Unit.Infrastructure 278;
+  integration 765; Playwright.Api 115; Playwright.Browser 219 of 219.
+  Release build 0 warnings; `dotnet format` clean. CI green on the close-out commit, `aot-analysis` on all five
+  targets included.
+- **Filed at the close-out:** ZeroAlloc.Rest#518, tool results as content blocks (R18); ZeroAlloc.Rest#519, three
+  test-infrastructure minors. Earlier: Thalos.NET#429, no `net8.0` CI test leg.
+
+## Needs the owner
+
+1. **Merge #424, and delete the seven `Co-Authored-By: Claude` lines from the pre-filled squash message** (R27). The
+   repository squashes with the commit messages; by your choice of 2026-10-31 the branch is not rewritten, so every
+   cited SHA and CI run stays valid.
+2. **daedalus-sandbox#26,** the live run's PR, `Inventory.TryRemove`, is yours to review and merge or close.
+3. **Read the rulings,** `docs/plans/2026-10-24-phase-3.3-rulings.md`; each says what it costs if wrong. Two may want
+   your call: R4, the RCS1194 suppression on `HttpErrorException` in ZeroAlloc.Rest; R29, the scoped
+   `ASPIRECERTIFICATES001` opt-in in the AppHost.
+4. **Decide the filed issues:** ZeroAlloc.Rest#518 and #519; Thalos.NET#429.
+5. **Release-please:** after the merge, check the release PR lists 3.3's `refactor:` and `fix:` commits.
+
+Still open from 3.2's list, not re-checked by this close-out: the AppHost token's write access to Daedalus.NET; the
+ZeroAlloc.Outbox JSON-context overload; make `aot-analysis` a required check; #404, #406, #408, #410, #411, #413.
+
+## Recommended Next Step
+
+1. Merge PR #424.
+2. Start the next phase via `start-next-phase`. 3.4, controllers to minimal APIs, is independent and unblocked. 3.5
+   now also owns the native CLI's "Application started" and its native turn, and waits on ZeroAlloc.Linq and the ORM
+   gaps. 3.7 and 3.8 need only 3.2.
+
+---
+
+## Earlier Position - phase 3.3 executing (2026-10-31): Tasks 1-24 done; Task 25, the close-out, next
+
+**Last session:** 2026-10-31. Branch `phase/3.3-own-llm-clients`, draft PR #424, head `db5162d9` plus this pause commit.
+CI green on `db5162d9`. `main` merged in as `e1acb2ce`.
+
+- **Task 22, `cc79208c`:** native-publish run 41175139481 on `e1acb2ce`, three targets.
+  - The CLI binary is 60.6 MiB, down from 70.6, and the API publish took 5 min, down from 23. The CLI has 633
+    warning keys, none of them Anthropic, ZeroAlloc.Rest or Ollama.
+  - The native CLI passes C3. It stops at C4: EF Core model building in `PostgresSkillStore`, via Thalos'
+    `SkillSyncService.StartingAsync`, predicted by IL2026. 3.5 owns it.
+  - **Owner, 2026-10-31:** "Application started" moves to 3.5, the native turn is not attempted and no spend is used.
+    The design's finish line records it, and the smoke doc is `docs/plans/2026-10-24-phase-3.3-native-smoke.md`.
+- **Task 23:** C3 reproduces on Anthropic SDK 13.3.0, the latest, under `dotnet run`. The owner chose to comment on the
+  existing open meta issue anthropics/anthropic-sdk-csharp#79 rather than file a new one; posted as
+  issuecomment-6539948822. Every constant-`type` model calls `SerializeToElement` of a literal with default options.
+- **Task 24, live runs on `daedalus-sandbox`:**
+  - **`db5162d9`** `fix(apphost)`: with a valid dev certificate, Aspire 13.4.6 terminated Keycloak with TLS on 8082,
+    so no token validated. `WithoutHttpsCertificate()` plus a test. Ruling R29: the experimental
+    ASPIRECERTIFICATES001 opt-in is a one-call pragma; the owner may prefer another opt-in.
+  - **Run `41e70b92`,** GH-9, $0.0062: implement correctly reported "blocked". The issue had been fixed by sandbox PR
+    #7. With the owner's OK, stale sandbox #9 and #12 were closed.
+  - **Run `e811c21c`,** `Inventory.TryRemove`, owner-approved second run: implement Sonnet 5, review Opus 5 approved
+    on all three lenses with 0 findings, 44/44 tests, gate approved, published **daedalus-sandbox#26**, left open for
+    the owner. $1.4510. `/costs` shows input, output, cache-read and cache-write, each non-zero, equal to the node
+    records; hand pricing per model matches.
+- **Disk:** filled to 0 bytes at about 07:00Z during the first AppHost start. Freed with the owner's OK: old apphost
+  volumes, 72 h image prune, `ollama/ollama:latest`. The owner then grew the disk to 296 GB.
+
+## Recommended Next Step
+
+In a fresh session, from `.claude/worktrees/phase-3.3`, subscribe to #424 and do **Task 25** of the plan:
+`docs/development-guide.md` Native AOT and LLM providers, `docs/architecture-diagrams.md`, the rulings doc
+`docs/plans/2026-10-24-phase-3.3-rulings.md` from the ledger, R1 to R29 with every PR, release, ratchet move, the native
+result, the upstream comment and both live runs, then MILESTONE, ROADMAP and STATE. Commit
+`docs(planning): close out phase 3.3`; CI green; mark #424 ready; stop for the owner to merge. Strip the
+Co-Authored-By trailers from the squash message, R27.
+
+## Earlier Position - phase 3.3 executing (2026-10-28, evening): Tasks 1-21 done, G4 closed; Task 22 next
+
+**Update, 2026-10-28 evening.** Tasks 19-21 are done and G4 is answered.
+
+- **Task 19,** `4daf507a` and `e9a1920e`: the Api and Cli hosts build embeddings with `UseOllamaEmbeddings` from
+  `ConnectionStrings:ollama`, parsed by `OllamaConnectionString.ParseEndpoint`.
+- **Task 20,** `916b104a` and `f6ede430`: the AppHost runs Ollama as a plain container with an `ollama-pull` one-shot
+  and passes `Endpoint=`. Fixes #412. A real AppHost run indexed one memory.
+- **Ratchet move 2** is `b543120f`: Api 1530 → 1502 and Cli 649 → 633, from CI on `f6ede430`.
+- **Task 21:** no Anthropic or OllamaSharp in any of the 18 projects or in the props. Release build 0 warnings, format
+  clean, seven suites green. CI is green on `b543120f`.
+- **G4, owner's answer:** spend approved for Task 22's native turn and Task 24's live run. The live run targets
+  `MarcelRoozekrans/daedalus-sandbox`, because the token still cannot write to Daedalus.NET.
+- **Next:** Task 22, native publish via the `native-publish` label plus the smoke doc. Then Task 23, then Task 24.
+- **VM note:** the root disk filled at 17:33Z, so no shell command ran until the owner freed space. Check `df -h /`
+  before heavy runs.
+
+**Earlier, 2026-10-28 late afternoon:**
+
+**Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Plan
+`docs/superpowers/plans/2026-10-24-phase-3.3-own-llm-clients-plan.md`, run with subagent-driven development. The ledger
+is `.superpowers/sdd/2026-10-24-phase-3.3-own-llm-clients-plan/progress.md` in this worktree; it is git-ignored and
+holds every ruling, R1 to R28, the deferred minors, and the inserted tasks 11b and 14b. Trust it and `git log` over
+memory.
+
+- **G3 is closed.**
+  - Thalos.NET#431 was squash-merged as `abf47c6`, and release PR #432 was merged.
+  - All nineteen Thalos packages, `Thalos.NET.Ollama` included, are 0.20.0 on nuget.org, checked 14:13Z.
+  - The Thalos own-anthropic worktree is merged and can be removed.
+- **Task 17 is done,** `ed61d654`: Thalos 0.20.0, ZeroAlloc.Rest 3.6.0 and the 0.20.0 nuspec floors.
+- **Task 18 is done,** `71c95a89` and `f9b9db09`.
+  - `AgentFactory` now lives in `Daedalus.Agents/Llm` and runs on `IChatClientProvider`. `Anthropic` is gone from
+    Daedalus.
+  - The Cli host now calls `AddAgentFrameworkServices` and `AddCodeAnalysisServices`, so it builds with
+    `ValidateOnBuild`. This also fixed the older `IPullRequestFactory` failure (R28).
+- **Ratchet move 1** is `7a9dcec7`: Api 20244 → 1530 and Cli 4357 → 649, from CI on `f9b9db09`.
+- **Draft PR:** MarcelRoozekrans/Daedalus.NET#424, branch pushed. Daedalus.NET and Thalos.NET are attached to the remote
+  session, with the owner's OK.
+- **Ruling R27, owner's global rule of 2026-10-25:** no `Co-Authored-By: Claude` trailer on any commit. The plan's
+  Global Constraints still demand one; ignore that line. Thalos main `abf47c6` carries 11 such trailers from the
+  squash. That is merged history, left as is, and the owner was told. Phase 3.3 commits pushed before `ed61d654` carry
+  them too: strip them from the squash message of #424 when it merges.
+- **Note for the squash:** release-please also reads conventional lines in a squash body, so the `refactor:`/`test:`
+  follow-ups stay out of the changelog. Only the PR title and `Fixes #412` matter there.
+
+**Side work, owner's ask on 2026-10-28:** a weekly API conformance workflow in ZeroAlloc.Rest that opens an
+`api-drift` issue assigned to the owner. The design is agreed and committed:
+`docs/plans/2026-10-28-api-conformance-design.md` on branch `ci/api-conformance` (`35cf1dc`), in worktree
+`/home/marcel/Projects/Prive/ZeroAlloc/worktrees/rest-conformance`. Next for it: writing-plans, then build. It needs
+the owner's dedicated `ANTHROPIC_API_KEY` repo secret on ZeroAlloc.Rest.
+
+## Open Decisions
+
+None blocking.
+
+## Blockers
+
+- G4, after Task 21: the owner approves the spend for the native turn and the live run, and says whether the token can
+  write to Daedalus.NET.
+
+## Recommended Next Step
+
+In a fresh session, from `.claude/worktrees/phase-3.3`, resume superpowers:subagent-driven-development from the ledger:
+1. Check CI on #424, head `7a9dcec7`. Build & Test was still running at the pause, and the AOT targets were green with
+   the new baseline.
+2. Do Task 19, embeddings through `UseOllamaEmbeddings`. Then Task 20, the AppHost's plain Ollama container, which
+   fixes #412, and its ratchet move 2 from CI. Then Task 21, the full regression with Anthropic and OllamaSharp gone.
+3. Stop at G4.
+4. The seven suites are Unit, Unit.Domain, Unit.Application, Unit.Infrastructure, Integration with
+   `DOTNET_USE_POLLING_FILE_WATCHER=1`, Playwright.Api and Playwright.Browser.
+
+## Previous Position - phase 3.2 complete (2026-10-24), merged as #409 (`88cf0433`)
 
 **Milestone 3, phase 3.2, our own reflection out.** Built subagent-driven on `phase/3.2-reflection-out` from `main`
 `4091c648`, across Thalos.NET, AI.Sentinel and Daedalus, every task reviewed. The owner moved AI.Sentinel's fix from a
@@ -45,8 +209,8 @@ releases, the live run and findings: `docs/plans/2026-10-21-phase-3.2-rulings.md
 
 ## Needs the owner
 
-1. **Merge PR #409,** phase 3.2, once its final review is done; it is a draft. Then read the rulings; each says what
-   it costs if wrong.
+1. **Phase 3.2 is merged** as #409. Read its rulings, `docs/plans/2026-10-21-phase-3.2-rulings.md`; each says what
+   it costs if wrong. Start the release-please workflow for its `feat:` commit and check the release PR lists it.
 2. **The AppHost's GitHub token cannot write to Daedalus.NET.** Run `f67aa504`'s publish was refused with 403, so no
    manufacture run on Daedalus.NET can open a pull request. Give the token write access to the repository's contents
    and pull requests, or decide that Daedalus.NET is not a manufacture target. Its commit, `7ab8c5ca`, is kept in the

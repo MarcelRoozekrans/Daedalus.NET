@@ -2,9 +2,11 @@ using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Application.Abstractions;
 using Daedalus.Cli;
+using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.ServiceDefaults;
+using Thalos.Ollama;
 
 try
 {
@@ -57,15 +59,21 @@ namespace Daedalus.Cli
             // which AddDaedalusAgents' DaedalusKnowledgeTools requires).
             services.AddExternalServices(configuration);
 
+            // The registrations the API host makes for what AddDaedalusAgents registers: AgentFactory needs the Claude
+            // options and McpToolBuilder (AddAgentFrameworkServices), and ThalosPullRequestPublisher needs
+            // IPullRequestFactory (AddCodeAnalysisServices). Without them a Development start, which validates the
+            // container on build, fails.
+            services.AddAgentFrameworkServices(configuration);
+            services.AddCodeAnalysisServices(configuration);
+
             // Ollama embedding generator (memory index + Sentinel). Aspire provides ConnectionStrings:ollama when
             // this host runs under the AppHost; without it memories stay index_pending and Sentinel's semantic
             // detectors stay lexical-only, same degradation as the API host.
             var ollamaConnectionString = configuration.GetConnectionString("ollama");
-            OllamaSharp.OllamaApiClient? ollama = null;
+            Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>? ollama = null;
             if (!string.IsNullOrEmpty(ollamaConnectionString))
             {
-                ollama = new OllamaSharp.OllamaApiClient(new Uri(ollamaConnectionString), "nomic-embed-text");
-                services.AddSingleton<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(ollama);
+                ollama = services.UseOllamaEmbeddings(OllamaConnectionString.ParseEndpoint(ollamaConnectionString), "nomic-embed-text");
             }
 
             // Thalos-based agents: same composition root as the API host (Task 7), needs the DbContext factory

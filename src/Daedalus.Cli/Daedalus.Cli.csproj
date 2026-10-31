@@ -43,7 +43,7 @@
         </PackageReference>
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
         <PackageReference Include="ZeroAlloc.Results" />
-        <PackageReference Include="OllamaSharp" />
+        <PackageReference Include="Thalos.NET.Ollama" />
     </ItemGroup>
 
     <ItemGroup>
