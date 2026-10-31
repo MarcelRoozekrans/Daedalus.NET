@@ -1,0 +1,581 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using Daedalus.Tests.Integration.Fixtures;
+using Thalos;
+using ZeroAlloc.Authorization;
+using Task = System.Threading.Tasks.Task;
+
+namespace Daedalus.Tests.Integration.Api;
+
+/// <summary>
+///     Pins the answers MVC writes on its own, before or around an action: the client-error problem a bodiless
+///     <c>NotFound()</c> or <c>Unauthorized()</c> becomes, and the validation problem a body or query value that fails
+///     binding becomes. Phase 3.4's minimal-API helpers, <c>ApiProblem</c>, <c>ApiBody&lt;T&gt;</c> and
+///     <c>ApiQuery&lt;T&gt;</c> (ruling R7), must reproduce every value here. Every assertion reads the raw JSON through
+///     <see cref="JsonDocument"/>, never a deserialized <c>ProblemDetails</c>, so an extra or missing member fails.
+/// </summary>
+/// <remarks>
+///     <para>
+///     What the brief assumed and MVC does not do is in rulings R13 to R19 of
+///     <c>docs/plans/2026-10-31-phase-3.4-rulings.md</c>: <c>GET /api/projects/{unknown}</c> is not bodiless, no
+///     action answers a bodiless 409, the 401 branch is reached through a subject equal to
+///     <see cref="AnonymousSecurityContext.AnonymousId"/>, a top-level query parameter's message has no
+///     <c>for {name}</c>, and the malformed-JSON key is the reader's path, <c>$</c> only at the root.
+///     </para>
+///     <para>
+///     The workflow-runs cases boot <see cref="ScratchWorkflowHost"/>, because <c>WorkflowRunsController</c> is mapped
+///     only with the engine on and the factory forbids the engine over the shared fixture database (ruling R11). Every
+///     other case runs on <see cref="ApiWebApplicationFactory"/> over the shared database.
+///     </para>
+///     <para>
+///     The <c>Content-Type</c> is pinned whole, charset included, because that is what MVC sends. The order of members
+///     and of <c>errors</c> keys is not pinned: MVC writes <c>errors</c> in its model-state dictionary's order, which no
+///     client can rely on (ruling R18).
+///     </para>
+/// </remarks>
+[Collection(DatabaseCollection.Name)]
+public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
+{
+    private const string Json = "application/json; charset=utf-8";
+    private const string ProblemJson = "application/problem+json; charset=utf-8";
+
+    private const string NotFoundType = "https://tools.ietf.org/html/rfc9110#section-15.5.5";
+    private const string UnauthorizedType = "https://tools.ietf.org/html/rfc9110#section-15.5.2";
+    private const string BadRequestType = "https://tools.ietf.org/html/rfc9110#section-15.5.1";
+
+    /// <summary><c>ZeroAllocValidationFilter</c>'s type, which differs from MVC's own 400 type.</summary>
+    private const string FilterBadRequestType = "https://tools.ietf.org/html/rfc7231#section-6.5.1";
+
+    private const string ValidationTitle = "One or more validation errors occurred.";
+    private const string NonEmptyBody = "A non-empty request body is required.";
+    private const string RequestRequired = "The request field is required.";
+
+    private static readonly Guid Unknown = Guid.NewGuid();
+
+    /// <summary>
+    ///     How MVC's <c>JsonOptions</c> escape text: relaxed, so an apostrophe goes out as <c>'</c>, not <c>\u0027</c>.
+    ///     Expected values are serialized with it and compared with the raw JSON, so the escaping is pinned too (R19).
+    /// </summary>
+    private static readonly JsonSerializerOptions MvcEscaping = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Bodiless client errors. MVC's ClientErrorResultFilter turns a bodiless 4xx into its client-error problem.
+    // No action answers a bodiless 409, so there is no 409 case: every 409 in the controllers carries a body,
+    // Problem(detail:...), Conflict(new { error }) or Conflict(new ProblemDetails), ruling R14.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     <c>GET /api/workflow-runs/{unknown}</c> returns a bare <c>NotFound()</c>. <c>GET /api/projects/{unknown}</c>,
+    ///     the brief's example, answers <c>{ "error": ... }</c> instead and is pinned in
+    ///     <see cref="Problem_content_type_is_per_controller"/>; ruling R13.
+    /// </summary>
+    [Fact]
+    public async Task Bodiless_not_found_answers_mvc_client_error_problem()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: true);
+        using var client = host.Client("alice", "developer");
+
+        using var response = await client.GetAsync(new Uri($"/api/workflow-runs/{Unknown}", UriKind.Relative));
+
+        // Red: return StatusCode(410) instead of NotFound() for an unknown run in WorkflowRunsController.Get.
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound, await response.Content.ReadAsStringAsync());
+        // Red: WorkflowRunsController's [Produces("application/json")] changed to text/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        await AssertProblemAsync(response, NotFoundType, "Not Found", 404);
+    }
+
+    /// <summary>
+    ///     The 401 an action returns itself when <c>HttpSecurityContextFactory.TryCreate</c> refuses a signed-in
+    ///     principal. <see cref="HeaderTestAuthHandler"/> always sets <c>sub</c>, so no principal without a subject
+    ///     reaches the branch; a subject equal to <see cref="AnonymousSecurityContext.AnonymousId"/> takes the same
+    ///     branch, ruling R15. Tasks has no <c>[Produces]</c>, so its problem is <c>application/problem+json</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("GET", "/api/agent-memories", Json)]
+    [InlineData("POST", "/api/tasks/4252e093-c33b-47ec-b31b-84f6ba69089f/manufacture", ProblemJson)]
+    public async Task Bodiless_unauthorized_answers_mvc_client_error_problem(string method, string path, string contentType)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client(AnonymousSecurityContext.AnonymousId, "admin");
+
+        using var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), new Uri(path, UriKind.Relative)));
+
+        // Red: return StatusCode(403) instead of Unauthorized() in AgentMemoriesController.List and in
+        //      TasksController.Manufacture.
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, await response.Content.ReadAsStringAsync());
+        // Red: AgentMemoriesController's [Produces("application/json")] changed to text/json, and a
+        //      [Produces("application/json")] added to TasksController.
+        response.Content.Headers.ContentType!.ToString().Should().Be(contentType);
+        await AssertProblemAsync(response, UnauthorizedType, "Unauthorized", 401);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Body binding. [ApiController]'s ModelStateInvalidFilter answers before the action and before
+    // ZeroAllocValidationFilter, with ProblemDetailsFactory's validation problem.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     The input formatter's error is keyed by the JSON path where the reader stopped, <c>$</c> only when it stops
+    ///     at the root, ruling R17; the parameter, <c>request</c>, then fails its implicit required check.
+    /// </summary>
+    [Theory]
+    [InlineData("{\"name\":", "$.name",
+        "Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be"
+        + " closed. Path: $.name | LineNumber: 0 | BytePositionInLine: 8.")]
+    [InlineData("[1]", "$",
+        "The JSON value could not be converted to Daedalus.Application.DTOs.CreateProjectDto. Path: $ | LineNumber: 0"
+        + " | BytePositionInLine: 1.")]
+    public async Task Malformed_json_answers_validation_problem(string body, string pathKey, string message)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+
+        using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody(body));
+
+        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: ProjectsController's [Produces("application/json")] changed to text/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                [pathKey] = [message],
+                ["request"] = [RequestRequired],
+            });
+    }
+
+    /// <summary>
+    ///     No body and the JSON literal <c>null</c> answer the same: the empty-key "non-empty body" error and the
+    ///     parameter's implicit required error. The request carries <c>Content-Type: application/json</c> in both.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("null")]
+    public async Task Empty_body_answers_non_empty_body_required(string body)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+
+        using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody(body));
+
+        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: ProjectsController's [Produces("application/json")] changed to text/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                [""] = [NonEmptyBody],
+                ["request"] = [RequestRequired],
+            });
+    }
+
+    /// <summary>
+    ///     <c>WorkflowRunsController.Cancel</c> binds <c>CancelWorkflowRunRequest?</c>; a nullable body parameter is
+    ///     optional, so an empty body binds null and the action answers its own bodiless 404 for an unknown run.
+    /// </summary>
+    [Fact]
+    public async Task Empty_body_on_a_nullable_body_parameter_binds_null()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: true);
+        using var client = host.Client("alice", "developer");
+
+        using var response = await client.PostAsync(
+            new Uri($"/api/workflow-runs/{Unknown}/cancel", UriKind.Relative), JsonBody(""));
+
+        // Red: make Cancel's parameter CancelWorkflowRunRequest, not nullable; the empty body is then a 400.
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound, await response.Content.ReadAsStringAsync());
+        // Red: WorkflowRunsController's [Produces("application/json")] changed to text/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        await AssertProblemAsync(response, NotFoundType, "Not Found", 404);
+    }
+
+    // The body DTO types the 13 controllers bind, explicitly with [FromBody] or by [ApiController]'s inference, and the
+    // non-nullable reference properties MVC treats as implicitly required in each. Nullable reference types are on
+    // repo-wide, and SuppressImplicitRequiredAttributeForNonNullableReferenceTypes is left false, so each such property
+    // carries an implicit [Required]. It fires only when the bound value is null: a property whose initializer or
+    // parameterless constructor supplies a value is not refused when the JSON omits it, and an empty string reaches
+    // ZeroAllocValidationFilter, see Empty_string_is_not_implicitly_required. The ApiExplorer switch Program.cs sets,
+    // IsEnhancedModelMetadataSupported, changes API descriptions only, not validation.
+    //
+    //   CreateProjectDto               POST api/projects                    ProjectName, Description, Version
+    //   UpdateProjectDto               PUT  api/projects/{id}               ProjectName, Description, Version
+    //   CreateTaskDto                  POST api/tasks                       Title, Description
+    //   UpdateTaskDto                  PUT  api/tasks/{id}                  none, every member is nullable
+    //   SubmitAnalysisRequest          POST api/codeanalysis                RepositoryUrl, FilePath, Title, Description,
+    //                                                                       Requirements
+    //   IterateAnalysisRequest         POST api/codeanalysis/{id}/iterate   AiResponse
+    //   FinalizeAnalysisRequest        POST api/codeanalysis/{id}/finalize  none, one bool
+    //   CreateBrainstormSessionDto     POST api/brainstorm/sessions         none, one Guid
+    //   SendBrainstormMessageDto       POST api/brainstorm/sessions/{id}/messages   Content
+    //   PrdRequestDto                  POST api/prd/generate                UserRequirements, only when sent as null:
+    //                                                                       the parameterless constructor sets ""
+    //   PrdConversionRequestDto        POST api/prd/convert-to-tasks        PrdItems
+    //     PrdItemForConversionDto      each PrdItems element                Title, Description, AcceptanceCriteria,
+    //                                                                       Dependencies, Phase
+    //   CreateRepositoryConfigurationDto  POST api/repositories             Name, Url, Platform, DefaultBranch, only
+    //                                                                       when sent as null: each has an initializer
+    //   UpdateRepositoryConfigurationDto  PUT  api/repositories/{id}        Name, Url, DefaultBranch, likewise
+    //   SendTurnRequestDto             POST api/agents/sessions/{id}/turns and turns/stream   Text
+    //   StartWorkflowRunRequest        POST api/workflow-runs               WorkIntent, Repository
+    //   ResumeWorkflowRunRequest       POST api/workflow-runs/{id}/resume   Signal
+    //   CancelWorkflowRunRequest       POST api/workflow-runs/{id}/cancel   none, and the parameter itself is nullable
+    //
+    // One case per type, plus one for the nested PrdItemForConversionDto, whose keys carry the PrdItems[0]. prefix.
+    // A type with no required member pins that its omitted members reach the action: its case expects no errors.
+    public static TheoryData<string> RequiredCases => new(RequiredCaseTable.Keys.Order(StringComparer.Ordinal));
+
+    private static readonly Dictionary<string, RequiredCase> RequiredCaseTable = new(StringComparer.Ordinal)
+    {
+        ["CreateProjectDto"] = Refused("POST", "/api/projects", "{}", "project-manager", Json,
+            "ProjectName", "Description", "Version"),
+        ["UpdateProjectDto"] = Refused("PUT", $"/api/projects/{Unknown}", "{}", "project-manager", Json,
+            "ProjectName", "Description", "Version"),
+        ["CreateTaskDto"] = Refused("POST", "/api/tasks", "{}", "task-manager", ProblemJson, "Title", "Description"),
+        ["UpdateTaskDto"] = Passed("PUT", $"/api/tasks/{Unknown}", "{}", "task-manager", HttpStatusCode.NotFound),
+        ["SubmitAnalysisRequest"] = Refused("POST", "/api/codeanalysis", "{}", "analyst", Json,
+            "RepositoryUrl", "FilePath", "Title", "Description", "Requirements"),
+        ["IterateAnalysisRequest"] = Refused("POST", $"/api/codeanalysis/{Unknown}/iterate", "{}", "analyst", Json,
+            "AiResponse"),
+        ["FinalizeAnalysisRequest"] = Passed("POST", $"/api/codeanalysis/{Unknown}/finalize", "{}", "analyst",
+            HttpStatusCode.BadRequest),
+        ["CreateBrainstormSessionDto"] = Passed("POST", "/api/brainstorm/sessions", "{}", "analyst",
+            HttpStatusCode.BadRequest),
+        ["SendBrainstormMessageDto"] = Refused("POST", $"/api/brainstorm/sessions/{Unknown}/messages", "{}", "analyst",
+            Json, "Content"),
+        ["PrdRequestDto"] = Refused("POST", "/api/prd/generate", "{\"userRequirements\":null}", "analyst", Json,
+            "UserRequirements"),
+        ["PrdConversionRequestDto"] = Refused("POST", "/api/prd/convert-to-tasks", "{}", "task-manager", Json,
+            "PrdItems"),
+        ["PrdItemForConversionDto"] = Refused("POST", "/api/prd/convert-to-tasks",
+            $"{{\"projectId\":\"{Unknown}\",\"prdItems\":[{{}}]}}", "task-manager", Json,
+            "PrdItems[0].Title", "PrdItems[0].Description", "PrdItems[0].AcceptanceCriteria",
+            "PrdItems[0].Dependencies", "PrdItems[0].Phase"),
+        ["CreateRepositoryConfigurationDto"] = Refused("POST", "/api/repositories",
+            "{\"name\":null,\"url\":null,\"platform\":null,\"defaultBranch\":null}", "admin", Json,
+            "Name", "Url", "Platform", "DefaultBranch"),
+        ["UpdateRepositoryConfigurationDto"] = Refused("PUT", $"/api/repositories/{Unknown}",
+            "{\"name\":null,\"url\":null,\"defaultBranch\":null}", "admin", Json, "Name", "Url", "DefaultBranch"),
+        ["SendTurnRequestDto"] = Refused("POST", "/api/agents/sessions/s1/turns", "{}", "developer", Json, "Text"),
+        ["StartWorkflowRunRequest"] = Refused("POST", "/api/workflow-runs", "{}", "developer", Json,
+            "WorkIntent", "Repository") with
+        { Workflow = true },
+        ["ResumeWorkflowRunRequest"] = Refused("POST", $"/api/workflow-runs/{Unknown}/resume", "{}", "developer", Json,
+            "Signal") with
+        { Workflow = true },
+        ["CancelWorkflowRunRequest"] = Passed("POST", $"/api/workflow-runs/{Unknown}/cancel", "{}", "developer",
+            HttpStatusCode.NotFound) with
+        { Workflow = true },
+    };
+
+    [Theory]
+    [MemberData(nameof(RequiredCases))]
+    public async Task Missing_required_property_answers_implicit_required(string dto)
+    {
+        var @case = RequiredCaseTable[dto];
+        await using var host = await ApiHost.StartAsync(fixture, @case.Workflow);
+        using var client = host.Client("alice", @case.Role);
+
+        using var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(@case.Method),
+            new Uri(@case.Path, UriKind.Relative))
+        { Content = JsonBody(@case.Body) });
+
+        if (@case.Required.Length == 0)
+        {
+            // Red: add a non-nullable string property, initialized to null!, to UpdateTaskDto or
+            //      CancelWorkflowRunRequest; the case is then the binding 400.
+            response.StatusCode.Should().Be(@case.PassedStatus, await response.Content.ReadAsStringAsync());
+            using var passed = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            // Red: the same property on FinalizeAnalysisRequest or CreateBrainstormSessionDto; their 400 is then the
+            //      binding problem, with an errors member.
+            passed.RootElement.TryGetProperty("errors", out _).Should().BeFalse("no member of {0} is required", dto);
+            return;
+        }
+
+        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: the case's controller [Produces("application/json")] changed to text/json; for CreateTaskDto, a
+        //      [Produces("application/json")] added to TasksController.
+        response.Content.Headers.ContentType!.ToString().Should().Be(@case.ContentType);
+        // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options:
+        //      each refused case then reaches its action or ZeroAllocValidationFilter, whose answer differs.
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: @case.Required.ToDictionary(key => key, key => new[] { $"The {key.Split('.')[^1]} field is required." },
+                StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    ///     The implicit required check fires on null only: an empty string is bound, and the ZeroAlloc.Validation filter
+    ///     refuses it with its own message and its own problem shape, which has a <c>detail</c> and no <c>traceId</c>.
+    /// </summary>
+    [Fact]
+    public async Task Empty_string_is_not_implicitly_required()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+
+        using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative),
+            JsonBody("{\"projectName\":\"\",\"description\":\"d\",\"version\":\"v\"}"));
+
+        // Red: ZeroAllocValidationFilter answers its problem with UnprocessableEntityObjectResult, a 422.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: ProjectsController's [Produces("application/json")] changed to text/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        // Red: an explicit DataAnnotations [Required] on CreateProjectDto.ProjectName; MVC then refuses the empty
+        //      string with its own problem, rfc9110 type, traceId and "The ProjectName field is required.".
+        await AssertProblemAsync(response, FilterBadRequestType, ValidationTitle, 400,
+            detail: "Project name is required.",
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["ProjectName"] = ["Project name is required."] },
+            traceId: false);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Query binding. A top-level parameter's message is the non-property one, "The value '{raw}' is not valid.", with
+    // no "for {name}"; ruling R16.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("/api/schedules/4252e093-c33b-47ec-b31b-84f6ba69089f/runs?take=abc", "agent-user", "take")]
+    [InlineData("/api/brainstorm/sessions?projectId=abc", "analyst", "projectId")]
+    public async Task Malformed_query_value_answers_validation_problem(string path, string role, string key)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", role);
+
+        using var response = await client.GetAsync(new Uri(path, UriKind.Relative));
+
+        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: SchedulesController's and BrainstormController's [Produces("application/json")] changed to text/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { [key] = ["The value 'abc' is not valid."] });
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Content type. A problem is application/json on the controllers with [Produces("application/json")] (#366) and
+    // application/problem+json on Tasks and on the stream action, whose own [Produces] overrides its controller's.
+    // A plain { "error" } body is application/json everywhere, Tasks included: the per-controller rule is about
+    // ProblemDetails only.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("tasks-problem")]
+    [InlineData("tasks-error-body")]
+    [InlineData("projects-error-body")]
+    [InlineData("stream-problem")]
+    public async Task Problem_content_type_is_per_controller(string name)
+    {
+        var (method, path, role, body, contentType, status) = name switch
+        {
+            "tasks-problem" => ("POST", $"/api/tasks/{Unknown}/manufacture", "admin", null, ProblemJson, HttpStatusCode.NotFound),
+            "tasks-error-body" => ("GET", $"/api/tasks/{Unknown}", "task-manager", null, Json, HttpStatusCode.NotFound),
+            "projects-error-body" => ("GET", $"/api/projects/{Unknown}", "project-manager", null, Json, HttpStatusCode.NotFound),
+            "stream-problem" => ("POST", "/api/agents/sessions/s1/turns/stream", "developer", "{}", ProblemJson,
+                HttpStatusCode.BadRequest),
+            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown case"),
+        };
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", role);
+        using var request = new HttpRequestMessage(new HttpMethod(method), new Uri(path, UriKind.Relative));
+        if (body is not null)
+        {
+            request.Content = JsonBody(body);
+        }
+
+        using var response = await client.SendAsync(request);
+
+        // Red: return StatusCode(410) instead of NotFound for an unknown task in TasksController.GetTaskById and
+        //      ProjectsController.GetProjectById, and status 410 in TasksController.Manufacture's TaskNotFound
+        //      branch; for the stream, the 422 InvalidModelStateResponseFactory.
+        response.StatusCode.Should().Be(status, await response.Content.ReadAsStringAsync());
+        // Red: a [Produces("application/json")] added to TasksController turns tasks-problem; ProjectsController's
+        //      Produces changed to text/json turns projects-error-body; a [Produces("text/json")] on TasksController
+        //      turns tasks-error-body; the stream action's [Produces("text/event-stream")] removed turns
+        //      stream-problem application/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(contentType);
+        switch (name)
+        {
+            case "tasks-problem":
+                await AssertProblemAsync(response, NotFoundType, "Not Found", 404, detail: $"Task {Unknown} was not found.");
+                break;
+            case "tasks-error-body":
+                await AssertErrorBodyAsync(response, $"Task with ID {Unknown} not found");
+                break;
+            case "projects-error-body":
+                await AssertErrorBodyAsync(response, $"Project with ID {Unknown} not found");
+                break;
+            default:
+                await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+                    errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["Text"] = ["The Text field is required."] });
+                break;
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     Asserts a problem body: the exact member set, then <c>type</c>, <c>title</c>, <c>status</c> and
+    ///     <c>detail</c> as raw JSON, then <c>errors</c> key for key, then <c>traceId</c> as a non-empty string.
+    /// </summary>
+    private static async Task AssertProblemAsync(
+        HttpResponseMessage response, string type, string title, int status, string? detail = null,
+        IReadOnlyDictionary<string, string[]>? errors = null, bool traceId = true)
+    {
+        var text = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(text);
+        var root = document.RootElement;
+
+        var expectedMembers = new List<string> { "status", "title", "type" };
+        if (detail is not null)
+        {
+            expectedMembers.Add("detail");
+        }
+
+        if (errors is not null)
+        {
+            expectedMembers.Add("errors");
+        }
+
+        if (traceId)
+        {
+            expectedMembers.Add("traceId");
+        }
+
+        // Red: AddProblemDetails' CustomizeProblemDetails adds an "extra" extension to every problem.
+        root.EnumerateObject().Select(member => member.Name).Order(StringComparer.Ordinal).Should()
+            .Equal(expectedMembers.Order(StringComparer.Ordinal), text);
+
+        var expectedValues = new List<string>
+        {
+            "status=" + status.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "title=" + JsonSerializer.Serialize(title, MvcEscaping),
+            "type=" + JsonSerializer.Serialize(type, MvcEscaping),
+        };
+        if (detail is not null)
+        {
+            expectedValues.Add("detail=" + JsonSerializer.Serialize(detail, MvcEscaping));
+        }
+
+        // Red: CustomizeProblemDetails sets every problem's Title to "x"; for the filter's shape, the
+        //      ZeroAllocValidationFilter's Title changed.
+        root.EnumerateObject()
+            .Where(member => member.Name is not ("errors" or "traceId"))
+            .Select(member => member.Name + "=" + member.Value.GetRawText())
+            .Order(StringComparer.Ordinal).Should()
+            .Equal(expectedValues.Order(StringComparer.Ordinal), text);
+
+        if (errors is not null)
+        {
+            // Each key with its messages as raw JSON, so a message that is not a string fails too; keys sorted, since
+            // their order is not pinned (R18), messages in the order MVC wrote them.
+            var actualErrors = root.GetProperty("errors").EnumerateObject()
+                .Select(member => member.Name + "=" + member.Value.GetRawText())
+                .Order(StringComparer.Ordinal);
+            var expectedErrors = errors
+                .Select(error => error.Key + "=" + JsonSerializer.Serialize(error.Value, MvcEscaping))
+                .Order(StringComparer.Ordinal);
+            // Red: CustomizeProblemDetails adds an "x" key to every ValidationProblemDetails' Errors; for the
+            //      filter's shape, ZeroAllocValidationFilter adds the same key to its errors.
+            actualErrors.Should().Equal(expectedErrors, text);
+        }
+
+        if (traceId)
+        {
+            var value = root.GetProperty("traceId");
+            // Red: CustomizeProblemDetails sets the traceId extension to "".
+            (value.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(value.GetString())).Should()
+                .BeTrue("traceId must be a non-empty string: {0}", text);
+        }
+    }
+
+    /// <summary>Asserts a controller's own <c>{ "error": ... }</c> body: one member, <c>error</c>, with the message.</summary>
+    private static async Task AssertErrorBodyAsync(HttpResponseMessage response, string message)
+    {
+        var text = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(text);
+        // Red: an extra member in the not-found anonymous object of the controller under test.
+        document.RootElement.EnumerateObject().Select(member => member.Name).Should().Equal(["error"], text);
+        // Red: the not-found message changed in the controller under test.
+        document.RootElement.GetProperty("error").GetString().Should().Be(message);
+    }
+
+    private static StringContent JsonBody(string body)
+    {
+        var content = new StringContent(body, Encoding.UTF8);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        return content;
+    }
+
+    private static RequiredCase Refused(
+        string method, string path, string body, string role, string contentType, params string[] required) =>
+        new(method, path, body, role, contentType, required, HttpStatusCode.BadRequest);
+
+    private static RequiredCase Passed(string method, string path, string body, string role, HttpStatusCode status) =>
+        new(method, path, body, role, Json, [], status);
+
+    private sealed record RequiredCase(
+        string Method, string Path, string Body, string Role, string ContentType, string[] Required,
+        HttpStatusCode PassedStatus)
+    {
+        public bool Workflow { get; init; }
+    }
+
+    /// <summary>
+    ///     The shared factory over the reset fixture database, or <see cref="ScratchWorkflowHost"/> when the case needs
+    ///     <c>WorkflowRunsController</c>, which only the engine maps.
+    /// </summary>
+    private sealed class ApiHost : IAsyncDisposable
+    {
+        private readonly ApiWebApplicationFactory? _factory;
+        private readonly ScratchWorkflowHost? _workflow;
+
+        private ApiHost(ApiWebApplicationFactory? factory, ScratchWorkflowHost? workflow)
+        {
+            _factory = factory;
+            _workflow = workflow;
+        }
+
+        public static async Task<ApiHost> StartAsync(PostgresFixture fixture, bool workflow)
+        {
+            if (workflow)
+            {
+                return new ApiHost(null, await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>()));
+            }
+
+            await fixture.DatabaseResetter.ResetAsync();
+            return new ApiHost(new ApiWebApplicationFactory(fixture.ConnectionString, Substitute.For<IAgentRuntime>()), null);
+        }
+
+        /// <summary>A client authenticated through <see cref="HeaderTestAuthHandler"/>: <paramref name="user"/> becomes <c>sub</c>.</summary>
+        public HttpClient Client(string user, params string[] roles)
+        {
+            if (_workflow is not null)
+            {
+                return _workflow.Client(user, roles);
+            }
+
+            var client = _factory!.CreateClient();
+            client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.UserHeader, user);
+            client.DefaultRequestHeaders.Add(HeaderTestAuthHandler.RolesHeader, string.Join(',', roles));
+            return client;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_workflow is not null)
+            {
+                await _workflow.DisposeAsync();
+            }
+
+            if (_factory is not null)
+            {
+                await _factory.DisposeAsync();
+            }
+        }
+    }
+}
