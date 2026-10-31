@@ -7,6 +7,7 @@ using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 using HttpJsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 using MediaTypeHeaderValue = Microsoft.Net.Http.Headers.MediaTypeHeaderValue;
 
@@ -255,7 +256,8 @@ internal static class ApiBinding
     /// </summary>
     public static bool TrySelectEncoding(MediaTypeHeaderValue mediaType, out Encoding encoding)
     {
-        var charset = mediaType.Charset.Value;
+        // MVC's MediaType unquotes the parameter, so charset="utf-8" reads as utf-8.
+        var charset = HeaderUtilities.RemoveQuotes(mediaType.Charset).Value;
         encoding = string.IsNullOrEmpty(charset) ? Encoding.UTF8 : EncodingNamed(charset) switch
         {
             { WebName: "utf-8" } => Encoding.UTF8,

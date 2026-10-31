@@ -456,8 +456,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         // Red: SchedulesController's [Produces("application/json")] changed to text/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         // Red: set ModelBindingMessageProvider's ValueMustNotBeNull and NonPropertyAttemptedValueIsInvalid accessors in
-        //      AddControllers' options; the empty and the repeated case turn red. The two "input was not valid" cases
-        //      come from a resource MVC exposes no setting for; ApiBindingTests' converter parity holds them.
+        //      AddControllers' options; the empty and the repeated case turn red. Inserting first in ModelBinderProviders
+        //      a provider whose int binder uses int.TryParse and writes its own message turns every case red, the two
+        //      "input was not valid" ones included.
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["take"] = [message] });
     }
@@ -473,6 +474,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     [InlineData("tasks-text-plain", "text/plain")]
     [InlineData("projects-latin1", "application/json; charset=iso-8859-1")]
     [InlineData("projects-unknown-charset", "application/json; charset=no-such-charset")]
+    [InlineData("projects-utf8-unhyphenated", "application/json; charset=utf8")]
     [InlineData("projects-no-content-type", null)]
     public async Task Unreadable_body_answers_415_problem(string name, string? contentType)
     {
@@ -484,15 +486,37 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), RawBody(ProjectBody, contentType));
 
-        // Red: let the JSON input formatter read text/plain and Latin-1, by adding both to its SupportedMediaTypes and
-        //      SupportedEncodings in AddControllers' options; those three cases then bind and answer 201 or their own
-        //      400. A body with no Content-Type matches no media type and an unknown charset no encoding, so no
-        //      formatter setting turns those two cases red.
+        // Red: insert first in AddControllers' InputFormatters an IInputFormatter whose CanRead is always true and
+        //      that deserializes the body as web JSON; every case then binds and answers 201 or its own 400. Adding
+        //      text/plain and Latin-1 to the JSON formatter's SupportedMediaTypes and SupportedEncodings turns the
+        //      text/plain and Latin-1 cases red on their own.
         response.StatusCode.Should().Be(HttpStatusCode.UnsupportedMediaType, await response.Content.ReadAsStringAsync());
         // Red: ProjectsController's [Produces("application/json")] changed to text/json, and a
         //      [Produces("application/json")] added to TasksController.
         response.Content.Headers.ContentType!.ToString().Should().Be(expectedContentType);
         await AssertProblemAsync(response, "https://tools.ietf.org/html/rfc9110#section-15.5.16", "Unsupported Media Type", 415);
+    }
+
+    /// <summary>
+    ///     Charsets MVC reads: <c>ucs-2</c>, which <c>Encoding.GetEncoding</c> resolves to UTF-16, with a UTF-16 body,
+    ///     and a quoted <c>"utf-8"</c>; R28.
+    /// </summary>
+    [Theory]
+    [InlineData("ucs-2")]
+    [InlineData("\"utf-8\"")]
+    public async Task Charset_mvc_resolves_is_read(string charset)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+        var encoding = string.Equals(charset, "ucs-2", StringComparison.Ordinal) ? Encoding.Unicode : Encoding.UTF8;
+        using var content = new ByteArrayContent(encoding.GetBytes(ProjectBody));
+        content.Headers.TryAddWithoutValidation("Content-Type", "application/json; charset=" + charset);
+
+        using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), content);
+
+        // Red: clear the JSON input formatter's SupportedEncodings in AddControllers' options, and both are refused
+        //      with 415; or insert a formatter first that reads every body as UTF-8, and the ucs-2 case turns red.
+        response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
     }
 
     // ---------------------------------------------------------------------------------------------------------------

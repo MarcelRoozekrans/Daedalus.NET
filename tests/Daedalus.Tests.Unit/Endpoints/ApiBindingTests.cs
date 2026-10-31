@@ -178,6 +178,7 @@ public sealed class ApiBindingTests
     [InlineData("text/json")]
     [InlineData("application/merge-patch+json")]
     [InlineData("application/json; charset=utf-8")]
+    [InlineData("application/json; charset=\"utf-8\"")]
     public async Task Body_reads_every_json_media_type_mvcs_formatter_reads(string contentType)
     {
         await using var services = Services();
@@ -185,7 +186,8 @@ public sealed class ApiBindingTests
 
         var bound = await BindBody<SendTurnRequestDto>(context);
 
-        // Red: accept application/json alone, as HttpRequest.HasJsonContentType does not for text/json.
+        // Red: accept application/json alone, as HttpRequest.HasJsonContentType does not for text/json; or look
+        //      the charset up with its quotes, which refuses the quoted "utf-8" MVC reads.
         bound.UnsupportedMediaType.Should().BeFalse();
         bound.Value.Should().Be(new SendTurnRequestDto("hi"));
     }
@@ -383,7 +385,10 @@ public sealed class ApiBindingTests
     public static TheoryData<string> ConverterInputs => new(
         "16", "+16", " 7 ", "-1", "1,000", "1e3", "abc", "0x10", "0X10", "&h10", "&H10", "#10", "#0X10", "&h0x10",
         "0x+10", "0x 10", "0x0x", "0x0x10", "0x", "#", "&H", "0x-10", "#-10", "0xFFFF", "0xFFFFFFFF", "0x80000000",
-        "0xffffffffff", "0x1G", "0b11", "1.5", "true", "0001");
+        "0xffffffffff", "0x1G", "0b11", "1.5", "true", "0001", "4252e093-c33b-47ec-b31b-84f6ba69089f",
+        " 4252e093-c33b-47ec-b31b-84f6ba69089f ", "4252e093c33b47ecb31b84f6ba69089f", "{4252e093-c33b-47ec-b31b-84f6ba69089f}",
+        "(4252e093-c33b-47ec-b31b-84f6ba69089f)", "{0x4252e093,0xc33b,0x47ec,{0xb3,0x1b,0x84,0xf6,0xba,0x69,0x08,0x9f}}",
+        "4252e093-c33b-47ec-b31b-84f6ba69089", "4252E093-C33B-47EC-B31B-84F6BA69089F");
 
     /// <summary>
     ///     <see cref="QueryValue"/> against the very converters MVC's <c>SimpleTypeModelBinder</c> calls: the same
@@ -395,8 +400,9 @@ public sealed class ApiBindingTests
     public void Query_values_parse_as_mvcs_type_converters(string raw)
     {
         // Red: drop the '+' or the second "0x" from QueryValue's hexadecimal rest, read Int128 with
-        //      AllowHexSpecifier, parse double with IParsable's TryParse, which takes "1,000", or answer
-        //      InputNotValid for a FormatException case; the input's line turns red.
+        //      AllowHexSpecifier, parse double with IParsable's TryParse, which takes "1,000", parse a Guid with
+        //      TryParseExact "D", which GuidConverter's new Guid does not restrict, or answer InputNotValid for a
+        //      FormatException case; the input's line turns red.
         Describe<int>(raw, new Int32Converter()).Should().Be(Expected(raw, new Int32Converter()));
         Describe<short>(raw, new Int16Converter()).Should().Be(Expected(raw, new Int16Converter()));
         Describe<byte>(raw, new ByteConverter()).Should().Be(Expected(raw, new ByteConverter()));
@@ -411,6 +417,7 @@ public sealed class ApiBindingTests
         Describe<float>(raw, new SingleConverter()).Should().Be(Expected(raw, new SingleConverter()));
         Describe<decimal>(raw, new DecimalConverter()).Should().Be(Expected(raw, new DecimalConverter()));
         Describe<bool>(raw, new BooleanConverter()).Should().Be(Expected(raw, new BooleanConverter()));
+        Describe<Guid>(raw, new GuidConverter()).Should().Be(Expected(raw, new GuidConverter()));
 
         static string Describe<T>(string raw, TypeConverter converter) where T : IParsable<T> =>
             QueryValue.Parse(raw, out T value) switch
