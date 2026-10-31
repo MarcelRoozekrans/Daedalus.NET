@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.4.0
 
       - name: Install the native toolchain
         run: |
@@ -53,12 +53,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang zlib1g-dev
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v4.3.1
         with:
           global-json-file: global.json
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ~/.nuget/packages
           key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
@@ -78,7 +78,7 @@ jobs:
         run: find "${{ runner.temp }}/native/${{ matrix.target }}" -name '*.dbg' -delete
 
       - name: Upload the binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/native/${{ matrix.target }}/
