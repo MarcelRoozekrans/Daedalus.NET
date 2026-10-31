@@ -291,19 +291,59 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             // Red: the same property on FinalizeAnalysisRequest or CreateBrainstormSessionDto; their 400 is then the
             //      binding problem, with an errors member.
             passed.RootElement.TryGetProperty("errors", out _).Should().BeFalse("no member of {0} is required", dto);
+            await AssertActionBadRequestAsync(dto, response, passed.RootElement);
             return;
         }
 
         // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options.
+        //      Each refused case turns red: here, as a 500, where its action throws on the null member, and at the
+        //      member set below where its action or ZeroAllocValidationFilter answers its own 400.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: the case's controller [Produces("application/json")] changed to text/json; for CreateTaskDto, a
         //      [Produces("application/json")] added to TasksController.
         response.Content.Headers.ContentType!.ToString().Should().Be(@case.ContentType);
-        // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options:
-        //      each refused case then reaches its action or ZeroAllocValidationFilter, whose answer differs.
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: @case.Required.ToDictionary(key => key, key => new[] { $"The {key.Split('.')[^1]} field is required." },
                 StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    ///     The 400 that FinalizeAnalysis and CreateSession answer themselves once <c>{}</c> binds: an explicit
+    ///     <c>ProblemDetails</c> with no <c>type</c> and no <c>traceId</c>, and a plain <c>{ "error" }</c>. The other
+    ///     no-required cases answer 404s pinned elsewhere, UpdateTaskDto's as Tasks' <c>{ "error" }</c> shape and
+    ///     CancelWorkflowRunRequest's as the bodiless 404.
+    /// </summary>
+    private static async Task AssertActionBadRequestAsync(string dto, HttpResponseMessage response, JsonElement root)
+    {
+        var text = root.GetRawText();
+        switch (dto)
+        {
+            case "FinalizeAnalysisRequest":
+                // Red: CodeAnalysisController's [Produces("application/json")] changed to text/json.
+                response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+                // Red: Type set on the Finalization Error ProblemDetails in CodeAnalysisController.FinalizeAnalysis.
+                root.EnumerateObject().Select(member => member.Name).Order(StringComparer.Ordinal).Should()
+                    .Equal(["detail", "status", "title"], text);
+                // Red: the Finalization Error title changed in CodeAnalysisController.FinalizeAnalysis.
+                root.EnumerateObject().Select(member => member.Name + "=" + member.Value.GetRawText())
+                    .Order(StringComparer.Ordinal).Should().Equal(
+                        "detail=" + JsonSerializer.Serialize($"Analysis request {Unknown} not found", MvcEscaping),
+                        "status=400",
+                        "title=\"Finalization Error\"");
+                break;
+            case "CreateBrainstormSessionDto":
+                // Red: BrainstormController's [Produces("application/json")] changed to text/json.
+                response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+                // Red: an extra member in CreateSession's BadRequest anonymous object.
+                root.EnumerateObject().Select(member => member.Name).Should().Equal(["error"], text);
+                // Red: CreateSession answers BadRequest with a changed error text.
+                root.GetProperty("error").GetString().Should()
+                    .Be("Project not found: Project 00000000-0000-0000-0000-000000000000 not found");
+                break;
+            default:
+                break;
+        }
     }
 
     /// <summary>
