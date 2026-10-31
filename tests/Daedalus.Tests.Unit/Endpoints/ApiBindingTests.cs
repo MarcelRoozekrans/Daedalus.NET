@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
 using Daedalus.Api.Controllers;
@@ -193,6 +194,8 @@ public sealed class ApiBindingTests
     [InlineData("text/plain")]
     [InlineData(null)]
     [InlineData("application/json; charset=iso-8859-1")]
+    [InlineData("application/json; charset=no-such-charset")]
+    [InlineData("application/json; charset=utf8")]
     public async Task Body_with_a_content_type_mvc_cannot_read_is_unsupported(string? contentType)
     {
         await using var services = Services();
@@ -201,9 +204,27 @@ public sealed class ApiBindingTests
         var bound = await BindBody<SendTurnRequestDto>(context);
 
         // Red: read the body whatever its Content-Type; MVC answers 415 when no input formatter reads the type or
-        //      its charset.
+        //      its charset, a charset Encoding.GetEncoding does not know included, utf8 among them.
         bound.UnsupportedMediaType.Should().BeTrue();
         bound.Value.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Body_in_utf16_is_transcoded_by_charset_alias()
+    {
+        await using var services = Services();
+        var context = WithJsonBody(services, "", "application/json; charset=ucs-2");
+        var bytes = System.Text.Encoding.Unicode.GetBytes("{\"text\":\"h\u00e9\"}");
+        context.Request.Body = new MemoryStream(bytes);
+        context.Request.ContentLength = bytes.Length;
+
+        var bound = await BindBody<SendTurnRequestDto>(context);
+
+        // Red: compare the charset by name, as the first version did; ucs-2 is then refused, though
+        //      Encoding.GetEncoding resolves it to UTF-16, which MVC's formatter reads.
+        bound.UnsupportedMediaType.Should().BeFalse();
+        // Red: read the UTF-16 bytes as UTF-8 without transcoding; the reader then fails.
+        bound.Value.Should().Be(new SendTurnRequestDto("h\u00e9"));
     }
 
     [Fact]
@@ -320,6 +341,99 @@ public sealed class ApiBindingTests
         // Red: treat an empty value as absent, so take binds with no problem; or quote only the first of repeated values. MVC
         //      writes ValueMustNotBeNull for an empty value and quotes the values joined with commas.
         take.Problem!.Errors.Should().ContainSingle().Which.Value.Should().Equal(message);
+    }
+
+    [Theory]
+    [InlineData("?take=0x10", 16)]
+    [InlineData("?take=%26H10", 16)]
+    [InlineData("?take=%2310", 16)]
+    [InlineData("?take=0xFFFFFFFF", -1)]
+    [InlineData("?take=1&take=2", 1)]
+    public async Task Query_hex_and_repeated_values_bind_as_mvc(string query, int expected)
+    {
+        await using var services = Services();
+        var context = Create(services);
+        context.Request.QueryString = new QueryString(query);
+
+        var take = await BindAsync<ApiQuery<int>>(context, Parameter(nameof(TakeQuery)));
+
+        // Red: parse with int.TryParse alone, which refuses every hexadecimal form; or parse the last value of a
+        //      repeated key. MVC's Int32Converter reads the hexadecimal forms and its binder the first value.
+        take.Problem.Should().BeNull();
+        take.Value.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("?take=%23")]
+    [InlineData("?take=0x")]
+    [InlineData("?take=0x-10")]
+    public async Task Query_hex_prefix_without_digits_matches_mvc(string query)
+    {
+        await using var services = Services();
+        var context = Create(services);
+        context.Request.QueryString = new QueryString(query);
+
+        var take = await BindAsync<ApiQuery<int>>(context, Parameter(nameof(TakeQuery)));
+
+        // Red: report these as "The value '...' is not valid."; Convert throws ArgumentException for them, not a
+        //      FormatException, and MVC reports that with the default text.
+        take.Problem!.Errors.Should().ContainSingle().Which.Value.Should().Equal("The input was not valid.");
+    }
+
+    public static TheoryData<string> ConverterInputs => new(
+        "16", "+16", " 7 ", "-1", "1,000", "1e3", "abc", "0x10", "0X10", "&h10", "&H10", "#10", "#0X10", "&h0x10",
+        "0x+10", "0x 10", "0x0x", "0x0x10", "0x", "#", "&H", "0x-10", "#-10", "0xFFFF", "0xFFFFFFFF", "0x80000000",
+        "0xffffffffff", "0x1G", "0b11", "1.5", "true", "0001");
+
+    /// <summary>
+    ///     <see cref="QueryValue"/> against the very converters MVC's <c>SimpleTypeModelBinder</c> calls: the same
+    ///     value, or the same kind of failure. A <c>FormatException</c> or <c>OverflowException</c>, inner or not, is
+    ///     "not valid"; any other is "input not valid".
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(ConverterInputs))]
+    public void Query_values_parse_as_mvcs_type_converters(string raw)
+    {
+        // Red: drop the '+' or the second "0x" from QueryValue's hexadecimal rest, read Int128 with
+        //      AllowHexSpecifier, parse double with IParsable's TryParse, which takes "1,000", or answer
+        //      InputNotValid for a FormatException case; the input's line turns red.
+        Describe<int>(raw, new Int32Converter()).Should().Be(Expected(raw, new Int32Converter()));
+        Describe<short>(raw, new Int16Converter()).Should().Be(Expected(raw, new Int16Converter()));
+        Describe<byte>(raw, new ByteConverter()).Should().Be(Expected(raw, new ByteConverter()));
+        Describe<sbyte>(raw, new SByteConverter()).Should().Be(Expected(raw, new SByteConverter()));
+        Describe<ushort>(raw, new UInt16Converter()).Should().Be(Expected(raw, new UInt16Converter()));
+        Describe<uint>(raw, new UInt32Converter()).Should().Be(Expected(raw, new UInt32Converter()));
+        Describe<long>(raw, new Int64Converter()).Should().Be(Expected(raw, new Int64Converter()));
+        Describe<ulong>(raw, new UInt64Converter()).Should().Be(Expected(raw, new UInt64Converter()));
+        Describe<Int128>(raw, new Int128Converter()).Should().Be(Expected(raw, new Int128Converter()));
+        Describe<UInt128>(raw, new UInt128Converter()).Should().Be(Expected(raw, new UInt128Converter()));
+        Describe<double>(raw, new DoubleConverter()).Should().Be(Expected(raw, new DoubleConverter()));
+        Describe<float>(raw, new SingleConverter()).Should().Be(Expected(raw, new SingleConverter()));
+        Describe<decimal>(raw, new DecimalConverter()).Should().Be(Expected(raw, new DecimalConverter()));
+        Describe<bool>(raw, new BooleanConverter()).Should().Be(Expected(raw, new BooleanConverter()));
+
+        static string Describe<T>(string raw, TypeConverter converter) where T : IParsable<T> =>
+            QueryValue.Parse(raw, out T value) switch
+            {
+                QueryParse.Parsed => $"{converter.GetType().Name} {Convert.ToString(value, CultureInfo.InvariantCulture)}",
+                var kind => $"{converter.GetType().Name} {kind}",
+            };
+
+        static string Expected(string raw, TypeConverter converter)
+        {
+            try
+            {
+                var value = converter.ConvertFrom(null, CultureInfo.InvariantCulture, raw);
+                return $"{converter.GetType().Name} {Convert.ToString(value, CultureInfo.InvariantCulture)}";
+            }
+            catch (Exception exception) when (exception is ArgumentException or FormatException or OverflowException)
+            {
+                // SimpleTypeModelBinder unwraps the converter's ArgumentException unless it is a FormatException.
+                var cause = exception is FormatException ? exception : exception.InnerException ?? exception;
+                return $"{converter.GetType().Name} "
+                    + (cause is FormatException or OverflowException ? QueryParse.Malformed : QueryParse.InputNotValid);
+            }
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------

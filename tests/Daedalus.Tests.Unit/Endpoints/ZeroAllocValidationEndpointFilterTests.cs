@@ -135,6 +135,7 @@ public sealed class ZeroAllocValidationEndpointFilterTests
     {
         await using var services = Services();
         var context = WithJsonBody(services, ValidBody, "text/plain");
+        context.SetEndpoint(new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(ProblemContentType.Json), "t"));
         context.Request.QueryString = new QueryString("?take=abc");
         var take = await BindAsync<ApiQuery<int>>(context, TakeParameter());
         var next = new Next();
@@ -145,6 +146,9 @@ public sealed class ZeroAllocValidationEndpointFilterTests
         //      ModelStateInvalidFilter and answers the bodiless 415, which ClientErrorResultFilter turns into its
         //      client-error problem.
         context.Response.StatusCode.Should().Be(StatusCodes.Status415UnsupportedMediaType);
+        // Red: answer the 415 with TypedResults.Problem, which ignores the group's ProblemContentType; MVC's 415 on
+        //      ProjectsController is application/json, Unreadable_body_answers_415_problem.
+        context.Response.ContentType.Should().Be(Json);
         AssertProblem(text, UnsupportedMediaTypeType, "Unsupported Media Type", 415);
         next.Called.Should().BeFalse();
     }

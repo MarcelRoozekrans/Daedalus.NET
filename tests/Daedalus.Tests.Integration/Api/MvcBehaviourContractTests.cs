@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
@@ -399,6 +400,99 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { [key] = ["The value 'abc' is not valid."] });
+    }
+
+    /// <summary>
+    ///     Query values MVC binds that a plain <c>int.TryParse</c> does not: <c>Int32Converter</c> reads <c>0x</c>,
+    ///     <c>&amp;h</c> and <c>#</c> as hexadecimal, and a repeated key binds its first value. The bound value is read
+    ///     back from the substituted diagnostics; ruling R37.
+    /// </summary>
+    [Theory]
+    [InlineData("?take=0x10", 16)]
+    [InlineData("?take=%26H10", 16)]
+    [InlineData("?take=%2310", 16)]
+    [InlineData("?take=1&take=2", 1)]
+    public async Task Query_value_binds_as_mvcs_type_converter_reads_it(string query, int take)
+    {
+        var diagnostics = Substitute.For<IScheduleDiagnostics>();
+        diagnostics.GetRunHistoryAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IReadOnlyList<RunDiagnosis>>([]));
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false, configureServices: services =>
+        {
+            services.RemoveAll<IScheduleDiagnostics>();
+            services.AddScoped(_ => diagnostics);
+        });
+        using var client = host.Client("alice", "agent-user");
+
+        using var response = await client.GetAsync(new Uri($"/api/schedules/{Unknown}/runs{query}", UriKind.Relative));
+
+        // Red: return StatusCode(410) instead of Ok in SchedulesController.GetRunHistory.
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        // Red: declare take as a string in GetRunHistory and read it with int.TryParse; the three hexadecimal cases
+        //      then pass 0.
+        await diagnostics.Received(1).GetRunHistoryAsync(Unknown, take, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     The query refusals besides the unparsable value: an empty value is <c>ValueMustNotBeNull</c>'s "is invalid",
+    ///     a repeated key quotes every value comma-joined, and a hexadecimal prefix with nothing or a sign after it
+    ///     fails inside <c>Convert</c> with an <c>ArgumentException</c>, which MVC reports with no text of its own as
+    ///     "The input was not valid."; ruling R37.
+    /// </summary>
+    [Theory]
+    [InlineData("?take=", "The value '' is invalid.")]
+    [InlineData("?take=abc&take=1", "The value 'abc,1' is not valid.")]
+    [InlineData("?take=%23", "The input was not valid.")]
+    [InlineData("?take=0x-10", "The input was not valid.")]
+    public async Task Query_edge_value_answers_validation_problem(string query, string message)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "agent-user");
+
+        using var response = await client.GetAsync(new Uri($"/api/schedules/{Unknown}/runs{query}", UriKind.Relative));
+
+        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: SchedulesController's [Produces("application/json")] changed to text/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        // Red: set ModelBindingMessageProvider's ValueMustNotBeNull and NonPropertyAttemptedValueIsInvalid accessors in
+        //      AddControllers' options; the empty and the repeated case turn red. The two "input was not valid" cases
+        //      come from a resource MVC exposes no setting for; ApiBindingTests' converter parity holds them.
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["take"] = [message] });
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Unsupported media type. No input formatter reads the body, so UnsupportedContentTypeFilter answers a bodiless
+    // 415 before ModelStateInvalidFilter, and ClientErrorResultFilter turns it into the client-error problem. A charset
+    // the formatter does not read, known or not, is refused the same way; R28.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("projects-text-plain", "text/plain")]
+    [InlineData("tasks-text-plain", "text/plain")]
+    [InlineData("projects-latin1", "application/json; charset=iso-8859-1")]
+    [InlineData("projects-unknown-charset", "application/json; charset=no-such-charset")]
+    [InlineData("projects-no-content-type", null)]
+    public async Task Unreadable_body_answers_415_problem(string name, string? contentType)
+    {
+        var (path, role, expectedContentType) = name.StartsWith("tasks", StringComparison.Ordinal)
+            ? ("/api/tasks", "task-manager", ProblemJson)
+            : ("/api/projects", "project-manager", Json);
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", role);
+
+        using var response = await client.PostAsync(new Uri(path, UriKind.Relative), RawBody(ProjectBody, contentType));
+
+        // Red: let the JSON input formatter read text/plain and Latin-1, by adding both to its SupportedMediaTypes and
+        //      SupportedEncodings in AddControllers' options; those three cases then bind and answer 201 or their own
+        //      400. A body with no Content-Type matches no media type and an unknown charset no encoding, so no
+        //      formatter setting turns those two cases red.
+        response.StatusCode.Should().Be(HttpStatusCode.UnsupportedMediaType, await response.Content.ReadAsStringAsync());
+        // Red: ProjectsController's [Produces("application/json")] changed to text/json, and a
+        //      [Produces("application/json")] added to TasksController.
+        response.Content.Headers.ContentType!.ToString().Should().Be(expectedContentType);
+        await AssertProblemAsync(response, "https://tools.ietf.org/html/rfc9110#section-15.5.16", "Unsupported Media Type", 415);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -827,6 +921,18 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         document.RootElement.EnumerateObject().Select(member => member.Name).Should().Equal(["error"], text);
         // Red: the not-found message changed in the controller under test.
         document.RootElement.GetProperty("error").GetString().Should().Be(message);
+    }
+
+    /// <summary>A UTF-8 body with exactly <paramref name="contentType"/>, or no Content-Type header at all.</summary>
+    private static ByteArrayContent RawBody(string body, string? contentType)
+    {
+        var content = new ByteArrayContent(Encoding.UTF8.GetBytes(body));
+        if (contentType is not null)
+        {
+            content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+        }
+
+        return content;
     }
 
     private static StringContent JsonBody(string body)

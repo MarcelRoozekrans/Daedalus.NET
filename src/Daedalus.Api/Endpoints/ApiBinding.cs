@@ -203,9 +203,12 @@ public sealed class ApiQuery<T> : IApiBinding, IBindableFromHttpContext<ApiQuery
         }
         else
         {
-            bound = T.TryParse(raw, CultureInfo.InvariantCulture, out var parsed)
-                ? new ApiQuery<T>(parsed, true, null)
-                : Refused(context, name, $"The value '{values}' is not valid.");
+            bound = QueryValue.Parse(raw, out T parsed) switch
+            {
+                QueryParse.Parsed => new ApiQuery<T>(parsed, true, null),
+                QueryParse.Malformed => Refused(context, name, $"The value '{values}' is not valid."),
+                _ => Refused(context, name, QueryValue.InputNotValid),
+            };
         }
 
         return ValueTask.FromResult<ApiQuery<T>?>(bound);
@@ -244,27 +247,43 @@ internal static class ApiBinding
         return false;
     }
 
-    /// <summary>UTF-8 when no charset is sent, and UTF-8 or UTF-16 by name; any other charset MVC refuses with 415.</summary>
+    /// <summary>
+    ///     <c>TextInputFormatter.SelectCharacterEncoding</c>: UTF-8 when no charset is sent; otherwise the charset's
+    ///     <see cref="Encoding"/> must be UTF-8 or UTF-16, the formatter's <c>SupportedEncodings</c>, compared by
+    ///     <see cref="Encoding.WebName"/>. A charset <see cref="Encoding.GetEncoding(string)"/> does not know is
+    ///     refused like any other, with 415, as the 415 pins in <c>MvcBehaviourContractTests</c> show (R28).
+    /// </summary>
     public static bool TrySelectEncoding(MediaTypeHeaderValue mediaType, out Encoding encoding)
     {
         var charset = mediaType.Charset.Value;
-        if (string.IsNullOrEmpty(charset) || charset.Equals("utf-8", StringComparison.OrdinalIgnoreCase)
-            || charset.Equals("utf8", StringComparison.OrdinalIgnoreCase))
+        encoding = string.IsNullOrEmpty(charset) ? Encoding.UTF8 : EncodingNamed(charset) switch
         {
-            encoding = Encoding.UTF8;
-            return true;
+            { WebName: "utf-8" } => Encoding.UTF8,
+            { WebName: "utf-16" } => Encoding.Unicode,
+            _ => null!,
+        };
+        return encoding is not null;
+    }
+
+    /// <summary>
+    ///     The encoding <paramref name="charset"/> names, or <see langword="null"/>. <see cref="Encoding"/> has no
+    ///     non-throwing lookup, so this catches its <see cref="ArgumentException"/>, as MVC's <c>MediaType</c> does.
+    /// </summary>
+    private static Encoding? EncodingNamed(string charset)
+    {
+        if (charset.Equals("utf-8", StringComparison.OrdinalIgnoreCase))
+        {
+            return Encoding.UTF8;
         }
 
-        if (charset.Equals("utf-16", StringComparison.OrdinalIgnoreCase)
-            || charset.Equals("utf-16le", StringComparison.OrdinalIgnoreCase)
-            || charset.Equals("unicode", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            encoding = Encoding.Unicode;
-            return true;
+            return Encoding.GetEncoding(charset);
         }
-
-        encoding = null!;
-        return false;
+        catch (ArgumentException)
+        {
+            return null;
+        }
     }
 
     public static async ValueTask<T?> ReadAsync<T>(HttpContext context, Encoding encoding, JsonTypeInfo<T> typeInfo)
@@ -362,3 +381,123 @@ internal static class ApiBinding
         }
     }
 }
+
+/// <summary>How <see cref="QueryValue.Parse{T}"/> read a query value.</summary>
+internal enum QueryParse
+{
+    /// <summary>The value parsed.</summary>
+    Parsed,
+
+    /// <summary>
+    ///     A <c>FormatException</c> or <c>OverflowException</c> in MVC: "The value '{raw}' is not valid.".
+    /// </summary>
+    Malformed,
+
+    /// <summary>
+    ///     Another exception in MVC's converter, which it reports with no message of its own: "The input was not valid.".
+    /// </summary>
+    InputNotValid,
+}
+
+/// <summary>
+///     MVC's <c>TypeConverter</c> reading of a query value, with the invariant culture of its query value provider. For
+///     <c>double</c>, <c>float</c> and <c>decimal</c> that is <c>NumberStyles.Float</c>; for other non-integer types
+///     <c>T.TryParse</c>. For an integer type it is <c>BaseNumberConverter</c>: the value
+///     trimmed, then a <c>#</c>, <c>0x</c> or <c>&amp;h</c> prefix in any case read as hexadecimal through
+///     <c>Convert.ToInt32(rest, 16)</c> and its siblings, which take a <c>+</c> and a second <c>0x</c>, keep two's
+///     complement, and fail with an <c>ArgumentException</c> for an empty rest or a minus sign. The 128-bit types parse
+///     their hexadecimal with <c>NumberStyles.HexNumber</c> instead. Pinned against MVC in
+///     <c>MvcBehaviourContractTests</c> and against the converters in <c>ApiBindingTests</c> (R37).
+/// </summary>
+internal static class QueryValue
+{
+    /// <summary><c>Resources.SerializableError_DefaultError</c>, MVC's text for an error without a message.</summary>
+    public const string InputNotValid = "The input was not valid.";
+
+    public static QueryParse Parse<T>(string raw, out T value)
+        where T : IParsable<T>
+    {
+        if (typeof(T) == typeof(double) || typeof(T) == typeof(float) || typeof(T) == typeof(decimal))
+        {
+            // DoubleConverter, SingleConverter and DecimalConverter parse with NumberStyles.Float, which refuses the
+            // thousands separators IParsable's TryParse accepts.
+            return TryParseNumber(raw.Trim(), NumberStyles.Float, out value) ? QueryParse.Parsed : QueryParse.Malformed;
+        }
+
+        if (!IsInteger(typeof(T)))
+        {
+            return T.TryParse(raw, CultureInfo.InvariantCulture, out value!) ? QueryParse.Parsed : QueryParse.Malformed;
+        }
+
+        var text = raw.Trim();
+        var hex = HexDigitsAfterPrefix(text);
+        if (hex is null)
+        {
+            // BaseNumberConverter.FromString: NumberStyles.Integer, stated, since UInt128's IParsable TryParse also
+            // takes thousands separators.
+            return TryParseNumber(text, NumberStyles.Integer, out value) ? QueryParse.Parsed : QueryParse.Malformed;
+        }
+
+        value = default!;
+        if (typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128))
+        {
+            return TryParseNumber(hex, NumberStyles.HexNumber, out value) ? QueryParse.Parsed : QueryParse.Malformed;
+        }
+
+        // Convert.ToInt32(hex, 16): an empty string is ArgumentOutOfRangeException and a sign ArgumentException.
+        if (hex.Length == 0 || hex[0] == '-')
+        {
+            return QueryParse.InputNotValid;
+        }
+
+        var digits = hex[0] == '+' ? hex[1..] : hex;
+        if (digits.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            digits = digits[2..];
+        }
+
+        return TryParseNumber(digits, NumberStyles.AllowHexSpecifier, out value) ? QueryParse.Parsed : QueryParse.Malformed;
+    }
+
+    private static string? HexDigitsAfterPrefix(string text)
+    {
+        if (text.StartsWith('#'))
+        {
+            return text[1..];
+        }
+
+        return text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || text.StartsWith("&h", StringComparison.OrdinalIgnoreCase)
+            ? text[2..]
+            : null;
+    }
+
+    private static bool IsInteger(Type type) =>
+        type == typeof(int) || type == typeof(long) || type == typeof(short) || type == typeof(byte)
+        || type == typeof(uint) || type == typeof(ulong) || type == typeof(ushort) || type == typeof(sbyte)
+        || type == typeof(Int128) || type == typeof(UInt128);
+
+    private static bool TryParseNumber<T>(string digits, NumberStyles styles, out T value)
+    {
+        var invariant = CultureInfo.InvariantCulture;
+        object? parsed = typeof(T) switch
+        {
+            var t when t == typeof(int) => int.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(long) => long.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(short) => short.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(byte) => byte.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(uint) => uint.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(ulong) => ulong.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(ushort) => ushort.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(sbyte) => sbyte.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(Int128) => Int128.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(UInt128) => UInt128.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(double) => double.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(float) => float.TryParse(digits, styles, invariant, out var v) ? v : null,
+            var t when t == typeof(decimal) => decimal.TryParse(digits, styles, invariant, out var v) ? v : null,
+            _ => null,
+        };
+        value = parsed is T typed ? typed : default!;
+        return parsed is not null;
+    }
+}
+
