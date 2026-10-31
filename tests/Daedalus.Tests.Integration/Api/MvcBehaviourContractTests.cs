@@ -2,7 +2,14 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Daedalus.Application.Abstractions;
+using Daedalus.Domain.Entities;
+using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using NSubstitute.ExceptionExtensions;
 using Thalos;
 using ZeroAlloc.Authorization;
 using Task = System.Threading.Tasks.Task;
@@ -455,8 +462,286 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     }
 
     // ---------------------------------------------------------------------------------------------------------------
+    // Serialization and headers. MVC writes null members, sends an absolute Location built from the action's route,
+    // with the class-name case [controller] gives, adds no API-version header and serves JSON whatever the Accept.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    ///     MVC's <c>JsonOptions</c> keep their default <c>DefaultIgnoreCondition</c>, <c>Never</c>, so a null member is
+    ///     written. <c>ApiJsonSerializerContext</c> says <c>WhenWritingNull</c>, so a port that puts it first in the
+    ///     resolver chain with its own options would drop the member; ruling R20.
+    /// </summary>
+    [Fact]
+    public async Task Null_properties_are_written()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+        var id = await CreateProjectAsync(client);
+
+        using var response = await client.GetAsync(new Uri($"/api/projects/{id}", UriKind.Relative));
+        var text = await response.Content.ReadAsStringAsync();
+
+        // Red: return StatusCode(410) instead of Ok for a found project in ProjectsController.GetProjectById.
+        response.StatusCode.Should().Be(HttpStatusCode.OK, text);
+        // Red: AddControllers().AddJsonOptions setting DefaultIgnoreCondition to WhenWritingNull in Program.cs.
+        text.Should().Contain("\"modifiedAt\":null");
+    }
+
+    /// <summary>
+    ///     Every 201 the API answers, with the <c>Location</c> MVC writes. <c>CreatedAtAction</c> writes it absolute,
+    ///     <c>http://localhost</c> under TestServer, in the route's own case, which for <c>api/[controller]</c> is the
+    ///     class name's, <c>/api/Tasks/{id}</c>, not the lower-case path the client posted to. The one 201 written with
+    ///     <c>Created</c> and a relative URI, <c>POST /api/tasks/{id}/manufacture</c>, stays relative; ruling R21. The
+    ///     two workflow cases boot <see cref="ScratchWorkflowHost"/> (R11).
+    /// </summary>
+    [Theory]
+    [InlineData("projects")]
+    [InlineData("tasks")]
+    [InlineData("repositories")]
+    [InlineData("codeanalysis")]
+    [InlineData("agent-sessions")]
+    [InlineData("workflow-runs")]
+    [InlineData("manufacture")]
+    public async Task Created_location_is_exactly_mvcs(string name)
+    {
+        var workflow = name is "workflow-runs" or "manufacture";
+        var sessionId = SessionId.New();
+        var runtime = Substitute.For<IAgentRuntime>();
+        runtime.CreateSessionAsync(Arg.Any<AgentId>(), Arg.Any<ISecurityContext>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<ZeroAlloc.Results.Result<SessionId, AgentError>>(
+                ZeroAlloc.Results.Result<SessionId, AgentError>.Success(sessionId)));
+        await using var host = await ApiHost.StartAsync(fixture, workflow, runtime);
+        using var client = host.Client("alice", "admin", "developer");
+
+        var (path, body, idMember, location) = name switch
+        {
+            "projects" => ("/api/projects", ProjectBody, "id", "http://localhost/api/Projects/{0}"),
+            "tasks" => ("/api/tasks", TaskBody(await CreateProjectAsync(client)), "id", "http://localhost/api/Tasks/{0}"),
+            "repositories" => ("/api/repositories",
+                "{\"name\":\"r\",\"url\":\"https://example.com/r.git\",\"platform\":\"GitHub\",\"defaultBranch\":\"main\"}",
+                "id", "http://localhost/api/Repositories/{0}"),
+            "codeanalysis" => ("/api/codeanalysis",
+                "{\"repositoryUrl\":\"https://example.com/r.git\",\"filePath\":\"a.cs\",\"type\":1,\"title\":\"t\","
+                + "\"description\":\"d\",\"requirements\":[\"r\"]}",
+                "requestId", "http://localhost/api/CodeAnalysis/{0}"),
+            "agent-sessions" => ($"/api/agents/{ArchitectAgentId}/sessions", null, "sessionId",
+                "http://localhost/api/agents/sessions/{0}"),
+            "workflow-runs" => ("/api/workflow-runs",
+                $"{{\"workIntent\":\"Tighten a guard.\",\"repository\":\"{ScratchWorkflowHost.Repository}\"}}", "runId",
+                "http://localhost/api/workflow-runs/{0}"),
+            "manufacture" => ($"/api/tasks/{await SeedTaskAsync(host.Workflow!)}/manufacture", null, "runId",
+                "/api/workflow-runs/{0}"),
+            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown case"),
+        };
+
+        using var response = await client.PostAsync(new Uri(path, UriKind.Relative), body is null ? null : JsonBody(body));
+        var text = await response.Content.ReadAsStringAsync();
+
+        // Red: return Ok instead of CreatedAtAction, or for manufacture instead of Created, in the case's action.
+        response.StatusCode.Should().Be(HttpStatusCode.Created, text);
+        using var document = JsonDocument.Parse(text);
+        var id = document.RootElement.GetProperty(idMember).GetString();
+        // Red: per case, each changing one thing MVC writes. The tasks case turns red with Created and a relative
+        //      "/api/Tasks/{id}" in place of CreatedAtAction in TasksController.CreateTask, and the projects,
+        //      repositories and codeanalysis cases with a lower-case [Route] in place of api/[controller] on their
+        //      controllers. The agent-sessions case turns red with "Sessions/{sessionId}" as the template of
+        //      AgentSessionsController.GetSession, the workflow-runs case with Created and a relative path in
+        //      WorkflowRunsController.Start, and the manufacture case with an absolute http://localhost URI in
+        //      TasksController.Manufacture's Created.
+        response.Headers.Location!.OriginalString.Should()
+            .Be(string.Format(System.Globalization.CultureInfo.InvariantCulture, location, id));
+    }
+
+    /// <summary>
+    ///     Versioning is inert on MVC: <c>AddApiVersioning</c> runs without <c>.AddMvc()</c>, so the
+    ///     <c>[ApiVersion("1.0")]</c> attributes are never read and <c>ReportApiVersions</c> has nothing to report
+    ///     (owner, 2026-10-31).
+    /// </summary>
+    [Fact]
+    public async Task Responses_carry_no_version_header()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+
+        using var response = await client.GetAsync(new Uri("/api/projects", UriKind.Relative));
+
+        // Red: return StatusCode(410) instead of Ok in ProjectsController.GetAllProjects.
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        // Red: AddApiVersioning(...).AddMvc() in Program.cs; ReportApiVersions then writes the header.
+        response.Headers.Contains("api-supported-versions").Should().BeFalse();
+    }
+
+    /// <summary>
+    ///     A version the API does not have, by query string or by header, is served exactly like the same request
+    ///     without one, since nothing checks it (owner, 2026-10-31).
+    /// </summary>
+    [Theory]
+    [InlineData("query")]
+    [InlineData("header")]
+    public async Task Unsupported_version_answers_as_today(string carrier)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+        using var plain = await client.GetAsync(new Uri("/api/projects", UriKind.Relative));
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(
+            string.Equals(carrier, "query", StringComparison.Ordinal) ? "/api/projects?api-version=2.0" : "/api/projects", UriKind.Relative));
+        if (string.Equals(carrier, "header", StringComparison.Ordinal))
+        {
+            request.Headers.Add("x-api-version", "2.0");
+        }
+
+        using var versioned = await client.SendAsync(request);
+
+        // Status, Content-Type and body in one line each, so a difference in any of them shows in the message.
+        // Red: AddApiVersioning(...).AddMvc() in Program.cs; 2.0 is then refused with a 400 UnsupportedApiVersion
+        //      problem.
+        (await Answer(versioned)).Should().Be(await Answer(plain));
+        // Red: return StatusCode(410) instead of Ok in ProjectsController.GetAllProjects; the plain answer, which the
+        //      line above compares with, is then no 200.
+        plain.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        static async Task<string> Answer(HttpResponseMessage response) =>
+            $"{(int)response.StatusCode}\n{response.Content.Headers.ContentType}\n{await response.Content.ReadAsStringAsync()}";
+    }
+
+    /// <summary>MVC has no XML output formatter and <c>ReturnHttpNotAcceptable</c> is false: JSON, never 406.</summary>
+    [Fact]
+    public async Task Xml_accept_still_gets_json()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("/api/projects", UriKind.Relative));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml"));
+
+        using var response = await client.SendAsync(request);
+
+        // Red: options.ReturnHttpNotAcceptable = true in AddControllers; the answer is then 406.
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        // Red: ProjectsController's [Produces("application/json")] changed to text/json. AddXmlSerializerFormatters
+        //      with that [Produces] removed was tried and stays green: MVC still answers this page as JSON.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Pipeline order. Authentication, the rate limiter and authorization are middleware and answer before MVC binds
+    // or validates the body: an anonymous or over-budget request never sees the 400 its body would earn.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>The <c>{}</c> body earns the implicit-required 400, but the challenge answers first.</summary>
+    [Fact]
+    public async Task Unauthenticated_comes_before_validation()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.AnonymousClient();
+
+        using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody("{}"));
+
+        // Red: [AllowAnonymous] on ProjectsController.CreateProject; the binding 400 then answers.
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    ///     <c>write-operations</c> is one fixed window of 30 permits a minute for the whole host, not partitioned, and
+    ///     the host reads no setting that lowers it, so the test spends 30 permits on requests that each earn the binding
+    ///     400, then sends the same request again. Each test boots its own host, so no other test shares the window,
+    ///     and the window opens at the first request, so 31 requests fit in it; ruling R23.
+    /// </summary>
+    [Fact]
+    public async Task Rate_limit_comes_before_validation()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "project-manager");
+
+        for (var i = 0; i < WriteOperationPermits; i++)
+        {
+            using var spent = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody("{}"));
+            // Red: write-operations' PermitLimit lowered to 29 in Program.cs; request 30 is then a 429.
+            spent.StatusCode.Should().Be(HttpStatusCode.BadRequest, "request {0} is within the budget", i + 1);
+        }
+
+        using var refused = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody("{}"));
+
+        // Red: [EnableRateLimiting("write-operations")] removed from ProjectsController.CreateProject; the
+        //      request is then the binding 400.
+        refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests, await refused.Content.ReadAsStringAsync());
+        // Red: OnRejected sets "application/problem+json; charset=utf-8".
+        refused.Content.Headers.ContentType!.ToString().Should().Be("application/problem+json");
+        // Red: OnRejected's detail text changed in Program.cs.
+        (await refused.Content.ReadAsStringAsync()).Should().Be(
+            """{"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"detail":"Rate limit exceeded. Please retry after a short delay."}""");
+    }
+
+    /// <summary>
+    ///     One of the 14 <c>catch (Exception)</c> blocks (#426): the service throws, the action logs and answers its
+    ///     own 500, so neither the developer exception page nor <c>GlobalExceptionHandler</c> sees the exception.
+    /// </summary>
+    [Fact]
+    public async Task Catch_all_answers_500_error_body()
+    {
+        var costs = Substitute.For<ICostAnalyticsService>();
+        costs.GetSummaryAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new InvalidOperationException("boom"));
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false, configureServices: services =>
+        {
+            services.RemoveAll<ICostAnalyticsService>();
+            services.AddScoped(_ => costs);
+        });
+        using var client = host.Client("alice", "task-manager");
+
+        using var response = await client.GetAsync(new Uri("/api/cost-analytics/summary", UriKind.Relative));
+        var text = await response.Content.ReadAsStringAsync();
+
+        // Red: remove the try/catch in CostAnalyticsController.GetSummary; the developer exception page then answers
+        //      500 as text/plain, so the Content-Type and body lines turn red; the status line, with
+        //      StatusCode(502) in the catch instead.
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError, text);
+        // Red: CostAnalyticsController's [Produces("application/json")] changed to text/json.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        // Red: the catch's anonymous object gains a member, or its text changes, in CostAnalyticsController.GetSummary.
+        text.Should().Be("""{"error":"Internal server error"}""");
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>The agent declared in <c>src/Daedalus.Api/appsettings.json</c>.</summary>
+    private const string ArchitectAgentId = "01M05YCM7DPKRG9X04870B2JYH";
+
+    /// <summary><c>write-operations</c>' permits per window, as <c>Program.cs</c> configures it.</summary>
+    private const int WriteOperationPermits = 30;
+
+    private const string ProjectBody = "{\"projectName\":\"p\",\"description\":\"d\",\"version\":\"1.0\"}";
+
+    private static string TaskBody(Guid projectId) =>
+        $"{{\"projectId\":\"{projectId}\",\"title\":\"t\",\"description\":\"d\",\"priority\":1,\"estimatedComplexity\":1}}";
+
+    /// <summary>Seeds a project on the scratch remote with one task, as the manufacture tests do, and answers its id.</summary>
+    private static async Task<Guid> SeedTaskAsync(ScratchWorkflowHost host)
+    {
+        var project = Project.Create(Guid.NewGuid(), "Sandbox", "The scratch remote", repositoryUrl: host.Remote.Url).Value;
+        var task = IntegrationTestFactory.CreateTask(projectId: project.Id);
+        if (project.AddTask(task).IsFailure)
+        {
+            throw new InvalidOperationException("the seeded project refused its task");
+        }
+
+        await using var db = await host.Factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>()
+            .CreateDbContextAsync();
+        db.Projects.Add(project);
+        await db.SaveChangesAsync();
+        return task.Id;
+    }
+
+    /// <summary>Creates a project through the API and answers its id.</summary>
+    private static async Task<Guid> CreateProjectAsync(HttpClient client)
+    {
+        using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody(ProjectBody));
+        var text = await response.Content.ReadAsStringAsync();
+        // Red: return Ok instead of CreatedAtAction in ProjectsController.CreateProject.
+        response.StatusCode.Should().Be(HttpStatusCode.Created, text);
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.GetProperty("id").GetGuid();
+    }
 
     /// <summary>
     ///     Asserts a problem body: the exact member set, then <c>type</c>, <c>title</c>, <c>status</c> and
@@ -580,7 +865,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             _workflow = workflow;
         }
 
-        public static async Task<ApiHost> StartAsync(PostgresFixture fixture, bool workflow)
+        public static async Task<ApiHost> StartAsync(
+            PostgresFixture fixture, bool workflow, IAgentRuntime? runtime = null,
+            Action<IServiceCollection>? configureServices = null)
         {
             if (workflow)
             {
@@ -588,8 +875,15 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             }
 
             await fixture.DatabaseResetter.ResetAsync();
-            return new ApiHost(new ApiWebApplicationFactory(fixture.ConnectionString, Substitute.For<IAgentRuntime>()), null);
+            return new ApiHost(new ApiWebApplicationFactory(fixture.ConnectionString,
+                runtime ?? Substitute.For<IAgentRuntime>(), configureServices: configureServices), null);
         }
+
+        /// <summary>The scratch workflow host, when the case asked for one.</summary>
+        public ScratchWorkflowHost? Workflow => _workflow;
+
+        /// <summary>A client with no test-auth headers: <see cref="HeaderTestAuthHandler"/> gives no result.</summary>
+        public HttpClient AnonymousClient() => _factory!.CreateClient();
 
         /// <summary>A client authenticated through <see cref="HeaderTestAuthHandler"/>: <paramref name="user"/> becomes <c>sub</c>.</summary>
         public HttpClient Client(string user, params string[] roles)
