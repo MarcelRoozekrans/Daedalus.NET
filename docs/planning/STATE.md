@@ -2,32 +2,37 @@
 
 **Last session:** 2026-10-31
 
-## Current Position - phase 3.4 brainstormed (2026-10-31); 3.3 merged as `fe5a4e25`
+## Current Position - phase 3.4 planned and active (2026-10-31); execution not started
 
-**Update, 2026-10-31, later.** PR #424 was admin squash-merged at the owner's request as `fe5a4e25`, with a clean
-squash message and no Co-Authored-By lines. CI on `main` at `fe5a4e25` is green, run 41196440875, all five
-`aot-analysis` targets included. **Release:** the owner keeps the 2026-10-11 hold; release-please is not dispatched,
-and 3.1 to 3.3's commits wait for the next dispatch.
+**Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `aa13f45a`, pushed.
+3.3 is merged as `fe5a4e25`; CI on `main` green. **Release:** release-please stays on hold (owner, 2026-10-31).
 
-**Phase 3.4, controllers to minimal APIs: design owner-approved 2026-10-31,** committed as `ca15cccb` on branch
-`phase/3.4-minimal-apis`, pushed: `docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-design.md`.
+- **Artifacts:** design `docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-design.md`; impact analysis
+  `docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-impact-analysis.md`, `9d332acb`; plan
+  `docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md`, 22 tasks, `aa13f45a`. ROADMAP and MILESTONE
+  show 3.4 active with the plan link, and 13 controllers, not 18.
+- **Owner decisions of 2026-10-31, in the impact analysis:** targets confirmed, adding `AgentErrorResults`,
+  `StartWorkflowRunRequest` and the Playwright.Browser `E2EServerFixture`, a second composition root; the
+  integration tests that construct controllers are retargeted at handlers; `ApiAuthorizationTests` is rewritten over
+  `EndpointDataSource`; `EnableRequestDelegateGenerator=true` in the Api project.
+- **Plan approved by the owner, 2026-10-31,** as written: MVC's 400 bodies for malformed queries, malformed JSON and
+  empty bodies are kept through `ApiBody<T>` and `ApiQuery<T>`, ruling R7. Execution: **subagent-driven**.
+- **The rulings doc** `docs/plans/2026-10-31-phase-3.4-rulings.md` does not exist yet; Task 1 creates it with R1 to R10.
+- **Plan Global Constraints override the 3.3 plan's commit rule:** no `Co-Authored-By` trailer, no signature.
 
-- **Owner decisions:** approach A, a snapshot of MVC's endpoint table first, then one controller per task with both
-  stacks live, MVC removed last; static handler classes with typed `Results<…>`, unit tests retargeted at them; the
-  14 catch-all 500 bodies kept byte-identical, tracked as **#426**; endpoint JSON source-generated in 3.4 with MVC's
-  web defaults, nulls written, no reflection fallback.
-- **Calls recorded in the design for the rulings doc,** `docs/plans/2026-10-31-phase-3.4-rulings.md`, which the plan
-  creates: OpenAPI held to equivalence, not bytes; `.Produces*` matching MVC's declared set; `Asp.Versioning.Http`
-  10.2.1 with all three readers; `CodeAnalysis`' dead `ModelState` checks dropped; 13 controllers, not 18, to be
-  corrected in MILESTONE.md and ROADMAP.md during the phase.
-- **ROADMAP/MILESTONE:** 3.4 still `pending`; set it `active` with the plan link when writing-plans lands.
+## Open Decisions
+
+None. `list-phase-assumptions` is done and confirmed.
+
+## Blockers
+
+None.
 
 ## Recommended Next Step
 
-In a fresh session, on `phase/3.4-minimal-apis`: run the Surface pre-plan hook for `Refactor`, the
-`refactor-analysis` skill, producing `docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-impact-analysis.md`.
-Then `superpowers:writing-plans` into `docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md`, then
-`list-phase-assumptions` for the owner, then subagent-driven execution.
+In a fresh session, on `phase/3.4-minimal-apis`: `superpowers:subagent-driven-development` on the plan, starting at
+Task 1, the rulings doc and the endpoint contract snapshot. Each task pushes with
+`git push origin HEAD:phase/3.4-minimal-apis`. After Task 22: `complete-phase`.
 
 ### Phase 3.3 close-out, as recorded before the merge
 
@@ -61,7 +66,7 @@ Rulings R1 to R29, releases, ratchet moves, the native run, the upstream comment
 - **Filed at the close-out:** ZeroAlloc.Rest#518, tool results as content blocks (R18); ZeroAlloc.Rest#519, three
   test-infrastructure minors. Earlier: Thalos.NET#429, no `net8.0` CI test leg.
 
-## Needs the owner
+### Needs the owner, as of the 3.3 close-out; item 1 done, merged as `fe5a4e25`
 
 1. **Merge #424, and delete the seven `Co-Authored-By: Claude` lines from the pre-filled squash message** (R27). The
    repository squashes with the commit messages; by your choice of 2026-10-31 the branch is not rewritten, so every
@@ -76,7 +81,7 @@ Rulings R1 to R29, releases, ratchet moves, the native run, the upstream comment
 Still open from 3.2's list, not re-checked by this close-out: the AppHost token's write access to Daedalus.NET; the
 ZeroAlloc.Outbox JSON-context overload; make `aot-analysis` a required check; #404, #406, #408, #410, #411, #413.
 
-## Recommended Next Step
+### Next step as recorded at the 3.3 close-out; done, 3.4 started
 
 1. Merge PR #424.
 2. Start the next phase via `start-next-phase`. 3.4, controllers to minimal APIs, is independent and unblocked. 3.5
