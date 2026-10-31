@@ -62,7 +62,7 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
 
     /// <summary>
     ///     The type name of phase 3.4's problem content-type metadata record, which does not exist yet. Matched by name so
-    ///     this file compiles on both stacks; see <see cref="ProblemContentTypeOf"/>.
+    ///     this file compiles on both stacks; see <see cref="ContentTypeColumn"/>.
     /// </summary>
     private const string ProblemContentTypeName = "ProblemContentType";
 
@@ -71,6 +71,7 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     // Red: changing ProjectsController.DeleteProject's Policy = "ProjectManagement" to "ProjectRead" failed with
     //      "- DELETE api/projects/{id:guid} | auth ProjectManagement,authenticated | ..." and
     //      "+ DELETE api/projects/{id:guid} | auth ProjectRead,authenticated | ...".
+    // Red: a blank line appended to the output copy of the snapshot failed with the whitespace-only message.
     [Fact]
     public async Task Endpoint_table_matches_the_checked_in_snapshot()
     {
@@ -87,24 +88,36 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
 
         var actualPath = Path.Combine(AppContext.BaseDirectory, ActualFile);
         await File.WriteAllTextAsync(actualPath, actual);
-        Assert.Fail(
-            $"The endpoint table differs from Api/{SnapshotFile}. The full table is in {actualPath}.\n"
-            + "- is in the snapshot only, + is in the running host only:\n"
-            + Diff(Lines(expected), Lines(actual)));
+        var diff = Diff(Lines(expected), Lines(actual));
+        Assert.Fail(diff.Length == 0
+            ? $"The endpoint table differs from Api/{SnapshotFile} in whitespace only, blank lines or the trailing newline."
+              + $" Compare the file with {actualPath}, which ends every line in one \\n."
+            : $"The endpoint table differs from Api/{SnapshotFile}. The full table is in {actualPath}.\n"
+              + "- is in the snapshot only, + is in the running host only:\n"
+              + diff);
     }
 
     /// <summary>
     ///     R11's other half: a minimal-API endpoint, mapped the way the port recipe maps one, renders through the same
     ///     <see cref="Render"/> with every column filled from its own metadata, including the <c>ProblemContentType</c>
-    ///     hook and Asp.Versioning.Http's version set. Without it, a column that reads blank on minimal APIs would only
-    ///     show up as a diff in the first port task, or not at all where MVC's value is blank too.
+    ///     hook, its precedence (R12), and Asp.Versioning.Http's version set. Without it, a column that reads blank on
+    ///     minimal APIs would only show up as a diff in the first port task, or not at all where MVC's value is blank too.
     /// </summary>
+    /// <remarks>
+    ///     The version set and its <c>HasApiVersion</c> case go in Task 20, with the snapshot's <c>versions</c> column:
+    ///     the owner kept the wire unversioned. Note the stream endpoint's responses: on minimal APIs an endpoint-level
+    ///     <see cref="ProducesAttribute"/> also lists <c>200 - text/event-stream</c>, where MVC lists <c>200 - -</c>.
+    /// </remarks>
     // Red: dropping .RequireAuthorization("WidgetManagement") rendered "auth authenticated".
     // Red: adding .AllowAnonymous() to the endpoint rendered "anonymous yes".
     // Red: dropping .RequireRateLimiting("write-operations") rendered "rate -".
     // Red: .HasApiVersion(2.0) on the group rendered "versions 2.0". Dropping it stays green: a versioned API's
     //      endpoint with no version of its own takes the default, 1.0, which is what it then serves.
     // Red: new ProblemContentType("application/problem+json") rendered "content application/problem+json".
+    // Red: dropping the stream endpoint's own ProducesAttribute rendered its "content application/json", the
+    //      group's record; R12, the endpoint's value overrides the group's.
+    // Red: letting a ProblemContentType record win over any ProducesAttribute, as the first renderer did, rendered
+    //      the stream endpoint's "content application/json".
     [Fact]
     public async Task Render_reads_a_minimal_api_endpoint_from_its_metadata()
     {
@@ -115,12 +128,14 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
         builder.Services.AddApiVersioning();
         await using var app = builder.Build();
 
-        app.NewVersionedApi()
+        var group = app.NewVersionedApi()
             .MapGroup("api/Widgets")
             .HasApiVersion(1.0)
             .RequireAuthorization()
-            .WithMetadata(new ProblemContentType("application/json"))
-            .MapDelete("{id:guid}", (Guid id) => Results.NoContent())
+            .WithMetadata(new ProblemContentType("application/json"));
+        group.MapPost("{id:guid}/stream", (Guid id) => Results.Empty)
+            .WithMetadata(new ProducesAttribute("text/event-stream"));
+        group.MapDelete("{id:guid}", (Guid id) => Results.NoContent())
             .RequireAuthorization("WidgetManagement")
             .RequireRateLimiting("write-operations")
             .Produces(StatusCodes.Status204NoContent)
@@ -132,7 +147,9 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
         Render(app.Services).Should().Be(
             "DELETE api/widgets/{id:guid} | auth WidgetManagement,authenticated | anonymous no | rate write-operations"
             + " | versions 1.0 | responses 204 - -; 404 ProblemDetails application/problem+json;"
-            + " 409 List<String> application/json | content application/json\n");
+            + " 409 List<String> application/json | content application/json\n"
+            + "POST api/widgets/{id:guid}/stream | auth authenticated | anonymous no | rate - | versions 1.0"
+            + " | responses 200 - text/event-stream | content text/event-stream\n");
     }
 
     /// <summary>Stands in for the endpoint metadata record a phase 3.4 port task adds, matched by its type name.</summary>
@@ -143,8 +160,8 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     ///     in <c>\n</c>. Fields, separated by <c> | </c>: verb and lower-cased relative path; <c>auth</c>, every
     ///     <see cref="IAuthorizeData"/> as its policy or <c>authenticated</c>, sorted; <c>anonymous</c>; <c>rate</c>, the
     ///     effective <see cref="EnableRateLimitingAttribute"/> policy or <c>-</c>; <c>versions</c>; <c>responses</c>, every
-    ///     supported response type as <c>status type media-types</c>, sorted; <c>content</c>, the problem content type or
-    ///     MVC's <see cref="ProducesAttribute"/> content types.
+    ///     supported response type as <c>status type media-types</c>, sorted; <c>content</c>, the last
+    ///     <see cref="ProducesAttribute"/> or <c>ProblemContentType</c> in the metadata (R12).
     /// </summary>
     public static string Render(IServiceProvider services)
     {
@@ -175,7 +192,7 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
             "rate " + RateLimit(metadata),
             "versions " + Versions(metadata),
             "responses " + Join(description.SupportedResponseTypes.Select(Response).Order(StringComparer.Ordinal), "; "),
-            "content " + (ProblemContentTypeOf(metadata) ?? ProducesContentType(metadata) ?? "-"),
+            "content " + ContentTypeColumn(metadata),
         };
         return string.Join(" | ", fields);
     }
@@ -276,31 +293,37 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     }
 
     /// <summary>
-    ///     The hook for phase 3.4's <c>ProblemContentType</c> endpoint metadata, which a port task adds. Matched by type
-    ///     name because the type does not exist on the MVC build; its media type is read from its <c>ContentType</c>
-    ///     string property. A record with that name and no such property fails the render loudly rather than being
-    ///     skipped, so the task that adds the record either names the property <c>ContentType</c> or updates this hook.
+    ///     The content column, ruling R12: the last content-type-bearing item in endpoint metadata, a
+    ///     <see cref="ProducesAttribute"/> or phase 3.4's <c>ProblemContentType</c> record, whichever comes last. MVC lists
+    ///     a controller's attributes before its action's, and minimal APIs a group's metadata before its endpoint's, so an
+    ///     action- or endpoint-level value overrides the controller's or the group's, as it does on the wire.
     /// </summary>
-    private static string? ProblemContentTypeOf(IList<object> metadata)
+    /// <remarks>
+    ///     The record does not exist on the MVC build, so it is matched by type name and its media type read from its
+    ///     <c>ContentType</c> string property. A record with that name and no such property fails the render loudly
+    ///     rather than being skipped, so the task that adds it either names the property <c>ContentType</c> or updates
+    ///     this hook.
+    /// </remarks>
+    private static string ContentTypeColumn(IList<object> metadata)
     {
-        var item = metadata.LastOrDefault(m => string.Equals(m.GetType().Name, ProblemContentTypeName, StringComparison.Ordinal));
+        var item = metadata.LastOrDefault(m =>
+            m is ProducesAttribute || string.Equals(m.GetType().Name, ProblemContentTypeName, StringComparison.Ordinal));
         if (item is null)
         {
-            return null;
+            return "-";
+        }
+
+        if (item is ProducesAttribute produces)
+        {
+            return Join(produces.ContentTypes, ",");
         }
 
         var property = item.GetType().GetProperty("ContentType")
             ?? throw new InvalidOperationException(
-                $"{item.GetType().FullName} has no ContentType property; update {nameof(ProblemContentTypeOf)}.");
+                $"{item.GetType().FullName} has no ContentType property; update {nameof(ContentTypeColumn)}.");
         return property.GetValue(item) as string
             ?? throw new InvalidOperationException($"{item.GetType().FullName}.ContentType is not a string.");
     }
-
-    /// <summary>MVC applies the action's <see cref="ProducesAttribute"/> over the controller's, the last in metadata.</summary>
-    private static string? ProducesContentType(IList<object> metadata) =>
-        metadata.OfType<ProducesAttribute>().LastOrDefault() is { } produces
-            ? Join(produces.ContentTypes, ",")
-            : null;
 
     private static string TypeName(Type type)
     {
