@@ -223,8 +223,8 @@ The old technique is described in [Ralph Wiggum Technique](docs/ralph-wiggum-tec
 | Agent skills         | `Thalos.NET.Skills` 0.4.0 (markdown procedures from git, in-process cosine search, no Rag.NET dependency) |
 | Agent channels       | `Thalos.NET.Channels` 0.4.0 (console channel, pump, commands) + `Thalos.NET.Channels.Telegram` 0.4.0 (Bot API, long-poll) |
 | Embeddings           | Ollama `nomic-embed-text` (768 dims) via `Thalos.NET.Ollama` 0.20.0                 |
-| LLM security         | AI.Sentinel 3.2.1 (via `Thalos.NET.Sentinel` 0.19.0)                                |
-| LLM Providers        | Anthropic SDK 12.53.0 (agent factory for brainstorm and PRD generation; Thalos via `Thalos.NET.Anthropic`) |
+| LLM security         | AI.Sentinel 3.2.1 (via `Thalos.NET.Sentinel` 0.20.0)                                |
+| LLM Providers        | Anthropic via `Thalos.NET.Anthropic` 0.20.0 over `ZeroAlloc.Rest.Anthropic` 3.6.0, for the agents and the agent factory |
 | MCP                  | ModelContextProtocol 2.2.0 (`Thalos.NET.Mcp` reads `.mcp.json`)                     |
 | Frontend             | Blazor WebAssembly + Radzen.Blazor 8.7.5                                            |
 | Mocking              | NSubstitute 5.3.0 + NSubstitute.Analyzers.CSharp 1.0.17                             |
@@ -549,8 +549,10 @@ The **API** and **CLI** projects each have their own `appsettings.json`. The API
 
 #### LLM Provider Configuration
 
-`IAgentFactory` (brainstorm and PRD generation) reads the Claude section. Thalos agent turns are configured under
-`Thalos:Anthropic` instead (see [Thalos agents](#thalos-agents)). With no `Model` of its own, the Claude section uses
+`IAgentFactory` (brainstorm and PRD generation) reads the Claude section for its model and output cap, and gets its
+chat client from Thalos, so it shares the agents' Anthropic connection, key and prompt caching (see
+[Thalos agents](#thalos-agents)). The key is `Thalos:Anthropic:ApiKey` or the `ANTHROPIC_API_KEY` environment variable;
+the Claude section has no `ApiKey` since phase 3.3. With no `Model` of its own, the Claude section uses
 `Thalos:Anthropic:DefaultModel`, so one setting decides the model of every Anthropic call. The API refuses to start
 when neither is set, or when the model has no `ModelPricing:Models` price.
 
@@ -559,7 +561,6 @@ when neither is set, or when the model has no `ModelPricing:Models` price.
     "ExternalServices": {
         "Llm": {
             "Claude": {
-                "ApiKey": null,
                 "MaxTokens": 8192
             }
         }
@@ -569,7 +570,6 @@ when neither is set, or when the model has no `ModelPricing:Models` price.
 
 | Setting               | Description                                                              |
 |-----------------------|--------------------------------------------------------------------------|
-| `Llm.Claude.ApiKey`   | Anthropic API key (or set `ANTHROPIC_API_KEY` env var)                   |
 | `Llm.Claude.Model`    | Claude model identifier; defaults to `Thalos:Anthropic:DefaultModel`     |
 | `Llm.Claude.MaxTokens`| Output token cap per invocation                                          |
 

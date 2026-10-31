@@ -1,8 +1,64 @@
 # Session State
 
-**Last session:** 2026-10-28
+**Last session:** 2026-10-31
 
-## Current Position - phase 3.3 executing (2026-10-31): Tasks 1-24 done; Task 25, the close-out, next
+## Current Position - phase 3.3 complete (2026-10-31), PR #424 ready for the owner to merge
+
+**Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Built subagent-driven on `phase/3.3-own-llm-clients`
+from `main` `88cf0433`, across ZeroAlloc.Resilience, ZeroAlloc.Rest, Thalos.NET and Daedalus, every task reviewed.
+Rulings R1 to R29, releases, ratchet moves, the native run, the upstream comment, the live runs and findings:
+`docs/plans/2026-10-24-phase-3.3-rulings.md`.
+
+- **What shipped:**
+  - ZeroAlloc.Resilience 3.4.0, #256: an `IAsyncEnumerable<T>` method retries until its first item. ZeroAlloc.Rest
+    3.4.0, #492: server-sent events as typed streams. 3.5.0, #497: `ZeroAlloc.Rest.Anthropic` and
+    `ZeroAlloc.Rest.Ollama`, with recorded transcripts. 3.6.0, #499: `net8.0` beside `net10.0`.
+  - Thalos v0.20.0, Thalos.NET#431: the Anthropic adapter and prompt-cache translator over our client, the new
+    `Thalos.NET.Ollama`, caller-set cache markers gone; 19 packages.
+  - Daedalus: Thalos 0.20.0; `AgentFactory` in `Daedalus.Agents/Llm` on `IChatClientProvider`, the key from
+    `Thalos:Anthropic:ApiKey` or `ANTHROPIC_API_KEY`; embeddings through `UseOllamaEmbeddings`; the AppHost's Ollama
+    a plain container with an `ollama-pull` one-shot, fixing #412; the Cli host validating on build; Keycloak kept on
+    plain HTTP at 8082, `db5162d9`. The development guide's "LLM providers" has the pattern.
+- **Gone from the graph:** `Anthropic` and `OllamaSharp`, in every Daedalus project, the AppHost included.
+- **Baseline:** Api 1502, Cli 633, Migrations 798, Sandbox 0, Web 196, from Api 20244 and Cli 4357.
+- **Native run,** `docs/plans/2026-10-24-phase-3.3-native-smoke.md`: C3 is gone; the CLI stops at C4, EF Core model
+  building from `PostgresSkillStore` in `StartingAsync`. The owner moved "Application started" and the native turn to
+  3.5 on 2026-10-31. The CLI binary is 60.6 MiB, down from 70.6.
+- **Upstream:** C3 reproduces on Anthropic SDK 13.3.0, commented on anthropics/anthropic-sdk-csharp#79.
+- **Live runs** on daedalus-sandbox: `41e70b92` correctly reported its issue already fixed, $0.0062; `e811c21c`
+  succeeded through review and the gate and opened daedalus-sandbox#26, $1.4510, the cache split on `/costs`.
+- **Tests at `e9ff8905`:** unit 2125, Unit.Domain 356, Unit.Application 304, Unit.Infrastructure 278;
+  integration 765; Playwright.Api 115; Playwright.Browser 219 of 219.
+  Release build 0 warnings; `dotnet format` clean. CI green on the close-out commit, `aot-analysis` on all five
+  targets included.
+- **Filed at the close-out:** ZeroAlloc.Rest#518, tool results as content blocks (R18); ZeroAlloc.Rest#519, three
+  test-infrastructure minors. Earlier: Thalos.NET#429, no `net8.0` CI test leg.
+
+## Needs the owner
+
+1. **Merge #424, and delete the seven `Co-Authored-By: Claude` lines from the pre-filled squash message** (R27). The
+   repository squashes with the commit messages; by your choice of 2026-10-31 the branch is not rewritten, so every
+   cited SHA and CI run stays valid.
+2. **daedalus-sandbox#26,** the live run's PR, `Inventory.TryRemove`, is yours to review and merge or close.
+3. **Read the rulings,** `docs/plans/2026-10-24-phase-3.3-rulings.md`; each says what it costs if wrong. Two may want
+   your call: R4, the RCS1194 suppression on `HttpErrorException` in ZeroAlloc.Rest; R29, the scoped
+   `ASPIRECERTIFICATES001` opt-in in the AppHost.
+4. **Decide the filed issues:** ZeroAlloc.Rest#518 and #519; Thalos.NET#429.
+5. **Release-please:** after the merge, check the release PR lists 3.3's `refactor:` and `fix:` commits.
+
+Still open from 3.2's list, not re-checked by this close-out: the AppHost token's write access to Daedalus.NET; the
+ZeroAlloc.Outbox JSON-context overload; make `aot-analysis` a required check; #404, #406, #408, #410, #411, #413.
+
+## Recommended Next Step
+
+1. Merge PR #424.
+2. Start the next phase via `start-next-phase`. 3.4, controllers to minimal APIs, is independent and unblocked. 3.5
+   now also owns the native CLI's "Application started" and its native turn, and waits on ZeroAlloc.Linq and the ORM
+   gaps. 3.7 and 3.8 need only 3.2.
+
+---
+
+## Earlier Position - phase 3.3 executing (2026-10-31): Tasks 1-24 done; Task 25, the close-out, next
 
 **Last session:** 2026-10-31. Branch `phase/3.3-own-llm-clients`, draft PR #424, head `db5162d9` plus this pause commit.
 CI green on `db5162d9`. `main` merged in as `e1acb2ce`.

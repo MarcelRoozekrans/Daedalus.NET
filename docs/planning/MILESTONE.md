@@ -53,9 +53,9 @@ stay exactly as they are.
 |---|---|---|---|
 | 3.1 | AOT toolchain, gates, baseline and ORM gap audit; the native sandbox host | Infra | complete (2026-10-21), #405 |
 | 3.2 | Our own reflection out: STJ source-gen, config binding, DI annotations, explicit tool registration, YAML static generator | Refactor | complete (2026-10-24), #409 |
-| 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter; the native CLI reaches "Application started", moved from 3.2 | Backend | active (2026-10-24) |
+| 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter; the native CLI passes C3, "Application started" moved on to 3.5 | Backend | complete (2026-10-31), #424 |
 | 3.4 | Controllers to minimal APIs, identical contract | Refactor | pending |
-| 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files | Data | pending |
+| 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files; the native CLI reaches "Application started", moved from 3.3 | Data | pending |
 | 3.6 | Native API, CLI and Migrations; native test runs, live proof, measurements | Infra | pending |
 | 3.7 | Blazor WebAssembly AOT | Infra | pending |
 | 3.8 | `ZeroAlloc.Inject` and `ZeroAlloc.Resilience`, out of 3.2 | Refactor | pending |
@@ -82,6 +82,13 @@ Owner decisions during 3.2, in its rulings, `docs/plans/2026-10-21-phase-3.2-rul
   SDK's reflection JSON, which 3.3 removes; the milestone design's 3.3 entry records it.
 - **Carried from 3.2:** the ZeroAlloc.Outbox JSON-context overload for `WithSystemTextJsonSerializer`, handed over in
   `docs/plans/2026-10-21-zeroalloc-outbox-serializer-handover.md`. Daedalus adopts it once released.
+
+Owner decisions during 3.3, in its rulings, `docs/plans/2026-10-24-phase-3.3-rulings.md`:
+- **2026-10-28:** the ZeroAlloc.Rest family targets `net8.0` and `net10.0`, so Thalos' adapters keep `net8.0`.
+- **2026-10-31:** the native CLI's "Application started" moves from 3.3 to 3.5, and the native turn with it. The CLI
+  passes C3 and stops at EF Core model building in `StartingAsync`, which 3.5 removes.
+- **2026-10-31:** C3 still reproduces on the latest Anthropic SDK; it is a comment on the open upstream meta issue
+  anthropics/anthropic-sdk-csharp#79, not a new issue.
 
 ## Policies
 
