@@ -2,7 +2,44 @@
 
 **Last session:** 2026-10-28
 
-## Current Position - phase 3.3 executing (2026-10-28, evening): Tasks 1-21 done, G4 closed; Task 22 next
+## Current Position - phase 3.3 executing (2026-10-31): Tasks 1-24 done; Task 25, the close-out, next
+
+**Last session:** 2026-10-31. Branch `phase/3.3-own-llm-clients`, draft PR #424, head `db5162d9` plus this pause commit.
+CI green on `db5162d9`. `main` merged in as `e1acb2ce`.
+
+- **Task 22, `cc79208c`:** native-publish run 41175139481 on `e1acb2ce`, three targets.
+  - The CLI binary is 60.6 MiB, down from 70.6, and the API publish took 5 min, down from 23. The CLI has 633
+    warning keys, none of them Anthropic, ZeroAlloc.Rest or Ollama.
+  - The native CLI passes C3. It stops at C4: EF Core model building in `PostgresSkillStore`, via Thalos'
+    `SkillSyncService.StartingAsync`, predicted by IL2026. 3.5 owns it.
+  - **Owner, 2026-10-31:** "Application started" moves to 3.5, the native turn is not attempted and no spend is used.
+    The design's finish line records it, and the smoke doc is `docs/plans/2026-10-24-phase-3.3-native-smoke.md`.
+- **Task 23:** C3 reproduces on Anthropic SDK 13.3.0, the latest, under `dotnet run`. The owner chose to comment on the
+  existing open meta issue anthropics/anthropic-sdk-csharp#79 rather than file a new one; posted as
+  issuecomment-6539948822. Every constant-`type` model calls `SerializeToElement` of a literal with default options.
+- **Task 24, live runs on `daedalus-sandbox`:**
+  - **`db5162d9`** `fix(apphost)`: with a valid dev certificate, Aspire 13.4.6 terminated Keycloak with TLS on 8082,
+    so no token validated. `WithoutHttpsCertificate()` plus a test. Ruling R29: the experimental
+    ASPIRECERTIFICATES001 opt-in is a one-call pragma; the owner may prefer another opt-in.
+  - **Run `41e70b92`,** GH-9, $0.0062: implement correctly reported "blocked". The issue had been fixed by sandbox PR
+    #7. With the owner's OK, stale sandbox #9 and #12 were closed.
+  - **Run `e811c21c`,** `Inventory.TryRemove`, owner-approved second run: implement Sonnet 5, review Opus 5 approved
+    on all three lenses with 0 findings, 44/44 tests, gate approved, published **daedalus-sandbox#26**, left open for
+    the owner. $1.4510. `/costs` shows input, output, cache-read and cache-write, each non-zero, equal to the node
+    records; hand pricing per model matches.
+- **Disk:** filled to 0 bytes at about 07:00Z during the first AppHost start. Freed with the owner's OK: old apphost
+  volumes, 72 h image prune, `ollama/ollama:latest`. The owner then grew the disk to 296 GB.
+
+## Recommended Next Step
+
+In a fresh session, from `.claude/worktrees/phase-3.3`, subscribe to #424 and do **Task 25** of the plan:
+`docs/development-guide.md` Native AOT and LLM providers, `docs/architecture-diagrams.md`, the rulings doc
+`docs/plans/2026-10-24-phase-3.3-rulings.md` from the ledger, R1 to R29 with every PR, release, ratchet move, the native
+result, the upstream comment and both live runs, then MILESTONE, ROADMAP and STATE. Commit
+`docs(planning): close out phase 3.3`; CI green; mark #424 ready; stop for the owner to merge. Strip the
+Co-Authored-By trailers from the squash message, R27.
+
+## Earlier Position - phase 3.3 executing (2026-10-28, evening): Tasks 1-21 done, G4 closed; Task 22 next
 
 **Update, 2026-10-28 evening.** Tasks 19-21 are done and G4 is answered.
 
