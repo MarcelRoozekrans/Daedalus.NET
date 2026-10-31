@@ -14,9 +14,9 @@ namespace Daedalus.Tests.Integration.Api;
 ///     a bare 400 and skips validation; this test names it.
 /// </summary>
 /// <remarks>
-///     Until the first port, Task 6, the host maps no minimal API endpoint under <c>api/</c>, and the test checks an
-///     empty set. Its Red line was applied with a temporary <c>app.MapGet("/api/probe", ...)</c> in
-///     <c>MapDaedalusEndpoints</c>.
+///     Before the first port, Task 6, the host mapped no minimal API endpoint under <c>api/</c> and the test checked an
+///     empty set; since then it checks <c>AgentEndpoints</c> and every later group. Its Red line was applied with a
+///     temporary <c>app.MapGet("/api/probe", ...)</c> in <c>MapDaedalusEndpoints</c>.
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
 public sealed class EndpointGroupTests(PostgresFixture fixture)

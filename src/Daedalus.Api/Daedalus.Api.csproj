@@ -19,7 +19,7 @@
         <UserSecretsId>0c04d16b-eee6-4e74-85c9-fcbe77850b42</UserSecretsId>
         <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
         <!-- Compiles each mapped minimal API endpoint to a request delegate at build time, so the endpoints neither
-             emit nor reflect over expression trees. No endpoint is mapped yet; the port tasks add them. -->
+             emit nor reflect over expression trees. The port tasks add them, one controller at a time. -->
         <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
     </PropertyGroup>
 

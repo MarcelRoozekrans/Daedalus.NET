@@ -19,7 +19,6 @@ public class ApiAuthorizationTests
         typeof(CodeAnalysisController),
         typeof(RepositoriesController),
         typeof(PrdController),
-        typeof(AgentsController),
         typeof(AgentSessionsController)
     ];
 

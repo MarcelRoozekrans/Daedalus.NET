@@ -118,6 +118,8 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     //      group's record; R12, the endpoint's value overrides the group's.
     // Red: letting a ProblemContentType record win over any ProducesAttribute, as the first renderer did, rendered
     //      the stream endpoint's "content application/json".
+    // Red: dropping RoutePath's trailing-slash trim rendered the group root as "GET api/widgets/", and the snapshot
+    //      test's Agents line as "+ GET api/agents/" (R39).
     [Fact]
     public async Task Render_reads_a_minimal_api_endpoint_from_its_metadata()
     {
@@ -133,6 +135,7 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
             .HasApiVersion(1.0)
             .RequireAuthorization()
             .WithMetadata(new ProblemContentType("application/json"));
+        group.MapGet(string.Empty, () => Results.Empty);
         group.MapPost("{id:guid}/stream", (Guid id) => Results.Empty)
             .WithMetadata(new ProducesAttribute("text/event-stream"));
         group.MapDelete("{id:guid}", (Guid id) => Results.NoContent())
@@ -148,6 +151,8 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
             "DELETE api/widgets/{id:guid} | auth WidgetManagement,authenticated | anonymous no | rate write-operations"
             + " | versions 1.0 | responses 204 - -; 404 ProblemDetails application/problem+json;"
             + " 409 List<String> application/json | content application/json\n"
+            + "GET api/widgets | auth authenticated | anonymous no | rate - | versions 1.0 | responses 200 - -"
+            + " | content application/json\n"
             + "POST api/widgets/{id:guid}/stream | auth authenticated | anonymous no | rate - | versions 1.0"
             + " | responses 200 - text/event-stream | content text/event-stream\n");
     }
@@ -198,7 +203,7 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     }
 
     /// <summary>
-    ///     The relative path, lower-cased, with each route parameter rebuilt from its
+    ///     The relative path, lower-cased, without a trailing slash (R39), with each route parameter rebuilt from its
     ///     <see cref="ApiParameterRouteInfo"/>: <c>{id:guid}</c>. MVC's <see cref="ApiDescription.RelativePath"/> drops
     ///     the constraints and the minimal-API explorer keeps them, so the path's own braces are reduced to the bare
     ///     name first and the constraints are put back from the parameter, which both stacks fill. A constraint renders
@@ -219,6 +224,13 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
                 .Order(StringComparer.Ordinal);
             var rebuilt = "{" + parameter.Name + string.Concat(constraints.Select(c => ":" + c)) + (route.IsOptional ? "?" : string.Empty) + "}";
             path = path.Replace("{" + parameter.Name + "}", rebuilt, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // R39: a minimal-API endpoint at its group's root has a trailing slash, as RoutePatternFactory.Combine
+        // always joins with one; MVC's never does, and routing matches both forms alike.
+        if (path.EndsWith('/'))
+        {
+            path = path[..^1];
         }
 
         return path.ToLowerInvariant();

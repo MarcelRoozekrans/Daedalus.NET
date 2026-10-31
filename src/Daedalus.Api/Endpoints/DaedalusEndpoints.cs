@@ -60,6 +60,8 @@ public static class DaedalusEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
+        app.MapAgentEndpoints();
+
         return app;
     }
 
