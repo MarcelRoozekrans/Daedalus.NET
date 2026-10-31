@@ -7,9 +7,27 @@
 **Update, 2026-10-31, later.** PR #424 was admin squash-merged at the owner's request as `fe5a4e25`, with a clean
 squash message and no Co-Authored-By lines. CI on `main` at `fe5a4e25` is green, run 41196440875, all five
 `aot-analysis` targets included. **Release:** the owner keeps the 2026-10-11 hold; release-please is not dispatched,
-and 3.1 to 3.3's commits wait for the next dispatch. **Phase 3.4** is designed on `phase/3.4-minimal-apis`:
-`docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-design.md`, approach A, incremental with a route-table
-snapshot. Filed #426, the catch-all 500 bodies. Next: refactor-analysis, then writing-plans.
+and 3.1 to 3.3's commits wait for the next dispatch.
+
+**Phase 3.4, controllers to minimal APIs: design owner-approved 2026-10-31,** committed as `ca15cccb` on branch
+`phase/3.4-minimal-apis`, pushed: `docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-design.md`.
+
+- **Owner decisions:** approach A, a snapshot of MVC's endpoint table first, then one controller per task with both
+  stacks live, MVC removed last; static handler classes with typed `Results<…>`, unit tests retargeted at them; the
+  14 catch-all 500 bodies kept byte-identical, tracked as **#426**; endpoint JSON source-generated in 3.4 with MVC's
+  web defaults, nulls written, no reflection fallback.
+- **Calls recorded in the design for the rulings doc,** `docs/plans/2026-10-31-phase-3.4-rulings.md`, which the plan
+  creates: OpenAPI held to equivalence, not bytes; `.Produces*` matching MVC's declared set; `Asp.Versioning.Http`
+  10.2.1 with all three readers; `CodeAnalysis`' dead `ModelState` checks dropped; 13 controllers, not 18, to be
+  corrected in MILESTONE.md and ROADMAP.md during the phase.
+- **ROADMAP/MILESTONE:** 3.4 still `pending`; set it `active` with the plan link when writing-plans lands.
+
+## Recommended Next Step
+
+In a fresh session, on `phase/3.4-minimal-apis`: run the Surface pre-plan hook for `Refactor`, the
+`refactor-analysis` skill, producing `docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-impact-analysis.md`.
+Then `superpowers:writing-plans` into `docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md`, then
+`list-phase-assumptions` for the owner, then subagent-driven execution.
 
 ### Phase 3.3 close-out, as recorded before the merge
 
