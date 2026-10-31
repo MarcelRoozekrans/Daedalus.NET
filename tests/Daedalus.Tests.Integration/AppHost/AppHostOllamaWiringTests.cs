@@ -91,4 +91,23 @@ public sealed class AppHostOllamaWiringTests
         // fails even though the model is already in the volume.
         args.Should().ContainSingle(a => a.Contains($"ollama show {ModelName} >/dev/null 2>&1 || ", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task Keycloak_is_kept_on_plain_http_instead_of_the_developer_certificate()
+    {
+        await using var app = await BuildAppAsync();
+        var model = ModelOf(app);
+        var keycloak = Find<IResource>(model, "daedalus-realm");
+
+        // The Api, the Web client and the README all use http://localhost:8082. With a valid ASP.NET developer
+        // certificate on the machine Aspire otherwise terminates TLS on that port, so the http URL gets an empty reply.
+        // Red: dropping .WithoutHttpsCertificate() from the Keycloak builder. No HttpsCertificateAnnotation is then
+        // present, the Aspire default applies, and the developer certificate is injected.
+#pragma warning disable ASPIRECERTIFICATES001 // Experimental Aspire certificate API, the same opt-in the AppHost makes.
+        var annotation = keycloak.Annotations.OfType<HttpsCertificateAnnotation>().Should().ContainSingle().Subject;
+        // Red: replacing it with WithHttpsCertificate or WithDeveloperCertificate style opt-in.
+        annotation.UseDeveloperCertificate.Should().BeFalse();
+        annotation.Certificate.Should().BeNull();
+#pragma warning restore ASPIRECERTIFICATES001
+    }
 }

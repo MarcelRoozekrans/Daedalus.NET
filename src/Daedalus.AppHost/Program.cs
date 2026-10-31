@@ -90,6 +90,14 @@ foreach (var hc in managementHealthCheck)
 
 keycloak.WithHttpHealthCheck("/health/ready");
 
+// Api, Web and README all use the plain http://localhost:8082 authority. With a valid ASP.NET developer
+// certificate on the machine Aspire would otherwise terminate TLS on that port and the http URL answers with an
+// empty reply, so login depends on the machine. Aspire's certificate API is experimental; the pragma opts in
+// for this one call.
+#pragma warning disable ASPIRECERTIFICATES001
+keycloak.WithoutHttpsCertificate();
+#pragma warning restore ASPIRECERTIFICATES001
+
 // Ollama for embedding generation (semantic search), as a plain container. The api reads ConnectionStrings:ollama as
 // `Endpoint=<url>` (OllamaConnectionString.ParseEndpoint) and fixes the model to nomic-embed-text itself. The
 // CommunityToolkit AddModel wiring is not used: it named the connection string ollama-nomic-embed-text, so the api saw
