@@ -64,6 +64,7 @@ public static class DaedalusEndpoints
         app.MapSchedulesEndpoints();
         app.MapTaskExecutionEndpoints();
         app.MapCostAnalyticsEndpoints();
+        app.MapPrdEndpoints();
 
         return app;
     }
