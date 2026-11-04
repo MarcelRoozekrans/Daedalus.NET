@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
@@ -810,12 +811,63 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.GetAsync(new Uri("/api/cost-analytics/summary", UriKind.Relative));
         var text = await response.Content.ReadAsStringAsync();
 
-        // Red: StatusCode(502) in place of 500 in CostAnalyticsController.GetSummary's catch.
+        // Red: statusCode 502 in place of 500 in CostAnalyticsEndpoints.InternalServerError.
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError, text);
-        // Red: CostAnalyticsController's [Produces("application/json")] changed to text/json.
+        // Red: ProblemContentType.Json on the CostAnalytics group changed to ProblemJson, or the group's Json metadata removed.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
-        // Red: the catch's anonymous object gains a member, or its text changes, in CostAnalyticsController.GetSummary.
+        // Red: the ErrorBody gains a member, or its text changes, in CostAnalyticsEndpoints.InternalServerError.
         text.Should().Be("""{"error":"Internal server error"}""");
+    }
+
+    /// <summary>
+    ///     <c>EstimateCost</c> answers a failed estimate with an explicit <c>ProblemDetails</c> carrying a title, a
+    ///     detail and a status: MVC writes it as given, with no <c>type</c> and no <c>traceId</c>, under the
+    ///     controller's <c>application/json</c> (ruling R43).
+    /// </summary>
+    [Fact]
+    public async Task Estimate_of_an_unpriced_model_answers_the_explicit_not_found_problem()
+    {
+        var costs = Substitute.For<ICostAnalyticsService>();
+        costs.EstimateCostAsync("unpriced", 10, 4000, Arg.Any<CancellationToken>())
+            .Returns(Result<CostEstimateDto>.Failure("No pricing configured for model 'unpriced'"));
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false, configureServices: services =>
+        {
+            services.RemoveAll<ICostAnalyticsService>();
+            services.AddScoped(_ => costs);
+        });
+        using var client = host.Client("alice", "task-manager");
+
+        using var response = await client.GetAsync(new Uri("/api/cost-analytics/estimate?modelId=unpriced", UriKind.Relative));
+        var text = await response.Content.ReadAsStringAsync();
+
+        // Red: StatusCode(410) in place of NotFound in CostAnalyticsEndpoints.EstimateCost.
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound, text);
+        // Red: ProblemContentType.ProblemJson in place of Json on the CostAnalytics group.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        // Red: ApiProblem.Of in place of ApiProblem.AsGiven in EstimateCost; the body gains type and traceId.
+        text.Should().Be("""{"title":"Not Found","status":404,"detail":"No pricing configured for model 'unpriced'"}""");
+    }
+
+    /// <summary>
+    ///     A non-nullable <c>string</c> query parameter is implicitly required under MVC: sent absent or empty it
+    ///     is a 400 validation problem with MVC's factory defaults (ruling R43).
+    /// </summary>
+    [Theory]
+    [InlineData("/api/cost-analytics/estimate")]
+    [InlineData("/api/cost-analytics/estimate?modelId=")]
+    public async Task Estimate_without_a_model_id_answers_the_required_validation_problem(string path)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "task-manager");
+
+        using var response = await client.GetAsync(new Uri(path, UriKind.Relative));
+
+        // Red: drop the missing-modelId check in CostAnalyticsEndpoints.EstimateCost; the service is asked for null.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: ProblemContentType.ProblemJson in place of Json on the CostAnalytics group.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["modelId"] = ["The modelId field is required."] });
     }
 
     // ---------------------------------------------------------------------------------------------------------------

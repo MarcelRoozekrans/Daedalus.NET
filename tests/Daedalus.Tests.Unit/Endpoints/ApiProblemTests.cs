@@ -156,6 +156,36 @@ public sealed class ApiProblemTests
     }
 
     [Fact]
+    public async Task AsGiven_writes_only_the_members_the_problem_carries()
+    {
+        await using var services = Services();
+        var context = Create(services, ProblemContentType.Json);
+        var problem = new ProblemDetails { Title = "Not Found", Detail = "No such model.", Status = 404 };
+
+        var result = ApiProblem.AsGiven(context, problem);
+        var text = await ExecuteAsync(result, context);
+
+        // Red: AsGiven applies the client-error defaults, as Of does; the body gains type and traceId.
+        AssertProblem(text, null, "Not Found", 404, detail: "No such model.", traceId: null);
+        // Red: AsGiven answers the status 500 in place of the problem's Status.
+        result.StatusCode.Should().Be(StatusCodes.Status404NotFound);
+        // Red: AsGiven ignores the endpoint's ProblemContentType and writes application/problem+json.
+        context.Response.ContentType.Should().Be(Json);
+    }
+
+    [Fact]
+    public void AsGiven_refuses_a_problem_without_a_status()
+    {
+        using var services = Services();
+        var context = Create(services);
+
+        var act = () => ApiProblem.AsGiven(context, new ProblemDetails { Title = "Not Found" });
+
+        // Red: AsGiven falls back to 200 for a missing Status in place of throwing.
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public async Task Validation_writes_the_problem_as_given()
     {
         await using var services = Services();

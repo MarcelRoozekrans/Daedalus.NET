@@ -96,6 +96,7 @@ public sealed class EndpointGroupTests(PostgresFixture fixture)
     private static readonly Dictionary<string, string> ExpectedTags = new(StringComparer.OrdinalIgnoreCase)
     {
         ["api/agents"] = "Agents",
+        ["api/cost-analytics"] = "CostAnalytics",
         ["api/schedules"] = "Schedules",
         ["api/taskexecutions"] = "TaskExecutions",
     };

@@ -100,6 +100,20 @@ public static class ApiProblem
     }
 
     /// <summary>
+    ///     Writes <paramref name="problem"/> exactly as given, with its own <c>Status</c>, the endpoint's content type
+    ///     and none of <see cref="Of"/>'s defaults: no <c>type</c>, no <c>traceId</c>. That is what MVC writes for an
+    ///     action's explicit <c>NotFound(new ProblemDetails { ... })</c>, which its factory never touches (R43).
+    /// </summary>
+    public static ApiProblemResult AsGiven(HttpContext context, ProblemDetails problem)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(problem);
+
+        var statusCode = problem.Status ?? throw new ArgumentException("The problem has no Status.", nameof(problem));
+        return new ApiProblemResult(problem, statusCode, ContentTypeOf(context));
+    }
+
+    /// <summary>
     ///     Writes <paramref name="problem"/> as it is, with its own status (400 when it has none) and the endpoint's
     ///     content type. Binding problems arrive with MVC's factory defaults already applied; the ZeroAlloc filter's
     ///     problem keeps its rfc7231 <c>type</c> and no <c>traceId</c>, as the MVC filter writes it.
