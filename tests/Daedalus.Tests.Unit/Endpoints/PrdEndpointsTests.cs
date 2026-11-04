@@ -98,6 +98,7 @@ public sealed class PrdEndpointsTests
 
         // Red: rethrow in the catch of GeneratePrd, or answer a 400; the result is not a 500 body.
         var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorDetailBody>>().Subject;
+        // Red: answer 400 in place of 500 in the catch of GeneratePrd.
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         // Red: change the error text or drop ex.Message from details in the catch of GeneratePrd.
         json.Value.Should().Be(new ErrorDetailBody("Error generating PRD", "boom"));
@@ -178,6 +179,7 @@ public sealed class PrdEndpointsTests
 
         // Red: rethrow in the catch of ConvertToTasks, or answer a 400; the result is not a 500 body.
         var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorDetailBody>>().Subject;
+        // Red: answer 400 in place of 500 in the catch of ConvertToTasks.
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         // Red: change the error text or drop ex.Message from details in the catch of ConvertToTasks.
         json.Value.Should().Be(new ErrorDetailBody("Error converting PRD items to tasks", "boom"));
@@ -185,6 +187,33 @@ public sealed class PrdEndpointsTests
         LoggedEventIds(logger).Should().Equal(104, 107);
         // Red: pass the category "Other" to CreateLogger in ConvertToTasks.
         factory.Received(1).CreateLogger(Category);
+    }
+
+    [Theory]
+    [InlineData(true, "{\"error\":\"Error generating PRD\",\"details\":\"boom\"}")]
+    [InlineData(false, "{\"error\":\"Error converting PRD items to tasks\",\"details\":\"boom\"}")]
+    public async Task The500Body_IsWrittenAsErrorAndDetailsThroughTheEndpointJsonOptions(bool generate, string expected)
+    {
+        _service.GeneratePrdAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Result<PrdResponseDto>>>(_ => throw new InvalidOperationException("boom"));
+        _service.ConvertToTasksAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyList<PrdItemForConversionDto>>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Result<List<TaskDto>>>>(_ => throw new InvalidOperationException("boom"));
+        var factory = CreateLogging().Factory;
+        IResult result = generate
+            ? (await PrdEndpoints.GeneratePrd(
+                await BindGenerate($"{{\"projectId\":\"{ProjectId}\",\"userRequirements\":\"Build it\"}}"),
+                _service, factory, CancellationToken.None)).Result
+            : (await PrdEndpoints.ConvertToTasks(
+                await BindConvert(ConversionBody(ProjectId, 1)), _service, factory, CancellationToken.None)).Result;
+        await using var services = Services();
+        var context = Create(services);
+
+        var body = await ExecuteAsync(result, context);
+
+        // Red: remove ErrorDetailBody from ApiJsonSerializerContext, or rename its Details member; the write throws or the bytes differ.
+        body.Should().Be(expected);
+        // Red: write the body with another content type than JSON in the 500 result.
+        context.Response.ContentType.Should().Be(Json);
     }
 
     private static PrdResponseDto NewPrd()

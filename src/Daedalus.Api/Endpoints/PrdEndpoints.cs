@@ -39,7 +39,8 @@ public static partial class PrdEndpoints
     }
 
     /// <summary>Generates a PRD from user requirements using the LLM in PRD agent mode.</summary>
-    public static async Task<Results<Ok<PrdResponseDto>, JsonHttpResult<ErrorBody>, JsonHttpResult<ErrorDetailBody>>> GeneratePrd(
+    public static async Task<
+        Results<Ok<PrdResponseDto>, JsonHttpResult<ErrorBody>, JsonHttpResult<ErrorDetailBody>>> GeneratePrd(
         ApiBody<PrdRequestDto> request, [FromServices] IPrdService prdService, [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
@@ -73,7 +74,8 @@ public static partial class PrdEndpoints
     }
 
     /// <summary>Converts selected PRD items to tasks and persists them to the database.</summary>
-    public static async Task<Results<Ok<List<TaskDto>>, JsonHttpResult<ErrorBody>, JsonHttpResult<ErrorDetailBody>>> ConvertToTasks(
+    public static async Task<
+        Results<Ok<List<TaskDto>>, JsonHttpResult<ErrorBody>, JsonHttpResult<ErrorDetailBody>>> ConvertToTasks(
         ApiBody<PrdConversionRequestDto> request, [FromServices] IPrdService prdService,
         [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
     {
