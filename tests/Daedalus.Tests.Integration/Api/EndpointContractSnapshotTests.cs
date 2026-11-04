@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Daedalus.Api.Endpoints;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -56,12 +57,6 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     private const string SnapshotFile = "endpoint-contract.snapshot.txt";
     private const string ActualFile = "endpoint-contract.actual.txt";
 
-    /// <summary>
-    ///     The type name of phase 3.4's problem content-type metadata record, which does not exist yet. Matched by name so
-    ///     this file compiles on both stacks; see <see cref="ContentTypeColumn"/>.
-    /// </summary>
-    private const string ProblemContentTypeName = "ProblemContentType";
-
     // Red: removing .RequireRateLimiting("write-operations") from the CreateProject route failed with
     //      "- POST api/projects | ... | rate write-operations | ..." and "+ POST api/projects | ... | rate - | ...".
     // Red: changing the DeleteProject route's policy "ProjectManagement" to "ProjectRead" failed with
@@ -95,8 +90,8 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
 
     /// <summary>
     ///     R11's other half: a minimal-API endpoint, mapped the way the port recipe maps one, renders through the same
-    ///     <see cref="Render"/> with every column filled from its own metadata, including the <c>ProblemContentType</c>
-    ///     hook and its precedence (R12). Without it, a column that reads blank on
+    ///     <see cref="Render"/> with every column filled from its own metadata, including the <see cref="ProblemContentType"/>
+    ///     metadata and its precedence (R12). Without it, a column that reads blank on
     ///     minimal APIs would only show up as a diff in the first port task, or not at all where MVC's value is blank too.
     /// </summary>
     /// <remarks>
@@ -147,9 +142,6 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
             + "POST api/widgets/{id:guid}/stream | auth authenticated | anonymous no | rate -"
             + " | responses 200 - text/event-stream | content text/event-stream\n");
     }
-
-    /// <summary>Stands in for the endpoint metadata record a phase 3.4 port task adds, matched by its type name.</summary>
-    private sealed record ProblemContentType(string ContentType);
 
     /// <summary>
     ///     Renders the host's endpoint table, one line per <see cref="ApiDescription"/>, sorted ordinally, each ending
@@ -267,35 +259,20 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
 
     /// <summary>
     ///     The content column, ruling R12: the last content-type-bearing item in endpoint metadata, a
-    ///     <see cref="ProducesAttribute"/> or phase 3.4's <c>ProblemContentType</c> record, whichever comes last. MVC lists
+    ///     <see cref="ProducesAttribute"/> or a <see cref="ProblemContentType"/> record, whichever comes last. MVC lists
     ///     a controller's attributes before its action's, and minimal APIs a group's metadata before its endpoint's, so an
     ///     action- or endpoint-level value overrides the controller's or the group's, as it does on the wire.
     /// </summary>
-    /// <remarks>
-    ///     The record does not exist on the MVC build, so it is matched by type name and its media type read from its
-    ///     <c>ContentType</c> string property. A record with that name and no such property fails the render loudly
-    ///     rather than being skipped, so the task that adds it either names the property <c>ContentType</c> or updates
-    ///     this hook.
-    /// </remarks>
     private static string ContentTypeColumn(IList<object> metadata)
     {
-        var item = metadata.LastOrDefault(m =>
-            m is ProducesAttribute || string.Equals(m.GetType().Name, ProblemContentTypeName, StringComparison.Ordinal));
-        if (item is null)
+        var item = metadata.LastOrDefault(m => m is ProducesAttribute or ProblemContentType);
+        return item switch
         {
-            return "-";
-        }
-
-        if (item is ProducesAttribute produces)
-        {
-            return Join(produces.ContentTypes, ",");
-        }
-
-        var property = item.GetType().GetProperty("ContentType")
-            ?? throw new InvalidOperationException(
-                $"{item.GetType().FullName} has no ContentType property; update {nameof(ContentTypeColumn)}.");
-        return property.GetValue(item) as string
-            ?? throw new InvalidOperationException($"{item.GetType().FullName}.ContentType is not a string.");
+            null => "-",
+            ProducesAttribute produces => Join(produces.ContentTypes, ","),
+            ProblemContentType problem => problem.ContentType,
+            _ => throw new InvalidOperationException($"Unexpected content-type metadata {item.GetType().FullName}."),
+        };
     }
 
     private static string TypeName(Type type)

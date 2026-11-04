@@ -23,7 +23,7 @@ namespace Daedalus.Tests.Integration.Controllers;
 ///     succeeding — when there is nothing to resend. The endpoints must add no logic of their own on top.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
-public sealed class SchedulesControllerTests(PostgresFixture fixture) : IAsyncLifetime
+public sealed class SchedulesEndpointsIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private readonly IAgentRuntime _runtime = Substitute.For<IAgentRuntime>();
     private ApiWebApplicationFactory _factory = null!;

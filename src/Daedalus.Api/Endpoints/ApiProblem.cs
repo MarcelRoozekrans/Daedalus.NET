@@ -13,8 +13,8 @@ namespace Daedalus.Api.Endpoints;
 ///     endpoint's metadata wins, so an endpoint's own overrides its group's (ruling R12).
 /// </summary>
 /// <remarks>
-///     The member is <c>ContentType</c> because <c>EndpointContractSnapshotTests</c> matches this record by its type
-///     name and reads that property for the snapshot's <c>content</c> column (rulings R11, R12, R27).
+///     <c>EndpointContractSnapshotTests</c> reads <see cref="ContentType"/> for the snapshot's <c>content</c> column
+///     (rulings R11, R12, R27).
 /// </remarks>
 public sealed record ProblemContentType(string ContentType)
 {

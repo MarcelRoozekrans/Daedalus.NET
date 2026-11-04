@@ -224,6 +224,8 @@
     <PackageVersion Include="ZeroAlloc.Outbox.Orm" Version="4.4.6" />
 
     <!-- ASP.NET Core / Blazor -->
+    <!-- Asp.Versioning.Mvc removed in phase 3.4 with MVC: the API is unversioned (R54), and no versioning package is
+         left in any project graph. -->
     <!-- Api calls AddNpgSql directly; it used to arrive transitively through Aspire.Hosting.PostgreSQL -->
     <PackageVersion Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
     <!-- 10.0.2 → 10.0.12 across the Microsoft.AspNetCore.* family: SignalR.Client, and Components through

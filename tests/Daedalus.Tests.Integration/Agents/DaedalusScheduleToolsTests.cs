@@ -15,7 +15,7 @@ namespace Daedalus.Tests.Integration.Agents;
 
 /// <summary>
 ///     <see cref="DaedalusScheduleTools"/> against the real, DI-resolved <see cref="IScheduleDiagnostics"/> —
-///     the same composed <c>Daedalus.Api</c> host <see cref="Controllers.SchedulesControllerTests"/> boots — so
+///     the same composed <c>Daedalus.Api</c> host <see cref="Controllers.SchedulesEndpointsIntegrationTests"/> boots — so
 ///     these tests exercise the actual production wiring rather than a hand-assembled substitute.
 /// </summary>
 [Collection(DatabaseCollection.Name)]

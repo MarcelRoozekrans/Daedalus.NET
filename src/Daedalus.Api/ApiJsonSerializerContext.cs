@@ -51,7 +51,6 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(AgentToolCallDto))]
 [JsonSerializable(typeof(TurnUsageDto))]
 [JsonSerializable(typeof(AgentTurnResultDto))]
-[JsonSerializable(typeof(MemoryEventDto))]
 [JsonSerializable(typeof(MemoryDto))]
 [JsonSerializable(typeof(PagedResultDto<MemoryDto>))]
 [JsonSerializable(typeof(CreateAgentSessionResponseDto))]

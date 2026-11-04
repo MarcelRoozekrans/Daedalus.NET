@@ -13,8 +13,8 @@ namespace Daedalus.Agents.Workflow;
 ///     <b>Always registered.</b> Every host that calls <c>DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents</c>
 ///     resolves an implementation, whether or not <c>Thalos:Workflow:Enabled</c> is true. A host with the engine off
 ///     gets <see cref="DisabledManufactureRunStarter"/>, which reports that plainly instead of failing DI resolution —
-///     the Integration test suite boots with the engine disabled on every host but one, and both the controller and
-///     the tool need something to resolve regardless.
+///     the Integration test suite boots with the engine disabled on every host but one, and both the
+///     <c>WorkflowRunsEndpoints.Start</c> endpoint and the tool need something to resolve regardless.
 ///     <para>
 ///         <b>Telemetry.</b> Registered behind the generated <c>ManufactureRunStarterInstrumented</c> proxy. Each start is a
 ///         <c>daedalus.manufacture.start</c> span, tagged on success with the run id. A failure is an error described by

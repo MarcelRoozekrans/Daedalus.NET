@@ -18,7 +18,7 @@ namespace Daedalus.Tests.Integration.Controllers;
 ///     Tests execution data retrieval and filtering by task/session.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
-public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
+public class TaskExecutionEndpointsIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
 
