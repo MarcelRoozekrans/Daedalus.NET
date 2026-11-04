@@ -26,7 +26,7 @@ namespace Daedalus.Agents.Workflow;
 ///     caller-facing message for the mismatch case is this type's own.
 ///     </para>
 ///     <para>
-///     <b>Not the security boundary.</b> Nothing here checks who is calling. <c>WorkflowRunsController</c> is
+///     <b>Not the security boundary.</b> Nothing here checks who is calling. <c>WorkflowRunsEndpoints</c> is
 ///     reachable only once ASP.NET Core's own <c>WorkflowResume</c> authorization policy (<c>developer</c> or
 ///     <c>admin</c> role, see <c>Program.cs</c>) has already let the request through — the same criterion
 ///     <c>Thalos:ToolPolicies</c> binds <c>git__*</c> and <c>repoaction__*</c> to, enforced here by ASP.NET Core's
@@ -153,7 +153,7 @@ public sealed partial class WorkflowRunGateway(
     /// </summary>
     /// <remarks>
     ///     <c>internal</c>, not <c>public</c>: fix round 1 of task B5 found nothing in <c>src</c> calling this
-    ///     overload directly any more — <c>Daedalus.Api.Controllers.WorkflowRunsController.Resume</c> only ever calls the
+    ///     overload directly any more — <c>Daedalus.Api.Endpoints.WorkflowRunsEndpoints.Resume</c> only ever calls the
     ///     public <see cref="ResumeAsync(Guid,string,string?,bool,IReadOnlyList{string},RunPrincipal,CancellationToken)"/> overload below,
     ///     which applies standing instructions when asked before delegating here. A future <c>public</c> caller of
     ///     this overload could bypass that entirely — resuming a gate with no chance to apply a proposal, or worse,

@@ -4,7 +4,7 @@ using ZeroAlloc.Telemetry;
 namespace Daedalus.Agents.Workflow;
 
 /// <summary>
-///     The one seam both <c>WorkflowRunsController</c> and <see cref="Tools.DaedalusManufactureTools"/> use to
+///     The one seam both <c>WorkflowRunsEndpoints</c> and <see cref="Tools.DaedalusManufactureTools"/> use to
 ///     start a new <c>manufacture</c> run — never <see cref="Thalos.Workflow.WorkflowRunStarter"/> directly, so
 ///     REST and the <c>manufacture__start</c> tool cannot drift apart on what a run's opening variables or pinned
 ///     document is called.

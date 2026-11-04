@@ -44,6 +44,9 @@ public sealed class ApiAuthorizationTests(PostgresFixture fixture)
         // Red: dropping .RequireAuthorization("AgentUse") from the group in AgentSessionsEndpoints.MapAgentSessionsEndpoints
         //      failed with found at least one item
         //      "api/agents/{agentId}/sessions HTTP: POST api/agents/{agentId}/sessions => CreateSession".
+        // Red: dropping .RequireAuthorization("WorkflowResume") from the group in
+        //      WorkflowRunsEndpoints.MapWorkflowRunsEndpoints failed with found at least one item
+        //      "api/workflow-runs/ HTTP: POST api/workflow-runs/ => Start".
         unprotected.Should().BeEmpty("every route under api/ requires authorization unless AnonymousEndpoints lists it");
     }
 

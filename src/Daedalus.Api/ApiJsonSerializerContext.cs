@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Daedalus.Api.Controllers;
 using Daedalus.Application.DTOs.Agents;
 using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Application.DTOs.WorkflowRuns;
@@ -98,7 +97,7 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(PrdRequestDto))]
 [JsonSerializable(typeof(ResumeWorkflowRunRequest))]
 [JsonSerializable(typeof(SendBrainstormMessageDto))]
-[JsonSerializable(typeof(StartWorkflowRunRequest))]
+[JsonSerializable(typeof(Endpoints.StartWorkflowRunRequest))]
 [JsonSerializable(typeof(SubmitAnalysisRequest))]
 [JsonSerializable(typeof(UpdateProjectDto))]
 [JsonSerializable(typeof(UpdateTaskDto))]

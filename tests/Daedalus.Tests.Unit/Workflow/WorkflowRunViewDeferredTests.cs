@@ -1,8 +1,9 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
-using Microsoft.AspNetCore.Mvc;
+using Daedalus.Tests.Shared;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -70,12 +71,14 @@ public sealed class WorkflowRunViewDeferredTests
 
         var config = new WorkflowConfig();
         config.Repositories.Add(new RepositoryConfig { Name = "gizmos", Remote = "https://github.com/acme/gizmos.git" });
-        var controller = new WorkflowRunsController(new WorkflowRunGateway(
+        await using var request = WorkflowRunsRequest.For(new WorkflowRunGateway(
             store, history, RecordStoreScopes.For(records), workspaces, config, TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 
-        var response = await controller.Get(run.Id, CancellationToken.None);
+        var response = await WorkflowRunsEndpoints.Get(run.Id, request.Context, CancellationToken.None);
 
-        return response.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeOfType<WorkflowRunView>().Subject;
+        // Red: run is null || run.Id == id in place of run is null in WorkflowRunsEndpoints.Get; the found run
+        //      answers 404.
+        return response.Result.Should().BeOfType<Ok<WorkflowRunView>>().Which.Value!;
     }
 
     private static WorkflowRunRecord Selection(long seq, string node, string payload) =>

@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NSubstitute.ExceptionExtensions;
 using Thalos;
+using Thalos.Workflow;
 using ZeroAlloc.Authorization;
 using Task = System.Threading.Tasks.Task;
 
@@ -34,7 +35,7 @@ namespace Daedalus.Tests.Integration.Api;
 ///     <c>for {name}</c>, and the malformed-JSON key is the reader's path, <c>$</c> only at the root.
 ///     </para>
 ///     <para>
-///     The workflow-runs cases boot <see cref="ScratchWorkflowHost"/>, because <c>WorkflowRunsController</c> is mapped
+///     The workflow-runs cases boot <see cref="ScratchWorkflowHost"/>, because <c>WorkflowRunsEndpoints</c> answers
 ///     only with the engine on and the factory forbids the engine over the shared fixture database (ruling R11). Every
 ///     other case runs on <see cref="ApiWebApplicationFactory"/> over the shared database.
 ///     </para>
@@ -54,7 +55,10 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     private const string UnauthorizedType = "https://tools.ietf.org/html/rfc9110#section-15.5.2";
     private const string BadRequestType = "https://tools.ietf.org/html/rfc9110#section-15.5.1";
 
-    /// <summary><c>ZeroAllocValidationFilter</c>'s type, which differs from MVC's own 400 type.</summary>
+    /// <summary>
+    ///     The ZeroAlloc validation filter's type, MVC's and now <c>ZeroAllocValidationEndpointFilter</c>'s, which
+    ///     differs from MVC's own 400 type.
+    /// </summary>
     private const string FilterBadRequestType = "https://tools.ietf.org/html/rfc7231#section-6.5.1";
 
     private const string ValidationTitle = "One or more validation errors occurred.";
@@ -88,9 +92,10 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri($"/api/workflow-runs/{Unknown}", UriKind.Relative));
 
-        // Red: return StatusCode(410) instead of NotFound() for an unknown run in WorkflowRunsController.Get.
+        // Red: StatusCodes.Status410Gone in place of Status404NotFound for an unknown run in WorkflowRunsEndpoints.Get.
         response.StatusCode.Should().Be(HttpStatusCode.NotFound, await response.Content.ReadAsStringAsync());
-        // Red: WorkflowRunsController's [Produces("application/json")] changed to text/json.
+        // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in
+        //      MapWorkflowRunsEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         await AssertProblemAsync(response, NotFoundType, "Not Found", 404);
     }
@@ -183,8 +188,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     <c>WorkflowRunsController.Cancel</c> binds <c>CancelWorkflowRunRequest?</c>; a nullable body parameter is
-    ///     optional, so an empty body binds null and the action answers its own bodiless 404 for an unknown run.
+    ///     MVC's cancel action bound <c>CancelWorkflowRunRequest?</c>; a nullable body parameter is optional, so an
+    ///     empty body binds null and the action answers its own bodiless 404 for an unknown run.
+    ///     <c>WorkflowRunsEndpoints.Cancel</c> takes an optional <c>ApiBody&lt;CancelWorkflowRunRequest&gt;?</c> for it.
     /// </summary>
     [Fact]
     public async Task Empty_body_on_a_nullable_body_parameter_binds_null()
@@ -195,9 +201,11 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.PostAsync(
             new Uri($"/api/workflow-runs/{Unknown}/cancel", UriKind.Relative), JsonBody(""));
 
-        // Red: make Cancel's parameter CancelWorkflowRunRequest, not nullable; the empty body is then a 400.
+        // Red: var optional = false in place of parameter.IsOptional in ApiBody.BindAsync, so the optional body of
+        //      WorkflowRunsEndpoints.Cancel is read as required; the empty body is then a 400.
         response.StatusCode.Should().Be(HttpStatusCode.NotFound, await response.Content.ReadAsStringAsync());
-        // Red: WorkflowRunsController's [Produces("application/json")] changed to text/json.
+        // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in
+        //      MapWorkflowRunsEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         await AssertProblemAsync(response, NotFoundType, "Not Found", 404);
     }
@@ -207,7 +215,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     // repo-wide, and SuppressImplicitRequiredAttributeForNonNullableReferenceTypes is left false, so each such property
     // carries an implicit [Required]. It fires only when the bound value is null: a property whose initializer or
     // parameterless constructor supplies a value is not refused when the JSON omits it, and an empty string reaches
-    // ZeroAllocValidationFilter, see Empty_string_is_not_implicitly_required. The ApiExplorer switch Program.cs sets,
+    // ZeroAllocValidationEndpointFilter, see Empty_string_is_not_implicitly_required. The ApiExplorer switch Program.cs sets,
     // IsEnhancedModelMetadataSupported, changes API descriptions only, not validation.
     //
     //   CreateProjectDto               POST api/projects                    ProjectName, Description, Version
@@ -305,21 +313,17 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             return;
         }
 
-        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
-        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
-        // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options.
-        //      Each refused case turns red: here, as a 500, where its action throws on the null member, and at the
-        //      member set below where its action or ZeroAllocValidationFilter answers its own 400. For the ported rows
-        //      (Projects, Prd, Brainstorm, Repositories, AgentSessions, Tasks, CodeAnalysis): ApiBody.BindAsync answering no problem for a missing
-        //      required member, the result of ApiBinding.ImplicitRequired dropped in place of
-        //      ApiProblem.BindingProblem(context, required); for AgentSessions applied as
-        //      var required = new Dictionary<string, string[]>(StringComparer.Ordinal) in place of the
-        //      ApiBinding.ImplicitRequired call in ApiBody.BindAsync.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; every refused case answers 422.
+        // Red: var required = new Dictionary<string, string[]>(StringComparer.Ordinal) in place of the
+        //      ApiBinding.ImplicitRequired call in ApiBody.BindAsync. Each refused case turns red: here, as a 500,
+        //      where its handler throws on the null member, and at the member set below where its handler or
+        //      ZeroAllocValidationEndpointFilter answers its own 400, as StartWorkflowRunRequest's and
+        //      ResumeWorkflowRunRequest's blank checks do.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: the ported case's group ProblemContentType.Json changed to ProblemJson in MapProjectsEndpoints,
-        //      MapPrdEndpoints, MapBrainstormEndpoints, MapRepositoriesEndpoints, MapAgentSessionsEndpoints and MapCodeAnalysisEndpoints, and for
-        //      CreateTaskDto, .WithMetadata(ProblemContentType.Json) added to the group in MapTasksEndpoints; for a case
-        //      still on MVC, its controller's [Produces("application/json")] changed to text/json.
+        // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the case's group, in
+        //      MapProjectsEndpoints, MapPrdEndpoints, MapBrainstormEndpoints, MapRepositoriesEndpoints,
+        //      MapAgentSessionsEndpoints, MapCodeAnalysisEndpoints or MapWorkflowRunsEndpoints; for CreateTaskDto,
+        //      .WithMetadata(ProblemContentType.Json) added to the group in MapTasksEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(@case.ContentType);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: @case.Required.ToDictionary(key => key, key => new[] { $"The {key.Split('.')[^1]} field is required." },
@@ -489,6 +493,42 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         // Red: ApiQuery.BindAsync binds an empty Guid value as Guid.Empty, or answers it with "The value '' is not valid.".
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["projectId"] = ["The value '' is invalid."] });
+    }
+
+    /// <summary>
+    ///     The run list's query values sent empty or blank bind as if they were absent: MVC's <c>SimpleTypeModelBinder</c>
+    ///     binds an empty value null for the nullable <c>int? take</c>, refusing it only for a non-nullable value type
+    ///     as the <c>take</c> case above shows, and <c>ConvertEmptyStringToNull</c> binds the strings null. The list then
+    ///     reads the store with no filter and the default page of 25; ruling R53.
+    /// </summary>
+    [Theory]
+    [InlineData("?take=")]
+    [InlineData("?take=%20")]
+    [InlineData("?status=")]
+    [InlineData("?status=%20")]
+    [InlineData("?status=&process=&after=&take=&signal=&updatedSince=")]
+    public async Task Empty_run_list_query_value_binds_as_absent(string query)
+    {
+        var runs = Substitute.For<IWorkflowRunQuery>();
+        WorkflowRunFilter? filter = null;
+        runs.ListAsync(Arg.Do<WorkflowRunFilter>(f => filter = f), Arg.Any<CancellationToken>())
+            .Returns(new WorkflowRunPage([], null));
+        await using var host = await ApiHost.StartAsync(fixture, workflow: true, configureServices: services =>
+        {
+            services.RemoveAll<IWorkflowRunQuery>();
+            services.AddSingleton(runs);
+        });
+        using var client = host.Client("alice", "developer");
+
+        using var response = await client.GetAsync(new Uri($"/api/workflow-runs{query}", UriKind.Relative));
+
+        // Red: for the take rows, the parameter.IsOptional test dropped from the blank arm of ApiQuery.BindAsync, so
+        //      the optional take of WorkflowRunsEndpoints.List refuses an empty value as a non-nullable int does. For
+        //      the status rows, the typeof(T) == typeof(string) test dropped from the same arm, so a blank string is
+        //      refused as a value type is. Each row then answers 400.
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        // Red: DefaultTake set to 20 in WorkflowRunsEndpoints; every row then reads a page of 20.
+        filter.Should().BeEquivalentTo(new WorkflowRunFilter { Take = 25 });
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -691,7 +731,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         //      TasksEndpoints.CreateTask, and for the manufacture case the same in place of TypedResults.Created in
         //      TasksEndpoints.Manufacture.
         //      For the agent-sessions case, return AgentError.Validation("x").ToProblem(context) when result.IsSuccess,
-        //      ahead of the Created in AgentSessionsEndpoints.CreateSession.
+        //      ahead of the Created in AgentSessionsEndpoints.CreateSession. For the workflow-runs case,
+        //      ApiProblem.Of(context, StatusCodes.Status410Gone) in place of TypedResults.Created in
+        //      WorkflowRunsEndpoints.Start.
         response.StatusCode.Should().Be(HttpStatusCode.Created, text);
         using var document = JsonDocument.Parse(text);
         var id = document.RootElement.GetProperty(idMember).GetString();
@@ -703,8 +745,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         //      codeanalysis case with "/api/codeanalysis/{id}" in place of "/api/CodeAnalysis/{id}" in
         //      CodeAnalysisEndpoints.SubmitAnalysis. The agent-sessions case turns red with
         //      "/api/agents/Sessions/{sessionId}" in place of "/api/agents/sessions/{sessionId}" in
-        //      AgentSessionsEndpoints.CreateSession, the workflow-runs case with Created and a relative path in
-        //      WorkflowRunsController.Start, and the manufacture case with
+        //      AgentSessionsEndpoints.CreateSession, the workflow-runs case with the relative
+        //      $"/api/workflow-runs/{result.Value}" in place of ApiLocation.For in WorkflowRunsEndpoints.Start, and the
+        //      manufacture case with
         //      ApiLocation.For(context.Request, $"/api/workflow-runs/{result.Value}") in place of the relative path in
         //      TasksEndpoints.Manufacture's Created.
         response.Headers.Location!.OriginalString.Should()
@@ -777,8 +820,6 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         // Red: an endpoint filter in MapApiGroup that answers ApiProblem.Of 406 when Accept names application/xml.
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         // Red: GetAllProjects widened to return TypedResults.Content with application/xml when the request accepts it.
-        //      AddXmlSerializerFormatters with that [Produces] removed was tried on MVC and stays green: MVC still
-        //      answers this page as JSON.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
     }
 
@@ -1051,8 +1092,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             expectedValues.Add("detail=" + JsonSerializer.Serialize(detail, MvcEscaping));
         }
 
-        // Red: CustomizeProblemDetails sets every problem's Title to "x"; for the filter's shape, the
-        //      ZeroAllocValidationFilter's or ZeroAllocValidationEndpointFilter.ToProblem's Title changed.
+        // Red: CustomizeProblemDetails sets every problem's Title to "x"; for the filter's shape,
+        //      ZeroAllocValidationEndpointFilter.ToProblem's Title changed.
         root.EnumerateObject()
             .Where(member => member.Name is not ("errors" or "traceId"))
             .Select(member => member.Name + "=" + member.Value.GetRawText())
@@ -1070,8 +1111,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
                 .Select(error => error.Key + "=" + JsonSerializer.Serialize(error.Value, MvcEscaping))
                 .Order(StringComparer.Ordinal);
             // Red: CustomizeProblemDetails adds an "x" key to every ValidationProblemDetails' Errors; for the
-            //      filter's shape, ZeroAllocValidationFilter or ZeroAllocValidationEndpointFilter.ToProblem adds the
-            //      same key to its errors.
+            //      filter's shape, ZeroAllocValidationEndpointFilter.ToProblem adds the same key to its errors.
             actualErrors.Should().Equal(expectedErrors, text);
         }
 
@@ -1130,7 +1170,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
     /// <summary>
     ///     The shared factory over the reset fixture database, or <see cref="ScratchWorkflowHost"/> when the case needs
-    ///     <c>WorkflowRunsController</c>, which only the engine maps.
+    ///     <c>WorkflowRunsEndpoints</c>, which answers only with the engine on.
     /// </summary>
     private sealed class ApiHost : IAsyncDisposable
     {

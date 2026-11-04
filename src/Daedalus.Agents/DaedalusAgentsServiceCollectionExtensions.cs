@@ -356,7 +356,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         // Always registered, engine on or off — see IManufactureRunStarter's own remarks. AddDaedalusWorkflow
         // below replaces this with the real ManufactureRunStarter when Workflow.Enabled; every other host keeps
-        // this default, so WorkflowRunsController and DaedalusManufactureTools stay constructible either way and
+        // this default, so WorkflowRunsEndpoints.Start and DaedalusManufactureTools resolve it either way and
         // report the engine is off instead of failing DI resolution.
         // Phase 2.9: every registration of the two run seams is wrapped in its generated telemetry proxy, on enabled
         // and disabled hosts alike.

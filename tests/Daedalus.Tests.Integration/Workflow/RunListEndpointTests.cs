@@ -1,6 +1,6 @@
 using System.Globalization;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;

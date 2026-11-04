@@ -1,55 +1,54 @@
 using System.Security.Claims;
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
+using Daedalus.Tests.Shared;
 using Daedalus.Tests.Unit.Workflow;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
 using Thalos.Workspaces;
 
-namespace Daedalus.Tests.Unit.Controllers;
+namespace Daedalus.Tests.Unit.Endpoints;
 
 /// <summary>
-///     Covers <see cref="WorkflowRunsController.Retry"/>'s mapping of the gateway's outcome to an HTTP status. The
-///     Integration fixture cannot resolve this controller, so nothing else pins 404 versus 409 versus 204.
+///     Covers <see cref="WorkflowRunsEndpoints.Retry"/>'s mapping of the gateway's outcome to an HTTP status. The
+///     Integration fixture cannot reach the handler, so nothing else pins 404 versus 409 versus 204.
 /// </summary>
-public sealed class WorkflowRunsControllerRetryTests
+public sealed class WorkflowRunsEndpointsRetryTests : IAsyncLifetime
 {
     private readonly IWorkflowStore _store = Substitute.For<IWorkflowStore>();
-    private readonly WorkflowRunsController _controller;
+    private readonly WorkflowRunsRequest _request;
 
-    public WorkflowRunsControllerRetryTests()
+    public WorkflowRunsEndpointsRetryTests()
     {
         var gateway = new WorkflowRunGateway(_store, Substitute.For<IWorkflowRunHistory>(), RecordStoreScopes.For(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddMvcCore().AddApiExplorer();
 
         // HttpSecurityContextFactory.TryCreate needs an authenticated identity carrying a subject id.
         var identity = new ClaimsIdentity(
             [new Claim("sub", "u-admin"), new Claim(ClaimTypes.Role, "admin")], authenticationType: "test");
-        _controller = new WorkflowRunsController(gateway)
-        {
-            ControllerContext = new ControllerContext
-            {
-                HttpContext = new DefaultHttpContext { RequestServices = services.BuildServiceProvider(), User = new ClaimsPrincipal(identity) },
-            },
-        };
+        _request = WorkflowRunsRequest.For(gateway, new ClaimsPrincipal(identity));
     }
+
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync() => await _request.DisposeAsync();
 
     [Fact]
     public async Task A_missing_run_is_a_404()
     {
         _store.FindAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>((WorkflowRun?)null));
 
-        var result = await _controller.Retry(Guid.NewGuid(), CancellationToken.None);
+        var result = await RetryAsync(Guid.NewGuid());
 
-        // Red if: the `is null` check returns Problem(..409) instead of NotFound, or the 404 and 409 branches are
-        // swapped. The store is never reached for a missing run.
-        result.Should().BeOfType<NotFoundResult>();
+        // Red: StatusCodes.Status409Conflict in place of Status404NotFound for a missing run in
+        //      WorkflowRunsEndpoints.Retry.
+        result.Result.Should().BeOfType<ApiProblemResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
+        // Red: a pair, since WorkflowRunGateway.RetryAsync refuses a missing run before the store as well: an await of
+        //      runs.RetryAsync(id, new RunPrincipal("x", []), ct) ahead of the 404 return in WorkflowRunsEndpoints.Retry,
+        //      with the not-found return of WorkflowRunGateway.RetryAsync dropped and ExpectedSeq = run?.CurrentSeq ?? 0.
+        //      The store then receives the retry while the answer stays 404.
         await _store.DidNotReceive().RetryFailedNodeAsync(Arg.Any<Guid>(), Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -62,12 +61,14 @@ public sealed class WorkflowRunsControllerRetryTests
         _store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Failure(refusal)));
 
-        var result = await _controller.Retry(run.Id, CancellationToken.None);
+        var result = await RetryAsync(run.Id);
 
-        // Red if: the status code is not 409 (e.g. 404 or 422), or the detail drops result.Error.
-        var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
-        objectResult.StatusCode.Should().Be(StatusCodes.Status409Conflict);
-        objectResult.Value.Should().BeOfType<ProblemDetails>().Subject.Detail.Should().Be(refusal);
+        var problem = result.Result.Should().BeOfType<ApiProblemResult>().Subject;
+        // Red: StatusCodes.Status422UnprocessableEntity in place of Status409Conflict for a refused retry in
+        //      WorkflowRunsEndpoints.Retry.
+        problem.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+        // Red: ApiProblem.Of(context, StatusCodes.Status409Conflict) without result.Error in WorkflowRunsEndpoints.Retry.
+        problem.ProblemDetails.Detail.Should().Be(refusal);
     }
 
     [Fact]
@@ -78,11 +79,14 @@ public sealed class WorkflowRunsControllerRetryTests
         _store.RetryFailedNodeAsync(run.Id, Arg.Any<WorkflowRetryRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<Result>(Result.Success()));
 
-        var result = await _controller.Retry(run.Id, CancellationToken.None);
+        var result = await RetryAsync(run.Id);
 
-        // Red if: NoContent becomes Ok (200) or any body-bearing result, or the success test is inverted.
-        result.Should().BeOfType<NoContentResult>();
+        // Red: result.IsFailure in place of result.IsSuccess in WorkflowRunsEndpoints.Retry's answer.
+        result.Result.Should().BeOfType<NoContent>();
     }
+
+    private Task<Results<NoContent, ApiProblemResult>> RetryAsync(Guid id) =>
+        WorkflowRunsEndpoints.Retry(id, _request.Context, CancellationToken.None);
 
     private static WorkflowRun FailedRun() => new()
     {

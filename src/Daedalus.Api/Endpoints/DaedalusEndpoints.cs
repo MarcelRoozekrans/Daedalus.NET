@@ -72,6 +72,7 @@ public static class DaedalusEndpoints
         app.MapAgentSessionsEndpoints();
         app.MapTasksEndpoints();
         app.MapCodeAnalysisEndpoints();
+        app.MapWorkflowRunsEndpoints();
 
         return app;
     }

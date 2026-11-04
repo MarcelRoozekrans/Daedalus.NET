@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Reflection;
-using Daedalus.Api.Controllers;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Agents;
@@ -346,6 +345,32 @@ public sealed class ApiBindingTests
         take.Problem!.Errors.Should().ContainSingle().Which.Value.Should().Equal(message);
     }
 
+    /// <summary>
+    ///     An optional parameter, <c>ApiQuery&lt;int&gt;? take = null</c>, stands for MVC's nullable <c>int? take</c>:
+    ///     an empty or blank value binds as absent, as <c>SimpleTypeModelBinder</c> binds it null for a nullable type,
+    ///     while an unparsable value is still refused; ruling R53.
+    /// </summary>
+    [Theory]
+    [InlineData("?take=", null)]
+    [InlineData("?take=%20", null)]
+    [InlineData("?take=abc", "The value 'abc' is not valid.")]
+    public async Task Query_optional_value_type_binds_empty_as_absent(string query, string? message)
+    {
+        await using var services = Services();
+        var context = Create(services);
+        context.Request.QueryString = new QueryString(query);
+
+        var take = await BindAsync<ApiQuery<int>>(context, Parameter(nameof(OptionalTakeQuery)));
+
+        // Red: the blank arm of ApiQuery.BindAsync without its parameter.IsOptional test, so an optional value type
+        //      refuses an empty value as a required one does; the two empty rows then carry a problem.
+        IEnumerable<string> expected = message is null ? [] : [message];
+        (take.Problem?.Errors.SelectMany(error => error.Value) ?? []).Should().Equal(expected);
+        // Red: return ValueTask.FromResult<ApiQuery<T>?>(new ApiQuery<T>(default!, true, null)) for an optional value
+        //      type ahead of the same arm; the empty rows then read as a sent 0.
+        take.HasValue.Should().BeFalse();
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("?name=")]
@@ -498,6 +523,8 @@ public sealed class ApiBindingTests
     private static void OptionalBody(ApiBody<CancelWorkflowRunRequest>? request = null) => _ = request;
 
     private static void TakeQuery(ApiQuery<int> take) => _ = take;
+
+    private static void OptionalTakeQuery(ApiQuery<int>? take = null) => _ = take;
 
     private static void RequiredNameQuery([Required] ApiQuery<string> name) => _ = name;
 

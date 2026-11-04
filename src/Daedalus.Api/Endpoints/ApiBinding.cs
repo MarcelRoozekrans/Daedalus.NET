@@ -153,8 +153,9 @@ public sealed class ApiBody<T> : IApiBinding, IBindableFromHttpContext<ApiBody<T
 ///     <c>int take = 20</c>, since a handler parameter of this type cannot default to 20 (ruling R30). Sent but
 ///     unparsable, its problem is "The
 ///     value '{raw}' is not valid.", MVC's message for a top-level parameter (R16); sent empty, "The value '' is
-///     invalid.", MVC's <c>ValueMustNotBeNull</c>. <c>{raw}</c> is every sent value joined by commas, as MVC quotes
-///     them. The key is the parameter's name, which must stay the controller parameter's. A class rather than a
+///     invalid.", MVC's <c>ValueMustNotBeNull</c>. An optional parameter, <c>ApiQuery&lt;int&gt;? take = null</c>,
+///     stands for MVC's nullable <c>int? take</c>: sent empty, it binds as absent, as MVC binds it null (R53).
+///     <c>{raw}</c> is every sent value joined by commas, as MVC quotes them. The key is the parameter's name, which must stay the controller parameter's. A class rather than a
 ///     struct, because the framework's <see cref="IBindableFromHttpContext{TSelf}"/> requires one (ruling R31).
 /// </remarks>
 public sealed class ApiQuery<T> : IApiBinding, IBindableFromHttpContext<ApiQuery<T>>
@@ -201,8 +202,8 @@ public sealed class ApiQuery<T> : IApiBinding, IBindableFromHttpContext<ApiQuery
         if (string.IsNullOrWhiteSpace(raw))
         {
             // SimpleTypeModelBinder: an empty value is null; MVC's ConvertEmptyStringToNull makes a string null too,
-            // and only a value type refuses it.
-            bound = typeof(T) == typeof(string)
+            // and only a non-nullable value type refuses it. An optional parameter stands for MVC's nullable T? (R53).
+            bound = typeof(T) == typeof(string) || parameter.IsOptional
                 ? Unsent(context, name, required)
                 : Refused(context, name, $"The value '{values}' is invalid.");
         }

@@ -1,7 +1,7 @@
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Thalos.Workflow;
 
-namespace Daedalus.Api.Controllers;
+namespace Daedalus.Api.Endpoints;
 
 /// <summary>The run's event log as the console's timeline: one step per event, in seq order.</summary>
 internal static class WorkflowRunStepProjection

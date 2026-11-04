@@ -17,7 +17,7 @@ namespace Daedalus.Agents.Tools;
 ///     is what <c>ResumeToolBoundaryTests.No_tool_source_is_named_workflow</c> guards.
 /// </summary>
 /// <param name="starter">
-///     The one seam this tool and <c>WorkflowRunsController</c> share for starting a run — see that interface's
+///     The one seam this tool and <c>WorkflowRunsEndpoints</c> share for starting a run — see that interface's
 ///     own remarks for why an always-registered default exists.
 /// </param>
 [ThalosToolType]

@@ -93,5 +93,6 @@
     <ItemGroup>
         <!-- Binds page and pageSize for a paged handler called directly, shared with the integration project. -->
         <Compile Include="..\Shared\PagingQueryBinding.cs" Link="Shared\PagingQueryBinding.cs"/>
+        <Compile Include="..\Shared\WorkflowRunsRequest.cs" Link="Shared\WorkflowRunsRequest.cs"/>
     </ItemGroup>
 </Project>

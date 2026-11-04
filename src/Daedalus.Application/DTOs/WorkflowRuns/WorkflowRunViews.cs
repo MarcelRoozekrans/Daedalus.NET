@@ -1,6 +1,6 @@
 namespace Daedalus.Application.DTOs.WorkflowRuns;
 
-/// <summary>Request body for <c>WorkflowRunsController.Resume</c>.</summary>
+/// <summary>Request body for <c>WorkflowRunsEndpoints.Resume</c>.</summary>
 /// <param name="Signal">The signal the caller believes the run is parked awaiting.</param>
 /// <param name="Payload">Carried into <c>WorkflowRun.Variables</c>["payload"] by <c>IWorkflowStore.ResumeAsync</c>.</param>
 /// <param name="ApplyStandingInstructions">
@@ -15,11 +15,11 @@ namespace Daedalus.Application.DTOs.WorkflowRuns;
 public sealed record ResumeWorkflowRunRequest(
     string Signal, string? Payload, bool ApplyStandingInstructions = false, IReadOnlyList<string>? DropFindings = null);
 
-/// <summary>Request body for <c>WorkflowRunsController.Cancel</c>.</summary>
+/// <summary>Request body for <c>WorkflowRunsEndpoints.Cancel</c>.</summary>
 /// <param name="Reason">A human-readable reason recorded against the run; defaults when omitted.</param>
 public sealed record CancelWorkflowRunRequest(string? Reason);
 
-/// <summary>Response body for <c>WorkflowRunsController.Get</c>.</summary>
+/// <summary>Response body for <c>WorkflowRunsEndpoints.Get</c>.</summary>
 /// <param name="Id">The run's identity.</param>
 /// <param name="Process">The process name this run is executing.</param>
 /// <param name="ProcessVersion">The version of the process this run is executing.</param>

@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Buffers.Text;
 using Thalos.Workflow;
 
-namespace Daedalus.Api.Controllers;
+namespace Daedalus.Api.Endpoints;
 
 /// <summary>
 ///     The list's <c>after</c> cursor on the wire: base64url of the run's creation time in UTC ticks, 8 bytes big

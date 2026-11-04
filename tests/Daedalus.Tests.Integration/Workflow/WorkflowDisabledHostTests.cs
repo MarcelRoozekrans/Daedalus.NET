@@ -1,5 +1,5 @@
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Mvc;
@@ -11,11 +11,10 @@ using Thalos.Workflow;
 namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>
-///     <c>WorkflowRunsController</c> on a host with <c>Thalos:Workflow:Enabled=false</c>, which is
-///     <see cref="ApiWebApplicationFactory"/>'s default. Such a host registers no <c>WorkflowRunGateway</c>, so before
-///     the <see cref="WorkflowEngineEnabledAttribute"/> filter every action failed controller activation with a bare 500.
-///     Red, for every test that expects 503: remove <c>[WorkflowEngineEnabled]</c> from the controller, and the
-///     answer is a 500.
+///     <see cref="WorkflowRunsEndpoints"/> on a host with <c>Thalos:Workflow:Enabled=false</c>, which is
+///     <see cref="ApiWebApplicationFactory"/>'s default. Such a host registers no <c>WorkflowRunGateway</c> and no
+///     <c>IWorkflowRunQuery</c>, which the handlers resolve only after <see cref="WorkflowEngineEnabledEndpointFilter"/>
+///     has let a request through; without the filter every route would fail resolving them with a bare 500.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class WorkflowDisabledHostTests(PostgresFixture fixture)
@@ -23,8 +22,6 @@ public sealed class WorkflowDisabledHostTests(PostgresFixture fixture)
     /// <summary>
     ///     A write that starts a run, the list, a read, and three writes on a run all answer the same 503 problem
     ///     details naming the disabled engine, with no <c>Retry-After</c>, because no retry gets past a host setting.
-    ///     Red, per assertion: remove the attribute, and the status fails; add a <c>Retry-After</c> to the filter's
-    ///     answer, and the header fails; change the filter's detail, and the detail fails.
     /// </summary>
     [Theory]
     [InlineData("POST", "/api/workflow-runs")]
@@ -45,17 +42,23 @@ public sealed class WorkflowDisabledHostTests(PostgresFixture fixture)
 
         var response = await client.SendAsync(request);
 
+        // Red: requiresWorkflowEngine: false in place of true on the group in MapWorkflowRunsEndpoints; every row but
+        //      the start then reaches its handler or the validation filter and answers a 500 or a 400. The start row
+        //      stays 503 by design: the host's DisabledManufactureRunStarter answers the same problem (R53).
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        // Red: context.HttpContext.Response.Headers.RetryAfter = "30" set ahead of the 503 in
+        //      WorkflowEngineEnabledEndpointFilter.InvokeAsync.
         response.Headers.RetryAfter.Should().BeNull();
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        // Red: ApiProblem.Of(..., detail: "x") in place of DisabledManufactureRunStarter.DisabledMessage in
+        //      WorkflowEngineEnabledEndpointFilter.InvokeAsync.
         problem!.Status.Should().Be(503);
         problem.Detail.Should().Be(DisabledManufactureRunStarter.DisabledMessage);
     }
 
     /// <summary>
     ///     Authorization runs first: an anonymous caller gets 401 and a caller without the role gets 403, never a 503
-    ///     that reveals the host's configuration. Red, per assertion: move the check ahead of authorization, for example
-    ///     by answering from middleware, and the first or second status fails.
+    ///     that reveals the host's configuration.
     /// </summary>
     [Fact]
     public async Task An_unauthenticated_or_unauthorized_caller_never_sees_the_503()
@@ -67,6 +70,8 @@ public sealed class WorkflowDisabledHostTests(PostgresFixture fixture)
         var unauthenticated = await anonymous.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "x", repository = "sandbox" });
         var forbidden = await reader.PostAsJsonAsync("/api/workflow-runs", new { workIntent = "x", repository = "sandbox" });
 
+        // Red: .AllowAnonymous() added to the group in MapWorkflowRunsEndpoints; both callers then pass authorization,
+        //      reach WorkflowEngineEnabledEndpointFilter and get its 503.
         unauthenticated.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }

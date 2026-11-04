@@ -283,7 +283,7 @@ public sealed class DaedalusAgentsRegistrationTests
         using var sp = Build(Config());
 
         sp.GetService<WorkflowRunGateway>().Should().NotBeNull(
-            "WorkflowRunsController's resume/cancel actions depend on this and would fail to resolve, not to " +
+            "WorkflowRunsEndpoints' resume/cancel handlers depend on this and would fail to resolve, not to " +
             "authorize, if this registration were ever removed");
     }
 

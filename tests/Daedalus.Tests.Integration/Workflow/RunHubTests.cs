@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Tests.Integration.Fixtures;

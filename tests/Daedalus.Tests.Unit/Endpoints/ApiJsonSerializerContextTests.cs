@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Daedalus.Api;
-using Daedalus.Api.Controllers;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Agents;

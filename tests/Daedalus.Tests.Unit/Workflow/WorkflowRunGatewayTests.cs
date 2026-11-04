@@ -75,7 +75,7 @@ public sealed class WorkflowRunGatewayTests
     ///     happens strictly after <c>ApplyAsync</c> already returned success, so nothing rolls it back. Falsifiable:
     ///     this only fails if a future change makes the write conditional on the engine resume also succeeding
     ///     (e.g. by moving the write after the engine call) — this test and
-    ///     <c>WorkflowRunsController.ResumeBoundaryTests</c>'s ordering tests together pin the write-first order.
+    ///     <c>WorkflowRunsEndpointsResumeTests</c>' ordering tests together pin the write-first order.
     /// </summary>
     [Fact]
     public async Task The_write_is_not_rolled_back_when_the_engine_resume_then_loses_the_race()

@@ -9,9 +9,9 @@ using static Daedalus.Tests.Unit.Endpoints.EndpointTestContext;
 namespace Daedalus.Tests.Unit.Endpoints;
 
 /// <summary>
-///     <see cref="WorkflowEngineEnabledEndpointFilter"/> answers what <c>WorkflowEngineEnabledAttribute</c>'s resource
-///     filter answers today: <c>ProblemDetailsFactory.CreateProblemDetails(503, detail: DisabledMessage)</c>, as
-///     WorkflowRunsController's <c>application/json</c>.
+///     <see cref="WorkflowEngineEnabledEndpointFilter"/> answers what MVC's resource filter on the workflow-runs
+///     controller answered: <c>ProblemDetailsFactory.CreateProblemDetails(503, detail: DisabledMessage)</c>, as the
+///     <c>application/json</c> of <see cref="WorkflowRunsEndpoints"/>' group.
 /// </summary>
 public sealed class WorkflowEngineEnabledEndpointFilterTests
 {

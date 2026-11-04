@@ -1,5 +1,4 @@
 using Daedalus.Agents.Workflow;
-using Microsoft.AspNetCore.Mvc;
 
 namespace Daedalus.Api.Endpoints;
 
@@ -7,10 +6,6 @@ namespace Daedalus.Api.Endpoints;
 ///     The one mapping of a <see cref="ManufactureStartFailure"/> to a response, used by <c>POST /api/workflow-runs</c> and
 ///     <c>POST /api/tasks/{id}/manufacture</c>, so the two cannot drift apart.
 /// </summary>
-/// <remarks>
-///     Both overloads take their status from <see cref="StatusOf"/>. The <see cref="ControllerBase"/> overload serves
-///     <c>WorkflowRunsController</c> until Task 19 ports it, and goes with it (R51).
-/// </remarks>
 internal static class ManufactureStartProblem
 {
     /// <summary>The seconds a client is told to wait before retrying a start the host could not serve.</summary>
@@ -23,15 +18,6 @@ internal static class ManufactureStartProblem
         ArgumentNullException.ThrowIfNull(failure);
 
         return ApiProblem.Of(context, StatusOf(failure, context.Response), failure.Message);
-    }
-
-    /// <summary>The same problem from an MVC action, written by <see cref="ControllerBase.Problem(string, string, int?, string, string)"/>.</summary>
-    public static IActionResult From(ControllerBase controller, ManufactureStartFailure failure)
-    {
-        ArgumentNullException.ThrowIfNull(controller);
-        ArgumentNullException.ThrowIfNull(failure);
-
-        return controller.Problem(detail: failure.Message, statusCode: StatusOf(failure, controller.Response));
     }
 
     /// <summary>

@@ -1,9 +1,9 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
-
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
-using Microsoft.AspNetCore.Mvc;
+using Daedalus.Tests.Shared;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -38,11 +38,13 @@ public sealed class WorkflowRunViewPrUrlTests
         var records = Substitute.For<IWorkflowRunRecordStore>();
         records.ListAsync(run.Id, Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<IReadOnlyList<Daedalus.Domain.Entities.WorkflowRunRecord>>([]));
-        var controller = new WorkflowRunsController(new WorkflowRunGateway(store, history, RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
+        await using var request = WorkflowRunsRequest.For(new WorkflowRunGateway(store, history, RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 
-        var response = await controller.Get(run.Id, CancellationToken.None);
+        var response = await WorkflowRunsEndpoints.Get(run.Id, request.Context, CancellationToken.None);
 
-        return response.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeOfType<WorkflowRunView>().Subject;
+        // Red: run is null || run.Id == id in place of run is null in WorkflowRunsEndpoints.Get; the found run
+        //      answers 404.
+        return response.Result.Should().BeOfType<Ok<WorkflowRunView>>().Which.Value!;
     }
 
     /// <summary>
