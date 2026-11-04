@@ -409,8 +409,8 @@ public interface with an `internal sealed class ApplicationCommands(IMediator me
 XML doc comment states the trade-off plainly and this document repeats it rather than overselling the design:
 
 > The public dispatch surface for callers outside this assembly. The generated ZeroAlloc.Mediator `IMediator` is
-> internal to `Daedalus.Application` and cannot appear in a public signature (CS0051), so the two MVC controllers
-> that dispatch commands depend on this instead. This is a thinner version of the deleted
+> internal to `Daedalus.Application` and cannot appear in a public signature (CS0051), so the two endpoint classes that dispatch commands,
+> `ProjectsEndpoints` and `TasksEndpoints` in `Daedalus.Api`, depend on this instead. This is a thinner version of the deleted
 > `ICommandHandlerFactory` - it buys compile-time dispatch and build-time diagnostics for these 8 commands, not
 > less abstraction overall.
 

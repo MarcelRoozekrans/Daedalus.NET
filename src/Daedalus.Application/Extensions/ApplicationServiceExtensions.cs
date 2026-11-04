@@ -28,8 +28,8 @@ public static class ApplicationServiceExtensions
 
         // Register the generated IMediator and every request handler by its own concrete type, all scoped.
         // AddMediator is itself internal, so it can only be called from code compiled into
-        // Daedalus.Application. The public facade lets the two MVC controllers dispatch across the
-        // assembly boundary.
+        // Daedalus.Application. The public facade lets the two endpoint classes that dispatch commands,
+        // ProjectsEndpoints and TasksEndpoints in Daedalus.Api, dispatch across the assembly boundary.
         services.AddMediator(ServiceLifetime.Scoped);
         services.AddScoped<IApplicationCommands, ApplicationCommands>();
 
