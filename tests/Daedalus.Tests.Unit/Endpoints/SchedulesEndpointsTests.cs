@@ -50,7 +50,8 @@ public sealed class SchedulesEndpointsTests
         Ok<IReadOnlyList<RunDiagnosis>> result =
             await SchedulesEndpoints.GetRunHistory(ScheduleId, take, diagnostics, CancellationToken.None);
 
-        // Red: pass take.ValueOr(20) as 20 always, or Guid.Empty for the schedule, in the call to the service.
+        // Red: pass 20 in place of take.ValueOr(DefaultTake) in the call to the service; the stub for 7 is not met.
+        // Red: pass Guid.Empty in place of scheduleId in the call to the service; the stub for the schedule is not met.
         result.Value.Should().Equal(diagnosis);
     }
 

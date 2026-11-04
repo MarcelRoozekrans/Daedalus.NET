@@ -396,7 +396,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: SchedulesEndpoints' ProblemContentType.Json and BrainstormController's [Produces] changed to text/json.
+        // Red: SchedulesEndpoints' ProblemContentType.Json changed to new ProblemContentType("text/json").
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { [key] = ["The value 'abc' is not valid."] });

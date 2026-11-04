@@ -1,9 +1,7 @@
-using System.Text.Json.Nodes;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs.Scheduling;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.OpenApi;
 
 namespace Daedalus.Api.Endpoints;
 
@@ -39,24 +37,7 @@ public static class SchedulesEndpoints
         group.MapGet(string.Empty, GetOverview);
 
         group.MapGet("{scheduleId:guid}/runs", GetRunHistory)
-            .AddOpenApiOperationTransformer((operation, _, _) =>
-            {
-                // A BindAsync parameter contributes no OpenAPI parameter (R30); MVC described take like this.
-                operation.Parameters ??= [];
-                operation.Parameters.Add(new OpenApiParameter
-                {
-                    Name = "take",
-                    In = ParameterLocation.Query,
-                    Schema = new OpenApiSchema
-                    {
-                        Pattern = "^-?(?:0|[1-9]\\d*)$",
-                        Type = JsonSchemaType.Integer | JsonSchemaType.String,
-                        Format = "int32",
-                        Default = JsonValue.Create(DefaultTake),
-                    },
-                });
-                return Task.CompletedTask;
-            });
+            .WithQueryParameter("take", DefaultTake);
 
         group.MapPost("{scheduleId:guid}/runs/{executionId:guid}/resend", Resend)
             .Produces(StatusCodes.Status200OK)

@@ -55,7 +55,7 @@ public sealed class OpenApiDocumentTests(PostgresFixture fixture)
     /// <summary>
     ///     A <c>BindAsync</c> parameter contributes no OpenAPI parameter, so a port re-declares its query parameters (R30).
     ///     MVC described <c>take</c> on the run history as an integer-or-string query parameter with default 20.
-    ///     Red: drop the <c>AddOpenApiOperationTransformer</c> from the run-history route in
+    ///     Red: drop the <c>WithQueryParameter</c> call from the run-history route in
     ///     <c>SchedulesEndpoints</c>; the parameter is missing, and a changed default of 20 turns the default red.
     /// </summary>
     [Fact]
@@ -73,5 +73,8 @@ public sealed class OpenApiDocumentTests(PostgresFixture fixture)
         take.GetProperty("in").GetString().Should().Be("query");
         take.GetProperty("schema").GetProperty("default").GetInt32().Should().Be(20);
         take.GetProperty("schema").GetProperty("format").GetString().Should().Be("int32");
+        take.GetProperty("schema").GetProperty("type").EnumerateArray().Select(type => type.GetString())
+            .Should().Equal("integer", "string");
+        take.GetProperty("schema").GetProperty("pattern").GetString().Should().Be("^-?(?:0|[1-9]\\d*)$");
     }
 }
