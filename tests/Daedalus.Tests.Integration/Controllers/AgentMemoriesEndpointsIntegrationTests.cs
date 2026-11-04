@@ -62,24 +62,22 @@ public sealed class AgentMemoriesEndpointsIntegrationTests(PostgresFixture fixtu
                 return ZeroAlloc.Results.Result<MemoryPage, AgentError>.Success(new MemoryPage([record], 2, 100, 7));
             });
 
-        var result = await ListAsync("alice", agentId: AgentId.New().ToString(), kind: "Learning", pageSize: "500", page: "2");
+        var result = await ListAsync("alice", kind: "Learning", pageSize: "500", page: "2");
 
         seen.Should().NotBeNull();
-        // Red: build OwnerIds as [caller.Id] alone in List; the shared owner is lost.
+        // Red: OwnerIds = VisibleOwners(caller, config).Take(1).ToList() in List; the shared owner is lost.
         seen!.OwnerIds.Should().Equal("alice", Shared);
-        // Red: Kinds = null in the query List builds; the kind filter is lost.
+        // Red: Kinds = memoryKind is null ? null : [] in the query List builds; the kind filter is lost.
         seen.Kinds.Should().ContainSingle().Which.Value.Should().Be("learning", "kinds are lower-case identifiers");
-        // Red: Math.Clamp(pageSize.ValueOr(20), 1, 50) in List; the bound is no longer MemoryQuery.MaxPageSize.
+        // Red: Math.Clamp(pageSize.ValueOr(DefaultPageSize), 1, MaxPageSize - 50) in List; the bound is no longer the Thalos one.
         seen.PageSize.Should().Be(MemoryQuery.MaxPageSize, "the endpoint clamps to the Thalos page bound");
         // Red: Page = 1 in place of Math.Max(1, page.ValueOr(1)) in List.
         seen.Page.Should().Be(2);
         // Red: IncludeArchived = true in the query List builds.
         seen.IncludeArchived.Should().BeFalse();
         seen.Tags.Should().BeNull();
-        // Red: set AgentId = scope's agent in the query List builds; the query is pinned to one agent.
-        seen.AgentId.Should().BeNull("that member pins the query to one agent; visibility is post-filtered like memory__list");
 
-        // Red: return TypedResults.Ok(new PagedResultDto<MemoryDto>([], 0, 1, 20)) from List.
+        // Red: new PagedResultDto<MemoryDto>(items, 0, 1, 20) in the Ok of List; Total, Page and PageSize are lost.
         var page = result.Result.Should().BeOfType<Ok<PagedResultDto<MemoryDto>>>().Subject.Value!;
         page.Should().BeEquivalentTo(new { Total = 7, Page = 2, PageSize = 100 });
         page.Items.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Id = record.Id.ToString(), OwnerId = "alice", Text = "one", IsShared = false });
@@ -141,7 +139,7 @@ public sealed class AgentMemoriesEndpointsIntegrationTests(PostgresFixture fixtu
         var shared = await SeedAsync(Shared, "the project's");
         var foreign = await SeedAsync("bob", "bob's");
 
-        // Red: return TypedResults.Ok(null) in place of the mapped record in Get.
+        // Red: return TypedResults.Ok<MemoryDto>(null!) in place of the mapped record in Get.
         var own = await GetAsync("alice", mine.Id.ToString());
         own.Result.Should().BeOfType<Ok<MemoryDto>>().Subject.Value
             .Should().BeEquivalentTo(new { Id = mine.Id.ToString(), Text = "mine", IsShared = false });
@@ -165,8 +163,13 @@ public sealed class AgentMemoriesEndpointsIntegrationTests(PostgresFixture fixtu
         var sharedWide = await SeedAsync(Shared, "shared owner-wide");
         var sharedPinned = await SeedAsync(Shared, "shared but pinned", agent);
         MemoryPage page = new([ownWide, ownPinned, otherPinned, sharedWide, sharedPinned], 1, 20, 5);
+        MemoryQuery? seen = null;
         _memory.ListAsync(Arg.Any<MemoryQuery>(), Arg.Any<CancellationToken>())
-            .Returns(ZeroAlloc.Results.Result<MemoryPage, AgentError>.Success(page));
+            .Returns(call =>
+            {
+                seen = call.Arg<MemoryQuery>();
+                return ZeroAlloc.Results.Result<MemoryPage, AgentError>.Success(page);
+            });
 
         // Without an agent context only the owner-wide records are visible…
         // Red: .Where(r => scope.Includes(r.OwnerId, r.AgentId) || r.OwnerId.Length > 0) in List; every record is returned.
@@ -177,6 +180,8 @@ public sealed class AgentMemoriesEndpointsIntegrationTests(PostgresFixture fixtu
         // Red: build the scope without the agent in TryScope; the pinned record stays hidden.
         var withAgent = await ListAsync("alice", agentId: agent.ToString());
         Texts(withAgent).Should().Equal("owner-wide", "pinned to the session's agent", "shared owner-wide");
+        // Red: AgentId = scope.AgentId in the query List builds; the query is pinned to one agent.
+        seen!.AgentId.Should().BeNull("that member pins the query to one agent; visibility is post-filtered like memory__list");
 
         // Get applies the same rule, and answers 404 (never 403) for what it hides.
         // Red: drop the scope.Includes check in Get; the pinned record is served without an agent context.
@@ -308,8 +313,9 @@ public sealed class AgentMemoriesEndpointsIntegrationTests(PostgresFixture fixtu
     [Fact]
     public async Task Invalid_id_is_400_on_get_and_forget()
     {
-        // Red: drop the MemoryId.TryParse refusal in Get and in Forget.
+        // Red: append && id.Length == 0 to the MemoryId.TryParse refusal in Get.
         AssertProblem((await GetAsync("alice", "not-an-id")).Result, StatusCodes.Status400BadRequest, "Validation");
+        // Red: append && id.Length == 0 to the MemoryId.TryParse refusal in Forget.
         AssertProblem((await ForgetAsync("alice", "not-an-id")).Result, StatusCodes.Status400BadRequest, "Validation");
         await _memory.DidNotReceiveWithAnyArgs().ForgetAsync(default, default, default, default);
     }
@@ -317,9 +323,11 @@ public sealed class AgentMemoriesEndpointsIntegrationTests(PostgresFixture fixtu
     [Fact]
     public async Task Anonymous_is_401_on_every_endpoint()
     {
-        // Red: answer 403 in place of 401 in the HttpSecurityContextFactory.TryCreate refusal of List, Get and Forget.
+        // Red: answer StatusCodes.Status403Forbidden in the TryCreate refusal of List.
         AssertStatus((await ListAsync(null)).Result, StatusCodes.Status401Unauthorized);
+        // Red: answer StatusCodes.Status403Forbidden in the TryCreate refusal of Get.
         AssertStatus((await GetAsync(null, MemoryId.New().ToString())).Result, StatusCodes.Status401Unauthorized);
+        // Red: answer StatusCodes.Status403Forbidden in the TryCreate refusal of Forget.
         AssertStatus((await ForgetAsync(null, MemoryId.New().ToString())).Result, StatusCodes.Status401Unauthorized);
 
         await _memory.DidNotReceiveWithAnyArgs().ListAsync(null!, default);
