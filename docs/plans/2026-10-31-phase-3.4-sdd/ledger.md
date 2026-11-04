@@ -110,3 +110,81 @@ Task 6: NEEDS_CONTEXT — group-root endpoints render "api/agents/" (RoutePatter
   OpenAPI tags order change accepted (dev doc, same set). Resumed implementer.
 OWNER 2026-10-31: weekly token budget at 90% — pause after Task 6 commit, no Task 6 review now; review is first step on resume.
 Task 6: committed eb148832 (pushed); implementer stopped while waiting on aot-analysis; NOT reviewed. Paused for owner's token budget.
+RESUME 2026-11-04: worktree .claude/worktrees/phase-3.4-resume, detached at origin 01d05153.
+Task 6: CI 41244031846 on 01d05153 green; aot-analysis Api "all counts match" 1502, no baseline move.
+Task 6: review dispatched (BASE 6536e574, HEAD eb148832, opus).
+Task 6: review a0f423b4 spec ✅, Needs fixes: Important = WithTags in R38 pattern unguarded by any test,
+  recipe text lacks it. Minor 1 ApiAuthorizationTests loses Agents: dropped, Task 9 rewrites the test over the
+  endpoint table. Minor 2 ThrowIfNull on RDG-resolved service: Ruling: decide in this round, keep only if an
+  analyzer such as CA1062 requires it, record in R38 — the pattern propagates — if wrong, one line per handler.
+Task 6: fix round 1 dispatched to fresh implementer, original from 10-31 session gone (sonnet).
+Task 6: fix round 1/5 (2 addressed, 0 open; commits 01d05153..b84c28cd). Re-review a30257bb: all addressed.
+Task 6: minor (deferred): tag test pins only api/agents via Single(StartsWith "api/agents"), which breaks
+  when AgentSessions maps api/agents/sessions. Ruling: Task 7 turns the pin into an exact group-route -> tag
+  table and each port adds its row — the guard must catch a wrong tag, not only a missing one — if wrong,
+  a few table rows.
+Task 6: complete (commits 6536e57..b84c28c, review clean). Plan recipe amended for WithTags + null-check rule.
+Env: solution-wide Release build fails locally on NU1903 for WebAssembly.Server 10.0.13 in
+  Playwright.Browser; #399, the Renovate bump to 10.0.14, is red on ZeroAlloc.TestHelpers 1.8.0 contentFiles
+  tripping Sonar S125/S2234. Checking branch CI on b84c28cd.
+Task 7: dispatched (BASE 62f3ab68, sonnet).
+Task 7: implementer DONE c472bb8f (R40 tag table, R41 Resend IResult + DefaultTake operation transformer;
+  unbound {scheduleid} rendered without :guid so Resend binds scheduleId and discards it). Review dispatched.
+CI 41781446870 on 62f3ab68: aot x5 success; Build & Test FAIL NU1903 WebAssembly.Server 10.0.13,
+  GHSA-g27p-qf6j-c96c, warning as error. Blocks every push; asking owner.
+Task 7: review ac874729 spec ✅, Needs fixes: Important = inline OpenAPI query-param lambda is pattern-level,
+  make a shared tested helper. Minors: take test lacks type/pattern; 3 reworded Reds in MvcBehaviour not
+  seen failing; grammar; split a double Red. All sent in fix round 1 to the implementer.
+OWNER 2026-11-04: NU1903 fix = separate fix(deps) PR to main, ASP.NET Core family 10.0.14; then merge main into
+  the phase branch. Worktree .claude/worktrees/aspnetcore-10.0.14, branch fix/aspnetcore-10.0.14.
+Task 7: fix round 1/5 (5 addressed, 0 open; commits c472bb8f..8fdae425). Re-review a39c299f: all addressed.
+Task 7: minor (deferred): Declare adds the query parameter without a same-name check, harmless while ApiQuery<T>
+  contributes none; T : struct overload has no string default, consistent today.
+Task 7: complete (commits 62f3ab6..8fdae42, review clean). Recipe points at WithQueryParameter.
+Task 8: dispatched (BASE f4e6c56f, sonnet). Schedules aot Api unchanged, CI 41782966375.
+Task 8: implementer DONE 11f3a1c9 (R42 ILoggerFactory, log category becomes TaskExecutionEndpoints). Review dispatched.
+Task 8: review a3c1564a spec ✅ Approved, 4 Minor (CreateLogger Type overload; pin category+event ids; 503 Red wording; shared binding test helper) -> fix round 1 to implementer, owner rule fixes minors in the loop.
+Task 8: fix round 1/5 (4 addressed, 0 open; commits 11f3a1c9..92cdc1de). Re-review ae3955ad: all addressed.
+  Minor dropped: stray blank line in Unit csproj, cosmetic.
+Task 8: complete (commits f4e6c56..92cdc1d, review clean). Recipe: logging pattern + PagingQueryBinding.
+Task 9: dispatched (BASE 9c6eda73, sonnet).
+Task 9: implementer DONE_WITH_CONCERNS c140f83e. Ruling: Red 2 on AgentMemoriesController instead of
+  ProjectsController, whose actions carry their own policies — the Red must prove the MVC side fails, which the
+  plan's choice cannot — if wrong, none. Guard test non-empty table: Red not applied, sent to review.
+Task 9: review aebddea1 ❌ guard test Red never applied (Important); 3 Minor (shared predicate, partial-table assertion, line split) -> fix round 1.
+Task 9: fix round 1/5 (4 addressed, 0 open; commits c140f83e..ac306f61). Re-review a5bec973: all addressed.
+Task 9: minor (deferred): Route helper now Trim('/') not TrimStart, both sides consistent; Red commands not logged.
+Task 9: complete (commits 9c6eda7..ac306f6, review clean).
+Task 10: dispatched (BASE ac306f61, sonnet).
+Task 10: implementer DONE e1c96deb (R43 ApiProblem.AsGiven for explicit 404 ProblemDetails; modelId required 400 in handler, combined-error case differs from MVC). Integration count 801 vs 835 earlier: flagged to review.
+Task 10: review a28f3c82 ❌ Important: required modelId checked in handler, not merged with binding problems,
+  400 body differs from MVC -> required mode in ApiQuery via [Required]. Check: OpenAPI required for modelId.
+  Minors: R43(c) IResult rationale doubtful, missing Reds, AsGiven doc. Fix round 1 sent to implementer.
+  Integration count drop 835->801 = Task 9's planned theory-to-table rewrite, not lost cases. Whole-branch review: note.
+Task 10: fix round 1/5 (5 addressed, 0 open; commits e1c96deb..0b1ebae3). Re-review a0ff4796: all addressed.
+Task 10: fix round 2/5 (1 addressed: stale Red comment; commit babc8335), verified by controller via git show.
+Task 10: minor (deferred): [Required] ApiQuery<int> with empty value answers "The value '' is invalid." as MVC
+  does for value types; no current port needs it.
+Task 10: complete (commits ac306f6..babc833, review clean). Recipe: [Required] + AsGiven.
+Task 11: dispatched (BASE 8e2ee910, sonnet).
+Ruling T11: brief says llm-operations on both Prd endpoints; snapshot has convert-to-tasks write-operations — snapshot is the target, no-contract-change outranks the plan sentence — if wrong, none: the wire stays as MVC serves it.
+Task 11: implementer DONE 2489e1ab (R44 ErrorDetailBody keeps Prd's {error,details} 500 body). Review dispatched.
+Task 11: review a6899736 Needs fixes: Important ErrorDetailBody never serialized in a test; Minor missing 500 Reds, long lines; architecture-diagrams dropped -> Task 21 owns docs. Fix round 1 sent.
+Task 11: fix round 1/5 (3 addressed, 0 open; commits 2489e1ab..d2fb4316). Re-review a2a83760: all addressed.
+  Dropped: two test lines over 120 columns, cosmetic, the file already has such lines.
+Task 11: complete (commits 8e2ee91..d2fb431, review clean).
+AOT: CI 41793484837 on d2fb4316: Api 1514 vs baseline 1502, rose by 12. Keys diff vs 41784541664 (f4e6c56f):
+  all 12 are IL2026/IL3050 on TypedResults.Json<T>(value, JsonSerializerOptions?, ...) in the catch-alls and
+  Prd's 400 helper — TaskExecutionEndpoints:85, CostAnalyticsEndpoints:153, PrdEndpoints:112,115.
+  Ruling: shared ApiJsonResult<T> in Endpoints/, like ApiProblemResult: resolves JsonTypeInfo from Http
+  JsonOptions at execution, no endpoint metadata, typed value for tests; replaces every TypedResults.Json — the
+  constraint forbids new AOT warnings and suppressions, and JsonHttpResult has no options-free AOT-safe overload
+  that keeps Http JsonOptions — if wrong, one small result type. Cross-task fix dispatched before Task 12.
+AOT fix: DONE c1220e39 (R45 ApiJson.Of / ApiJsonResult<T>). Review dispatched; waiting on CI AOT count with no pushes.
+AOT fix: review a870ce5f spec ✅ Approved, 3 Minor (stale JsonHttpResult in R42-R44, lost escape in a Red, one
+  Red over three assertions) -> fix round 1 to implementer.
+AOT: CI 41795247052 on c1220e39: Api 1502, all counts match; Build & Test still red on NU1903 only (#430).
+  TaskExecutions, CostAnalytics and Prd add no warnings after R45. No baseline move.
+AOT fix: fix round 1/5 (3 addressed, 0 open; commits c1220e39..18e445b5), controller-checked via git show.
+AOT fix: complete (commits d2fb431..18e445b, review clean).
+PAUSE 2026-11-04 for context: handoff to a fresh session; next is Task 12.

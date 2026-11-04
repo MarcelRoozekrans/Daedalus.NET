@@ -1,8 +1,53 @@
 # Session State
 
-**Last session:** 2026-10-31
+**Last session:** 2026-11-04
 
-## Current Position - phase 3.4 executing (2026-10-31): Tasks 1-5 done, Task 6 committed but not reviewed
+## Current Position - phase 3.4 executing (2026-11-04): Tasks 1-11 done, next Task 12
+
+**Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `18e445b5` plus this
+pause commit, pushed. Draft PR #427 to `main`. Release-please stays on hold.
+
+- **Done and reviewed, subagent-driven:** Tasks 6 to 11, the ports of Agents, Schedules, TaskExecutions,
+  CostAnalytics and Prd, and Task 9, `ApiAuthorizationTests` over the endpoint table. Plus one cross-task fix,
+  R45: `ApiJson.Of` / `ApiJsonResult<T>` replaces `TypedResults.Json`, whose options overload added 12 AOT
+  warnings. CI on `c1220e39`: aot-analysis Api 1502, all counts match; no baseline move so far.
+- **Patterns settled for the remaining ports**, all in the plan's port recipe and rulings R38 to R45:
+  `.WithTags` plus a row in `EndpointGroupTests.ExpectedTags` (R40); `WithQueryParameter<T>` for OpenAPI query
+  parameters (R41); `ILoggerFactory.CreateLogger(typeof(XEndpoints))` with category and event ids pinned (R42);
+  `[Required]` on `ApiQuery<T>` for required query values and `ApiProblem.AsGiven` for hand-built problems (R43);
+  catch-all bodies as the controller wrote them, Prd keeps `{error, details}` (R44); every JSON body that is not a
+  typed `Ok`/`Created`/`BadRequest` goes through `ApiJson.Of` (R45). Bind every route parameter, or the snapshot
+  loses its constraint.
+- **CI is red on Build & Test** for NU1903, GHSA-g27p-qf6j-c96c on `Components.WebAssembly.Server` 10.0.13.
+  Owner chose a separate PR: **#430**, `fix(deps)`, ASP.NET Core family to 10.0.14, green, waits on the owner's
+  merge. After the merge: merge `main` into the phase branch. Renovate #399 is red on ZeroAlloc.TestHelpers 1.8.0
+  content files tripping Sonar S125/S2234; not looked into yet.
+- **CI watching:** every push cancels the running CI, so read aot-analysis on a head that sat still for about
+  10 minutes; download the `aot-analysis-Api` artifact and diff `Api.keys` against the last matching run to find
+  the cause of any rise.
+- **Local runs:** `DOTNET_USE_POLLING_FILE_WATCHER=1`, one build or test at a time, per-project Release builds while
+  NU1903 blocks the solution build. `dotnet format style` crashes on the VM; implementers run `format whitespace`.
+- **SDD ledger:** `docs/plans/2026-10-31-phase-3.4-sdd/ledger.md`, restore it as `progress.md` in the workspace
+  from `scripts/sdd-workspace`. It holds the deferred minors for the final review, among them the integration test
+  count drop from Task 9's planned theory-to-table rewrite.
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+None for the ports. Branch CI stays red on Build & Test until #430 is merged and `main` is merged in.
+
+## Recommended Next Step
+
+In a fresh session, on `phase/3.4-minimal-apis`, resume `superpowers:subagent-driven-development` on
+`docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md` at **Task 12, port Projects**. Restore the
+ledger. If #430 is merged, first merge `origin/main` into the branch and confirm Build & Test green. Then Tasks 13
+to 22, with the carried items in the ledger: Task 16 stream responses column, Task 17 three media types, Task 18
+keeps #428's 500, Task 19 `?status=`, empty `?take=` and the gateway after the 503 filter.
+
+## Earlier Position - phase 3.4 executing (2026-10-31): Tasks 1-5 done, Task 6 committed but not reviewed
 
 **Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `eb148832` plus this
 pause commit, pushed. Draft PR #427 to `main`, opened with the owner's OK so CI and `aot-analysis` run per push.
