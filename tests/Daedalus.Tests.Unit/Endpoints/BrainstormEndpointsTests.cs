@@ -36,9 +36,10 @@ public sealed class BrainstormEndpointsTests
 
         var result = await BrainstormEndpoints.CreateSession(request, _service, factory, CancellationToken.None);
 
-        // Red: answer a BadRequest in place of Ok in the success branch of CreateSession.
+        // Red: answer Error("x", 400) in place of Ok in the success branch of CreateSession, or pass Guid.Empty in place
+        //      of request.Value.ProjectId to CreateSessionAsync; the stub is not met and the result is not an Ok.
         var dto = result.Result.Should().BeOfType<Ok<BrainstormSessionDto>>().Subject.Value!;
-        // Red: pass Guid.Empty in place of request.Value.ProjectId to CreateSessionAsync in CreateSession; the stub is not met.
+        // Red: map BrainstormSession.Create(Guid.NewGuid()).Value in place of result.Value in CreateSession.
         dto.Id.Should().Be(session.Id);
         dto.ProjectId.Should().Be(ProjectId);
         // Red: drop LogCreatingSession, or change its EventId 200 to 207.
@@ -73,7 +74,8 @@ public sealed class BrainstormEndpointsTests
 
         var result = await BrainstormEndpoints.GetSession(session.Id, _service, factory, CancellationToken.None);
 
-        // Red: answer a 404 in place of Ok in the success branch of GetSession.
+        // Red: answer Error("x", 400) in place of Ok in the success branch of GetSession, or map
+        //      BrainstormSession.Create(Guid.NewGuid()).Value in place of result.Value; the Id differs.
         result.Result.Should().BeOfType<Ok<BrainstormSessionDto>>().Which.Value!.Id.Should().Be(session.Id);
         // Red: drop LogRetrievingSession, or change its EventId 201 to 207.
         LoggedEventIds(logger).Should().Equal(201);
@@ -89,7 +91,7 @@ public sealed class BrainstormEndpointsTests
 
         var result = await BrainstormEndpoints.GetSession(SessionId, _service, CreateLogging().Factory, CancellationToken.None);
 
-        // Red: answer a bodiless result or a BadRequest in the failure branch of GetSession.
+        // Red: answer Error(result.Error, 200) in place of the 404 in the failure branch of GetSession; the status differs.
         var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         // Red: answer 400 in place of 404 in the failure branch of GetSession.
         json.StatusCode.Should().Be(StatusCodes.Status404NotFound);
@@ -111,7 +113,7 @@ public sealed class BrainstormEndpointsTests
 
         // Red: pass Guid.Empty in place of projectId.ValueOr in GetSessions; the stub for the project is not met and the result is not an Ok.
         var summaries = result.Result.Should().BeOfType<Ok<IReadOnlyList<BrainstormSessionSummaryDto>>>().Subject.Value!;
-        // Red: drop the Select of ToSummaryDto in GetSessions, or reverse the order of the sessions.
+        // Red: append .Reverse() to the Select of ToSummaryDto in GetSessions; the order of the sessions flips.
         summaries.Select(summary => summary.Id).Should().Equal(first.Id, second.Id);
         // Red: drop LogRetrievingSessions, or change its EventId 202 to 207.
         LoggedEventIds(logger).Should().Equal(202);
@@ -160,9 +162,10 @@ public sealed class BrainstormEndpointsTests
 
         var result = await BrainstormEndpoints.SendMessage(SessionId, request, _service, factory, CancellationToken.None);
 
-        // Red: pass "" in place of request.Value.Content to SendMessageAsync in SendMessage; the stub is not met.
+        // Red: answer Error("x", 400) in place of Ok in the success branch of SendMessage, or pass "" in place of
+        //      request.Value.Content to SendMessageAsync; the stub is not met and the result is not an Ok.
         var dto = result.Result.Should().BeOfType<Ok<BrainstormMessageDto>>().Subject.Value!;
-        // Red: answer a BadRequest in place of Ok in the success branch of SendMessage.
+        // Red: map a BrainstormMessage with another content in place of result.Value in SendMessage.
         dto.Content.Should().Be("Response");
         // Red: drop LogSendingMessage, or change its EventId 203 to 207.
         LoggedEventIds(logger).Should().Equal(203);
@@ -197,7 +200,8 @@ public sealed class BrainstormEndpointsTests
 
         var result = await BrainstormEndpoints.AdvancePhase(session.Id, _service, factory, CancellationToken.None);
 
-        // Red: answer a BadRequest in place of Ok in the success branch of AdvancePhase.
+        // Red: answer Error("x", 400) in place of Ok in the success branch of AdvancePhase, or map
+        //      BrainstormSession.Create(Guid.NewGuid()).Value in place of result.Value; the Id differs.
         result.Result.Should().BeOfType<Ok<BrainstormSessionDto>>().Which.Value!.Id.Should().Be(session.Id);
         // Red: drop LogAdvancingPhase, or change its EventId 204 to 207.
         LoggedEventIds(logger).Should().Equal(204);
@@ -229,7 +233,7 @@ public sealed class BrainstormEndpointsTests
 
         var result = await BrainstormEndpoints.AbandonSession(SessionId, _service, factory, CancellationToken.None);
 
-        // Red: answer Ok or a BadRequest in place of NoContent in the success branch of AbandonSession.
+        // Red: answer Error("x", 400) in place of NoContent in the success branch of AbandonSession.
         result.Result.Should().BeOfType<NoContent>();
         // Red: drop LogAbandoningSession, or change its EventId 205 to 207.
         LoggedEventIds(logger).Should().Equal(205);
@@ -261,7 +265,7 @@ public sealed class BrainstormEndpointsTests
 
         var result = await BrainstormEndpoints.GenerateTasks(SessionId, _service, factory, CancellationToken.None);
 
-        // Red: answer a BadRequest in place of Ok in the success branch of GenerateTasks.
+        // Red: answer Error("x", 400) in place of Ok in the success branch of GenerateTasks.
         result.Result.Should().BeOfType<Ok<List<TaskDto>>>().Which.Value.Should().BeSameAs(tasks);
         // Red: drop LogGeneratingTasks, or change its EventId 206 to 207.
         LoggedEventIds(logger).Should().Equal(206);

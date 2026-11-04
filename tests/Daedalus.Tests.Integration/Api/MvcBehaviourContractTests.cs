@@ -464,6 +464,27 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["take"] = [message] });
     }
 
+    /// <summary>
+    ///     A Guid query parameter sent empty is refused by <c>ValueMustNotBeNull</c> as "The value '' is invalid.", as the
+    ///     <c>take</c> case above pins for an int; ruling R37.
+    /// </summary>
+    [Fact]
+    public async Task Empty_guid_query_value_answers_is_invalid_validation_problem()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "analyst");
+
+        using var response = await client.GetAsync(new Uri("/api/brainstorm/sessions?projectId=", UriKind.Relative));
+
+        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: BrainstormEndpoints' ProblemContentType.Json changed to new ProblemContentType("text/json").
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        // Red: ApiQuery.BindAsync binds an empty Guid value as Guid.Empty, or answers it with "The value '' is not valid.".
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["projectId"] = ["The value '' is invalid."] });
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Unsupported media type. No input formatter reads the body, so UnsupportedContentTypeFilter answers a bodiless
     // 415 before ModelStateInvalidFilter, and ClientErrorResultFilter turns it into the client-error problem. A charset
