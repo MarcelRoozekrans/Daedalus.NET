@@ -342,9 +342,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
                         "title=\"Finalization Error\"");
                 break;
             case "CreateBrainstormSessionDto":
-                // Red: BrainstormController's [Produces("application/json")] changed to text/json.
+                // Red: ApiJsonResult.ContentType changed to text/json; CreateSession's 400 is written through it.
                 response.Content.Headers.ContentType!.ToString().Should().Be(Json);
-                // Red: an extra member in CreateSession's BadRequest anonymous object.
+                // Red: an extra member in CreateSession's ErrorBody.
                 root.EnumerateObject().Select(member => member.Name).Should().Equal(["error"], text);
                 // Red: CreateSession answers BadRequest with a changed error text.
                 root.GetProperty("error").GetString().Should()
@@ -397,7 +397,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: SchedulesEndpoints' ProblemContentType.Json changed to new ProblemContentType("text/json").
+        // Red: SchedulesEndpoints' or BrainstormEndpoints' ProblemContentType.Json changed to new ProblemContentType("text/json"); the row of that path fails.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { [key] = ["The value 'abc' is not valid."] });
