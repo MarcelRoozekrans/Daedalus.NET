@@ -38,9 +38,9 @@ public sealed class ApiAuthorizationTests(PostgresFixture fixture)
 
         // Red: dropping .RequireAuthorization from the group in AgentEndpoints.MapAgentEndpoints failed with
         //      found at least one item "api/agents/ HTTP: GET api/agents/ => GetAgents".
-        // Red: dropping the class-level [Authorize] from AgentMemoriesController failed with found at least one item
-        //      "api/agent-memories ...AgentMemoriesController.List". The same on the Projects group stays green, as
-        //      every action there carries its own policy, so it is the wrong controller for this Red.
+        // Red: dropping .RequireAuthorization("AgentUse") from the group in AgentMemoriesEndpoints.MapAgentMemoriesEndpoints
+        //      failed with found at least one item
+        //      "api/agent-memories/ HTTP: GET api/agent-memories/ => List".
         unprotected.Should().BeEmpty("every route under api/ requires authorization unless AnonymousEndpoints lists it");
     }
 

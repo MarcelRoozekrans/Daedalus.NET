@@ -111,11 +111,12 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), new Uri(path, UriKind.Relative)));
 
-        // Red: return StatusCode(403) instead of Unauthorized() in AgentMemoriesController.List and in
-        //      TasksController.Manufacture.
+        // Red: return ApiProblem.Of(context, StatusCodes.Status403Forbidden) instead of the 401 in
+        //      AgentMemoriesEndpoints.List and StatusCode(403) instead of Unauthorized() in TasksController.Manufacture.
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, await response.Content.ReadAsStringAsync());
-        // Red: AgentMemoriesController's [Produces("application/json")] changed to text/json, and a
-        //      [Produces("application/json")] added to TasksController.
+        // Red: .WithMetadata(ProblemContentType.Json) dropped from the group in
+        //      AgentMemoriesEndpoints.MapAgentMemoriesEndpoints, and a [Produces("application/json")] added to
+        //      TasksController.
         response.Content.Headers.ContentType!.ToString().Should().Be(contentType);
         await AssertProblemAsync(response, UnauthorizedType, "Unauthorized", 401);
     }
