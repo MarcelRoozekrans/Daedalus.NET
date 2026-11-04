@@ -143,6 +143,13 @@ jobs:
             --logger "trx;LogFileName=integration-tests.trx" \
             -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
 
+      # ci-baseline's coverage gate: merges the Cobertura files of both test steps and fails below the floor, or when
+      # codecov.yml would let a drop in coverage pass quietly.
+      - name: Coverage gate
+        uses: MarcelRoozekrans/ci-baseline/actions/coverage-gate@v1
+        with:
+          reports: TestResults/**/coverage.cobertura.xml
+
       # The raw Cobertura files of both test steps; Codecov merges them.
       - name: Upload coverage to Codecov
         if: '!cancelled()'
@@ -375,7 +382,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: read
+      # contents: write attaches the SBOM to the GitHub release.
+      contents: write
       packages: write
     env:
       APP_VERSION: ${{ needs.version.outputs.version }}
@@ -446,3 +454,18 @@ jobs:
           # One cache scope per image, so the three images never evict each other's layers.
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      # A CycloneDX SBOM of the solution, attached once per release, so only the daedalus-api leg makes it. The
+      # release exists by now: release-please created it with the v<version> tag that the guard above checked.
+      - name: Setup .NET SDK
+        if: matrix.image == 'daedalus-api'
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Attach the SBOM to the GitHub release
+        if: matrix.image == 'daedalus-api'
+        uses: MarcelRoozekrans/ci-baseline/actions/sbom@v1
+        with:
+          solution: Daedalus.sln
+          tag: v${{ env.APP_VERSION }}
