@@ -204,7 +204,9 @@ public static partial class AgentSessionsEndpoints
         response.ContentType = EventStreamContentType;
         response.Headers.CacheControl = "no-cache";
         response.Headers.Append("X-Accel-Buffering", "no");
-        // Compression and other buffering middleware would hold events back until the turn ends.
+        // Buffering middleware would hold events back until the turn ends, so buffering is switched off. This is not the
+        // compression guard: response compression still applies after DisableBuffering. The stream stays uncompressed
+        // because text/event-stream is not in the compression MimeTypes in Program.cs; Stream_is_not_compressed pins it.
         context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
         if (!SessionId.TryParse(sessionId, null, out var id))

@@ -5,6 +5,8 @@ using System.Text.Json;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Agents;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Thalos;
@@ -190,8 +192,9 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
     }
 
     /// <summary>
-    ///     Review Focus 4: the stream is never compressed, even when the client offers gzip, because a compressing body
-    ///     would hold events back until the turn ends. The raw bytes on the wire start with the connection comment.
+    ///     Review Focus 4: the stream goes out byte-transparent, with no <c>Content-Encoding</c>, even when the client
+    ///     offers gzip. The response-compression <c>MimeTypes</c> in <c>Program.cs</c> leave out <c>text/event-stream</c>;
+    ///     that, not <c>DisableBuffering</c>, is what keeps it uncompressed. The raw bytes start with the connection comment.
     /// </summary>
     [Fact]
     public async Task Stream_is_not_compressed()
@@ -215,26 +218,33 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
     }
 
     /// <summary>
-    ///     Review Focus 4: a client that goes away mid-stream ends the turn quietly. The request's abort token reaches the
-    ///     runtime, so a real runtime stops the turn and frees the session; nothing is logged as an unhandled exception;
-    ///     and the next turn on the same session streams to its end.
+    ///     Review Focus 4: a client that goes away mid-stream ends the turn quietly. The stub runtime keeps a session busy
+    ///     from the start of a turn's enumeration until its enumerator finishes, and answers a second turn on a busy session
+    ///     with a <c>SessionBusy</c> error event, as the runtime does. The test proves that the request's abort token
+    ///     reaches the runtime, that the handler disposes the turn so the session is free for the next turn, and that the
+    ///     host logs no error and no exception at Warning or above for the aborted request.
     /// </summary>
     [Fact]
     public async Task Client_disconnect_mid_stream_is_quiet()
     {
         var logs = new CapturingLoggerProvider();
+        var finished = new RequestCompletion();
         await using var factory = new ApiWebApplicationFactory(
-            fixture.ConnectionString, _runtime, configureServices: services => services.AddSingleton<ILoggerProvider>(logs));
+            fixture.ConnectionString, _runtime, configureServices: services => services
+                .AddSingleton<ILoggerProvider>(logs)
+                .AddSingleton<IStartupFilter>(finished));
         using var client = factory.CreateClient();
         var sessionId = SessionId.New();
-        var turnId = TurnId.New();
-        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var session = new StubSession();
         _runtime.RunTurnStreamingAsync(Arg.Any<AgentTurnRequest>(), Arg.Any<CancellationToken>())
-            .Returns(call => HangingEvents(sessionId, turnId, cancelled, call.Arg<CancellationToken>()), _ => StreamEvents(sessionId, turnId, Task.CompletedTask));
+            .Returns(
+                call => session.Turn(sessionId, hang: true, call.Arg<CancellationToken>()),
+                call => session.Turn(sessionId, hang: false, call.Arg<CancellationToken>()));
 
         using (var request = StreamRequest(sessionId))
         using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
         {
+            // Red: Response.StatusCode = 202 in place of 200 in RunTurnStream.
             response.StatusCode.Should().Be(HttpStatusCode.OK);
             await using var stream = await response.Content.ReadAsStreamAsync();
             var seen = new StringBuilder();
@@ -255,13 +265,18 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
 
         // Red: pass CancellationToken.None in place of ct to runtime.RunTurnStreamingAsync in RunTurnStream; the turn
         //      never learns that its client went away.
-        await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await session.Cancelled.WaitAsync(TimeSpan.FromSeconds(10));
+        // The aborted request has left the whole pipeline, the exception middleware and its logging included, before
+        // the logs are read below.
+        await finished.First.WaitAsync(TimeSpan.FromSeconds(10));
 
         using (var next = StreamRequest(sessionId))
         using (var response = await client.SendAsync(next))
         {
             response.StatusCode.Should().Be(HttpStatusCode.OK);
             var frames = (await response.Content.ReadAsStringAsync()).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
+            // Red: enumerate the turn in RunTurnStream through runtime.RunTurnStreamingAsync(...).GetAsyncEnumerator(ct)
+            //      and MoveNextAsync, never disposing it; the first turn's enumerator stays suspended and the session busy.
             frames[^1].Should().StartWith("event: done\n");
         }
 
@@ -308,23 +323,58 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
         yield return new TurnCompletedEvent(sessionId, turnId, new AgentTurnResult(turnId, sessionId, "hello", usage, [], TimeSpan.FromMilliseconds(20)));
     }
 
-    private static async IAsyncEnumerable<AgentEvent> HangingEvents(
-        SessionId sessionId, TurnId turnId, TaskCompletionSource cancelled, [EnumeratorCancellation] CancellationToken ct = default)
+    /// <summary>
+    ///     One session of the stub runtime: busy from the start of a turn's enumeration until its enumerator finishes, as
+    ///     the runtime's session lock is, and a turn on a busy session yields only a <c>SessionBusy</c> failure event.
+    /// </summary>
+    private sealed class StubSession
     {
-        yield return new TextDeltaEvent(sessionId, turnId, "hel");
-        try
+        private readonly TaskCompletionSource _cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _busy;
+
+        /// <summary>Completes when a hanging turn sees its cancellation token fire.</summary>
+        public Task Cancelled => _cancelled.Task;
+
+        public async IAsyncEnumerable<AgentEvent> Turn(
+            SessionId sessionId, bool hang, [EnumeratorCancellation] CancellationToken ct = default)
         {
-            await Task.Delay(Timeout.Infinite, ct);
-        }
-        finally
-        {
-            if (ct.IsCancellationRequested)
+            var turnId = TurnId.New();
+            if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
             {
-                cancelled.TrySetResult();
+                yield return new TurnFailedEvent(sessionId, turnId, AgentError.SessionBusy(sessionId));
+                yield break;
+            }
+
+            try
+            {
+                yield return new TextDeltaEvent(sessionId, turnId, "hel");
+                if (hang)
+                {
+                    // Like the runtime, a cancelled turn reports its cancellation as an event rather than throwing, so
+                    // the enumerator stays suspended until its consumer disposes it.
+                    await UntilCancelledAsync(ct);
+                    _cancelled.TrySetResult();
+                    yield return new TurnFailedEvent(sessionId, turnId, AgentError.Cancelled());
+                }
+
+                var usage = new TurnUsage(3, 2, "claude-sonnet-5");
+                yield return new UsageEvent(sessionId, turnId, usage);
+                yield return new TurnCompletedEvent(sessionId, turnId, new AgentTurnResult(turnId, sessionId, "hello", usage, [], TimeSpan.FromMilliseconds(20)));
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _busy, 0);
             }
         }
 
-        yield return new TextDeltaEvent(sessionId, turnId, "never");
+        private static async Task UntilCancelledAsync(CancellationToken ct)
+        {
+            var fired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await using (ct.Register(() => fired.TrySetResult()))
+            {
+                await fired.Task;
+            }
+        }
     }
 
     private static HttpRequestMessage StreamRequest(SessionId sessionId)
@@ -374,5 +424,34 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
                 LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
                 entries.Enqueue(new LogEntry(logLevel, category, formatter(state, exception), exception));
         }
+    }
+
+    /// <summary>
+    ///     Middleware ahead of the whole pipeline that completes <see cref="First"/> when the first request has left it.
+    ///     The host's exception middleware sits inside it, so by then any exception it logs has been logged. The host
+    ///     keeps <c>Microsoft.AspNetCore.Hosting.Diagnostics</c> below Warning out of every provider, so its "Request
+    ///     finished" entry cannot serve.
+    /// </summary>
+    private sealed class RequestCompletion : IStartupFilter
+    {
+        private readonly TaskCompletionSource _first = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task First => _first.Task;
+
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, inner) =>
+            {
+                try
+                {
+                    await inner(context);
+                }
+                finally
+                {
+                    _first.TrySetResult();
+                }
+            });
+            next(app);
+        };
     }
 }
