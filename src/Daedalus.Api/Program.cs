@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using System.Threading.RateLimiting;
-using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Security;
@@ -29,9 +28,6 @@ using Thalos.Ollama;
 using Thalos.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Enable enhanced model metadata support early
-AppContext.SetSwitch("Microsoft.AspNetCore.Mvc.ApiExplorer.IsEnhancedModelMetadataSupported", true);
 
 // Add service defaults (OpenTelemetry, logging)
 builder.Services.AddServiceDefaults(builder.Configuration);
@@ -110,23 +106,11 @@ builder.Services.AddScoped<IBrainstormService, BrainstormService>();
 builder.Services.AddExceptionHandler<Daedalus.Api.Middleware.GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
-// Add API versioning (query-string + header, non-breaking — existing routes keep working)
-builder.Services.AddApiVersioning(options =>
-{
-    options.DefaultApiVersion = new ApiVersion(1, 0);
-    options.AssumeDefaultVersionWhenUnspecified = true;
-    options.ReportApiVersions = true;
-    options.ApiVersionReader = ApiVersionReader.Combine(
-        new QueryStringApiVersionReader("api-version"),
-        new HeaderApiVersionReader("x-api-version"),
-        new UrlSegmentApiVersionReader());
-});
-
 // Add OpenAPI document generation for Scalar API reference
 builder.Services.AddOpenApi();
 
-// Register one non-generic adapter per validated DTO — ZeroAllocValidationFilter iterates
-// untyped ActionArguments and cannot call ValidatorFor<T>.Validate directly (ValidatorFor<T>
+// Register one non-generic adapter per validated DTO — ZeroAllocValidationEndpointFilter iterates
+// untyped endpoint arguments and cannot call ValidatorFor<T>.Validate directly (ValidatorFor<T>
 // exposes no non-generic base), so each adapter closes over its DTO type explicitly here.
 builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<CreateTaskDto>>();
 builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateTaskDto>>();
@@ -137,13 +121,7 @@ builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateReposi
 builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<SendBrainstormMessageDto>>();
 builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<SubmitAnalysisRequest>>();
 
-// Add controllers with the ZeroAlloc.Validation filter for automatic DTO validation
-builder.Services.AddControllers(options =>
-{
-    options.Filters.Add<ZeroAllocValidationFilter>();
-});
-
-// Minimal API endpoints beside the controllers: their JSON goes through ApiJsonSerializerContext alone.
+// The minimal API endpoints: their JSON goes through ApiJsonSerializerContext alone.
 builder.Services.AddDaedalusEndpoints();
 
 // The console's live channel. The run hub's messages serialize through their source-generated context, first in the
@@ -321,7 +299,6 @@ app.UseCors("RestrictedCors");
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
-app.MapControllers();
 app.MapDaedalusEndpoints();
 if (workflowEngineEnabled)
 {

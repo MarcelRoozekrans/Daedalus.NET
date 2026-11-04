@@ -3,7 +3,6 @@ using System.Text.Json;
 using Daedalus.Api.Endpoints;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using static Daedalus.Tests.Unit.Endpoints.EndpointTestContext;
@@ -12,7 +11,7 @@ using HttpJsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace Daedalus.Tests.Unit.Endpoints;
 
 /// <summary>
-///     <see cref="ApiProblem"/> writes what MVC's <c>ProblemDetailsFactory</c> and output formatter write, as
+///     <see cref="ApiProblem"/> writes what MVC's problem details factory and output formatter wrote, as
 ///     <c>MvcBehaviourContractTests</c> pins it over HTTP (rulings R13, R15, R18, R19).
 /// </summary>
 public sealed class ApiProblemTests
@@ -97,31 +96,56 @@ public sealed class ApiProblemTests
             extra: new Dictionary<string, string>(StringComparer.Ordinal) { ["code"] = "\"SessionBusy\"" });
     }
 
+    private const string Rfc9110 = "https://tools.ietf.org/html/rfc9110#section-";
+
     /// <summary>
-    ///     The client-error table and the trace id against MVC's own <c>ProblemDetailsFactory</c>, for every status MVC
-    ///     maps and for two it does not, 429 and the agents' 499. This holds while MVC is in the shared framework.
+    ///     The client-error table as .NET 10's MVC filled <c>ApiBehaviorOptions.ClientErrorMapping</c>, 26 rows, and
+    ///     two statuses it does not map, 429 and the agents' 499, which get no <c>type</c> and no <c>title</c>. Until
+    ///     MVC left the host this was read from MVC's own factory; it is frozen at .NET 10's table since (R32, R54).
     /// </summary>
-    public static TheoryData<int> MvcStatuses()
+    public static TheoryData<int, string?, string?> ClientErrorRows() => new()
     {
-        using var services = new ServiceCollection().AddMvcCore().Services.BuildServiceProvider();
-        var mapped = services.GetRequiredService<IOptions<ApiBehaviorOptions>>().Value.ClientErrorMapping.Keys;
-        return new TheoryData<int>(mapped.Concat([429, 499]).Order());
-    }
+        { 400, Rfc9110 + "15.5.1", "Bad Request" },
+        { 401, Rfc9110 + "15.5.2", "Unauthorized" },
+        { 403, Rfc9110 + "15.5.4", "Forbidden" },
+        { 404, Rfc9110 + "15.5.5", "Not Found" },
+        { 405, Rfc9110 + "15.5.6", "Method Not Allowed" },
+        { 406, Rfc9110 + "15.5.7", "Not Acceptable" },
+        { 407, Rfc9110 + "15.5.8", "Proxy Authentication Required" },
+        { 408, Rfc9110 + "15.5.9", "Request Timeout" },
+        { 409, Rfc9110 + "15.5.10", "Conflict" },
+        { 410, Rfc9110 + "15.5.11", "Gone" },
+        { 411, Rfc9110 + "15.5.12", "Length Required" },
+        { 412, Rfc9110 + "15.5.13", "Precondition Failed" },
+        { 413, Rfc9110 + "15.5.14", "Content Too Large" },
+        { 414, Rfc9110 + "15.5.15", "URI Too Long" },
+        { 415, Rfc9110 + "15.5.16", "Unsupported Media Type" },
+        { 416, Rfc9110 + "15.5.17", "Range Not Satisfiable" },
+        { 417, Rfc9110 + "15.5.18", "Expectation Failed" },
+        { 421, Rfc9110 + "15.5.20", "Misdirected Request" },
+        { 422, "https://tools.ietf.org/html/rfc4918#section-11.2", "Unprocessable Entity" },
+        { 426, Rfc9110 + "15.5.22", "Upgrade Required" },
+        { 500, Rfc9110 + "15.6.1", "An error occurred while processing your request." },
+        { 501, Rfc9110 + "15.6.2", "Not Implemented" },
+        { 502, Rfc9110 + "15.6.3", "Bad Gateway" },
+        { 503, Rfc9110 + "15.6.4", "Service Unavailable" },
+        { 504, Rfc9110 + "15.6.5", "Gateway Timeout" },
+        { 505, Rfc9110 + "15.6.6", "HTTP Version Not Supported" },
+        { 429, null, null },
+        { 499, null, null },
+    };
 
     [Theory]
-    [MemberData(nameof(MvcStatuses))]
-    public async Task Of_matches_mvc_problem_details_factory(int status)
+    [MemberData(nameof(ClientErrorRows))]
+    public async Task Of_writes_the_net10_client_error_table(int status, string? type, string? title)
     {
-        await using var services = Services(collection => collection.AddMvcCore());
+        await using var services = Services();
         var context = Create(services);
 
-        var expected = services.GetRequiredService<ProblemDetailsFactory>()
-            .CreateProblemDetails(context, status, detail: "d");
         var actual = ApiProblem.Of(context, status, detail: "d").ProblemDetails;
 
-        // Red: drop any row of ApiProblem's client-error table, or add a 429 row; also a title fallback to the
-        //      reason phrase for unmapped statuses, as the Http ProblemDetailsDefaults do, turns 429 and 499 red.
-        Describe(actual).Should().Be(Describe(expected));
+        // Red: drop the 410 row of ApiProblem's client-error table; or add a 429 row to it.
+        Describe(actual).Should().Be($"{type}|{title}|{status}|d||traceId={TraceIdentifier}");
 
         static string Describe(ProblemDetails problem) =>
             $"{problem.Type}|{problem.Title}|{problem.Status}|{problem.Detail}|{problem.Instance}|"
@@ -150,7 +174,7 @@ public sealed class ApiProblemTests
 
         var text = await ExecuteAsync(ApiProblem.Of(context, StatusCodes.Status404NotFound), context);
 
-        // Red: drop the CustomizeProblemDetails call from ApiProblem; MVC's DefaultProblemDetailsFactory makes it.
+        // Red: drop the CustomizeProblemDetails call from ApiProblem; MVC's default factory made it.
         AssertProblem(text, NotFoundType, "Not Found", 404,
             extra: new Dictionary<string, string>(StringComparer.Ordinal) { ["extra"] = "\"x\"" });
     }

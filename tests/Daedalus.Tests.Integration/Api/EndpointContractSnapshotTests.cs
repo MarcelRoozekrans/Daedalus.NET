@@ -1,7 +1,5 @@
-using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
-using Asp.Versioning;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -29,23 +27,21 @@ namespace Daedalus.Tests.Integration.Api;
 ///     <see cref="ApiDescription"/>: the description's own fields and its
 ///     <see cref="Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor.EndpointMetadata"/>. MVC copies the controller
 ///     and action attributes there; the minimal-API explorer copies the endpoint's metadata there, and
-///     <c>RequireAuthorization</c>, <c>AllowAnonymous</c>, <c>RequireRateLimiting</c> and Asp.Versioning's version sets
-///     add the same metadata types MVC's attributes are. Nothing is read off a controller type, so a controller and the
+///     <c>RequireAuthorization</c>, <c>AllowAnonymous</c> and <c>RequireRateLimiting</c> add the same metadata types
+///     MVC's attributes are. Nothing is read off a controller type, so a controller and the
 ///     endpoint group that replaces it render the same line. <see cref="IApiDescriptionGroupCollectionProvider"/> stays
 ///     registered once MVC is gone, because <c>Program.cs</c> calls <c>AddOpenApi()</c>, which adds the endpoint
 ///     API explorer.
 ///     </para>
 ///     <para>
-///     <b>The count.</b> 61 lines, one per controller action. No versioned duplicates: <c>Program.cs</c> adds no
-///     versioned API explorer, so each action has one description. The OpenAPI document and Scalar endpoints are
+///     <b>The count.</b> 61 lines, one per endpoint, as there were controller actions. No versioned duplicates: the
+///     API is unversioned, so each endpoint has one description. The OpenAPI document and Scalar endpoints are
 ///     excluded from descriptions, the health check is not a described endpoint, and SignalR hubs never are.
 ///     </para>
 ///     <para>
-///     <b>Versions read <c>-</c> on the MVC build.</b> <c>Program.cs</c> calls <c>AddApiVersioning</c> without
-///     <c>.AddMvc()</c>, so Asp.Versioning.Mvc never reads the controllers' <c>[ApiVersion("1.0")]</c>: no action
-///     carries <see cref="ApiVersionMetadata"/>, no response carries <c>api-supported-versions</c>, and
-///     <c>?api-version=2.0</c> is served like any other request. The column pins that. A port that versions its group
-///     changes the line, which is the point: it changes the wire contract too.
+///     <b>No versions column.</b> The MVC build's table had one, and it read <c>-</c> on every line: the inert
+///     versioning registration never read the controllers' version attributes. The owner kept the wire unversioned
+///     on 2026-10-31, so the column left with MVC and the versioning package (R54).
 ///     </para>
 ///     <para>
 ///     The host is <see cref="ScratchWorkflowHost"/>: <c>ApiWebApplicationFactory</c> with <c>workflowEnabled: true</c>,
@@ -100,19 +96,17 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     /// <summary>
     ///     R11's other half: a minimal-API endpoint, mapped the way the port recipe maps one, renders through the same
     ///     <see cref="Render"/> with every column filled from its own metadata, including the <c>ProblemContentType</c>
-    ///     hook, its precedence (R12), and Asp.Versioning.Http's version set. Without it, a column that reads blank on
+    ///     hook and its precedence (R12). Without it, a column that reads blank on
     ///     minimal APIs would only show up as a diff in the first port task, or not at all where MVC's value is blank too.
     /// </summary>
     /// <remarks>
-    ///     The version set and its <c>HasApiVersion</c> case go in Task 20, with the snapshot's <c>versions</c> column:
+    ///     The version set and its case went with the snapshot's <c>versions</c> column (R54):
     ///     the owner kept the wire unversioned. Note the stream endpoint's responses: on minimal APIs an endpoint-level
     ///     <see cref="ProducesAttribute"/> also lists <c>200 - text/event-stream</c>, where MVC lists <c>200 - -</c>.
     /// </remarks>
     // Red: dropping .RequireAuthorization("WidgetManagement") rendered "auth authenticated".
     // Red: adding .AllowAnonymous() to the endpoint rendered "anonymous yes".
     // Red: dropping .RequireRateLimiting("write-operations") rendered "rate -".
-    // Red: .HasApiVersion(2.0) on the group rendered "versions 2.0". Dropping it stays green: a versioned API's
-    //      endpoint with no version of its own takes the default, 1.0, which is what it then serves.
     // Red: new ProblemContentType("application/problem+json") rendered "content application/problem+json".
     // Red: dropping the stream endpoint's own ProducesAttribute rendered its "content application/json", the
     //      group's record; R12, the endpoint's value overrides the group's.
@@ -127,12 +121,9 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
         builder.WebHost.UseTestServer();
         builder.Services.AddAuthorization();
         builder.Services.AddEndpointsApiExplorer();
-        builder.Services.AddApiVersioning();
         await using var app = builder.Build();
 
-        var group = app.NewVersionedApi()
-            .MapGroup("api/Widgets")
-            .HasApiVersion(1.0)
+        var group = app.MapGroup("api/Widgets")
             .RequireAuthorization()
             .WithMetadata(new ProblemContentType("application/json"));
         group.MapGet(string.Empty, () => Results.Empty);
@@ -149,11 +140,11 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
         await app.StartAsync();
         Render(app.Services).Should().Be(
             "DELETE api/widgets/{id:guid} | auth WidgetManagement,authenticated | anonymous no | rate write-operations"
-            + " | versions 1.0 | responses 204 - -; 404 ProblemDetails application/problem+json;"
+            + " | responses 204 - -; 404 ProblemDetails application/problem+json;"
             + " 409 List<String> application/json | content application/json\n"
-            + "GET api/widgets | auth authenticated | anonymous no | rate - | versions 1.0 | responses 200 - -"
+            + "GET api/widgets | auth authenticated | anonymous no | rate - | responses 200 - -"
             + " | content application/json\n"
-            + "POST api/widgets/{id:guid}/stream | auth authenticated | anonymous no | rate - | versions 1.0"
+            + "POST api/widgets/{id:guid}/stream | auth authenticated | anonymous no | rate -"
             + " | responses 200 - text/event-stream | content text/event-stream\n");
     }
 
@@ -164,7 +155,7 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     ///     Renders the host's endpoint table, one line per <see cref="ApiDescription"/>, sorted ordinally, each ending
     ///     in <c>\n</c>. Fields, separated by <c> | </c>: verb and lower-cased relative path; <c>auth</c>, every
     ///     <see cref="IAuthorizeData"/> as its policy or <c>authenticated</c>, sorted; <c>anonymous</c>; <c>rate</c>, the
-    ///     effective <see cref="EnableRateLimitingAttribute"/> policy or <c>-</c>; <c>versions</c>; <c>responses</c>, every
+    ///     effective <see cref="EnableRateLimitingAttribute"/> policy or <c>-</c>; <c>responses</c>, every
     ///     supported response type as <c>status type media-types</c>, sorted; <c>content</c>, the last
     ///     <see cref="ProducesAttribute"/> or <c>ProblemContentType</c> in the metadata (R12).
     /// </summary>
@@ -195,7 +186,6 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
             "auth " + Join(metadata.OfType<IAuthorizeData>().Select(Authorization).Order(StringComparer.Ordinal), ","),
             "anonymous " + (metadata.OfType<IAllowAnonymous>().Any() ? "yes" : "no"),
             "rate " + RateLimit(metadata),
-            "versions " + Versions(metadata),
             "responses " + Join(description.SupportedResponseTypes.Select(Response).Order(StringComparer.Ordinal), "; "),
             "content " + ContentTypeColumn(metadata),
         };
@@ -266,35 +256,6 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
             DisableRateLimitingAttribute => "disabled",
             _ => "-",
         };
-    }
-
-    /// <summary>
-    ///     Asp.Versioning puts one <see cref="ApiVersionMetadata"/> in each versioned endpoint's metadata, from
-    ///     <c>[ApiVersion]</c> under Asp.Versioning.Mvc and from an <c>ApiVersionSet</c> under Asp.Versioning.Http.
-    /// </summary>
-    private static string Versions(IList<object> metadata)
-    {
-        var versioning = metadata.OfType<ApiVersionMetadata>().ToList();
-        if (versioning.Count == 0)
-        {
-            return "-";
-        }
-
-        return Join(versioning.Select(v =>
-        {
-            if (v.IsApiVersionNeutral)
-            {
-                return "neutral";
-            }
-
-            // Either stack may declare the version explicitly or implicitly, so both mappings are read.
-            var declared = v.Map(ApiVersionMapping.Explicit).DeclaredApiVersions
-                .Concat(v.Map(ApiVersionMapping.Implicit).DeclaredApiVersions)
-                .Distinct()
-                .Order()
-                .Select(version => version.ToString(null, CultureInfo.InvariantCulture));
-            return Join(declared, ",");
-        }), " ");
     }
 
     private static string Response(ApiResponseType response)

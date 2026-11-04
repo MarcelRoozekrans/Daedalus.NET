@@ -5,18 +5,19 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Daedalus.Api.Endpoints;
 
 /// <summary>
-///     Composition of the minimal API endpoints. They sit beside MVC while the controllers move over: a route is
-///     served by exactly one of the two, and a controller is deleted in the task that maps its endpoints.
+///     Composition of the minimal API endpoints, which serve every route of the API. They replaced the MVC
+///     controllers one by one, with no change to the contract, and the host maps no controller since.
 /// </summary>
 /// <remarks>
 ///     <para>
-///     <b>For the port tasks.</b> Each <c>Map…Endpoints</c> maps its group with <see cref="MapApiGroup"/>, never with a
+///     <b>For a new group.</b> Each <c>Map…Endpoints</c> maps its group with <see cref="MapApiGroup"/>, never with a
 ///     bare <c>MapGroup</c>: that adds <see cref="ZeroAllocValidationEndpointFilter"/>, which answers the binding
 ///     problems <see cref="ApiBody{T}"/> and <see cref="ApiQuery{T}"/> carry and runs the ZeroAlloc validators, and,
 ///     with <c>requiresWorkflowEngine</c>, <see cref="WorkflowEngineEnabledEndpointFilter"/> ahead of it.
 ///     <c>EndpointGroupTests</c> fails for an endpoint under <c>api/</c> without the group's
-///     <see cref="DaedalusEndpointGroup"/> metadata. A group whose controller carried
-///     <c>[Produces("application/json")]</c> adds <c>.WithMetadata(ProblemContentType.Json)</c>.
+///     <see cref="DaedalusEndpointGroup"/> metadata. A group that answers its problems as <c>application/json</c>,
+///     as the controllers with <c>[Produces("application/json")]</c> did, adds
+///     <c>.WithMetadata(ProblemContentType.Json)</c>.
 ///     </para>
 /// </remarks>
 public static class DaedalusEndpoints
@@ -33,8 +34,7 @@ public static class DaedalusEndpoints
     ///     instead of serializing by reflection. MVC reads and writes at a depth of 32, so that is set. The encoder is
     ///     left alone: the Http options already default to <see cref="JavaScriptEncoder.UnsafeRelaxedJsonEscaping"/>,
     ///     which MVC's output formatter also writes with, so an apostrophe goes out raw (R19, R33). This changes
-    ///     <c>Microsoft.AspNetCore.Http.Json.JsonOptions</c> only; MVC reads its own. Also registers the two endpoint
-    ///     filters.
+    ///     <c>Microsoft.AspNetCore.Http.Json.JsonOptions</c> only. Also registers the two endpoint filters.
     /// </summary>
     public static IServiceCollection AddDaedalusEndpoints(this IServiceCollection services)
     {
@@ -53,8 +53,8 @@ public static class DaedalusEndpoints
     }
 
     /// <summary>
-    ///     Maps the minimal API endpoints. Each port task adds its <c>Map…Endpoints(app)</c> call here, and each of
-    ///     those maps its group through <see cref="MapApiGroup"/>.
+    ///     Maps the minimal API endpoints. Each group's <c>Map…Endpoints(app)</c> call is here, and each of those
+    ///     maps its group through <see cref="MapApiGroup"/>.
     /// </summary>
     public static IEndpointRouteBuilder MapDaedalusEndpoints(this IEndpointRouteBuilder app)
     {
@@ -79,7 +79,7 @@ public static class DaedalusEndpoints
 
     /// <summary>
     ///     A route group with the endpoints' filters: the workflow-engine check first when
-    ///     <paramref name="requiresWorkflowEngine"/> is set, as MVC's resource filter runs before model binding, then
+    ///     <paramref name="requiresWorkflowEngine"/> is set, as MVC's resource filter ran before model binding, then
     ///     <see cref="ZeroAllocValidationEndpointFilter"/>. The filters are the singletons
     ///     <see cref="AddDaedalusEndpoints"/> registers, resolved once per endpoint when it is built.
     /// </summary>

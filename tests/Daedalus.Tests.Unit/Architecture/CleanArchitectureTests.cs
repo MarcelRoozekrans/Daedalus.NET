@@ -433,7 +433,7 @@ public sealed class CleanArchitectureTests
     {
         var rule = Types().That().Are(AgentsTypes)
             .Should().NotDependOnAny(ApiTypes)
-            .Because("The API composes Daedalus.Agents; the adapter must not reach back into controllers");
+            .Because("The API composes Daedalus.Agents; the adapter must not reach back into the API host");
 
         rule.Check(Architecture);
     }

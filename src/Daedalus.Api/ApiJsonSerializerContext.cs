@@ -20,7 +20,7 @@ namespace Daedalus.Api;
 ///     that instance's runtime settings, so the endpoints' nulls, naming, case and number handling come from
 ///     <c>Microsoft.AspNetCore.Http.Json.JsonOptions</c> (web defaults, <c>DefaultIgnoreCondition</c> at <c>Never</c>,
 ///     as MVC's). The options declared below apply only through <c>ApiJsonSerializerContext.Default</c>, which today
-///     means <c>GlobalExceptionHandler</c>. MVC controllers serialize through MVC's own options. <c>ProblemDetails</c>
+///     means <c>GlobalExceptionHandler</c>. <c>ProblemDetails</c>
 ///     carries its own <c>WhenWritingNull</c> on its members, so its body is the same under <c>Never</c>. SSE events
 ///     do not use this context: see <see cref="AgentEventStreamJsonContext"/>.
 /// </remarks>
@@ -56,7 +56,8 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(PagedResultDto<MemoryDto>))]
 [JsonSerializable(typeof(CreateAgentSessionResponseDto))]
 [JsonSerializable(typeof(SendTurnRequestDto))]
-// Controller actions' response types, so OpenAPI generation and the endpoints resolve them (Task 4, R26)
+// The endpoints' response types, once the controller actions', so OpenAPI generation and the endpoints resolve
+// them (Task 4, R26)
 [JsonSerializable(typeof(AnalysisStatusDto))]
 [JsonSerializable(typeof(BrainstormMessageDto))]
 [JsonSerializable(typeof(BrainstormSessionDto))]

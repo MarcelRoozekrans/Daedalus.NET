@@ -8,8 +8,8 @@ namespace Daedalus.Api.Endpoints;
 ///     The endpoints' counterpart of MVC's binding and validation pipeline, in MVC's order: a body no input formatter
 ///     reads answers 415 (<c>UnsupportedContentTypeFilter</c>); then the binding problems of every
 ///     <see cref="IApiBinding"/> argument answer as one validation problem (<c>ModelStateInvalidFilter</c>); then each
-///     argument with an <see cref="IValidationAdapter"/> is validated, and the first failure answers the same problem
-///     <see cref="ZeroAllocValidationFilter"/> writes. <see cref="DaedalusEndpoints.MapApiGroup"/> adds it to every
+///     argument with an <see cref="IValidationAdapter"/> is validated, and the first failure answers the problem
+///     MVC's <c>ZeroAllocValidationFilter</c> wrote. <see cref="DaedalusEndpoints.MapApiGroup"/> adds it to every
 ///     group.
 /// </summary>
 internal sealed class ZeroAllocValidationEndpointFilter : IEndpointFilter
@@ -55,8 +55,8 @@ internal sealed class ZeroAllocValidationEndpointFilter : IEndpointFilter
     }
 
     /// <summary>
-    ///     The problem <see cref="ZeroAllocValidationFilter"/> answers: errors by property in failure order, the first
-    ///     message as <c>detail</c>, the rfc7231 400 type and no <c>traceId</c>. Both filters build it here.
+    ///     The problem MVC's <c>ZeroAllocValidationFilter</c> answered: errors by property in failure order, the first
+    ///     message as <c>detail</c>, the rfc7231 400 type and no <c>traceId</c>.
     /// </summary>
     internal static ValidationProblemDetails ToProblem(ValidationResult validationResult)
     {

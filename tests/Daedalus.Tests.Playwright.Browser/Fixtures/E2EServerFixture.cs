@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.RateLimiting;
-using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
@@ -249,23 +248,7 @@ public class E2EServerFixture
 
             builder.Services.AddHttpClient();
 
-            // API versioning — matches production config so [ApiVersion] attributes are processed
-            builder.Services.AddApiVersioning(options =>
-            {
-                options.DefaultApiVersion = new ApiVersion(1, 0);
-                options.AssumeDefaultVersionWhenUnspecified = true;
-                options.ReportApiVersions = true;
-                options.ApiVersionReader = ApiVersionReader.Combine(
-                    new QueryStringApiVersionReader("api-version"),
-                    new HeaderApiVersionReader("x-api-version"),
-                    new UrlSegmentApiVersionReader());
-            });
-
-            // Controllers — load from the Api assembly
-            builder.Services.AddControllers()
-                .AddApplicationPart(typeof(Daedalus.Api.Program).Assembly);
-
-            // Minimal API endpoints beside the controllers, composed as Program.cs does.
+            // The minimal API endpoints, composed as Program.cs does.
             builder.Services.AddDaedalusEndpoints();
 
             // The console's live channel, as Program.cs wires it on a host with the engine on: the run hub's messages
@@ -277,7 +260,7 @@ public class E2EServerFixture
             builder.Services.AddSingleton<IWorkflowRunObserver>(sp => sp.GetRequiredService<WorkflowRunChangeBroadcaster>());
             builder.Services.AddHostedService(sp => sp.GetRequiredService<WorkflowRunChangeBroadcaster>());
 
-            // Rate limiter — required for [EnableRateLimiting] attributes on write endpoints
+            // Rate limiter — required for the RequireRateLimiting policies on write endpoints
             builder.Services.AddRateLimiter(options =>
             {
                 options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(_ =>
@@ -389,7 +372,6 @@ public class E2EServerFixture
             app.UseRateLimiter();
             app.UseAuthorization();
 
-            app.MapControllers();
             app.MapDaedalusEndpoints();
             app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path, options => options.CloseOnAuthenticationExpiration = true);
             app.MapHealthChecks("/health");

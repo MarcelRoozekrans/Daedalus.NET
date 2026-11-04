@@ -9,7 +9,7 @@ namespace Daedalus.Tests.Integration.Api;
 
 /// <summary>
 ///     Pins the 400 response shape for <c>POST /api/tasks</c> across phase 1.7's ZeroAlloc.Validation
-///     migration. <c>Daedalus.Api.Middleware.ZeroAllocValidationFilter</c> wraps
+///     migration. <c>Daedalus.Api.Endpoints.ZeroAllocValidationEndpointFilter</c>, MVC's filter's successor, wraps
 ///     <c>Daedalus.Application.DTOs.CreateTaskDtoValidator</c>'s failures into an RFC 7807
 ///     <see cref="ValidationProblemDetails"/> body; this test is the guard that the swap had to reproduce exactly —
 ///     status, <c>Title</c>, <c>Type</c>, and the per-property error messages keyed by property name — not merely

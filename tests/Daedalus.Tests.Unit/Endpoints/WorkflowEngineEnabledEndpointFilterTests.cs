@@ -2,16 +2,15 @@ using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Endpoints;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.Infrastructure;
-using Microsoft.Extensions.DependencyInjection;
 using static Daedalus.Tests.Unit.Endpoints.EndpointTestContext;
 
 namespace Daedalus.Tests.Unit.Endpoints;
 
 /// <summary>
 ///     <see cref="WorkflowEngineEnabledEndpointFilter"/> answers what MVC's resource filter on the workflow-runs
-///     controller answered: <c>ProblemDetailsFactory.CreateProblemDetails(503, detail: DisabledMessage)</c>, as the
-///     <c>application/json</c> of <see cref="WorkflowRunsEndpoints"/>' group.
+///     controller answered: MVC's factory problem for 503 with <c>DisabledMessage</c> as its detail, as the
+///     <c>application/json</c> of <see cref="WorkflowRunsEndpoints"/>' group. The literal members are pinned since MVC
+///     left the host; the case that compared them with MVC's factory went with it (R54).
 /// </summary>
 public sealed class WorkflowEngineEnabledEndpointFilterTests
 {
@@ -37,22 +36,6 @@ public sealed class WorkflowEngineEnabledEndpointFilterTests
         context.Response.ContentType.Should().Be(Json);
         // Red: a detail other than DisabledManufactureRunStarter.DisabledMessage, or a title set by the filter.
         AssertProblem(text, ServiceUnavailableType, "Service Unavailable", 503, detail: DisabledManufactureRunStarter.DisabledMessage);
-    }
-
-    [Fact]
-    public async Task Engine_disabled_problem_equals_the_mvc_attributes()
-    {
-        await using var services = Services(collection => collection.AddMvcCore());
-        var context = Create(services);
-        var filter = new WorkflowEngineEnabledEndpointFilter(new WorkflowConfig { Enabled = false });
-
-        var result = (ApiProblemResult)(await filter.InvokeAsync(new DefaultEndpointFilterInvocationContext(context),
-            _ => ValueTask.FromResult<object?>(null)))!;
-        var mvc = services.GetRequiredService<ProblemDetailsFactory>().CreateProblemDetails(
-            context, StatusCodes.Status503ServiceUnavailable, detail: DisabledManufactureRunStarter.DisabledMessage);
-
-        // Red: the 503 row of ApiProblem's table changed; the attribute's problem comes from MVC's factory.
-        result.ProblemDetails.Should().BeEquivalentTo(mvc);
     }
 
     [Fact]

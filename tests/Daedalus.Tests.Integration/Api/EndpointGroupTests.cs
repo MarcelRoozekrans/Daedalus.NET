@@ -1,7 +1,6 @@
 using Daedalus.Api.Endpoints;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Http.Metadata;
-using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Thalos;
@@ -29,8 +28,7 @@ public sealed class EndpointGroupTests(PostgresFixture fixture)
 
         var unguarded = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
-            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>() is null
-                && endpoint.RoutePattern.RawText?.TrimStart('/').StartsWith("api/", StringComparison.OrdinalIgnoreCase) == true
+            .Where(endpoint => endpoint.RoutePattern.RawText?.TrimStart('/').StartsWith("api/", StringComparison.OrdinalIgnoreCase) == true
                 && endpoint.Metadata.GetMetadata<DaedalusEndpointGroup>() is null)
             .Select(endpoint => endpoint.RoutePattern.RawText);
 
@@ -51,8 +49,7 @@ public sealed class EndpointGroupTests(PostgresFixture fixture)
 
         var minimal = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
-            .Where(endpoint => endpoint.Metadata.GetMetadata<ControllerActionDescriptor>() is null
-                && endpoint.RoutePattern.RawText?.TrimStart('/').StartsWith("api/", StringComparison.OrdinalIgnoreCase) == true)
+            .Where(endpoint => endpoint.RoutePattern.RawText?.TrimStart('/').StartsWith("api/", StringComparison.OrdinalIgnoreCase) == true)
             .ToList();
 
         var untagged = minimal
