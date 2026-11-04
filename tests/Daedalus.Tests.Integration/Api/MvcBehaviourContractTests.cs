@@ -143,7 +143,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody(body));
 
-        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
+        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in MapProjectsEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -169,7 +170,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody(body));
 
-        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
+        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in MapProjectsEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -304,13 +306,18 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             return;
         }
 
-        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
+        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options.
         //      Each refused case turns red: here, as a 500, where its action throws on the null member, and at the
-        //      member set below where its action or ZeroAllocValidationFilter answers its own 400.
+        //      member set below where its action or ZeroAllocValidationFilter answers its own 400. For the ported rows
+        //      (Projects, Prd, Brainstorm): ApiBody.BindAsync answering no problem for a missing required member, the
+        //      result of ApiBinding.ImplicitRequired dropped in place of ApiProblem.BindingProblem(context, required).
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: the case's controller [Produces("application/json")] changed to text/json; for CreateTaskDto, a
-        //      [Produces("application/json")] added to TasksController.
+        // Red: the ported case's group ProblemContentType.Json changed to ProblemJson in MapProjectsEndpoints,
+        //      MapPrdEndpoints and MapBrainstormEndpoints; for a case still on MVC, its controller's
+        //      [Produces("application/json")] changed to text/json, and for CreateTaskDto, a [Produces("application/json")]
+        //      added to TasksController.
         response.Content.Headers.ContentType!.ToString().Should().Be(@case.ContentType);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: @case.Required.ToDictionary(key => key, key => new[] { $"The {key.Split('.')[^1]} field is required." },
@@ -368,12 +375,11 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative),
             JsonBody("{\"projectName\":\"\",\"description\":\"d\",\"version\":\"v\"}"));
 
-        // Red: ZeroAllocValidationFilter answers its problem with UnprocessableEntityObjectResult, a 422.
+        // Red: ZeroAllocValidationEndpointFilter.ToProblem sets Status to 422 in place of 400.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in MapProjectsEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
-        // Red: an explicit DataAnnotations [Required] on CreateProjectDto.ProjectName; MVC then refuses the empty
-        //      string with its own problem, rfc9110 type, traceId and "The ProjectName field is required.".
+        // Red: ZeroAllocValidationEndpointFilter.ToProblem sets the rfc9110 400 type, in place of the rfc7231 one.
         await AssertProblemAsync(response, FilterBadRequestType, ValidationTitle, 400,
             detail: "Project name is required.",
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["ProjectName"] = ["Project name is required."] },
@@ -395,7 +401,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri(path, UriKind.Relative));
 
-        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
+        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: SchedulesEndpoints' or BrainstormEndpoints' ProblemContentType.Json changed to new ProblemContentType("text/json"); the row of that path fails.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -452,14 +459,13 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri($"/api/schedules/{Unknown}/runs{query}", UriKind.Relative));
 
-        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
+        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: SchedulesEndpoints' ProblemContentType.Json changed to ProblemContentType.ProblemJson.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
-        // Red: set ModelBindingMessageProvider's ValueMustNotBeNull and NonPropertyAttemptedValueIsInvalid accessors in
-        //      AddControllers' options; the empty and the repeated case turn red. Inserting first in ModelBinderProviders
-        //      a provider whose int binder uses int.TryParse and writes its own message turns every case red, the two
-        //      "input was not valid" ones included.
+        // Red: ApiQuery.BindAsync's "is invalid." and "is not valid." texts swapped; the empty and the repeated case
+        //      turn red. QueryValue.Parse ignoring HexDigitsAfterPrefix turns the two "input was not valid" cases red.
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["take"] = [message] });
     }
@@ -476,7 +482,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri("/api/brainstorm/sessions?projectId=", UriKind.Relative));
 
-        // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
+        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: BrainstormEndpoints' ProblemContentType.Json changed to new ProblemContentType("text/json").
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -508,10 +515,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), RawBody(ProjectBody, contentType));
 
-        // Red: insert first in AddControllers' InputFormatters an IInputFormatter whose CanRead is always true and
-        //      that deserializes the body as web JSON; every case then binds and answers 201 or its own 400. Adding
-        //      text/plain and Latin-1 to the JSON formatter's SupportedMediaTypes and SupportedEncodings turns the
-        //      text/plain and Latin-1 cases red on their own.
+        // Red: ApiBinding.TrySelectEncoding's fallback arm `_ => null!` changed to Encoding.UTF8; the charset cases of
+        //      the Projects rows then answer 201. For the tasks row, still on MVC: insert first in AddControllers'
+        //      InputFormatters an IInputFormatter whose CanRead is always true and that deserializes the body as web JSON.
         response.StatusCode.Should().Be(HttpStatusCode.UnsupportedMediaType, await response.Content.ReadAsStringAsync());
         // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in MapProjectsEndpoints, and a
         //      [Produces("application/json")] added to TasksController.
@@ -536,8 +542,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), content);
 
-        // Red: clear the JSON input formatter's SupportedEncodings in AddControllers' options, and both are refused
-        //      with 415; or insert a formatter first that reads every body as UTF-8, and the ucs-2 case turns red.
+        // Red: ApiBinding.TrySelectEncoding without its utf-16 arm; the ucs-2 case is then refused with 415. Clearing the
+        //      quote removal of the charset in the same method turns the quoted utf-8 case red.
         response.StatusCode.Should().Be(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
     }
 
@@ -624,7 +630,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: return Error("x", 410) instead of TypedResults.Ok for a found project in ProjectsEndpoints.GetProjectById.
         response.StatusCode.Should().Be(HttpStatusCode.OK, text);
-        // Red: AddControllers().AddJsonOptions setting DefaultIgnoreCondition to WhenWritingNull in Program.cs.
+        // Red: DefaultIgnoreCondition set to WhenWritingNull on the Http JsonOptions in AddDaedalusEndpoints.
         text.Should().Contain("\"modifiedAt\":null");
     }
 
@@ -683,10 +689,11 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         response.StatusCode.Should().Be(HttpStatusCode.Created, text);
         using var document = JsonDocument.Parse(text);
         var id = document.RootElement.GetProperty(idMember).GetString();
-        // Red: per case, each changing one thing MVC writes. The tasks case turns red with Created and a relative
-        //      "/api/Tasks/{id}" in place of CreatedAtAction in TasksController.CreateTask, and the projects,
-        //      repositories and codeanalysis cases with a lower-case [Route] in place of api/[controller] on their
-        //      controllers. The agent-sessions case turns red with "Sessions/{sessionId}" as the template of
+        // Red: per case, each changing one thing the Location has. The projects case turns red with the lower-case
+        //      "/api/projects/{id}" in place of "/api/Projects/{id}" in ProjectsEndpoints.CreateProject. The tasks case
+        //      turns red with Created and a relative "/api/Tasks/{id}" in place of CreatedAtAction in
+        //      TasksController.CreateTask, and the repositories and codeanalysis cases with a lower-case [Route] in
+        //      place of api/[controller] on their controllers. The agent-sessions case turns red with "Sessions/{sessionId}" as the template of
         //      AgentSessionsController.GetSession, the workflow-runs case with Created and a relative path in
         //      WorkflowRunsController.Start, and the manufacture case with an absolute http://localhost URI in
         //      TasksController.Manufacture's Created.
@@ -709,7 +716,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: return Error("x", 410) instead of TypedResults.Ok in ProjectsEndpoints.GetAllProjects.
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
-        // Red: AddApiVersioning(...).AddMvc() in Program.cs; ReportApiVersions then writes the header.
+        // Red: an endpoint filter in MapApiGroup that sets the api-supported-versions header to 1.0.
         response.Headers.Contains("api-supported-versions").Should().BeFalse();
     }
 
@@ -735,8 +742,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var versioned = await client.SendAsync(request);
 
         // Status, Content-Type and body in one line each, so a difference in any of them shows in the message.
-        // Red: AddApiVersioning(...).AddMvc() in Program.cs; 2.0 is then refused with a 400 UnsupportedApiVersion
-        //      problem.
+        // Red: an endpoint filter in MapApiGroup that answers ApiProblem.Of 400 for api-version 2.0, in the query or
+        //      in x-api-version; the versioned answer then differs from the plain one.
         (await Answer(versioned)).Should().Be(await Answer(plain));
         // Red: return Error("x", 410) instead of TypedResults.Ok in ProjectsEndpoints.GetAllProjects; the plain answer, which the
         //      line above compares with, is then no 200.
@@ -757,7 +764,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.SendAsync(request);
 
-        // Red: options.ReturnHttpNotAcceptable = true in AddControllers; the answer is then 406.
+        // Red: an endpoint filter in MapApiGroup that answers ApiProblem.Of 406 when Accept names application/xml.
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         // Red: GetAllProjects widened to return TypedResults.Content with application/xml when the request accepts it.
         //      AddXmlSerializerFormatters with that [Produces] removed was tried on MVC and stays green: MVC still
@@ -1008,7 +1015,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         }
 
         // Red: CustomizeProblemDetails sets every problem's Title to "x"; for the filter's shape, the
-        //      ZeroAllocValidationFilter's Title changed.
+        //      ZeroAllocValidationFilter's or ZeroAllocValidationEndpointFilter.ToProblem's Title changed.
         root.EnumerateObject()
             .Where(member => member.Name is not ("errors" or "traceId"))
             .Select(member => member.Name + "=" + member.Value.GetRawText())
@@ -1026,7 +1033,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
                 .Select(error => error.Key + "=" + JsonSerializer.Serialize(error.Value, MvcEscaping))
                 .Order(StringComparer.Ordinal);
             // Red: CustomizeProblemDetails adds an "x" key to every ValidationProblemDetails' Errors; for the
-            //      filter's shape, ZeroAllocValidationFilter adds the same key to its errors.
+            //      filter's shape, ZeroAllocValidationFilter or ZeroAllocValidationEndpointFilter.ToProblem adds the
+            //      same key to its errors.
             actualErrors.Should().Equal(expectedErrors, text);
         }
 
@@ -1044,9 +1052,10 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     {
         var text = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(text);
-        // Red: an extra member in the not-found anonymous object of the controller under test.
+        // Red: an extra member in the not-found anonymous object of TasksController, or a member added to ErrorBody for
+        //      the Projects row.
         document.RootElement.EnumerateObject().Select(member => member.Name).Should().Equal(["error"], text);
-        // Red: the not-found message changed in the controller under test.
+        // Red: the not-found message changed in TasksController.GetTaskById, or in ProjectsEndpoints.ProjectNotFound.
         document.RootElement.GetProperty("error").GetString().Should().Be(message);
     }
 
