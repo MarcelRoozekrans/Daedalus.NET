@@ -1,4 +1,6 @@
-using Daedalus.Api.Controllers;
+using System.Text;
+using System.Text.Json;
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Commands.CreateProject;
 using Daedalus.Application.Commands.DeleteProject;
@@ -8,8 +10,11 @@ using Daedalus.Application.Services;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.AspNetCore.Mvc;
+using Daedalus.Tests.Shared;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using ZeroAlloc.Results;
@@ -18,15 +23,14 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Controllers;
 
 /// <summary>
-///     Integration tests for ProjectsController HTTP endpoints.
+///     Integration tests for ProjectsEndpoints handlers.
 ///     Tests request handling, response status codes, and DTO mapping with real PostgreSQL database.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
-public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
+public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private readonly IApplicationCommands _commandsMock = Substitute.For<IApplicationCommands>();
-    private readonly ILogger<ProjectsController> _loggerMock = Substitute.For<ILogger<ProjectsController>>();
-    private ProjectsController _controller = null!;
+    private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private ApplicationDbContext _dbContext = null!;
     private IProjectQueryService _projectQueryService = null!;
 
@@ -39,7 +43,6 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         _dbContext = new ApplicationDbContext(options);
 
         _projectQueryService = new ProjectQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
-        _controller = new ProjectsController(_projectQueryService, _commandsMock, _loggerMock);
     }
 
     public async Task DisposeAsync()
@@ -56,11 +59,11 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
     public async Task GetAllProjects_WithNoProjects_Returns200WithEmptyList()
     {
         // Act
-        var result = await _controller.GetAllProjects();
+        var result = (await GetAllProjects()).Result;
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
+        result.Should().BeOfType<Ok<PagedResultDto<ProjectDto>>>();
+        var okResult = (Ok<PagedResultDto<ProjectDto>>)result;
         okResult.StatusCode.Should().Be(200);
 
         var pagedResult = okResult.Value as PagedResultDto<ProjectDto>;
@@ -78,11 +81,11 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetAllProjects();
+        var result = (await GetAllProjects()).Result;
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
+        result.Should().BeOfType<Ok<PagedResultDto<ProjectDto>>>();
+        var okResult = (Ok<PagedResultDto<ProjectDto>>)result;
         var pagedResult = okResult.Value as PagedResultDto<ProjectDto>;
         pagedResult.Should().NotBeNull();
         pagedResult!.Items.Should().HaveCount(2);
@@ -101,16 +104,16 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result1 = await _controller.GetAllProjects(1, 5);
-        var result2 = await _controller.GetAllProjects(2, 5);
+        var result1 = (await GetAllProjects("?page=1&pageSize=5")).Result;
+        var result2 = (await GetAllProjects("?page=2&pageSize=5")).Result;
 
         // Assert
-        var okResult1 = (OkObjectResult)result1;
+        var okResult1 = (Ok<PagedResultDto<ProjectDto>>)result1;
         var page1 = okResult1.Value as PagedResultDto<ProjectDto>;
         page1!.Items.Should().HaveCount(5);
         page1.Page.Should().Be(1);
 
-        var okResult2 = (OkObjectResult)result2;
+        var okResult2 = (Ok<PagedResultDto<ProjectDto>>)result2;
         var page2 = okResult2.Value as PagedResultDto<ProjectDto>;
         page2!.Items.Should().HaveCount(5);
         page2.Page.Should().Be(2);
@@ -125,10 +128,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetAllProjects();
+        var result = (await GetAllProjects()).Result;
 
         // Assert
-        var okResult = (OkObjectResult)result;
+        var okResult = (Ok<PagedResultDto<ProjectDto>>)result;
         var pagedResult = okResult.Value as PagedResultDto<ProjectDto>;
         pagedResult!.Items[0].ProjectName.Should().Be("Alpha Project");
         pagedResult.Items[1].ProjectName.Should().Be("Zebra Project");
@@ -147,10 +150,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetAllProjects();
+        var result = (await GetAllProjects()).Result;
 
         // Assert
-        var okResult = (OkObjectResult)result;
+        var okResult = (Ok<PagedResultDto<ProjectDto>>)result;
         var pagedResult = okResult.Value as PagedResultDto<ProjectDto>;
         var projectDto = pagedResult!.Items.Single(p => p.Id == projectId);
         projectDto.Tasks.Should().HaveCount(2);
@@ -169,11 +172,11 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetProjectById(projectId);
+        var result = (await ProjectsEndpoints.GetProjectById(projectId, _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
+        result.Should().BeOfType<Ok<ProjectDto>>();
+        var okResult = (Ok<ProjectDto>)result;
         okResult.StatusCode.Should().Be(200);
 
         var projectDto = okResult.Value as ProjectDto;
@@ -186,12 +189,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
     public async Task GetProjectById_WithInvalidId_Returns404()
     {
         // Act
-        var result = await _controller.GetProjectById(Guid.NewGuid());
+        var result = (await ProjectsEndpoints.GetProjectById(Guid.NewGuid(), _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<NotFoundObjectResult>();
-        var notFoundResult = (NotFoundObjectResult)result;
-        notFoundResult.StatusCode.Should().Be(404);
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     [Fact(Timeout = 5000)]
@@ -204,10 +205,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetProjectById(projectId);
+        var result = (await ProjectsEndpoints.GetProjectById(projectId, _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
 
         // Assert
-        var okResult = (OkObjectResult)result;
+        var okResult = (Ok<ProjectDto>)result;
         var projectDto = okResult.Value as ProjectDto;
         projectDto!.Version.Should().NotBeNull();
         projectDto.CreatedAt.Should().NotBe(default);
@@ -230,11 +231,11 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetProjectWithTasks(projectId);
+        var result = (await ProjectsEndpoints.GetProjectWithTasks(projectId, _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
+        result.Should().BeOfType<Ok<ProjectDto>>();
+        var okResult = (Ok<ProjectDto>)result;
         var projectDto = okResult.Value as ProjectDto;
         projectDto!.Id.Should().Be(projectId);
         projectDto.Tasks.Should().HaveCount(2);
@@ -249,10 +250,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetProjectWithTasks(projectId);
+        var result = (await ProjectsEndpoints.GetProjectWithTasks(projectId, _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
 
         // Assert
-        var okResult = (OkObjectResult)result;
+        var okResult = (Ok<ProjectDto>)result;
         var projectDto = okResult.Value as ProjectDto;
         projectDto!.Tasks.Should().BeEmpty();
     }
@@ -261,10 +262,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
     public async Task GetProjectWithTasks_WithInvalidId_Returns404()
     {
         // Act
-        var result = await _controller.GetProjectWithTasks(Guid.NewGuid());
+        var result = (await ProjectsEndpoints.GetProjectWithTasks(Guid.NewGuid(), _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<NotFoundObjectResult>();
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     #endregion
@@ -285,11 +286,11 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result<ProjectDto>.Success(expectedDto));
 
         // Act
-        var result = await _controller.CreateProject(request);
+        var result = (await ProjectsEndpoints.CreateProject(await BindCreate(request), CreateContext(), _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<CreatedAtActionResult>();
-        var createdResult = (CreatedAtActionResult)result;
+        result.Should().BeOfType<Created<ProjectDto>>();
+        var createdResult = (Created<ProjectDto>)result;
         createdResult.StatusCode.Should().Be(201);
         var projectDto = createdResult.Value as ProjectDto;
         projectDto!.ProjectName.Should().Be("New Project");
@@ -306,10 +307,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result<ProjectDto>.Failure("Project name is required"));
 
         // Act
-        var result = await _controller.CreateProject(request);
+        var result = (await ProjectsEndpoints.CreateProject(await BindCreate(request), CreateContext(), _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
     }
 
     [Fact(Timeout = 5000)]
@@ -328,10 +329,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result<ProjectDto>.Success(expectedDto));
 
         // Act
-        var result = await _controller.CreateProject(request);
+        var result = (await ProjectsEndpoints.CreateProject(await BindCreate(request), CreateContext(), _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        var createdResult = (CreatedAtActionResult)result;
+        var createdResult = (Created<ProjectDto>)result;
         var projectDto = createdResult.Value as ProjectDto;
         projectDto!.RepositoryUrl.Should().Be("https://github.com/org/repo");
         projectDto.DefaultBranch.Should().Be("develop");
@@ -356,11 +357,11 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result<ProjectDto>.Success(expectedDto));
 
         // Act
-        var result = await _controller.UpdateProject(projectId, request);
+        var result = (await ProjectsEndpoints.UpdateProject(projectId, await BindUpdate(request), _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
+        result.Should().BeOfType<Ok<ProjectDto>>();
+        var okResult = (Ok<ProjectDto>)result;
         var projectDto = okResult.Value as ProjectDto;
         projectDto!.ProjectName.Should().Be("Updated Name");
     }
@@ -377,10 +378,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result<ProjectDto>.Failure($"Project with ID {projectId} not found"));
 
         // Act
-        var result = await _controller.UpdateProject(projectId, request);
+        var result = (await ProjectsEndpoints.UpdateProject(projectId, await BindUpdate(request), _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<NotFoundObjectResult>();
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     [Fact(Timeout = 5000)]
@@ -395,10 +396,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result<ProjectDto>.Failure("Project name is required"));
 
         // Act
-        var result = await _controller.UpdateProject(projectId, request);
+        var result = (await ProjectsEndpoints.UpdateProject(projectId, await BindUpdate(request), _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
     }
 
     #endregion
@@ -416,10 +417,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result.Success());
 
         // Act
-        var result = await _controller.DeleteProject(projectId);
+        var result = (await ProjectsEndpoints.DeleteProject(projectId, _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<NoContentResult>();
+        result.Should().BeOfType<NoContent>();
     }
 
     [Fact(Timeout = 5000)]
@@ -433,10 +434,10 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result.Failure($"Project with ID {projectId} not found"));
 
         // Act
-        var result = await _controller.DeleteProject(projectId);
+        var result = (await ProjectsEndpoints.DeleteProject(projectId, _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<NotFoundObjectResult>();
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 
     [Fact(Timeout = 5000)]
@@ -450,11 +451,54 @@ public class ProjectsControllerIntegrationTests(PostgresFixture fixture) : IAsyn
             .Returns(Result.Failure("Cannot delete project with active tasks"));
 
         // Act
-        var result = await _controller.DeleteProject(projectId);
+        var result = (await ProjectsEndpoints.DeleteProject(projectId, _commandsMock, CancellationToken.None)).Result;
 
         // Assert
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
     }
 
     #endregion
+
+    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
+
+    private async Task<Results<Ok<PagedResultDto<ProjectDto>>, ApiJsonResult<ErrorBody>>> GetAllProjects(string queryString = "")
+    {
+        var (page, pageSize) = await PagingQueryBinding.BindAsync(new DefaultHttpContext(), queryString);
+        return await ProjectsEndpoints.GetAllProjects(page, pageSize, _projectQueryService, _loggerFactory, CancellationToken.None);
+    }
+
+    private static DefaultHttpContext CreateContext(string? body = null)
+    {
+        var services = new ServiceCollection().AddLogging().AddDaedalusEndpoints().BuildServiceProvider();
+        var context = new DefaultHttpContext { RequestServices = services };
+        context.Request.Scheme = "http";
+        context.Request.Host = new HostString("localhost");
+        if (body is not null)
+        {
+            var bytes = Encoding.UTF8.GetBytes(body);
+            context.Request.Method = HttpMethods.Post;
+            context.Request.ContentType = "application/json";
+            context.Request.ContentLength = bytes.Length;
+            context.Request.Body = new MemoryStream(bytes);
+        }
+
+        return context;
+    }
+
+    private static Task<ApiBody<CreateProjectDto>> BindCreate(CreateProjectDto request) => Bind<CreateProjectDto>(request);
+
+    private static Task<ApiBody<UpdateProjectDto>> BindUpdate(UpdateProjectDto request) => Bind<UpdateProjectDto>(request);
+
+    /// <summary>Binds <paramref name="dto"/> as the request delegate binds the body, through its JSON text.</summary>
+    private static async Task<ApiBody<T>> Bind<T>(T dto)
+        where T : class
+    {
+        var context = CreateContext(JsonSerializer.Serialize(dto, WebJson));
+        var parameter = typeof(ProjectsEndpoints).GetMethods().SelectMany(method => method.GetParameters())
+            .First(p => p.ParameterType == typeof(ApiBody<T>));
+        return await BindVia<ApiBody<T>>(context, parameter);
+    }
+
+    private static async Task<TSelf> BindVia<TSelf>(HttpContext context, System.Reflection.ParameterInfo parameter)
+        where TSelf : class, IBindableFromHttpContext<TSelf> => (await TSelf.BindAsync(context, parameter))!;
 }

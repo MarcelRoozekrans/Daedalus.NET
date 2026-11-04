@@ -970,7 +970,7 @@ references `IMediator` directly. Two `internal` classes inside
 `Services/ApplicationCommands.cs` and `Services/PrdService.cs` — and
 everything outside the assembly (controllers included) depends on the public
 facade `IApplicationCommands` (`src/Daedalus.Application/Abstractions/IApplicationCommands.cs`)
-instead. `TasksController` and `ProjectsController` are the current
+instead. `TasksController` and `ProjectsEndpoints` are the current
 consumers.
 
 ## Validation — explicit registration, not `ZeroAlloc.Validation.Inject`

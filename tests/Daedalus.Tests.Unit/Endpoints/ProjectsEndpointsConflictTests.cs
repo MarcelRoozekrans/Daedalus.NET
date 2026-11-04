@@ -1,19 +1,15 @@
-using Daedalus.Api.Controllers;
-using Daedalus.Api.Services;
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.AspNetCore.Http;
+using ZeroAlloc.Results;
 
-namespace Daedalus.Tests.Unit.Controllers;
+namespace Daedalus.Tests.Unit.Endpoints;
 
 /// <summary>Amendment A7: a project delete refused for a live task run is 409, not 400.</summary>
-public sealed class ProjectsControllerConflictTests
+public sealed class ProjectsEndpointsConflictTests
 {
     private readonly IApplicationCommands _commands = Substitute.For<IApplicationCommands>();
-
-    private ProjectsController Controller() =>
-        new(Substitute.For<IProjectQueryService>(), _commands, NullLogger<ProjectsController>.Instance);
 
     /// <summary>Red: drop the <c>IsConflict</c> check in <c>DeleteProject</c>; the result is 400.</summary>
     [Fact]
@@ -22,9 +18,10 @@ public sealed class ProjectsControllerConflictTests
         _commands.DeleteProjectAsync(default, default).ReturnsForAnyArgs(
             Result.Failure(TaskRunGuard.LiveRunPrefix + ": task T-1's run x is Running."));
 
-        var result = await Controller().DeleteProject(Guid.NewGuid());
+        var result = await ProjectsEndpoints.DeleteProject(Guid.NewGuid(), _commands, CancellationToken.None);
 
-        result.Should().BeOfType<ConflictObjectResult>();
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
+        json.StatusCode.Should().Be(StatusCodes.Status409Conflict);
     }
 
     /// <summary>Red: map every failure to 409; a missing project stops answering 404.</summary>
@@ -33,8 +30,9 @@ public sealed class ProjectsControllerConflictTests
     {
         _commands.DeleteProjectAsync(default, default).ReturnsForAnyArgs(Result.Failure("Project x not found"));
 
-        var result = await Controller().DeleteProject(Guid.NewGuid());
+        var result = await ProjectsEndpoints.DeleteProject(Guid.NewGuid(), _commands, CancellationToken.None);
 
-        result.Should().BeOfType<NotFoundObjectResult>();
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
+        json.StatusCode.Should().Be(StatusCodes.Status404NotFound);
     }
 }

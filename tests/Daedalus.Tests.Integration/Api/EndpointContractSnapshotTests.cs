@@ -66,9 +66,9 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     /// </summary>
     private const string ProblemContentTypeName = "ProblemContentType";
 
-    // Red: removing [EnableRateLimiting("write-operations")] from ProjectsController.CreateProject failed with
+    // Red: removing .RequireRateLimiting("write-operations") from the CreateProject route failed with
     //      "- POST api/projects | ... | rate write-operations | ..." and "+ POST api/projects | ... | rate - | ...".
-    // Red: changing ProjectsController.DeleteProject's Policy = "ProjectManagement" to "ProjectRead" failed with
+    // Red: changing the DeleteProject route's policy "ProjectManagement" to "ProjectRead" failed with
     //      "- DELETE api/projects/{id:guid} | auth ProjectManagement,authenticated | ..." and
     //      "+ DELETE api/projects/{id:guid} | auth ProjectRead,authenticated | ...".
     // Red: a blank line appended to the output copy of the snapshot failed with the whitespace-only message.

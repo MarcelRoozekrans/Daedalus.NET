@@ -145,7 +145,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: ProjectsController's [Produces("application/json")] changed to text/json.
+        // Red: the ProjectsEndpoints group's ProblemContentType.Json changed to a ProblemContentType with text/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -171,7 +171,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: ProjectsController's [Produces("application/json")] changed to text/json.
+        // Red: the ProjectsEndpoints group's ProblemContentType.Json changed to a ProblemContentType with text/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -370,7 +370,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: ZeroAllocValidationFilter answers its problem with UnprocessableEntityObjectResult, a 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: ProjectsController's [Produces("application/json")] changed to text/json.
+        // Red: the ProjectsEndpoints group's ProblemContentType.Json changed to a ProblemContentType with text/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         // Red: an explicit DataAnnotations [Required] on CreateProjectDto.ProjectName; MVC then refuses the empty
         //      string with its own problem, rfc9110 type, traceId and "The ProjectName field is required.".
@@ -492,7 +492,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         //      text/plain and Latin-1 to the JSON formatter's SupportedMediaTypes and SupportedEncodings turns the
         //      text/plain and Latin-1 cases red on their own.
         response.StatusCode.Should().Be(HttpStatusCode.UnsupportedMediaType, await response.Content.ReadAsStringAsync());
-        // Red: ProjectsController's [Produces("application/json")] changed to text/json, and a
+        // Red: the ProjectsEndpoints group's ProblemContentType.Json changed to a ProblemContentType with text/json, and a
         //      [Produces("application/json")] added to TasksController.
         response.Content.Headers.ContentType!.ToString().Should().Be(expectedContentType);
         await AssertProblemAsync(response, "https://tools.ietf.org/html/rfc9110#section-15.5.16", "Unsupported Media Type", 415);
@@ -554,10 +554,10 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.SendAsync(request);
 
         // Red: return StatusCode(410) instead of NotFound for an unknown task in TasksController.GetTaskById and
-        //      ProjectsController.GetProjectById, and status 410 in TasksController.Manufacture's TaskNotFound
+        //      ProjectsEndpoints.GetProjectById, and status 410 in TasksController.Manufacture's TaskNotFound
         //      branch; for the stream, the 422 InvalidModelStateResponseFactory.
         response.StatusCode.Should().Be(status, await response.Content.ReadAsStringAsync());
-        // Red: a [Produces("application/json")] added to TasksController turns tasks-problem; ProjectsController's
+        // Red: a [Produces("application/json")] added to TasksController turns tasks-problem; the ProjectsEndpoints group's
         //      Produces changed to text/json turns projects-error-body; a [Produces("text/json")] on TasksController
         //      turns tasks-error-body; the stream action's [Produces("text/event-stream")] removed turns
         //      stream-problem application/json.
@@ -601,7 +601,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.GetAsync(new Uri($"/api/projects/{id}", UriKind.Relative));
         var text = await response.Content.ReadAsStringAsync();
 
-        // Red: return StatusCode(410) instead of Ok for a found project in ProjectsController.GetProjectById.
+        // Red: return TypedResults.StatusCode(410) instead of Ok for a found project in ProjectsEndpoints.GetProjectById.
         response.StatusCode.Should().Be(HttpStatusCode.OK, text);
         // Red: AddControllers().AddJsonOptions setting DefaultIgnoreCondition to WhenWritingNull in Program.cs.
         text.Should().Contain("\"modifiedAt\":null");
@@ -686,7 +686,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri("/api/projects", UriKind.Relative));
 
-        // Red: return StatusCode(410) instead of Ok in ProjectsController.GetAllProjects.
+        // Red: return TypedResults.StatusCode(410) instead of Ok in ProjectsEndpoints.GetAllProjects.
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         // Red: AddApiVersioning(...).AddMvc() in Program.cs; ReportApiVersions then writes the header.
         response.Headers.Contains("api-supported-versions").Should().BeFalse();
@@ -717,7 +717,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         // Red: AddApiVersioning(...).AddMvc() in Program.cs; 2.0 is then refused with a 400 UnsupportedApiVersion
         //      problem.
         (await Answer(versioned)).Should().Be(await Answer(plain));
-        // Red: return StatusCode(410) instead of Ok in ProjectsController.GetAllProjects; the plain answer, which the
+        // Red: return TypedResults.StatusCode(410) instead of Ok in ProjectsEndpoints.GetAllProjects; the plain answer, which the
         //      line above compares with, is then no 200.
         plain.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -738,7 +738,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: options.ReturnHttpNotAcceptable = true in AddControllers; the answer is then 406.
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
-        // Red: ProjectsController's [Produces("application/json")] changed to text/json. AddXmlSerializerFormatters
+        // Red: the ProjectsEndpoints group's ProblemContentType.Json changed to a ProblemContentType with text/json. AddXmlSerializerFormatters
         //      with that [Produces] removed was tried and stays green: MVC still answers this page as JSON.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
     }
@@ -757,7 +757,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody("{}"));
 
-        // Red: [AllowAnonymous] on ProjectsController.CreateProject; the binding 400 then answers.
+        // Red: .AllowAnonymous() on the CreateProject route in MapProjectsEndpoints; the binding 400 then answers.
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, await response.Content.ReadAsStringAsync());
     }
 
@@ -782,7 +782,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var refused = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody("{}"));
 
-        // Red: [EnableRateLimiting("write-operations")] removed from ProjectsController.CreateProject; the
+        // Red: .RequireRateLimiting("write-operations") removed from the CreateProject route in MapProjectsEndpoints; the
         //      request is then the binding 400.
         refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests, await refused.Content.ReadAsStringAsync());
         // Red: OnRejected sets "application/problem+json; charset=utf-8".
@@ -936,7 +936,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     {
         using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody(ProjectBody));
         var text = await response.Content.ReadAsStringAsync();
-        // Red: return Ok instead of CreatedAtAction in ProjectsController.CreateProject.
+        // Red: return TypedResults.Ok instead of TypedResults.Created in ProjectsEndpoints.CreateProject.
         response.StatusCode.Should().Be(HttpStatusCode.Created, text);
         using var document = JsonDocument.Parse(text);
         return document.RootElement.GetProperty("id").GetGuid();

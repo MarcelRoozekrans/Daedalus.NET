@@ -147,7 +147,7 @@ public sealed class ZeroAllocValidationEndpointFilterTests
         //      client-error problem.
         context.Response.StatusCode.Should().Be(StatusCodes.Status415UnsupportedMediaType);
         // Red: answer the 415 with TypedResults.Problem, which ignores the group's ProblemContentType; MVC's 415 on
-        //      ProjectsController is application/json, Unreadable_body_answers_415_problem.
+        //      Projects is application/json, Unreadable_body_answers_415_problem.
         context.Response.ContentType.Should().Be(Json);
         AssertProblem(text, UnsupportedMediaTypeType, "Unsupported Media Type", 415);
         next.Called.Should().BeFalse();
