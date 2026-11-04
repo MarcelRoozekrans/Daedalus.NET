@@ -1,4 +1,5 @@
 using System.Collections;
+using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
@@ -145,7 +146,9 @@ public sealed class ApiBody<T> : IApiBinding, IBindableFromHttpContext<ApiBody<T
 ///     MVC's query value provider.
 /// </summary>
 /// <remarks>
-///     Absent, it binds <c>default</c> with no problem and <see cref="HasValue"/> false, and the handler supplies the
+///     A parameter marked <c>[Required]</c> (DataAnnotations) is refused when absent, or sent empty or blank as a
+///     <c>string</c>, with MVC's "The {name} field is required." for a non-nullable reference parameter; the problem
+///     merges with the other parameters' in argument order. Absent otherwise, it binds <c>default</c> with no problem and <see cref="HasValue"/> false, and the handler supplies the
 ///     controller parameter's default through <see cref="ValueOr"/>: <c>take.ValueOr(20)</c> stands for MVC's
 ///     <c>int take = 20</c>, since a handler parameter of this type cannot default to 20 (ruling R30). Sent but
 ///     unparsable, its problem is "The
@@ -187,9 +190,10 @@ public sealed class ApiQuery<T> : IApiBinding, IBindableFromHttpContext<ApiQuery
         ArgumentNullException.ThrowIfNull(parameter);
 
         var name = parameter.Name ?? string.Empty;
+        var required = parameter.IsDefined(typeof(RequiredAttribute), inherit: false);
         if (!context.Request.Query.TryGetValue(name, out var values) || values.Count == 0)
         {
-            return ValueTask.FromResult<ApiQuery<T>?>(new ApiQuery<T>(default!, false, null));
+            return ValueTask.FromResult<ApiQuery<T>?>(Unsent(context, name, required));
         }
 
         var raw = values[0];
@@ -199,7 +203,7 @@ public sealed class ApiQuery<T> : IApiBinding, IBindableFromHttpContext<ApiQuery
             // SimpleTypeModelBinder: an empty value is null; MVC's ConvertEmptyStringToNull makes a string null too,
             // and only a value type refuses it.
             bound = typeof(T) == typeof(string)
-                ? new ApiQuery<T>(default!, false, null)
+                ? Unsent(context, name, required)
                 : Refused(context, name, $"The value '{values}' is invalid.");
         }
         else
@@ -213,6 +217,17 @@ public sealed class ApiQuery<T> : IApiBinding, IBindableFromHttpContext<ApiQuery
         }
 
         return ValueTask.FromResult<ApiQuery<T>?>(bound);
+    }
+
+    /// <summary>No usable value: bound as absent, or refused with MVC's required message for a <c>[Required]</c> parameter.</summary>
+    private static ApiQuery<T> Unsent(HttpContext context, string name, bool required)
+    {
+        if (required)
+        {
+            return Refused(context, name, ApiBinding.Required(name));
+        }
+
+        return new ApiQuery<T>(default!, false, null);
     }
 
     private static ApiQuery<T> Refused(HttpContext context, string name, string message) =>

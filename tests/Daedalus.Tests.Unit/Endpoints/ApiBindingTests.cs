@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Reflection;
 using Daedalus.Api.Controllers;
@@ -346,6 +347,26 @@ public sealed class ApiBindingTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("?name=")]
+    [InlineData("?name=%20%20")]
+    public async Task Query_required_string_absent_empty_or_blank_is_refused_with_mvcs_required_message(string query)
+    {
+        await using var services = Services();
+        var context = Create(services);
+        context.Request.QueryString = new QueryString(query);
+
+        var name = await BindAsync<ApiQuery<string>>(context, Parameter(nameof(RequiredNameQuery)));
+        var optional = await BindAsync<ApiQuery<string>>(context, Parameter(nameof(OptionalNameQuery)));
+
+        // Red: BindAsync ignores RequiredAttribute, so the absent, empty and blank values bind with no problem.
+        name.Problem!.Errors.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new KeyValuePair<string, string[]>("name", ["The name field is required."]));
+        // Red: BindAsync refuses every absent string, required or not; the unmarked parameter then has a problem.
+        optional.Problem.Should().BeNull();
+    }
+
+    [Theory]
     [InlineData("?take=0x10", 16)]
     [InlineData("?take=%26H10", 16)]
     [InlineData("?take=%2310", 16)]
@@ -477,6 +498,10 @@ public sealed class ApiBindingTests
     private static void OptionalBody(ApiBody<CancelWorkflowRunRequest>? request = null) => _ = request;
 
     private static void TakeQuery(ApiQuery<int> take) => _ = take;
+
+    private static void RequiredNameQuery([Required] ApiQuery<string> name) => _ = name;
+
+    private static void OptionalNameQuery(ApiQuery<string> name) => _ = name;
 
     private static void ProjectIdQuery(ApiQuery<Guid> projectId) => _ = projectId;
 

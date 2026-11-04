@@ -870,6 +870,35 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { ["modelId"] = ["The modelId field is required."] });
     }
 
+    /// <summary>
+    ///     MVC holds every parameter's binding errors in one model state, so a missing <c>modelId</c> and a malformed
+    ///     <c>maxIterations</c> answer together, in parameter order (ruling R43).
+    /// </summary>
+    [Fact]
+    public async Task Estimate_without_a_model_id_and_with_a_malformed_value_answers_both_errors_in_parameter_order()
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "task-manager");
+
+        using var response = await client.GetAsync(new Uri("/api/cost-analytics/estimate?maxIterations=abc", UriKind.Relative));
+        var text = await response.Content.ReadAsStringAsync();
+
+        // Red: remove [Required] from the modelId parameter of EstimateCost; only maxIterations is reported.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, text);
+        using var document = JsonDocument.Parse(text);
+        document.RootElement.GetProperty("errors").EnumerateObject()
+            .Select(error => error.Name + "=" + error.Value.GetRawText())
+            .Should().Equal(
+                "modelId=[\"The modelId field is required.\"]",
+                "maxIterations=[\"The value 'abc' is not valid.\"]");
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["modelId"] = ["The modelId field is required."],
+                ["maxIterations"] = ["The value 'abc' is not valid."],
+            });
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------------------------

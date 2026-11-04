@@ -103,6 +103,10 @@ public static class ApiProblem
     ///     Writes <paramref name="problem"/> exactly as given, with its own <c>Status</c>, the endpoint's content type
     ///     and none of <see cref="Of"/>'s defaults: no <c>type</c>, no <c>traceId</c>. That is what MVC writes for an
     ///     action's explicit <c>NotFound(new ProblemDetails { ... })</c>, which its factory never touches (R43).
+    ///     The problem must carry its <c>Status</c>, as the status the response takes: a port sets it as MVC's
+    ///     <c>NotFound</c> or <c>BadRequest</c> did, and a problem without one throws <see cref="ArgumentException"/>.
+    ///     <see cref="Validation"/> does not delegate here: it answers 400 for a problem with no <c>Status</c> and
+    ///     leaves the body without one, which this method would refuse or change.
     /// </summary>
     public static ApiProblemResult AsGiven(HttpContext context, ProblemDetails problem)
     {

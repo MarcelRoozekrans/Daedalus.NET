@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -39,7 +40,6 @@ public static partial class CostAnalyticsEndpoints
 
         group.MapGet("estimate", EstimateCost)
             .RequireAuthorization("TaskRead")
-            .Produces<CostEstimateDto>()
             .ProducesProblem(StatusCodes.Status404NotFound, "application/json")
             .WithQueryParameter<string>("modelId")
             .WithQueryParameter("maxIterations", DefaultMaxIterations)
@@ -99,20 +99,14 @@ public static partial class CostAnalyticsEndpoints
 
     /// <summary>Estimate the cost of a planned run of up to <c>maxIterations</c> turns.</summary>
     /// <remarks>
-    ///     Returns <see cref="IResult"/> so the declared responses stay the controller's, 200 and a <c>ProblemDetails</c>
-    ///     404, with no 400 or 500 line added (R43). A missing or blank <c>modelId</c> is the 400 MVC's implicit required
-    ///     check answered for the non-nullable parameter.
+    ///     The union adds no metadata beyond the 200: <see cref="ApiProblemResult"/> and <see cref="JsonHttpResult{TValue}"/>
+    ///     declare nothing, so the 404 comes from <c>ProducesProblem</c> and the snapshot stays the controller's (R43).
+    ///     A missing or blank <c>modelId</c> is refused while binding, from <c>[Required]</c> (R43).
     /// </remarks>
-    public static async Task<IResult> EstimateCost(
-        ApiQuery<string> modelId, ApiQuery<int> maxIterations, ApiQuery<int> estimatedPromptTokens, HttpContext context,
+    public static async Task<Results<Ok<CostEstimateDto>, ApiProblemResult, JsonHttpResult<ErrorBody>>> EstimateCost(
+        [Required] ApiQuery<string> modelId, ApiQuery<int> maxIterations, ApiQuery<int> estimatedPromptTokens, HttpContext context,
         [FromServices] ICostAnalyticsService costService, [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
     {
-        if (!modelId.HasValue)
-        {
-            return ApiProblem.Validation(context, ApiProblem.BindingProblem(context,
-                new Dictionary<string, string[]>(StringComparer.Ordinal) { ["modelId"] = [ApiBinding.Required("modelId")] }));
-        }
-
         try
         {
             var result = await costService.EstimateCostAsync(
@@ -121,14 +115,17 @@ public static partial class CostAnalyticsEndpoints
                 estimatedPromptTokens.ValueOr(DefaultEstimatedPromptTokens),
                 ct);
 
-            return result.IsFailure
-                ? ApiProblem.AsGiven(context, new ProblemDetails
+            if (result.IsFailure)
+            {
+                return ApiProblem.AsGiven(context, new ProblemDetails
                 {
                     Title = "Not Found",
                     Detail = result.Error,
                     Status = StatusCodes.Status404NotFound,
-                })
-                : TypedResults.Ok(result.Value);
+                });
+            }
+
+            return TypedResults.Ok(result.Value);
         }
         catch (Exception ex)
         {

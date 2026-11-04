@@ -41,7 +41,7 @@ public sealed class CostAnalyticsEndpointsTests
 
         // Red: delete the IsFailure branch in EstimateCost, so the failure falls through to the Ok answer
         //      and the handler answers a 200 with a null body in place of the problem.
-        var problem = result.Should().BeOfType<ApiProblemResult>().Subject;
+        var problem = result.Result.Should().BeOfType<ApiProblemResult>().Subject;
         // Red: answer StatusCodes.Status410Gone in place of 404 in EstimateCost's failure branch.
         problem.StatusCode.Should().Be(StatusCodes.Status404NotFound);
         // Red: ProblemDetails.Detail set to a constant in place of result.Error.
@@ -75,7 +75,7 @@ public sealed class CostAnalyticsEndpointsTests
             modelId, maxIterations, promptTokens, context, _service, Substitute.For<ILoggerFactory>(), CancellationToken.None);
 
         // Red: invert the IsFailure check in EstimateCost; the success path answers the 404 problem.
-        result.Should().BeOfType<Ok<CostEstimateDto>>().Which.Value.Should().BeSameAs(estimate);
+        result.Result.Should().BeOfType<Ok<CostEstimateDto>>().Which.Value.Should().BeSameAs(estimate);
     }
 
     [Fact]
@@ -114,27 +114,22 @@ public sealed class CostAnalyticsEndpointsTests
     [InlineData("")]
     [InlineData("?modelId=")]
     [InlineData("?modelId=%20%20")]
-    public async Task EstimateCost_WithoutAModelId_AnswersTheRequiredValidationProblem(string queryString)
+    public async Task EstimateCost_BindsAMissingModelIdAsTheRequiredProblem(string queryString)
     {
         await using var services = Services();
         var context = Create(services, ProblemContentType.Json);
-        var (modelId, maxIterations, promptTokens) = await BindEstimate(context, queryString);
 
-        var result = await CostAnalyticsEndpoints.EstimateCost(
-            modelId, maxIterations, promptTokens, context, _service, Substitute.For<ILoggerFactory>(), CancellationToken.None);
+        var (modelId, _, _) = await BindEstimate(context, queryString);
 
-        // Red: delete the `!modelId.HasValue` check in EstimateCost; the service is asked for a null model.
-        var problem = result.Should().BeOfType<ApiProblemResult>().Subject;
-        problem.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
-        // Red: key the error "ModelId" in place of "modelId" in EstimateCost.
-        var validation = problem.ProblemDetails.Should().BeOfType<ValidationProblemDetails>().Subject;
-        validation.Errors.Should().ContainSingle().Which.Should().BeEquivalentTo(
+        // Red: remove [Required] from the modelId parameter of EstimateCost; the parameter binds with no problem.
+        var problem = modelId.Problem.Should().NotBeNull().And.Subject.As<ValidationProblemDetails>();
+        // Red: key the error with "ModelId" in place of the parameter's name in ApiQuery.BindAsync.
+        problem.Errors.Should().ContainSingle().Which.Should().BeEquivalentTo(
             new KeyValuePair<string, string[]>("modelId", ["The modelId field is required."]));
-        // Red: ApiProblem.AsGiven in place of the binding problem, which drops the factory's type and traceId.
-        validation.Type.Should().Be(BadRequestType);
-        validation.Extensions.Should().ContainKey("traceId");
-        // Red: a service call placed before the check in EstimateCost.
-        await _service.DidNotReceiveWithAnyArgs().EstimateCostAsync(default!, default, default, default);
+        // Red: ApiProblem.BindingProblem sets Status 422 in place of 400.
+        problem.Status.Should().Be(StatusCodes.Status400BadRequest);
+        // Red: ApiProblem.BindingProblem skips ApplyDefaults; the type is missing.
+        problem.Type.Should().Be(BadRequestType);
     }
 
     [Fact]
@@ -246,7 +241,7 @@ public sealed class CostAnalyticsEndpointsTests
         var result = await CostAnalyticsEndpoints.EstimateCost(
             modelId, maxIterations, promptTokens, context, _service, factory, CancellationToken.None);
 
-        AssertLoggedInternalServerError(result, factory, logger);
+        AssertLoggedInternalServerError(result.Result, factory, logger);
     }
 
     // Red: rethrow in the catch of the handler under test, or answer a 400; the result is not a 500 error body.
@@ -258,6 +253,7 @@ public sealed class CostAnalyticsEndpointsTests
     {
         var json = result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        // Red: change the text in InternalServerError to "Internal error"; the body is not the error body.
         json.Value.Should().Be(new ErrorBody("Internal server error"));
         LoggedEventId(logger).Id.Should().Be(200);
         factory.Received(1).CreateLogger(Category);
