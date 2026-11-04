@@ -30,10 +30,8 @@ public sealed class ApiAuthorizationTests(PostgresFixture fixture)
     {
         await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
 
-        var unprotected = host.Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
-            .OfType<RouteEndpoint>()
-            .Where(endpoint => endpoint.RoutePattern.RawText?.TrimStart('/').StartsWith("api/", StringComparison.OrdinalIgnoreCase) == true
-                && !AnonymousEndpoints.Contains(endpoint.RoutePattern.RawText.TrimStart('/'))
+        var unprotected = ApiEndpoints(host.Factory.Services)
+            .Where(endpoint => !AnonymousEndpoints.Contains(Route(endpoint))
                 && (endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count == 0
                     || endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null))
             .Select(endpoint => endpoint.RoutePattern.RawText + " " + endpoint.DisplayName);
@@ -47,18 +45,28 @@ public sealed class ApiAuthorizationTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     The scan must see the table: a host that mapped nothing under <c>api/</c> would pass the check above.
+    ///     The scan must see the whole table: a host that mapped nothing, or only part of it, under <c>api/</c> would
+    ///     pass the check above. A ported route and a workflow route, which only a workflow-enabled host maps, must
+    ///     both be there.
     /// </summary>
     [Fact]
     public async Task The_endpoint_table_holds_api_endpoints()
     {
         await using var host = await ScratchWorkflowHost.StartAsync(fixture, Substitute.For<IAgentRuntime>());
 
-        var count = host.Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
-            .OfType<RouteEndpoint>()
-            .Count(endpoint => endpoint.RoutePattern.RawText?.TrimStart('/').StartsWith("api/", StringComparison.OrdinalIgnoreCase) == true);
+        var routes = ApiEndpoints(host.Factory.Services).Select(Route).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // Red: map the endpoints under a prefix other than api/.
-        count.Should().BeGreaterThan(0);
+        // Red: changing the prefix filter in ApiEndpoints to apix/ failed with "Expected routes not to be empty".
+        // Red: narrowing that filter to api/agents, a partial table, failed on the missing api/workflow-runs.
+        routes.Should().NotBeEmpty();
+        routes.Should().Contain("api/agents").And.Contain("api/workflow-runs");
     }
+
+    /// <summary>Every route endpoint under <c>api/</c>, whichever stack mapped it.</summary>
+    private static IEnumerable<RouteEndpoint> ApiEndpoints(IServiceProvider services) =>
+        services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => Route(endpoint).StartsWith("api/", StringComparison.OrdinalIgnoreCase));
+
+    private static string Route(RouteEndpoint endpoint) => endpoint.RoutePattern.RawText?.Trim('/') ?? string.Empty;
 }
