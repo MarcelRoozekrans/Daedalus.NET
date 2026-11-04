@@ -1159,7 +1159,7 @@ This endpoint returns issuer, token endpoints, JWKS URI, and other OIDC discover
 
 ### API Authorization
 
-All API endpoints require JWT authentication, through `RequireAuthorization()` on each endpoint group:
+All API endpoints require JWT authentication, each endpoint group calls `RequireAuthorization()` itself, bare or with a group policy, and routes add policies on top:
 
 ```csharp
 var group = app.MapApiGroup("api/tasks")

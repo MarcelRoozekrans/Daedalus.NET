@@ -1365,6 +1365,7 @@ choice below are R38 to R54 in that file.
 `ProjectsEndpoints`. It has a public `Map<Name>Endpoints(this IEndpointRouteBuilder app)` that maps the
 group, and one public static handler method per route, so a unit test calls the handler directly.
 `DaedalusEndpoints.MapDaedalusEndpoints` calls every `Map…Endpoints`; a new group is added there.
+`MapApiGroup` is `internal` to `Daedalus.Api`, for use inside the assembly.
 
 ```csharp
 var group = app.MapApiGroup("api/projects")      // never a bare MapGroup
@@ -1392,8 +1393,9 @@ public static async Task<Results<Created<ProjectDto>, ApiJsonResult<ErrorBody>>>
 - **Group.** `DaedalusEndpoints.MapApiGroup(prefix, requiresWorkflowEngine)` adds
   `ZeroAllocValidationEndpointFilter` and, for the workflow-run endpoints, the
   `WorkflowEngineEnabledEndpointFilter` ahead of it. `EndpointGroupTests` fails for an endpoint under `api/`
-  that was mapped without it. The group requires an authenticated user, each route adds its policy and
-  rate limit, and `EndpointContractSnapshotTests` pins the route table in `endpoint-contract.snapshot.txt`:
+  that was mapped without it. `MapApiGroup` does not add authorization: each group requires it itself, bare or
+  with a group policy, and routes add policies and rate limits on top.
+  `EndpointContractSnapshotTests` pins the route table in `endpoint-contract.snapshot.txt`:
   a changed route, verb, policy or declared response is a visible diff.
 - **Typed results.** A handler returns `Results<…>` or a single typed result, so the declared responses
   come from the signature; `Produces`/`ProducesProblem` on the route adds what the signature cannot say. A
@@ -1405,7 +1407,7 @@ public static async Task<Results<Created<ProjectDto>, ApiJsonResult<ErrorBody>>>
   the client-error `type`, `title` and `traceId`, `ApiProblem.AsGiven(context, problem)` writes a problem
   exactly as built (R43), and `ApiProblem.Validation` writes a validation problem. The content type
   (`application/json` or `application/problem+json`) comes from the group's `ProblemContentType`
-  metadata. The 500 catch-all keeps its body, `Internal server error`, where the controller had one (R42, R47).
+  metadata. The 500 catch-all keeps its body, `Internal server error`, where the controller had one (R42; R44 for the Prd exception, which answers `error` and `details`; R47 for routes without one).
 - **Binding.** A body is `ApiBody<T>` and a query value is `ApiQuery<T>`: neither ever fails binding.
   Each carries the problem MVC's model binding would have recorded (malformed JSON, an empty body, a
   missing required member, an unparsable query value), and the validation filter answers it as MVC did.
