@@ -253,6 +253,8 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
             while (!seen.ToString().Contains("event: text-delta\n", StringComparison.Ordinal))
             {
                 var read = await stream.ReadAsync(buffer, firstEvent.Token);
+                // Red: enumerate runtime.RunTurnStreamingAsync(...).Take(0) in RunTurnStream; the stream ends after the
+                //      connection comment and the read returns 0.
                 read.Should().BePositive("the first event arrives before the turn ends");
                 seen.Append(Encoding.UTF8.GetString(buffer, 0, read));
             }
@@ -260,6 +262,9 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
             using var abort = new CancellationTokenSource();
             var pending = stream.ReadAsync(buffer, abort.Token).AsTask();
             await abort.CancelAsync();
+            // Harness precondition, no Red: this checks that the client's own cancellation of a pending read throws,
+            // which is how the test aborts the request. The handler cannot make it pass or fail; it holds the first
+            // turn open, so the read has nothing to return before it is cancelled.
             await FluentActions.Awaiting(() => pending).Should().ThrowAsync<OperationCanceledException>();
         }
 
@@ -273,6 +278,7 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
         using (var next = StreamRequest(sessionId))
         using (var response = await client.SendAsync(next))
         {
+            // Red: llm-operations' PermitLimit lowered to 1 in Program.cs; the next turn is refused with 429.
             response.StatusCode.Should().Be(HttpStatusCode.OK);
             var frames = (await response.Content.ReadAsStringAsync()).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
             // Red: enumerate the turn in RunTurnStream through runtime.RunTurnStreamingAsync(...).GetAsyncEnumerator(ct)
