@@ -9,8 +9,8 @@ namespace Daedalus.Api.Endpoints;
 ///     lambda per parameter. The schema is what MVC's ApiExplorer emitted for the type: an <c>int</c> is
 ///     <c>integer|string</c> with format <c>int32</c> and an integer pattern, a <c>bool</c> is <c>boolean</c>, a
 ///     <c>Guid</c> is a <c>uuid</c> string, a <c>string</c> is <c>string</c>; a parameter is never <c>required</c>
-///     and carries <c>default</c> only when the controller gave one. These are the types the controllers' remaining
-///     <c>[FromQuery]</c> parameters use.
+///     and carries <c>default</c> only when the controller gave one. These are the types the endpoints' query
+///     parameters use.
 /// </summary>
 internal static class OpenApiQueryParameters
 {
