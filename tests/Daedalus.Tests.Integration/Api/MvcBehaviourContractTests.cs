@@ -862,7 +862,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri(path, UriKind.Relative));
 
-        // Red: drop the missing-modelId check in CostAnalyticsEndpoints.EstimateCost; the service is asked for null.
+        // Red: remove [Required] from the modelId parameter of CostAnalyticsEndpoints.EstimateCost; the service is asked for null.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: ProblemContentType.ProblemJson in place of Json on the CostAnalytics group.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
