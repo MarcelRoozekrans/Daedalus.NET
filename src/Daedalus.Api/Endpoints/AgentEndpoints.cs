@@ -34,8 +34,6 @@ public static class AgentEndpoints
     /// <summary>All available agents, in registration order.</summary>
     public static Ok<IReadOnlyList<AgentSummaryDto>> GetAgents([FromServices] IAgentCatalog catalog)
     {
-        ArgumentNullException.ThrowIfNull(catalog);
-
         return TypedResults.Ok<IReadOnlyList<AgentSummaryDto>>(catalog.Agents.Select(AgentDtoMapper.ToDto).ToList());
     }
 }
