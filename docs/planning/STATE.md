@@ -2,7 +2,44 @@
 
 **Last session:** 2026-11-04
 
-## Current Position - phase 3.4 executing (2026-11-04): Tasks 1-11 done, next Task 12
+## Current Position - phase 3.4 built and reviewed (2026-11-04): PR #427 ready, waiting on the owner's merge
+
+**Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, PR #427 to `main`, marked
+ready. Release-please stays on hold.
+
+- **All 22 tasks done**, subagent-driven, each with a task review and fix rounds, then a whole-branch review on the
+  most capable model (0 Critical, 0 Important, 6 Minor, all fixed in one wave and re-reviewed) and `pre-push-review`
+  PASS (`docs/pre-push-review-2026-11-04-1928.md`). All 13 controllers are `Endpoints/<Name>Endpoints.cs`; MVC and
+  the inert API versioning are gone (R54, owner decision 2026-10-31). Rulings R1 to R54:
+  `docs/plans/2026-10-31-phase-3.4-rulings.md`. Ledger: `docs/plans/2026-10-31-phase-3.4-sdd/ledger.md`.
+- **Contract:** the endpoint snapshot is unchanged except the versions column (R54); `MvcBehaviourContractTests` pins
+  MVC's wire answers and stays green on the endpoints.
+- **Evidence on 35784a12:** Release build 0 warnings; Unit 2437, Unit.Domain 356, Unit.Application 304,
+  Unit.Infrastructure 278, Integration 832, Playwright.Api 115, Playwright.Browser 219, 0 failed. CI green on
+  `54ff9ca2`. AOT baseline Api 1502 at this phase's start, now **1351**: the MVC warning family left
+  (150 keys); Web 196, Cli 633, Sandbox 0, Migrations 798, all matching.
+- **Filed:** #428 (codeanalysis empty requirements answers 500, kept by design), #436 (Browser E2E fixture registers
+  no validation adapters; moving the adapter list changes the CLAUDE.md two-place rule, the owner's call).
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+None. Waiting on the owner's merge of #427.
+
+## Recommended Next Step
+
+After #427 merges:
+1. `complete-phase` 3.4 in ROADMAP.md and MILESTONE.md.
+2. Close Renovate #402 (`Asp.Versioning.Mvc` to v10) with a comment that MVC and API versioning left the API in #427.
+   Not earlier: main referenced the package until the merge, and closing makes Renovate ignore that version.
+3. Check the squash message: commit `8d9be4ba` is typed `fix(api)` but is test and refactor work, and commit
+   `ac306f61` has a 167-character body line; wrap or drop both in the squash body.
+4. Then the next phase of milestone 3 via `start-next-phase`.
+
+## Earlier Position - phase 3.4 executing (2026-11-04): Tasks 1-11 done, next Task 12
 
 **Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `18e445b5` plus this
 pause commit, pushed. Draft PR #427 to `main`. Release-please stays on hold.
