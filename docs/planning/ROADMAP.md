@@ -200,7 +200,7 @@ decisions:
 - The Migrations runner, the sandbox host and the Web app (WebAssembly AOT) are also in scope.
 - Blockers are fixed at the source and tracked.
 - Thalos gets its own Anthropic client.
-- The controllers keep an identical HTTP contract.
+- The endpoints keep an identical HTTP contract.
 - System.Text.Json source-generated contexts are used now. The `ZeroAlloc.Serialisation` swap moves out of this
   milestone.
 

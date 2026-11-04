@@ -16,7 +16,7 @@ src/
 ├── Daedalus.Domain/           # Entities, value objects
 ├── Daedalus.Application/      # Mediator requests/handlers, DTOs, repository interfaces
 ├── Daedalus.Infrastructure/   # EF Core DbContext, repository impls, migrations
-├── Daedalus.Api/              # REST controllers
+├── Daedalus.Api/              # REST minimal API endpoints (src/Daedalus.Api/Endpoints)
 ├── Daedalus.Agents/           # Thalos.NET composition root, manufacture workflow host
 ├── Daedalus.Cli/              # Console-channel host
 ├── Daedalus.Migrations/       # EF Core migration runner
@@ -98,7 +98,7 @@ public async Task<Result<Customer>> GetCustomerAsync(Guid id, CancellationToken 
   `IRequest<T>` — a reference-type `record` fails the build with `ZAM003`.
 - The generated `IMediator` and `AddMediator()` are `internal` to
   `Daedalus.Application`. Never put `IMediator` in a public signature or
-  reference it from `Program.cs`. Controllers depend on the public facade
+  reference it from `Program.cs`. API endpoints depend on the public facade
   `IApplicationCommands` instead (`Application/Abstractions/IApplicationCommands.cs`).
 
 ## Validation
@@ -110,6 +110,17 @@ for `ValidatorFor<T>`, `Daedalus.Api/Program.cs` for `IValidationAdapter`) —
 registration is **silently never validated**. If you add one, add the other
 in the same change, or `Daedalus.Tests.Integration.Architecture.CleanArchitectureTests`
 fails.
+
+The adapters feed `ZeroAllocValidationEndpointFilter`, which `MapApiGroup` adds to
+every endpoint group (`Daedalus.Api/Endpoints`). Issue #436 tracks that the
+Browser E2E fixture registers no adapters.
+
+## API endpoints
+
+Endpoints are static `<Name>Endpoints` classes mapped with `MapApiGroup`, never a
+bare `MapGroup`. Bodies bind as `ApiBody<T>` and queries as `ApiQuery<T>`, failures
+answer through `ApiProblem` or `ApiJson.Of(new ErrorBody(...), status)`, and the API
+is unversioned. The pattern: `docs/development-guide.md`, "API endpoints".
 
 ## Not in this codebase
 
