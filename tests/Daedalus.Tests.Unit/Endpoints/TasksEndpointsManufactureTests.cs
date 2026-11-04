@@ -204,8 +204,11 @@ public sealed class TasksEndpointsManufactureTests : IAsyncLifetime
         StatusOf(result).Should().Be(StatusCodes.Status409Conflict);
         // Red: true in place of failure.RunCancelled as the runCancelled extension in UnattachedRunProblem.
         ProblemOf(result).Extensions["runCancelled"].Should().Be(false);
+        // Red: Level = LogLevel.Warning in place of LogLevel.Error on TaskManufactureService.LogCancelFailed.
         _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
             .Which.Message.Should().Contain(runId.ToString()).And.Contain(task.Id.ToString());
+        // Red: the LogCancelFailed call in the first general exception handler of WorkflowRunCanceller.CancelAsync
+        //      replaced by a discard of the exception.
         _cancelLog.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
             .Which.Exception.Should().BeOfType<InvalidOperationException>();
     }
@@ -219,10 +222,12 @@ public sealed class TasksEndpointsManufactureTests : IAsyncLifetime
 
         var result = await Manufacture(task.Id);
 
+        // Red: StatusCodes.Status502BadGateway in place of Status500InternalServerError in Manufacture's AttachFailed case.
+        StatusOf(result).Should().Be(StatusCodes.Status500InternalServerError);
         // Red: drop the AttachFailed case in Manufacture so it falls to the default; the status stays 500 but the
         //      runId extension is missing.
-        StatusOf(result).Should().Be(StatusCodes.Status500InternalServerError);
         ProblemOf(result).Extensions.Should().ContainKey("runId").WhoseValue.Should().Be(runId);
+        // Red: Level = LogLevel.Warning in place of LogLevel.Error on TaskManufactureService.LogAttachFailed.
         _logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
             .Which.Message.Should().Contain(runId.ToString()).And.Contain(task.Id.ToString());
     }
@@ -240,6 +245,7 @@ public sealed class TasksEndpointsManufactureTests : IAsyncLifetime
 
         var result = await Manufacture(task.Id);
 
+        // Red: StatusCodes.Status502BadGateway in place of Status500InternalServerError in Manufacture's default case.
         StatusOf(result).Should().Be(StatusCodes.Status500InternalServerError);
         ProblemOf(result).Detail.Should().NotContain("hunter2");
     }

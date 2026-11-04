@@ -210,7 +210,8 @@ public class TasksEndpointsIntegrationTests(PostgresFixture fixture) : IAsyncLif
 
         // Assert
         // Red: the null check in GetTaskById narrowed to task is null && id == Guid.Empty, with Ok(task!) after it.
-        result.Should().BeOfType<ApiJsonResult<ErrorBody>>();
+        // Red: StatusCodes.Status410Gone in place of Status404NotFound in TaskNotFound.
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(404);
     }
 
     #endregion

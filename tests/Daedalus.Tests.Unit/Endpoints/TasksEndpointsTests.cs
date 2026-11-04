@@ -97,6 +97,7 @@ public sealed class TasksEndpointsTests
         var response = result.Result.Should().BeOfType<Created<TaskDto>>().Subject;
         // Red: "/api/tasks/{id}" in place of "/api/Tasks/{id}" in CreateTask.
         response.Location.Should().Be($"https://example.com/base/api/Tasks/{Id}");
+        // Red: result.Value with { Title = "x" } in place of result.Value as the body of CreateTask's Created.
         response.Value.Should().BeSameAs(created);
         // Red: "Phase-2" in place of the "Phase-1" default in CreateTask; or "TASK_" in place of the "TASK-" prefix.
         await _commands.Received(1).CreateTaskAsync(
