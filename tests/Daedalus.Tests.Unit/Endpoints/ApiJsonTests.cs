@@ -43,7 +43,7 @@ public sealed class ApiJsonTests
         var body = await ExecuteAsync(
             ApiJson.Of(new ErrorDetailBody("a<b>&'é", "line"), StatusCodes.Status500InternalServerError), context);
 
-        // Red: serialize with default JsonSerializerOptions; the names are PascalCase and "<" is escaped as <.
+        // Red: serialize with default JsonSerializerOptions; the names are PascalCase and "<" is escaped as \u003C.
         body.Should().Be("{\"error\":\"a<b>&'é\",\"details\":\"line\"}");
     }
 
@@ -54,9 +54,11 @@ public sealed class ApiJsonTests
 
         var result = ApiJson.Of(value, StatusCodes.Status400BadRequest);
 
-        // Red: return null from IValueHttpResult.Value, or drop IStatusCodeHttpResult, so the result is not seen as a 400.
+        // Red: drop IStatusCodeHttpResult.StatusCode, or return 200 from it, so the result is not seen as a 400.
         ((IStatusCodeHttpResult)result).StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        // Red: return null from IValueHttpResult.Value.
         ((IValueHttpResult)result).Value.Should().BeSameAs(value);
+        // Red: return application/problem+json from IContentTypeHttpResult.ContentType.
         ((IContentTypeHttpResult)result).ContentType.Should().Be(Json);
     }
 }
