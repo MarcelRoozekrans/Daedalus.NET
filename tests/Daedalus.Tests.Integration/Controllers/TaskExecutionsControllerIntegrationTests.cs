@@ -1,10 +1,10 @@
-using System.Reflection;
 using Daedalus.Api.Endpoints;
 using Daedalus.Api.Services;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -46,21 +46,6 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
         _executionQueryService = new TaskExecutionQueryService(_dbContext);
     }
 
-    private static void PagingQuery(ApiQuery<int> page, ApiQuery<int> pageSize) => _ = (page, pageSize);
-
-    /// <summary>Binds the two paging parameters as the endpoint does, from <paramref name="queryString"/>.</summary>
-    private static async Task<(ApiQuery<int> Page, ApiQuery<int> PageSize)> BindPaging(string queryString = "")
-    {
-        var context = new DefaultHttpContext();
-        context.Request.QueryString = new QueryString(queryString);
-        var parameters = typeof(TaskExecutionsControllerIntegrationTests)
-            .GetMethod(nameof(PagingQuery), BindingFlags.NonPublic | BindingFlags.Static)!.GetParameters();
-        return (await Bind<ApiQuery<int>>(context, parameters[0]), await Bind<ApiQuery<int>>(context, parameters[1]));
-    }
-
-    private static async Task<T> Bind<T>(HttpContext context, ParameterInfo parameter)
-        where T : class, IBindableFromHttpContext<T> => (await T.BindAsync(context, parameter))!;
-
     public async Task DisposeAsync()
     {
         if (_dbContext != null)
@@ -93,7 +78,7 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
         _dbContext.TaskExecutions.Add(execution);
         await _dbContext.SaveChangesAsync();
 
-        var (page, pageSize) = await BindPaging();
+        var (page, pageSize) = await PagingQueryBinding.BindAsync(new DefaultHttpContext(), string.Empty);
 
         // Act
         var result = await TaskExecutionEndpoints.GetByTaskId(
@@ -129,7 +114,7 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
         _dbContext.TaskExecutions.Add(execution);
         await _dbContext.SaveChangesAsync();
 
-        var (page, pageSize) = await BindPaging();
+        var (page, pageSize) = await PagingQueryBinding.BindAsync(new DefaultHttpContext(), string.Empty);
 
         // Act
         var result = await TaskExecutionEndpoints.GetBySessionId(
@@ -144,7 +129,7 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
     [Fact(Timeout = 5000)]
     public async Task GetByTaskId_WithNonexistentTaskId_Returns200WithEmptyList()
     {
-        var (page, pageSize) = await BindPaging();
+        var (page, pageSize) = await PagingQueryBinding.BindAsync(new DefaultHttpContext(), string.Empty);
 
         // Act
         var result = await TaskExecutionEndpoints.GetByTaskId(

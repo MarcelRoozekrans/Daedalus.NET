@@ -57,7 +57,7 @@ public static partial class TaskExecutionEndpoints
         }
         catch (Exception ex)
         {
-            Log.ErrorRetrievingExecutionsForTask(CreateLogger(loggerFactory), taskId, ex);
+            Log.ErrorRetrievingExecutionsForTask(loggerFactory.CreateLogger(typeof(TaskExecutionEndpoints)), taskId, ex);
             return InternalServerError();
         }
     }
@@ -75,14 +75,11 @@ public static partial class TaskExecutionEndpoints
         }
         catch (Exception ex)
         {
-            Log.ErrorRetrievingExecutionsForSession(CreateLogger(loggerFactory), sessionId, ex);
+            Log.ErrorRetrievingExecutionsForSession(
+                loggerFactory.CreateLogger(typeof(TaskExecutionEndpoints)), sessionId, ex);
             return InternalServerError();
         }
     }
-
-    // A static class cannot be a type argument of ILogger<T>, so the category is created from the class name (R42).
-    private static ILogger CreateLogger(ILoggerFactory loggerFactory) =>
-        loggerFactory.CreateLogger(typeof(TaskExecutionEndpoints).FullName!);
 
     private static JsonHttpResult<ErrorBody> InternalServerError() =>
         TypedResults.Json(new ErrorBody("Internal server error"), statusCode: StatusCodes.Status500InternalServerError);

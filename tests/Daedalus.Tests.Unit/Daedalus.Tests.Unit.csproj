@@ -89,4 +89,9 @@
         <ProjectReference Include="..\..\src\Daedalus.Web\Daedalus.Web.csproj"/>
     </ItemGroup>
 
+
+    <ItemGroup>
+        <!-- Binds page and pageSize for a paged handler called directly, shared with the integration project. -->
+        <Compile Include="..\Shared\PagingQueryBinding.cs" Link="Shared\PagingQueryBinding.cs"/>
+    </ItemGroup>
 </Project>

@@ -2,6 +2,7 @@ using System.Reflection;
 using Daedalus.Api.Endpoints;
 using Daedalus.Api.Services;
 using Daedalus.Application.DTOs;
+using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging;
@@ -70,10 +71,7 @@ public sealed class TaskExecutionEndpointsTests
         var service = Substitute.For<ITaskExecutionQueryService>();
         service.GetByTaskIdAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns<Task<PagedResultDto<TaskExecutionDto>>>(_ => throw new InvalidOperationException("boom"));
-        var logger = Substitute.For<ILogger>();
-        logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
-        var factory = Substitute.For<ILoggerFactory>();
-        factory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        var (factory, logger) = CreateLogging();
         await using var services = Services();
         var (page, pageSize) = await BindPaging(services, string.Empty);
 
@@ -84,7 +82,10 @@ public sealed class TaskExecutionEndpointsTests
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         json.Value.Should().Be(new ErrorBody("Internal server error"));
         // Red: drop the call to Log.ErrorRetrievingExecutionsForTask in the catch of GetByTaskId.
-        logger.ReceivedCalls().Should().Contain(call => call.GetMethodInfo().Name == nameof(ILogger.Log));
+        // Red: change EventId = 100 to 102 on ErrorRetrievingExecutionsForTask.
+        LoggedEventId(logger).Id.Should().Be(100);
+        // Red: pass the category "Other" to CreateLogger in the catch of GetByTaskId; the category is Other.
+        factory.Received(1).CreateLogger(Category);
     }
 
     [Fact]
@@ -93,32 +94,39 @@ public sealed class TaskExecutionEndpointsTests
         var service = Substitute.For<ITaskExecutionQueryService>();
         service.GetBySessionIdAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns<Task<PagedResultDto<TaskExecutionDto>>>(_ => throw new InvalidOperationException("boom"));
-        var logger = Substitute.For<ILogger>();
-        logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
-        var factory = Substitute.For<ILoggerFactory>();
-        factory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        var (factory, logger) = CreateLogging();
         await using var services = Services();
         var (page, pageSize) = await BindPaging(services, string.Empty);
 
         var result = await TaskExecutionEndpoints.GetBySessionId(Id, page, pageSize, service, factory, CancellationToken.None);
 
-        // Red: answer StatusCodes.Status503ServiceUnavailable in the catch of GetBySessionId.
+        // Red: answer 503 in InternalServerError, the helper both catches use; both 500 tests fail.
         var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         json.Value.Should().Be(new ErrorBody("Internal server error"));
         // Red: drop the call to Log.ErrorRetrievingExecutionsForSession in the catch of GetBySessionId.
-        logger.ReceivedCalls().Should().Contain(call => call.GetMethodInfo().Name == nameof(ILogger.Log));
+        // Red: change EventId = 101 to 103 on ErrorRetrievingExecutionsForSession.
+        LoggedEventId(logger).Id.Should().Be(101);
+        // Red: pass the category "Other" to CreateLogger in the catch of GetBySessionId; the category is Other.
+        factory.Received(1).CreateLogger(Category);
     }
-
-    private static void PagingQuery(ApiQuery<int> page, ApiQuery<int> pageSize) => _ = (page, pageSize);
 
     private static async Task<(ApiQuery<int> Page, ApiQuery<int> PageSize)> BindPaging(
-        IServiceProvider services, string queryString)
+        IServiceProvider services, string queryString) =>
+        await PagingQueryBinding.BindAsync(Create(services), queryString);
+
+    private const string Category = "Daedalus.Api.Endpoints.TaskExecutionEndpoints";
+
+    private static (ILoggerFactory Factory, ILogger Logger) CreateLogging()
     {
-        var context = Create(services);
-        context.Request.QueryString = new QueryString(queryString);
-        var parameters = typeof(TaskExecutionEndpointsTests)
-            .GetMethod(nameof(PagingQuery), BindingFlags.NonPublic | BindingFlags.Static)!.GetParameters();
-        return (await BindAsync<ApiQuery<int>>(context, parameters[0]), await BindAsync<ApiQuery<int>>(context, parameters[1]));
+        var logger = Substitute.For<ILogger>();
+        logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
+        var factory = Substitute.For<ILoggerFactory>();
+        factory.CreateLogger(Arg.Any<string>()).Returns(logger);
+        return (factory, logger);
     }
+
+    private static EventId LoggedEventId(ILogger logger) =>
+        logger.ReceivedCalls().Single(call => string.Equals(call.GetMethodInfo().Name, nameof(ILogger.Log), StringComparison.Ordinal))
+            .GetArguments()[1] is EventId id ? id : throw new InvalidOperationException("No EventId argument.");
 }
