@@ -396,7 +396,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: SchedulesController's and BrainstormController's [Produces("application/json")] changed to text/json.
+        // Red: SchedulesEndpoints' ProblemContentType.Json and BrainstormController's [Produces] changed to text/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: new Dictionary<string, string[]>(StringComparer.Ordinal) { [key] = ["The value 'abc' is not valid."] });
@@ -426,7 +426,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri($"/api/schedules/{Unknown}/runs{query}", UriKind.Relative));
 
-        // Red: return StatusCode(410) instead of Ok in SchedulesController.GetRunHistory.
+        // Red: return TypedResults.StatusCode(410) instead of Ok in SchedulesEndpoints.GetRunHistory.
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         // Red: declare take as a string in GetRunHistory and read it with int.TryParse; the three hexadecimal cases
         //      then pass 0.
@@ -453,7 +453,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: an InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: SchedulesController's [Produces("application/json")] changed to text/json.
+        // Red: SchedulesEndpoints' ProblemContentType.Json changed to ProblemContentType.ProblemJson.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
         // Red: set ModelBindingMessageProvider's ValueMustNotBeNull and NonPropertyAttemptedValueIsInvalid accessors in
         //      AddControllers' options; the empty and the repeated case turn red. Inserting first in ModelBinderProviders

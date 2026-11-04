@@ -16,7 +16,7 @@ namespace Daedalus.Agents.Tools;
 ///     <para>
 ///     <b>No create, no cancel, no enable/disable.</b> Both methods call straight through to
 ///     <see cref="IScheduleDiagnostics"/> and only shape its answer into text — the same rule
-///     <c>SchedulesController</c> follows, and for the same reason: every classification decision belongs to the
+///     <c>SchedulesEndpoints</c> follows, and for the same reason: every classification decision belongs to the
 ///     service, where it is tested once. An agent that cannot schedule work cannot schedule work for itself,
 ///     which the roadmap deliberately treats as a privilege surface for a later phase rather than a side effect
 ///     of a diagnostics page.
@@ -29,7 +29,7 @@ namespace Daedalus.Agents.Tools;
 ///     </para>
 /// </remarks>
 /// <param name="diagnostics">
-///     The one seam both this tool and <c>SchedulesController</c> read through, so a page and an agent cannot
+///     The one seam both this tool and <c>SchedulesEndpoints</c> read through, so a page and an agent cannot
 ///     give an operator different answers about the same run.
 /// </param>
 [ThalosToolType]

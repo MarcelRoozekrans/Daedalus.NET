@@ -61,7 +61,41 @@ public sealed class EndpointGroupTests(PostgresFixture fixture)
 
         // Red: drop .WithTags("Agents") from AgentEndpoints.MapAgentEndpoints.
         untagged.Should().BeEmpty();
-        minimal.Single(endpoint => endpoint.RoutePattern.RawText!.TrimStart('/').StartsWith("api/agents", StringComparison.Ordinal))
-            .Metadata.GetMetadata<ITagsMetadata>()!.Tags.Should().Equal("Agents");
+
+        // An endpoint belongs to the row with the longest prefix that equals its route or leads it by a whole segment,
+        // so a row for api/agents never captures api/agents/sessions once that group has its own row.
+        var unmatched = new List<string>();
+        var wrongTag = new List<string>();
+        foreach (var endpoint in minimal)
+        {
+            var route = endpoint.RoutePattern.RawText!.TrimStart('/');
+            var prefix = ExpectedTags.Keys
+                .Where(key => route.Equals(key, StringComparison.OrdinalIgnoreCase)
+                    || route.StartsWith(key + "/", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(key => key.Length)
+                .FirstOrDefault();
+            if (prefix is null)
+            {
+                unmatched.Add(route);
+            }
+            else if (!endpoint.Metadata.GetMetadata<ITagsMetadata>()!.Tags.SequenceEqual([ExpectedTags[prefix]], StringComparer.Ordinal))
+            {
+                wrongTag.Add($"{route}: expected {ExpectedTags[prefix]}");
+            }
+        }
+
+        // Red: a port adds its group without a row in ExpectedTags; or .WithTags("Schedule") on SchedulesEndpoints.
+        unmatched.Should().BeEmpty();
+        wrongTag.Should().BeEmpty();
     }
+
+    /// <summary>
+    ///     The group route and the tag MVC's OpenAPI document gave its controller, one row per ported controller. A
+    ///     port adds its row here; the controller's name less <c>Controller</c> is the tag (R38, R40).
+    /// </summary>
+    private static readonly Dictionary<string, string> ExpectedTags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["api/agents"] = "Agents",
+        ["api/schedules"] = "Schedules",
+    };
 }

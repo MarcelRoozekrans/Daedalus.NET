@@ -15,12 +15,12 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Controllers;
 
 /// <summary>
-///     Pins the seam <c>SchedulesController</c> is: that <see cref="IScheduleDiagnostics"/> and
+///     Pins the seam <c>SchedulesEndpoints</c> is: that <see cref="IScheduleDiagnostics"/> and
 ///     <see cref="IScheduleDeliveryActions"/> resolve from the real composed <c>Daedalus.Api</c> host as their
 ///     real implementations (the same host-boot pattern <c>ApiHostSchedulingWiringTests</c> uses), that the
 ///     overview endpoint returns exactly what the service reports for a seeded schedule, and that the resend
 ///     route both requires authentication and surfaces the contract's failed state — rather than silently
-///     succeeding — when there is nothing to resend. The controller must add no logic of its own on top.
+///     succeeding — when there is nothing to resend. The endpoints must add no logic of its own on top.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class SchedulesControllerTests(PostgresFixture fixture) : IAsyncLifetime

@@ -51,4 +51,27 @@ public sealed class OpenApiDocumentTests(PostgresFixture fixture)
         options.TypeInfoResolverChain.Should().ContainSingle()
             .Which.GetType().FullName.Should().Be("Daedalus.Api.ApiJsonSerializerContext");
     }
+
+    /// <summary>
+    ///     A <c>BindAsync</c> parameter contributes no OpenAPI parameter, so a port re-declares its query parameters (R30).
+    ///     MVC described <c>take</c> on the run history as an integer-or-string query parameter with default 20.
+    ///     Red: drop the <c>AddOpenApiOperationTransformer</c> from the run-history route in
+    ///     <c>SchedulesEndpoints</c>; the parameter is missing, and a changed default of 20 turns the default red.
+    /// </summary>
+    [Fact]
+    public async Task The_run_history_declares_take_with_its_default()
+    {
+        await using var factory = new ApiWebApplicationFactory(fixture.ConnectionString, Substitute.For<IAgentRuntime>());
+        using var development = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Development"));
+        using var client = development.CreateClient();
+
+        using var document = JsonDocument.Parse(await client.GetStringAsync("/openapi/v1.json"));
+
+        var take = document.RootElement.GetProperty("paths").GetProperty("/api/schedules/{scheduleId}/runs")
+            .GetProperty("get").GetProperty("parameters").EnumerateArray()
+            .Single(parameter => string.Equals(parameter.GetProperty("name").GetString(), "take", StringComparison.Ordinal));
+        take.GetProperty("in").GetString().Should().Be("query");
+        take.GetProperty("schema").GetProperty("default").GetInt32().Should().Be(20);
+        take.GetProperty("schema").GetProperty("format").GetString().Should().Be("int32");
+    }
 }
