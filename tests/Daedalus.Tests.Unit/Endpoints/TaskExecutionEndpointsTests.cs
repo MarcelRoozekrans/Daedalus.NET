@@ -78,7 +78,7 @@ public sealed class TaskExecutionEndpointsTests
         var result = await TaskExecutionEndpoints.GetByTaskId(Id, page, pageSize, service, factory, CancellationToken.None);
 
         // Red: rethrow in the catch of GetByTaskId, or answer a 400; the result is not a 500 error body.
-        var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         json.Value.Should().Be(new ErrorBody("Internal server error"));
         // Red: drop the call to Log.ErrorRetrievingExecutionsForTask in the catch of GetByTaskId.
@@ -101,7 +101,7 @@ public sealed class TaskExecutionEndpointsTests
         var result = await TaskExecutionEndpoints.GetBySessionId(Id, page, pageSize, service, factory, CancellationToken.None);
 
         // Red: answer 503 in InternalServerError, the helper both catches use; both 500 tests fail.
-        var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         json.Value.Should().Be(new ErrorBody("Internal server error"));
         // Red: drop the call to Log.ErrorRetrievingExecutionsForSession in the catch of GetBySessionId.

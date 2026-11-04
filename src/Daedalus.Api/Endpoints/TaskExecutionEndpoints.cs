@@ -13,7 +13,7 @@ namespace Daedalus.Api.Endpoints;
 ///     Ported from <c>TaskExecutionsController</c> on the pattern of <see cref="AgentEndpoints"/> (R38). The controller
 ///     carried a bare <c>[Authorize]</c> at class level and the <c>TaskRead</c> policy per action, so the group
 ///     requires an authenticated user and each route adds the policy; the snapshot renders both. The 500 is a
-///     <see cref="JsonHttpResult{TValue}"/>, which adds no response metadata, so the declared responses stay the
+///     <see cref="ApiJsonResult{T}"/>, which adds no response metadata, so the declared responses stay the
 ///     controller's single 200 (R42).
 /// </remarks>
 public static partial class TaskExecutionEndpoints
@@ -45,7 +45,7 @@ public static partial class TaskExecutionEndpoints
     }
 
     /// <summary>Get all executions for a specific task.</summary>
-    public static async Task<Results<Ok<PagedResultDto<TaskExecutionDto>>, JsonHttpResult<ErrorBody>>> GetByTaskId(
+    public static async Task<Results<Ok<PagedResultDto<TaskExecutionDto>>, ApiJsonResult<ErrorBody>>> GetByTaskId(
         Guid taskId, ApiQuery<int> page, ApiQuery<int> pageSize,
         [FromServices] ITaskExecutionQueryService executionService, [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
@@ -63,7 +63,7 @@ public static partial class TaskExecutionEndpoints
     }
 
     /// <summary>Get all executions for a specific session.</summary>
-    public static async Task<Results<Ok<PagedResultDto<TaskExecutionDto>>, JsonHttpResult<ErrorBody>>> GetBySessionId(
+    public static async Task<Results<Ok<PagedResultDto<TaskExecutionDto>>, ApiJsonResult<ErrorBody>>> GetBySessionId(
         Guid sessionId, ApiQuery<int> page, ApiQuery<int> pageSize,
         [FromServices] ITaskExecutionQueryService executionService, [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
@@ -81,8 +81,8 @@ public static partial class TaskExecutionEndpoints
         }
     }
 
-    private static JsonHttpResult<ErrorBody> InternalServerError() =>
-        TypedResults.Json(new ErrorBody("Internal server error"), statusCode: StatusCodes.Status500InternalServerError);
+    private static ApiJsonResult<ErrorBody> InternalServerError() =>
+        ApiJson.Of(new ErrorBody("Internal server error"), StatusCodes.Status500InternalServerError);
 
     private static partial class Log
     {

@@ -57,7 +57,7 @@ public sealed class PrdEndpointsTests
         var result = await PrdEndpoints.GeneratePrd(request, _service, CreateLogging().Factory, CancellationToken.None);
 
         // Red: delete the IsNullOrWhiteSpace check in GeneratePrd; the service is called and the result is not a 400.
-        var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         // Red: answer 422 in place of 400 for blank requirements in GeneratePrd.
         json.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
         // Red: change the message "User requirements cannot be empty" in GeneratePrd.
@@ -77,7 +77,7 @@ public sealed class PrdEndpointsTests
         var result = await PrdEndpoints.GeneratePrd(request, _service, factory, CancellationToken.None);
 
         // Red: ignore result.IsFailure in GeneratePrd; the result is Ok with a null value.
-        var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         // Red: answer 404 in place of 400 for a failed result in GeneratePrd.
         json.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
         // Red: answer a constant message in place of result.Error in GeneratePrd.
@@ -97,7 +97,7 @@ public sealed class PrdEndpointsTests
         var result = await PrdEndpoints.GeneratePrd(request, _service, factory, CancellationToken.None);
 
         // Red: rethrow in the catch of GeneratePrd, or answer a 400; the result is not a 500 body.
-        var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorDetailBody>>().Subject;
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorDetailBody>>().Subject;
         // Red: answer 400 in place of 500 in the catch of GeneratePrd.
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         // Red: change the error text or drop ex.Message from details in the catch of GeneratePrd.
@@ -138,7 +138,7 @@ public sealed class PrdEndpointsTests
         var result = await PrdEndpoints.ConvertToTasks(request, _service, CreateLogging().Factory, CancellationToken.None);
 
         // Red: delete the Count == 0 check in ConvertToTasks; the service is called and the result is not a 400.
-        var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         // Red: answer 422 in place of 400 for no items in ConvertToTasks.
         json.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
         // Red: change the message "No PRD items to convert" in ConvertToTasks.
@@ -158,7 +158,7 @@ public sealed class PrdEndpointsTests
         var result = await PrdEndpoints.ConvertToTasks(request, _service, factory, CancellationToken.None);
 
         // Red: ignore result.IsFailure in ConvertToTasks; the result is Ok with a null value.
-        var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         // Red: answer 404 in place of 400 for a failed result in ConvertToTasks.
         json.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
         // Red: answer a constant message in place of result.Error in ConvertToTasks.
@@ -178,7 +178,7 @@ public sealed class PrdEndpointsTests
         var result = await PrdEndpoints.ConvertToTasks(request, _service, factory, CancellationToken.None);
 
         // Red: rethrow in the catch of ConvertToTasks, or answer a 400; the result is not a 500 body.
-        var json = result.Result.Should().BeOfType<JsonHttpResult<ErrorDetailBody>>().Subject;
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorDetailBody>>().Subject;
         // Red: answer 400 in place of 500 in the catch of ConvertToTasks.
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         // Red: change the error text or drop ex.Message from details in the catch of ConvertToTasks.

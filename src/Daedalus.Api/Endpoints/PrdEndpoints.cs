@@ -40,7 +40,7 @@ public static partial class PrdEndpoints
 
     /// <summary>Generates a PRD from user requirements using the LLM in PRD agent mode.</summary>
     public static async Task<
-        Results<Ok<PrdResponseDto>, JsonHttpResult<ErrorBody>, JsonHttpResult<ErrorDetailBody>>> GeneratePrd(
+        Results<Ok<PrdResponseDto>, ApiJsonResult<ErrorBody>, ApiJsonResult<ErrorDetailBody>>> GeneratePrd(
         ApiBody<PrdRequestDto> request, [FromServices] IPrdService prdService, [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
@@ -75,7 +75,7 @@ public static partial class PrdEndpoints
 
     /// <summary>Converts selected PRD items to tasks and persists them to the database.</summary>
     public static async Task<
-        Results<Ok<List<TaskDto>>, JsonHttpResult<ErrorBody>, JsonHttpResult<ErrorDetailBody>>> ConvertToTasks(
+        Results<Ok<List<TaskDto>>, ApiJsonResult<ErrorBody>, ApiJsonResult<ErrorDetailBody>>> ConvertToTasks(
         ApiBody<PrdConversionRequestDto> request, [FromServices] IPrdService prdService,
         [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
     {
@@ -108,11 +108,11 @@ public static partial class PrdEndpoints
         }
     }
 
-    private static JsonHttpResult<ErrorBody> BadRequest(string error) =>
-        TypedResults.Json(new ErrorBody(error), statusCode: StatusCodes.Status400BadRequest);
+    private static ApiJsonResult<ErrorBody> BadRequest(string error) =>
+        ApiJson.Of(new ErrorBody(error), StatusCodes.Status400BadRequest);
 
-    private static JsonHttpResult<ErrorDetailBody> InternalServerError(string error, Exception ex) =>
-        TypedResults.Json(new ErrorDetailBody(error, ex.Message), statusCode: StatusCodes.Status500InternalServerError);
+    private static ApiJsonResult<ErrorDetailBody> InternalServerError(string error, Exception ex) =>
+        ApiJson.Of(new ErrorDetailBody(error, ex.Message), StatusCodes.Status500InternalServerError);
 
     private static partial class Log
     {

@@ -251,7 +251,7 @@ public sealed class CostAnalyticsEndpointsTests
     // Red: pass the category "Other" to CreateLogger in the catch of the handler under test.
     private static void AssertLoggedInternalServerError(object? result, ILoggerFactory factory, ILogger logger)
     {
-        var json = result.Should().BeOfType<JsonHttpResult<ErrorBody>>().Subject;
+        var json = result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         json.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         // Red: change the text in InternalServerError to "Internal error"; the body is not the error body.
         json.Value.Should().Be(new ErrorBody("Internal server error"));

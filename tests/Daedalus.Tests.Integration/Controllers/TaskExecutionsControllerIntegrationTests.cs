@@ -136,7 +136,7 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
             Guid.NewGuid(), page, pageSize, _executionQueryService, _loggerFactory, CancellationToken.None);
 
         // Assert
-        // Red: answer a JsonHttpResult 500 in place of the Ok for an unknown task in GetByTaskId.
+        // Red: answer an ApiJsonResult 500 in place of the Ok for an unknown task in GetByTaskId.
         var ok = result.Result.Should().BeOfType<Ok<PagedResultDto<TaskExecutionDto>>>().Subject;
         ok.Value!.Items.Should().BeEmpty();
     }

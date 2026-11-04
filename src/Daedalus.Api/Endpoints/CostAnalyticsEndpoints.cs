@@ -52,7 +52,7 @@ public static partial class CostAnalyticsEndpoints
     }
 
     /// <summary>Get overall cost summary.</summary>
-    public static async Task<Results<Ok<CostSummaryDto>, JsonHttpResult<ErrorBody>>> GetSummary(
+    public static async Task<Results<Ok<CostSummaryDto>, ApiJsonResult<ErrorBody>>> GetSummary(
         [FromServices] ICostAnalyticsService costService, [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
     {
         try
@@ -67,7 +67,7 @@ public static partial class CostAnalyticsEndpoints
     }
 
     /// <summary>Get cost breakdown by project.</summary>
-    public static async Task<Results<Ok<IReadOnlyList<ProjectCostDto>>, JsonHttpResult<ErrorBody>>> GetByProject(
+    public static async Task<Results<Ok<IReadOnlyList<ProjectCostDto>>, ApiJsonResult<ErrorBody>>> GetByProject(
         [FromServices] ICostAnalyticsService costService, [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
     {
         try
@@ -82,7 +82,7 @@ public static partial class CostAnalyticsEndpoints
     }
 
     /// <summary>Get per-task cost breakdown for a project.</summary>
-    public static async Task<Results<Ok<IReadOnlyList<TaskCostDto>>, JsonHttpResult<ErrorBody>>> GetByProjectId(
+    public static async Task<Results<Ok<IReadOnlyList<TaskCostDto>>, ApiJsonResult<ErrorBody>>> GetByProjectId(
         Guid id, [FromServices] ICostAnalyticsService costService, [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
@@ -99,11 +99,11 @@ public static partial class CostAnalyticsEndpoints
 
     /// <summary>Estimate the cost of a planned run of up to <c>maxIterations</c> turns.</summary>
     /// <remarks>
-    ///     The union adds no metadata beyond the 200: <see cref="ApiProblemResult"/> and <see cref="JsonHttpResult{TValue}"/>
+    ///     The union adds no metadata beyond the 200: <see cref="ApiProblemResult"/> and <see cref="ApiJsonResult{T}"/>
     ///     declare nothing, so the 404 comes from <c>ProducesProblem</c> and the snapshot stays the controller's (R43).
     ///     A missing or blank <c>modelId</c> is refused while binding, from <c>[Required]</c> (R43).
     /// </remarks>
-    public static async Task<Results<Ok<CostEstimateDto>, ApiProblemResult, JsonHttpResult<ErrorBody>>> EstimateCost(
+    public static async Task<Results<Ok<CostEstimateDto>, ApiProblemResult, ApiJsonResult<ErrorBody>>> EstimateCost(
         [Required] ApiQuery<string> modelId, ApiQuery<int> maxIterations, ApiQuery<int> estimatedPromptTokens, HttpContext context,
         [FromServices] ICostAnalyticsService costService, [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
     {
@@ -135,7 +135,7 @@ public static partial class CostAnalyticsEndpoints
     }
 
     /// <summary>Get configured model pricing.</summary>
-    public static async Task<Results<Ok<IReadOnlyList<ModelPricingDto>>, JsonHttpResult<ErrorBody>>> GetPricing(
+    public static async Task<Results<Ok<IReadOnlyList<ModelPricingDto>>, ApiJsonResult<ErrorBody>>> GetPricing(
         [FromServices] ICostAnalyticsService costService, [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
     {
         try
@@ -149,8 +149,8 @@ public static partial class CostAnalyticsEndpoints
         }
     }
 
-    private static JsonHttpResult<ErrorBody> InternalServerError() =>
-        TypedResults.Json(new ErrorBody("Internal server error"), statusCode: StatusCodes.Status500InternalServerError);
+    private static ApiJsonResult<ErrorBody> InternalServerError() =>
+        ApiJson.Of(new ErrorBody("Internal server error"), StatusCodes.Status500InternalServerError);
 
     private static partial class Log
     {
