@@ -102,7 +102,6 @@ public sealed class WorkflowRunViewFailureReasonTests
 
     /// <summary>
     ///     The lens is the one that rejected the latest visit, not an earlier visit's.
-    ///     Red: pass a null lens to Derive.
     /// </summary>
     [Fact]
     public async Task A_capped_run_names_the_lens_that_rejected_the_latest_visit()
@@ -110,12 +109,12 @@ public sealed class WorkflowRunViewFailureReasonTests
         var view = await ViewAsync(
             CappedLog(), Evidence(2, "mechanism", "rejected"), Evidence(6, "falsifiability", "rejected"));
 
+        // Red: Derive given null in place of rejectingLens when the review reads, in WorkflowRunsEndpoints.ToViewAsync.
         view.FailureReason.Should().Be("Review rejected the change 5 times, the review limit. Last rejecting lens: falsifiability.");
     }
 
     /// <summary>
     ///     A review-evidence record that cannot be read drops the lens sentence and nothing else.
-    ///     Red: take a lens even when the review evidence failed to read.
     /// </summary>
     [Fact]
     public async Task Unreadable_evidence_leaves_the_lens_sentence_out()
@@ -125,24 +124,25 @@ public sealed class WorkflowRunViewFailureReasonTests
 
         var view = await ViewAsync(CappedLog(), bad);
 
+        // Red: rejectingLens set to "mechanism" in place of null when the review does not read, in ToViewAsync.
         view.FailureReason.Should().Be("Review rejected the change 5 times, the review limit.");
     }
 
     /// <summary>
     ///     The list item of a capped run carries the same reason as its view, lens sentence included.
-    ///     Red: pass a null lens to Derive in ToListItemAsync. Red: read the lens only for the view path.
     /// </summary>
     [Fact]
     public async Task A_capped_list_item_carries_the_lens_sentence()
     {
         var item = await ListItemAsync(CappedLog(), Evidence(2, "mechanism", "rejected"), Evidence(6, "falsifiability", "rejected"));
 
+        // Red: the IsCappedReview test negated in WorkflowRunsEndpoints.RejectingLensAsync; the list path then reads
+        //      no lens for a capped run.
         item.FailureReason.Should().Be("Review rejected the change 5 times, the review limit. Last rejecting lens: falsifiability.");
     }
 
     /// <summary>
     ///     A list item whose evidence cannot be read keeps the first sentence.
-    ///     Red: take a lens even when the review evidence failed to read.
     /// </summary>
     [Fact]
     public async Task An_unreadable_evidence_list_item_leaves_the_lens_sentence_out()
@@ -152,6 +152,7 @@ public sealed class WorkflowRunViewFailureReasonTests
 
         var item = await ListItemAsync(CappedLog(), bad);
 
+        // Red: "mechanism" in place of null when the review does not read, in RejectingLensAsync.
         item.FailureReason.Should().Be("Review rejected the change 5 times, the review limit.");
     }
 }

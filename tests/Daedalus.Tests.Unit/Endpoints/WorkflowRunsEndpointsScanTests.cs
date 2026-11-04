@@ -49,8 +49,8 @@ public sealed class WorkflowRunsEndpointsScanTests
 
         // Red: string.Equals negated in WorkflowRunsEndpoints.Matches; the other runs then match and fill the page.
         list.Runs.Should().BeEmpty();
-        // Red: ScanAsync reading its cap as 600 in place of RunListLimits.ScanCap, in both of its uses; it reads all
-        //      600.
+        // Red: ScanAsync counting each summary read twice, scanned += 2 in place of the increment; the scan then
+        //      stops after 300 summaries.
         store.Read.Should().Be(RunListLimits.ScanCap);
         // Red: new WorkflowRunPage(kept, null) in place of (kept, after) after ScanAsync's loop.
         list.Next.Should().NotBeNull("runs past the cap may still match");

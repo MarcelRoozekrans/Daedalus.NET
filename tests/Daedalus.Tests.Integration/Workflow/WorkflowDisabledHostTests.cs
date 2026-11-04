@@ -45,14 +45,18 @@ public sealed class WorkflowDisabledHostTests(PostgresFixture fixture)
         // Red: requiresWorkflowEngine: false in place of true on the group in MapWorkflowRunsEndpoints; every row but
         //      the start then reaches its handler or the validation filter and answers a 500 or a 400. The start row
         //      stays 503 by design: the host's DisabledManufactureRunStarter answers the same problem (R53).
+        // Red: StatusCodes.Status500InternalServerError in place of Status503ServiceUnavailable in
+        //      WorkflowEngineEnabledEndpointFilter.InvokeAsync; every row, the start included, then answers 500, and
+        //      the problem's status below reads 500 too.
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         // Red: context.HttpContext.Response.Headers.RetryAfter = "30" set ahead of the 503 in
         //      WorkflowEngineEnabledEndpointFilter.InvokeAsync.
         response.Headers.RetryAfter.Should().BeNull();
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        // Red: the 500 mutation above; the problem's status is the response's.
+        problem!.Status.Should().Be(503);
         // Red: ApiProblem.Of(..., detail: "x") in place of DisabledManufactureRunStarter.DisabledMessage in
         //      WorkflowEngineEnabledEndpointFilter.InvokeAsync.
-        problem!.Status.Should().Be(503);
         problem.Detail.Should().Be(DisabledManufactureRunStarter.DisabledMessage);
     }
 

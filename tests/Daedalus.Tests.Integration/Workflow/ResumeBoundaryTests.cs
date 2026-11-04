@@ -651,12 +651,10 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
 
     /// <summary>
     ///     The record-store scope factory every gateway here is built with, as <c>ReviewLensRunnerTests.Scopes</c>
-    ///     builds it. None of these tests reads a run's records.
-    /// </summary>
-    /// <summary>
-    ///     A record store with no records. It answers an empty list rather than the substitute's default, so the
-    ///     gateway's public resume, which reads the run's review evidence first, can succeed here: without that, every
-    ///     resume through the handler failed that read, and a test that a resume did not happen proved nothing.
+    ///     builds it, over a record store with no records. The store answers an empty list rather than the
+    ///     substitute's default, so the gateway's public resume, which reads the run's review evidence first, can
+    ///     succeed here: without that, every resume through the handler failed that read, and a test that a resume
+    ///     did not happen proved nothing.
     /// </summary>
     private static IServiceScopeFactory Scopes()
     {
