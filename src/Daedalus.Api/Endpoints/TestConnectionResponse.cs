@@ -1,7 +1,7 @@
-namespace Daedalus.Api.Controllers;
+namespace Daedalus.Api.Endpoints;
 
 /// <summary>
-///     Response model for test connection endpoint
+///     Response model for the repository test-connection endpoint
 /// </summary>
 public record TestConnectionResponse
 {

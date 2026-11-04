@@ -143,8 +143,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody(body));
 
-        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
-        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in MapProjectsEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -170,8 +169,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody(body));
 
-        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
-        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in MapProjectsEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -311,11 +309,11 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options.
         //      Each refused case turns red: here, as a 500, where its action throws on the null member, and at the
         //      member set below where its action or ZeroAllocValidationFilter answers its own 400. For the ported rows
-        //      (Projects, Prd, Brainstorm): ApiBody.BindAsync answering no problem for a missing required member, the
+        //      (Projects, Prd, Brainstorm, Repositories): ApiBody.BindAsync answering no problem for a missing required member, the
         //      result of ApiBinding.ImplicitRequired dropped in place of ApiProblem.BindingProblem(context, required).
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: the ported case's group ProblemContentType.Json changed to ProblemJson in MapProjectsEndpoints,
-        //      MapPrdEndpoints and MapBrainstormEndpoints; for a case still on MVC, its controller's
+        //      MapPrdEndpoints, MapBrainstormEndpoints and MapRepositoriesEndpoints; for a case still on MVC, its controller's
         //      [Produces("application/json")] changed to text/json, and for CreateTaskDto, a [Produces("application/json")]
         //      added to TasksController.
         response.Content.Headers.ContentType!.ToString().Should().Be(@case.ContentType);
@@ -401,8 +399,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri(path, UriKind.Relative));
 
-        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
-        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: SchedulesEndpoints' or BrainstormEndpoints' ProblemContentType.Json changed to new ProblemContentType("text/json"); the row of that path fails.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -459,8 +456,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri($"/api/schedules/{Unknown}/runs{query}", UriKind.Relative));
 
-        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
-        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: SchedulesEndpoints' ProblemContentType.Json changed to ProblemContentType.ProblemJson.
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -482,8 +478,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.GetAsync(new Uri("/api/brainstorm/sessions?projectId=", UriKind.Relative));
 
-        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs; for a route still on MVC, an
-        //      InvalidModelStateResponseFactory in ConfigureApiBehaviorOptions that answers the same problem as 422.
+        // Red: ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: BrainstormEndpoints' ProblemContentType.Json changed to new ProblemContentType("text/json").
         response.Content.Headers.ContentType!.ToString().Should().Be(Json);
@@ -685,15 +680,17 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), body is null ? null : JsonBody(body));
         var text = await response.Content.ReadAsStringAsync();
 
-        // Red: return Ok instead of CreatedAtAction, or for manufacture instead of Created, in the case's action.
+        // Red: return Ok instead of CreatedAtAction, or for manufacture instead of Created, in the case's action; for the repositories case, InternalError in place of Created in CreateRepository.
         response.StatusCode.Should().Be(HttpStatusCode.Created, text);
         using var document = JsonDocument.Parse(text);
         var id = document.RootElement.GetProperty(idMember).GetString();
         // Red: per case, each changing one thing the Location has. The projects case turns red with the lower-case
-        //      "/api/projects/{id}" in place of "/api/Projects/{id}" in ProjectsEndpoints.CreateProject. The tasks case
+        //      "/api/projects/{id}" in place of "/api/Projects/{id}" in ProjectsEndpoints.CreateProject, and the
+        //      repositories case with "/api/repositories/{id}" in place of "/api/Repositories/{id}" in
+        //      RepositoriesEndpoints.CreateRepository. The tasks case
         //      turns red with Created and a relative "/api/Tasks/{id}" in place of CreatedAtAction in
-        //      TasksController.CreateTask, and the repositories and codeanalysis cases with a lower-case [Route] in
-        //      place of api/[controller] on their controllers. The agent-sessions case turns red with "Sessions/{sessionId}" as the template of
+        //      TasksController.CreateTask, and the codeanalysis case with a lower-case [Route] in
+        //      place of api/[controller] on its controller. The agent-sessions case turns red with "Sessions/{sessionId}" as the template of
         //      AgentSessionsController.GetSession, the workflow-runs case with Created and a relative path in
         //      WorkflowRunsController.Start, and the manufacture case with an absolute http://localhost URI in
         //      TasksController.Manufacture's Created.

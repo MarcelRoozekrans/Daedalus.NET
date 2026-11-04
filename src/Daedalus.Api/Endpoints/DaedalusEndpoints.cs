@@ -67,6 +67,7 @@ public static class DaedalusEndpoints
         app.MapPrdEndpoints();
         app.MapProjectsEndpoints();
         app.MapBrainstormEndpoints();
+        app.MapRepositoriesEndpoints();
 
         return app;
     }

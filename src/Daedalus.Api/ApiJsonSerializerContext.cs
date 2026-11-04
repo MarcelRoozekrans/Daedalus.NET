@@ -73,7 +73,7 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(RepositoryConfigurationDto))]
 [JsonSerializable(typeof(StartWorkflowRunResponse))]
 [JsonSerializable(typeof(SubmitAnalysisResponse))]
-[JsonSerializable(typeof(TestConnectionResponse))]
+[JsonSerializable(typeof(Endpoints.TestConnectionResponse))]
 [JsonSerializable(typeof(WorkflowRunList))]
 [JsonSerializable(typeof(WorkflowRunView))]
 [JsonSerializable(typeof(IEnumerable<RepositoryConfigurationDto>))]
