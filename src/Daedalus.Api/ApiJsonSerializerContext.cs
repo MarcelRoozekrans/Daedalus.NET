@@ -86,6 +86,8 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(IReadOnlyList<RunDiagnosis>))]
 [JsonSerializable(typeof(IReadOnlyList<TaskCostDto>))]
 // Request bodies
+[JsonSerializable(typeof(Endpoints.CancelAnalysisResponse))]
+[JsonSerializable(typeof(Endpoints.IterateAnalysisResponse))]
 [JsonSerializable(typeof(CancelWorkflowRunRequest))]
 [JsonSerializable(typeof(CreateBrainstormSessionDto))]
 [JsonSerializable(typeof(CreateProjectDto))]

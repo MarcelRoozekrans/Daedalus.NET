@@ -310,14 +310,14 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options.
         //      Each refused case turns red: here, as a 500, where its action throws on the null member, and at the
         //      member set below where its action or ZeroAllocValidationFilter answers its own 400. For the ported rows
-        //      (Projects, Prd, Brainstorm, Repositories, AgentSessions, Tasks): ApiBody.BindAsync answering no problem for a missing
+        //      (Projects, Prd, Brainstorm, Repositories, AgentSessions, Tasks, CodeAnalysis): ApiBody.BindAsync answering no problem for a missing
         //      required member, the result of ApiBinding.ImplicitRequired dropped in place of
         //      ApiProblem.BindingProblem(context, required); for AgentSessions applied as
         //      var required = new Dictionary<string, string[]>(StringComparer.Ordinal) in place of the
         //      ApiBinding.ImplicitRequired call in ApiBody.BindAsync.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: the ported case's group ProblemContentType.Json changed to ProblemJson in MapProjectsEndpoints,
-        //      MapPrdEndpoints, MapBrainstormEndpoints, MapRepositoriesEndpoints and MapAgentSessionsEndpoints, and for
+        //      MapPrdEndpoints, MapBrainstormEndpoints, MapRepositoriesEndpoints, MapAgentSessionsEndpoints and MapCodeAnalysisEndpoints, and for
         //      CreateTaskDto, .WithMetadata(ProblemContentType.Json) added to the group in MapTasksEndpoints; for a case
         //      still on MVC, its controller's [Produces("application/json")] changed to text/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(@case.ContentType);
@@ -338,12 +338,12 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         switch (dto)
         {
             case "FinalizeAnalysisRequest":
-                // Red: CodeAnalysisController's [Produces("application/json")] changed to text/json.
+                // Red: .WithMetadata(ProblemContentType.Json) changed to ProblemContentType.ProblemJson in MapCodeAnalysisEndpoints.
                 response.Content.Headers.ContentType!.ToString().Should().Be(Json);
-                // Red: Type set on the Finalization Error ProblemDetails in CodeAnalysisController.FinalizeAnalysis.
+                // Red: Type = "x" set on the ProblemDetails built in CodeAnalysisEndpoints.Problem.
                 root.EnumerateObject().Select(member => member.Name).Order(StringComparer.Ordinal).Should()
                     .Equal(["detail", "status", "title"], text);
-                // Red: the Finalization Error title changed in CodeAnalysisController.FinalizeAnalysis.
+                // Red: the title "Finalization Error" changed in the Problem call of CodeAnalysisEndpoints.FinalizeAnalysis.
                 root.EnumerateObject().Select(member => member.Name + "=" + member.Value.GetRawText())
                     .Order(StringComparer.Ordinal).Should().Equal(
                         "detail=" + JsonSerializer.Serialize($"Analysis request {Unknown} not found", MvcEscaping),
@@ -684,7 +684,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), body is null ? null : JsonBody(body));
         var text = await response.Content.ReadAsStringAsync();
 
-        // Red: return Ok instead of CreatedAtAction in the case's action; for the repositories case, InternalError in place of Created in CreateRepository.
+        // Red: for the repositories case, InternalError in place of Created in CreateRepository; for the codeanalysis case,
+        //      Problem(context, StatusCodes.Status410Gone, "x", "x") in place of TypedResults.Created in
+        //      CodeAnalysisEndpoints.SubmitAnalysis.
         //      For the tasks case, ApiProblem.Of(context, StatusCodes.Status410Gone) in place of TypedResults.Created in
         //      TasksEndpoints.CreateTask, and for the manufacture case the same in place of TypedResults.Created in
         //      TasksEndpoints.Manufacture.
@@ -698,8 +700,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         //      repositories case with "/api/repositories/{id}" in place of "/api/Repositories/{id}" in
         //      RepositoriesEndpoints.CreateRepository. The tasks case
         //      turns red with "/api/tasks/{id}" in place of "/api/Tasks/{id}" in TasksEndpoints.CreateTask, and the
-        //      codeanalysis case with a lower-case [Route] in
-        //      place of api/[controller] on its controller. The agent-sessions case turns red with
+        //      codeanalysis case with "/api/codeanalysis/{id}" in place of "/api/CodeAnalysis/{id}" in
+        //      CodeAnalysisEndpoints.SubmitAnalysis. The agent-sessions case turns red with
         //      "/api/agents/Sessions/{sessionId}" in place of "/api/agents/sessions/{sessionId}" in
         //      AgentSessionsEndpoints.CreateSession, the workflow-runs case with Created and a relative path in
         //      WorkflowRunsController.Start, and the manufacture case with

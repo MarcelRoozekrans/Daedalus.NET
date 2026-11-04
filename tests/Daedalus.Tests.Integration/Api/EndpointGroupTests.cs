@@ -100,6 +100,7 @@ public sealed class EndpointGroupTests(PostgresFixture fixture)
         ["api/agents/sessions"] = "AgentSessions",
         ["api/agents/{agentId}/sessions"] = "AgentSessions",
         ["api/brainstorm"] = "Brainstorm",
+        ["api/codeanalysis"] = "CodeAnalysis",
         ["api/cost-analytics"] = "CostAnalytics",
         ["api/prd"] = "Prd",
         ["api/projects"] = "Projects",
