@@ -1,5 +1,4 @@
 using Daedalus.Api.Endpoints;
-using Microsoft.AspNetCore.Mvc;
 using Thalos;
 
 namespace Daedalus.Api.Agents;
@@ -47,23 +46,10 @@ internal static class AgentErrorResults
         _ => StatusCodes.Status502BadGateway,
     };
 
-    /// <summary>Builds the RFC 7807 problem response for <paramref name="error"/>.</summary>
-    public static IActionResult ToActionResult(this AgentError error, ControllerBase controller)
-    {
-        ArgumentNullException.ThrowIfNull(controller);
-
-        var code = error.Code.ToString();
-        return controller.Problem(
-            title: code,
-            detail: error.Detail is null ? error.Message : $"{error.Message} ({error.Detail})",
-            statusCode: ToStatusCode(error.Code),
-            extensions: new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = code });
-    }
-
     /// <summary>
-    ///     The minimal API counterpart of <see cref="ToActionResult"/>: the same title, detail, status and <c>code</c>
-    ///     extension, through <see cref="ApiProblem.Of"/>, with the endpoint's problem content type.
-    ///     <see cref="ToActionResult"/> stays until the agent controllers are ported.
+    ///     Builds the RFC 7807 problem response for <paramref name="error"/> through <see cref="ApiProblem.Of"/>: the code
+    ///     name as title and <c>code</c> extension, the message with any detail as detail, and the endpoint's problem
+    ///     content type.
     /// </summary>
     public static ApiProblemResult ToProblem(this AgentError error, HttpContext context)
     {

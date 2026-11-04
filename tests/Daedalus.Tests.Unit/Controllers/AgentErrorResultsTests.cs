@@ -1,11 +1,7 @@
-using System.Security.Claims;
 using Daedalus.Api.Agents;
 using Daedalus.Api.Endpoints;
 using Daedalus.Tests.Unit.Endpoints;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Infrastructure;
-using Microsoft.Extensions.DependencyInjection;
 using Thalos;
 
 namespace Daedalus.Tests.Unit.Controllers;
@@ -57,37 +53,6 @@ public sealed class AgentErrorResultsTests
     }
 
     [Fact]
-    public void ToActionResult_builds_problem_details_with_code_extension_and_detail()
-    {
-        var controller = CreateController();
-        var error = AgentError.Quarantined("Blocked by Sentinel.", "Critical: PromptInjectionDetector");
-
-        var result = error.ToActionResult(controller);
-
-        var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
-        objectResult.StatusCode.Should().Be(StatusCodes.Status422UnprocessableEntity);
-        var problem = objectResult.Value.Should().BeOfType<ProblemDetails>().Subject;
-        problem.Title.Should().Be("Quarantined");
-        problem.Status.Should().Be(StatusCodes.Status422UnprocessableEntity);
-        problem.Detail.Should().Be("Blocked by Sentinel. (Critical: PromptInjectionDetector)");
-        problem.Extensions.Should().ContainKey("code").WhoseValue.Should().Be("Quarantined");
-    }
-
-    [Fact]
-    public void ToActionResult_without_detail_uses_the_message_alone()
-    {
-        var controller = CreateController();
-        var sessionId = SessionId.New();
-
-        var result = AgentError.SessionNotFound(sessionId).ToActionResult(controller);
-
-        var problem = result.Should().BeOfType<ObjectResult>().Subject.Value.Should().BeOfType<ProblemDetails>().Subject;
-        problem.Status.Should().Be(StatusCodes.Status404NotFound);
-        problem.Title.Should().Be("SessionNotFound");
-        problem.Detail.Should().NotBeNullOrEmpty().And.NotContain("(");
-    }
-
-    [Fact]
     public async Task ToProblem_builds_problem_with_code_extension()
     {
         await using var services = EndpointTestContext.Services();
@@ -125,37 +90,22 @@ public sealed class AgentErrorResultsTests
 
     [Theory]
     [MemberData(nameof(EveryCode))]
-    public void ToProblem_equals_ToActionResult(AgentErrorCode code)
+    public async Task ToProblem_maps_every_code_to_its_status_title_and_code_extension(AgentErrorCode code)
     {
-        var controller = CreateController();
-        var context = controller.HttpContext;
-        context.TraceIdentifier = "trace-1";
+        await using var services = EndpointTestContext.Services();
+        var context = EndpointTestContext.Create(services);
         var error = new AgentError(code, "message", code == AgentErrorCode.Cancelled ? null : "detail");
 
-        var mvc = (ProblemDetails)((ObjectResult)error.ToActionResult(controller)).Value!;
-        var endpoint = error.ToProblem(context).ProblemDetails;
+        var problem = error.ToProblem(context);
 
-        // Red: any change to ToProblem's title, detail, status or extensions, or a row of ApiProblem's table that
-        //      differs from MVC's client-error mapping for a status an AgentErrorCode maps to.
-        endpoint.Should().BeEquivalentTo(mvc);
+        // Red: ToProblem maps through StatusCodes.Status500InternalServerError in place of ToStatusCode(error.Code).
+        problem.StatusCode.Should().Be(AgentErrorResults.ToStatusCode(code));
+        problem.ProblemDetails.Status.Should().Be(AgentErrorResults.ToStatusCode(code));
+        // Red: title: null in place of title: code in ToProblem; the table's title is used.
+        problem.ProblemDetails.Title.Should().Be(code.ToString());
+        // Red: detail: error.Message in place of the detail with the parenthesised Detail in ToProblem.
+        problem.ProblemDetails.Detail.Should().Be(code == AgentErrorCode.Cancelled ? "message" : "message (detail)");
+        // Red: the code extension renamed to "errorCode" in ToProblem.
+        problem.ProblemDetails.Extensions.Should().ContainKey("code").WhoseValue.Should().Be(code.ToString());
     }
-
-    private static TestController CreateController()
-    {
-        // ControllerBase.Problem resolves ProblemDetailsFactory from request services.
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddMvcCore().AddApiExplorer();
-        var provider = services.BuildServiceProvider();
-
-        var httpContext = new DefaultHttpContext
-        {
-            RequestServices = provider,
-            User = new ClaimsPrincipal(new ClaimsIdentity()),
-        };
-
-        return new TestController { ControllerContext = new ControllerContext { HttpContext = httpContext } };
-    }
-
-    private sealed class TestController : ControllerBase;
 }

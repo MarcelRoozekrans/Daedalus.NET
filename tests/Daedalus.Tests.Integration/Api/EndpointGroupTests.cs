@@ -97,6 +97,8 @@ public sealed class EndpointGroupTests(PostgresFixture fixture)
     {
         ["api/agent-memories"] = "AgentMemories",
         ["api/agents"] = "Agents",
+        ["api/agents/sessions"] = "AgentSessions",
+        ["api/agents/{agentId}/sessions"] = "AgentSessions",
         ["api/brainstorm"] = "Brainstorm",
         ["api/cost-analytics"] = "CostAnalytics",
         ["api/prd"] = "Prd",

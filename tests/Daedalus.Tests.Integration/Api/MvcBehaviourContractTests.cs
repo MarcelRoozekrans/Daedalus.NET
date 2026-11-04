@@ -310,11 +310,15 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options.
         //      Each refused case turns red: here, as a 500, where its action throws on the null member, and at the
         //      member set below where its action or ZeroAllocValidationFilter answers its own 400. For the ported rows
-        //      (Projects, Prd, Brainstorm, Repositories): ApiBody.BindAsync answering no problem for a missing required member, the
-        //      result of ApiBinding.ImplicitRequired dropped in place of ApiProblem.BindingProblem(context, required).
+        //      (Projects, Prd, Brainstorm, Repositories, AgentSessions): ApiBody.BindAsync answering no problem for a missing
+        //      required member, the result of ApiBinding.ImplicitRequired dropped in place of
+        //      ApiProblem.BindingProblem(context, required); for AgentSessions applied as
+        //      var required = new Dictionary<string, string[]>(StringComparer.Ordinal) in place of the
+        //      ApiBinding.ImplicitRequired call in ApiBody.BindAsync.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: the ported case's group ProblemContentType.Json changed to ProblemJson in MapProjectsEndpoints,
-        //      MapPrdEndpoints, MapBrainstormEndpoints and MapRepositoriesEndpoints; for a case still on MVC, its controller's
+        //      MapPrdEndpoints, MapBrainstormEndpoints, MapRepositoriesEndpoints and MapAgentSessionsEndpoints; for a case
+        //      still on MVC, its controller's
         //      [Produces("application/json")] changed to text/json, and for CreateTaskDto, a [Produces("application/json")]
         //      added to TasksController.
         response.Content.Headers.ContentType!.ToString().Should().Be(@case.ContentType);
@@ -578,12 +582,12 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         // Red: return StatusCode(410) instead of NotFound for an unknown task in TasksController.GetTaskById,
         //      status 410 in TasksController.Manufacture's TaskNotFound branch, ProjectNotFound answering 410 in
-        //      ProjectsEndpoints; for the stream, the 422 InvalidModelStateResponseFactory.
+        //      ProjectsEndpoints; for the stream, ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs.
         response.StatusCode.Should().Be(status, await response.Content.ReadAsStringAsync());
         // Red: a [Produces("application/json")] added to TasksController turns tasks-problem; ApiJsonResult.ContentType changed to
         //      application/problem+json turns projects-error-body; a [Produces("text/json")] on TasksController
-        //      turns tasks-error-body; the stream action's [Produces("text/event-stream")] removed turns
-        //      stream-problem application/json.
+        //      turns tasks-error-body; ProblemContentType.ProblemJson dropped from the stream route's WithMetadata in
+        //      MapAgentSessionsEndpoints turns stream-problem application/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(contentType);
         switch (name)
         {
@@ -682,6 +686,8 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         var text = await response.Content.ReadAsStringAsync();
 
         // Red: return Ok instead of CreatedAtAction, or for manufacture instead of Created, in the case's action; for the repositories case, InternalError in place of Created in CreateRepository.
+        //      For the agent-sessions case, return AgentError.Validation("x").ToProblem(context) when result.IsSuccess,
+        //      ahead of the Created in AgentSessionsEndpoints.CreateSession.
         response.StatusCode.Should().Be(HttpStatusCode.Created, text);
         using var document = JsonDocument.Parse(text);
         var id = document.RootElement.GetProperty(idMember).GetString();
@@ -691,8 +697,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         //      RepositoriesEndpoints.CreateRepository. The tasks case
         //      turns red with Created and a relative "/api/Tasks/{id}" in place of CreatedAtAction in
         //      TasksController.CreateTask, and the codeanalysis case with a lower-case [Route] in
-        //      place of api/[controller] on its controller. The agent-sessions case turns red with "Sessions/{sessionId}" as the template of
-        //      AgentSessionsController.GetSession, the workflow-runs case with Created and a relative path in
+        //      place of api/[controller] on its controller. The agent-sessions case turns red with
+        //      "/api/agents/Sessions/{sessionId}" in place of "/api/agents/sessions/{sessionId}" in
+        //      AgentSessionsEndpoints.CreateSession, the workflow-runs case with Created and a relative path in
         //      WorkflowRunsController.Start, and the manufacture case with an absolute http://localhost URI in
         //      TasksController.Manufacture's Created.
         response.Headers.Location!.OriginalString.Should()
