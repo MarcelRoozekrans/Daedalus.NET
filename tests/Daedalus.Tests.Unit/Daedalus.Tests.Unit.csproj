@@ -16,6 +16,9 @@
              measurement) and ignores a GC query's return value by design. Vendor file, cannot be
              edited here. -->
         <NoWarn>$(NoWarn);CS7036;CS1061;CS0121;S1215;S3241</NoWarn>
+        <!-- As in Daedalus.Api: GeneratedEndpointBindingTests maps a throwaway endpoint over ApiBody and ApiQuery, and
+             the generator compiles it, so its BindAsync shape is accepted before any port relies on it. -->
+        <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
     </PropertyGroup>
 
     <ItemGroup>
@@ -86,4 +89,10 @@
         <ProjectReference Include="..\..\src\Daedalus.Web\Daedalus.Web.csproj"/>
     </ItemGroup>
 
+
+    <ItemGroup>
+        <!-- Binds page and pageSize for a paged handler called directly, shared with the integration project. -->
+        <Compile Include="..\Shared\PagingQueryBinding.cs" Link="Shared\PagingQueryBinding.cs"/>
+        <Compile Include="..\Shared\WorkflowRunsRequest.cs" Link="Shared\WorkflowRunsRequest.cs"/>
+    </ItemGroup>
 </Project>

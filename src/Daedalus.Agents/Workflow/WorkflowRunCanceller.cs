@@ -5,7 +5,7 @@ namespace Daedalus.Agents.Workflow;
 
 /// <summary>
 ///     The engine's <see cref="IWorkflowRunCanceller"/>: cancels through <see cref="WorkflowRunGateway.CancelAsync"/>, the
-///     path <c>WorkflowRunsController.Cancel</c> uses.
+///     path <c>WorkflowRunsEndpoints.Cancel</c> uses.
 /// </summary>
 /// <remarks>
 ///     Each attempt runs under a token of its own that only <see cref="CancelTimeout"/> cancels, never the caller's, as

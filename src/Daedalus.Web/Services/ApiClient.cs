@@ -268,7 +268,7 @@ public sealed class ApiClient(HttpClient httpClient)
 
     /// <summary>
     ///     The reason a write was refused. The server answers in two shapes: a ProblemDetails <c>detail</c>, and the
-    ///     <c>{ "error": "..." }</c> body most controllers return. A body in neither shape gives the status line.
+    ///     <c>{ "error": "..." }</c> body most endpoints return. A body in neither shape gives the status line.
     /// </summary>
     private static async Task<string> ReadFailureReasonAsync(HttpResponseMessage response, CancellationToken ct)
     {
@@ -344,12 +344,12 @@ public sealed class ApiClient(HttpClient httpClient)
     // PRD generator
     /// <summary>
     ///     Generates a PRD from the user's requirements. The API answers in camelCase, read with the web defaults; a
-    ///     refusal carries the controller's <c>error</c>.
+    ///     refusal carries the endpoint's <c>error</c>.
     /// </summary>
     public Task<Result<PrdResponseDto>> GeneratePrdAsync(PrdRequestDto request, CancellationToken ct = default) =>
         PostAsync(WebJsonContext.Default.PrdResponseDto, "/api/prd/generate", request, WebJsonContext.Default.PrdRequestDto, ct);
 
-    /// <summary>Turns the selected PRD items into tasks; a refusal carries the controller's <c>error</c>.</summary>
+    /// <summary>Turns the selected PRD items into tasks; a refusal carries the endpoint's <c>error</c>.</summary>
     public Task<Result<List<TaskDto>>> ConvertPrdToTasksAsync(
         PrdConversionRequestDto request, CancellationToken ct = default) =>
         PostAsync(WebJsonContext.Default.ListTaskDto, "/api/prd/convert-to-tasks", request, WebJsonContext.Default.PrdConversionRequestDto, ct);

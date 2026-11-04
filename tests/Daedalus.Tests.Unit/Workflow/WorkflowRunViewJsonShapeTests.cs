@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Thalos;
 using Thalos.Workflow;
@@ -73,7 +73,7 @@ public sealed class WorkflowRunViewJsonShapeTests
     {
         var pin = new NodePin("Implementer", AgentId.New(), "3", "implement-skill", "hash");
 
-        JsonSerializer.Serialize(WorkflowRunsController.ToPinView(pin), JsonSerializerOptions.Web)
+        JsonSerializer.Serialize(WorkflowRunsEndpoints.ToPinView(pin), JsonSerializerOptions.Web)
             .Should().Be(JsonSerializer.Serialize(pin, JsonSerializerOptions.Web));
     }
 

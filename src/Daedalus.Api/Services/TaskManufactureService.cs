@@ -12,7 +12,7 @@ using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Api.Services;
 
-/// <summary>Why a task's manufacture start was refused or failed. <c>TasksController.Manufacture</c> maps each kind to a status.</summary>
+/// <summary>Why a task's manufacture start was refused or failed. <c>TasksEndpoints.Manufacture</c> maps each kind to a status.</summary>
 public enum TaskManufactureFailureKind
 {
     /// <summary>The task does not exist. 404.</summary>

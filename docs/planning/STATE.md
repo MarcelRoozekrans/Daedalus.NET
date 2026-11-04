@@ -1,8 +1,174 @@
 # Session State
 
-**Last session:** 2026-10-31
+**Last session:** 2026-11-04
 
-## Current Position - phase 3.3 complete (2026-10-31), PR #424 ready for the owner to merge
+## Current Position - phase 3.4 built and reviewed (2026-11-04): PR #427 ready, waiting on the owner's merge
+
+**Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, PR #427 to `main`, marked
+ready. Release-please stays on hold.
+
+- **All 22 tasks done**, subagent-driven, each with a task review and fix rounds, then a whole-branch review on the
+  most capable model (0 Critical, 0 Important, 6 Minor, all fixed in one wave and re-reviewed) and `pre-push-review`
+  PASS (`docs/pre-push-review-2026-11-04-1928.md`). All 13 controllers are `Endpoints/<Name>Endpoints.cs`; MVC and
+  the inert API versioning are gone (R54, owner decision 2026-10-31). Rulings R1 to R54:
+  `docs/plans/2026-10-31-phase-3.4-rulings.md`. Ledger: `docs/plans/2026-10-31-phase-3.4-sdd/ledger.md`.
+- **Contract:** the endpoint snapshot is unchanged except the versions column (R54); `MvcBehaviourContractTests` pins
+  MVC's wire answers and stays green on the endpoints.
+- **Evidence on 35784a12:** Release build 0 warnings; Unit 2437, Unit.Domain 356, Unit.Application 304,
+  Unit.Infrastructure 278, Integration 832, Playwright.Api 115, Playwright.Browser 219, 0 failed. CI green on
+  `54ff9ca2`. AOT baseline Api 1502 at this phase's start, now **1351**: the MVC warning family left
+  (150 keys); Web 196, Cli 633, Sandbox 0, Migrations 798, all matching.
+- **Filed:** #428 (codeanalysis empty requirements answers 500, kept by design), #436 (Browser E2E fixture registers
+  no validation adapters; moving the adapter list changes the CLAUDE.md two-place rule, the owner's call).
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+None. Waiting on the owner's merge of #427.
+
+## Recommended Next Step
+
+After #427 merges:
+1. `complete-phase` 3.4 in ROADMAP.md and MILESTONE.md.
+2. Close Renovate #402 (`Asp.Versioning.Mvc` to v10) with a comment that MVC and API versioning left the API in #427.
+   Not earlier: main referenced the package until the merge, and closing makes Renovate ignore that version.
+3. Check the squash message: commit `8d9be4ba` is typed `fix(api)` but is test and refactor work, and commit
+   `ac306f61` has a 167-character body line; wrap or drop both in the squash body.
+4. Then the next phase of milestone 3 via `start-next-phase`.
+
+## Earlier Position - phase 3.4 executing (2026-11-04): Tasks 1-11 done, next Task 12
+
+**Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `18e445b5` plus this
+pause commit, pushed. Draft PR #427 to `main`. Release-please stays on hold.
+
+- **Done and reviewed, subagent-driven:** Tasks 6 to 11, the ports of Agents, Schedules, TaskExecutions,
+  CostAnalytics and Prd, and Task 9, `ApiAuthorizationTests` over the endpoint table. Plus one cross-task fix,
+  R45: `ApiJson.Of` / `ApiJsonResult<T>` replaces `TypedResults.Json`, whose options overload added 12 AOT
+  warnings. CI on `c1220e39`: aot-analysis Api 1502, all counts match; no baseline move so far.
+- **Patterns settled for the remaining ports**, all in the plan's port recipe and rulings R38 to R45:
+  `.WithTags` plus a row in `EndpointGroupTests.ExpectedTags` (R40); `WithQueryParameter<T>` for OpenAPI query
+  parameters (R41); `ILoggerFactory.CreateLogger(typeof(XEndpoints))` with category and event ids pinned (R42);
+  `[Required]` on `ApiQuery<T>` for required query values and `ApiProblem.AsGiven` for hand-built problems (R43);
+  catch-all bodies as the controller wrote them, Prd keeps `{error, details}` (R44); every JSON body that is not a
+  typed `Ok`/`Created`/`BadRequest` goes through `ApiJson.Of` (R45). Bind every route parameter, or the snapshot
+  loses its constraint.
+- **CI is red on Build & Test** for NU1903, GHSA-g27p-qf6j-c96c on `Components.WebAssembly.Server` 10.0.13.
+  Owner chose a separate PR: **#430**, `fix(deps)`, ASP.NET Core family to 10.0.14, green, waits on the owner's
+  merge. After the merge: merge `main` into the phase branch. Renovate #399 is red on ZeroAlloc.TestHelpers 1.8.0
+  content files tripping Sonar S125/S2234; not looked into yet.
+- **CI watching:** every push cancels the running CI, so read aot-analysis on a head that sat still for about
+  10 minutes; download the `aot-analysis-Api` artifact and diff `Api.keys` against the last matching run to find
+  the cause of any rise.
+- **Local runs:** `DOTNET_USE_POLLING_FILE_WATCHER=1`, one build or test at a time, per-project Release builds while
+  NU1903 blocks the solution build. `dotnet format style` crashes on the VM; implementers run `format whitespace`.
+- **SDD ledger:** `docs/plans/2026-10-31-phase-3.4-sdd/ledger.md`, restore it as `progress.md` in the workspace
+  from `scripts/sdd-workspace`. It holds the deferred minors for the final review, among them the integration test
+  count drop from Task 9's planned theory-to-table rewrite.
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+None for the ports. Branch CI stays red on Build & Test until #430 is merged and `main` is merged in.
+
+## Recommended Next Step
+
+In a fresh session, on `phase/3.4-minimal-apis`, resume `superpowers:subagent-driven-development` on
+`docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md` at **Task 12, port Projects**. Restore the
+ledger. If #430 is merged, first merge `origin/main` into the branch and confirm Build & Test green. Then Tasks 13
+to 22, with the carried items in the ledger: Task 16 stream responses column, Task 17 three media types, Task 18
+keeps #428's 500, Task 19 `?status=`, empty `?take=` and the gateway after the 503 filter.
+
+## Earlier Position - phase 3.4 executing (2026-10-31): Tasks 1-5 done, Task 6 committed but not reviewed
+
+**Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `eb148832` plus this
+pause commit, pushed. Draft PR #427 to `main`, opened with the owner's OK so CI and `aot-analysis` run per push.
+**Paused at the owner's request:** the weekly token budget is at 90%. Release-please stays on hold.
+
+- **Done and reviewed, subagent-driven:** Task 1, the endpoint contract snapshot, 61 lines, stack-neutral renderer.
+  Task 2 and 3, `MvcBehaviourContractTests`, which pins MVC's error, binding, header, `Location` and pipeline-order
+  answers. Task 4, `AddDaedalusEndpoints` and `MapDaedalusEndpoints` beside MVC, the RDG on, every action type in
+  `ApiJsonSerializerContext`, plus `OpenApiDocumentTests`. Task 5, `ApiProblem`, `ApiBody<T>`, `ApiQuery<T>`, the
+  two endpoint filters, `MapApiGroup` and `AgentErrorResults.ToProblem`, all pinned against MVC.
+- **Task 6, port `Agents`,** is committed as `eb148832` and pushed, but **not reviewed**. Its implementer was stopped
+  while waiting on CI's `aot-analysis`, so neither that read nor a baseline move was done.
+- **Owner decisions this session:** API versioning is inert on MVC today, so the wire stays unversioned and Task 20
+  drops the dead code; the plan is amended. Draft PR #427 for CI.
+- **Rulings R1 to R39** are in `docs/plans/2026-10-31-phase-3.4-rulings.md`. The plan's shared-definitions table
+  matches the helpers as built (`8e64b0f4`). Key ones for the ports:
+  - R38: the endpoint pattern.
+  - R39: the snapshot renderer trims a group root's trailing `/`.
+  - R30: `ApiQuery<T>.ValueOr` plus the default re-declared in OpenAPI metadata.
+  - R12: `ProblemContentType.Json` only where the controller had `[Produces]`.
+  - Endpoint JSON is governed by the Http `JsonOptions`, not the context's attributes.
+- **SDD ledger:** `docs/plans/2026-10-31-phase-3.4-sdd/ledger.md`, with the pre-flight scan, every review round and
+  the items carried to later tasks; Task 6's report is beside it. The live workspace under `.superpowers/sdd/` is
+  git-ignored. A new session recreates it with `scripts/sdd-workspace` and copies the ledger in as `progress.md`.
+- **Filed:** #428, `POST /api/codeanalysis` with an empty requirements list answers 500; a Domain fix.
+- **Local test runs** need `DOTNET_USE_POLLING_FILE_WATCHER=1`: other sessions hold the VM's inotify instances.
+  `ManufactureSandboxEndToEndTests` fails locally for environmental reasons; CI is the check.
+- **At merge:** commit `8d9be4ba` is typed `fix(api)` but is test and refactor work. Check the squash message.
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+None.
+
+## Recommended Next Step
+
+In a fresh session, on `phase/3.4-minimal-apis`, resume `superpowers:subagent-driven-development` on
+`docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md`. Restore the ledger from
+`docs/plans/2026-10-31-phase-3.4-sdd/ledger.md`.
+
+1. Review Task 6, BASE `6536e574`, HEAD `eb148832`, against the brief and its report. Read `aot-analysis` on #427
+   and lower `eng/aot/baseline.json` if the Api count fell.
+2. Then Tasks 7 to 22. Carried items in the ledger:
+   - Task 16: the stream endpoint's responses column.
+   - Task 17: Tasks lists three media types.
+   - Task 18: keep #428's 500.
+   - Task 19: `?status=`, empty `?take=` and the gateway after the 503 filter.
+
+## Earlier Position - phase 3.4 planned and active (2026-10-31); execution not started
+
+**Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, head `aa13f45a`, pushed.
+3.3 is merged as `fe5a4e25`; CI on `main` green. **Release:** release-please stays on hold (owner, 2026-10-31).
+
+- **Artifacts:** design `docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-design.md`; impact analysis
+  `docs/superpowers/specs/2026-10-31-phase-3.4-minimal-apis-impact-analysis.md`, `9d332acb`; plan
+  `docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md`, 22 tasks, `aa13f45a`. ROADMAP and MILESTONE
+  show 3.4 active with the plan link, and 13 controllers, not 18.
+- **Owner decisions of 2026-10-31, in the impact analysis:** targets confirmed, adding `AgentErrorResults`,
+  `StartWorkflowRunRequest` and the Playwright.Browser `E2EServerFixture`, a second composition root; the
+  integration tests that construct controllers are retargeted at handlers; `ApiAuthorizationTests` is rewritten over
+  `EndpointDataSource`; `EnableRequestDelegateGenerator=true` in the Api project.
+- **Plan approved by the owner, 2026-10-31,** as written: MVC's 400 bodies for malformed queries, malformed JSON and
+  empty bodies are kept through `ApiBody<T>` and `ApiQuery<T>`, ruling R7. Execution: **subagent-driven**.
+- **The rulings doc** `docs/plans/2026-10-31-phase-3.4-rulings.md` does not exist yet; Task 1 creates it with R1 to R10.
+- **Plan Global Constraints override the 3.3 plan's commit rule:** no `Co-Authored-By` trailer, no signature.
+
+### Open Decisions, as of the 3.4 planning
+
+None. `list-phase-assumptions` is done and confirmed.
+
+### Blockers, as of the 3.4 planning
+
+None.
+
+### Next step, as of the 3.4 planning
+
+In a fresh session, on `phase/3.4-minimal-apis`: `superpowers:subagent-driven-development` on the plan, starting at
+Task 1, the rulings doc and the endpoint contract snapshot. Each task pushes with
+`git push origin HEAD:phase/3.4-minimal-apis`. After Task 22: `complete-phase`.
+
+### Phase 3.3 close-out, as recorded before the merge
 
 **Milestone 3, phase 3.3, own Anthropic and Ollama clients.** Built subagent-driven on `phase/3.3-own-llm-clients`
 from `main` `88cf0433`, across ZeroAlloc.Resilience, ZeroAlloc.Rest, Thalos.NET and Daedalus, every task reviewed.
@@ -34,7 +200,7 @@ Rulings R1 to R29, releases, ratchet moves, the native run, the upstream comment
 - **Filed at the close-out:** ZeroAlloc.Rest#518, tool results as content blocks (R18); ZeroAlloc.Rest#519, three
   test-infrastructure minors. Earlier: Thalos.NET#429, no `net8.0` CI test leg.
 
-## Needs the owner
+### Needs the owner, as of the 3.3 close-out; item 1 done, merged as `fe5a4e25`
 
 1. **Merge #424, and delete the seven `Co-Authored-By: Claude` lines from the pre-filled squash message** (R27). The
    repository squashes with the commit messages; by your choice of 2026-10-31 the branch is not rewritten, so every
@@ -49,7 +215,7 @@ Rulings R1 to R29, releases, ratchet moves, the native run, the upstream comment
 Still open from 3.2's list, not re-checked by this close-out: the AppHost token's write access to Daedalus.NET; the
 ZeroAlloc.Outbox JSON-context overload; make `aot-analysis` a required check; #404, #406, #408, #410, #411, #413.
 
-## Recommended Next Step
+### Next step as recorded at the 3.3 close-out; done, 3.4 started
 
 1. Merge PR #424.
 2. Start the next phase via `start-next-phase`. 3.4, controllers to minimal APIs, is independent and unblocked. 3.5

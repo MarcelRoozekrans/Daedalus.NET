@@ -1,5 +1,5 @@
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
@@ -37,7 +37,7 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Red: drop the controller's blank-repository check, and the blank name reaches the starter, which answers
+    ///     Red: drop <c>WorkflowRunsEndpoints.Start</c>'s blank-repository check, and the blank name reaches the starter, which answers
     ///     422 because no repository is named <c>"   "</c>.
     /// </summary>
     [Fact]
@@ -86,7 +86,7 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
 
     /// <summary>
     ///     The run records the HTTP caller as its starter. Falsifiable per assertion: passing a constant
-    ///     <c>new RunPrincipal("manufacture-endpoint", [])</c> from the controller fails the id assertion, and
+    ///     <c>new RunPrincipal("manufacture-endpoint", [])</c> from <c>WorkflowRunsEndpoints.Start</c> fails the id assertion, and
     ///     dropping the roles, <c>new RunPrincipal(caller.Id, [])</c>, fails the roles assertion.
     /// </summary>
     [Fact]

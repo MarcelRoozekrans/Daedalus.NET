@@ -16,7 +16,7 @@ namespace Daedalus.Tests.Integration.Authentication;
 
 /// <summary>
 ///     Regression guard for a live defect: against real Keycloak, <c>GET /api/agents</c> answered 200 while every
-///     <c>AgentSessionsController</c> endpoint answered 401 because both realm clients declared
+///     agent sessions endpoint answered 401 because both realm clients declared
 ///     <c>defaultClientScopes: ["profile", "email"]</c> and omitted Keycloak's built-in <c>basic</c> scope — where
 ///     <c>sub</c> lives in Keycloak 24+. With no <c>sub</c>, <see cref="ClaimsSecurityContext.Id"/> fell through to
 ///     <see cref="AnonymousSecurityContext.AnonymousId"/>. It survived phases 1.1–1.3 because

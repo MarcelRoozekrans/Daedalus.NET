@@ -12,7 +12,8 @@ namespace Daedalus.Application.Abstractions;
 /// <summary>
 ///     The public dispatch surface for callers outside this assembly. The generated ZeroAlloc.Mediator
 ///     <c>IMediator</c> is internal to <c>Daedalus.Application</c> and cannot appear in a public signature
-///     (CS0051), so the two MVC controllers that dispatch commands depend on this instead. This is a
+///     (CS0051), so the two endpoint classes that dispatch commands, <c>ProjectsEndpoints</c> and <c>TasksEndpoints</c> in
+///     <c>Daedalus.Api</c>, depend on this instead. This is a
 ///     thinner version of the deleted <c>ICommandHandlerFactory</c> - it buys compile-time dispatch and
 ///     build-time diagnostics for these 8 commands, not less abstraction overall.
 /// </summary>

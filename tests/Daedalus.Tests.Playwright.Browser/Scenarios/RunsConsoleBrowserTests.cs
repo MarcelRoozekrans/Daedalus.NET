@@ -41,8 +41,8 @@ public sealed class RunsConsoleBrowserTests : BrowserTestBase
     /// <summary>
     ///     The four seeded runs are listed newest first, each badge with its status text. Other scenarios' own runs may
     ///     be listed too, so the order is checked among the four.
-    ///     Red: list the API's page oldest first by reversing <c>page.Runs</c> in <c>WorkflowRunsController.List</c>; the
-    ///     order assertion fails. The seeded order is the store's <c>ORDER BY created_at</c>, in Thalos.NET, so the
+    ///     Red: list the API's page oldest first by reversing <c>page.Runs</c> in <c>WorkflowRunsEndpoints.List</c>, as
+    ///     <c>foreach (var summary in page.Runs.Reverse())</c>; the order assertion fails. The seeded order is the store's <c>ORDER BY created_at</c>, in Thalos.NET, so the
     ///     reversal stands in for the brief's <c>ORDER BY created_at ASC</c>.
     ///     Red: drop <c>RunStatusBadge</c> from <c>RunsGrid</c>'s Status template; the Running badge is missing.
     ///     Red: render <c>run.Status</c> raw in <c>RunStatusBadge</c>; the gate run reads "Awaiting".

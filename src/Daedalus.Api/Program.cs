@@ -1,10 +1,10 @@
 using System.IO.Compression;
 using System.Threading.RateLimiting;
-using Asp.Versioning;
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Security;
 using Daedalus.Api;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
@@ -28,9 +28,6 @@ using Thalos.Ollama;
 using Thalos.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Enable enhanced model metadata support early
-AppContext.SetSwitch("Microsoft.AspNetCore.Mvc.ApiExplorer.IsEnhancedModelMetadataSupported", true);
 
 // Add service defaults (OpenTelemetry, logging)
 builder.Services.AddServiceDefaults(builder.Configuration);
@@ -109,23 +106,11 @@ builder.Services.AddScoped<IBrainstormService, BrainstormService>();
 builder.Services.AddExceptionHandler<Daedalus.Api.Middleware.GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
-// Add API versioning (query-string + header, non-breaking — existing routes keep working)
-builder.Services.AddApiVersioning(options =>
-{
-    options.DefaultApiVersion = new ApiVersion(1, 0);
-    options.AssumeDefaultVersionWhenUnspecified = true;
-    options.ReportApiVersions = true;
-    options.ApiVersionReader = ApiVersionReader.Combine(
-        new QueryStringApiVersionReader("api-version"),
-        new HeaderApiVersionReader("x-api-version"),
-        new UrlSegmentApiVersionReader());
-});
-
 // Add OpenAPI document generation for Scalar API reference
 builder.Services.AddOpenApi();
 
-// Register one non-generic adapter per validated DTO — ZeroAllocValidationFilter iterates
-// untyped ActionArguments and cannot call ValidatorFor<T>.Validate directly (ValidatorFor<T>
+// Register one non-generic adapter per validated DTO — ZeroAllocValidationEndpointFilter iterates
+// untyped endpoint arguments and cannot call ValidatorFor<T>.Validate directly (ValidatorFor<T>
 // exposes no non-generic base), so each adapter closes over its DTO type explicitly here.
 builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<CreateTaskDto>>();
 builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateTaskDto>>();
@@ -136,11 +121,8 @@ builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateReposi
 builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<SendBrainstormMessageDto>>();
 builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<SubmitAnalysisRequest>>();
 
-// Add controllers with the ZeroAlloc.Validation filter for automatic DTO validation
-builder.Services.AddControllers(options =>
-{
-    options.Filters.Add<ZeroAllocValidationFilter>();
-});
+// The minimal API endpoints: their JSON goes through ApiJsonSerializerContext alone.
+builder.Services.AddDaedalusEndpoints();
 
 // The console's live channel. The run hub's messages serialize through their source-generated context, first in the
 // chain, so the payload is the four properties of WorkflowRunChanged and nothing a reflection fallback would add.
@@ -235,14 +217,14 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
     options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser()); // Thalos agents: any signed-in user; tool policies gate the rest
 
-    // WorkflowRunsController's resume/cancel endpoints. Same criterion Thalos:ToolPolicies binds git__* and
+    // WorkflowRunsEndpoints' resume/cancel endpoints. Same criterion Thalos:ToolPolicies binds git__* and
     // repoaction__* to (see DeveloperPolicy), reused here by name so the two role literals cannot drift apart -
     // enforced by ASP.NET Core's own role check, not DefaultToolAuthorizer, because these are REST endpoints,
     // never Thalos tool calls. This policy's job is narrower than it sounds: it keeps a human, or a scheduled
     // run's HTTP caller, without the developer or admin role from resuming or cancelling a run - it says
     // nothing about an agent. WorkflowCaller is a Thalos ISecurityContext, never a ClaimsPrincipal, so this
     // policy is never evaluated against one and could not deny it. What actually stops an agent from resuming
-    // its own gate is the structural absence of a resume tool (see WorkflowRunsController's own remarks) - a
+    // its own gate is the structural absence of a resume tool (see WorkflowRunsEndpoints' own remarks) - a
     // gap this policy does not, and is not needed to, cover.
     options.AddPolicy("WorkflowResume",
         policy => policy.RequireRole(DeveloperPolicy.DeveloperRole, DeveloperPolicy.AdminRole));
@@ -317,7 +299,7 @@ app.UseCors("RestrictedCors");
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
-app.MapControllers();
+app.MapDaedalusEndpoints();
 if (workflowEngineEnabled)
 {
     // A connection would otherwise outlive the token it opened with; closing it when that token expires stops run

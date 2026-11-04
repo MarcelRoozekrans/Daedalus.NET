@@ -1,5 +1,5 @@
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Mvc;
@@ -81,7 +81,7 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
             var run = await host.Store.FindAsync(runId, CancellationToken.None);
             run!.CurrentNode.Should().Be("publish", "the gate's 'next' edge must still resolve when the flag is unset");
 
-            // Falsifiable: the controller passing a constant principal instead of RunPrincipals.From(caller, ...)
+            // Falsifiable: the resume endpoint passing a constant principal instead of RunPrincipals.From(caller, ...)
             // records that constant here instead of the HTTP caller.
             run.LastResume!.By.Id.Should().Be("a-developer", "HeaderTestAuthHandler puts X-Test-User in the sub claim");
         });
@@ -233,7 +233,7 @@ public sealed class StandingInstructionsResumeEndpointTests(PostgresFixture fixt
     ///     request, and a refused patch is a policy refusal: 422 problem details naming the refused path, with the run
     ///     left awaiting and nothing written. The host's handoff is replaced by one that refuses as Thalos's applier does,
     ///     with <see cref="AgentErrorCode.Validation"/>. Red: map <see cref="ResumeRefusal.PublishRefused"/> to 500 in the
-    ///     controller, and the status fails; classify the refusal as <see cref="ResumeRefusal.WriteFailed"/> in the
+    ///     resume endpoint, and the status fails; classify the refusal as <see cref="ResumeRefusal.WriteFailed"/> in the
     ///     writer, and it fails too. Red for the run: call the engine's resume before the write; the run then leaves
     ///     <see cref="WorkflowStatus.Awaiting"/>.
     /// </summary>

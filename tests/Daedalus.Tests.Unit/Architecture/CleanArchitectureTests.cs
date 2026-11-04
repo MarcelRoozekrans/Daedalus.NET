@@ -433,7 +433,7 @@ public sealed class CleanArchitectureTests
     {
         var rule = Types().That().Are(AgentsTypes)
             .Should().NotDependOnAny(ApiTypes)
-            .Because("The API composes Daedalus.Agents; the adapter must not reach back into controllers");
+            .Because("The API composes Daedalus.Agents; the adapter must not reach back into the API host");
 
         rule.Check(Architecture);
     }
@@ -560,12 +560,18 @@ public sealed class CleanArchitectureTests
         rule.Check(Architecture);
     }
 
+    /// <summary>
+    ///     The endpoint classes, which replaced the MVC controllers in phase 3.4, live in the API host. The rule named
+    ///     classes ending in <c>Controller</c> until the last controller went; ArchUnitNET fails a rule whose subject
+    ///     set is empty, so it moved to the classes that replaced them.
+    /// </summary>
     [Fact]
-    public void Controllers_ShouldResideIn_ApiLayer()
+    public void Endpoints_ShouldResideIn_ApiLayer()
     {
-        var rule = Classes().That().HaveNameEndingWith("Controller")
+        // Red: ResideInAssembly(ApplicationAssembly) in place of ApiAssembly; every endpoint class then violates it.
+        var rule = Classes().That().HaveNameEndingWith("Endpoints")
             .Should().ResideInAssembly(ApiAssembly)
-            .Because("Controllers are API-layer concerns");
+            .Because("Endpoints are API-layer concerns");
 
         rule.Check(Architecture);
     }

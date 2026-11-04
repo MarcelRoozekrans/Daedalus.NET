@@ -10,7 +10,7 @@ migration record if something here looks surprising.
 ## Architecture
 
 Daedalus has one presentation layer, `Daedalus.Api` with `Daedalus.Web` (REST
-controllers and a Blazor WebAssembly UI), plus the `Daedalus.Cli` host. They
+minimal API endpoints and a Blazor WebAssembly UI), plus the `Daedalus.Cli` host. They
 share one `Daedalus.Application` + `Daedalus.Infrastructure` stack.
 
 Phase 2.8 (October 2026) retired the Ralph loop and its `Daedalus.Console`
@@ -25,7 +25,7 @@ src/
 │                               # repository interfaces (ITaskRepository, etc.)
 ├── Daedalus.Infrastructure/   # EF Core DbContext, repository implementations,
 │                               # migrations, external service clients
-├── Daedalus.Api/              # REST controllers, request/response models
+├── Daedalus.Api/              # REST minimal API endpoints, request/response models
 ├── Daedalus.Agents/           # Agent/session infrastructure (ZeroAlloc.Outbox),
 │                               # the manufacture workflow host
 ├── Daedalus.Cli/              # Console-channel host
@@ -46,7 +46,7 @@ tests/
 A board task becomes work only when a person starts a run for it. There is no
 automatic pickup.
 
-- `POST /api/tasks/{id}/manufacture` (`TasksController.Manufacture`, logic in
+- `POST /api/tasks/{id}/manufacture` (`TasksEndpoints.Manufacture`, logic in
   `src/Daedalus.Api/Services/TaskManufactureService.cs`) needs the
   `WorkflowResume` policy, the `developer` or `admin` role. It answers 201 with
   the run id, and attaches the run to the task (`Task.WorkflowRunId`). Every
@@ -200,10 +200,10 @@ Costs; Admin with Git Repositories, behind the `admin` role. There is no Executi
 
 A run's page reads `failureReason` and `reviewVisits` from the run view, and its list items carry `failureReason` and
 `prUrl`, read per row from the run's variables (issue #367). `GET /api/workflow-runs` takes `signal` and `updatedSince`,
-an ISO 8601 timestamp with its zone. The store cannot filter on either, so the controller scans up to 500 summaries
+an ISO 8601 timestamp with its zone. The store cannot filter on either, so the endpoint scans up to 500 summaries
 (`RunListLimits.ScanCap`, issue #367).
-`POST /api/tasks` takes an optional `prompt`, and `TasksController` answers its refusals as `application/problem+json`;
-the other controllers still differ (issue #366).
+`POST /api/tasks` takes an optional `prompt`, and `TasksEndpoints` answers its refusals as `application/problem+json`;
+the other endpoint groups still differ (issue #366).
 
 ### Costs and history
 
@@ -968,9 +968,9 @@ appear in a public method signature, and `Program.cs` in `Daedalus.Api` never
 references `IMediator` directly. Two `internal` classes inside
 `Daedalus.Application` are allowed to depend on it —
 `Services/ApplicationCommands.cs` and `Services/PrdService.cs` — and
-everything outside the assembly (controllers included) depends on the public
+everything outside the assembly (the API endpoints included) depends on the public
 facade `IApplicationCommands` (`src/Daedalus.Application/Abstractions/IApplicationCommands.cs`)
-instead. `TasksController` and `ProjectsController` are the current
+instead. `TasksEndpoints` and `ProjectsEndpoints` are the current
 consumers.
 
 ## Validation — explicit registration, not `ZeroAlloc.Validation.Inject`
@@ -986,8 +986,9 @@ validator registration is explicit and hand-maintained in two places:
    `services.AddSingleton<ValidatorFor<CreateTaskDto>, CreateTaskDtoValidator>();`
    (currently ×8).
 2. `Daedalus.Api`'s `Program.cs` registers the matching `IValidationAdapter`
-   for each type — this is what `ZeroAllocValidationFilter` actually consults
-   at request time.
+   for each type — this is what `ZeroAllocValidationEndpointFilter` actually consults
+   at request time. The filter is added to every endpoint group by
+   `MapApiGroup`; it is not an MVC filter any more.
 
 A DTO that gains `[Validate]` but no adapter registration in `Program.cs` is
 **silently never validated** — no exception, no 500. This is guarded by
@@ -1284,13 +1285,10 @@ instructions is not used here.
 ## Primary constructors
 
 Primary constructors are the dominant DI style across the codebase (services,
-controllers, repositories):
+repositories):
 
 ```csharp
-public sealed partial class TasksController(
-    ITaskQueryService taskService,
-    IApplicationCommands commands,
-    ILogger<TasksController> logger) : ControllerBase
+public sealed partial class TaskManufactureService(/* ... */ ILogger<TaskManufactureService> logger)
 {
     // ...
 }
@@ -1355,16 +1353,87 @@ var filtered = tasks
   `src/Daedalus.Infrastructure/Extensions/InfrastructureServiceExtensions.cs`
   for current registration before adding a new pattern.
 
-## API layer conventions
+## API endpoints
 
-- Controllers return `IActionResult`/`ProblemDetails` via `Result.Match(...)`
-  patterns; minimal APIs are not the primary style here (this is a
-  controller-based API).
+`Daedalus.Api` serves every route through minimal API endpoints; there are no MVC controllers
+(phase 3.4 ported all 13 with an identical HTTP contract, then removed MVC). The API is unversioned: no
+route has a version segment, and no `api-version` is read or reported (owner decision of 2026-10-31,
+ruling R54 in `docs/plans/2026-10-31-phase-3.4-rulings.md`). The recipe and the rulings behind each
+choice below are R38 to R54 in that file.
+
+**One static class per group**, `src/Daedalus.Api/Endpoints/<Name>Endpoints.cs`, for example
+`ProjectsEndpoints`. It has a public `Map<Name>Endpoints(this IEndpointRouteBuilder app)` that maps the
+group, and one public static handler method per route, so a unit test calls the handler directly.
+`DaedalusEndpoints.MapDaedalusEndpoints` calls every `Map…Endpoints`; a new group is added there.
+`MapApiGroup` is `internal` to `Daedalus.Api`, for use inside the assembly.
+
+```csharp
+var group = app.MapApiGroup("api/projects")      // never a bare MapGroup
+    .RequireAuthorization()                       // every route needs a signed-in user
+    .WithTags("Projects")
+    .WithMetadata(ProblemContentType.Json);       // problems answer application/json
+
+group.MapPost(string.Empty, CreateProject)
+    .RequireAuthorization("ProjectManagement")    // a policy per route
+    .RequireRateLimiting("write-operations")
+    .ProducesProblem(StatusCodes.Status400BadRequest, "application/json");
+
+public static async Task<Results<Created<ProjectDto>, ApiJsonResult<ErrorBody>>> CreateProject(
+    ApiBody<CreateProjectDto> request, HttpContext context,
+    [FromServices] IApplicationCommands commands, CancellationToken ct)
+{
+    var body = request.Value!;                    // the filter has answered any binding problem
+    var result = await commands.CreateProjectAsync(/* ... */, ct);
+    return result.IsSuccess
+        ? TypedResults.Created(ApiLocation.For(context.Request, $"/api/Projects/{result.Value.Id}"), result.Value)
+        : ApiJson.Of(new ErrorBody(result.Error), StatusCodes.Status400BadRequest);
+}
+```
+
+- **Group.** `DaedalusEndpoints.MapApiGroup(prefix, requiresWorkflowEngine)` adds
+  `ZeroAllocValidationEndpointFilter` and, for the workflow-run endpoints, the
+  `WorkflowEngineEnabledEndpointFilter` ahead of it. `EndpointGroupTests` fails for an endpoint under `api/`
+  that was mapped without it. `MapApiGroup` does not add authorization: each group requires it itself, bare or
+  with a group policy, and routes add policies and rate limits on top.
+  `EndpointContractSnapshotTests` pins the route table in `endpoint-contract.snapshot.txt`:
+  a changed route, verb, policy or declared response is a visible diff.
+- **Typed results.** A handler returns `Results<…>` or a single typed result, so the declared responses
+  come from the signature; `Produces`/`ProducesProblem` on the route adds what the signature cannot say. A
+  handler that must answer several shapes through one type returns `IResult` only where a ruling says so
+  (`SchedulesEndpoints.Resend`, R41).
+- **Error bodies.** The wire is MVC's. A failure that MVC answered as `{ "error": "..." }` is
+  `ApiJson.Of(new ErrorBody(message), status)`, an `ApiJsonResult<ErrorBody>` (R45). A failure that MVC
+  answered as `ProblemDetails` is an `ApiProblem` result: `ApiProblem.Of(context, status, detail)` writes
+  the client-error `type`, `title` and `traceId`, `ApiProblem.AsGiven(context, problem)` writes a problem
+  exactly as built (R43), and `ApiProblem.Validation` writes a validation problem. The content type
+  (`application/json` or `application/problem+json`) comes from the group's `ProblemContentType`
+  metadata. The 500 catch-all keeps its body, `Internal server error`, where the controller had one (R42; R44 for the Prd exception, which answers `error` and `details`; R47 for routes without one).
+- **Binding.** A body is `ApiBody<T>` and a query value is `ApiQuery<T>`: neither ever fails binding.
+  Each carries the problem MVC's model binding would have recorded (malformed JSON, an empty body, a
+  missing required member, an unparsable query value), and the validation filter answers it as MVC did.
+  Read `request.Value!` or `page.ValueOr(default)` in the handler. An optional body is
+  `ApiBody<T>? request = null`. The handler parameter keeps the controller parameter's name, because the
+  error keys use it. Route values (`Guid id`) bind as usual. The query parameters OpenAPI shows come from
+  `.WithQueryParameter("page", DefaultPage)`.
+- **Validation: the filter and the two-place rule.** `ZeroAllocValidationEndpointFilter` answers in
+  order 415, then the binding problems, then runs the `IValidationAdapter` registered for each argument's
+  type and answers the first failure. The two-place validator rule is unchanged (see "Validation" above):
+  a `[Validate]` DTO needs its `ValidatorFor<T>` in `ApplicationServiceExtensions` and its
+  `ValidationAdapter<T>` line in `Daedalus.Api/Program.cs`, or it is silently never validated.
+  `CleanArchitectureTests` guards it against the host's own service provider; the Browser E2E fixture
+  registers no adapters (issue #436).
+- **Logging.** A handler that logs takes `ILoggerFactory` and a nested `private static partial class Log`
+  with `[LoggerMessage]` methods, because a static endpoint class has no `ILogger<T>` (R42).
+- **Location.** A 201 keeps MVC's `Location`, built with `ApiLocation.For` (R21).
+
+Other API conventions:
+
 - Response compression is enabled once, in `src/Daedalus.Api/Program.cs`
   (`AddResponseCompression`).
-- `System.Text.Json` source generation is in active use —
-  `src/Daedalus.Api/ApiJsonSerializerContext.cs` — for the API's JSON
-  contracts.
+- JSON goes through `System.Text.Json` source generation alone:
+  `AddDaedalusEndpoints` points the Http `JsonOptions` at
+  `src/Daedalus.Api/ApiJsonSerializerContext.cs` with no reflection fallback, so a type the context does
+  not list fails instead of serializing by reflection. Add a new request or response type to the context.
 
 ## Performance helpers
 

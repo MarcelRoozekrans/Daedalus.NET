@@ -401,16 +401,16 @@ visibility boundary that every newcomer trips over at least once:
 **The generated `IMediator` and its registration method `AddMediator()` are `internal` to `Daedalus.Application`.**
 `IMediator` cannot appear in a public method signature anywhere else — the compiler refuses it with CS0051
 (inconsistent accessibility) — and `AddMediator()` cannot be called from `Program.cs` in `Daedalus.Api`, which is what every upstream ZeroAlloc.Mediator example shows, because `Program.cs` is
-compiled into a different assembly. `Daedalus.Api` has 13 public MVC controllers, and they must be public to be
-discovered by ASP.NET Core's controller convention — so the assembly boundary is real, not incidental.
+compiled into a different assembly. `Daedalus.Api` has 13 public endpoint classes (they were public MVC controllers before phase 3.4, and the
+assembly boundary is the same), so the boundary is real, not incidental.
 
 The bridge is `IApplicationCommands` (`Daedalus.Application/Abstractions/IApplicationCommands.cs`), a small
 public interface with an `internal sealed class ApplicationCommands(IMediator mediator)` implementation. Its own
 XML doc comment states the trade-off plainly and this document repeats it rather than overselling the design:
 
 > The public dispatch surface for callers outside this assembly. The generated ZeroAlloc.Mediator `IMediator` is
-> internal to `Daedalus.Application` and cannot appear in a public signature (CS0051), so the two MVC controllers
-> that dispatch commands depend on this instead. This is a thinner version of the deleted
+> internal to `Daedalus.Application` and cannot appear in a public signature (CS0051), so the two endpoint classes that dispatch commands,
+> `ProjectsEndpoints` and `TasksEndpoints` in `Daedalus.Api`, depend on this instead. This is a thinner version of the deleted
 > `ICommandHandlerFactory` - it buys compile-time dispatch and build-time diagnostics for these 8 commands, not
 > less abstraction overall.
 
@@ -426,11 +426,11 @@ to `mediator.Send(command, cancellationToken)`:
 | `UpdateTaskAsync` | `UpdateTaskCommand` | `ValueTask<Result<TaskDto>>` |
 | `DeleteTaskAsync` | `DeleteTaskCommand` | `ValueTask<Result>` |
 
-**Confirmed by grepping `src/Daedalus.Api/Controllers`: exactly 2 of the 13 public controllers reference
-`IApplicationCommands`** — `ProjectsController` and `TasksController`. The other 11 (`AgentsController`,
-`AgentSessionsController`, `AgentMemoriesController`, `BrainstormController`, `CodeAnalysisController`,
-`CostAnalyticsController`, `PrdController`, `RepositoriesController`, `SchedulesController`,
-`TaskExecutionsController`, `WorkflowRunsController`) never dispatch a command through this path at all.
+**Confirmed by grepping `src/Daedalus.Api/Endpoints`: exactly 2 of the 13 public endpoint classes reference
+`IApplicationCommands`** — `ProjectsEndpoints` and `TasksEndpoints`. The other 11 (`AgentEndpoints`,
+`AgentSessionsEndpoints`, `AgentMemoriesEndpoints`, `BrainstormEndpoints`, `CodeAnalysisEndpoints`,
+`CostAnalyticsEndpoints`, `PrdEndpoints`, `RepositoriesEndpoints`, `SchedulesEndpoints`,
+`TaskExecutionEndpoints`, `WorkflowRunsEndpoints`) never dispatch a command through this path at all.
 
 `Daedalus.Application` has 8 command types in total (`Commands/*`), not 6 — `ConvertPrdToTasksCommand` and
 `GeneratePrdCommand` are the other 2. They are never added to `IApplicationCommands`, because nothing outside the
@@ -458,9 +458,9 @@ which is not referenced anywhere in this solution.
 ```mermaid
 graph TB
     subgraph API["Daedalus.Api — public assembly"]
-        Ctrl1["ProjectsController"]
-        Ctrl2["TasksController"]
-        CtrlOther["11 other public controllers<br/>(no command dispatch)"]
+        Ctrl1["ProjectsEndpoints"]
+        Ctrl2["TasksEndpoints"]
+        CtrlOther["11 other public endpoint classes<br/>(no command dispatch)"]
     end
 
     subgraph APP["Daedalus.Application — internal boundary"]
@@ -481,7 +481,7 @@ graph TB
     CtrlOther -.->|"no dispatch"| Facade
 ```
 
-There are no mediator query requests. `TasksController`'s read endpoints go through `ITaskQueryService`
+There are no mediator query requests. `TasksEndpoints`'s read endpoints go through `ITaskQueryService`
 (`Daedalus.Api.Services.TaskQueryService`), which queries `ApplicationDbContext` directly with EF Core and derives each
 task's status from its run (section 8). The CQRS write side is wired through the mediator; the read side is not.
 
@@ -522,7 +522,7 @@ public interface IGitRepositoryManager
 }
 ```
 
-One caller: `RalphLoopOrchestrator` (`IRalphLoopOrchestrator`, driven by `CodeAnalysisController`), which uses the
+One caller: `RalphLoopOrchestrator` (`IRalphLoopOrchestrator`, driven by `CodeAnalysisEndpoints`), which uses the
 clone/branch/diff/patch/commit primitives for the code-analysis workflow. The name is historical (issue #279): this
 type has nothing to do with the retired Ralph loop. The manufacture runs do not use this interface; they work in a
 workspace or sandbox owned by the Thalos workflow engine.
@@ -612,7 +612,7 @@ Clean architecture with clear separation of concerns:
 ```mermaid
 graph TB
     subgraph "Presentation Layer"
-        API["REST API<br/>Controllers"]
+        API["REST API<br/>Minimal API endpoints"]
         WEB["Web UI<br/>Blazor Components"]
         QUERYSVC["Query services<br/>ITaskQueryService (Daedalus.Api)<br/>(Read Operations)"]
     end
@@ -659,7 +659,7 @@ graph TB
 ## 8. Complete Data Flow - Manufacturing a Task
 
 A board task becomes work only when a person starts a manufacture run for it. Nothing polls the board. The flow below
-is read from `TasksController.Manufacture`, `TaskManufactureService` (`Daedalus.Api/Services/`) and
+is read from `TasksEndpoints.Manufacture`, `TaskManufactureService` (`Daedalus.Api/Services/`) and
 `processes/manufacture.yaml`.
 
 ```mermaid
@@ -748,57 +748,56 @@ graph TB
 
 ---
 
-## 11. API Controllers & Endpoints
+## 11. API Endpoints
 
-Enumerated directly from `src/Daedalus.Api/Controllers/` — **13 controllers**, not the 4 the previous
-diagram showed (there is no `DataControllers`; that was a made-up umbrella label). Every controller
-carries `[ApiVersion("1.0")]`, and `Asp.Versioning.Mvc` is referenced and configured
-(`AddApiVersioning` in `Program.cs`, with `UrlSegmentApiVersionReader` among its readers) — but **no
-route in this API contains a version segment**. `UrlSegmentApiVersionReader` is registered but nothing
-routes through it, since every `[Route]` template below is version-free; the attribute and the reader
-exist for a versioning scheme that has not been switched on yet.
+Enumerated directly from `src/Daedalus.Api/Endpoints/` — **13 endpoint groups**, one static `<Name>Endpoints`
+class each. They replaced the 13 MVC controllers in phase 3.4, with an identical HTTP contract, and the host
+maps no controller any more (`app.MapDaedalusEndpoints()` in `Program.cs` calls every `Map…Endpoints`). Each
+group is mapped with `MapApiGroup` (the development guide, "API endpoints", describes the pattern). The API is
+unversioned: no route has a version segment, no `api-version` is read and no `api-supported-versions` header is
+written (owner decision of 2026-10-31, ruling R54 of phase 3.4; versioning was inert on MVC).
 
-| Controller | Route | Notes |
+| Endpoints class | Route | Notes |
 |---|---|---|
-| `TasksController` | `/api/[controller]` → `/api/tasks` | CRUD + `POST {id}/manufacture` (section 8); reads via `ITaskQueryService`, writes via `IApplicationCommands` (section 4) |
-| `ProjectsController` | `/api/[controller]` → `/api/projects` | CRUD, `+with-tasks` |
-| `AgentsController` | `/api/agents` | Lists the agent catalogue |
-| `AgentSessionsController` | `/api/agents` | Sessions, turns (buffered + SSE stream), see section 15 |
-| `AgentMemoriesController` | `/api/agent-memories` | List/get/forget, see section 16 |
-| `BrainstormController` | `/api/[controller]` → `/api/brainstorm` | Sessions, messages, phase advance, task generation |
-| `CodeAnalysisController` | `/api/[controller]` → `/api/codeanalysis` | The code-analysis feature from section 5A/5B |
-| `CostAnalyticsController` | `/api/cost-analytics` | Summary, per-project, estimate, pricing |
-| `PrdController` | `/api/[controller]` → `/api/prd` | Generate PRD, convert to tasks |
-| `RepositoriesController` | `/api/[controller]` → `/api/repositories` | Repository configuration CRUD + test-connection |
-| `SchedulesController` | `/api/schedules` | Overview, run history, resend — see section 19 |
-| `TaskExecutionsController` | `/api/[controller]` → `/api/taskexecutions` | Read-only history of the retired loop, by task/session |
-| `WorkflowRunsController` | `/api/workflow-runs` | Start, read, resume (the gate), cancel, retry a manufacture run |
+| `TasksEndpoints` | `/api/tasks` | CRUD + `POST {id}/manufacture` (section 8); reads via `ITaskQueryService`, writes via `IApplicationCommands` (section 4) |
+| `ProjectsEndpoints` | `/api/projects` | CRUD, `+with-tasks` |
+| `AgentEndpoints` | `/api/agents` | Lists the agent catalogue |
+| `AgentSessionsEndpoints` | `/api/agents` | Sessions, turns (buffered + SSE stream), see section 15 |
+| `AgentMemoriesEndpoints` | `/api/agent-memories` | List/get/forget, see section 16 |
+| `BrainstormEndpoints` | `/api/brainstorm` | Sessions, messages, phase advance, task generation |
+| `CodeAnalysisEndpoints` | `/api/codeanalysis` | The code-analysis feature from section 5A/5B |
+| `CostAnalyticsEndpoints` | `/api/cost-analytics` | Summary, per-project, estimate, pricing |
+| `PrdEndpoints` | `/api/prd` | Generate PRD, convert to tasks |
+| `RepositoriesEndpoints` | `/api/repositories` | Repository configuration CRUD + test-connection |
+| `SchedulesEndpoints` | `/api/schedules` | Overview, run history, resend — see section 19 |
+| `TaskExecutionEndpoints` | `/api/taskexecutions` | Read-only history of the retired loop, by task/session |
+| `WorkflowRunsEndpoints` | `/api/workflow-runs` | Start, read, resume (the gate), cancel, retry a manufacture run |
 
 ```mermaid
 graph TB
     subgraph Tasks["Task & Project management"]
-        Ta["TasksController<br/>/api/tasks"]
-        Pr["ProjectsController<br/>/api/projects"]
-        TE["TaskExecutionsController<br/>/api/taskexecutions"]
-        WR["WorkflowRunsController<br/>/api/workflow-runs"]
+        Ta["TasksEndpoints<br/>/api/tasks"]
+        Pr["ProjectsEndpoints<br/>/api/projects"]
+        TE["TaskExecutionEndpoints<br/>/api/taskexecutions"]
+        WR["WorkflowRunsEndpoints<br/>/api/workflow-runs"]
     end
 
     subgraph Agent["Thalos agent surface"]
-        Ag["AgentsController<br/>/api/agents"]
-        AS["AgentSessionsController<br/>/api/agents"]
-        AM["AgentMemoriesController<br/>/api/agent-memories"]
+        Ag["AgentEndpoints<br/>/api/agents"]
+        AS["AgentSessionsEndpoints<br/>/api/agents"]
+        AM["AgentMemoriesEndpoints<br/>/api/agent-memories"]
     end
 
     subgraph Automation["Analysis, PRD and brainstorm"]
-        Ca["CodeAnalysisController<br/>/api/codeanalysis"]
-        Pd["PrdController<br/>/api/prd"]
-        Br["BrainstormController<br/>/api/brainstorm"]
+        Ca["CodeAnalysisEndpoints<br/>/api/codeanalysis"]
+        Pd["PrdEndpoints<br/>/api/prd"]
+        Br["BrainstormEndpoints<br/>/api/brainstorm"]
     end
 
     subgraph Ops["Repositories, schedules, cost"]
-        Re["RepositoriesController<br/>/api/repositories"]
-        Sc["SchedulesController<br/>/api/schedules"]
-        Co["CostAnalyticsController<br/>/api/cost-analytics"]
+        Re["RepositoriesEndpoints<br/>/api/repositories"]
+        Sc["SchedulesEndpoints<br/>/api/schedules"]
+        Co["CostAnalyticsEndpoints<br/>/api/cost-analytics"]
     end
 
     Ta -->|IApplicationCommands / ITaskQueryService| Domain1[("PostgreSQL")]
@@ -968,7 +967,7 @@ sequenceDiagram
     participant Client as Client<br/>Web/API
     participant Auth as Auth Middleware<br/>JWT Bearer
     participant KC as Keycloak<br/>OIDC Provider
-    participant Controller as Controller
+    participant Endpoint as Endpoint
     participant Handler as Command/Query<br/>Handler
     participant Service as Application<br/>Service
     participant Repo as Repository
@@ -987,11 +986,11 @@ sequenceDiagram
         Auth-->>Client: 401 Unauthorized
     end
 
-    Auth->>Controller: Authenticated Request<br/>ClaimsPrincipal Set
+    Auth->>Endpoint: Authenticated Request<br/>ClaimsPrincipal Set
     deactivate Auth
-    activate Controller
+    activate Endpoint
 
-    Controller->>Handler: Instantiate Handler<br/>DI Resolution
+    Endpoint->>Handler: Instantiate Handler<br/>DI Resolution
     activate Handler
 
     Handler->>Service: Call Application<br/>Service Method
@@ -1020,13 +1019,13 @@ sequenceDiagram
     Service-->>Handler: Result&lt;T&gt;.Success(DTO)<br/>(ZeroAlloc.Results, section 4)
     deactivate Service
 
-    Handler-->>Controller: Result Object<br/>Success or Failure
+    Handler-->>Endpoint: Result Object<br/>Success or Failure
     deactivate Handler
 
-    Controller->>Controller: Match Result<br/>Map to Response
+    Endpoint->>Endpoint: Match Result<br/>Map to Response
 
-    Controller-->>Client: 200 OK / 4xx Error<br/>JSON Response
-    deactivate Controller
+    Endpoint-->>Client: 200 OK / 4xx Error<br/>JSON Response
+    deactivate Endpoint
 ```
 
 ---
@@ -1111,7 +1110,7 @@ outgrows it swaps `ISkillIndex` for a pgvector implementation with no change abo
 sequenceDiagram
     autonumber
     participant Web as Daedalus.Web<br/>(Agent.razor + AgentApiClient)
-    participant Api as Daedalus.Api<br/>AgentSessionsController<br/>AgentMemoriesController
+    participant Api as Daedalus.Api<br/>AgentSessionsEndpoints<br/>AgentMemoriesEndpoints
     participant RT as Thalos IAgentRuntime<br/>(ThalosAgentRuntime)
     participant Store as PostgresAgentSessionStore<br/>(Daedalus.Agents → EF Core)
     participant Mem as MemoryContextProvider<br/>→ IMemoryService
@@ -1198,13 +1197,13 @@ sequenceDiagram
     RT-->>Api: usage, done
     Api-->>Web: event: usage, event: done
     Web->>Web: Render bubbles, tool cards, usage;<br/>re-enable composer
-    Web->>Api: GET /api/agent-memories/{id}<br/>(AgentMemoriesController: hydrate the recalled ids<br/>for the Memories panel)
+    Web->>Api: GET /api/agent-memories/{id}<br/>(AgentMemoriesEndpoints: hydrate the recalled ids<br/>for the Memories panel)
     Api-->>Web: MemoryDto per visible id
 ```
 
 Notes:
 
-- The controller flushes every SSE frame as soon as the runtime yields it (`text-delta`, `tool-call`, `tool-result`,
+- The endpoint flushes every SSE frame as soon as the runtime yields it (`text-delta`, `tool-call`, `tool-result`,
   `usage`, `done`, `error`, `memory-recalled`, `memory-stored`, `memory-recall-failed`, `memory-index-pending`,
   `memory-quarantined`, `skill-catalogue-failed`); the stream always ends with `done` or `error`.
 - **Memory is best-effort within the turn:** a failed or unavailable index yields `memory-recall-failed` and the turn
@@ -1251,8 +1250,8 @@ graph LR
     end
 
     subgraph "Daedalus.Api"
-        BoardCtrl["TasksController (manufacture)<br/>TaskExecutionsController<br/>CostAnalyticsController, …"]
-        AgentCtrl["AgentsController<br/>AgentSessionsController (SSE)<br/>AgentMemoriesController"]
+        BoardCtrl["TasksEndpoints (manufacture)<br/>TaskExecutionEndpoints<br/>CostAnalyticsEndpoints, …"]
+        AgentCtrl["AgentEndpoints<br/>AgentSessionsEndpoints (SSE)<br/>AgentMemoriesEndpoints"]
     end
 
     subgraph "Board and frozen history"
@@ -1374,7 +1373,7 @@ stateDiagram-v2
 ```
 
 Honesty check: `AwaitingApproval` is a real state in both the Thalos enum and its Domain mirror, but grepping
-`AgentSessionsController` turns up no `Approve`/`Deny` action — the approval-gate flow the state exists for is
+`AgentSessionsEndpoints` turns up no `Approve`/`Deny` action — the approval-gate flow the state exists for is
 not wired up anywhere in this repo yet.
 
 ### Memory and skills
@@ -1656,7 +1655,7 @@ Answers one question: a digest did not arrive — where did it die? Design sourc
 
 ### `IScheduleDiagnostics`
 
-Two read methods, shared by the `SchedulesController` page and the `daedalus__list_schedules` /
+Two read methods, shared by the `SchedulesEndpoints` page and the `daedalus__list_schedules` /
 `daedalus__why_did_a_run_fail` agent tools (`DaedalusScheduleTools`) — one implementation, so a page and an
 agent cannot give an operator different answers about the same run:
 
@@ -1997,7 +1996,7 @@ See `docs/development-guide.md`, "Run sandboxes", for configuration, boot checks
 
 ### 🏗️ **Layered Architecture**
 
-- **Presentation Layer**: Controllers, APIs, UI components
+- **Presentation Layer**: Minimal API endpoints, UI components
 - **Application Layer**: Commands, DTOs, Services. Reads go through query services such as `ITaskQueryService` in `Daedalus.Api`, not mediator queries
 - **Domain Layer**: Entities, Value Objects, Business Logic
 - **Infrastructure Layer**: EF Core, Repositories, Persistence

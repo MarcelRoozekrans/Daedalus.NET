@@ -6,11 +6,11 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>13</LangVersion>
         <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
-        <!-- Native AOT disabled: MVC controllers, EF Core (ApplyConfigurationsFromAssembly),
+        <!-- Native AOT disabled: EF Core (ApplyConfigurationsFromAssembly),
              Aspire and AI.Sentinel all need reflection/dynamic code — a
              Release publish with PublishAot=true fails on IL2026/IL2104 (this is what kept the API container image
              from ever building). Reflection-based System.Text.Json stays enabled in every configuration for the
-             same reason: MVC and the agent session store serialize without source-generated contexts. -->
+             same reason: the agent session store serializes without source-generated contexts. -->
         <PublishAot>false</PublishAot>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
@@ -18,10 +18,12 @@
              Development, the same mechanism Daedalus.Cli uses for its own secrets. -->
         <UserSecretsId>0c04d16b-eee6-4e74-85c9-fcbe77850b42</UserSecretsId>
         <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+        <!-- Compiles each mapped minimal API endpoint to a request delegate at build time, so the endpoints neither
+             emit nor reflect over expression trees. Every endpoint group is mapped in Endpoints/. -->
+        <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Asp.Versioning.Mvc" />
         <PackageReference Include="AspNetCore.HealthChecks.NpgSql" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" />

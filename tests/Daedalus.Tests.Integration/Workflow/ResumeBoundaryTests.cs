@@ -3,13 +3,14 @@ using System.Security.Claims;
 using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -32,7 +33,7 @@ namespace Daedalus.Tests.Integration.Workflow;
 ///     Task 10: the resume boundary. Three layers:
 ///     <list type="number">
 ///         <item>
-///             Resume, cancel and retry are REST endpoints (<c>WorkflowRunsController</c>), never a Thalos tool — see
+///             Resume, cancel and retry are REST endpoints (<c>WorkflowRunsEndpoints</c>), never a Thalos tool — see
 ///             <see cref="ResumeToolBoundaryTests.None_of_resume_cancel_or_retry_is_exposed_as_a_tool_on_any_registered_source"/>.
 ///             This is the structural half: it holds even if the authorization policy below were ever
 ///             misconfigured.
@@ -165,10 +166,10 @@ public sealed class ResumeToolBoundaryTests(PostgresFixture fixture) : IAsyncLif
 }
 
 /// <summary>
-///     The authorization half of the boundary: <c>WorkflowRunsController</c>'s <c>WorkflowResume</c> policy,
+///     The authorization half of the boundary: the <c>WorkflowResume</c> policy of <c>WorkflowRunsEndpoints</c>' group,
 ///     exercised through the real, composed <c>Daedalus.Api</c> host rather than a hand-assembled fixture. ASP.NET
-///     Core's authorization middleware evaluates <c>[Authorize]</c> from endpoint metadata before the MVC action
-///     invoker constructs the controller, so a denial never needs <c>IWorkflowStore</c> to be registered — which
+///     Core's authorization middleware evaluates the policy from endpoint metadata before any endpoint filter or
+///     handler runs, so a denial never needs <c>IWorkflowStore</c> to be registered — which
 ///     matters here because <see cref="ApiWebApplicationFactory"/> always sets <c>Thalos:Workflow:Enabled</c> to
 ///     <see langword="false"/> (see that class's own remarks).
 /// </summary>
@@ -244,9 +245,9 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
 
     /// <summary>
     ///     The other direction: a caller who actually carries the developer role is let through the policy. This
-    ///     fixture disables the workflow engine, so a request authorization lets through is answered 503 by the
-    ///     controller's <c>[WorkflowEngineEnabled]</c> resource filter, which ASP.NET Core runs only after authorization
-    ///     has passed. A refused caller gets 401 or 403 and never reaches it, and a missing route gets 404, so 503 is
+    ///     fixture disables the workflow engine, so a request authorization lets through is answered 503 by the group's
+    ///     <c>WorkflowEngineEnabledEndpointFilter</c>, an endpoint filter, which ASP.NET Core runs only after
+    ///     authorization has passed. A refused caller gets 401 or 403 and never reaches it, and a missing route gets 404, so 503 is
     ///     reachable only once the policy has let the developer through. Red: drop <c>developer</c> from the
     ///     <c>WorkflowResume</c> policy in <c>Program.cs</c>; the test then gets 403.
     /// </summary>
@@ -262,15 +263,15 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
 
         // Pinned to exactly 503, not merely "not 401/403": NotBe on both would also pass on a 404 from a missing or
         // renamed route, which proves nothing about this policy. ApiWebApplicationFactory always disables the workflow
-        // engine (see that class's own remarks), and the [WorkflowEngineEnabled] filter answers 503 only for a request
+        // engine (see that class's own remarks), and WorkflowEngineEnabledEndpointFilter answers 503 only for a request
         // authorization already let through. If a future fixture enables the engine, re-pin this to the status a
-        // resolvable controller returns for a run id that does not exist (404), NOT to NotBe(401).And.NotBe(403).
+        // handler with the engine on returns for a run id that does not exist (404), NOT to NotBe(401).And.NotBe(403).
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
     }
 
     /// <summary>
     ///     Retry is admin-only, narrower than resume and cancel: it re-runs a push on a run someone else approved.
-    ///     A developer clears the controller's WorkflowResume policy but not the action's Admin policy.
+    ///     A developer clears the group's WorkflowResume policy but not the retry route's Admin policy.
     /// </summary>
     [Fact]
     public async Task A_developer_is_denied_retry()
@@ -281,8 +282,8 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
 
         var response = await client.PostAsync($"/api/workflow-runs/{Guid.NewGuid()}/retry", null);
 
-        // Red if the action's [Authorize(Policy = "Admin")] is removed: the developer passes, and the request
-        // reaches the [WorkflowEngineEnabled] filter and gets 503.
+        // Red: .RequireAuthorization("Admin") removed from the retry route in MapWorkflowRunsEndpoints; the developer
+        //      passes, and the request reaches WorkflowEngineEnabledEndpointFilter and gets 503.
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
@@ -304,7 +305,7 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
 
     /// <summary>
     ///     An admin passes retry's Admin policy. As for <see cref="A_developer_caller_passes_the_policy"/>, 503 comes
-    ///     from the <c>[WorkflowEngineEnabled]</c> filter, which runs only after authorization has passed, so it proves
+    ///     from <c>WorkflowEngineEnabledEndpointFilter</c>, which runs only after authorization has passed, so it proves
     ///     the policy let the admin through. Red: bind the <c>Admin</c> policy in <c>Program.cs</c> to a role admin
     ///     lacks; the test then gets 403. A missing route would get 404.
     /// </summary>
@@ -318,7 +319,7 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
         var response = await client.PostAsync($"/api/workflow-runs/{Guid.NewGuid()}/retry", null);
 
         // Pinned to 503 for the reason A_developer_caller_passes_the_policy gives: only a request authorization let
-        // through reaches the [WorkflowEngineEnabled] filter.
+        // through reaches WorkflowEngineEnabledEndpointFilter.
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
     }
 }
@@ -404,10 +405,10 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Resume and cancel agree on 404 for a run that does not exist. Exercised through the real controller,
+    ///     Resume and cancel agree on 404 for a run that does not exist. Exercised through the real handler,
     ///     not just <see cref="WorkflowRunGateway"/> - <see cref="WorkflowRunGateway.ResumeAsync(Guid,string,string?,RunPrincipal,CancellationToken)"/>'s own "not
-    ///     found" failure alone maps to 409, which is why <see cref="WorkflowRunsController.Resume"/> checks
-    ///     existence itself before delegating, the same way <see cref="WorkflowRunsController.Cancel"/> already
+    ///     found" failure alone maps to 409, which is why <see cref="WorkflowRunsEndpoints.Resume"/> checks
+    ///     existence itself before delegating, the same way <see cref="WorkflowRunsEndpoints.Cancel"/> already
     ///     did.
     /// </summary>
     [Fact]
@@ -415,12 +416,15 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
+            await using var request = WorkflowRunsRequest.For(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 
-            var result = await controller.Resume(
-                Guid.NewGuid(), new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
+            var result = await WorkflowRunsEndpoints.Resume(
+                Guid.NewGuid(), await request.BodyAsync(nameof(WorkflowRunsEndpoints.Resume), new ResumeWorkflowRunRequest("human_approval", null)),
+                request.Context, CancellationToken.None);
 
-            result.Should().BeOfType<NotFoundResult>();
+            // Red: the FindAsync is-null check removed from WorkflowRunsEndpoints.Resume; the request, which has no
+            //      subject, then answers 401, and with one the gateway's own "not found" refusal would answer 409.
+            result.Result.Should().BeOfType<ApiProblemResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
         });
     }
 
@@ -430,11 +434,15 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     {
         await WithScratchDatabaseAsync(async store =>
         {
-            var controller = new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
+            await using var request = WorkflowRunsRequest.For(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
 
-            var result = await controller.Cancel(Guid.NewGuid(), new CancelWorkflowRunRequest("test"), CancellationToken.None);
+            var result = await WorkflowRunsEndpoints.Cancel(
+                Guid.NewGuid(), request.Context, CancellationToken.None,
+                await request.BodyAsync(nameof(WorkflowRunsEndpoints.Cancel), new CancelWorkflowRunRequest("test")));
 
-            result.Should().BeOfType<NotFoundResult>();
+            // Red: StatusCodes.Status409Conflict in place of Status404NotFound for the missing run ahead of the try in
+            //      WorkflowRunsEndpoints.Cancel.
+            result.Result.Should().BeOfType<ApiProblemResult>().Which.StatusCode.Should().Be(StatusCodes.Status404NotFound);
         });
     }
 
@@ -468,12 +476,16 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var gateway = new WorkflowRunGateway(
                 store.Store, store.Store, services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
             var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "u-dev"), new Claim(ClaimTypes.Role, "developer")], "Test"));
-            var controller = WithUser(new WorkflowRunsController(gateway), user);
+            await using var request = WorkflowRunsRequest.For(gateway, user);
 
-            var result = await controller.Resume(
-                runId, new ResumeWorkflowRunRequest("human_approval", null, DropFindings: ["correctness-1"]), CancellationToken.None);
+            var result = await WorkflowRunsEndpoints.Resume(
+                runId, await request.BodyAsync(nameof(WorkflowRunsEndpoints.Resume), new ResumeWorkflowRunRequest("human_approval", null, DropFindings: ["correctness-1"])),
+                request.Context, CancellationToken.None);
 
-            result.Should().BeOfType<NoContentResult>();
+            // Red: result.IsFailure in place of result.IsSuccess in WorkflowRunsEndpoints.Resume's success test.
+            result.Result.Should().BeOfType<NoContent>();
+            // Red: known.Count > 1000 in place of known.Count > 0 ahead of RecordDroppedAsync in
+            //      WorkflowRunGateway.ResumeAsync; no drop record is written.
             var dropped = (await records.ListAsync(runId, WorkflowRunRecord.FindingsDroppedKind, CancellationToken.None))
                 .Should().ContainSingle().Subject;
             dropped.PrincipalId.Should().Be("u-dev");
@@ -495,13 +507,20 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         await WithScratchDatabaseAsync(async store =>
         {
             var runId = await ParkedAtGateAsync(store, "no-subject");
-            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance)), DeveloperWithoutSubject());
+            await using var request = WorkflowRunsRequest.For(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance), DeveloperWithoutSubject());
 
-            var result = await controller.Resume(
-                runId, new ResumeWorkflowRunRequest("human_approval", null), CancellationToken.None);
+            var result = await WorkflowRunsEndpoints.Resume(
+                runId, await request.BodyAsync(nameof(WorkflowRunsEndpoints.Resume), new ResumeWorkflowRunRequest("human_approval", null)),
+                request.Context, CancellationToken.None);
 
-            result.Should().BeOfType<UnauthorizedResult>();
+            // Red: the 401 return in WorkflowRunsEndpoints.Resume replaced by
+            //      caller = new ClaimsSecurityContext(context.User) when TryCreate fails; the run is then resumed and
+            //      answers 204.
+            result.Result.Should().BeOfType<ApiProblemResult>().Which.StatusCode.Should().Be(StatusCodes.Status401Unauthorized);
             var run = await store.Store.FindAsync(runId, CancellationToken.None);
+            // Red: in WorkflowRunsEndpoints.Resume's 401 branch, runs.ResumeAsync awaited with
+            //      new RunPrincipal("x", []) ahead of the return; the run then leaves the gate though the answer stays
+            //      401.
             run!.Status.Should().Be(WorkflowStatus.Awaiting, "an unattributable resume must leave the gate closed");
             run.LastResume.Should().BeNull("nobody approved this gate");
         });
@@ -519,11 +538,17 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
             var starter = Substitute.For<IManufactureRunStarter>();
             starter.StartAsync(Arg.Any<ManufactureStartRequest>(), Arg.Any<CancellationToken>())
                 .Returns(new ValueTask<Result<Guid, ManufactureStartFailure>>(Result<Guid, ManufactureStartFailure>.Success(Guid.NewGuid())));
-            var controller = WithUser(new WorkflowRunsController(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance)), DeveloperWithoutSubject());
+            await using var request = WorkflowRunsRequest.For(new WorkflowRunGateway(store.Store, store.Store, Scopes(), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(), TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance), DeveloperWithoutSubject());
 
-            var result = await controller.Start(new StartWorkflowRunRequest("Tighten a guard.", "sandbox"), starter, CancellationToken.None);
+            var result = await WorkflowRunsEndpoints.Start(
+                await request.BodyAsync(nameof(WorkflowRunsEndpoints.Start), new StartWorkflowRunRequest("Tighten a guard.", "sandbox")),
+                request.Context, starter, CancellationToken.None);
 
-            result.Should().BeOfType<UnauthorizedResult>();
+            // Red: the 401 return in WorkflowRunsEndpoints.Start replaced by
+            //      caller = new ClaimsSecurityContext(context.User) when TryCreate fails; the starter is then reached
+            //      and the start answers 201.
+            result.Result.Should().BeOfType<ApiProblemResult>().Which.StatusCode.Should().Be(StatusCodes.Status401Unauthorized);
+            // Red: the same mutation; the starter receives the call.
             await starter.DidNotReceive().StartAsync(Arg.Any<ManufactureStartRequest>(), Arg.Any<CancellationToken>());
         });
     }
@@ -534,12 +559,6 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     /// </summary>
     private static ClaimsPrincipal DeveloperWithoutSubject() =>
         new(new ClaimsIdentity([new Claim(ClaimTypes.Role, "developer")], "Test"));
-
-    private static WorkflowRunsController WithUser(WorkflowRunsController controller, ClaimsPrincipal user)
-    {
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = user } };
-        return controller;
-    }
 
     /// <summary>Starts a run at the gate node and dispatches it once, parking it at <c>Awaiting</c>.</summary>
     private static async Task<Guid> ParkedAtGateAsync(ScratchStore store, string correlationKey)
@@ -632,12 +651,18 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
 
     /// <summary>
     ///     The record-store scope factory every gateway here is built with, as <c>ReviewLensRunnerTests.Scopes</c>
-    ///     builds it. None of these tests reads a run's records.
+    ///     builds it, over a record store with no records. The store answers an empty list rather than the
+    ///     substitute's default, so the gateway's public resume, which reads the run's review evidence first, can
+    ///     succeed here: without that, every resume through the handler failed that read, and a test that a resume
+    ///     did not happen proved nothing.
     /// </summary>
     private static IServiceScopeFactory Scopes()
     {
+        var records = Substitute.For<IWorkflowRunRecordStore>();
+        records.ListAsync(Guid.Empty, default, default)
+            .ReturnsForAnyArgs(new ValueTask<IReadOnlyList<WorkflowRunRecord>>([]));
         var services = new ServiceCollection();
-        services.AddScoped(_ => Substitute.For<IWorkflowRunRecordStore>());
+        services.AddScoped(_ => records);
         return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 }

@@ -245,7 +245,7 @@ src/
 ├── Daedalus.Application/      # CQRS handlers, DTOs, Interfaces, Abstractions
 ├── Daedalus.Infrastructure/   # EF Core DbContext, Repositories, LLM services, External integrations
 ├── Daedalus.Agents/           # Thalos.NET composition root: agents from config, Postgres session + memory stores, knowledge tools, DeveloperPolicy
-├── Daedalus.Api/              # REST controllers (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos, Telegram channel poller
+├── Daedalus.Api/              # REST minimal API endpoints (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos, Telegram channel poller
 ├── Daedalus.Cli/              # Interactive terminal host for Thalos agents (console channel; run by hand, not in AppHost)
 ├── Daedalus.Web/              # Blazor WASM frontend (Radzen components)
 ├── Daedalus.Sandbox/          # Per-run sandbox container host (Dockerfile; built by the AppHost)
@@ -1159,13 +1159,11 @@ This endpoint returns issuer, token endpoints, JWKS URI, and other OIDC discover
 
 ### API Authorization
 
-All API endpoints require JWT authentication via the `[Authorize]` attribute:
+All API endpoints require JWT authentication, each endpoint group calls `RequireAuthorization()` itself, bare or with a group policy, and routes add policies on top:
 
 ```csharp
-[Authorize]
-[ApiController]
-[Route("api/tasks")]
-public class TasksController : ControllerBase { }
+var group = app.MapApiGroup("api/tasks")
+    .RequireAuthorization();
 ```
 
 **Request Flow**:
@@ -1268,7 +1266,7 @@ builder.Services.AddOidcAuthentication(options =>
 | `Daedalus.Tests.Unit.Domain`         | xUnit              | Domain entities, value objects            | No                   |
 | `Daedalus.Tests.Unit.Application`    | xUnit              | CQRS handlers, services                   | No                   |
 | `Daedalus.Tests.Unit.Infrastructure` | xUnit              | LLM services, agent factory               | No                   |
-| `Daedalus.Tests.Integration`         | xUnit              | Database with Testcontainers (`pgvector/pgvector:pg16`), agent controllers + SSE | **Yes** |
+| `Daedalus.Tests.Integration`         | xUnit              | Database with Testcontainers (`pgvector/pgvector:pg16`), agent endpoints + SSE | **Yes** |
 | `Daedalus.Tests.Playwright.Api`      | NUnit              | API endpoint E2E                          | **Yes**              |
 | `Daedalus.Tests.Playwright.Browser`  | NUnit + Playwright | Browser E2E                               | **Yes** + Playwright |
 

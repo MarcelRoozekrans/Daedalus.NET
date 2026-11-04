@@ -1,10 +1,11 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Services;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
-using Microsoft.AspNetCore.Mvc;
+using Daedalus.Tests.Shared;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging.Abstractions;
 using Thalos;
 using Thalos.Workflow;
@@ -38,7 +39,7 @@ public sealed class WorkflowRunViewFailureReasonTests
         Variables = new Dictionary<string, object?>(StringComparer.Ordinal),
     };
 
-    private static WorkflowRunsController ControllerFor(WorkflowRun run, IReadOnlyList<WorkflowRunEvent> events, WorkflowRunRecord[] evidence)
+    private static WorkflowRunGateway GatewayFor(WorkflowRun run, IReadOnlyList<WorkflowRunEvent> events, WorkflowRunRecord[] evidence)
     {
         var store = Substitute.For<IWorkflowStore>();
         store.FindAsync(run.Id, Arg.Any<CancellationToken>()).Returns(new ValueTask<WorkflowRun?>(run));
@@ -51,17 +52,20 @@ public sealed class WorkflowRunViewFailureReasonTests
             return new ValueTask<IReadOnlyList<WorkflowRunRecord>>(
                 [.. evidence.Where(r => kind is null || string.Equals(r.Kind, kind, StringComparison.Ordinal))]);
         });
-        return new WorkflowRunsController(new WorkflowRunGateway(
+        return new WorkflowRunGateway(
             store, history, RecordStoreScopes.For(records), Substitute.For<IRunWorkspaceProvider>(), new WorkflowConfig(),
-            TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance));
+            TimeProvider.System, NullLogger<WorkflowRunGateway>.Instance);
     }
 
     private static async Task<WorkflowRunView> ViewAsync(IReadOnlyList<WorkflowRunEvent> events, params WorkflowRunRecord[] evidence)
     {
         var run = FailedRun();
-        var response = await ControllerFor(run, events, evidence).Get(run.Id, CancellationToken.None);
+        await using var request = WorkflowRunsRequest.For(GatewayFor(run, events, evidence));
+        var response = await WorkflowRunsEndpoints.Get(run.Id, request.Context, CancellationToken.None);
 
-        return response.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeOfType<WorkflowRunView>().Subject;
+        // Red: run is null || run.Id == id in place of run is null in WorkflowRunsEndpoints.Get; the found run
+        //      answers 404.
+        return response.Result.Should().BeOfType<Ok<WorkflowRunView>>().Which.Value!;
     }
 
     private static async Task<WorkflowRunListItem> ListItemAsync(IReadOnlyList<WorkflowRunEvent> events, params WorkflowRunRecord[] evidence)
@@ -74,9 +78,11 @@ public sealed class WorkflowRunViewFailureReasonTests
         var tasks = Substitute.For<ITaskQueryService>();
         tasks.GetRunLinksAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, TaskRunLink>());
 
-        var response = await ControllerFor(run, events, evidence).List(null, null, null, null, null, null, query, tasks, CancellationToken.None);
+        await using var request = WorkflowRunsRequest.For(GatewayFor(run, events, evidence), query: query);
+        var response = await request.ListAsync(tasks);
 
-        return response.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeOfType<WorkflowRunList>().Which.Runs.Should().ContainSingle().Subject;
+        // Red: items.Clear() after the ToListItemAsync loop in WorkflowRunsEndpoints.List; the list then has no row.
+        return response.Result.Should().BeOfType<Ok<WorkflowRunList>>().Which.Value!.Runs.Should().ContainSingle().Subject;
     }
 
     /// <summary>Five review visits, then the cap and the terminal step, as the engine records them for manufacture.</summary>
@@ -96,7 +102,6 @@ public sealed class WorkflowRunViewFailureReasonTests
 
     /// <summary>
     ///     The lens is the one that rejected the latest visit, not an earlier visit's.
-    ///     Red: pass a null lens to Derive.
     /// </summary>
     [Fact]
     public async Task A_capped_run_names_the_lens_that_rejected_the_latest_visit()
@@ -104,12 +109,12 @@ public sealed class WorkflowRunViewFailureReasonTests
         var view = await ViewAsync(
             CappedLog(), Evidence(2, "mechanism", "rejected"), Evidence(6, "falsifiability", "rejected"));
 
+        // Red: Derive given null in place of rejectingLens when the review reads, in WorkflowRunsEndpoints.ToViewAsync.
         view.FailureReason.Should().Be("Review rejected the change 5 times, the review limit. Last rejecting lens: falsifiability.");
     }
 
     /// <summary>
     ///     A review-evidence record that cannot be read drops the lens sentence and nothing else.
-    ///     Red: take a lens even when the review evidence failed to read.
     /// </summary>
     [Fact]
     public async Task Unreadable_evidence_leaves_the_lens_sentence_out()
@@ -119,24 +124,25 @@ public sealed class WorkflowRunViewFailureReasonTests
 
         var view = await ViewAsync(CappedLog(), bad);
 
+        // Red: rejectingLens set to "mechanism" in place of null when the review does not read, in ToViewAsync.
         view.FailureReason.Should().Be("Review rejected the change 5 times, the review limit.");
     }
 
     /// <summary>
     ///     The list item of a capped run carries the same reason as its view, lens sentence included.
-    ///     Red: pass a null lens to Derive in ToListItemAsync. Red: read the lens only for the view path.
     /// </summary>
     [Fact]
     public async Task A_capped_list_item_carries_the_lens_sentence()
     {
         var item = await ListItemAsync(CappedLog(), Evidence(2, "mechanism", "rejected"), Evidence(6, "falsifiability", "rejected"));
 
+        // Red: the IsCappedReview test negated in WorkflowRunsEndpoints.RejectingLensAsync; the list path then reads
+        //      no lens for a capped run.
         item.FailureReason.Should().Be("Review rejected the change 5 times, the review limit. Last rejecting lens: falsifiability.");
     }
 
     /// <summary>
     ///     A list item whose evidence cannot be read keeps the first sentence.
-    ///     Red: take a lens even when the review evidence failed to read.
     /// </summary>
     [Fact]
     public async Task An_unreadable_evidence_list_item_leaves_the_lens_sentence_out()
@@ -146,6 +152,7 @@ public sealed class WorkflowRunViewFailureReasonTests
 
         var item = await ListItemAsync(CappedLog(), bad);
 
+        // Red: "mechanism" in place of null when the review does not read, in RejectingLensAsync.
         item.FailureReason.Should().Be("Review rejected the change 5 times, the review limit.");
     }
 }

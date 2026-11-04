@@ -13,7 +13,7 @@ namespace Daedalus.Tests.Integration.Persistence;
 ///     load is mistaken for a change. Companion to
 ///     <c>Daedalus.Tests.Unit.Domain.Entities.EntityEqualityCharacterisationTests</c>, which pins
 ///     the equality contract in isolation; this test exercises it against a real PostgreSQL database via
-///     the same fixture pattern as <c>SchedulesControllerTests</c> and
+///     the same fixture pattern as <c>SchedulesEndpointsIntegrationTests</c> and
 ///     <c>ScheduledRunConfigurationTests</c>.
 /// </summary>
 [Collection(DatabaseCollection.Name)]

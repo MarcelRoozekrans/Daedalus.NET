@@ -23,7 +23,7 @@ namespace Daedalus.Tests.Integration.Architecture;
 ///         gains <c>[Validate]</c> but no adapter registration is never validated — no exception, no 500, the
 ///         request just succeeds when it should have been rejected. <see cref="Every_validated_dto_has_a_registered_validation_adapter"/>
 ///         is the only guard that would catch that drift, which is why it is asserted against the adapter set
-///         (what <c>ZeroAllocValidationFilter</c> actually consults at request time) rather than the
+///         (what <c>ZeroAllocValidationEndpointFilter</c> actually consults at request time) rather than the
 ///         <c>ValidatorFor&lt;T&gt;</c> set.
 ///     </para>
 ///     <para>
@@ -34,7 +34,7 @@ namespace Daedalus.Tests.Integration.Architecture;
 ///         <c>Daedalus.Api</c>'s <c>Program</c> builds. The <see cref="IValidationAdapter"/> registrations are
 ///         top-level statements on <c>builder.Services</c> inside <c>Program.cs</c>, not exposed any other way —
 ///         a source-text scan could only ever check that a registration line's text exists, not that it actually
-///         runs and lands in the container the action filter resolves from. Booting the host is the truthful
+///         runs and lands in the container the endpoint filter resolves from. Booting the host is the truthful
 ///         check; <see cref="ApiWebApplicationFactory"/> is the existing seam for doing that in-process, hence
 ///         the <see cref="PostgresFixture"/> dependency below.
 ///     </para>

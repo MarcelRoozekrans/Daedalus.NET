@@ -36,7 +36,7 @@ stay exactly as they are.
 - [ ] **EF Core is gone.**
   - `Microsoft.EntityFrameworkCore*` and `Npgsql.EntityFrameworkCore.PostgreSQL` appear nowhere in the dependency tree.
   - An existing database upgrades in place with its data intact, proven on a copy of the dev database.
-- [ ] **The HTTP contract is unchanged.** The 18 controllers became minimal API endpoints. Playwright.Api and the Web
+- [ ] **The HTTP contract is unchanged.** The 13 controllers became minimal API endpoints. Playwright.Api and the Web
       app pass without changes to what they assert.
 - [ ] **A live manufacture run succeeds on the native API.** It goes from a board task to a pull request on
       `daedalus-sandbox`, with its spend on `/costs`.
@@ -54,7 +54,7 @@ stay exactly as they are.
 | 3.1 | AOT toolchain, gates, baseline and ORM gap audit; the native sandbox host | Infra | complete (2026-10-21), #405 |
 | 3.2 | Our own reflection out: STJ source-gen, config binding, DI annotations, explicit tool registration, YAML static generator | Refactor | complete (2026-10-24), #409 |
 | 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter; the native CLI passes C3, "Application started" moved on to 3.5 | Backend | complete (2026-10-31), #424 |
-| 3.4 | Controllers to minimal APIs, identical contract | Refactor | pending |
+| 3.4 | Controllers to minimal APIs, identical contract; 13 controllers. Plan: `docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md` | Refactor | active |
 | 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files; the native CLI reaches "Application started", moved from 3.3 | Data | pending |
 | 3.6 | Native API, CLI and Migrations; native test runs, live proof, measurements | Infra | pending |
 | 3.7 | Blazor WebAssembly AOT | Infra | pending |

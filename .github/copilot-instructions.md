@@ -2,6 +2,8 @@
 
 > Phase 2.8 (October 2026) retired the Ralph loop and `Daedalus.Console`. Start work with `POST /api/tasks/{id}/manufacture`. This file is superseded: see CLAUDE.md.
 
+> Phase 3.4 (November 2026) replaced the MVC controllers with minimal API endpoints in `src/Daedalus.Api/Endpoints/`. The controller examples below no longer apply; see the endpoint pattern in `docs/development-guide.md`.
+
 > **Superseded.** `CLAUDE.md` (repo root) and `docs/development-guide.md` are
 > now the maintained sources of truth for this codebase's conventions, and
 > both were verified line-by-line against `src/` as of phase 1.7. This file

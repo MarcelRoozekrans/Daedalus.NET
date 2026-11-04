@@ -9,7 +9,7 @@ namespace Daedalus.Tests.Integration.Api;
 
 /// <summary>
 ///     Pins the 400 response shape for <c>POST /api/tasks</c> across phase 1.7's ZeroAlloc.Validation
-///     migration. <c>Daedalus.Api.Middleware.ZeroAllocValidationFilter</c> wraps
+///     migration. <c>Daedalus.Api.Endpoints.ZeroAllocValidationEndpointFilter</c>, MVC's filter's successor, wraps
 ///     <c>Daedalus.Application.DTOs.CreateTaskDtoValidator</c>'s failures into an RFC 7807
 ///     <see cref="ValidationProblemDetails"/> body; this test is the guard that the swap had to reproduce exactly —
 ///     status, <c>Title</c>, <c>Type</c>, and the per-property error messages keyed by property name — not merely
@@ -130,11 +130,13 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
     {
         var response = await Send(new { projectId = Guid.NewGuid(), title = "t", description = "d" });
 
-        // Red: restore the controller-level Produces application/json on TasksController; the type becomes json.
+        // Red: .WithMetadata(ProblemContentType.Json) added to the group in TasksEndpoints.MapTasksEndpoints; the type
+        //      becomes json.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        // Red: pass detail null to Problem in CreateTask; the body then has no detail member.
+        // Red: ApiProblem.Of(context, StatusCodes.Status400BadRequest) without result.Error in TasksEndpoints.CreateTask,
+        //      so the body has no detail member.
         problem!.Detail.Should().NotBeNullOrWhiteSpace();
     }
 
@@ -149,7 +151,8 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
-        // Red: serve the validation problem as application/json again, by restoring the controller-level Produces.
+        // Red: serve the validation problem as application/json again, by .WithMetadata(ProblemContentType.Json) added to
+        //      the group in TasksEndpoints.MapTasksEndpoints.
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         // Red: drop Detail from the filter's ValidationProblemDetails; the member is then absent.
@@ -167,7 +170,8 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
         var response = await _client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound, await response.Content.ReadAsStringAsync());
-        // Red: restore the controller-level Produces application/json on TasksController; the type becomes json.
+        // Red: .WithMetadata(ProblemContentType.Json) added to the group in TasksEndpoints.MapTasksEndpoints; the type
+        //      becomes json.
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
     }
 

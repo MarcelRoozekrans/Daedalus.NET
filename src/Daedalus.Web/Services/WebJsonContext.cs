@@ -19,7 +19,7 @@ internal sealed record EmptyBody
 
 /// <summary>
 ///     A refused write's body in the two shapes the server answers: a ProblemDetails <c>detail</c>, and the
-///     <c>{ "error": "..." }</c> most controllers return.
+///     <c>{ "error": "..." }</c> most endpoints return.
 /// </summary>
 internal sealed record FailureBody(string? Detail, string? Error);
 

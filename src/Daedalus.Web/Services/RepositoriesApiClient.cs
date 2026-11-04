@@ -103,7 +103,7 @@ public sealed class RepositoriesApiClient(HttpClient httpClient)
 
     /// <summary>
     ///     Tests the connection to a repository. The page branches only on success, so the server's
-    ///     <c>TestConnectionResponse</c>, an API type the Web cannot reference, is not read.
+    ///     <c>Daedalus.Api.Endpoints.TestConnectionResponse</c>, an API type the Web cannot reference, is not read.
     /// </summary>
     public Task<Result> TestConnectionAsync(Guid id, CancellationToken ct = default) =>
         SendAsync(

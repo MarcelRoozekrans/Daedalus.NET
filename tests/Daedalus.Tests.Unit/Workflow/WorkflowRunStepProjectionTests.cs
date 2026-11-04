@@ -1,4 +1,4 @@
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Thalos;
 using Thalos.Workflow;
 
