@@ -15,7 +15,6 @@ public class ApiAuthorizationTests
     [
         typeof(TasksController),
         typeof(ProjectsController),
-        typeof(TaskExecutionsController),
         typeof(CodeAnalysisController),
         typeof(RepositoriesController),
         typeof(PrdController),

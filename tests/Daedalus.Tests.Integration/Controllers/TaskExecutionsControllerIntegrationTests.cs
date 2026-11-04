@@ -1,10 +1,12 @@
-using Daedalus.Api.Controllers;
+using System.Reflection;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Services;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Task = System.Threading.Tasks.Task;
@@ -12,16 +14,14 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Controllers;
 
 /// <summary>
-///     Integration tests for TaskExecutionsController HTTP endpoints.
+///     Integration tests for TaskExecutionEndpoints handlers.
 ///     Tests execution data retrieval and filtering by task/session.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private readonly ILogger<TaskExecutionsController>
-        _loggerMock = Substitute.For<ILogger<TaskExecutionsController>>();
+    private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
 
-    private TaskExecutionsController _controller = null!;
     private ApplicationDbContext _dbContext = null!;
     private ITaskExecutionQueryService _executionQueryService = null!;
 
@@ -44,8 +44,22 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
         }
 
         _executionQueryService = new TaskExecutionQueryService(_dbContext);
-        _controller = new TaskExecutionsController(_executionQueryService, _loggerMock);
     }
+
+    private static void PagingQuery(ApiQuery<int> page, ApiQuery<int> pageSize) => _ = (page, pageSize);
+
+    /// <summary>Binds the two paging parameters as the endpoint does, from <paramref name="queryString"/>.</summary>
+    private static async Task<(ApiQuery<int> Page, ApiQuery<int> PageSize)> BindPaging(string queryString = "")
+    {
+        var context = new DefaultHttpContext();
+        context.Request.QueryString = new QueryString(queryString);
+        var parameters = typeof(TaskExecutionsControllerIntegrationTests)
+            .GetMethod(nameof(PagingQuery), BindingFlags.NonPublic | BindingFlags.Static)!.GetParameters();
+        return (await Bind<ApiQuery<int>>(context, parameters[0]), await Bind<ApiQuery<int>>(context, parameters[1]));
+    }
+
+    private static async Task<T> Bind<T>(HttpContext context, ParameterInfo parameter)
+        where T : class, IBindableFromHttpContext<T> => (await T.BindAsync(context, parameter))!;
 
     public async Task DisposeAsync()
     {
@@ -79,14 +93,16 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
         _dbContext.TaskExecutions.Add(execution);
         await _dbContext.SaveChangesAsync();
 
+        var (page, pageSize) = await BindPaging();
+
         // Act
-        var result = await _controller.GetByTaskId(taskId);
+        var result = await TaskExecutionEndpoints.GetByTaskId(
+            taskId, page, pageSize, _executionQueryService, _loggerFactory, CancellationToken.None);
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
-        var pagedResult = okResult.Value as PagedResultDto<TaskExecutionDto>;
-        pagedResult!.Items.Should().HaveCount(1);
+        // Red: return TypedResults.Ok on an empty PagedResultDto from GetByTaskId; the one execution is lost.
+        var ok = result.Result.Should().BeOfType<Ok<PagedResultDto<TaskExecutionDto>>>().Subject;
+        ok.Value!.Items.Should().HaveCount(1);
     }
 
     [Fact(Timeout = 5000)]
@@ -113,26 +129,30 @@ public class TaskExecutionsControllerIntegrationTests(PostgresFixture fixture) :
         _dbContext.TaskExecutions.Add(execution);
         await _dbContext.SaveChangesAsync();
 
+        var (page, pageSize) = await BindPaging();
+
         // Act
-        var result = await _controller.GetBySessionId(sessionId);
+        var result = await TaskExecutionEndpoints.GetBySessionId(
+            sessionId, page, pageSize, _executionQueryService, _loggerFactory, CancellationToken.None);
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
-        var pagedResult = okResult.Value as PagedResultDto<TaskExecutionDto>;
-        pagedResult!.Items.Should().HaveCount(1);
+        // Red: call GetByTaskIdAsync in place of GetBySessionIdAsync in GetBySessionId; no execution has this task id.
+        var ok = result.Result.Should().BeOfType<Ok<PagedResultDto<TaskExecutionDto>>>().Subject;
+        ok.Value!.Items.Should().HaveCount(1);
     }
 
     [Fact(Timeout = 5000)]
     public async Task GetByTaskId_WithNonexistentTaskId_Returns200WithEmptyList()
     {
+        var (page, pageSize) = await BindPaging();
+
         // Act
-        var result = await _controller.GetByTaskId(Guid.NewGuid());
+        var result = await TaskExecutionEndpoints.GetByTaskId(
+            Guid.NewGuid(), page, pageSize, _executionQueryService, _loggerFactory, CancellationToken.None);
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
-        var pagedResult = okResult.Value as PagedResultDto<TaskExecutionDto>;
-        pagedResult!.Items.Should().BeEmpty();
+        // Red: answer a JsonHttpResult 500 in place of the Ok for an unknown task in GetByTaskId.
+        var ok = result.Result.Should().BeOfType<Ok<PagedResultDto<TaskExecutionDto>>>().Subject;
+        ok.Value!.Items.Should().BeEmpty();
     }
 }
