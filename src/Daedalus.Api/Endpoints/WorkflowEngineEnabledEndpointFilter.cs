@@ -6,7 +6,7 @@ namespace Daedalus.Api.Endpoints;
 /// <summary>
 ///     Answers 503 problem details, with <see cref="DisabledManufactureRunStarter.DisabledMessage"/> and no
 ///     <c>Retry-After</c>, for every endpoint of a group mapped with <c>requiresWorkflowEngine</c> when
-///     <c>Thalos:Workflow:Enabled</c> is <see langword="false"/>: the problem MVC's problem details factory built for
+///     <c>Thalos:Workflow:Enabled</c> is <see langword="false"/>: the problem MVC's <c>ProblemDetailsFactory</c> built for
 ///     the resource filter it replaces. Endpoint filters run after authorization, so an anonymous or unauthorized caller
 ///     still gets 401 or 403 and never learns the host's configuration from a 503.
 /// </summary>

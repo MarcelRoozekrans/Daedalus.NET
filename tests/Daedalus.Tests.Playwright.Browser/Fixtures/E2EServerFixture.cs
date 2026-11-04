@@ -248,7 +248,11 @@ public class E2EServerFixture
 
             builder.Services.AddHttpClient();
 
-            // The minimal API endpoints, composed as Program.cs does.
+            // The minimal API endpoints, mapped as Program.cs maps them, but without the IValidationAdapter
+            // registrations: Program.cs adds those as top-level statements, which this fixture cannot call and does
+            // not copy. ZeroAllocValidationEndpointFilter therefore finds no adapter here, so the ZeroAlloc DTO
+            // validators never run in these tests; binding problems and 415s are still answered. MVC's filter had
+            // the same gap.
             builder.Services.AddDaedalusEndpoints();
 
             // The console's live channel, as Program.cs wires it on a host with the engine on: the run hub's messages

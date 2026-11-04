@@ -8,7 +8,7 @@ namespace Daedalus.Tests.Unit.Endpoints;
 
 /// <summary>
 ///     <see cref="WorkflowEngineEnabledEndpointFilter"/> answers what MVC's resource filter on the workflow-runs
-///     controller answered: MVC's factory problem for 503 with <c>DisabledMessage</c> as its detail, as the
+///     controller answered: <c>ProblemDetailsFactory.CreateProblemDetails(503, detail: DisabledMessage)</c>, as the
 ///     <c>application/json</c> of <see cref="WorkflowRunsEndpoints"/>' group. The literal members are pinned since MVC
 ///     left the host; the case that compared them with MVC's factory went with it (R54).
 /// </summary>

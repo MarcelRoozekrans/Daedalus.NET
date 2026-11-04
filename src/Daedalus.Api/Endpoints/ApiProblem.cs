@@ -27,7 +27,7 @@ public sealed record ProblemContentType(string ContentType)
 
 /// <summary>
 ///     The problem bodies MVC writes on its own, for minimal API endpoints: the <c>type</c>, <c>title</c>,
-///     <c>status</c>, <c>detail</c> and <c>traceId</c> of MVC's default problem details factory, with the
+///     <c>status</c>, <c>detail</c> and <c>traceId</c> of MVC's <c>DefaultProblemDetailsFactory</c>, with the
 ///     endpoint's <see cref="ProblemContentType"/> and MVC's <c>; charset=utf-8</c>.
 /// </summary>
 public static class ApiProblem
@@ -77,7 +77,7 @@ public static class ApiProblem
         }.ToFrozenDictionary();
 
     /// <summary>
-    ///     The problem a controller's <c>Problem</c> call, or MVC's client-error filter for a bodiless 4xx, wrote:
+    ///     The problem MVC's <c>ControllerBase.Problem</c>, or its client-error filter for a bodiless 4xx, wrote:
     ///     the given members, the client-error <c>type</c> and default <c>title</c>, <c>traceId</c>, then
     ///     <paramref name="extensions"/>.
     /// </summary>
@@ -132,8 +132,9 @@ public static class ApiProblem
     }
 
     /// <summary>
-    ///     The validation problem MVC's <c>ModelStateInvalidFilter</c> answered for binding errors, through its
-    ///     factory's validation problem: status 400, the 400 <c>type</c>, the validation title and <c>traceId</c>.
+    ///     The validation problem MVC's <c>ModelStateInvalidFilter</c> answered for binding errors, through
+    ///     <c>ProblemDetailsFactory.CreateValidationProblemDetails</c>: status 400, the 400 <c>type</c>, the
+    ///     validation title and <c>traceId</c>.
     /// </summary>
     internal static ValidationProblemDetails BindingProblem(HttpContext context, IDictionary<string, string[]> errors)
     {
@@ -143,7 +144,7 @@ public static class ApiProblem
     }
 
     /// <summary>
-    ///     What MVC's default factory applied to every problem: the mapped title and type where none was
+    ///     <c>DefaultProblemDetailsFactory.ApplyProblemDetailsDefaults</c>: the mapped title and type where none was
     ///     given, the trace id, then the host's <c>CustomizeProblemDetails</c>, which MVC's factory also runs.
     /// </summary>
     private static void ApplyDefaults(HttpContext context, ProblemDetails problem, int statusCode)

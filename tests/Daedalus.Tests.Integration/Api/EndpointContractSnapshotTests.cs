@@ -40,8 +40,8 @@ namespace Daedalus.Tests.Integration.Api;
 ///     </para>
 ///     <para>
 ///     <b>No versions column.</b> The MVC build's table had one, and it read <c>-</c> on every line: the inert
-///     versioning registration never read the controllers' version attributes. The owner kept the wire unversioned
-///     on 2026-10-31, so the column left with MVC and the versioning package (R54).
+///     <c>AddApiVersioning</c> call never read the controllers' <c>[ApiVersion("1.0")]</c>. The owner kept the wire
+///     unversioned on 2026-10-31, so the column left with MVC and Asp.Versioning.Mvc (R54).
 ///     </para>
 ///     <para>
 ///     The host is <see cref="ScratchWorkflowHost"/>: <c>ApiWebApplicationFactory</c> with <c>workflowEnabled: true</c>,
@@ -100,7 +100,7 @@ public sealed partial class EndpointContractSnapshotTests(PostgresFixture fixtur
     ///     minimal APIs would only show up as a diff in the first port task, or not at all where MVC's value is blank too.
     /// </summary>
     /// <remarks>
-    ///     The version set and its case went with the snapshot's <c>versions</c> column (R54):
+    ///     The version set and its <c>HasApiVersion</c> case went with the snapshot's <c>versions</c> column (R54):
     ///     the owner kept the wire unversioned. Note the stream endpoint's responses: on minimal APIs an endpoint-level
     ///     <see cref="ProducesAttribute"/> also lists <c>200 - text/event-stream</c>, where MVC lists <c>200 - -</c>.
     /// </remarks>

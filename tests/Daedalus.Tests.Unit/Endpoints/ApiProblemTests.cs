@@ -11,7 +11,7 @@ using HttpJsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace Daedalus.Tests.Unit.Endpoints;
 
 /// <summary>
-///     <see cref="ApiProblem"/> writes what MVC's problem details factory and output formatter wrote, as
+///     <see cref="ApiProblem"/> writes what MVC's <c>ProblemDetailsFactory</c> and output formatter wrote, as
 ///     <c>MvcBehaviourContractTests</c> pins it over HTTP (rulings R13, R15, R18, R19).
 /// </summary>
 public sealed class ApiProblemTests
@@ -101,7 +101,8 @@ public sealed class ApiProblemTests
     /// <summary>
     ///     The client-error table as .NET 10's MVC filled <c>ApiBehaviorOptions.ClientErrorMapping</c>, 26 rows, and
     ///     two statuses it does not map, 429 and the agents' 499, which get no <c>type</c> and no <c>title</c>. Until
-    ///     MVC left the host this was read from MVC's own factory; it is frozen at .NET 10's table since (R32, R54).
+    ///     MVC left the host this was read from MVC's own <c>ProblemDetailsFactory</c>; it is frozen at .NET 10's
+    ///     table since (R32, R54).
     /// </summary>
     public static TheoryData<int, string?, string?> ClientErrorRows() => new()
     {
@@ -174,7 +175,7 @@ public sealed class ApiProblemTests
 
         var text = await ExecuteAsync(ApiProblem.Of(context, StatusCodes.Status404NotFound), context);
 
-        // Red: drop the CustomizeProblemDetails call from ApiProblem; MVC's default factory made it.
+        // Red: drop the CustomizeProblemDetails call from ApiProblem; MVC's DefaultProblemDetailsFactory made it.
         AssertProblem(text, NotFoundType, "Not Found", 404,
             extra: new Dictionary<string, string>(StringComparer.Ordinal) { ["extra"] = "\"x\"" });
     }

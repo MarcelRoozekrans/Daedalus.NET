@@ -127,8 +127,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // Body binding. [ApiController]'s ModelStateInvalidFilter answered before the action and before the ZeroAlloc
-    // validation filter, with MVC's factory's validation problem; ZeroAllocValidationEndpointFilter keeps that order.
+    // Body binding. [ApiController]'s ModelStateInvalidFilter answered before the action and before
+    // ZeroAllocValidationFilter, with ProblemDetailsFactory's validation problem; ZeroAllocValidationEndpointFilter
+    // keeps that order.
     // ---------------------------------------------------------------------------------------------------------------
 
     /// <summary>
@@ -754,9 +755,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    ///     Versioning was inert on MVC: the versioning services were added without their MVC hook, so the
-    ///     controllers' version attributes were never read and no supported-versions header was reported. The owner
-    ///     kept the wire unversioned (2026-10-31), and the versioning package left with MVC (R54).
+    ///     Versioning was inert on MVC: <c>AddApiVersioning</c> ran without <c>.AddMvc()</c>, so the
+    ///     <c>[ApiVersion("1.0")]</c> attributes were never read and <c>ReportApiVersions</c> had nothing to report.
+    ///     The owner kept the wire unversioned (2026-10-31), and Asp.Versioning.Mvc left with MVC (R54).
     /// </summary>
     [Fact]
     public async Task Responses_carry_no_version_header()
