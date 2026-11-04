@@ -6,6 +6,7 @@ using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Services.Git;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Results;
 using static Daedalus.Tests.Unit.Endpoints.EndpointTestContext;
@@ -19,12 +20,15 @@ namespace Daedalus.Tests.Unit.Endpoints;
 ///     is a 201 whose <c>Location</c> keeps MVC's <c>/api/Repositories</c> casing, a failed connection test is a 400
 ///     <c>TestConnectionResponse</c>, and each handler logs its start under the endpoints' category.
 /// </summary>
-public sealed class RepositoriesEndpointsTests
+public sealed class RepositoriesEndpointsTests : IAsyncDisposable
 {
     private const string Category = "Daedalus.Api.Endpoints.RepositoriesEndpoints";
 
     private readonly IRepositoryConfigurationRepository _repository = Substitute.For<IRepositoryConfigurationRepository>();
     private readonly IGitConnectionTester _tester = Substitute.For<IGitConnectionTester>();
+    private readonly ServiceProvider _services = Services();
+
+    public async ValueTask DisposeAsync() => await _services.DisposeAsync();
 
     [Fact]
     public async Task GetAllRepositories_maps_every_entity_to_its_dto_and_logs()
@@ -397,11 +401,10 @@ public sealed class RepositoriesEndpointsTests
         await _tester.DidNotReceiveWithAnyArgs().TestConnectionAsync(default!, default, default, default);
     }
 
-    private static async Task<(DefaultHttpContext Context, ApiBody<UpdateRepositoryConfigurationDto> Request)> BindUpdate(
+    private async Task<(DefaultHttpContext Context, ApiBody<UpdateRepositoryConfigurationDto> Request)> BindUpdate(
         string name, bool isActive = true)
     {
-        await using var services = Services();
-        var context = WithJsonBody(services,
+        var context = WithJsonBody(_services,
             $"{{\"name\":\"{name}\",\"url\":\"https://github.com/org/repo\",\"defaultBranch\":\"main\",\"isActive\":{(isActive ? "true" : "false")}}}");
         var request = await BindAsync<ApiBody<UpdateRepositoryConfigurationDto>>(
             context, Parameter<ApiBody<UpdateRepositoryConfigurationDto>>("request"));
