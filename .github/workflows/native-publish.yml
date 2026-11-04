@@ -35,7 +35,7 @@ jobs:
       && (github.event.action != 'labeled' || github.event.label.name == 'native-publish')
     # Pinned, not ubuntu-latest: a native binary needs the glibc it was linked against or newer. ubuntu-latest
     # moved to 26.04, glibc 2.43, which neither this VM nor the .NET 10 images, Ubuntu 24.04 with 2.39, have.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # The Api publish compiles the whole program natively, about 21 minutes on the agent VM.
     timeout-minutes: 90
     strategy:
@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install the native toolchain
         run: |
@@ -53,12 +53,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang zlib1g-dev
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
@@ -78,7 +78,7 @@ jobs:
         run: find "${{ runner.temp }}/native/${{ matrix.target }}" -name '*.dbg' -delete
 
       - name: Upload the binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/native/${{ matrix.target }}/
