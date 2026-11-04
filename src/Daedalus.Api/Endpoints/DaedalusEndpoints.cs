@@ -70,6 +70,7 @@ public static class DaedalusEndpoints
         app.MapRepositoriesEndpoints();
         app.MapAgentMemoriesEndpoints();
         app.MapAgentSessionsEndpoints();
+        app.MapTasksEndpoints();
 
         return app;
     }

@@ -5,7 +5,7 @@ namespace Daedalus.Application.Services;
 
 /// <summary>
 ///     The refusal of a change to a task whose run is live, or of a delete of its project (amendment A7).
-///     <c>TasksController</c> and <c>ProjectsEndpoints</c> map a failure that
+///     <c>TasksEndpoints</c> and <c>ProjectsEndpoints</c> map a failure that
 ///     starts with <see cref="LiveRunPrefix"/> or <see cref="ChangedPrefix"/> to 409. On a host whose engine is off the
 ///     run reads Unknown, which is not live, so update and delete go through (consistent with A2).
 /// </summary>

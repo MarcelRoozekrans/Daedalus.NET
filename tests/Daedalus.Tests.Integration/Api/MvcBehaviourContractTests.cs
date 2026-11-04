@@ -112,11 +112,11 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), new Uri(path, UriKind.Relative)));
 
         // Red: return ApiProblem.Of(context, StatusCodes.Status403Forbidden) instead of the 401 in
-        //      AgentMemoriesEndpoints.List and StatusCode(403) instead of Unauthorized() in TasksController.Manufacture.
+        //      AgentMemoriesEndpoints.List, and in TasksEndpoints.Manufacture.
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, await response.Content.ReadAsStringAsync());
         // Red: .WithMetadata(ProblemContentType.Json) dropped from the group in
-        //      AgentMemoriesEndpoints.MapAgentMemoriesEndpoints, and a [Produces("application/json")] added to
-        //      TasksController.
+        //      AgentMemoriesEndpoints.MapAgentMemoriesEndpoints, and added to the group in
+        //      TasksEndpoints.MapTasksEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(contentType);
         await AssertProblemAsync(response, UnauthorizedType, "Unauthorized", 401);
     }
@@ -310,17 +310,16 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         // Red: set SuppressImplicitRequiredAttributeForNonNullableReferenceTypes to true in AddControllers' options.
         //      Each refused case turns red: here, as a 500, where its action throws on the null member, and at the
         //      member set below where its action or ZeroAllocValidationFilter answers its own 400. For the ported rows
-        //      (Projects, Prd, Brainstorm, Repositories, AgentSessions): ApiBody.BindAsync answering no problem for a missing
+        //      (Projects, Prd, Brainstorm, Repositories, AgentSessions, Tasks): ApiBody.BindAsync answering no problem for a missing
         //      required member, the result of ApiBinding.ImplicitRequired dropped in place of
         //      ApiProblem.BindingProblem(context, required); for AgentSessions applied as
         //      var required = new Dictionary<string, string[]>(StringComparer.Ordinal) in place of the
         //      ApiBinding.ImplicitRequired call in ApiBody.BindAsync.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
         // Red: the ported case's group ProblemContentType.Json changed to ProblemJson in MapProjectsEndpoints,
-        //      MapPrdEndpoints, MapBrainstormEndpoints, MapRepositoriesEndpoints and MapAgentSessionsEndpoints; for a case
-        //      still on MVC, its controller's
-        //      [Produces("application/json")] changed to text/json, and for CreateTaskDto, a [Produces("application/json")]
-        //      added to TasksController.
+        //      MapPrdEndpoints, MapBrainstormEndpoints, MapRepositoriesEndpoints and MapAgentSessionsEndpoints, and for
+        //      CreateTaskDto, .WithMetadata(ProblemContentType.Json) added to the group in MapTasksEndpoints; for a case
+        //      still on MVC, its controller's [Produces("application/json")] changed to text/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(@case.ContentType);
         await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
             errors: @case.Required.ToDictionary(key => key, key => new[] { $"The {key.Split('.')[^1]} field is required." },
@@ -516,11 +515,11 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), RawBody(ProjectBody, contentType));
 
         // Red: ApiBinding.TrySelectEncoding's fallback arm `_ => null!` changed to Encoding.UTF8; the charset cases of
-        //      the Projects rows then answer 201. For the tasks row, still on MVC: insert first in AddControllers'
-        //      InputFormatters an IInputFormatter whose CanRead is always true and that deserializes the body as web JSON.
+        //      the Projects rows then answer 201. For both text/plain rows: MediaTypeHeaderValue.Parse("text/plain")
+        //      added to ApiBinding.JsonMediaTypes; the tasks row then answers the validation 400.
         response.StatusCode.Should().Be(HttpStatusCode.UnsupportedMediaType, await response.Content.ReadAsStringAsync());
-        // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in MapProjectsEndpoints, and a
-        //      [Produces("application/json")] added to TasksController.
+        // Red: ProblemContentType.ProblemJson in place of ProblemContentType.Json on the group in MapProjectsEndpoints, and
+        //      .WithMetadata(ProblemContentType.Json) added to the group in MapTasksEndpoints.
         response.Content.Headers.ContentType!.ToString().Should().Be(expectedContentType);
         await AssertProblemAsync(response, "https://tools.ietf.org/html/rfc9110#section-15.5.16", "Unsupported Media Type", 415);
     }
@@ -580,13 +579,13 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
 
         using var response = await client.SendAsync(request);
 
-        // Red: return StatusCode(410) instead of NotFound for an unknown task in TasksController.GetTaskById,
-        //      status 410 in TasksController.Manufacture's TaskNotFound branch, ProjectNotFound answering 410 in
+        // Red: StatusCodes.Status410Gone in place of Status404NotFound in TasksEndpoints.TaskNotFound, and in
+        //      TasksEndpoints.Manufacture's TaskNotFound case, ProjectNotFound answering 410 in
         //      ProjectsEndpoints; for the stream, ApiProblem.BindingProblem's Status set to 422 in ApiProblem.cs.
         response.StatusCode.Should().Be(status, await response.Content.ReadAsStringAsync());
-        // Red: a [Produces("application/json")] added to TasksController turns tasks-problem; ApiJsonResult.ContentType changed to
-        //      application/problem+json turns projects-error-body; a [Produces("text/json")] on TasksController
-        //      turns tasks-error-body; ProblemContentType.ProblemJson dropped from the stream route's WithMetadata in
+        // Red: .WithMetadata(ProblemContentType.Json) added to the group in MapTasksEndpoints turns tasks-problem.
+        //      ApiJsonResult.ContentType changed to application/problem+json turns projects-error-body and
+        //      tasks-error-body. ProblemContentType.ProblemJson dropped from the stream route's WithMetadata in
         //      MapAgentSessionsEndpoints turns stream-problem application/json.
         response.Content.Headers.ContentType!.ToString().Should().Be(contentType);
         switch (name)
@@ -685,7 +684,10 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         using var response = await client.PostAsync(new Uri(path, UriKind.Relative), body is null ? null : JsonBody(body));
         var text = await response.Content.ReadAsStringAsync();
 
-        // Red: return Ok instead of CreatedAtAction, or for manufacture instead of Created, in the case's action; for the repositories case, InternalError in place of Created in CreateRepository.
+        // Red: return Ok instead of CreatedAtAction in the case's action; for the repositories case, InternalError in place of Created in CreateRepository.
+        //      For the tasks case, ApiProblem.Of(context, StatusCodes.Status410Gone) in place of TypedResults.Created in
+        //      TasksEndpoints.CreateTask, and for the manufacture case the same in place of TypedResults.Created in
+        //      TasksEndpoints.Manufacture.
         //      For the agent-sessions case, return AgentError.Validation("x").ToProblem(context) when result.IsSuccess,
         //      ahead of the Created in AgentSessionsEndpoints.CreateSession.
         response.StatusCode.Should().Be(HttpStatusCode.Created, text);
@@ -695,13 +697,14 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         //      "/api/projects/{id}" in place of "/api/Projects/{id}" in ProjectsEndpoints.CreateProject, and the
         //      repositories case with "/api/repositories/{id}" in place of "/api/Repositories/{id}" in
         //      RepositoriesEndpoints.CreateRepository. The tasks case
-        //      turns red with Created and a relative "/api/Tasks/{id}" in place of CreatedAtAction in
-        //      TasksController.CreateTask, and the codeanalysis case with a lower-case [Route] in
+        //      turns red with "/api/tasks/{id}" in place of "/api/Tasks/{id}" in TasksEndpoints.CreateTask, and the
+        //      codeanalysis case with a lower-case [Route] in
         //      place of api/[controller] on its controller. The agent-sessions case turns red with
         //      "/api/agents/Sessions/{sessionId}" in place of "/api/agents/sessions/{sessionId}" in
         //      AgentSessionsEndpoints.CreateSession, the workflow-runs case with Created and a relative path in
-        //      WorkflowRunsController.Start, and the manufacture case with an absolute http://localhost URI in
-        //      TasksController.Manufacture's Created.
+        //      WorkflowRunsController.Start, and the manufacture case with
+        //      ApiLocation.For(context.Request, $"/api/workflow-runs/{result.Value}") in place of the relative path in
+        //      TasksEndpoints.Manufacture's Created.
         response.Headers.Location!.OriginalString.Should()
             .Be(string.Format(System.Globalization.CultureInfo.InvariantCulture, location, id));
     }
@@ -1057,10 +1060,9 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     {
         var text = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(text);
-        // Red: an extra member in the not-found anonymous object of TasksController, or a member added to ErrorBody for
-        //      the Projects row.
+        // Red: a member added to ErrorBody, public string? Extra { get; init; } = "x", for the Tasks and Projects rows.
         document.RootElement.EnumerateObject().Select(member => member.Name).Should().Equal(["error"], text);
-        // Red: the not-found message changed in TasksController.GetTaskById, or in ProjectsEndpoints.ProjectNotFound.
+        // Red: the not-found message changed in TasksEndpoints.TaskNotFound, or in ProjectsEndpoints.ProjectNotFound.
         document.RootElement.GetProperty("error").GetString().Should().Be(message);
     }
 

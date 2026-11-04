@@ -4,6 +4,7 @@ using Asp.Versioning;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Agents;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Services;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;

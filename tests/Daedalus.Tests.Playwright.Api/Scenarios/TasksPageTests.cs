@@ -83,11 +83,13 @@ public class TasksPageTests : ApiTestBase
             description = "d"
         }).ConfigureAwait(false);
 
-        // Red: restore the controller-level Produces application/json on TasksController; the content type fails.
+        // Red: .WithMetadata(ProblemContentType.Json) added to the group in TasksEndpoints.MapTasksEndpoints; the content
+        //      type fails.
         response.Status.Should().Be(400);
         response.Headers["Content-Type"].Should().StartWith("application/problem+json");
         using var doc = JsonDocument.Parse(await response.TextAsync().ConfigureAwait(false));
-        // Red: pass detail null to Problem in CreateTask; the body then has no detail member.
+        // Red: ApiProblem.Of(context, StatusCodes.Status400BadRequest) without result.Error in TasksEndpoints.CreateTask,
+        //      so the body has no detail member.
         doc.RootElement.GetProperty("detail").GetString().Should().NotBeNullOrWhiteSpace();
     }
 

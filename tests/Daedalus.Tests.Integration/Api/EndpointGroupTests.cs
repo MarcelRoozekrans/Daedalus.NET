@@ -106,5 +106,6 @@ public sealed class EndpointGroupTests(PostgresFixture fixture)
         ["api/repositories"] = "Repositories",
         ["api/schedules"] = "Schedules",
         ["api/taskexecutions"] = "TaskExecutions",
+        ["api/tasks"] = "Tasks",
     };
 }

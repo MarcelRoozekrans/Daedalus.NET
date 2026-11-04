@@ -106,6 +106,7 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(int))]
 [JsonSerializable(typeof(bool))]
+[JsonSerializable(typeof(Guid))]
 internal partial class ApiJsonSerializerContext : JsonSerializerContext
 {
 }

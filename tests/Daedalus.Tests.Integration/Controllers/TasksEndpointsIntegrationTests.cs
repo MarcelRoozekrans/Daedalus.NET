@@ -1,28 +1,26 @@
-using Daedalus.Api.Controllers;
+using Daedalus.Api.Endpoints;
 using Daedalus.Api.Services;
-using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Controllers;
 
 /// <summary>
-///     Integration tests for TasksController HTTP endpoints.
+///     Integration tests for the <see cref="TasksEndpoints"/> read handlers.
 ///     Tests request handling, response status codes, and DTO mapping with real PostgreSQL database.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
-public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
+public class TasksEndpointsIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private readonly IApplicationCommands _commandsMock = Substitute.For<IApplicationCommands>();
-    private readonly ILogger<TasksController> _loggerMock = Substitute.For<ILogger<TasksController>>();
-    private TasksController _controller = null!;
+    private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private ApplicationDbContext _dbContext = null!;
     private ITaskQueryService _taskQueryService = null!;
 
@@ -40,7 +38,6 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         await _dbContext.SaveChangesAsync();
 
         _taskQueryService = new TaskQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
-        _controller = new TasksController(_taskQueryService, _commandsMock, _loggerMock);
     }
 
     public async Task DisposeAsync()
@@ -57,11 +54,13 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
     public async Task GetAllTasks_WithNoTasks_Returns200WithEmptyList()
     {
         // Act
-        var result = await _controller.GetAllTasks();
+        var result = (await GetAllTasks()).Result;
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
+        // Red: await the page as a statement, then return InternalServerError(), in place of TypedResults.Ok in
+        //      GetAllTasks.
+        result.Should().BeOfType<Ok<PagedResultDto<TaskDto>>>();
+        var okResult = (Ok<PagedResultDto<TaskDto>>)result;
         okResult.StatusCode.Should().Be(200);
     }
 
@@ -78,14 +77,15 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetAllTasks();
+        var result = (await GetAllTasks()).Result;
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
+        // Red: the service page with { Items = [] } in place of the service page in GetAllTasks.
+        result.Should().BeOfType<Ok<PagedResultDto<TaskDto>>>();
+        var okResult = (Ok<PagedResultDto<TaskDto>>)result;
         okResult.StatusCode.Should().Be(200);
 
-        var pagedResult = okResult.Value as PagedResultDto<TaskDto>;
+        var pagedResult = okResult.Value;
         pagedResult.Should().NotBeNull();
         pagedResult!.Items.Should().HaveCount(2);
     }
@@ -102,16 +102,17 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result1 = await _controller.GetAllTasks(1, 5);
-        var result2 = await _controller.GetAllTasks(2, 5);
+        var result1 = (await GetAllTasks("?page=1&pageSize=5")).Result;
+        var result2 = (await GetAllTasks("?page=2&pageSize=5")).Result;
 
         // Assert
-        var okResult1 = (OkObjectResult)result1;
-        var page1 = okResult1.Value as PagedResultDto<TaskDto>;
+        // Red: DefaultPageSize in place of pageSize.ValueOr(DefaultPageSize) in GetAllTasks; each page holds 10.
+        var okResult1 = (Ok<PagedResultDto<TaskDto>>)result1;
+        var page1 = okResult1.Value;
         page1!.Items.Should().HaveCount(5);
 
-        var okResult2 = (OkObjectResult)result2;
-        var page2 = okResult2.Value as PagedResultDto<TaskDto>;
+        var okResult2 = (Ok<PagedResultDto<TaskDto>>)result2;
+        var page2 = okResult2.Value;
         page2!.Items.Should().HaveCount(5);
     }
 
@@ -139,14 +140,15 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetTaskById(taskId);
+        var result = (await GetTaskById(taskId)).Result;
 
         // Assert
-        result.Should().BeOfType<OkObjectResult>();
-        var okResult = (OkObjectResult)result;
+        // Red: return TaskNotFound(id) in place of return TypedResults.Ok(task) in GetTaskById.
+        result.Should().BeOfType<Ok<TaskDto>>();
+        var okResult = (Ok<TaskDto>)result;
         okResult.StatusCode.Should().Be(200);
 
-        var taskDto = okResult.Value as TaskDto;
+        var taskDto = okResult.Value;
         taskDto!.Id.Should().Be(taskId);
     }
 
@@ -154,11 +156,12 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
     public async Task GetTaskById_WithInvalidId_Returns404()
     {
         // Act
-        var result = await _controller.GetTaskById(Guid.NewGuid());
+        var result = (await GetTaskById(Guid.NewGuid())).Result;
 
         // Assert
-        result.Should().BeOfType<NotFoundObjectResult>();
-        var notFoundResult = (NotFoundObjectResult)result;
+        // Red: StatusCodes.Status410Gone in place of Status404NotFound in TaskNotFound.
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>();
+        var notFoundResult = (ApiJsonResult<ErrorBody>)result;
         notFoundResult.StatusCode.Should().Be(404);
     }
 
@@ -187,11 +190,12 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         await _dbContext.SaveChangesAsync();
 
         // Act
-        var result = await _controller.GetTaskById(taskId);
+        var result = (await GetTaskById(taskId)).Result;
 
         // Assert
-        var okResult = (OkObjectResult)result;
-        var taskDto = okResult.Value as TaskDto;
+        // Red: TypedResults.Ok(task with { Executions = [] }) in place of TypedResults.Ok(task) in GetTaskById.
+        var okResult = (Ok<TaskDto>)result;
+        var taskDto = okResult.Value;
         taskDto!.Executions.Should().HaveCount(1);
     }
 
@@ -202,11 +206,21 @@ public class TasksControllerIntegrationTests(PostgresFixture fixture) : IAsyncLi
         var id = Guid.NewGuid();
 
         // Act
-        var result = await _controller.GetTaskById(id, CancellationToken.None);
+        var result = (await GetTaskById(id)).Result;
 
         // Assert
-        result.Should().BeOfType<NotFoundObjectResult>();
+        // Red: the null check in GetTaskById narrowed to task is null && id == Guid.Empty, with Ok(task!) after it.
+        result.Should().BeOfType<ApiJsonResult<ErrorBody>>();
     }
 
     #endregion
+
+    private async Task<Results<Ok<PagedResultDto<TaskDto>>, ApiJsonResult<ErrorBody>>> GetAllTasks(string queryString = "")
+    {
+        var (page, pageSize) = await PagingQueryBinding.BindAsync(new DefaultHttpContext(), queryString);
+        return await TasksEndpoints.GetAllTasks(page, pageSize, _taskQueryService, _loggerFactory, CancellationToken.None);
+    }
+
+    private Task<Results<Ok<TaskDto>, ApiJsonResult<ErrorBody>>> GetTaskById(Guid id) =>
+        TasksEndpoints.GetTaskById(id, _taskQueryService, _loggerFactory, CancellationToken.None);
 }
