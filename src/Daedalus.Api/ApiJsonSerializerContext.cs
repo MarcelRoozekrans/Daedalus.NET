@@ -74,6 +74,8 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(StartWorkflowRunResponse))]
 [JsonSerializable(typeof(SubmitAnalysisResponse))]
 [JsonSerializable(typeof(Endpoints.TestConnectionResponse))]
+[JsonSerializable(typeof(Endpoints.CancelAnalysisResponse))]
+[JsonSerializable(typeof(Endpoints.IterateAnalysisResponse))]
 [JsonSerializable(typeof(WorkflowRunList))]
 [JsonSerializable(typeof(WorkflowRunView))]
 [JsonSerializable(typeof(IEnumerable<RepositoryConfigurationDto>))]
@@ -86,8 +88,6 @@ namespace Daedalus.Api;
 [JsonSerializable(typeof(IReadOnlyList<RunDiagnosis>))]
 [JsonSerializable(typeof(IReadOnlyList<TaskCostDto>))]
 // Request bodies
-[JsonSerializable(typeof(Endpoints.CancelAnalysisResponse))]
-[JsonSerializable(typeof(Endpoints.IterateAnalysisResponse))]
 [JsonSerializable(typeof(CancelWorkflowRunRequest))]
 [JsonSerializable(typeof(CreateBrainstormSessionDto))]
 [JsonSerializable(typeof(CreateProjectDto))]

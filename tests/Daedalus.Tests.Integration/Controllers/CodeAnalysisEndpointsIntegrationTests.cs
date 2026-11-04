@@ -318,6 +318,21 @@ public sealed class CodeAnalysisEndpointsIntegrationTests : IAsyncLifetime
         problem.ProblemDetails.Detail.Should().Be("Max iterations exceeded");
     }
 
+
+    [Fact(Timeout = 5000)]
+    public async Task IterateAnalysis_WritesTheCamelCaseWireBody()
+    {
+        // Arrange
+        var id = Guid.NewGuid();
+
+        // Act
+        var body = await ExecuteAsync(ApiJson.Of(new IterateAnalysisResponse(id, 1), StatusCodes.Status200OK));
+
+        // Assert
+        // Red: [JsonPropertyName("RequestId")] on the RequestId property of IterateAnalysisResponse.
+        body.Should().Be($"{{\"requestId\":\"{id}\",\"iteration\":1}}");
+    }
+
     #endregion
 
     #region FinalizeAnalysis
@@ -441,6 +456,21 @@ public sealed class CodeAnalysisEndpointsIntegrationTests : IAsyncLifetime
         problem.ProblemDetails.Title.Should().Be("Cancellation Error");
         // Red: "Cancellation Error", "x" in place of "Cancellation Error", cancelResult.Error in CancelAnalysis.
         problem.ProblemDetails.Detail.Should().Be("Request is already completed");
+    }
+
+
+    [Fact(Timeout = 5000)]
+    public async Task CancelAnalysis_WritesTheCamelCaseWireBody()
+    {
+        // Arrange
+        var id = Guid.NewGuid();
+
+        // Act
+        var body = await ExecuteAsync(ApiJson.Of(new CancelAnalysisResponse(id, "Cancelled"), StatusCodes.Status200OK));
+
+        // Assert
+        // Red: [JsonPropertyName("RequestId")] on the RequestId property of CancelAnalysisResponse.
+        body.Should().Be($"{{\"requestId\":\"{id}\",\"status\":\"Cancelled\"}}");
     }
 
     #endregion
@@ -724,9 +754,11 @@ public sealed class CodeAnalysisEndpointsIntegrationTests : IAsyncLifetime
         }
 
         // Assert
-        // Red: loggerFactory.CreateLogger("Other") in place of loggerFactory.CreateLogger(typeof(CodeAnalysisEndpoints)) in GetAnalysisStatus.
+        // Red: loggerFactory.CreateLogger("Other") in place of loggerFactory.CreateLogger(typeof(CodeAnalysisEndpoints)) in
+        //      the handler of the row, applied once per row.
         factory.Received(1).CreateLogger("Daedalus.Api.Endpoints.CodeAnalysisEndpoints");
-        // Red: EventId = 108 in place of EventId = 101 on RetrievingAnalysisStatus in Log.
+        // Red: the row's EventId plus 10 on its Log method, for example EventId = 110 in place of EventId = 100 on
+        //      SubmittingAnalysisRequest, applied once per row.
         logger.ReceivedCalls()
             .Where(call => string.Equals(call.GetMethodInfo().Name, nameof(ILogger.Log), StringComparison.Ordinal))
             .Select(call => call.GetArguments()[1] is EventId logged ? logged.Id : throw new InvalidOperationException("No EventId."))
@@ -779,6 +811,15 @@ public sealed class CodeAnalysisEndpointsIntegrationTests : IAsyncLifetime
 
     private static async Task<TSelf> BindVia<TSelf>(HttpContext context, ParameterInfo parameter)
         where TSelf : class, IBindableFromHttpContext<TSelf> => (await TSelf.BindAsync(context, parameter))!;
+
+    /// <summary>Executes <paramref name="result"/> against a context over the endpoints' services and reads the body.</summary>
+    private async Task<string> ExecuteAsync(IResult result)
+    {
+        var context = CreateContext();
+        context.Response.Body = new MemoryStream();
+        await result.ExecuteAsync(context);
+        return Encoding.UTF8.GetString(((MemoryStream)context.Response.Body).ToArray());
+    }
 
     private static CodeAnalysisRequest CreateTestEntity()
     {

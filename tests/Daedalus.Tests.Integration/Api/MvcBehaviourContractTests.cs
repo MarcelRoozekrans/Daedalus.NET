@@ -910,6 +910,33 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    ///     The same rule for <c>GET api/codeanalysis/by-repository</c>: a missing, empty or whitespace
+    ///     <c>repositoryUrl</c> never reaches the action and is the 400 validation problem (ruling R52).
+    /// </summary>
+    [Theory]
+    [InlineData("/api/codeanalysis/by-repository")]
+    [InlineData("/api/codeanalysis/by-repository?repositoryUrl=")]
+    [InlineData("/api/codeanalysis/by-repository?repositoryUrl=%20%20")]
+    public async Task By_repository_without_a_url_answers_the_required_validation_problem(string path)
+    {
+        await using var host = await ApiHost.StartAsync(fixture, workflow: false);
+        using var client = host.Client("alice", "analyst");
+
+        using var response = await client.GetAsync(new Uri(path, UriKind.Relative));
+
+        // Red: ApiQuery<string> repositoryUrl in place of [Required] ApiQuery<string> repositoryUrl in GetByRepository.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        // Red: ProblemContentType.ProblemJson in place of Json in MapCodeAnalysisEndpoints.
+        response.Content.Headers.ContentType!.ToString().Should().Be(Json);
+        // Red: $"The {name} is required." in place of $"The {name} field is required." in ApiBinding.Required.
+        await AssertProblemAsync(response, BadRequestType, ValidationTitle, 400,
+            errors: new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["repositoryUrl"] = ["The repositoryUrl field is required."],
+            });
+    }
+
+    /// <summary>
     ///     MVC holds every parameter's binding errors in one model state, so a missing <c>modelId</c> and a malformed
     ///     <c>maxIterations</c> answer together, in parameter order (ruling R43).
     /// </summary>
