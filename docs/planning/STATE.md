@@ -2,7 +2,43 @@
 
 **Last session:** 2026-11-05
 
-## Current Position - phase 3.5 design approved (2026-11-05), next: the plan
+## Current Position - phase 3.5 planned and assumptions confirmed (2026-11-05), next: execute Task 1
+
+**Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm`, worktree
+`.claude/worktrees/phase-3.5`. No PR yet. Release-please stays on hold.
+
+- **Plan:** `docs/superpowers/plans/2026-11-05-phase-3.5-zeroalloc-orm-plan.md`, 26 tasks, linked in ROADMAP.md.
+  Tasks 1-3 foundation (packages + capability spike, baseline migration + frozen EF chain + adoption tests, Migrations
+  host + fixtures on real migrations); 4-16 one store each; 17 migration 2 (#290); 18-22 outbox partners and EF
+  removal, waiting on the `ZeroAlloc.Outbox.Orm` release; 23 dev-database proof; 24 native CLI; 25 docs; 26 close-out.
+- **Every EF save site is classified** guarded or independent in the store tasks (owner decision 5).
+- **Owner answers at `list-phase-assumptions`, 2026-11-05:** AgentSession and RepositoryConfiguration have only
+  independent saves, so their `RowVersion` is dropped, not guarded; a lost race on Project and CodeAnalysisRequest
+  returns "... was modified by another operation. Please retry."; ScheduleReconciler keeps EF's `xmin` guard, with an
+  issue filed for the host-start failure in Task 19; R2-R5 stand: `Rehydrate` public, maps and SQL classes in
+  `Daedalus.Infrastructure/Persistence/Sql`, one `NpgsqlDataSource`, migrations embedded in Infrastructure.
+- **Execution:** subagent-driven, chosen by the owner.
+- **Rulings doc** `docs/plans/2026-11-05-phase-3.5-rulings.md` does not exist yet; Task 1 creates it.
+- **ZeroAlloc.ORM docs** are in `~/Projects/Prive/ZeroAlloc/ZeroAlloc.ORM` (`git show origin/main:docs/cookbook/linq.md`,
+  `migrations.md` "Adopting an EF Core database"); the local checkout may be behind origin.
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+The Outbox.Orm release, for Tasks 18 to 22 only.
+
+## Recommended Next Step
+
+In a fresh session, in the worktree: mark phase 3.5 `active` in ROADMAP.md and MILESTONE.md, then run
+`superpowers:subagent-driven-development` on the plan from Task 1. Rules: no Co-Authored-By or Claude signature;
+commit body lines at most 100 characters, no nested parentheses; no local Native AOT publish; dotnet build/test one at
+a time with `DOTNET_USE_POLLING_FILE_WATCHER=1`; push with `phase/3.5-zeroalloc-orm:phase/3.5-zeroalloc-orm`; tick
+the plan's checkboxes as tasks finish.
+
+## Earlier Position - phase 3.5 design approved (2026-11-05), next: the plan
 
 **Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm`, worktree
 `.claude/worktrees/phase-3.5`, from `main` `fd97a9b4` (#437 merged). No PR yet. Release-please stays on hold.
