@@ -95,20 +95,8 @@ public sealed class BaselineAdoptionTests(PostgresFixture fixture)
         return await DaedalusMigrations.CreateRunner(connection.AsAsync()).RunAsync(CancellationToken.None);
     }
 
-    private static async Task<List<string>> ReadAsync(string connectionString, string sql)
-    {
-        var rows = new List<string>();
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(sql, connection);
-        await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            rows.Add(reader.GetString(0));
-        }
-
-        return rows;
-    }
+    private static Task<IReadOnlyList<string>> ReadAsync(string connectionString, string sql) =>
+        EfChainDatabase.ReadStringsAsync(connectionString, sql, CancellationToken.None);
 
     private async Task WithDatabaseAsync(bool ef, Func<string, Task> test)
     {

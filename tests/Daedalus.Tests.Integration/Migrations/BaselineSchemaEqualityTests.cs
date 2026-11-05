@@ -40,7 +40,12 @@ public sealed class BaselineSchemaEqualityTests(PostgresFixture fixture)
             var ef = await SchemaAsync(efDatabase, ct);
             var fresh = await SchemaAsync(freshDatabase, ct);
 
-            ef.Should().Contain(s => s.StartsWith("index ", StringComparison.Ordinal), "the snapshot must read the schema");
+            // A broken catalog query would leave both sides empty in its category and pass; the EF chain has each kind.
+            foreach (var category in new[] { "column ", "index ", "constraint ", "sequence ", "extension " })
+            {
+                ef.Should().Contain(s => s.StartsWith(category, StringComparison.Ordinal), "the snapshot must read every {0}category", category);
+            }
+
             // Joined, so a failure lists every difference rather than the first.
             var onlyEf = string.Join(Environment.NewLine, ef.Except(fresh, StringComparer.Ordinal));
             var onlyFresh = string.Join(Environment.NewLine, fresh.Except(ef, StringComparer.Ordinal));
@@ -79,23 +84,23 @@ public sealed class BaselineSchemaEqualityTests(PostgresFixture fixture)
             "SELECT 'constraint ' || t.relname || '.' || c.conname || ' ' || pg_get_constraintdef(c.oid)"
             + " FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid"
             + " WHERE c.connamespace = 'public'::regnamespace AND t.relname NOT IN " + Excluded;
+        // A sequence is named with the table that owns it, through an identity or serial column, if any.
         const string Sequences =
-            "SELECT 'sequence ' || sequencename || ' ' || data_type || ' start=' || start_value"
-            + " || ' inc=' || increment_by || ' min=' || min_value || ' max=' || max_value || ' cycle=' || cycle"
-            + " FROM pg_sequences WHERE schemaname = 'public'";
+            "SELECT 'sequence ' || s.sequencename || ' owner=' || coalesce(t.relname, '-') || ' ' || s.data_type"
+            + " || ' start=' || s.start_value || ' inc=' || s.increment_by || ' min=' || s.min_value"
+            + " || ' max=' || s.max_value || ' cycle=' || s.cycle"
+            + " FROM pg_sequences s"
+            + " JOIN pg_class q ON q.relname = s.sequencename AND q.relnamespace = 'public'::regnamespace"
+            + " LEFT JOIN pg_depend d ON d.classid = 'pg_class'::regclass AND d.objid = q.oid"
+            + " AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')"
+            + " LEFT JOIN pg_class t ON t.oid = d.refobjid"
+            + " WHERE s.schemaname = 'public' AND (t.relname IS NULL OR t.relname NOT IN " + Excluded + ")";
         const string Extensions = "SELECT 'extension ' || extname || ' ' || extversion FROM pg_extension";
 
         var rows = new List<string>();
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync(ct);
         foreach (var sql in new[] { Columns, Indexes, Constraints, Sequences, Extensions })
         {
-            await using var command = new NpgsqlCommand(sql, connection);
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-            {
-                rows.Add(reader.GetString(0));
-            }
+            rows.AddRange(await EfChainDatabase.ReadStringsAsync(connectionString, sql, ct));
         }
 
         rows.Sort(StringComparer.Ordinal);

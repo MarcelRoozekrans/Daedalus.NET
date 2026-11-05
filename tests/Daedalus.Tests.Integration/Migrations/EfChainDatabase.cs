@@ -60,4 +60,24 @@ public static class EfChainDatabase
         await using var command = new NpgsqlCommand(sql, connection);
         await command.ExecuteNonQueryAsync(ct);
     }
+
+    /// <summary>Runs a query whose first column is text and returns that column of every row, in the order read.</summary>
+    /// <param name="connectionString">The database to read.</param>
+    /// <param name="sql">The query.</param>
+    /// <param name="ct">Cancels the work.</param>
+    /// <returns>The first column of each row.</returns>
+    public static async Task<IReadOnlyList<string>> ReadStringsAsync(string connectionString, string sql, CancellationToken ct)
+    {
+        var rows = new List<string>();
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(ct);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(reader.GetString(0));
+        }
+
+        return rows;
+    }
 }
