@@ -122,21 +122,25 @@ public sealed class OrmCapabilityTests(PostgresFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task Owned_columns_read()
     {
-        var request = CodeAnalysisRequest.Create(
-            Guid.NewGuid(), "Spike", "Owned columns", "https://github.com/example/repo", 3,
-            requirements: "[]", repositoryBranch: "main").Value;
+        const string FullUrl = "https://github.com/example/repo";
+        const string BareUrl = "https://github.com/example/bare";
+        var full = CodeAnalysisRequest.Create(
+            Guid.NewGuid(), "Spike", "Owned columns", FullUrl, 3,
+            requirements: "[]", repositoryBranch: "main", commitSha: "abc123").Value;
+        var bare = CodeAnalysisRequest.Create(Guid.NewGuid(), "Spike", "Null owned columns", BareUrl, 3, requirements: "[]").Value;
         await using (var context = fixture.CreateDbContext())
         {
-            context.CodeAnalysisRequests.Add(request);
+            context.CodeAnalysisRequests.AddRange(full, bare);
             await context.SaveChangesAsync();
         }
 
         await using var connection = await _db.OpenAsync(CancellationToken.None);
+        var sql = new CapabilitySql(connection);
 
-        var read = await new CapabilitySql(connection)
-            .RequestByUrl("https://github.com/example/repo", CancellationToken.None);
-
-        read.Should().Be(new RequestRepository(request.Id, "https://github.com/example/repo", "main", request.Platform));
+        (await sql.RequestByUrl(FullUrl, CancellationToken.None))
+            .Should().Be(new RequestRepository(full.Id, FullUrl, "main", "abc123", full.Platform));
+        (await sql.RequestByUrl(BareUrl, CancellationToken.None))
+            .Should().Be(new RequestRepository(bare.Id, BareUrl, null, null, bare.Platform));
     }
 
     private async Task<List<DomainTask>> SeedTasksAsync(int count)
@@ -162,7 +166,8 @@ internal sealed record TaskVersionRow(Guid Id, string Title, uint RowVersion);
 
 internal sealed record RunOrigin(string Name, ScheduleOrigin Origin);
 
-internal sealed record RequestRepository(Guid Id, string Url, string? Branch, RepositoryPlatform Platform);
+internal sealed record RequestRepository(
+    Guid Id, string Url, string? Branch, string? CommitSha, RepositoryPlatform Platform);
 
 [TableMap(typeof(Skill), "Skills")]
 [ColumnMap(nameof(Skill.Id), Column = "Name")]
@@ -209,8 +214,9 @@ internal sealed partial class CapabilitySql(IAsyncDbConnection connection)
     public partial Task<List<Guid>> TaskIdsIn(Guid[] ids, CancellationToken ct);
 
     [Command("""
-        INSERT INTO "AgentMessages" ("Id", "SessionId", "Sequence", "Role", "ContentJson", "CreatedAt")
-        VALUES (@id, @sessionId, 0, 'user', @contentJson, @createdAt)
+        INSERT INTO "AgentMessages"
+            ("Id", "SessionId", "Sequence", "Role", "ContentJson", "InputTokens", "OutputTokens", "ModelId", "CreatedAt")
+        VALUES (@id, @sessionId, 0, 'user', @contentJson, NULL, NULL, NULL, @createdAt)
         """)]
     public partial Task<int> InsertMessage(
         Guid id, Guid sessionId, [Json] string contentJson, DateTime createdAt, CancellationToken ct);
@@ -262,5 +268,6 @@ internal sealed partial class CapabilitySql(IAsyncDbConnection connection)
     private static IQuery<RequestRepository> RequestByUrlQuery(string url) =>
         Sql.Table<CodeAnalysisRequest>()
             .Where(r => string.Equals(r.Repository.Url, url, StringComparison.Ordinal))
-            .Select(r => new RequestRepository(r.Id, r.Repository.Url, r.Repository.Branch, r.Repository.Platform));
+            .Select(r => new RequestRepository(
+                r.Id, r.Repository.Url, r.Repository.Branch, r.Repository.CommitSha, r.Repository.Platform));
 }

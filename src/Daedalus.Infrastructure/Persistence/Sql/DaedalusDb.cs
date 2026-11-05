@@ -21,6 +21,14 @@ public sealed class DaedalusDb(NpgsqlDataSource dataSource)
     public async ValueTask<IAsyncDbConnection> OpenAsync(CancellationToken ct)
     {
         var connection = await dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
-        return connection.AsAsync();
+        try
+        {
+            return connection.AsAsync();
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 }
