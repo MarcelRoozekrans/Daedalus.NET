@@ -1,4 +1,6 @@
 using Daedalus.Agents.Channels;
+using Daedalus.Domain.Entities;
+using Daedalus.Infrastructure.Persistence.Orm.ChannelConversations;
 using Daedalus.Tests.Integration.Fixtures;
 using Npgsql;
 using Thalos;
@@ -48,6 +50,24 @@ public sealed class PostgresConversationMapRoundTripTests(PostgresFixture fixtur
         row.Id.Should().NotBe(Guid.Empty);
         row.CreatedAt.Should().Be(_at.UtcDateTime);
         row.LastActivityAt.Should().Be(_at.UtcDateTime);
+    }
+
+    /// <summary>
+    ///     The aggregate itself: one stored <see cref="ChannelConversation"/> comes back equal in every property,
+    ///     the id and creation time included. Red: leave any column out of the insert or the read, and it differs.
+    /// </summary>
+    [Fact]
+    public async Task Stored_aggregate_loads_back_whole()
+    {
+        var stored = ChannelConversation.Create("telegram", "482910337", _sessionId, _agentId, _at.UtcDateTime).Value;
+        await using var connection = await fixture.Db.OpenAsync(CancellationToken.None);
+        var sql = new ChannelConversationSql(connection);
+
+        await sql.UpsertAsync(stored, CancellationToken.None);
+        var loaded = await sql.FindAsync("telegram", "482910337", CancellationToken.None);
+
+        loaded.Should().BeEquivalentTo(stored);
+        loaded!.CreatedAt.Kind.Should().Be(DateTimeKind.Utc);
     }
 
     /// <summary>

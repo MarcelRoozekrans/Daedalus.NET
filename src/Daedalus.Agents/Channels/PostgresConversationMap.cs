@@ -23,10 +23,10 @@ namespace Daedalus.Agents.Channels;
 ///     path every other write of this aggregate goes through — <c>ChannelConversation</c>'s "conversation id
 ///     required" rule was relaxed precisely so this contract's empty-string binding stays valid there), then persists
 ///     the validated entity's own fields with a genuine database upsert (<c>INSERT … ON CONFLICT … DO UPDATE</c>)
-///     against the unique index on <c>(ChannelId, ConversationId)</c> that the schema enforces, rather than a read-then-write. A read-then-write has a TOCTOU window between the read and the save;
-///     the Telegram poller is single-instance, but the CLI host can run concurrently against the same database, so
-///     two processes really can race to bind the same conversation, and only a database-level upsert closes that
-///     window.
+///     against the unique index on <c>(ChannelId, ConversationId)</c> that the schema enforces, rather than a
+///     read-then-write. A read-then-write has a TOCTOU window between the read and the save. The Telegram poller is
+///     single-instance, but the CLI host can run concurrently against the same database, so two processes really can
+///     race to bind the same conversation, and only a database-level upsert closes that window.
 /// </remarks>
 public sealed class PostgresConversationMap(DaedalusDb db) : IConversationMap
 {
