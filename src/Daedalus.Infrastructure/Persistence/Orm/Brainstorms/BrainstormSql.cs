@@ -18,7 +18,7 @@ namespace Daedalus.Infrastructure.Persistence.Orm.Brainstorms;
 ///     under the <c>xmin</c> it was read with and inserts its messages with <c>ON CONFLICT ("Id") DO NOTHING</c>, which
 ///     stores the ones added since the read and skips the stored ones, as EF inserted only the added ones. Both writes
 ///     share one transaction, as EF's one <c>SaveChanges</c> did. The inserts are raw SQL, as the ORM has no LINQ insert
-///     (ruling R10), and list every live column; the dead <c>bytea</c> <c>"RowVersion"</c> stays NULL, as EF left it.
+///     (ruling R10), and list every column; migration 2 dropped the dead <c>bytea</c> <c>"RowVersion"</c>.
 /// </remarks>
 public sealed partial class BrainstormSql(IAsyncDbConnection connection)
 {

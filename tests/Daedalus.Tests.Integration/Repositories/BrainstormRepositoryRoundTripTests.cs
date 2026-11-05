@@ -72,8 +72,8 @@ public sealed class BrainstormRepositoryRoundTripTests(PostgresFixture fixture) 
             """
             INSERT INTO "BrainstormSessions"
                 ("Id", "ProjectId", "Phase", "DesignDocument", "ImplementationPlan", "PhaseCompleteSignaled", "CreatedAt",
-                 "CompletedAt", "RowVersion")
-            VALUES (@id, @empty, 7, NULL, NULL, FALSE, @at, NULL, '\x0102'::bytea);
+                 "CompletedAt")
+            VALUES (@id, @empty, 7, NULL, NULL, FALSE, @at, NULL);
             INSERT INTO "BrainstormMessages" ("Id", "BrainstormSessionId", "Role", "Content", "Phase", "CreatedAt")
             VALUES (@messageId, @id, 2, ' ', 0, @at);
             """,

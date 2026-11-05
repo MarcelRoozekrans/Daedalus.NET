@@ -118,6 +118,30 @@ internal static class StoreSeed
     }
 
     /// <summary>
+    ///     Inserts <paramref name="session"/>, every column as given, by raw SQL: the task loop that wrote execution
+    ///     sessions is retired and the table has no EF mapping or SQL class, only history rows and this seed.
+    /// </summary>
+    public static async SystemTask AddExecutionSessionAsync(string connectionString, ExecutionSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync().ConfigureAwait(false);
+        await using var command = new NpgsqlCommand(
+            """
+            INSERT INTO "ExecutionSessions" ("Id", "WorkerName", "StartedAt", "LastHeartbeat", "IsActive", "TasksCompleted")
+            VALUES (@id, @worker, @startedAt, @heartbeat, @active, @completed)
+            """,
+            connection);
+        command.Parameters.AddWithValue("id", session.Id);
+        command.Parameters.AddWithValue("worker", session.WorkerName);
+        command.Parameters.AddWithValue("startedAt", session.StartedAt);
+        command.Parameters.AddWithValue("heartbeat", session.LastHeartbeat);
+        command.Parameters.AddWithValue("active", session.IsActive);
+        command.Parameters.AddWithValue("completed", session.TasksCompleted);
+        await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     Inserts <paramref name="executions"/>, every column as given, by raw SQL: production no longer writes task
     ///     executions, the task loop that did being retired, so no SQL class has an insert for them.
     /// </summary>

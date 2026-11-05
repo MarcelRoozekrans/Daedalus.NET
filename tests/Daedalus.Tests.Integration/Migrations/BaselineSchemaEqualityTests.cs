@@ -18,8 +18,10 @@ public sealed class BaselineSchemaEqualityTests(PostgresFixture fixture)
 
     /// <summary>
     ///     Columns with their order, type, nullability, default and identity; index definitions; constraint definitions;
-    ///     sequences; and extensions, all equal. Red: delete one index from <c>0001_baseline.sql</c>; the index is
-    ///     listed as only in the EF database.
+    ///     sequences; and extensions, all equal. Migration 1 alone is compared, executed straight from its embedded
+    ///     file and not through the runner, which would go on to run migration 2 and drop the six columns the EF chain
+    ///     still has. Red: delete one index from <c>0001_baseline.sql</c>; the index is listed as only in the EF
+    ///     database.
     /// </summary>
     [Fact]
     public async Task Fresh_baseline_matches_the_ef_chain()
@@ -30,27 +32,11 @@ public sealed class BaselineSchemaEqualityTests(PostgresFixture fixture)
         try
         {
             freshDatabase = await EfChainDatabase.CreateEmptyAsync(fixture.ConnectionString, ct);
-            await using (var connection = new NpgsqlConnection(freshDatabase))
-            {
-                await connection.OpenAsync(ct);
-                var applied = await DaedalusMigrations.CreateRunner(connection.AsAsync()).RunAsync(ct);
-                applied.Select(m => m.Version).Should().Equal(1);
-            }
+            await EfChainDatabase.ExecuteAsync(freshDatabase, ReadEmbedded("0001_baseline.sql"), ct);
 
             var ef = await SchemaAsync(efDatabase, ct);
             var fresh = await SchemaAsync(freshDatabase, ct);
-
-            // A broken catalog query would leave both sides empty in its category and pass; the EF chain has each kind.
-            foreach (var category in new[] { "column ", "index ", "constraint ", "sequence ", "extension " })
-            {
-                ef.Should().Contain(s => s.StartsWith(category, StringComparison.Ordinal), "the snapshot must read every {0}category", category);
-            }
-
-            // Joined, so a failure lists every difference rather than the first.
-            var onlyEf = string.Join(Environment.NewLine, ef.Except(fresh, StringComparer.Ordinal));
-            var onlyFresh = string.Join(Environment.NewLine, fresh.Except(ef, StringComparer.Ordinal));
-            onlyEf.Should().BeEmpty("the baseline must build everything the EF chain builds");
-            onlyFresh.Should().BeEmpty("the baseline must build nothing the EF chain does not");
+            AssertEqual(ef, fresh, "the baseline must build everything the EF chain builds", "the baseline must build nothing the EF chain does not");
         }
         finally
         {
@@ -60,6 +46,71 @@ public sealed class BaselineSchemaEqualityTests(PostgresFixture fixture)
                 await EfChainDatabase.DropAsync(fixture.ConnectionString, freshDatabase);
             }
         }
+    }
+
+    /// <summary>
+    ///     After every migration, a fresh database and an adopted EF database have the same schema: migration 2 drops the
+    ///     six columns the same way on both, so the two paths never drift apart. Red: remove one ALTER TABLE from
+    ///     <c>0002_drop_dead_rowversions.sql</c>; the column is listed as only in the adopted database.
+    /// </summary>
+    [Fact]
+    public async Task Fresh_database_matches_an_adopted_ef_database_after_every_migration()
+    {
+        var ct = CancellationToken.None;
+        var adopted = await EfChainDatabase.CreateAsync(fixture.ConnectionString, ct);
+        string? fresh = null;
+        try
+        {
+            fresh = await EfChainDatabase.CreateEmptyAsync(fixture.ConnectionString, ct);
+            foreach (var (database, expected) in new[] { (adopted, new[] { 2 }), (fresh, new[] { 1, 2 }) })
+            {
+                await using var connection = new NpgsqlConnection(database);
+                await connection.OpenAsync(ct);
+                var applied = await DaedalusMigrations.CreateRunner(connection.AsAsync()).RunAsync(ct);
+                applied.Select(m => m.Version).Should().Equal(expected);
+            }
+
+            var adoptedSchema = await SchemaAsync(adopted, ct);
+            adoptedSchema.Should().NotContain(
+                s => s.Contains("column Projects.RowVersion", StringComparison.Ordinal),
+                "migration 2 drops the dead column on an adopted database");
+            AssertEqual(
+                adoptedSchema,
+                await SchemaAsync(fresh, ct),
+                "a new database must have everything an adopted one has",
+                "a new database must have nothing an adopted one lacks");
+        }
+        finally
+        {
+            await EfChainDatabase.DropAsync(fixture.ConnectionString, adopted);
+            if (fresh is not null)
+            {
+                await EfChainDatabase.DropAsync(fixture.ConnectionString, fresh);
+            }
+        }
+    }
+
+    private static string ReadEmbedded(string file)
+    {
+        using var stream = typeof(DaedalusMigrations).Assembly
+            .GetManifestResourceStream("Daedalus.Infrastructure.Persistence.Migrations." + file)!;
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    private static void AssertEqual(List<string> left, List<string> right, string onlyLeftReason, string onlyRightReason)
+    {
+        // A broken catalog query would leave both sides empty in its category and pass; each side has every kind.
+        foreach (var category in new[] { "column ", "index ", "constraint ", "sequence ", "extension " })
+        {
+            left.Should().Contain(s => s.StartsWith(category, StringComparison.Ordinal), "the snapshot must read every {0}category", category);
+        }
+
+        // Joined, so a failure lists every difference rather than the first.
+        var onlyLeft = string.Join(Environment.NewLine, left.Except(right, StringComparer.Ordinal));
+        var onlyRight = string.Join(Environment.NewLine, right.Except(left, StringComparer.Ordinal));
+        onlyLeft.Should().BeEmpty(onlyLeftReason);
+        onlyRight.Should().BeEmpty(onlyRightReason);
     }
 
     private static async Task<List<string>> SchemaAsync(string connectionString, CancellationToken ct)

@@ -19,7 +19,7 @@ namespace Daedalus.Infrastructure.Persistence.Orm.Projects;
 ///     which ends in the id so the two agree. The update is guarded by the <c>xmin</c> the project was read with: a
 ///     project another write changed or deleted since throws <see cref="ZeroAllocOrmConcurrencyException"/>. The delete
 ///     is not guarded and answers the rows it removed. The insert is raw SQL, as the ORM has no LINQ insert (ruling
-///     R10), and lists every live column; the dead <c>bytea</c> <c>"RowVersion"</c> stays NULL, as EF left it.
+///     R10), and lists every column; migration 2 dropped the dead <c>bytea</c> <c>"RowVersion"</c>.
 /// </remarks>
 public sealed partial class ProjectSql(IAsyncDbConnection connection)
 {

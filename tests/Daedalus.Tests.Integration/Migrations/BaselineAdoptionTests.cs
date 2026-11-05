@@ -22,35 +22,52 @@ public sealed class BaselineAdoptionTests(PostgresFixture fixture)
         "SELECT version || ' ' || name FROM __zaorm_migrations WHERE source = '" + DaedalusMigrations.SourceName + "'";
 
     [Fact]
-    public async Task Ef_database_records_version_1_without_running_it()
+    public async Task Ef_database_records_version_1_without_running_it_and_then_runs_version_2()
     {
         await WithDatabaseAsync(ef: true, async connectionString =>
         {
-            await EfChainDatabase.ExecuteAsync(
-                connectionString,
-                "INSERT INTO \"Projects\" (\"Id\", \"Version\", \"ProjectName\", \"Description\", \"CreatedAt\") "
-                + $"VALUES ('{ProjectId}', '1', 'kept', 'from before the switch', now())",
-                CancellationToken.None);
+            await EfChainDatabase.ExecuteAsync(connectionString, SeedSql, CancellationToken.None);
+            var before = await CountsAsync(connectionString);
+            before.Should().OnlyContain(c => c.EndsWith(" 1", StringComparison.Ordinal), "every table holds one seeded row");
+            (await DeadColumnsAsync(connectionString)).Should().HaveCount(6, "an EF database still has the six columns");
 
             var applied = await RunAsync(connectionString);
 
-            applied.Should().BeEmpty("an adopted database records the baseline without running it");
-            (await ReadAsync(connectionString, HistorySql)).Should().Equal("1 baseline");
+            applied.Select(m => $"{m.Version} {m.Name}").Should().Equal(
+                ["2 drop_dead_rowversions"],
+                "an adopted database records the baseline without running it, and runs migration 2");
+            (await ReadAsync(connectionString, HistorySql)).Should().Equal("1 baseline", "2 drop_dead_rowversions");
+            (await DeadColumnsAsync(connectionString)).Should().BeEmpty("migration 2 drops the six dead columns");
+            (await CountsAsync(connectionString)).Should().Equal(before, "migration 2 deletes no row");
             (await ReadAsync(connectionString, "SELECT \"ProjectName\" FROM \"Projects\" WHERE \"Id\" = '" + ProjectId + "'"))
                 .Should().Equal("kept");
         });
     }
 
     [Fact]
-    public async Task Fresh_database_runs_version_1()
+    public async Task Fresh_database_runs_versions_1_and_2()
     {
         await WithDatabaseAsync(ef: false, async connectionString =>
         {
             var applied = await RunAsync(connectionString);
 
-            applied.Select(m => $"{m.Version} {m.Name}").Should().Equal("1 baseline");
-            (await ReadAsync(connectionString, HistorySql)).Should().Equal("1 baseline");
+            applied.Select(m => $"{m.Version} {m.Name}").Should().Equal("1 baseline", "2 drop_dead_rowversions");
+            (await ReadAsync(connectionString, HistorySql)).Should().Equal("1 baseline", "2 drop_dead_rowversions");
             (await ReadAsync(connectionString, "SELECT to_regclass('\"Projects\"')::text")).Should().Equal("\"Projects\"");
+            (await DeadColumnsAsync(connectionString)).Should().BeEmpty("a new database never has the dead columns");
+            (await CountsAsync(connectionString)).Should().OnlyContain(c => c.EndsWith(" 0", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    public async Task Second_run_applies_nothing()
+    {
+        await WithDatabaseAsync(ef: true, async connectionString =>
+        {
+            await RunAsync(connectionString);
+
+            (await RunAsync(connectionString)).Should().BeEmpty();
+            (await ReadAsync(connectionString, HistorySql)).Should().Equal("1 baseline", "2 drop_dead_rowversions");
         });
     }
 
@@ -82,6 +99,43 @@ public sealed class BaselineAdoptionTests(PostgresFixture fixture)
             (await ReadAsync(connectionString, HistorySql)).Should().BeEmpty("a refused database records nothing");
         });
     }
+
+    /// <summary>The six tables whose <c>bytea</c> <c>"RowVersion"</c> migration 2 drops (#290), one row each below.</summary>
+    private static readonly string[] _deadTables =
+    [
+        "AgentSessions", "BrainstormSessions", "CodeAnalysisRequests", "ExecutionSessions", "Projects", "RepositoryConfigurations",
+    ];
+
+    // Only the NOT NULL columns; the dead RowVersion stays NULL, as EF left it.
+    private const string SeedSql = """
+        INSERT INTO "AgentSessions" ("Id", "AgentId", "OwnerId", "State", "CreatedAt", "LastActivityAt", "TurnCount",
+            "TotalInputTokens", "TotalOutputTokens")
+        VALUES (gen_random_uuid(), gen_random_uuid(), 'owner', 0, now(), now(), 0, 0, 0);
+        INSERT INTO "BrainstormSessions" ("Id", "ProjectId", "Phase", "CreatedAt")
+        VALUES (gen_random_uuid(), gen_random_uuid(), 0, now());
+        INSERT INTO "CodeAnalysisRequests" ("Id", "Title", "Description", "RepositoryUrl", "Platform", "FilePath", "Type",
+            "Priority", "Requirements", "Status", "CurrentIteration", "MaxIterations", "HasFailedValidation", "CreatedAt")
+        VALUES (gen_random_uuid(), 't', 'd', 'u', 0, 'f', 0, 0, '[]', 0, 0, 1, false, now());
+        INSERT INTO "ExecutionSessions" ("Id", "WorkerName", "StartedAt", "LastHeartbeat", "IsActive", "TasksCompleted")
+        VALUES (gen_random_uuid(), 'w', now(), now(), true, 0);
+        INSERT INTO "Projects" ("Id", "Version", "ProjectName", "Description", "CreatedAt")
+        VALUES ('0b8f6c2e-4a1d-4e6b-9c3f-5d7e8a9b0c1d', '1', 'kept', 'from before the switch', now());
+        INSERT INTO "RepositoryConfigurations" ("Id", "Name", "Url", "Platform", "DefaultBranch", "IsActive", "CreatedAt")
+        VALUES (gen_random_uuid(), 'n', 'u', 'p', 'main', true, now());
+        """;
+
+    private static Task<IReadOnlyList<string>> DeadColumnsAsync(string connectionString) =>
+        ReadAsync(
+            connectionString,
+            "SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'RowVersion' "
+            + "AND table_name IN (" + string.Join(", ", _deadTables.Select(t => $"'{t}'")) + ") ORDER BY table_name");
+
+    private static Task<IReadOnlyList<string>> CountsAsync(string connectionString) =>
+        ReadAsync(
+            connectionString,
+            string.Join(
+                " UNION ALL ",
+                _deadTables.Select(t => $"SELECT '{t} ' || count(*) FROM \"{t}\"")) + " ORDER BY 1");
 
     private static async Task<IReadOnlyList<Migration>> RunAsync(string connectionString)
     {

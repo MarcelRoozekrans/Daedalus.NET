@@ -11,7 +11,7 @@ namespace Daedalus.Infrastructure.Persistence.Orm.CodeAnalysisRequests;
 ///     EF Core stored them. <c>"Requirements"</c>, <c>"ReferencedDocuments"</c>, <c>"ExternalReferences"</c> and
 ///     <c>"ValidationResult"</c> are <c>jsonb</c>. <see cref="CodeAnalysisRequest.RowVersion"/> is PostgreSQL's
 ///     <c>xmin</c>, the concurrency token of the guarded saves, not the dead <c>bytea</c> <c>"RowVersion"</c> column,
-///     which migration 2 drops. <see cref="CodeAnalysisRequest.Iterations"/> is not a column: the iterations are rows of
+///     which migration 2 dropped. <see cref="CodeAnalysisRequest.Iterations"/> is not a column: the iterations are rows of
 ///     <c>"AnalysisIterations"</c>.
 /// </summary>
 [TableMap(typeof(CodeAnalysisRequest), "CodeAnalysisRequests")]

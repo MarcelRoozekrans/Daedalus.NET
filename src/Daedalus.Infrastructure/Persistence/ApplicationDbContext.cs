@@ -13,8 +13,6 @@ namespace Daedalus.Infrastructure.Persistence;
 [method: RequiresUnreferencedCode("EF Core model building; removed with EF Core in milestone 3 phase 3.5")]
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : DbContext(options)
 {
-    public DbSet<ExecutionSession> ExecutionSessions => Set<ExecutionSession>();
-
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
     public DbSet<ScheduledRun> ScheduledRuns => Set<ScheduledRun>();
 
@@ -31,7 +29,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     /// </summary>
     internal static readonly (Type Configuration, Action<ModelBuilder> Apply)[] Configurations =
     [
-        Entry(new ExecutionSessionConfiguration()),
         Entry(new ScheduledRunConfiguration()),
         Entry(new ScheduledRunExecutionConfiguration()),
     ];

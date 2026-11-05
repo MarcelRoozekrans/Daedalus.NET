@@ -25,7 +25,7 @@ public sealed class MigrationsHostTests(PostgresFixture fixture)
 
             exitCode.Should().Be(0, output);
             (await ReadAsync(connectionString, "SELECT version || ' ' || name FROM __zaorm_migrations WHERE source = '"
-                + DaedalusMigrations.SourceName + "'")).Should().Equal("1 baseline");
+                + DaedalusMigrations.SourceName + "'")).Should().Equal("1 baseline", "2 drop_dead_rowversions");
             (await ReadAsync(connectionString, "SELECT DISTINCT source FROM __zaorm_migrations WHERE source <> '"
                 + DaedalusMigrations.SourceName + "' ORDER BY source"))
                 .Should().Equal(["Thalos.Workflow.Orm.Migrations", "ZeroAlloc.Outbox.Orm"], "both workflow engine sources applied");

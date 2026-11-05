@@ -1,27 +1,4 @@
 Model: 
-  EntityType: ExecutionSession
-    Properties: 
-      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
-      IsActive (bool) Required Index
-      LastHeartbeat (DateTime) Required Index
-      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
-      StartedAt (DateTime) Required
-      TasksCompleted (int) Required
-      WorkerName (string) Required MaxLength(256)
-        Annotations: 
-          MaxLength: 256
-    Keys: 
-      Id PK
-    Indexes: 
-      IsActive
-        Annotations: 
-          Relational:Name: IX_Session_IsActive
-      LastHeartbeat
-        Annotations: 
-          Relational:Name: IX_Session_LastHeartbeat
-    Annotations: 
-      Relational:TableName: ExecutionSessions
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
   EntityType: ScheduledRun
     Properties: 
       Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd

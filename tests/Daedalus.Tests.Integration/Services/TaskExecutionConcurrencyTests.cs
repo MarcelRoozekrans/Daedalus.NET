@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm.Tasks;
 using Daedalus.Tests.Integration.Fixtures;
 using Daedalus.Tests.Shared;
@@ -16,7 +15,6 @@ namespace Daedalus.Tests.Integration.Services;
 public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private string _connectionString = null!;
-    private ApplicationDbContext _dbContext = null!;
     private SeedBatch _seed = null!;
 
     public async Task InitializeAsync()
@@ -24,9 +22,6 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         await fixture.DatabaseResetter.ResetAsync();
 
         _connectionString = fixture.ConnectionString;
-        var options = PostgresFixture.CreateDbContextOptions(_connectionString);
-
-        _dbContext = new ApplicationDbContext(options);
         _seed = new SeedBatch(fixture.Db, _connectionString);
 
         // Create default project for tests
@@ -35,13 +30,7 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         await _seed.SaveChangesAsync();
     }
 
-    public async Task DisposeAsync()
-    {
-        if (_dbContext != null)
-        {
-            await _dbContext.DisposeAsync();
-        }
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact(Timeout = 10000)]
     public async Task PersistedTaskExecutionRows_TwoRowsOnOneTask_AreAllReloaded()
@@ -55,8 +44,7 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         await _seed.SaveChangesAsync();
 
         var session = ExecutionSession.Create(sessionId, "test-worker").Value;
-        _dbContext.ExecutionSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
+        await StoreSeed.AddExecutionSessionAsync(_connectionString, session);
 
         // Act - Record first execution
         var exec1 = new TaskExecution
@@ -102,15 +90,9 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         // Act - Create sessions rapidly in parallel
         var createTasks = Enumerable.Range(0, 5).Select(i => Task.Run(async () =>
         {
-            // Each thread needs its own DbContext instance
-            var options = PostgresFixture.CreateDbContextOptions(_connectionString);
-
-            using var dbContext = new ApplicationDbContext(options);
-
             var sessionId = Guid.NewGuid();
             var session = ExecutionSession.Create(sessionId, $"rapid-worker-{i}").Value;
-            dbContext.ExecutionSessions.Add(session);
-            await dbContext.SaveChangesAsync();
+            await StoreSeed.AddExecutionSessionAsync(_connectionString, session);
 
             createdIds.Add(sessionId);
         }));
@@ -134,8 +116,7 @@ public class TaskExecutionConcurrencyTests(PostgresFixture fixture) : IAsyncLife
         await _seed.SaveChangesAsync();
 
         var session = ExecutionSession.Create(sessionId, "seq-worker").Value;
-        _dbContext.ExecutionSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
+        await StoreSeed.AddExecutionSessionAsync(_connectionString, session);
 
         // Act - Record executions sequentially
         for (var i = 1; i <= 3; i++)

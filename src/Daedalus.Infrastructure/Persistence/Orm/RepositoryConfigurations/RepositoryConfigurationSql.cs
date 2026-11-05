@@ -14,8 +14,8 @@ namespace Daedalus.Infrastructure.Persistence.Orm.RepositoryConfigurations;
 ///     The update is an independent full overwrite of the columns the request carries, with no version check: the dead
 ///     <c>bytea</c> token never worked, and the request replaces the fields whatever another write set (owner decision
 ///     5). It throws <see cref="ZeroAllocOrmConcurrencyException"/> when it matches no row, a configuration deleted
-///     since it was read. The insert is raw SQL, as the ORM has no LINQ insert (ruling R10), and lists every live
-///     column; the dead <c>"RowVersion"</c> stays NULL, as EF left it.
+///     since it was read. The insert is raw SQL, as the ORM has no LINQ insert (ruling R10), and lists every
+///     column; migration 2 dropped the dead <c>bytea</c> <c>"RowVersion"</c>.
 /// </remarks>
 public sealed partial class RepositoryConfigurationSql(IAsyncDbConnection connection)
 {

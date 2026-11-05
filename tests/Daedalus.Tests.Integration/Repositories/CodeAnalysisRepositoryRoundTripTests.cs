@@ -111,9 +111,9 @@ public sealed class CodeAnalysisRepositoryRoundTripTests(PostgresFixture fixture
             INSERT INTO "CodeAnalysisRequests"
                 ("Id", "Title", "Description", "RepositoryUrl", "RepositoryBranch", "CommitSha", "Platform", "FilePath",
                  "StartLine", "EndLine", "Type", "Priority", "Requirements", "Status", "CurrentIteration",
-                 "MaxIterations", "HasFailedValidation", "CreatedAt", "RowVersion")
+                 "MaxIterations", "HasFailedValidation", "CreatedAt")
             VALUES (@id, '', ' ', 'https://github.com/org/repo', NULL, NULL, 0, 'f', 9, 3, 0, -1, '[]', 0, 0, 0,
-                    FALSE, @at, '\x0102'::bytea);
+                    FALSE, @at);
             INSERT INTO "AnalysisIterations"
                 ("Id", "CodeAnalysisRequestId", "IterationNumber", "PromptSent", "AiResponse", "CreatedAt")
             VALUES (@iterationId, @id, 0, ' ', 'r', @at);

@@ -15,8 +15,8 @@ namespace Daedalus.Infrastructure.Persistence.Orm.CodeAnalysisRequests;
 ///     <c>Include</c>; the lists and the reads before a save read the request alone, as EF did. The lifecycle save is
 ///     guarded by the <c>xmin</c> the request was read with and writes the ten lifecycle columns its domain methods
 ///     change; the work tree path and the last prompt are independent saves of their own columns by id. The inserts are
-///     raw SQL, as the ORM has no LINQ insert (ruling R10), and list every live column; the dead <c>bytea</c>
-///     <c>"RowVersion"</c> stays NULL, as EF left it. No write reads the new <c>xmin</c> back (ruling R58).
+///     raw SQL, as the ORM has no LINQ insert (ruling R10), and list every column; migration 2 dropped the dead
+///     <c>bytea</c> <c>"RowVersion"</c>. No write reads the new <c>xmin</c> back (ruling R58).
 /// </remarks>
 public sealed partial class CodeAnalysisSql(IAsyncDbConnection connection)
 {

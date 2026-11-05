@@ -52,8 +52,7 @@ public sealed class PostgresAgentSessionStoreRoundTripTests(PostgresFixture fixt
 
     /// <summary>
     ///     Review focus 1: a row <c>Create</c> refuses, an empty agent id and a blank owner, with negative counters and an
-    ///     activity time before the creation, still loads, as written. The dead <c>RowVersion</c> column holds bytes the
-    ///     store never reads. Red: build the loaded row through <c>Create</c>, and the load fails.
+    ///     activity time before the creation, still loads, as written. Red: build the loaded row through <c>Create</c>, and the load fails.
     /// </summary>
     [Fact]
     public async Task A_row_Create_rejects_still_loads()
@@ -64,8 +63,8 @@ public sealed class PostgresAgentSessionStoreRoundTripTests(PostgresFixture fixt
             """
             INSERT INTO "AgentSessions"
                 ("Id", "AgentId", "OwnerId", "State", "CreatedAt", "LastActivityAt", "TurnCount", "TotalInputTokens",
-                 "TotalOutputTokens", "RowVersion")
-            VALUES (@id, @agentId, ' ', 3, @at, @before, -1, -2, -3, '\x0102'::bytea)
+                 "TotalOutputTokens")
+            VALUES (@id, @agentId, ' ', 3, @at, @before, -1, -2, -3)
             """,
             ("id", id), ("agentId", Guid.Empty), ("at", _at), ("before", _at.AddHours(-1)));
         var store = new PostgresAgentSessionStore(fixture.Db, TimeProvider.System);

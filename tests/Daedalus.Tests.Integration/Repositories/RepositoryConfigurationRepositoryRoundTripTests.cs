@@ -96,20 +96,6 @@ public sealed class RepositoryConfigurationRepositoryRoundTripTests(PostgresFixt
     }
 
     /// <summary>
-    ///     The insert needs no <c>"RowVersion"</c>: the dead <c>bytea</c> column stays NULL, as EF left it. Red: bind a
-    ///     value to it in the insert; the column is no longer NULL.
-    /// </summary>
-    [Fact]
-    public async SystemTask Add_leaves_the_dead_RowVersion_column_null()
-    {
-        var stored = RepositoryConfiguration.Create(Guid.NewGuid(), "R", "https://example.com/r.git").Value;
-        (await Repository().AddAsync(stored, CancellationToken.None)).IsSuccess.Should().BeTrue();
-
-        (await ScalarAsync("""SELECT "RowVersion" IS NULL FROM "RepositoryConfigurations" WHERE "Id" = @id""", ("id", stored.Id)))
-            .Should().Be(true);
-    }
-
-    /// <summary>
     ///     The overwrite writes every column the request carries, the name, URL, branch, authentication method,
     ///     credential identifier, active flag, description and modification time, and not the platform, the creation
     ///     time or the last-use time. Red, once: leave <c>Description</c> out of the update; the stored description
@@ -208,18 +194,5 @@ public sealed class RepositoryConfigurationRepositoryRoundTripTests(PostgresFixt
         }
 
         await command.ExecuteNonQueryAsync();
-    }
-
-    private async System.Threading.Tasks.Task<object?> ScalarAsync(string sql, params (string Name, object Value)[] parameters)
-    {
-        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(sql, connection);
-        foreach (var (name, value) in parameters)
-        {
-            command.Parameters.AddWithValue(name, value);
-        }
-
-        return await command.ExecuteScalarAsync();
     }
 }
