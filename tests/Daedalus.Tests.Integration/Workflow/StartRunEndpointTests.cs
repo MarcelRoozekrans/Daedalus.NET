@@ -331,10 +331,11 @@ public sealed class StartRunEndpointTests(PostgresFixture fixture)
     /// </summary>
     private static async Task DeactivateSkillAsync(string connectionString, string skillName)
     {
-        await using var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(connectionString));
-        var skill = await db.Skills.SingleAsync(s => s.Id == skillName);
-        skill.Update(skill.Description, skill.Body, skill.Tags, skill.SourcePath, skill.ContentHash, isActive: false, skill.UpdatedAt);
-        await db.SaveChangesAsync();
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("""UPDATE "Skills" SET "IsActive" = false WHERE "Name" = @name""", connection);
+        command.Parameters.AddWithValue("name", skillName);
+        (await command.ExecuteNonQueryAsync()).Should().Be(1, "the seeded skill exists");
     }
 
     private static async Task<long> CountWorkflowRunsAsync(string connectionString)

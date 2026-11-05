@@ -1,6 +1,7 @@
 using Daedalus.Agents;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Skills;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -67,18 +68,18 @@ public sealed class SkillsStartupTests(PostgresFixture fixture) : IAsyncLifetime
         }
 
         DateTimeOffset firstUpdatedAt;
-        using (var db = fixture.CreateDbContext())
+        await using (var connection = await fixture.Db.OpenAsync(CancellationToken.None))
         {
-            var row = await db.Skills.AsNoTracking().SingleAsync(s => s.Id == "daedalus-migrations");
-            firstUpdatedAt = new DateTimeOffset(row.UpdatedAt, TimeSpan.Zero);
+            var row = await new SkillSql(connection).FindAsync("daedalus-migrations", CancellationToken.None);
+            firstUpdatedAt = new DateTimeOffset(row!.UpdatedAt, TimeSpan.Zero);
         }
 
         using var second = BuildHost();
         await second.StartAsync();
         try
         {
-            using var db = fixture.CreateDbContext();
-            var rows = await db.Skills.AsNoTracking().ToListAsync();
+            await using var connection = await fixture.Db.OpenAsync(CancellationToken.None);
+            var rows = await new SkillSql(connection).ListAsync([], [], includeInactive: true, CancellationToken.None);
             rows.Should().HaveCount(6, "the two starter skills plus manufacture-implement/-review/-retrospect/-publish");
             new DateTimeOffset(rows.Single(r => string.Equals(r.Id, "daedalus-migrations", StringComparison.Ordinal)).UpdatedAt, TimeSpan.Zero)
                 .Should().Be(firstUpdatedAt, "an unchanged content hash means the file is skipped entirely");

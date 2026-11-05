@@ -28,10 +28,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
     public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
-    public DbSet<Skill> Skills => Set<Skill>();
-
-    /// <summary>Insert-only history of every distinct skill content hash ever synced; see <see cref="SkillVersion"/>.</summary>
-    public DbSet<SkillVersion> SkillVersions => Set<SkillVersion>();
 
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
     public DbSet<ScheduledRun> ScheduledRuns => Set<ScheduledRun>();
@@ -64,8 +60,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         Entry(new RepositoryConfigurationEntityConfiguration()),
         Entry(new ScheduledRunConfiguration()),
         Entry(new ScheduledRunExecutionConfiguration()),
-        Entry(new SkillConfiguration()),
-        Entry(new SkillVersionConfiguration()),
         Entry(new TaskConfiguration()),
         Entry(new TaskExecutionConfiguration()),
         Entry(new WorkflowRunRecordConfiguration()),
