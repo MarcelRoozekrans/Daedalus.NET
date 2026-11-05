@@ -13,13 +13,10 @@ using Daedalus.Tests.Integration.Fixtures;
 using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
-using NSubstitute;
-using ZeroAlloc.Results;
 using Project = Daedalus.Domain.Entities.Project;
 using Task = System.Threading.Tasks.Task;
 
@@ -35,16 +32,14 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
     private readonly IApplicationCommands _commandsMock = Substitute.For<IApplicationCommands>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly ServiceProvider _services = new ServiceCollection().AddLogging().AddDaedalusEndpoints().BuildServiceProvider();
-    private ApplicationDbContext _dbContext = null!;
+    private SeedBatch _seed = null!;
     private IProjectQueryService _projectQueryService = null!;
 
     public async Task InitializeAsync()
     {
         await fixture.DatabaseResetter.ResetAsync();
 
-        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
-
-        _dbContext = new ApplicationDbContext(options);
+        _seed = new SeedBatch(fixture.Db, fixture.ConnectionString);
 
         _projectQueryService = new ProjectQueryService(fixture.Db, new DisabledWorkflowRunStatusReader());
     }
@@ -52,10 +47,6 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
     public async Task DisposeAsync()
     {
         await _services.DisposeAsync();
-        if (_dbContext != null)
-        {
-            await _dbContext.DisposeAsync();
-        }
     }
 
     #region GetAllProjects Tests
@@ -82,9 +73,9 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
     public async Task GetAllProjects_WithProjects_Returns200WithPaginatedData()
     {
         // Arrange
-        _dbContext.Projects.Add(IntegrationTestFactory.CreateProject(name: "Project Alpha", description: "First project"));
-        _dbContext.Projects.Add(IntegrationTestFactory.CreateProject(name: "Project Beta", description: "Second project"));
-        await _dbContext.SaveChangesAsync();
+        _seed.Projects.Add(IntegrationTestFactory.CreateProject(name: "Project Alpha", description: "First project"));
+        _seed.Projects.Add(IntegrationTestFactory.CreateProject(name: "Project Beta", description: "Second project"));
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = (await GetAllProjects()).Result;
@@ -105,10 +96,10 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
         // Arrange
         for (var i = 0; i < 15; i++)
         {
-            _dbContext.Projects.Add(IntegrationTestFactory.CreateProject(name: $"Project {i:D2}", description: $"Description {i}"));
+            _seed.Projects.Add(IntegrationTestFactory.CreateProject(name: $"Project {i:D2}", description: $"Description {i}"));
         }
 
-        await _dbContext.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
         // Act
         var result1 = (await GetAllProjects("?page=1&pageSize=5")).Result;
@@ -131,9 +122,9 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
     public async Task GetAllProjects_ReturnsProjectsSortedByName()
     {
         // Arrange
-        _dbContext.Projects.Add(IntegrationTestFactory.CreateProject(name: "Zebra Project", description: "Last alphabetically"));
-        _dbContext.Projects.Add(IntegrationTestFactory.CreateProject(name: "Alpha Project", description: "First alphabetically"));
-        await _dbContext.SaveChangesAsync();
+        _seed.Projects.Add(IntegrationTestFactory.CreateProject(name: "Zebra Project", description: "Last alphabetically"));
+        _seed.Projects.Add(IntegrationTestFactory.CreateProject(name: "Alpha Project", description: "First alphabetically"));
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = (await GetAllProjects()).Result;
@@ -152,11 +143,11 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
         // Arrange
         var projectId = Guid.NewGuid();
         var project = IntegrationTestFactory.CreateProject(projectId, "Project With Tasks", "Has tasks");
-        _dbContext.Projects.Add(project);
+        _seed.Projects.Add(project);
 
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 1"));
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 2"));
-        await _dbContext.SaveChangesAsync();
+        _seed.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 1"));
+        _seed.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task 2"));
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = (await GetAllProjects()).Result;
@@ -178,8 +169,8 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
     {
         // Arrange
         var projectId = Guid.NewGuid();
-        _dbContext.Projects.Add(IntegrationTestFactory.CreateProject(projectId, "My Project", "My description"));
-        await _dbContext.SaveChangesAsync();
+        _seed.Projects.Add(IntegrationTestFactory.CreateProject(projectId, "My Project", "My description"));
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = (await ProjectsEndpoints.GetProjectById(projectId, _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
@@ -213,8 +204,8 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
         // Arrange
         var projectId = Guid.NewGuid();
         var project = IntegrationTestFactory.CreateProject(projectId, "Versioned Project", "Has version");
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync();
+        _seed.Projects.Add(project);
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = (await ProjectsEndpoints.GetProjectById(projectId, _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
@@ -237,11 +228,11 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
         // Arrange
         var projectId = Guid.NewGuid();
         var project = IntegrationTestFactory.CreateProject(projectId, "Project With Tasks", "Has tasks");
-        _dbContext.Projects.Add(project);
+        _seed.Projects.Add(project);
 
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task A"));
-        _dbContext.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task B"));
-        await _dbContext.SaveChangesAsync();
+        _seed.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task A"));
+        _seed.Tasks.Add(IntegrationTestFactory.CreateTask(projectId: projectId, prompt: "Task B"));
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = (await ProjectsEndpoints.GetProjectWithTasks(projectId, _projectQueryService, _loggerFactory, CancellationToken.None)).Result;
@@ -260,8 +251,8 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
     {
         // Arrange
         var projectId = Guid.NewGuid();
-        _dbContext.Projects.Add(IntegrationTestFactory.CreateProject(projectId, "Empty Project", "No tasks"));
-        await _dbContext.SaveChangesAsync();
+        _seed.Projects.Add(IntegrationTestFactory.CreateProject(projectId, "Empty Project", "No tasks"));
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = (await ProjectsEndpoints.GetProjectWithTasks(projectId, _projectQueryService, _loggerFactory, CancellationToken.None)).Result;

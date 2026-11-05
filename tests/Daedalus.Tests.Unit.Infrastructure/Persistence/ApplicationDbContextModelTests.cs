@@ -32,7 +32,7 @@ public class ApplicationDbContextModelTests
 
         var actual = WithoutProductVersion(BuildModel().ToDebugString(MetadataDebugStringOptions.LongDefault));
 
-        // Red: change the maximum length of one column in TaskConfiguration, or drop one of its indexes, and this
+        // Red: change the maximum length of one column in ScheduledRunConfiguration, or drop one of its indexes, and this
         // assertion fails with a diff. After a deliberate model change, refresh the golden from the actual text,
         // without its ProductVersion line.
         actual.Should().Be(golden);
@@ -65,7 +65,7 @@ public class ApplicationDbContextModelTests
     {
         // Red: remove the outbox table registration from OnModelCreating, or a configuration that declares an entity,
         // and the count drops.
-        BuildModel().GetEntityTypes().Should().HaveCount(9);
+        BuildModel().GetEntityTypes().Should().HaveCount(4);
     }
 
     [Fact]

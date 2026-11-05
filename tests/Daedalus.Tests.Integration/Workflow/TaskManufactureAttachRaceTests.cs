@@ -1,13 +1,13 @@
 using System.Text.Json;
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Tasks;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Thalos.Testing;
 using Thalos.Workflow;
-using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
@@ -42,17 +42,13 @@ public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
                 services.Remove(real);
                 services.AddSingleton<IManufactureRunStarter>(sp =>
                     renaming = new RenamingStarter(
-                        (IManufactureRunStarter)real.ImplementationFactory!(sp), sp.GetRequiredService<IDbContextFactory<ApplicationDbContext>>()));
+                        (IManufactureRunStarter)real.ImplementationFactory!(sp), sp.GetRequiredService<DaedalusDb>()));
             });
 
         var project = Project.Create(Guid.NewGuid(), "Sandbox", "The scratch remote", repositoryUrl: host.Remote.Url).Value;
         var task = IntegrationTestFactory.CreateTask(projectId: project.Id);
         project.AddTask(task).IsSuccess.Should().BeTrue();
-        await using (var db = await host.Factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync())
-        {
-            db.Projects.Add(project);
-            await db.SaveChangesAsync();
-        }
+        await StoreSeed.AddProjectAsync(host.Factory.Services.GetRequiredService<DaedalusDb>(), project);
 
         using var capture = new TelemetryCapture(ManufactureTelemetry.SourceName);
         using var client = host.Client("a-developer", "developer");
@@ -79,14 +75,14 @@ public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
         var run = await host.Store.FindAsync(runId, CancellationToken.None);
         run!.Status.Should().Be(WorkflowStatus.Cancelled, "a run no task points at must not keep running");
 
-        await using var check = await host.Factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync();
-        var stored = await check.Tasks.SingleAsync(t => t.Id == task.Id);
+        await using var check = await host.Factory.Services.GetRequiredService<DaedalusDb>().OpenAsync(CancellationToken.None);
+        var stored = (await new TaskSql(check).FindAsync(task.Id, CancellationToken.None))!;
         stored.WorkflowRunId.Should().BeNull("the lost attach must not be saved");
         stored.Title.Should().Be("Renamed", "the other request's change stands");
     }
 
     /// <summary>The real starter, after which another request renames every task the start was for.</summary>
-    private sealed class RenamingStarter(IManufactureRunStarter inner, IDbContextFactory<ApplicationDbContext> contexts) : IManufactureRunStarter
+    private sealed class RenamingStarter(IManufactureRunStarter inner, DaedalusDb db) : IManufactureRunStarter
     {
         public List<Guid> Started { get; } = [];
 
@@ -96,13 +92,13 @@ public sealed class TaskManufactureAttachRaceTests(PostgresFixture fixture)
             if (started.IsSuccess)
             {
                 Started.Add(started.Value);
-                await using var other = await contexts.CreateDbContextAsync(ct);
-                foreach (var task in await other.Tasks.ToListAsync(ct))
+                await using var other = await db.OpenAsync(ct);
+                var sql = new TaskSql(other);
+                foreach (var task in (await sql.PageAsync(0, int.MaxValue, ct)).Page)
                 {
                     task.UpdateMetadata("Renamed", "d", Priority.Low, "p", Complexity.Low).IsSuccess.Should().BeTrue();
+                    await sql.UpdateAsync(task, ct);
                 }
-
-                await other.SaveChangesAsync(ct);
             }
 
             return started;

@@ -13,9 +13,9 @@ namespace Daedalus.Domain.Entities;
 /// <remarks>
 ///     <para>
 ///     Not an <see cref="Entity{TId}"/>: like <see cref="SkillVersion"/>, this is an immutable snapshot with no
-///     behaviour after creation, so it follows that type's style: a private constructor for EF, a validating static
-///     factory, read-only properties. <see cref="Id"/> is database-generated and only breaks ties between records
-///     that share a <see cref="Seq"/>.
+///     behaviour after creation, so it follows that type's style: one private constructor, a validating static
+///     factory, a non-validating <see cref="Rehydrate"/>, read-only properties. <see cref="Id"/> is database-generated
+///     and only breaks ties between records that share a <see cref="Seq"/>.
 ///     </para>
 ///     <para>
 ///     <see cref="RunId"/> names a Thalos <c>workflow_run</c> row by value only. That table is owned by the Thalos

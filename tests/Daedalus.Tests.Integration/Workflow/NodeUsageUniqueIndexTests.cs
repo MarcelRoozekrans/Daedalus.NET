@@ -1,8 +1,6 @@
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Thalos;
@@ -29,7 +27,7 @@ public sealed class NodeUsageUniqueIndexTests(PostgresFixture fixture) : IAsyncL
     /// <summary>
     ///     Two appends for one (run, seq) leave one record, the first one's, and the second neither throws nor logs a
     ///     warning or error: it is reported as not written and logged at Debug.
-    ///     Red: drop the unique index from <c>WorkflowRunRecordConfiguration</c> and the migration; the second append
+    ///     Red: drop the unique index from the baseline migration; the second append
     ///     writes, and the single-record assertion fails.
     ///     Red: remove the <c>IsAlreadyRecorded</c> catch in <c>NodeUsageRecorder</c>; the violation then logs at Error,
     ///     and the no-warning assertion fails.

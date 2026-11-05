@@ -1,9 +1,11 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Sockets;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Playwright.Api.Fixtures;
 using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Authentication;
@@ -15,6 +17,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Npgsql;
 // Alias to resolve ambiguity between Daedalus.Api.Program and other hosts' Program types
 using ApiProgram = Daedalus.Api.Program;
 using Task = System.Threading.Tasks.Task;
@@ -96,16 +99,13 @@ public class E2EServerFixture
             // SkillSyncService, which queries the Skills table - the first time _factory.Services (or
             // CreateClient()) is touched below. Doing schema setup afterwards raced that startup and
             // failed with "relation Skills does not exist" because the host's hosted services ran against
-            // an empty database. Building a standalone ApplicationDbContext here, before the factory
-            // exists at all, guarantees the schema is in place first.
-            var schemaOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(ConnectionString)
-                .Options;
-            await using (var schemaContext = new ApplicationDbContext(schemaOptions))
+            // an empty database. Building the schema and the seed over a standalone data source here, before the
+            // factory exists at all, guarantees the schema is in place first.
+            await using (var seedSource = NpgsqlDataSource.Create(ConnectionString))
             {
                 // The real migrations, the schema Daedalus.Migrations builds in production, workflow tables included.
                 await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None).ConfigureAwait(false);
-                await SeedTestDataAsync(schemaContext).ConfigureAwait(false);
+                await SeedTestDataAsync(seedSource).ConfigureAwait(false);
             }
 
             // Create and configure the WebApplicationFactory (uses in-memory TestServer)
@@ -295,13 +295,16 @@ public class E2EServerFixture
         }
     }
 
-    private static async Task SeedTestDataAsync(ApplicationDbContext dbContext)
+    private static async Task SeedTestDataAsync(NpgsqlDataSource dataSource)
     {
         try
         {
-            if (await dbContext.Projects.AnyAsync().ConfigureAwait(false))
+            await using (var any = dataSource.CreateCommand("SELECT EXISTS (SELECT 1 FROM \"Projects\")"))
             {
-                return;
+                if ((bool)(await any.ExecuteScalarAsync().ConfigureAwait(false))!)
+                {
+                    return;
+                }
             }
 
             var projectResult = Project.Create(
@@ -350,10 +353,9 @@ public class E2EServerFixture
                 project.AddTask(task2Result.Value);
             }
 
-            dbContext.Projects.Add(project);
-            await dbContext.SaveChangesAsync().ConfigureAwait(false);
+            await StoreSeed.AddProjectAsync(new DaedalusDb(dataSource), project).ConfigureAwait(false);
         }
-        catch (DbUpdateException)
+        catch (DbException)
         {
             // Seeding failed, tests may fail due to missing data
         }

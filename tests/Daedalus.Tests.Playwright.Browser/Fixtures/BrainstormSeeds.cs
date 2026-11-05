@@ -1,6 +1,7 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Projects;
 
 namespace Daedalus.Tests.Playwright.Browser.Fixtures;
 
@@ -23,9 +24,12 @@ public sealed class BrainstormSeeds(IServiceScopeFactory scopes)
     public async Task<Guid> StartAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var projectId = await db.Projects.Where(p => p.ProjectName == "Test Project").Select(p => p.Id).SingleAsync(ct)
-            .ConfigureAwait(false);
+        Guid projectId;
+        await using (var connection = await scope.ServiceProvider.GetRequiredService<DaedalusDb>().OpenAsync(ct).ConfigureAwait(false))
+        {
+            var (_, projects) = await new ProjectSql(connection).PageWithTasksAsync(0, int.MaxValue, ct).ConfigureAwait(false);
+            projectId = projects.Single(p => string.Equals(p.ProjectName, "Test Project", StringComparison.Ordinal)).Id;
+        }
 
         var session = BrainstormSession.Create(projectId);
         if (session.IsFailure)

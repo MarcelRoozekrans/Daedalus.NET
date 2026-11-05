@@ -3,16 +3,13 @@ using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
 using Daedalus.Application.Configuration;
 using Daedalus.Infrastructure.Configuration;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Thalos;
 using Thalos.Workflow;
-using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
@@ -64,8 +61,7 @@ public sealed class PinnedLensPricingTests(PostgresFixture fixture) : IAsyncLife
         (await recorder.RecordCompletionAsync(run.Id, run.CurrentSeq, "review", null, result.Value.Usage, CancellationToken.None))
             .Should().BeTrue();
 
-        await using var db = fixture.CreateDbContext();
-        var summary = await new CostAnalyticsService(db, Pricing(), Options.Create(new ClaudeConfiguration { Model = Decided })).GetSummaryAsync();
+        var summary = await new CostAnalyticsService(fixture.Db, Pricing(), Options.Create(new ClaudeConfiguration { Model = Decided })).GetSummaryAsync();
 
         var byModel = summary.ByModel.ToDictionary(m => m.Key, StringComparer.Ordinal);
         byModel[Decided].Cost.Should().Be(0.003m);    // 2000 × 1/1M + 200 × 5/1M

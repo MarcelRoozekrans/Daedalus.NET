@@ -1,36 +1,40 @@
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
 using Daedalus.Infrastructure.Configuration;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.Options;
+using Complexity = Daedalus.Domain.Entities.Complexity;
+using DomainProject = Daedalus.Domain.Entities.Project;
+using DomainTask = Daedalus.Domain.Entities.Task;
 using NodeUsage = Daedalus.Domain.Entities.NodeUsage;
+using Priority = Daedalus.Domain.Entities.Priority;
 using TaskExecution = Daedalus.Domain.Entities.TaskExecution;
 using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
-namespace Daedalus.Tests.Unit.Infrastructure.Services;
+namespace Daedalus.Tests.Integration.Services;
 
 /// <summary>
 ///     Issue #360: a group's input tokens include its cache reads and writes, which Anthropic bills at 0.1 times and 1.25 times
 ///     the input price. Only the uncached remainder is plain input. Every expected figure below is computed by hand in its comment.
 /// </summary>
-public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
+/// <remarks>
+///     Runs on PostgreSQL since phase 3.5 (ruling R100): each seed is written as it is made, where it was added to EF
+///     Core's in-memory provider and saved, and the history execution belongs to a seeded task.
+/// </remarks>
+[Collection(DatabaseCollection.Name)]
+public sealed class CostAnalyticsCachePricingTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private const string Sonnet = "model-two-ten";
     private const string Other = "model-three-fifteen";
     private static readonly DateTime Day = new(2026, 10, 1, 9, 0, 0, DateTimeKind.Utc);
 
-    private readonly ApplicationDbContext _db = new(new DbContextOptionsBuilder<ApplicationDbContext>()
-        .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+    public async Task InitializeAsync() => await fixture.DatabaseResetter.ResetAsync();
 
-    public async ValueTask DisposeAsync()
-    {
-        await _db.Database.EnsureDeletedAsync();
-        await _db.DisposeAsync();
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
-    private CostAnalyticsService Service(ModelPricing? sonnet = null) => new(_db, Options.Create(new ModelPricingConfiguration
+    private CostAnalyticsService Service(ModelPricing? sonnet = null) => new(fixture.Db, Options.Create(new ModelPricingConfiguration
     {
         Models = new Dictionary<string, ModelPricing>(StringComparer.OrdinalIgnoreCase)
         {
@@ -39,8 +43,8 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
         },
     }), Options.Create(new ClaudeConfiguration { Model = Sonnet }));
 
-    private void Manufacture(NodeUsage usage) =>
-        _db.WorkflowRunRecords.Add(WorkflowRunRecord.Create(
+    private Task Manufacture(NodeUsage usage) =>
+        StoreSeed.AddRecordAsync(fixture.Db, WorkflowRunRecord.Create(
             Guid.NewGuid(), 3, "implement", WorkflowRunRecord.NodeUsageKind, "host", null, usage.ToPayloadJson(), Day).Value);
 
     private static NodeUsage Cached() => new(Sonnet, 1_000_000, 10_000, 800_000, 150_000);
@@ -55,8 +59,7 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
     [Fact]
     public async Task A_group_with_cache_reads_and_writes_is_priced_cache_aware()
     {
-        Manufacture(Cached());
-        await _db.SaveChangesAsync();
+        await Manufacture(Cached());
 
         var summary = await Service().GetSummaryAsync();
 
@@ -74,10 +77,13 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
     [Fact]
     public async Task A_group_with_no_cache_split_prices_exactly_as_before()
     {
-        _db.TaskExecutions.Add(new TaskExecution
+        var project = DomainProject.Create(Guid.NewGuid(), "P", "D").Value;
+        var task = DomainTask.Create(Guid.NewGuid(), project.Id, "T-1", "T", "D", Priority.Medium, "x", 1, Complexity.Medium, "p").Value;
+        await StoreSeed.AddAsync(fixture.Db, [project], [task]);
+        await StoreSeed.AddExecutionsAsync(fixture.ConnectionString, new TaskExecution
         {
             Id = Guid.NewGuid(),
-            TaskId = Guid.NewGuid(),
+            TaskId = task.Id,
             SessionId = Guid.NewGuid(),
             IterationNumber = 1,
             InputTokens = 1_000_000,
@@ -85,8 +91,7 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
             ModelId = Sonnet,
             ExecutedAt = Day,
         });
-        Manufacture(new NodeUsage(Sonnet, 1_000_000, 10_000, 0, 0));
-        await _db.SaveChangesAsync();
+        await Manufacture(new NodeUsage(Sonnet, 1_000_000, 10_000, 0, 0));
 
         var summary = await Service().GetSummaryAsync();
 
@@ -106,8 +111,7 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
     {
         var first = Cached();
         var second = new NodeUsage(Other, 100_000, 1_000, 60_000, 0);
-        Manufacture(new NodeUsage(Sonnet, 1_100_000, 11_000, 860_000, 150_000).WithSplit([first, second]).Value);
-        await _db.SaveChangesAsync();
+        await Manufacture(new NodeUsage(Sonnet, 1_100_000, 11_000, 860_000, 150_000).WithSplit([first, second]).Value);
 
         var summary = await Service().GetSummaryAsync();
 
@@ -130,8 +134,7 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
     [InlineData(null, 3.0, 0.81)]
     public async Task Explicit_cache_prices_override_the_derived_ones(double? read, double? write, double expected)
     {
-        Manufacture(Cached());
-        await _db.SaveChangesAsync();
+        await Manufacture(Cached());
         var pricing = new ModelPricing
         {
             DisplayName = "Two ten",
@@ -155,8 +158,7 @@ public sealed class CostAnalyticsCachePricingTests : IAsyncDisposable
     [Fact]
     public async Task Uncached_input_never_goes_negative_when_cache_tokens_exceed_input()
     {
-        Manufacture(new NodeUsage(Sonnet, 100_000, 0, 80_000, 60_000));
-        await _db.SaveChangesAsync();
+        await Manufacture(new NodeUsage(Sonnet, 100_000, 0, 80_000, 60_000));
 
         var summary = await Service().GetSummaryAsync();
 

@@ -1,9 +1,9 @@
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using SystemTask = System.Threading.Tasks.Task;
 using Task = Daedalus.Domain.Entities.Task;
 using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
@@ -16,7 +16,6 @@ public sealed class TaskStatusReadPathTests(PostgresFixture fixture) : IAsyncLif
 {
     private static readonly Uri _pr = new("https://github.com/o/r/pull/7");
     private readonly IWorkflowRunStatusReader _runs = Substitute.For<IWorkflowRunStatusReader>();
-    private ApplicationDbContext _db = null!;
     private Task _running = null!;
     private Task _awaiting = null!;
     private Task _runless = null!;
@@ -25,7 +24,6 @@ public sealed class TaskStatusReadPathTests(PostgresFixture fixture) : IAsyncLif
     public async SystemTask InitializeAsync()
     {
         await fixture.DatabaseResetter.ResetAsync();
-        _db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(fixture.ConnectionString));
 
         var project = IntegrationTestFactory.CreateProject();
         _projectId = project.Id;
@@ -34,9 +32,7 @@ public sealed class TaskStatusReadPathTests(PostgresFixture fixture) : IAsyncLif
         _runless = IntegrationTestFactory.CreateTask(projectId: _projectId, taskId: "T-3");
         _running.AttachRun(Guid.NewGuid()).IsSuccess.Should().BeTrue();
         _awaiting.AttachRun(Guid.NewGuid()).IsSuccess.Should().BeTrue();
-        _db.Projects.Add(project);
-        _db.Tasks.AddRange(_running, _awaiting, _runless);
-        await _db.SaveChangesAsync();
+        await StoreSeed.AddAsync(fixture.Db, [project], [_running, _awaiting, _runless]);
 
         _runs.ReadAsync(_running.WorkflowRunId!.Value, Arg.Any<CancellationToken>())
             .Returns(new ValueTask<WorkflowRunStatus>(new WorkflowRunStatus(WorkflowRunState.Running, null)));
@@ -44,7 +40,7 @@ public sealed class TaskStatusReadPathTests(PostgresFixture fixture) : IAsyncLif
             .Returns(new ValueTask<WorkflowRunStatus>(new WorkflowRunStatus(WorkflowRunState.Awaiting, _pr)));
     }
 
-    public async SystemTask DisposeAsync() => await _db.DisposeAsync();
+    public SystemTask DisposeAsync() => SystemTask.CompletedTask;
 
     private void AssertDerived(IEnumerable<TaskDto> dtos)
     {

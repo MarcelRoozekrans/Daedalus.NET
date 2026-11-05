@@ -1,11 +1,11 @@
 using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm.Tasks;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.Logging;
 using Npgsql;
-using ZeroAlloc.Results;
 using SystemTask = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Repositories;
@@ -27,29 +27,25 @@ public sealed class TaskConcurrencyTests(PostgresFixture fixture) : IAsyncLifeti
         var project = IntegrationTestFactory.CreateProject();
         var task = IntegrationTestFactory.CreateTask(projectId: project.Id);
         _taskId = task.Id;
-        await using var db = NewContext();
-        db.Projects.Add(project);
-        db.Tasks.Add(task);
-        await db.SaveChangesAsync();
+        await StoreSeed.AddAsync(fixture.Db, [project], [task]);
     }
 
     public SystemTask DisposeAsync() => SystemTask.CompletedTask;
 
-    private ApplicationDbContext NewContext() => new(PostgresFixture.CreateDbContextOptions(fixture.ConnectionString));
-
     private async SystemTask AttachRunUnderneathAsync()
     {
         _runId = Guid.NewGuid();
-        await using var other = NewContext();
-        var current = await other.Tasks.SingleAsync(t => t.Id == _taskId);
+        await using var other = await fixture.Db.OpenAsync(CancellationToken.None);
+        var sql = new TaskSql(other);
+        var current = (await sql.FindAsync(_taskId, CancellationToken.None))!;
         current.AttachRun(_runId).IsSuccess.Should().BeTrue();
-        await other.SaveChangesAsync();
+        await sql.UpdateAsync(current, CancellationToken.None);
     }
 
     private async System.Threading.Tasks.Task<Guid?> StoredRunAsync()
     {
-        await using var db = NewContext();
-        return await db.Tasks.Where(t => t.Id == _taskId).Select(t => t.WorkflowRunId).SingleAsync();
+        await using var connection = await fixture.Db.OpenAsync(CancellationToken.None);
+        return (await new TaskSql(connection).FindAsync(_taskId, CancellationToken.None))!.WorkflowRunId;
     }
 
     private static void Rename(Daedalus.Domain.Entities.Task task) =>

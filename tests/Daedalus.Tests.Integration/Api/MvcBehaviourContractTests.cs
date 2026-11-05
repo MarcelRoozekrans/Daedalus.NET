@@ -6,12 +6,11 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using NSubstitute.ExceptionExtensions;
 using Thalos;
 using Thalos.Workflow;
 using ZeroAlloc.Authorization;
@@ -1031,10 +1030,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
             throw new InvalidOperationException("the seeded project refused its task");
         }
 
-        await using var db = await host.Factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>()
-            .CreateDbContextAsync();
-        db.Projects.Add(project);
-        await db.SaveChangesAsync();
+        await StoreSeed.AddProjectAsync(host.Factory.Services.GetRequiredService<DaedalusDb>(), project);
         return task.Id;
     }
 

@@ -1,4 +1,4 @@
-#pragma warning disable CA1054, CA1056 // Repository URL stored as string for EF Core mapping and git CLI consumption
+#pragma warning disable CA1054, CA1056 // Repository URL stored as a string column and passed to the git CLI
 
 using ZeroAlloc.Results;
 

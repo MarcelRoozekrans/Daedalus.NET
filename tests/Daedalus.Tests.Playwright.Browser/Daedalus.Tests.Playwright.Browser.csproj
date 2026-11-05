@@ -66,6 +66,7 @@
 
     <ItemGroup>
         <Compile Include="..\Shared\DatabaseSchema.cs" Link="Shared\DatabaseSchema.cs"/>
+        <Compile Include="..\Shared\StoreSeed.cs" Link="Shared\StoreSeed.cs"/>
     </ItemGroup>
 
 </Project>

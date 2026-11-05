@@ -2,20 +2,20 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
 using Daedalus.Infrastructure.Configuration;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.CostAnalytics;
 using Microsoft.Extensions.Options;
 using ZeroAlloc.Results;
 using NodeUsage = Daedalus.Domain.Entities.NodeUsage;
-using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
 namespace Daedalus.Infrastructure.Services;
 
 /// <summary>
-///     Cost analytics over four sources: see <c>SummaryScope</c>.
+///     Cost analytics over four sources: see <c>SummaryScope</c>. Read-only: it reads through
+///     <see cref="CostAnalyticsSql"/>, one pooled connection per call, and writes nothing.
 /// </summary>
 public sealed class CostAnalyticsService(
-    ApplicationDbContext dbContext,
+    DaedalusDb db,
     IOptions<ModelPricingConfiguration> pricingOptions,
     IOptions<ClaudeConfiguration> claudeOptions) : ICostAnalyticsService
 {
@@ -42,12 +42,14 @@ public sealed class CostAnalyticsService(
 
     public async Task<CostSummaryDto> GetSummaryAsync(CancellationToken ct = default)
     {
-        var (manufacture, unreadable) = await ManufactureAsync(ct).ConfigureAwait(false);
+        await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+        var sql = new CostAnalyticsSql(connection);
+        var (manufacture, unreadable) = await ManufactureAsync(sql, ct).ConfigureAwait(false);
         List<UsageGroup> groups =
         [
-            .. await HistoryAsync(ct).ConfigureAwait(false),
+            .. await HistoryAsync(sql, ct).ConfigureAwait(false),
             .. manufacture,
-            .. await SessionsAsync(ct).ConfigureAwait(false),
+            .. await SessionsAsync(sql, ct).ConfigureAwait(false),
         ];
 
         var (total, excluded) = PriceGroups(groups.Select(g => (g.ModelId, g.InputTokens, g.OutputTokens, g.CacheReadTokens, g.CacheWriteTokens, g.Entries)));
@@ -74,19 +76,9 @@ public sealed class CostAnalyticsService(
     private sealed record UsageGroup(
         string Source, string? ModelId, DateOnly Day, long InputTokens, long OutputTokens, long CacheReadTokens, long CacheWriteTokens, int Entries);
 
-    private async Task<List<UsageGroup>> HistoryAsync(CancellationToken ct)
+    private static async Task<List<UsageGroup>> HistoryAsync(CostAnalyticsSql sql, CancellationToken ct)
     {
-        var rows = await dbContext.TaskExecutions.AsNoTracking()
-            .GroupBy(e => new { e.ModelId, Day = e.ExecutedAt.Date })
-            .Select(g => new
-            {
-                g.Key.ModelId,
-                g.Key.Day,
-                InputTokens = g.Sum(e => (long)e.InputTokens),
-                OutputTokens = g.Sum(e => (long)e.OutputTokens),
-                Entries = g.Count(),
-            })
-            .ToListAsync(ct).ConfigureAwait(false);
+        var rows = await sql.HistoryByModelAndDay(ct).ConfigureAwait(false);
 
         return [.. rows.Select(r => new UsageGroup(
             CostSources.History, r.ModelId, DateOnly.FromDateTime(r.Day), r.InputTokens, r.OutputTokens, 0, 0, r.Entries))];
@@ -96,12 +88,9 @@ public sealed class CostAnalyticsService(
     ///     Node-usage payloads are JSON, so they are read and summed here. There is one per completed agent node, priced part by
     ///     part: see <see cref="NodeUsage.Parts"/>.
     /// </summary>
-    private async Task<(List<UsageGroup> Groups, int Unreadable)> ManufactureAsync(CancellationToken ct)
+    private static async Task<(List<UsageGroup> Groups, int Unreadable)> ManufactureAsync(CostAnalyticsSql sql, CancellationToken ct)
     {
-        var rows = await dbContext.WorkflowRunRecords.AsNoTracking()
-            .Where(r => r.Kind == WorkflowRunRecord.NodeUsageKind)
-            .Select(r => new { r.PayloadJson, r.CreatedAt })
-            .ToListAsync(ct).ConfigureAwait(false);
+        var rows = await sql.NodeUsageRecords(ct).ConfigureAwait(false);
 
         var unreadable = 0;
         var read = new List<(NodeUsage Part, DateOnly Day, int Entries)>(rows.Count);
@@ -138,19 +127,9 @@ public sealed class CostAnalyticsService(
     ///     Grouped by owner in the database and classified here, because a prefix test is not translated the same way by
     ///     every provider. There are few owners.
     /// </summary>
-    private async Task<List<UsageGroup>> SessionsAsync(CancellationToken ct)
+    private static async Task<List<UsageGroup>> SessionsAsync(CostAnalyticsSql sql, CancellationToken ct)
     {
-        var rows = await dbContext.AgentSessions.AsNoTracking()
-            .GroupBy(s => new { s.OwnerId, Day = s.CreatedAt.Date })
-            .Select(g => new
-            {
-                g.Key.OwnerId,
-                g.Key.Day,
-                InputTokens = g.Sum(s => s.TotalInputTokens),
-                OutputTokens = g.Sum(s => s.TotalOutputTokens),
-                Entries = g.Count(),
-            })
-            .ToListAsync(ct).ConfigureAwait(false);
+        var rows = await sql.SessionsByOwnerAndDay(ct).ConfigureAwait(false);
 
         return [.. rows
             .Select(r => (Source: CostSources.ForSessionOwner(r.OwnerId), Row: r))
@@ -190,34 +169,19 @@ public sealed class CostAnalyticsService(
 
     public async Task<IReadOnlyList<ProjectCostDto>> GetCostsByProjectAsync(CancellationToken ct = default)
     {
-        var raw = await dbContext.TaskExecutions
-            .Join(dbContext.Tasks,
-                e => e.TaskId,
-                t => t.Id,
-                (e, t) => new { Execution = e, Task = t })
-            .Join(dbContext.Projects,
-                et => et.Task.ProjectId,
-                p => p.Id,
-                (et, p) => new { et.Execution, et.Task, Project = p })
-            .GroupBy(x => new { x.Project.Id, x.Project.ProjectName, x.Execution.ModelId })
-            .Select(g => new
-            {
-                g.Key.Id,
-                g.Key.ProjectName,
-                g.Key.ModelId,
-                InputTokens = g.Sum(x => (long)x.Execution.InputTokens),
-                OutputTokens = g.Sum(x => (long)x.Execution.OutputTokens),
-                ExecutionCount = g.Count()
-            })
-            .ToListAsync(ct);
+        List<ProjectModelCostRow> raw;
+        await using (var connection = await db.OpenAsync(ct).ConfigureAwait(false))
+        {
+            raw = await new CostAnalyticsSql(connection).CostsByProjectAndModel(ct).ConfigureAwait(false);
+        }
 
         return raw
-            .GroupBy(r => new { r.Id, r.ProjectName })
+            .GroupBy(r => new { r.ProjectId, r.ProjectName })
             .Select(g =>
             {
                 var (cost, excluded) = PriceGroups(g.Select(r => (r.ModelId, r.InputTokens, r.OutputTokens, 0L, 0L, r.ExecutionCount)));
                 return new ProjectCostDto(
-                    g.Key.Id,
+                    g.Key.ProjectId,
                     g.Key.ProjectName,
                     g.Sum(r => r.InputTokens),
                     g.Sum(r => r.OutputTokens),
@@ -231,30 +195,19 @@ public sealed class CostAnalyticsService(
 
     public async Task<IReadOnlyList<TaskCostDto>> GetCostsByProjectIdAsync(Guid projectId, CancellationToken ct = default)
     {
-        var raw = await dbContext.TaskExecutions
-            .Join(dbContext.Tasks.Where(t => t.ProjectId == projectId),
-                e => e.TaskId,
-                t => t.Id,
-                (e, t) => new { Execution = e, Task = t })
-            .GroupBy(x => new { x.Task.Id, x.Task.Title, x.Execution.ModelId })
-            .Select(g => new
-            {
-                g.Key.Id,
-                g.Key.Title,
-                g.Key.ModelId,
-                InputTokens = g.Sum(x => (long)x.Execution.InputTokens),
-                OutputTokens = g.Sum(x => (long)x.Execution.OutputTokens),
-                ExecutionCount = g.Count()
-            })
-            .ToListAsync(ct);
+        List<TaskModelCostRow> raw;
+        await using (var connection = await db.OpenAsync(ct).ConfigureAwait(false))
+        {
+            raw = await new CostAnalyticsSql(connection).CostsByTaskAndModel(projectId, ct).ConfigureAwait(false);
+        }
 
         return raw
-            .GroupBy(r => new { r.Id, r.Title })
+            .GroupBy(r => new { r.TaskId, r.Title })
             .Select(g =>
             {
                 var (cost, excluded) = PriceGroups(g.Select(r => (r.ModelId, r.InputTokens, r.OutputTokens, 0L, 0L, r.ExecutionCount)));
                 return new TaskCostDto(
-                    g.Key.Id,
+                    g.Key.TaskId,
                     g.Key.Title,
                     g.Sum(r => r.InputTokens),
                     g.Sum(r => r.OutputTokens),
@@ -269,9 +222,13 @@ public sealed class CostAnalyticsService(
     public async Task<Result<CostEstimateDto>> EstimateCostAsync(
         string modelId, int maxIterations, int estimatedPromptTokens, CancellationToken ct = default)
     {
-        var avgOutputTokens = await dbContext.TaskExecutions
-            .Where(e => e.OutputTokens > 0)
-            .AverageAsync(e => (double?)e.OutputTokens, ct) ?? 4000.0;
+        double? average;
+        await using (var connection = await db.OpenAsync(ct).ConfigureAwait(false))
+        {
+            average = await new CostAnalyticsSql(connection).AverageOutputTokens(ct).ConfigureAwait(false);
+        }
+
+        var avgOutputTokens = average ?? 4000.0;
 
         var estimatedResponseTokens = (int)avgOutputTokens;
 

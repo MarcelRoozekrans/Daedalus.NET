@@ -1,39 +1,64 @@
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
 using Daedalus.Infrastructure.Configuration;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.Options;
 using AgentSession = Daedalus.Domain.Entities.AgentSession;
+using Complexity = Daedalus.Domain.Entities.Complexity;
+using DomainProject = Daedalus.Domain.Entities.Project;
+using DomainTask = Daedalus.Domain.Entities.Task;
 using NodeUsage = Daedalus.Domain.Entities.NodeUsage;
+using Priority = Daedalus.Domain.Entities.Priority;
 using TaskExecution = Daedalus.Domain.Entities.TaskExecution;
 using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
-namespace Daedalus.Tests.Unit.Infrastructure.Services;
+namespace Daedalus.Tests.Integration.Services;
 
 /// <summary>
 ///     Phase 2.8, amendment A3: the summary covers four sources. The retired task loop's history comes from <c>TaskExecutions</c>,
 ///     manufacture from <c>node-usage</c> records, and chat and scheduled turns from <c>AgentSessions</c>. Sessions owned
 ///     by <c>workflow:*</c> are a manufacture run's node turns, already counted from their records, and are left out.
 /// </summary>
-public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
+/// <remarks>
+///     Runs on PostgreSQL since phase 3.5 (ruling R100). The seeds are staged on a <see cref="SeedBatch"/>, and every
+///     history execution belongs to one seeded task, since the table's foreign key wants one.
+/// </remarks>
+[Collection(DatabaseCollection.Name)]
+public sealed class CostAnalyticsSourcesTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private const string ModelA = "model-a";
     private const string ModelB = "model-b";
     private static readonly DateTime Day1 = new(2026, 10, 1, 9, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Day2 = new(2026, 10, 2, 9, 0, 0, DateTimeKind.Utc);
 
-    private readonly ApplicationDbContext _db = new(new DbContextOptionsBuilder<ApplicationDbContext>()
-        .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+    private SeedBatch _seed = null!;
+    private DomainTask? _task;
 
-    public async ValueTask DisposeAsync()
+    public async Task InitializeAsync()
     {
-        await _db.Database.EnsureDeletedAsync();
-        await _db.DisposeAsync();
+        await fixture.DatabaseResetter.ResetAsync();
+        _seed = new SeedBatch(fixture.Db, fixture.ConnectionString);
     }
 
-    private CostAnalyticsService Service() => new(_db, Options.Create(new ModelPricingConfiguration
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    /// <summary>The one task the history executions belong to, staged with its project the first time it is asked for.</summary>
+    private DomainTask HistoryTask()
+    {
+        if (_task is null)
+        {
+            var project = DomainProject.Create(Guid.NewGuid(), "P", "D").Value;
+            _task = DomainTask.Create(Guid.NewGuid(), project.Id, "T-1", "T", "D", Priority.Medium, "x", 1, Complexity.Medium, "p").Value;
+            _seed.Projects.Add(project);
+            _seed.Tasks.Add(_task);
+        }
+
+        return _task;
+    }
+
+    private CostAnalyticsService Service() => new(fixture.Db, Options.Create(new ModelPricingConfiguration
     {
         Models = new Dictionary<string, ModelPricing>(StringComparer.OrdinalIgnoreCase)
         {
@@ -43,10 +68,10 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
     }), Options.Create(new ClaudeConfiguration { Model = ModelA }));
 
     private void History(string? model, int input, int output, DateTime at) =>
-        _db.TaskExecutions.Add(new TaskExecution
+        _seed.TaskExecutions.Add(new TaskExecution
         {
             Id = Guid.NewGuid(),
-            TaskId = Guid.NewGuid(),
+            TaskId = HistoryTask().Id,
             SessionId = Guid.NewGuid(),
             IterationNumber = 1,
             InputTokens = input,
@@ -56,14 +81,14 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
         });
 
     private void Manufacture(NodeUsage usage, DateTime at) =>
-        _db.WorkflowRunRecords.Add(WorkflowRunRecord.Create(
+        _seed.WorkflowRunRecords.Add(WorkflowRunRecord.Create(
             Guid.NewGuid(), 3, "implement", WorkflowRunRecord.NodeUsageKind, "host", null, usage.ToPayloadJson(), at).Value);
 
     private void Session(string owner, int input, int output, DateTime at)
     {
         var session = AgentSession.Create(Guid.NewGuid(), Guid.NewGuid(), owner, at).Value;
         session.RecordTurn(input, output, at);
-        _db.AgentSessions.Add(session);
+        _seed.AgentSessions.Add(session);
     }
 
     private async Task SeedOneOfEachAsync()
@@ -73,7 +98,7 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
         Session("alice", 300, 30, Day1);
         Session("schedule:daily-digest", 400, 40, Day1);
         Session("workflow:manufacture:7f1c2a8e-0000-0000-0000-000000000001", 9_999, 999, Day1);
-        await _db.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
     }
 
     /// <summary>
@@ -142,7 +167,7 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
         History(ModelA, 1_000, 100, Day1);
         History(ModelA, 2_000, 200, Day2);
         Session("alice", 300, 30, Day2);
-        await _db.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
         var summary = await Service().GetSummaryAsync();
 
@@ -175,9 +200,9 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
     [Fact]
     public async Task An_unreadable_node_usage_record_is_counted_as_unreadable()
     {
-        _db.WorkflowRunRecords.Add(WorkflowRunRecord.Create(
+        _seed.WorkflowRunRecords.Add(WorkflowRunRecord.Create(
             Guid.NewGuid(), 3, "implement", WorkflowRunRecord.NodeUsageKind, "host", null, """{"model":"m"}""", Day1).Value);
-        await _db.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
         var summary = await Service().GetSummaryAsync();
 
@@ -196,7 +221,7 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
         History("model-unknown", 100, 10, Day2);
         Manufacture(new NodeUsage("model-unknown", 200, 20, 0, 0), Day1);
         Manufacture(new NodeUsage("model-unknown", 200, 20, 0, 0), Day2);
-        await _db.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
         var summary = await Service().GetSummaryAsync();
 
@@ -219,7 +244,7 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
             new NodeUsage(ModelA, 1_000, 100, 0, 0),
         ]).Value;
         Manufacture(review, Day1);
-        await _db.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
         var summary = await Service().GetSummaryAsync();
 
@@ -245,7 +270,7 @@ public sealed class CostAnalyticsSourcesTests : IAsyncDisposable
             new NodeUsage(ModelB, 2_000, 200, 0, 0),
             new NodeUsage("model-unknown", 1_000, 100, 0, 0),
         ]).Value, Day1);
-        await _db.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
         var summary = await Service().GetSummaryAsync();
 

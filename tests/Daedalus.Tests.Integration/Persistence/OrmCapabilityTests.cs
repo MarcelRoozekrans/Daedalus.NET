@@ -4,8 +4,10 @@ using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Tasks;
 using Daedalus.Tests.Integration.Builders;
 using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using ZeroAlloc.ORM;
@@ -66,11 +68,7 @@ public sealed class OrmCapabilityTests(PostgresFixture fixture) : IAsyncLifetime
     public async Task Jsonb_string_inserts_and_reads()
     {
         var session = AgentSession.Create(Guid.NewGuid(), Guid.NewGuid(), "owner", DateTime.UtcNow).Value;
-        await using (var context = fixture.CreateDbContext())
-        {
-            context.AgentSessions.Add(session);
-            await context.SaveChangesAsync();
-        }
+        await StoreSeed.AddSessionAsync(_db, session);
 
         const string Content = """{"role":"user","contents":[{"text":"hi"}]}""";
         await using var connection = await _db.OpenAsync(CancellationToken.None);
@@ -91,7 +89,7 @@ public sealed class OrmCapabilityTests(PostgresFixture fixture) : IAsyncLifetime
         await using var connection = await _db.OpenAsync(CancellationToken.None);
         var sql = new CapabilitySql(connection);
         var read = (await sql.TaskVersion(task.Id, CancellationToken.None))!;
-        read.RowVersion.Should().Be(task.RowVersion, "EF read xmin back after its insert, and nothing wrote since");
+        read.RowVersion.Should().Be(task.RowVersion, "the seed read the task back with its xmin, and nothing wrote since");
 
         await sql.RetitleTask(task.Id, read.RowVersion, "first", CancellationToken.None);
         var stale = () => sql.RetitleTask(task.Id, read.RowVersion, "second", CancellationToken.None);
@@ -148,11 +146,18 @@ public sealed class OrmCapabilityTests(PostgresFixture fixture) : IAsyncLifetime
     {
         var project = Project.Create(Guid.NewGuid(), "Spike", "Owns the spike's tasks").Value;
         var tasks = Enumerable.Range(0, count).Select(_ => new TaskTestBuilder().WithProjectId(project.Id).Build()).ToList();
-        await using var context = fixture.CreateDbContext();
-        context.Projects.Add(project);
-        context.Tasks.AddRange(tasks);
-        await context.SaveChangesAsync();
-        return tasks;
+        await StoreSeed.AddAsync(_db, [project], tasks);
+
+        // Read back, so each task carries the xmin its insert gave it, as EF read it back after SaveChangesAsync.
+        await using var connection = await _db.OpenAsync(CancellationToken.None);
+        var sql = new TaskSql(connection);
+        var stored = new List<DomainTask>(tasks.Count);
+        foreach (var task in tasks)
+        {
+            stored.Add((await sql.FindAsync(task.Id, CancellationToken.None))!);
+        }
+
+        return stored;
     }
 
     private static ScheduledRun NewRun(string name, ScheduleOrigin origin) =>

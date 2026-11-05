@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.RateLimiting;
@@ -6,7 +7,6 @@ using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
-using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Extensions;
 using Daedalus.Application.Services.Brainstorm;
@@ -16,6 +16,7 @@ using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Infrastructure.Persistence.Orm.AgentMemories;
+using Daedalus.Infrastructure.Persistence.Orm.Projects;
 using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
@@ -391,10 +392,9 @@ public class E2EServerFixture
             // 5. Create database + seed test data
             using (var scope = app.Services.CreateScope())
             {
-                var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                 // The real migrations, workflow engine included: the schema Daedalus.Migrations builds in production.
                 await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None).ConfigureAwait(false);
-                await SeedTestDataAsync(dbContext).ConfigureAwait(false);
+                await SeedTestDataAsync(scope.ServiceProvider.GetRequiredService<DaedalusDb>()).ConfigureAwait(false);
                 await SeedMemoriesAsync(scope.ServiceProvider.GetRequiredService<DaedalusDb>()).ConfigureAwait(false);
             }
 
@@ -543,13 +543,16 @@ public class E2EServerFixture
         services.AddScoped<TService, TImplementation>();
     }
 
-    private static async Task SeedTestDataAsync(ApplicationDbContext dbContext)
+    private static async Task SeedTestDataAsync(DaedalusDb db)
     {
         try
         {
-            if (await dbContext.Projects.AnyAsync().ConfigureAwait(false))
+            await using (var connection = await db.OpenAsync(CancellationToken.None).ConfigureAwait(false))
             {
-                return;
+                if ((await new ProjectSql(connection).PageWithTasksAsync(0, 0, CancellationToken.None).ConfigureAwait(false)).Total > 0)
+                {
+                    return;
+                }
             }
 
             var projectResult = Project.Create(
@@ -608,8 +611,6 @@ public class E2EServerFixture
                 project.AddTask(legacyResult.Value);
             }
 
-            dbContext.Projects.Add(project);
-
             // A second project with a repository URL, so the create dialog's picker shows a repository beside a name. The
             // URL is on no allow-list, so a manufacture of its tasks is refused. TASK-004 carries the seeded Succeeded
             // run (RunSeeds), so the Tasks grid shows that run's pull request; TASK-005 carries the parked run.
@@ -640,25 +641,43 @@ public class E2EServerFixture
                     widgetsResult.Value.AddTask(approveResult.Value);
                 }
 
-                dbContext.Projects.Add(widgetsResult.Value);
             }
 
             // TASK-001 stands in for an old task-loop task. Task.Create no longer takes the loop settings, so set them
-            // as EF does when it reads an old row. TASK-002 stays a new task with none.
-            if (task1Result.IsSuccess)
+            // as an old row reads back. TASK-002 stays a new task with none. Task.Create no longer sets a loop
+            // outcome either, so the legacy task is stored Completed the same way. Each project's own tasks go in
+            // as their stored form, in the order they were added.
+            var projects = new List<Project> { project };
+            if (widgetsResult.IsSuccess)
             {
-                dbContext.Entry(task1Result.Value).Property(t => t.MaxIterations).CurrentValue = 10;
+                projects.Add(widgetsResult.Value);
             }
 
-            // Task.Create no longer sets a loop outcome, so set it as EF does when it reads an old row.
-            if (legacyResult.IsSuccess)
+            var tasks = new List<Domain.Entities.Task>();
+            foreach (var t in projects.SelectMany(p => p.Tasks))
             {
-                dbContext.Entry(legacyResult.Value).Property(t => t.Status).CurrentValue = Domain.Entities.TaskStatus.Completed;
+                if (task1Result.IsSuccess && t.Id == task1Result.Value.Id)
+                {
+                    tasks.Add(StoreSeed.AsStored(t, maxIterations: 10));
+                }
+                else if (legacyResult.IsSuccess && t.Id == legacyResult.Value.Id)
+                {
+                    tasks.Add(StoreSeed.AsStored(t, status: Domain.Entities.TaskStatus.Completed));
+                }
+                else
+                {
+                    tasks.Add(t);
+                }
             }
 
-            await dbContext.SaveChangesAsync().ConfigureAwait(false);
+            var heads = projects.ConvertAll(p => Project.Rehydrate(
+                p.Id, p.Version, p.ProjectName, p.Description, p.CreatedAt, p.ModifiedAt, p.DefaultBranch,
+                p.RepositoryUrl, p.RowVersion, []));
+
+            // All or nothing, as EF's one SaveChanges was: a half-seeded table would pass the emptiness check above.
+            await StoreSeed.AddAsync(db, heads, tasks).ConfigureAwait(false);
         }
-        catch (DbUpdateException)
+        catch (DbException)
         {
             // Seed data already exists — safe to ignore
         }

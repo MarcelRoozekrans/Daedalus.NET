@@ -2,12 +2,11 @@ using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Builders;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.Logging;
 using Xunit.Sdk;
 using Project = Daedalus.Domain.Entities.Project;
 using SystemTask = System.Threading.Tasks.Task;
-using Task = Daedalus.Domain.Entities.Task;
 
 namespace Daedalus.Tests.Integration.Repositories;
 
@@ -18,14 +17,12 @@ namespace Daedalus.Tests.Integration.Repositories;
 public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private readonly ILogger<TaskRepository> _logger = Substitute.For<ILogger<TaskRepository>>();
-    private ApplicationDbContext _dbContext = null!;
+    private SeedBatch _seed = null!;
     private TaskRepository _repository = null!;
 
     public async SystemTask InitializeAsync()
     {
-        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
-
-        _dbContext = new ApplicationDbContext(options);
+        _seed = new SeedBatch(fixture.Db, fixture.ConnectionString);
         _repository = new TaskRepository(fixture.Db, _logger);
 
         // Clean database at end of each test, not start (see DisposeAsync)
@@ -43,11 +40,6 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         {
             /* Ignore cleanup errors */
         }
-
-        if (_dbContext != null)
-        {
-            await _dbContext.DisposeAsync();
-        }
     }
 
 
@@ -59,8 +51,8 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         // Arrange
         var projectId = Guid.NewGuid();
         var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        _seed.Projects.Add(project);
+        await _seed.SaveChangesAsync(CancellationToken.None);
 
         var task = new TaskTestBuilder()
             .WithPrompt("Test prompt")
@@ -95,8 +87,8 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         // Arrange
         var projectId = Guid.NewGuid();
         var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        _seed.Projects.Add(project);
+        await _seed.SaveChangesAsync(CancellationToken.None);
 
         var task = new TaskTestBuilder().WithPrompt("Test prompt")
             .WithProjectId(projectId)
@@ -132,8 +124,8 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         // Arrange
         var projectId = Guid.NewGuid();
         var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        _seed.Projects.Add(project);
+        await _seed.SaveChangesAsync(CancellationToken.None);
 
         var task = new TaskTestBuilder().WithPrompt("Test prompt")
             .WithProjectId(projectId)
@@ -153,8 +145,8 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         };
 
         await _repository.AddAsync(task, CancellationToken.None);
-        _dbContext.TaskExecutions.Add(execution);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        _seed.TaskExecutions.Add(execution);
+        await _seed.SaveChangesAsync(CancellationToken.None);
 
         // Act
         var result = await _repository.GetByIdAsync(task.Id, CancellationToken.None);
@@ -175,8 +167,8 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         // Arrange - Create a project first (Task has FK to Project)
         var projectId = Guid.NewGuid();
         var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        _seed.Projects.Add(project);
+        await _seed.SaveChangesAsync(CancellationToken.None);
 
         var task = new TaskTestBuilder()
             .WithPrompt("Test prompt")
@@ -205,8 +197,8 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         // Arrange
         var projectId = Guid.NewGuid();
         var project = Project.Create(projectId, "Test Project", "Test Description").Value;
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        _seed.Projects.Add(project);
+        await _seed.SaveChangesAsync(CancellationToken.None);
 
         var task1 = new TaskTestBuilder()
             .WithPrompt("Prompt 1")

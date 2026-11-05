@@ -1,9 +1,9 @@
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
 using Daedalus.Infrastructure.Configuration;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.Options;
 using Complexity = Daedalus.Domain.Entities.Complexity;
 using DomainProject = Daedalus.Domain.Entities.Project;
@@ -11,7 +11,7 @@ using DomainTask = Daedalus.Domain.Entities.Task;
 using Priority = Daedalus.Domain.Entities.Priority;
 using TaskExecution = Daedalus.Domain.Entities.TaskExecution;
 
-namespace Daedalus.Tests.Unit.Infrastructure.Services;
+namespace Daedalus.Tests.Integration.Services;
 
 /// <summary>
 ///     Unit tests for <see cref="CostAnalyticsService"/> — the guard against silently relabelling an unpriced or
@@ -19,26 +19,28 @@ namespace Daedalus.Tests.Unit.Infrastructure.Services;
 ///     (<see cref="CostAnalyticsService.EstimateCostAsync"/>, <see cref="CostAnalyticsService.GetSummaryAsync"/>,
 ///     <see cref="CostAnalyticsService.GetCostsByProjectAsync"/>, <see cref="CostAnalyticsService.GetCostsByProjectIdAsync"/>).
 /// </summary>
-public sealed class CostAnalyticsServiceTests : IAsyncDisposable
+/// <remarks>
+///     Runs on PostgreSQL since phase 3.5 (ruling R100): the seeds are staged on a <see cref="SeedBatch"/>, where they
+///     were added to EF Core's in-memory provider.
+/// </remarks>
+[Collection(DatabaseCollection.Name)]
+public sealed class CostAnalyticsServiceTests(PostgresFixture fixture) : IAsyncLifetime
 {
     private const string PricedModelId = "claude-sonnet-4-20250514";
     private const string ModelA = "model-a";
     private const string ModelB = "model-b";
-    private readonly ApplicationDbContext _dbContext;
+    private SeedBatch _seed = null!;
 
-    public CostAnalyticsServiceTests()
+    public async Task InitializeAsync()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        _dbContext = new ApplicationDbContext(options);
+        await fixture.DatabaseResetter.ResetAsync();
+        _seed = new SeedBatch(fixture.Db, fixture.ConnectionString);
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        await _dbContext.Database.EnsureDeletedAsync();
-        await _dbContext.DisposeAsync();
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    private CostAnalyticsService Service(IOptions<ModelPricingConfiguration> pricing, IOptions<ClaudeConfiguration> claude) =>
+        new(fixture.Db, pricing, claude);
 
     private static IOptions<ModelPricingConfiguration> PricingWithOneModel() =>
         Options.Create(new ModelPricingConfiguration
@@ -90,8 +92,8 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
             Complexity.Medium,
             "Test prompt").Value;
 
-        _dbContext.Projects.Add(project);
-        _dbContext.Tasks.Add(task);
+        _seed.Projects.Add(project);
+        _seed.Tasks.Add(task);
 
         return (projectId, taskId);
     }
@@ -111,7 +113,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
             OutputTokens = outputTokens,
             ModelId = modelId
         };
-        _dbContext.TaskExecutions.Add(execution);
+        _seed.TaskExecutions.Add(execution);
         return execution;
     }
 
@@ -130,7 +132,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
             1,
             Complexity.Medium,
             "Test prompt").Value;
-        _dbContext.Tasks.Add(task);
+        _seed.Tasks.Add(task);
         return taskId;
     }
 
@@ -142,7 +144,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         // Falsifiability: reverting CostAnalyticsService.EstimateCostAsync's `if (!_pricing.Models.TryGetValue(...))`
         // branch to the old silent-substitution behaviour (relabel to the first configured entry) turns this red —
         // the result would be a success carrying "claude-sonnet-4-20250514" instead of a failure.
-        var sut = new CostAnalyticsService(_dbContext, PricingWithOneModel(), Claude(PricedModelId));
+        var sut = Service(PricingWithOneModel(), Claude(PricedModelId));
 
         var result = await sut.EstimateCostAsync("claude-sonnet-5", maxIterations: 10, estimatedPromptTokens: 4000);
 
@@ -157,7 +159,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         // CostAnalyticsService.EstimateCostAsync's cost formula turns this red — EstimatedMinCost/EstimatedMaxCost
         // would come out as 0.081/0.27 instead of 0.189/0.63. Prompt tokens (1000) are deliberately different from
         // the 4000-token response-token default below, so the two prices can't cancel each other out symmetrically.
-        var sut = new CostAnalyticsService(_dbContext, PricingWithOneModel(), Claude(PricedModelId));
+        var sut = Service(PricingWithOneModel(), Claude(PricedModelId));
 
         var result = await sut.EstimateCostAsync(PricedModelId, maxIterations: 10, estimatedPromptTokens: 1000);
 
@@ -184,9 +186,9 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         var (_, taskId) = SeedProjectWithTask();
         SeedExecution(taskId, Guid.NewGuid(), ModelA, inputTokens: 1000, outputTokens: 2000); // 0.003 + 0.03 = 0.033
         SeedExecution(taskId, Guid.NewGuid(), ModelB, inputTokens: 500, outputTokens: 1000); // 0.0005 + 0.005 = 0.0055
-        await _dbContext.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
+        var sut = Service(PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetSummaryAsync();
 
@@ -206,9 +208,9 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         var (_, taskId) = SeedProjectWithTask();
         SeedExecution(taskId, Guid.NewGuid(), ModelA, inputTokens: 1000, outputTokens: 2000); // priced: 0.033
         SeedExecution(taskId, Guid.NewGuid(), modelId: null, inputTokens: 700, outputTokens: 300); // unattributed
-        await _dbContext.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
+        var sut = Service(PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetSummaryAsync();
 
@@ -229,9 +231,9 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         var (_, taskId) = SeedProjectWithTask();
         SeedExecution(taskId, Guid.NewGuid(), ModelA, inputTokens: 1000, outputTokens: 2000); // priced: 0.033
         SeedExecution(taskId, Guid.NewGuid(), "model-unknown", inputTokens: 400, outputTokens: 600); // unpriced
-        await _dbContext.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
+        var sut = Service(PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetSummaryAsync();
 
@@ -251,7 +253,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
     [Fact]
     public async Task The_summary_scope_names_the_four_sources_and_the_workflow_exclusion()
     {
-        var result = await new CostAnalyticsService(_dbContext, PricingWithOneModel(), Claude(PricedModelId)).GetSummaryAsync();
+        var result = await Service(PricingWithOneModel(), Claude(PricedModelId)).GetSummaryAsync();
 
         result.Scope.Should().Contain("node-usage").And.Contain("workflow:*").And.Contain("schedule:*").And.Contain("TaskExecutions");
         result.Scope.Should().Contain("not priced").And.Contain("cache reads and writes");
@@ -273,9 +275,9 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
 
         SeedExecution(taskA, Guid.NewGuid(), ModelA, inputTokens: 1000, outputTokens: 2000); // 0.033
         SeedExecution(taskB, Guid.NewGuid(), ModelB, inputTokens: 500, outputTokens: 1000); // 0.0055
-        await _dbContext.SaveChangesAsync();
+        await _seed.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
+        var sut = Service(PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetCostsByProjectAsync();
 
@@ -294,13 +296,12 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
         // Falsifiability: GetCostsByProjectIdAsync used to group by task only (ignoring ModelId) before calling the
         // old CalculateCostFromExecutions on the task's combined tokens. Dropping x.Execution.ModelId from the
         // GroupBy key below reproduces exactly that.
-        var (_, taskId) = SeedProjectWithTask("TASK-1");
+        var (projectId, taskId) = SeedProjectWithTask("TASK-1");
         SeedExecution(taskId, Guid.NewGuid(), ModelA, inputTokens: 1000, outputTokens: 2000); // 0.033
         SeedExecution(taskId, Guid.NewGuid(), ModelB, inputTokens: 500, outputTokens: 1000); // 0.0055
-        await _dbContext.SaveChangesAsync();
-        var projectId = await _dbContext.Tasks.Where(t => t.Id == taskId).Select(t => t.ProjectId).SingleAsync();
+        await _seed.SaveChangesAsync();
 
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelA));
+        var sut = Service(PricingWithTwoModels(), Claude(ModelA));
 
         var result = await sut.GetCostsByProjectIdAsync(projectId);
 
@@ -325,7 +326,7 @@ public sealed class CostAnalyticsServiceTests : IAsyncDisposable
     [Fact]
     public async Task The_configured_model_is_priced_first()
     {
-        var sut = new CostAnalyticsService(_dbContext, PricingWithTwoModels(), Claude(ModelB));
+        var sut = Service(PricingWithTwoModels(), Claude(ModelB));
 
         var pricing = await sut.GetPricingAsync();
 

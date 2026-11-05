@@ -4,12 +4,11 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
 using Thalos;
 using Thalos.Git;
 using Thalos.Testing;
@@ -151,8 +150,15 @@ public sealed class ManufactureV6EndToEndTests(PostgresFixture fixture)
             var runId = (await start.Content.ReadFromJsonAsync<StartWorkflowRunResponse>())!.RunId;
             await host.WaitForAsync(runId, r => r.Status == WorkflowStatus.Awaiting, "parked at the gate");
 
-            await using var db = await host.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync();
-            var owners = await db.AgentSessions.AsNoTracking().Select(s => s.OwnerId).ToListAsync();
+            var owners = new List<string>();
+            await using (var read = host.Services.GetRequiredService<NpgsqlDataSource>().CreateCommand("SELECT \"OwnerId\" FROM \"AgentSessions\""))
+            await using (var reader = await read.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    owners.Add(reader.GetString(0));
+                }
+            }
 
             owners.Should().NotBeEmpty("implement, the three lens passes and retrospect each ran a turn through the real runtime");
             owners.Should().OnlyContain(o => o == $"workflow:manufacture:{runId}");
